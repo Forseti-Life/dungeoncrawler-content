@@ -1,0 +1,19 @@
+uuid: fc398908-e67f-4425-8558-510f8a613fd1
+langcode: en
+status: true
+dependencies:
+  module:
+    - node
+    - text
+id: node.field_sub_financial_desc
+field_name: field_sub_financial_desc
+entity_type: node
+type: text_long
+settings: {  }
+module: text
+locked: false
+cardinality: 1
+translatable: true
+indexes: {  }
+persist_with_no_fields: false
+custom_storage: false

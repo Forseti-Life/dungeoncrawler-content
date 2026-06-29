@@ -29,6 +29,10 @@ const controllerSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Controller/CharacterCreationStepController.php'),
   'utf8'
 );
+const hardeningServiceSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/CharacterWizardHardeningService.php'),
+  'utf8'
+);
 
 console.log('\n=== Campaign character source contract ===');
 
@@ -39,10 +43,12 @@ assert(
 );
 
 assert(
-  formSource.includes("'campaign_id' => 0") &&
-  formSource.includes("'character_id' => 0") &&
-  formSource.includes("'location_type' => 'roster'"),
-  'Campaign-created characters are cloned into canonical library rows before the campaign row links back to them'
+  hardeningServiceSource.includes("'campaign_id' => 0") &&
+  hardeningServiceSource.includes("'character_id' => 0") &&
+  hardeningServiceSource.includes("'location_type' => 'roster'") &&
+  hardeningServiceSource.includes("'portrait' => $portrait") &&
+  hardeningServiceSource.includes("'default_locations' => $default_locations"),
+  'Campaign-created characters are cloned into canonical library rows before the campaign row links back to them via shared hardening service'
 );
 
 console.log(`\nPassed: ${passed}`);

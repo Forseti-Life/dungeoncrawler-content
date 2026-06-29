@@ -1,0 +1,13 @@
+{
+  "base_url": "https://forseti.life",
+  "config": "org-chart/sites/forseti.life/qa-permissions.json",
+  "generated_at": "2026-04-05T16:53:51+0000",
+  "label": "forseti-life",
+  "probe_issue_count": 0,
+  "probe_issues": [],
+  "roles_run": [
+    "anon"
+  ],
+  "violation_count": 0,
+  "violations": []
+}

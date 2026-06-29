@@ -1,0 +1,10 @@
+// Configure repositories with mirrors for better connectivity
+allprojects {
+    repositories {
+        // Add Maven Central first as it's more reliable
+        mavenCentral()
+        // Then add maven.google.com (Google's repository accessible via mavenCentral)
+        maven { url 'https://maven.google.com' }
+        google()
+    }
+}

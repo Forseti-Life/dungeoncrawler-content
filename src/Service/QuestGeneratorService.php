@@ -56,6 +56,7 @@ class QuestGeneratorService {
    */
   protected ?StorylineManagerService $storylineManager;
   protected array $storylineContactCache = [];
+  protected ?array $canonicalStorylineTemplateCache = NULL;
 
   /**
    * Objective type service.
@@ -259,6 +260,12 @@ class QuestGeneratorService {
     $objective_states = $this->normalizeQuestObjectivePhases(
       $this->decodeQuestField($quest_row['objective_states'] ?? $generated_objectives)
     );
+    $source_template_id = $this->normalizeNullableString($quest_row['source_template_id'] ?? NULL);
+    $canonical_objective_map = $this->loadCanonicalObjectiveMapForTemplate($source_template_id);
+    if ($canonical_objective_map !== []) {
+      $generated_objectives = $this->applyCanonicalObjectiveMapToPhases($generated_objectives, $canonical_objective_map);
+      $objective_states = $this->applyCanonicalObjectiveMapToPhases($objective_states, $canonical_objective_map);
+    }
     if ($objective_states === []) {
       $objective_states = $generated_objectives;
     }
@@ -268,7 +275,6 @@ class QuestGeneratorService {
     $generated_rewards = $this->decodeQuestObjectField($quest_row['generated_rewards'] ?? []);
     $quest_data = $this->decodeQuestObjectField($quest_row['quest_data'] ?? []);
     $quest_name = trim((string) ($quest_row['quest_name'] ?? $quest_row['name'] ?? $quest_row['title'] ?? $quest_row['quest_id'] ?? ''));
-    $source_template_id = $this->normalizeNullableString($quest_row['source_template_id'] ?? NULL);
 
     return [
       'quest_id' => trim((string) ($quest_row['quest_id'] ?? '')),
@@ -290,6 +296,189 @@ class QuestGeneratorService {
         'scene_id' => $this->normalizeNullableString($quest_row['storyline_scene_id'] ?? NULL),
       ],
     ];
+  }
+
+  /**
+   * Load canonical objective metadata for one quest template.
+   *
+   * @return array<string, array<string, mixed>>
+   *   Objective id => canonical objective metadata.
+   */
+  protected function loadCanonicalObjectiveMapForTemplate(?string $template_id): array {
+    if ($template_id === NULL || trim($template_id) === '') {
+      return [];
+    }
+
+    try {
+      $row = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+        ->fields('t', ['objectives_schema'])
+        ->condition('template_id', $template_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+    catch (\Throwable) {
+      return [];
+    }
+
+    if (!is_array($row)) {
+      return [];
+    }
+
+    $schema = $this->decodeQuestField($row['objectives_schema'] ?? []);
+    $map = [];
+    foreach ($schema as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+        $this->collectCanonicalObjectiveNode($objective, $map);
+      }
+    }
+
+    return $map;
+  }
+
+  /**
+   * Collect canonical objective metadata into one lookup map.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective definition.
+   * @param array<string, array<string, mixed>> $map
+   *   Canonical objective map (mutated).
+   */
+  protected function collectCanonicalObjectiveNode(array $objective, array &$map): void {
+    $objective_id = trim((string) ($objective['objective_id'] ?? $objective['id'] ?? ''));
+    if ($objective_id !== '') {
+      $canonical = [];
+      foreach (['target', 'item', 'location', 'location_id', 'destination', 'destination_id', 'next_step'] as $field) {
+        $value = trim((string) ($objective[$field] ?? ''));
+        if ($value !== '') {
+          $canonical[$field] = $value;
+        }
+      }
+      if (is_array($objective['completion_criteria'] ?? NULL)) {
+        $canonical['completion_criteria'] = $objective['completion_criteria'];
+      }
+      if ($canonical !== []) {
+        $map[$objective_id] = $canonical;
+      }
+    }
+
+    foreach ($this->extractNestedObjectiveDefinitions($objective) as $child) {
+      if (is_array($child)) {
+        $this->collectCanonicalObjectiveNode($child, $map);
+      }
+    }
+  }
+
+  /**
+   * Apply canonical objective metadata onto runtime objective phases.
+   */
+  protected function applyCanonicalObjectiveMapToPhases(array $phases, array $canonical_objective_map): array {
+    foreach ($phases as $phase_index => $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $objectives = [];
+      foreach (array_values(array_filter((array) ($phase['objectives'] ?? []), 'is_array')) as $objective) {
+        $objectives[] = $this->applyCanonicalObjectiveMapToNode($objective, $canonical_objective_map);
+      }
+      $phase['objectives'] = $objectives;
+      $phases[$phase_index] = $phase;
+    }
+
+    return $phases;
+  }
+
+  /**
+   * Apply canonical objective metadata onto one objective tree node.
+   */
+  protected function applyCanonicalObjectiveMapToNode(array $objective, array $canonical_objective_map): array {
+    $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+    $canonical = is_array($canonical_objective_map[$objective_id] ?? NULL) ? $canonical_objective_map[$objective_id] : [];
+    if ($canonical !== []) {
+      foreach (['item', 'location', 'location_id', 'destination', 'destination_id'] as $field) {
+        $canonical_value = trim((string) ($canonical[$field] ?? ''));
+        if ($canonical_value !== '' && trim((string) ($objective[$field] ?? '')) === '') {
+          $objective[$field] = $canonical_value;
+        }
+      }
+
+      $canonical_target = trim((string) ($canonical['target'] ?? ''));
+      if ($canonical_target !== '') {
+        $current_target = trim((string) ($objective['target'] ?? ''));
+        $target_should_be_replaced = $current_target === '';
+        if (!$target_should_be_replaced) {
+          foreach (['location_id', 'destination_id', 'location', 'destination'] as $anchor_field) {
+            $anchor_value = trim((string) ($objective[$anchor_field] ?? ''));
+            if ($anchor_value !== '' && $current_target === $anchor_value) {
+              $target_should_be_replaced = TRUE;
+              break;
+            }
+          }
+        }
+        if ($target_should_be_replaced) {
+          $objective['target'] = $canonical_target;
+        }
+      }
+
+      $canonical_next_step = trim((string) ($canonical['next_step'] ?? ''));
+      $current_next_step = trim((string) ($objective['next_step'] ?? ''));
+      if (
+        $canonical_next_step !== ''
+        && ($current_next_step === '' || $this->isGenericObjectiveNextStep($current_next_step))
+      ) {
+        $objective['next_step'] = $canonical_next_step;
+      }
+
+      if (is_array($canonical['completion_criteria'] ?? NULL)) {
+        $current_criteria = is_array($objective['completion_criteria'] ?? NULL) ? $objective['completion_criteria'] : [];
+        $current_description = trim((string) ($current_criteria['description'] ?? ''));
+        if (
+          $current_criteria === []
+          || $current_description === ''
+          || $this->isGenericObjectiveCompletionDescription($current_description)
+        ) {
+          $objective['completion_criteria'] = $canonical['completion_criteria'];
+        }
+      }
+    }
+
+    if (is_array($objective['children'] ?? NULL)) {
+      $objective['children'] = array_map(
+        fn(array $child): array => $this->applyCanonicalObjectiveMapToNode($child, $canonical_objective_map),
+        array_values(array_filter($objective['children'], 'is_array'))
+      );
+    }
+
+    return $objective;
+  }
+
+  /**
+   * Determine whether completion text is generic and should be upgraded.
+   */
+  protected function isGenericObjectiveCompletionDescription(string $description): bool {
+    return in_array(strtolower(trim($description)), [
+      'mark this objective complete.',
+      'reach the required progress count.',
+      'discover the required location.',
+      'complete this objective.',
+      'complete when the objective state is marked complete.',
+    ], TRUE);
+  }
+
+  /**
+   * Determine whether a next-step line is generic and should be upgraded.
+   */
+  protected function isGenericObjectiveNextStep(string $next_step): bool {
+    $normalized = strtolower(trim($next_step));
+    return str_starts_with($normalized, 'speak with or interact with ')
+      || str_starts_with($normalized, 'travel to ')
+      || str_starts_with($normalized, 'complete this objective: ');
   }
 
   /**
@@ -2156,6 +2345,11 @@ class QuestGeneratorService {
     }
 
     $storyline_data = $this->decodeQuestObjectField($storyline_row['storyline_data'] ?? []);
+    $storyline_data = $this->mergeManagementStorylineWithCanonicalTemplate(
+      $storyline_data,
+      trim((string) ($storyline_row['template_id'] ?? ($storyline_data['template_id'] ?? '')))
+    );
+    $storyline_data = $this->normalizeManagementStorylineEntryPoint($storyline_data);
     $this->assertValidManagementStorylineData($storyline_row, $storyline_data);
     $scene_index = $this->buildStorylineSceneIndex($storyline_data);
     $lead_location = $this->resolveStorylineLeadLocation($storyline_row, $storyline_data, $contact_summary, $scene_index);
@@ -2221,6 +2415,225 @@ class QuestGeneratorService {
       $label = $storyline_id !== '' ? "storyline {$storyline_id}" : 'storyline runtime payload';
       throw new \InvalidArgumentException('Storyline management contract failed validation for ' . $label . ': ' . implode('; ', $validation['errors'] ?? []), 400);
     }
+  }
+
+  /**
+   * Backfill required entry-point contract fields for legacy storyline rows.
+   */
+  protected function normalizeManagementStorylineEntryPoint(array $storyline_data): array {
+    $metadata = is_array($storyline_data['metadata'] ?? NULL) ? $storyline_data['metadata'] : [];
+    $outline = is_array($metadata['generated_outline'] ?? NULL) ? $metadata['generated_outline'] : [];
+    $entry_point = is_array($outline['entry_point'] ?? NULL) ? $outline['entry_point'] : [];
+
+    $chapters = array_values(array_filter(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : [], 'is_array'));
+    $first_chapter = is_array($chapters[0] ?? NULL) ? $chapters[0] : [];
+    $first_scene = is_array(($first_chapter['scenes'][0] ?? NULL)) ? $first_chapter['scenes'][0] : [];
+    $chapter_id = trim((string) ($entry_point['primary_chapter_id'] ?? $first_chapter['chapter_id'] ?? ''));
+    $scene_id = trim((string) ($entry_point['primary_scene_id'] ?? $first_scene['scene_id'] ?? ''));
+
+    $contacts = array_values(array_filter(is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : [], 'is_array'));
+    $quest_giver_contact = [];
+    foreach ($contacts as $contact) {
+      if (strtolower(trim((string) ($contact['role'] ?? ''))) === 'quest_giver') {
+        $quest_giver_contact = $contact;
+        break;
+      }
+    }
+    if ($quest_giver_contact === [] && is_array($contacts[0] ?? NULL)) {
+      $quest_giver_contact = $contacts[0];
+    }
+
+    $broker_contact = [];
+    foreach ($contacts as $contact) {
+      if (strtolower(trim((string) ($contact['role'] ?? ''))) === 'broker') {
+        $broker_contact = $contact;
+        break;
+      }
+    }
+
+    $asset_references = array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array'));
+    $primary_location_id = trim((string) ($entry_point['primary_location_id'] ?? $storyline_data['primary_location_id'] ?? ''));
+    if ($primary_location_id === '') {
+      foreach ($asset_references as $reference) {
+        $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+        $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+        if ($asset_id === '' || !in_array($asset_type, ['room', 'location'], TRUE)) {
+          continue;
+        }
+        $matches_chapter = $chapter_id === '' || trim((string) ($reference['chapter_id'] ?? '')) === $chapter_id;
+        $matches_scene = $scene_id === '' || trim((string) ($reference['scene_id'] ?? '')) === $scene_id;
+        if ($matches_chapter && $matches_scene) {
+          $primary_location_id = $asset_id;
+          break;
+        }
+      }
+    }
+
+    $primary_dungeon_id = trim((string) ($entry_point['primary_dungeon_id'] ?? ($outline['entry_dungeon']['dungeon_id'] ?? '')));
+    if ($primary_dungeon_id === '') {
+      foreach ($asset_references as $reference) {
+        $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+        $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+        if ($asset_type !== 'dungeon' || $asset_id === '') {
+          continue;
+        }
+        $matches_chapter = $chapter_id === '' || trim((string) ($reference['chapter_id'] ?? '')) === $chapter_id;
+        $matches_scene = $scene_id === '' || trim((string) ($reference['scene_id'] ?? '')) === $scene_id || trim((string) ($reference['scene_id'] ?? '')) === '';
+        if ($matches_chapter && $matches_scene) {
+          $primary_dungeon_id = $asset_id;
+          break;
+        }
+      }
+    }
+    if ($primary_dungeon_id === '') {
+      $primary_dungeon_id = $chapter_id;
+    }
+
+    $primary_quest_giver_id = trim((string) ($entry_point['primary_quest_giver_id'] ?? $quest_giver_contact['entity_id'] ?? ''));
+    $primary_quest_giver_name = trim((string) ($entry_point['primary_quest_giver_name'] ?? $quest_giver_contact['display_name'] ?? ''));
+    $broker_id = trim((string) ($entry_point['broker_id'] ?? $broker_contact['entity_id'] ?? ''));
+    $broker_name = trim((string) ($entry_point['broker_name'] ?? $broker_contact['display_name'] ?? ''));
+    if ($primary_quest_giver_id !== '' && $broker_id === $primary_quest_giver_id) {
+      $broker_id = '';
+      $broker_name = '';
+    }
+    $introduction_path = strtolower(trim((string) ($entry_point['introduction_path'] ?? ($broker_id !== '' ? 'brokered' : 'direct'))));
+    if (!in_array($introduction_path, ['direct', 'brokered'], TRUE)) {
+      $introduction_path = $broker_id !== '' ? 'brokered' : 'direct';
+    }
+    $detail_summary = trim((string) ($entry_point['detail_summary'] ?? ($primary_quest_giver_name !== '' ? $primary_quest_giver_name . ' briefs the party on the storyline details.' : 'The primary quest giver briefs the party on the storyline details.')));
+
+    $outline['entry_point'] = [
+      'primary_quest_giver_id' => $primary_quest_giver_id,
+      'primary_quest_giver_name' => $primary_quest_giver_name,
+      'primary_dungeon_id' => $primary_dungeon_id,
+      'primary_chapter_id' => $chapter_id,
+      'primary_scene_id' => $scene_id,
+      'primary_location_id' => $primary_location_id,
+      'broker_id' => $broker_id,
+      'broker_name' => $broker_name,
+      'introduction_path' => $introduction_path,
+      'detail_summary' => $detail_summary,
+    ];
+
+    $metadata['generated_outline'] = $outline;
+    $storyline_data['metadata'] = $metadata;
+    return $storyline_data;
+  }
+
+  /**
+   * Merge legacy runtime storyline rows with canonical template anchors.
+   */
+  protected function mergeManagementStorylineWithCanonicalTemplate(array $storyline_data, string $template_id): array {
+    $template_id = trim($template_id);
+    if ($template_id === '') {
+      return $storyline_data;
+    }
+
+    $canonical = $this->loadCanonicalStorylineTemplateDefinition($template_id);
+    if (!is_array($canonical) || $canonical === []) {
+      return $storyline_data;
+    }
+
+    $runtime_assets = array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array'));
+    $canonical_assets = array_values(array_filter(is_array($canonical['asset_references'] ?? NULL) ? $canonical['asset_references'] : [], 'is_array'));
+    $runtime_asset_index = [];
+    foreach ($runtime_assets as $index => $asset) {
+      $asset_id = trim((string) ($asset['asset_id'] ?? ''));
+      $asset_type = trim((string) ($asset['asset_type'] ?? ''));
+      if ($asset_id !== '') {
+        $asset_key = strtolower($asset_type . '|' . $asset_id);
+        if (!isset($runtime_asset_index[$asset_key])) {
+          $runtime_asset_index[$asset_key] = $index;
+        }
+      }
+    }
+    foreach ($canonical_assets as $asset) {
+      $asset_id = trim((string) ($asset['asset_id'] ?? ''));
+      $asset_type = trim((string) ($asset['asset_type'] ?? ''));
+      if ($asset_id === '') {
+        continue;
+      }
+      $asset_key = strtolower($asset_type . '|' . $asset_id);
+      if (!isset($runtime_asset_index[$asset_key])) {
+        $runtime_assets[] = $asset;
+        $runtime_asset_index[$asset_key] = count($runtime_assets) - 1;
+        continue;
+      }
+
+      $runtime_index = (int) $runtime_asset_index[$asset_key];
+      $current = $runtime_assets[$runtime_index] ?? [];
+      if (trim((string) ($current['chapter_id'] ?? '')) === '' && trim((string) ($asset['chapter_id'] ?? '')) !== '') {
+        $current['chapter_id'] = (string) $asset['chapter_id'];
+      }
+      if (trim((string) ($current['scene_id'] ?? '')) === '' && trim((string) ($asset['scene_id'] ?? '')) !== '') {
+        $current['scene_id'] = (string) $asset['scene_id'];
+      }
+      if (trim((string) ($current['asset_role'] ?? '')) === '' && trim((string) ($asset['asset_role'] ?? '')) !== '') {
+        $current['asset_role'] = (string) $asset['asset_role'];
+      }
+      $runtime_assets[$runtime_index] = $current;
+    }
+    $storyline_data['asset_references'] = $runtime_assets;
+
+    $runtime_contacts = array_values(array_filter(is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : [], 'is_array'));
+    $canonical_contacts = array_values(array_filter(is_array($canonical['contacts'] ?? NULL) ? $canonical['contacts'] : [], 'is_array'));
+    $contact_keys = [];
+    foreach ($runtime_contacts as $contact) {
+      $contact_key = strtolower(trim((string) (($contact['entity_id'] ?? '') . '|' . ($contact['role'] ?? ''))));
+      if ($contact_key !== '') {
+        $contact_keys[$contact_key] = TRUE;
+      }
+    }
+    foreach ($canonical_contacts as $contact) {
+      $contact_key = strtolower(trim((string) (($contact['entity_id'] ?? '') . '|' . ($contact['role'] ?? ''))));
+      if ($contact_key === '' || isset($contact_keys[$contact_key])) {
+        continue;
+      }
+      $runtime_contacts[] = $contact;
+      $contact_keys[$contact_key] = TRUE;
+    }
+    $storyline_data['contacts'] = $runtime_contacts;
+
+    return $storyline_data;
+  }
+
+  /**
+   * Load canonical storyline template_data payload from template JSON files.
+   */
+  protected function loadCanonicalStorylineTemplateDefinition(string $template_id): ?array {
+    $template_id = trim($template_id);
+    if ($template_id === '') {
+      return NULL;
+    }
+
+    if ($this->canonicalStorylineTemplateCache === NULL) {
+      $this->canonicalStorylineTemplateCache = [];
+      $templates_dir = dirname(__DIR__, 2) . '/config/examples/templates/dungeoncrawler_content_storylines';
+      foreach (glob($templates_dir . '/*.json') ?: [] as $path) {
+        $raw = file_get_contents($path);
+        if (!is_string($raw) || trim($raw) === '') {
+          continue;
+        }
+        $decoded = json_decode($raw, TRUE);
+        if (!is_array($decoded) || !is_array($decoded['rows'] ?? NULL)) {
+          continue;
+        }
+        foreach ($decoded['rows'] as $row) {
+          if (!is_array($row)) {
+            continue;
+          }
+          $row_template_id = trim((string) ($row['template_id'] ?? ''));
+          $template_data = is_array($row['template_data'] ?? NULL) ? $row['template_data'] : [];
+          if ($row_template_id !== '' && $template_data !== []) {
+            $this->canonicalStorylineTemplateCache[$row_template_id] = $template_data;
+          }
+        }
+      }
+    }
+
+    $template = $this->canonicalStorylineTemplateCache[$template_id] ?? NULL;
+    return is_array($template) ? $template : NULL;
   }
 
   /**

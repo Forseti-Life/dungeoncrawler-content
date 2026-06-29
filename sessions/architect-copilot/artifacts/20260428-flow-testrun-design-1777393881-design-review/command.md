@@ -1,0 +1,5 @@
+- Flow id: agentic_sdlc
+- Flow run id: testrun-design-1777393881
+- Flow node: Design Review
+- Flow owner seat: architect-copilot
+- Available flow outcomes: Approved | Changes requested

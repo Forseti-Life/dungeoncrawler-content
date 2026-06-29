@@ -1,0 +1,22 @@
+CSRF FINDING-2 Applied
+Date: 2026-04-06T02:13Z
+Commit: 6b1fb830
+
+Files patched:
+- sites/forseti/web/modules/custom/ai_conversation/ai_conversation.routing.yml (FINDING-2a)
+- sites/dungeoncrawler/web/modules/custom/ai_conversation/ai_conversation.routing.yml (FINDING-2b)
+- sites/forseti/web/modules/custom/agent_evaluation/agent_evaluation.routing.yml (FINDING-2c)
+
+Change summary:
+  Moved _csrf_token: TRUE from options: to requirements: for the send_message route in each file.
+  Removed _method: 'POST' from requirements: (method enforcement is via methods: key, not requirements:).
+
+Verification command:
+  bash sessions/sec-analyst-infra/artifacts/csrf-scan-tool/csrf-route-scan.sh /home/ubuntu/forseti.life | grep -E "ai_conversation|agent_evaluation"
+
+Verification output (scoped to FINDING-2 routes):
+  ZERO flags for ai_conversation and agent_evaluation
+
+Note: Overall scan exits 1 due to pre-existing flags in sites/stlouisintegration (job_hunter,
+job_application_automation, professional_website_content) and Drupal core (user.routing.yml).
+These are NOT part of FINDING-2 and are out of scope for this task.

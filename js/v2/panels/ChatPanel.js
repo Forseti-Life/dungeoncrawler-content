@@ -107,6 +107,7 @@ export class ChatPanel {
     this.roomChatBusy = false;
     this.roomChatQueueDraining = false;
     this.roomChatDeferredMessages = [];
+    this.currentRoomLabel = '';
     this._handleGameEvents = (event) => this.handleGameEvents(event);
   }
 
@@ -137,6 +138,7 @@ export class ChatPanel {
     this.setupChatLog();
     this.setupChannelTabs();
     this.setupSessionViewTabs();
+    this.refreshChatPanelTitle();
   }
 
   destroy() {
@@ -152,10 +154,19 @@ export class ChatPanel {
       this.bus.on('chat:history-loaded',   (d) => this.renderRoomChatHistory(d)),
       this.bus.on('chat:message-received',  (d) => this.handleBusChatMessageReceived(d)),
       this.bus.on('chat:system-message',    (d) => this.handleBusSystemMessage(d)),
+      this.bus.on('room:changed', (d) => this.handleRoomChanged(d)),
       this.bus.on('session:view-data', (d) => {
         if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
       }),
     );
+  }
+
+  handleRoomChanged(payload = {}) {
+    const roomName = String(payload?.roomName || payload?.room?.name || '').trim();
+    if (roomName) {
+      this.currentRoomLabel = roomName;
+    }
+    this.refreshChatPanelTitle();
   }
 
   handleBusChatMessageReceived(payload = {}) {
@@ -864,8 +875,16 @@ export class ChatPanel {
     const normalizedSource = String(line.source || '').trim() || 'local-ui';
     const normalizedAuthority = String(line.authority || '').trim()
       || (normalizedSource.startsWith('local') ? 'local' : 'authoritative');
-    const normalizedMessageClass = String(line.messageClass || '').trim()
+    let normalizedMessageClass = String(line.messageClass || '').trim()
       || (normalizedAuthority === 'authoritative' ? 'authoritative_transcript' : 'local_ui_notice');
+    const normalizedMessage = String(line.message || '').trim();
+    if (normalizedMessageClass === 'authoritative_transcript') {
+      if (/^Objective completed\b/i.test(normalizedMessage)) {
+        normalizedMessageClass = 'quest_objective_completion';
+      } else if (/^Quest completed\b/i.test(normalizedMessage)) {
+        normalizedMessageClass = 'quest_completion';
+      }
+    }
 
     const turnPrompt = Boolean(line.turnPrompt || line.turn_prompt);
     const transient = (this.disableTemporaryChatLines !== false)
@@ -2615,7 +2634,7 @@ export class ChatPanel {
     if (quickActions) quickActions.style.display = view === 'room' ? '' : 'none';
 
     const titles = {
-      room: 'Room Dialogue',
+      room: this.resolveRoomDialogueTitle(),
       party: 'Party Chat',
       'gm-private': 'GM Secret',
       'system-log': 'System',
@@ -2655,6 +2674,32 @@ export class ChatPanel {
 
     this.loadSessionViewMessages(view);
     this.syncPendingChatIndicator?.();
+  }
+
+  resolveRoomDialogueTitle() {
+    const roomName = String(this.currentRoomLabel || this.resolveActiveRoomNameFromState()).trim();
+    return roomName || 'Room Dialogue';
+  }
+
+  resolveActiveRoomNameFromState() {
+    const hexmap = this.stateManager?.hexmap;
+    const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
+    if (!activeRoomId) {
+      return '';
+    }
+    const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
+    const activeRoom = visualRooms && typeof visualRooms === 'object' ? visualRooms[activeRoomId] : null;
+    return String(activeRoom?.name || activeRoom?.title || activeRoomId).trim();
+  }
+
+  refreshChatPanelTitle() {
+    if (!this._el?.chatPanelTitle) {
+      return;
+    }
+    if (this.activeSessionView !== 'room') {
+      return;
+    }
+    this._el.chatPanelTitle.textContent = this.resolveRoomDialogueTitle();
   }
 
   renderSessionViewData(view, data) {
@@ -3196,37 +3241,13 @@ export class ChatPanel {
   }
 
   navigateToDungeonContext(dungeonSwitch) {
-    if (typeof window === 'undefined' || !window.location) {
-      console.error('[Navigation] window.location not available for dungeon switch');
+    // Chat panel delegates navigation intent to the unified runtime path.
+    // It does not own routing/rule logic and must not mutate URL context.
+    if (!this.bus) {
+      console.error('[Navigation] event bus unavailable for dungeon switch');
       return;
     }
-
-    const hexmap = this.stateManager?.hexmap;
-    const params = new URLSearchParams(window.location.search);
-    const campaignId = hexmap?.resolveCampaignId?.() || params.get('campaign_id');
-    const characterId = hexmap?.launchContext?.character_id || params.get('character_id');
-
-    if (campaignId) {
-      params.set('campaign_id', String(campaignId));
-    }
-    if (characterId) {
-      params.set('character_id', String(characterId));
-    }
-
-    params.set('map_id', String(dungeonSwitch.map_id));
-    params.set('room_id', String(dungeonSwitch.room_id || dungeonSwitch.target_room_id || ''));
-    if (dungeonSwitch.dungeon_level_id) {
-      params.set('dungeon_level_id', String(dungeonSwitch.dungeon_level_id));
-    }
-    if (dungeonSwitch.next_room_id) {
-      params.set('next_room_id', String(dungeonSwitch.next_room_id));
-    } else {
-      params.delete('next_room_id');
-    }
-    params.set('start_q', '0');
-    params.set('start_r', '0');
-
-    window.location.assign(`${window.location.pathname}?${params.toString()}`);
+    this.bus.emit('user:navigate-dungeon', { dungeonSwitch });
   }
 
   ensureChatSessionApi() {

@@ -1,0 +1,82 @@
+analysis_id: "20260327-improvement-round-20260327-dungeoncrawler-release-b"
+objective: "Post-release process and gap review for 20260327-dungeoncrawler-release-b from pm-infra perspective. Release has NOT shipped (just groomed — 4 features handed to QA for test plans). CEO-2 fast-exited as duplicate of 20260326 coordinated release. Top gaps: CSRF delegation backlog (FINDING-3 stalled 5+ days, 8 routes), premature improvement-round dispatch pattern (4th premature for this ID group), executor preamble injection (8th hit)."
+decision_owner: "pm-infra"
+
+scope:
+  in_scope:
+    - "Premature improvement round triage: 20260327-dungeoncrawler-release-b in grooming, not shipped"
+    - "Cross-seat signal: FINDING-3h (MEDIUM CSRF — inventory_sell_item route, 8 total unprotected routes)"
+    - "FINDING-3 delegation stall: 5+ days, 3+ dispatch cycles, CEO action overdue"
+    - "Format gate recovery: 20260327-improvement-round-20260326-dungeoncrawler-release-b.md preamble at line 11 (8th hit)"
+    - "GAP-PREMATURE-DISPATCH: 4th premature improvement-round dispatch for this release ID group"
+  out_of_scope:
+    - "CSRF fix implementation (dev-dungeoncrawler scope)"
+    - "20260327-dungeoncrawler-release-b feature content (not shipped)"
+    - "20260322-dungeoncrawler-release-b hold decision (pm-forseti/CEO scope)"
+
+assumptions:
+  - "20260327-dungeoncrawler-release-b is in grooming: 4 features (dc-cr-action-economy, dc-cr-ancestry-system, dc-cr-dice-system, dc-cr-difficulty-class) handed to QA for test-plan writing; Stage 0 scope selection not yet complete"
+  - "pm-dungeoncrawler's release signoff entry noting this shipped as part of 20260326 coordinated release reflects the prior coordinated execution, not 20260327"
+  - "FINDING-3 delegation lag is a CEO process gap, not a pm-infra ownership item; pm-infra can only escalate"
+  - "sec-analyst-infra FINDING-3h (MEDIUM, single-line patch) is the highest-ROI actionable security item currently open"
+
+evidence:
+  - source: "bash scripts/release-signoff-status.sh 20260327-dungeoncrawler-release-b"
+    summary: "pm-forseti signoff missing; not ready for official push"
+    finding: "Release has NOT shipped. CEO-2 fast-exit was based on duplicate-ID reasoning (same execution as 20260326 coordinated release), but 20260327 is a new grooming cycle for 4 new features. This improvement round is premature regardless of framing."
+    reliability: 5
+  - source: "sec-analyst-infra outbox 20260327-improvement-round-20260326-dungeoncrawler-release-b.md (commit bc6f50c08)"
+    summary: "FINDING-3h: inventory_sell_item POST route added in 5bc95ffe4 missing CSRF protection; 8 total unprotected routes; FINDING-3 delegation 5+ days overdue"
+    finding: "GAP-CSRF-DELEGATION: Every new routing commit adds to the unprotected route count without a fix cadence. FINDING-3 has been pending CEO delegation to dev-dungeoncrawler for 5+ days across 3+ cycles. This is the highest-ROI infra security gap. Fix is a single line per route."
+    reliability: 5
+  - source: "pm-infra format gate + recovery commit 38ebf0ee0"
+    summary: "8th consecutive executor preamble injection hit; preamble at line 11 this cycle"
+    finding: "GAP-EXEC-PERSIST: 8 consecutive hits with no root-cause fix. Recovery cost is now routine but the pattern persists."
+    reliability: 5
+  - source: "CEO commit a5172345a (fast-exit) + pm-dungeoncrawler groom outbox e6fe25eb6"
+    summary: "CEO-2 called 20260327 a duplicate of 20260326; pm-dungeoncrawler is in active grooming for 4 new features"
+    finding: "GAP-PREMATURE-DISPATCH: 4th premature improvement-round dispatch for this release ID group. The root fix (release-signoff-status.sh gate before IR dispatch) is still not implemented."
+    reliability: 5
+
+counter_evidence:
+  - "CEO-2 fast-exit reasoning (duplicate of 20260326) may reflect a legitimate policy that per-team release IDs don't get individual improvement rounds — but pm-dungeoncrawler has 4 genuinely new features in grooming that will form a new release"
+  - "The 8-route CSRF debt predates pm-infra's involvement; root cause is delegated dev fix not being executed, not a pm-infra gap"
+
+options:
+  - id: "escalate-csrf-with-concrete-inbox"
+    description: "Escalate to CEO with concrete request: create dev-dungeoncrawler inbox item for FINDING-3 + FINDING-3h combined CSRF fix (all 8 unprotected routes). Include patch template from sec-analyst artifact. ROI 12."
+    pros:
+      - "Single escalation closes a 5-day delegation stall"
+      - "Patch is low-complexity (1 line per route); high-certainty fix"
+    cons:
+      - "Requires CEO to action; pm-infra cannot dispatch to dev-dungeoncrawler directly without CEO routing"
+    roi_delta: 12
+  - id: "fast-exit-only"
+    description: "Fast-exit as premature; carry all gaps forward with no new escalation."
+    pros:
+      - "Fast"
+    cons:
+      - "CSRF delegation stall reaches 6 days with no escalation — each new route commit widens the attack surface"
+    roi_delta: 3
+
+recommendation:
+  option_id: "escalate-csrf-with-concrete-inbox"
+  rationale: "FINDING-3 delegation stall is the single highest-ROI actionable item in pm-infra's current view. The fix is trivially small per route but the stall has persisted 5+ days. CEO should create the dev-dungeoncrawler inbox item this cycle. GAP-PREMATURE-DISPATCH and GAP-EXEC-PERSIST are carried forward — fixes still queued at CEO."
+  tradeoffs:
+    - "CEO must implement the dev-dungeoncrawler inbox dispatch; pm-infra cannot self-serve"
+    - "Premature dispatch fix (ROI 15) remains open and should be prioritized before the next release cycle dispatch"
+  decision_needed: "CEO: dispatch FINDING-3 + FINDING-3h combined CSRF fix to dev-dungeoncrawler. Patch template at sessions/sec-analyst-infra/artifacts/20260327-improvement-round-20260326-dungeoncrawler-release-b/gap-review.md."
+
+confidence: 0.93
+
+verification:
+  acceptance_criteria:
+    - "Format gate PASS 16/16"
+    - "Patch-applied scan: 0 NEEDS QA DISPATCH"
+    - "Analysis artifact 31/31 policy gate PASS"
+    - "20260327-dungeoncrawler-release-b release-signoff-status exit non-zero (not shipped)"
+  checks:
+    - "python3 format gate inline — PASS 16/16"
+    - "bash patch-applied scan — clean"
+    - "bash scripts/release-signoff-status.sh 20260327-dungeoncrawler-release-b — exit non-zero (pm-forseti missing)"
+    - "scripts/analysis-policy-check.sh this-file"

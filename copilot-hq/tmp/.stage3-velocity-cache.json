@@ -1,0 +1,144 @@
+{
+  "generated_at": "2026-04-20T20:50:05.859578",
+  "window_minutes": 15,
+  "teams": [
+    {
+      "team_id": "forseti",
+      "label": "Forseti",
+      "site": "forseti.life",
+      "window_minutes": 15,
+      "latest_run": "20260420-105935",
+      "latest_open_issues": 1,
+      "resolved_last_window": 0,
+      "introduced_last_window": 0,
+      "resolved_per_15_minutes": 0.0,
+      "workflow": {
+        "dev_outbox_updates": 1,
+        "dev_notify_qa_markers": 1,
+        "qa_done_markers": 0,
+        "handoff_signal": "weak"
+      },
+      "recent_deltas": [
+        {
+          "from_run": "20260418-163651",
+          "to_run": "20260418-164201",
+          "to_ts": "2026-04-18T16:42:01",
+          "prev_total": 10,
+          "cur_total": 6,
+          "resolved": 4,
+          "introduced": 0,
+          "elapsed_minutes": 5.17
+        },
+        {
+          "from_run": "20260418-164201",
+          "to_run": "20260418-164839",
+          "to_ts": "2026-04-18T16:48:39",
+          "prev_total": 6,
+          "cur_total": 0,
+          "resolved": 6,
+          "introduced": 0,
+          "elapsed_minutes": 6.63
+        },
+        {
+          "from_run": "20260418-164839",
+          "to_run": "20260418-172927",
+          "to_ts": "2026-04-18T17:29:27",
+          "prev_total": 0,
+          "cur_total": 1,
+          "resolved": 0,
+          "introduced": 1,
+          "elapsed_minutes": 40.8
+        },
+        {
+          "from_run": "20260418-172927",
+          "to_run": "20260418-174759",
+          "to_ts": "2026-04-18T17:47:59",
+          "prev_total": 1,
+          "cur_total": 0,
+          "resolved": 1,
+          "introduced": 0,
+          "elapsed_minutes": 18.53
+        },
+        {
+          "from_run": "20260418-174759",
+          "to_run": "20260420-105935",
+          "to_ts": "2026-04-20T10:59:35",
+          "prev_total": 0,
+          "cur_total": 1,
+          "resolved": 0,
+          "introduced": 1,
+          "elapsed_minutes": 2471.6
+        }
+      ]
+    },
+    {
+      "team_id": "dungeoncrawler",
+      "label": "Dungeoncrawler",
+      "site": "dungeoncrawler",
+      "window_minutes": 15,
+      "latest_run": "20260420-180308",
+      "latest_open_issues": 0,
+      "resolved_last_window": 0,
+      "introduced_last_window": 0,
+      "resolved_per_15_minutes": 0.0,
+      "workflow": {
+        "dev_outbox_updates": 0,
+        "dev_notify_qa_markers": 0,
+        "qa_done_markers": 0,
+        "handoff_signal": "weak"
+      },
+      "recent_deltas": [
+        {
+          "from_run": "20260412-230315",
+          "to_run": "20260413-050200",
+          "to_ts": "2026-04-13T05:02:00",
+          "prev_total": 0,
+          "cur_total": 0,
+          "resolved": 0,
+          "introduced": 0,
+          "elapsed_minutes": 358.75
+        },
+        {
+          "from_run": "20260413-050200",
+          "to_run": "20260417-160402",
+          "to_ts": "2026-04-17T16:04:02",
+          "prev_total": 0,
+          "cur_total": 0,
+          "resolved": 0,
+          "introduced": 0,
+          "elapsed_minutes": 6422.03
+        },
+        {
+          "from_run": "20260417-160402",
+          "to_run": "20260418-171340",
+          "to_ts": "2026-04-18T17:13:40",
+          "prev_total": 0,
+          "cur_total": 0,
+          "resolved": 0,
+          "introduced": 0,
+          "elapsed_minutes": 1509.63
+        },
+        {
+          "from_run": "20260418-171340",
+          "to_run": "20260418-172927",
+          "to_ts": "2026-04-18T17:29:27",
+          "prev_total": 0,
+          "cur_total": 0,
+          "resolved": 0,
+          "introduced": 0,
+          "elapsed_minutes": 15.78
+        },
+        {
+          "from_run": "20260418-172927",
+          "to_run": "20260420-180308",
+          "to_ts": "2026-04-20T18:03:08",
+          "prev_total": 0,
+          "cur_total": 0,
+          "resolved": 0,
+          "introduced": 0,
+          "elapsed_minutes": 2913.68
+        }
+      ]
+    }
+  ]
+}

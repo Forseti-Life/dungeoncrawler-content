@@ -262,6 +262,15 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
       'actions_remaining' => 1,
       'reaction_available' => FALSE,
       'available_actions' => ['strike', 'end_turn'],
+      'action_option_families' => [
+        'cast_spell' => [
+          'family' => 'spells',
+          'option_count' => 1,
+          'options' => [
+            ['id' => 'magic-missile', 'label' => 'Magic Missile', 'action_cost' => 2, 'targeting' => 'contextual', 'metadata' => []],
+          ],
+        ],
+      ],
       'action_contract' => [
         'phase' => 'encounter',
         'actor_id' => 'npc-1',
@@ -285,10 +294,17 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
           $availability = is_array($encounter['actions_available_to_me_this_turn'] ?? NULL)
             ? $encounter['actions_available_to_me_this_turn']
             : [];
+          $action_contract = is_array($encounter['action_contract'] ?? NULL)
+            ? $encounter['action_contract']
+            : [];
+          $families = is_array($action_contract['action_option_families'] ?? NULL)
+            ? $action_contract['action_option_families']
+            : [];
 
           return ($constraints['allowed_actions'] ?? NULL) === ['strike', 'end_turn']
             && ($constraints['action_cost_max'] ?? NULL) === 1
-            && ($availability['available_actions'] ?? NULL) === ['strike', 'end_turn'];
+            && ($availability['available_actions'] ?? NULL) === ['strike', 'end_turn']
+            && (($families['cast_spell']['option_count'] ?? NULL) === 1);
         }),
         'dungeoncrawler_content',
         'encounter_npc_recommendation',

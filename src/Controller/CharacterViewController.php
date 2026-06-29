@@ -12,6 +12,7 @@ use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
+use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
@@ -33,10 +34,11 @@ class CharacterViewController extends ControllerBase {
   protected RelationshipManagerService $relationshipManager;
   protected ?NpcPsychologyService $npcPsychologyService;
   protected GeneratedImageRepository $imageRepository;
+  protected FollowerSubsystemService $followerSubsystem;
   protected Connection $database;
   protected TimeInterface $time;
 
-  public function __construct(CharacterManager $character_manager, CharacterStateService $character_state_service, FeatEffectManager $feat_effect_manager, FeatLibraryService $feat_library, RelationshipManagerService $relationship_manager, ?NpcPsychologyService $npc_psychology_service, GeneratedImageRepository $image_repository, Connection $database, TimeInterface $time) {
+  public function __construct(CharacterManager $character_manager, CharacterStateService $character_state_service, FeatEffectManager $feat_effect_manager, FeatLibraryService $feat_library, RelationshipManagerService $relationship_manager, ?NpcPsychologyService $npc_psychology_service, GeneratedImageRepository $image_repository, FollowerSubsystemService $follower_subsystem, Connection $database, TimeInterface $time) {
     $this->characterManager = $character_manager;
     $this->characterStateService = $character_state_service;
     $this->featEffectManager = $feat_effect_manager;
@@ -44,6 +46,7 @@ class CharacterViewController extends ControllerBase {
     $this->relationshipManager = $relationship_manager;
     $this->npcPsychologyService = $npc_psychology_service;
     $this->imageRepository = $image_repository;
+    $this->followerSubsystem = $follower_subsystem;
     $this->database = $database;
     $this->time = $time;
   }
@@ -57,6 +60,7 @@ class CharacterViewController extends ControllerBase {
       $container->get('dungeoncrawler_content.relationship_manager'),
       $container->get('dungeoncrawler_content.npc_psychology_service'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
+      $container->get('dungeoncrawler_content.follower_subsystem'),
       $container->get('database'),
       $container->get('datetime.time'),
     );
@@ -66,9 +70,20 @@ class CharacterViewController extends ControllerBase {
    * Renders a full character sheet.
    */
   public function viewCharacter(int $character_id) {
-    $context = $this->resolveViewCharacterRequestContext($character_id);
-    $campaign_id = (int) $context['campaign_id'];
-    $record = $context['record'];
+    $campaign_id = (int) (\Drupal::request()->query->get('campaign_id') ?? 0);
+
+    $record = $this->characterManager->loadCharacter($character_id);
+
+    if (!$record) {
+      throw new NotFoundHttpException();
+    }
+
+    $is_admin = $this->currentUser()->hasPermission('administer site configuration');
+    $is_owner = $this->characterManager->isOwner($record);
+    $is_campaign_owner = $campaign_id > 0 ? $this->isCampaignOwner($campaign_id) : FALSE;
+    if (!$is_owner && !$is_admin && !$is_campaign_owner) {
+      throw new AccessDeniedHttpException();
+    }
 
     // Decode character data via manager and normalize onto the canonical shape
     // used by the character sheet.
@@ -81,16 +96,15 @@ class CharacterViewController extends ControllerBase {
       $campaign_id > 0 ? $campaign_id : NULL,
       !empty($record->instance_id) ? (string) $record->instance_id : NULL
     );
-    $state_slices = $this->splitCharacterStateForSheet($state);
-    $state_basic_info = $state_slices['basic_info'];
-    $state_resources = $state_slices['resources'];
-    $state_defenses = $state_slices['defenses'];
-    $state_skills = $state_slices['skills'];
-    $state_features = $state_slices['features'];
-    $state_traits = $state_slices['traits'];
-    $state_conditions = $state_slices['conditions'];
-    $state_descriptors = $state_slices['descriptors'];
-    $state_spells = $state_slices['spells'];
+    $state_basic_info = is_array($state['basicInfo'] ?? NULL) ? $state['basicInfo'] : [];
+    $state_resources = is_array($state['resources'] ?? NULL) ? $state['resources'] : [];
+    $state_defenses = is_array($state['defenses'] ?? NULL) ? $state['defenses'] : [];
+    $state_skills = is_array($state['skills'] ?? NULL) ? $state['skills'] : [];
+    $state_features = is_array($state['features'] ?? NULL) ? $state['features'] : [];
+    $state_traits = is_array($state['traits'] ?? NULL) ? $state['traits'] : [];
+    $state_conditions = is_array($state['conditions'] ?? NULL) ? $state['conditions'] : [];
+    $state_descriptors = is_array($state['descriptors'] ?? NULL) ? $state['descriptors'] : [];
+    $state_spells = is_array($state['spells'] ?? NULL) ? $state['spells'] : [];
 
     $abilities = $this->buildAbilityDisplayData($char_data);
     if (is_array($state['abilities'] ?? NULL) && $state['abilities'] !== []) {
@@ -253,35 +267,11 @@ class CharacterViewController extends ControllerBase {
     );
     $equipment_gold = CharacterManager::currencyDenominationsToGoldValue($inv_currency);
 
-    // Load portrait: try generated images first, fall back to DB column.
-    $portrait_url = NULL;
-    $portraits = $this->imageRepository->loadImagesForObject(
-      'dc_campaign_characters',
-      (string) $record->id,
-      $campaign_id > 0 ? $campaign_id : NULL,
-      'portrait',
-      'original'
+    $portrait_url = $this->resolveCampaignCharacterPortraitUrl(
+      (int) $record->id,
+      $campaign_id,
+      (string) ($record->portrait ?? '')
     );
-    if (!empty($portraits)) {
-      $portrait_url = $this->imageRepository->resolveClientUrl($portraits[0]);
-    }
-    // Fall back to global (non-campaign-scoped) image link.
-    if (!$portrait_url && $campaign_id > 0) {
-      $global = $this->imageRepository->loadImagesForObject(
-        'dc_campaign_characters',
-        (string) $record->id,
-        NULL,
-        'portrait',
-        'original'
-      );
-      if (!empty($global)) {
-        $portrait_url = $this->imageRepository->resolveClientUrl($global[0]);
-      }
-    }
-    // Final fallback: portrait column on the record itself.
-    if (!$portrait_url && !empty($record->portrait)) {
-      $portrait_url = $record->portrait;
-    }
 
     $alignment = (string) ($state_basic_info['alignment'] ?? $char_data['alignment'] ?? '');
     $deity = (string) ($state_basic_info['deity'] ?? $char_data['deity'] ?? '');
@@ -373,6 +363,8 @@ class CharacterViewController extends ControllerBase {
       ? $state_features['feats']
       : (is_array($char_data['feats'] ?? NULL) ? $char_data['feats'] : []);
 
+    $effective_campaign_id = $campaign_id > 0 ? $campaign_id : (int) ($record->campaign_id ?? 0);
+
     $build = [
       '#theme' => 'character_sheet',
       '#character' => [
@@ -422,7 +414,7 @@ class CharacterViewController extends ControllerBase {
         'gold' => $equipment_gold,
         'items' => $equipment_items,
       ],
-      '#followers' => $this->buildFollowerDisplayData($char_data),
+      '#followers' => $this->buildFollowerDisplayData($char_data, (int) $record->id),
       '#feats' => $this->enrichFeatDisplayData($display_feats),
       '#spells' => $this->buildSpellsDisplayData($spell_source_data, $feat_effects),
       '#conditions' => $state_conditions !== [] ? $state_conditions : ($char_data['conditions'] ?? []),
@@ -492,6 +484,7 @@ class CharacterViewController extends ControllerBase {
       '#launch_url' => $launch_url->toString(),
       '#tavern_url' => $tavern_url,
       '#campaign_id' => $campaign_id,
+      '#effective_campaign_id' => $effective_campaign_id,
       '#back_url' => $back_url->toString(),
       '#attached' => [
         'library' => ['dungeoncrawler_content/character-sheet'],
@@ -502,53 +495,6 @@ class CharacterViewController extends ControllerBase {
     ];
 
     return $build;
-  }
-
-  /**
-   * Resolve campaign scope and enforce access contract for character sheet views.
-   *
-   * @return array{campaign_id:int,record:object}
-   *   Request context for character sheet rendering.
-   */
-  private function resolveViewCharacterRequestContext(int $character_id): array {
-    $campaign_id = (int) (\Drupal::request()->query->get('campaign_id') ?? 0);
-    $record = $this->characterManager->loadCharacter($character_id);
-
-    if (!$record) {
-      throw new NotFoundHttpException();
-    }
-
-    $is_admin = $this->currentUser()->hasPermission('administer site configuration');
-    $is_owner = $this->characterManager->isOwner($record);
-    $is_campaign_owner = $campaign_id > 0 ? $this->isCampaignOwner($campaign_id) : FALSE;
-    if (!$is_owner && !$is_admin && !$is_campaign_owner) {
-      throw new AccessDeniedHttpException();
-    }
-
-    return [
-      'campaign_id' => $campaign_id,
-      'record' => $record,
-    ];
-  }
-
-  /**
-   * Normalize sheet state buckets to stable array contracts.
-   *
-   * @return array<string, array>
-   *   Canonicalized state slices keyed by sheet-facing names.
-   */
-  private function splitCharacterStateForSheet(array $state): array {
-    return [
-      'basic_info' => is_array($state['basicInfo'] ?? NULL) ? $state['basicInfo'] : [],
-      'resources' => is_array($state['resources'] ?? NULL) ? $state['resources'] : [],
-      'defenses' => is_array($state['defenses'] ?? NULL) ? $state['defenses'] : [],
-      'skills' => is_array($state['skills'] ?? NULL) ? $state['skills'] : [],
-      'features' => is_array($state['features'] ?? NULL) ? $state['features'] : [],
-      'traits' => is_array($state['traits'] ?? NULL) ? $state['traits'] : [],
-      'conditions' => is_array($state['conditions'] ?? NULL) ? $state['conditions'] : [],
-      'descriptors' => is_array($state['descriptors'] ?? NULL) ? $state['descriptors'] : [],
-      'spells' => is_array($state['spells'] ?? NULL) ? $state['spells'] : [],
-    ];
   }
 
   /**
@@ -576,6 +522,271 @@ class CharacterViewController extends ControllerBase {
       . '</body></html>';
 
     return new Response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+  }
+
+  /**
+   * Renders a follower actor detail page for a character-owned follower.
+   */
+  public function viewFollowerActor(int $character_id, string $follower_kind): array {
+    $campaign_id = (int) (\Drupal::request()->query->get('campaign_id') ?? 0);
+    $record = $this->characterManager->loadCharacter($character_id);
+    if (!$record) {
+      throw new NotFoundHttpException();
+    }
+
+    $is_admin = $this->currentUser()->hasPermission('administer site configuration');
+    $is_owner = $this->characterManager->isOwner($record);
+    $is_campaign_owner = $campaign_id > 0 ? $this->isCampaignOwner($campaign_id) : FALSE;
+    if (!$is_owner && !$is_admin && !$is_campaign_owner) {
+      throw new AccessDeniedHttpException();
+    }
+
+    $decoded = $this->characterManager->getCharacterData($record);
+    $char_data = $this->characterManager->canonicalizeCharacterData($decoded);
+    $char_data['character_id'] = (int) $record->id;
+    $target_kind = strtolower(trim($follower_kind));
+    $contracts = $this->followerSubsystem->resolveFollowerActorContracts($char_data, (string) $record->id);
+
+    $follower = NULL;
+    foreach ($contracts as $candidate) {
+      if (strtolower((string) ($candidate['follower_kind'] ?? '')) === $target_kind) {
+        $follower = $candidate;
+        break;
+      }
+    }
+    if (!is_array($follower)) {
+      throw new NotFoundHttpException();
+    }
+
+    $actor = is_array($follower['actor'] ?? NULL) ? $follower['actor'] : [];
+    $actor_record_metadata = [];
+    if ((string) ($follower['status'] ?? '') === FollowerSubsystemService::FOLLOWER_STATUS_CONFIGURED) {
+      $actor_record = $this->followerSubsystem->resolveFollowerActorRecord($char_data, (string) $record->id, $target_kind);
+      $actor_record_metadata = is_array($actor_record['state']['metadata'] ?? NULL) ? $actor_record['state']['metadata'] : [];
+    }
+    $metadata = $actor_record_metadata !== [] ? $actor_record_metadata : (is_array($actor['metadata'] ?? NULL) ? $actor['metadata'] : []);
+    $sheet = is_array($follower['sheet'] ?? NULL) ? $follower['sheet'] : [];
+    $stats = is_array($metadata['stats'] ?? NULL) ? $metadata['stats'] : (is_array($actor['stats'] ?? NULL) ? $actor['stats'] : []);
+
+    $owner_sheet = $this->viewCharacter($character_id);
+    if (!is_array($owner_sheet)) {
+      throw new \RuntimeException('Unable to project follower sheet from owner character context.');
+    }
+
+    $display_name = (string) ($metadata['display_name'] ?? $metadata['name'] ?? $actor['display_name'] ?? $sheet['name'] ?? 'Follower');
+    $level = (int) ($metadata['level'] ?? $metadata['actor_level'] ?? 1);
+    $max_hp = (int) ($stats['maxHp'] ?? $metadata['max_hp'] ?? 0);
+    $current_hp = (int) ($stats['currentHp'] ?? $metadata['current_hp'] ?? $max_hp);
+    $movement_speed = (int) ($stats['speed'] ?? $metadata['movement_speed'] ?? $actor['movement_speed'] ?? 25);
+    $armor_class = (int) ($metadata['armor_class'] ?? $stats['armorClass'] ?? 10);
+    $initiative_bonus = (int) ($metadata['initiative_bonus'] ?? $actor['initiative_bonus'] ?? 0);
+    $traits = array_values(array_filter(array_map('strval', is_array($metadata['traits'] ?? NULL) ? $metadata['traits'] : (is_array($actor['traits'] ?? NULL) ? $actor['traits'] : []))));
+    $attacks = is_array($metadata['attacks'] ?? NULL) ? $metadata['attacks'] : (is_array($actor['attacks'] ?? NULL) ? $actor['attacks'] : []);
+    $attack_groups = $this->normalizeAttackCollections($attacks);
+    $follower_kind_label = (string) ($sheet['kind_label'] ?? $this->humanizeName($target_kind));
+    $back_url_options = $campaign_id > 0 ? ['query' => ['campaign_id' => $campaign_id]] : [];
+    $follower_details = is_array($sheet['details'] ?? NULL) ? $sheet['details'] : [];
+    $effective_campaign_id = $campaign_id > 0 ? $campaign_id : (int) ($record->campaign_id ?? 0);
+
+    $follower_feats = [];
+    $follower_class_features = [];
+    $follower_feature_options = is_array($metadata['class_feature_options'] ?? NULL) ? $metadata['class_feature_options'] : [];
+    foreach ($follower_feature_options as $feature_option) {
+      if (!is_array($feature_option) || empty($feature_option['selected'])) {
+        continue;
+      }
+      $feature_id = strtolower(trim((string) ($feature_option['id'] ?? '')));
+      if ($feature_id === '') {
+        continue;
+      }
+      $feature_name = trim((string) ($feature_option['name'] ?? ''));
+      $feature_description = trim((string) ($feature_option['description'] ?? ''));
+      $follower_class_features[] = [
+        'id' => $feature_id,
+        'name' => $feature_name !== '' ? $feature_name : $this->humanizeName($feature_id),
+        'description' => $feature_description,
+        'type' => (string) ($feature_option['feat_type'] ?? 'familiar_class_feature'),
+      ];
+      $follower_feats[] = [
+        'id' => $feature_id,
+        'name' => $feature_name !== '' ? $feature_name : $this->humanizeName($feature_id),
+        'description' => $feature_description,
+        'type' => (string) ($feature_option['feat_type'] ?? 'familiar_class_feature'),
+      ];
+    }
+
+    $follower_skills = [];
+    $metadata_skills = is_array($metadata['skills'] ?? NULL) ? $metadata['skills'] : [];
+    foreach ($metadata_skills as $skill_name => $skill_data) {
+      if (is_array($skill_data)) {
+        $follower_skills[] = [
+          'name' => $this->humanizeName((string) $skill_name),
+          'modifier' => (int) ($skill_data['modifier'] ?? 0),
+          'proficiency' => (string) ($skill_data['proficiency'] ?? 'Trained'),
+        ];
+      }
+      elseif (is_numeric($skill_data)) {
+        $follower_skills[] = [
+          'name' => $this->humanizeName((string) $skill_name),
+          'modifier' => (int) $skill_data,
+          'proficiency' => 'Trained',
+        ];
+      }
+    }
+
+    $owner_character = is_array($owner_sheet['#character'] ?? NULL) ? $owner_sheet['#character'] : [];
+    $owner_character['name'] = $display_name;
+    $owner_character['level'] = max(1, $level);
+    $owner_character['xp'] = 0;
+    $owner_character['hero_points'] = 0;
+    $owner_character['portrait'] = $this->resolveFollowerPortraitUrl(
+      $metadata,
+      $actor,
+      $target_kind,
+      $effective_campaign_id
+    );
+    $owner_sheet['#character'] = $owner_character;
+
+    $owner_sheet['#ancestry'] = [
+      'name' => $follower_kind_label,
+      'heritage' => NULL,
+      'size' => (string) ($metadata['size'] ?? 'Small'),
+      'speed' => $movement_speed > 0 ? $movement_speed : 25,
+      'languages' => [],
+      'traits' => $traits,
+    ];
+    $owner_sheet['#background'] = ['name' => 'Follower'];
+    $owner_sheet['#class_data'] = [
+      'name' => (string) ($metadata['class_id'] ?? $metadata['role'] ?? 'Follower'),
+      'subclass' => NULL,
+      'key_ability' => 'DEX',
+      'hp_per_level' => 0,
+      'class_features' => array_merge(
+        array_values(array_map('strval', $follower_details)),
+        $follower_class_features
+      ),
+      'class_feats' => $follower_class_features,
+    ];
+    $owner_sheet['#abilities'] = [
+      'strength' => ['score' => 10, 'modifier' => 0],
+      'dexterity' => ['score' => 10, 'modifier' => 0],
+      'constitution' => ['score' => 10, 'modifier' => 0],
+      'intelligence' => ['score' => 10, 'modifier' => 0],
+      'wisdom' => ['score' => 10, 'modifier' => 0],
+      'charisma' => ['score' => 10, 'modifier' => 0],
+    ];
+    $owner_sheet['#hp'] = [
+      'max' => max(0, $max_hp),
+      'current' => max(0, $current_hp),
+      'temporary' => 0,
+    ];
+    $owner_sheet['#ac'] = max(0, $armor_class);
+    $owner_sheet['#saves'] = [
+      'Fortitude' => ['modifier' => 0, 'proficiency' => 'Trained'],
+      'Reflex' => ['modifier' => 0, 'proficiency' => 'Trained'],
+      'Will' => ['modifier' => 0, 'proficiency' => 'Trained'],
+    ];
+    $owner_sheet['#perception'] = [
+      'modifier' => $initiative_bonus,
+      'proficiency' => 'Trained',
+      'senses' => [],
+    ];
+    $owner_sheet['#skills'] = $follower_skills;
+    $owner_sheet['#melee_attacks'] = $attack_groups['melee'];
+    $owner_sheet['#ranged_attacks'] = $attack_groups['ranged'];
+    $owner_sheet['#equipment'] = ['gold' => 0, 'items' => []];
+    $owner_sheet['#followers'] = [];
+    $owner_sheet['#feats'] = $follower_feats;
+    $owner_sheet['#spells'] = NULL;
+    $owner_sheet['#conditions'] = [];
+    $owner_sheet['#feat_effects'] = [];
+    $owner_sheet['#sheet_effect_summary'] = [];
+    $owner_sheet['#personality'] = [
+      'alignment' => NULL,
+      'deity' => NULL,
+      'age' => NULL,
+      'gender' => NULL,
+      'appearance' => (string) ($metadata['appearance'] ?? ''),
+      'personality' => (string) ($metadata['personality'] ?? ''),
+      'backstory' => (string) ($metadata['description'] ?? ''),
+      'attitude' => NULL,
+      'motivations' => [],
+      'goals' => [],
+      'traits' => [],
+      'catchphrases' => [],
+    ];
+    $owner_sheet['#psychology_dimensions'] = [];
+    $owner_sheet['#psychology_profile'] = ['traits' => [], 'fears' => [], 'bonds' => []];
+    $owner_sheet['#quest_payload'] = NULL;
+    $owner_sheet['#actor_meta'] = [
+      'role' => (string) ($metadata['role'] ?? 'follower'),
+      'description' => (string) ($metadata['description'] ?? ''),
+      'default_location' => NULL,
+    ];
+    $owner_sheet['#npc_data'] = NULL;
+    $owner_sheet['#relationships'] = ['outgoing' => [], 'incoming' => []];
+    $owner_sheet['#actor_identity'] = [
+      'type' => 'npc',
+      'role' => (string) ($metadata['role'] ?? 'follower'),
+      'lifecycle_state' => (string) ($follower['status'] ?? ''),
+      'campaign_id' => $campaign_id,
+      'source_character_id' => (int) ($metadata['owner_character_id'] ?? $character_id),
+      'instance_id' => (string) ($actor['instance_id'] ?? ''),
+    ];
+    $owner_sheet['#actor_state'] = [
+      'basic_info' => [],
+      'resources' => [],
+      'defenses' => [],
+      'skills' => [],
+      'features' => [],
+      'descriptors' => [],
+    ];
+    $owner_sheet['#actor_contract'] = [
+      [
+        'domain' => 'follower_kind',
+        'status' => $target_kind,
+        'required' => TRUE,
+      ],
+      [
+        'domain' => 'status',
+        'status' => (string) ($follower['status'] ?? 'unknown'),
+        'required' => TRUE,
+      ],
+      [
+        'domain' => 'runtime_policy',
+        'status' => (string) ($follower['runtime_policy'] ?? 'none'),
+        'required' => TRUE,
+      ],
+      [
+        'domain' => 'ability_dataset',
+        'status' => $follower_feats !== [] ? 'available' : 'missing',
+        'required' => TRUE,
+      ],
+      [
+        'domain' => 'skill_dataset',
+        'status' => $follower_skills !== [] ? 'available' : 'missing',
+        'required' => TRUE,
+      ],
+    ];
+    $owner_sheet['#raw_json'] = json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    $owner_sheet['#state_json'] = json_encode([
+      'follower_kind' => $target_kind,
+      'status' => (string) ($follower['status'] ?? ''),
+      'runtime_policy' => (string) ($follower['runtime_policy'] ?? ''),
+      'actor' => $actor,
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    $owner_sheet['#portrait_upload_form'] = NULL;
+    $owner_sheet['#portrait_regenerate_form'] = NULL;
+    $owner_sheet['#edit_url'] = Url::fromRoute('dungeoncrawler_content.character_view', ['character_id' => $character_id], $back_url_options)->toString();
+    $owner_sheet['#continue_url'] = Url::fromRoute('dungeoncrawler_content.character_view', ['character_id' => $character_id], $back_url_options)->toString();
+    $owner_sheet['#archive_url'] = Url::fromRoute('dungeoncrawler_content.character_view', ['character_id' => $character_id], $back_url_options)->toString();
+    $owner_sheet['#launch_url'] = Url::fromRoute('dungeoncrawler_content.character_view', ['character_id' => $character_id], $back_url_options)->toString();
+    $owner_sheet['#tavern_url'] = NULL;
+    $owner_sheet['#campaign_id'] = $campaign_id;
+    $owner_sheet['#effective_campaign_id'] = $campaign_id;
+    $owner_sheet['#back_url'] = Url::fromRoute('dungeoncrawler_content.character_view', ['character_id' => $character_id], $back_url_options)->toString();
+
+    return $owner_sheet;
   }
 
   /**
@@ -1107,86 +1318,11 @@ class CharacterViewController extends ControllerBase {
   }
 
   /**
-   * Build familiar and companion display data for the character sheet.
+   * Build follower display data for the character sheet.
    */
-  private function buildFollowerDisplayData(array $char_data): array {
-    $followers = [];
-    $class_id = strtolower(trim((string) ($char_data['class'] ?? '')));
-    $class_feat = strtolower(trim((string) ($char_data['class_feat'] ?? '')));
-    $subclass = strtolower(trim((string) ($char_data['subclass'] ?? '')));
-    $arcane_thesis = strtolower(trim((string) ($char_data['arcane_thesis'] ?? '')));
-    $feat_selections = is_array($char_data['feat_selections'] ?? NULL) ? $char_data['feat_selections'] : [];
-
-    $familiar = is_array($char_data['familiar'] ?? NULL) ? $char_data['familiar'] : [];
-    $familiar_source = $this->resolveFollowerFamiliarSource($class_id, $class_feat, $subclass, $arcane_thesis);
-    if ($familiar !== []) {
-      $familiar_type = (string) ($familiar['familiar_type'] ?? 'standard');
-      $followers[] = [
-        'kind' => 'Familiar',
-        'status' => 'configured',
-        'name' => trim((string) ($familiar['name'] ?? '')) !== ''
-          ? (string) $familiar['name']
-          : $this->humanizeName($familiar_type === 'standard' ? 'standard familiar' : $familiar_type),
-        'details' => array_values(array_filter([
-          $familiar_type !== 'standard' ? 'Form: ' . $this->humanizeName($familiar_type) : 'Form: Standard familiar',
-          'Abilities: ' . count($familiar['abilities'] ?? []),
-          isset($familiar['max_hp']) ? 'HP: ' . (int) ($familiar['hp'] ?? 0) . '/' . (int) $familiar['max_hp'] : '',
-          !empty($familiar['is_witch_required']) ? 'Class-bound familiar' : '',
-        ])),
-      ];
-    }
-    elseif ($familiar_source !== NULL) {
-      $followers[] = [
-        'kind' => 'Familiar',
-        'status' => 'pending',
-        'name' => 'Pending familiar',
-        'details' => [
-          'Granted by: ' . $this->humanizeName($familiar_source),
-          'Familiar choices have not been saved yet. Revisit Step 4 to configure this follower.',
-        ],
-      ];
-    }
-
-    foreach (['animal-companion', 'animal-companion-druid'] as $source_id) {
-      $selection = is_array($feat_selections[$source_id] ?? NULL) ? $feat_selections[$source_id] : [];
-      $species_id = strtolower(trim((string) ($selection['selected_companion_species'] ?? $selection['species_id'] ?? '')));
-      if ($species_id === '') {
-        continue;
-      }
-      $followers[] = [
-        'kind' => 'Animal Companion',
-        'status' => 'configured',
-        'name' => trim((string) ($selection['name'] ?? '')) !== ''
-          ? (string) $selection['name']
-          : $this->humanizeName($species_id),
-        'details' => array_values(array_filter([
-          'Species: ' . $this->humanizeName($species_id),
-          'Source: ' . $this->humanizeName($source_id),
-        ])),
-      ];
-    }
-
-    return $followers;
-  }
-
-  /**
-   * Resolve whether the current character build should have a familiar.
-   */
-  private function resolveFollowerFamiliarSource(string $class_id, string $class_feat, string $subclass, string $arcane_thesis): ?string {
-    if (in_array($class_feat, ['familiar', 'familiar-druid', 'familiar-sorcerer', 'alchemical-familiar', 'leshy-familiar-druid'], TRUE)) {
-      return $class_feat;
-    }
-    if ($class_id === 'druid' && $subclass === 'leaf') {
-      return 'leshy-familiar-druid';
-    }
-    if ($class_id === 'wizard' && $arcane_thesis === 'improved-familiar-attunement') {
-      return 'improved-familiar-attunement';
-    }
-    if ($class_id === 'witch') {
-      return 'familiar-witch-class';
-    }
-
-    return NULL;
+  private function buildFollowerDisplayData(array $char_data, int $character_id): array {
+    $char_data['character_id'] = $character_id;
+    return $this->followerSubsystem->buildSheetFollowerDisplayData($char_data);
   }
 
   /**
@@ -1465,6 +1601,96 @@ class CharacterViewController extends ControllerBase {
       'range' => (string) ($entry['range'] ?? ''),
       'traits' => is_array($entry['traits'] ?? NULL) ? array_values($entry['traits']) : [],
     ];
+  }
+
+  /**
+   * Resolve portrait URL for a campaign character record.
+   */
+  private function resolveCampaignCharacterPortraitUrl(int $character_id, int $campaign_id = 0, string $legacy_portrait = ''): string {
+    if ($character_id <= 0) {
+      return '';
+    }
+
+    $scope_campaign_id = $campaign_id > 0 ? $campaign_id : NULL;
+    $portraits = $this->imageRepository->loadImagesForObject(
+      'dc_campaign_characters',
+      (string) $character_id,
+      $scope_campaign_id,
+      'portrait',
+      'original'
+    );
+    if (!empty($portraits)) {
+      $resolved = trim((string) $this->imageRepository->resolveClientUrl($portraits[0]));
+      if ($resolved !== '') {
+        return $resolved;
+      }
+    }
+
+    if ($campaign_id > 0) {
+      $global = $this->imageRepository->loadImagesForObject(
+        'dc_campaign_characters',
+        (string) $character_id,
+        NULL,
+        'portrait',
+        'original'
+      );
+      if (!empty($global)) {
+        $resolved = trim((string) $this->imageRepository->resolveClientUrl($global[0]));
+        if ($resolved !== '') {
+          return $resolved;
+        }
+      }
+    }
+
+    $legacy = trim($legacy_portrait);
+    return $legacy !== '' ? $legacy : '';
+  }
+
+  /**
+   * Resolve follower portrait URL from explicit metadata or campaign actor row.
+   */
+  private function resolveFollowerPortraitUrl(array $metadata, array $actor, string $follower_kind, int $campaign_id): string {
+    $explicit = trim((string) ($metadata['portrait_url'] ?? $metadata['portrait'] ?? ''));
+    if ($explicit !== '') {
+      return $explicit;
+    }
+    if ($campaign_id <= 0) {
+      return '';
+    }
+
+    $role = strtolower(trim((string) ($metadata['role'] ?? $actor['role'] ?? $follower_kind)));
+    $display_name = trim((string) ($metadata['display_name'] ?? $metadata['name'] ?? $actor['display_name'] ?? ''));
+
+    $queries = [
+      ['role' => $role, 'name' => $display_name],
+      ['role' => $role, 'name' => ''],
+      ['role' => '', 'name' => $display_name],
+    ];
+    foreach ($queries as $query_shape) {
+      $query = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['id', 'portrait'])
+        ->condition('c.campaign_id', $campaign_id)
+        ->condition('c.type', 'npc')
+        ->range(0, 1)
+        ->orderBy('c.id', 'DESC');
+      if ($query_shape['role'] !== '') {
+        $query->condition('c.role', $query_shape['role']);
+      }
+      if ($query_shape['name'] !== '') {
+        $query->condition('c.name', $query_shape['name']);
+      }
+
+      $match = $query->execute()->fetchObject();
+      if ($match) {
+        return $this->resolveCampaignCharacterPortraitUrl(
+          (int) ($match->id ?? 0),
+          $campaign_id,
+          (string) ($match->portrait ?? '')
+        );
+      }
+    }
+
+    return '';
   }
 
   /**

@@ -1,0 +1,55 @@
+# Never commit raw local Copilot session logs by default
+**/events.jsonl
+**/workspace.yaml
+**/checkpoints/
+
+# Common local artifacts
+.DS_Store
+*.log
+*.tmp
+
+# Runtime state (do not commit)
+tmp/escalation-streaks/
+tmp/site-audit/
+tmp/.last-publish-agent-tracker.epoch
+tmp/org-control.json
+
+# Runtime locks
+**/.exec-lock/
+tmp/.agent-exec-*.lock
+tmp/.agent-exec-*/
+
+# Python bytecode
+**/__pycache__/
+
+# Derived message-bus artifacts
+
+
+# Local LLM — model weights, cache, and venv are never committed
+llm/models/*.gguf
+llm/models/*.bin
+llm/cache/sessions/
+llm/.venv/
+
+# CEO loop runtime
+.ceo-inbox-loop.pid
+.ceo-health-loop.pid
+.agent-exec-loop.pid
+.inbox-loop.pid
+inbox/responses/.ceo-health-last-queue
+.inbox-loop.pid
+.ceo-health-loop.pid
+.agent-exec-loop.pid
+.improvement-round-loop.pid
+.publish-forseti-agent-tracker-loop.pid
+.auto-checkpoint-loop.pid
+.ceo-ops-loop.pid
+llm/__pycache__/
+llm/lib/__pycache__/
+
+# 5) Session audit trail — inbox/outbox/artifacts are tracked (org audit trail).
+# Ignore only volatile runtime pointers (symlinks, latest markers).
+# Note: the blanket sessions/** ignore was removed 2026-04-06 because sessions/
+# are the org's primary audit trail and must be fully tracked in version control.
+sessions/**/artifacts/**/latest
+sessions/**/artifacts/**/latest.*

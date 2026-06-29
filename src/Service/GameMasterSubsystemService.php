@@ -130,6 +130,9 @@ class GameMasterSubsystemService {
     $chat_result['action_contract'] = is_array($action_availability['action_contract'] ?? NULL)
       ? $action_availability['action_contract']
       : NULL;
+    $chat_result['action_option_families'] = is_array($chat_result['action_contract']['action_option_families'] ?? NULL)
+      ? $chat_result['action_contract']['action_option_families']
+      : [];
     if (isset($chat_result['message']) && !is_array($chat_result['message']) && isset($chat_result['speaker'])) {
       $chat_result['message'] = [
         'speaker' => (string) $chat_result['speaker'],
@@ -208,7 +211,7 @@ class GameMasterSubsystemService {
           'speaker' => $speaker,
           'message' => $message,
           'character_id' => $character_id,
-          'defer_npc_interjections' => TRUE,
+          'defer_npc_interjections' => FALSE,
           'suppress_gm' => $suppress_gm,
         ],
       ]

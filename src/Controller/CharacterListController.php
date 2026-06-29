@@ -106,18 +106,7 @@ class CharacterListController extends ControllerBase {
         ])->toString();
       }
 
-      // Load portrait from generated images
-      $portraits = $this->imageRepository->loadImagesForObject(
-        'dc_campaign_characters',
-        (string) $record->id,
-        NULL,
-        'portrait',
-        'original'
-      );
-      $portrait_url = NULL;
-      if (!empty($portraits)) {
-        $portrait_url = $this->imageRepository->resolveClientUrl($portraits[0]);
-      }
+      $portrait_url = $this->resolveCharacterCardPortraitUrl($record);
 
       $subtitle_parts = [];
       $level = (int) ($record->level ?? 0);
@@ -205,7 +194,8 @@ class CharacterListController extends ControllerBase {
       ],
       '#cache' => [
         'contexts' => ['user', 'url.path'],
-        'tags' => ['dc_campaign_characters'],
+        'tags' => ['dc_campaign_characters', 'dc_generated_images', 'dc_generated_image_links'],
+        'max-age' => 0,
       ],
     ];
 
@@ -323,6 +313,79 @@ class CharacterListController extends ControllerBase {
   private function formatCharacterCardLabel(string $value): string {
     $normalized = trim(str_replace(['_', '-'], ' ', strtolower($value)));
     return $normalized === '' ? '' : ucwords($normalized);
+  }
+
+  /**
+   * Resolve portrait URL for character cards from authoritative stored fields.
+   */
+  private function resolveCharacterCardPortraitUrl(object $record): ?string {
+    $record_id = (int) ($record->id ?? 0);
+    if ($record_id > 0) {
+      $campaign_id = (int) ($record->campaign_id ?? 0);
+      if ($campaign_id > 0) {
+        $campaign_rows = $this->imageRepository->loadImagesForObject(
+          'dc_campaign_characters',
+          (string) $record_id,
+          $campaign_id,
+          'portrait',
+          'original'
+        );
+        if (!empty($campaign_rows)) {
+          $resolved = $this->imageRepository->resolveClientUrl($campaign_rows[0]);
+          if (is_string($resolved) && $resolved !== '') {
+            return $resolved;
+          }
+        }
+      }
+
+      $rows = $this->imageRepository->loadImagesForObject(
+        'dc_campaign_characters',
+        (string) $record_id,
+        NULL,
+        'portrait',
+        'original'
+      );
+      if (!empty($rows)) {
+        $resolved = $this->imageRepository->resolveClientUrl($rows[0]);
+        if (is_string($resolved) && $resolved !== '') {
+          return $resolved;
+        }
+      }
+    }
+
+    $direct_portrait = trim((string) ($record->portrait ?? ''));
+    if ($direct_portrait !== '') {
+      return $direct_portrait;
+    }
+
+    $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
+    if (is_array($character_data)) {
+      $inline_portrait = trim((string) ($character_data['portrait_url'] ?? $character_data['portrait'] ?? ''));
+      if ($inline_portrait !== '') {
+        return $inline_portrait;
+      }
+      $basic_info = is_array($character_data['basicInfo'] ?? NULL) ? $character_data['basicInfo'] : [];
+      $basic_info_portrait = trim((string) ($basic_info['portrait_url'] ?? $basic_info['portrait'] ?? ''));
+      if ($basic_info_portrait !== '') {
+        return $basic_info_portrait;
+      }
+    }
+
+    $source_character_id = (int) ($record->source_character_id ?? 0);
+    if ($source_character_id > 0 && $source_character_id !== $record_id) {
+      $source_row = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['portrait'])
+        ->condition('id', $source_character_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      $source_portrait = trim((string) ($source_row['portrait'] ?? ''));
+      if ($source_portrait !== '') {
+        return $source_portrait;
+      }
+    }
+
+    return NULL;
   }
 
 }

@@ -21,6 +21,8 @@ class StorylineManagerService {
   protected CampaignStateService $campaignStateService;
   protected ?StateValidationService $stateValidationService;
   protected ?StorylineRealizationService $storylineRealizationService;
+  protected ?ObjectiveTypeService $objectiveTypeService;
+  protected ?array $canonicalLocationTemplateIndex = NULL;
 
   public function __construct(
     Connection $database,
@@ -28,7 +30,8 @@ class StorylineManagerService {
     UuidInterface $uuid,
     CampaignStateService $campaign_state_service,
     ?StateValidationService $state_validation_service = NULL,
-    ?StorylineRealizationService $storyline_realization_service = NULL
+    ?StorylineRealizationService $storyline_realization_service = NULL,
+    ?ObjectiveTypeService $objective_type_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
@@ -36,6 +39,7 @@ class StorylineManagerService {
     $this->campaignStateService = $campaign_state_service;
     $this->stateValidationService = $state_validation_service;
     $this->storylineRealizationService = $storyline_realization_service;
+    $this->objectiveTypeService = $objective_type_service;
   }
 
   /**
@@ -285,6 +289,19 @@ class StorylineManagerService {
   }
 
   /**
+   * Loads DB-authoritative objective phases for one quest template id.
+   *
+   * @param string $template_id
+   *   Quest template id.
+   *
+   * @return array<int, mixed>|null
+   *   Objective phase payload or NULL when template is missing.
+   */
+  public function getCanonicalQuestTemplateObjectivePhases(string $template_id): ?array {
+    return $this->loadQuestTemplateObjectivePhases($template_id);
+  }
+
+  /**
    * Validate a storyline payload with explicit end-to-end stages.
    *
    * @param array $storyline_data
@@ -330,6 +347,12 @@ class StorylineManagerService {
     $stages['navigation_progression'] = [
       'valid' => $navigation_progression_errors === [],
       'errors' => $navigation_progression_errors,
+    ];
+
+    $objective_control_chain_errors = $this->validateObjectiveControlChainStage($storyline_data, $normalized_payload_type);
+    $stages['objective_control_chain'] = [
+      'valid' => $objective_control_chain_errors === [],
+      'errors' => $objective_control_chain_errors,
     ];
 
     $errors = [];
@@ -757,6 +780,7 @@ class StorylineManagerService {
     $generation_phase = $this->inferStorylineGenerationPhase($definition, $outline, $tags, $chapters);
     $outline['generation_phase'] = $generation_phase;
     $outline['goal'] = trim((string) ($outline['goal'] ?? $goal));
+    $outline['entry_point'] = $this->normalizeStorylineEntryPoint($outline['entry_point'] ?? [], $contacts, $chapters, $asset_references, $definition);
 
     if ($generation_phase === 'bootstrap') {
       $first_chapter = is_array($chapters[0] ?? NULL) ? $chapters[0] : [];
@@ -882,6 +906,221 @@ class StorylineManagerService {
     }
 
     return is_array($contacts[0] ?? NULL) ? $contacts[0] : [];
+  }
+
+  /**
+   * Build an explicit storyline entry-point node for graph validation and UX.
+   */
+  protected function normalizeStorylineEntryPoint(mixed $entry_point, array $contacts, array $chapters, array $asset_references, array $definition): array {
+    $entry_point = is_array($entry_point) ? $entry_point : [];
+
+    $first_chapter = is_array($chapters[0] ?? NULL) ? $chapters[0] : [];
+    $first_scene = is_array($first_chapter['scenes'][0] ?? NULL) ? $first_chapter['scenes'][0] : [];
+    $first_chapter_id = trim((string) ($first_chapter['chapter_id'] ?? ''));
+    $first_scene_id = trim((string) ($first_scene['scene_id'] ?? ''));
+
+    $primary_contact = $this->resolvePrimaryQuestGiverContact($contacts);
+    $primary_relationship = is_array($primary_contact['relationship_state'] ?? NULL) ? $primary_contact['relationship_state'] : [];
+
+    $primary_quest_giver_id = trim((string) (
+      $entry_point['primary_quest_giver_id']
+      ?? $primary_contact['entity_id']
+      ?? $definition['primary_quest_giver_id']
+      ?? ''
+    ));
+    $primary_quest_giver_name = trim((string) (
+      $entry_point['primary_quest_giver_name']
+      ?? $primary_contact['display_name']
+      ?? $definition['primary_quest_giver_name']
+      ?? ''
+    ));
+    $primary_chapter_id = trim((string) (
+      $entry_point['primary_chapter_id']
+      ?? $primary_relationship['chapter_id']
+      ?? $first_chapter_id
+    ));
+    $primary_scene_id = trim((string) (
+      $entry_point['primary_scene_id']
+      ?? $primary_relationship['scene_id']
+      ?? $first_scene_id
+    ));
+    $primary_location_id = trim((string) (
+      $entry_point['primary_location_id']
+      ?? $definition['primary_location_id']
+      ?? $primary_relationship['location_id']
+      ?? ''
+    ));
+    if ($primary_location_id === '') {
+      $primary_location_id = $this->resolveEntryPointPrimaryLocationId($asset_references, $primary_chapter_id, $primary_scene_id);
+    }
+    $primary_dungeon_id = trim((string) (
+      $entry_point['primary_dungeon_id']
+      ?? $definition['primary_dungeon_id']
+      ?? ($definition['metadata']['generated_outline']['entry_dungeon']['dungeon_id'] ?? '')
+    ));
+    if ($primary_dungeon_id === '') {
+      $primary_dungeon_id = $this->resolveEntryPointPrimaryDungeonId($asset_references, $primary_chapter_id, $primary_scene_id);
+    }
+    if ($primary_dungeon_id === '') {
+      $primary_dungeon_id = $primary_chapter_id;
+    }
+
+    $broker_contact = $this->resolveBrokerContactForQuestGiver($contacts, $primary_quest_giver_id);
+    $broker_id = trim((string) ($entry_point['broker_id'] ?? $broker_contact['entity_id'] ?? ''));
+    $broker_name = trim((string) ($entry_point['broker_name'] ?? $broker_contact['display_name'] ?? ''));
+    if ($primary_quest_giver_id !== '' && $broker_id === $primary_quest_giver_id) {
+      $broker_id = '';
+      $broker_name = '';
+    }
+    $introduction_path = strtolower(trim((string) ($entry_point['introduction_path'] ?? ($broker_id !== '' ? 'brokered' : 'direct'))));
+    if (!in_array($introduction_path, ['direct', 'brokered'], TRUE)) {
+      $introduction_path = $broker_id !== '' ? 'brokered' : 'direct';
+    }
+
+    $detail_summary = trim((string) (
+      $entry_point['detail_summary']
+      ?? $definition['entry_detail_summary']
+      ?? ($primary_quest_giver_name !== ''
+        ? "{$primary_quest_giver_name} briefs the party on the storyline details."
+        : 'The primary quest giver briefs the party on the storyline details.')
+    ));
+
+    return [
+      'primary_quest_giver_id' => $primary_quest_giver_id,
+      'primary_quest_giver_name' => $primary_quest_giver_name,
+      'primary_dungeon_id' => $primary_dungeon_id,
+      'primary_chapter_id' => $primary_chapter_id,
+      'primary_scene_id' => $primary_scene_id,
+      'primary_location_id' => $primary_location_id,
+      'broker_id' => $broker_id,
+      'broker_name' => $broker_name,
+      'introduction_path' => $introduction_path,
+      'detail_summary' => $detail_summary,
+    ];
+  }
+
+  /**
+   * Resolve the best room/location asset id for the primary entry-point anchor.
+   */
+  protected function resolveEntryPointPrimaryLocationId(array $asset_references, string $chapter_id, string $scene_id): string {
+    $chapter_id = trim($chapter_id);
+    $scene_id = trim($scene_id);
+
+    foreach ($asset_references as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if (!in_array($asset_type, ['room', 'location'], TRUE) || $asset_id === '') {
+        continue;
+      }
+      if (
+        ($chapter_id === '' || trim((string) ($reference['chapter_id'] ?? '')) === $chapter_id)
+        && ($scene_id === '' || trim((string) ($reference['scene_id'] ?? '')) === $scene_id)
+      ) {
+        return $asset_id;
+      }
+    }
+
+    foreach ($asset_references as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if (!in_array($asset_type, ['room', 'location'], TRUE) || $asset_id === '') {
+        continue;
+      }
+      if ($chapter_id !== '' && trim((string) ($reference['chapter_id'] ?? '')) === $chapter_id) {
+        return $asset_id;
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Resolve the canonical dungeon id for the primary entry-point anchor.
+   */
+  protected function resolveEntryPointPrimaryDungeonId(array $asset_references, string $chapter_id, string $scene_id): string {
+    $chapter_id = trim($chapter_id);
+    $scene_id = trim($scene_id);
+
+    foreach ($asset_references as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_type !== 'dungeon' || $asset_id === '') {
+        continue;
+      }
+      if (
+        ($chapter_id === '' || trim((string) ($reference['chapter_id'] ?? '')) === $chapter_id)
+        && ($scene_id === '' || trim((string) ($reference['scene_id'] ?? '')) === $scene_id || trim((string) ($reference['scene_id'] ?? '')) === '')
+      ) {
+        return $asset_id;
+      }
+    }
+
+    foreach ($asset_references as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_type !== 'dungeon' || $asset_id === '') {
+        continue;
+      }
+      if ($chapter_id !== '' && trim((string) ($reference['chapter_id'] ?? '')) === $chapter_id) {
+        return $asset_id;
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Resolve the preferred broker contact for one primary quest giver.
+   */
+  protected function resolveBrokerContactForQuestGiver(array $contacts, string $primary_quest_giver_id): array {
+    $primary_quest_giver_id = trim($primary_quest_giver_id);
+
+    foreach ($contacts as $contact) {
+      if (!is_array($contact) || (string) ($contact['role'] ?? '') !== 'broker') {
+        continue;
+      }
+      if ($primary_quest_giver_id !== '' && $this->doesBrokerIntroduceContact($contact, $primary_quest_giver_id)) {
+        return $contact;
+      }
+    }
+
+    foreach ($contacts as $contact) {
+      if (is_array($contact) && (string) ($contact['role'] ?? '') === 'broker') {
+        return $contact;
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Determine whether a broker contact explicitly introduces one entity id.
+   */
+  protected function doesBrokerIntroduceContact(array $broker_contact, string $target_entity_id): bool {
+    $target_entity_id = trim($target_entity_id);
+    if ($target_entity_id === '') {
+      return FALSE;
+    }
+
+    foreach (array_values(array_filter(is_array($broker_contact['introduces_to'] ?? NULL) ? $broker_contact['introduces_to'] : [], 'is_array')) as $introduction) {
+      if (trim((string) ($introduction['entity_id'] ?? '')) === $target_entity_id) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
@@ -1281,7 +1520,72 @@ class StorylineManagerService {
       ];
     }
 
+    $this->ensureBrokerIntroductions($normalized);
+
     return array_values($normalized);
+  }
+
+  /**
+   * Ensure every broker explicitly introduces at least one quest-giver contact.
+   */
+  protected function ensureBrokerIntroductions(array &$contacts): void {
+    $quest_givers = [];
+    foreach ($contacts as $contact) {
+      if (!is_array($contact) || (string) ($contact['role'] ?? '') !== 'quest_giver') {
+        continue;
+      }
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_id === '') {
+        continue;
+      }
+      $quest_givers[$entity_id] = [
+        'entity_type' => (string) ($contact['entity_type'] ?? 'npc_template'),
+        'entity_id' => $entity_id,
+        'display_name' => trim((string) ($contact['display_name'] ?? '')),
+        'attitude' => (string) ($contact['attitude'] ?? 'friendly'),
+      ];
+    }
+
+    if ($quest_givers === []) {
+      return;
+    }
+
+    foreach ($contacts as &$contact) {
+      if (!is_array($contact) || (string) ($contact['role'] ?? '') !== 'broker') {
+        continue;
+      }
+
+      $introductions = array_values(array_filter(is_array($contact['introduces_to'] ?? NULL) ? $contact['introduces_to'] : [], 'is_array'));
+      $existing_keys = [];
+      foreach ($introductions as $introduction) {
+        $key = trim((string) ($introduction['entity_type'] ?? '')) . '|' . trim((string) ($introduction['entity_id'] ?? ''));
+        if ($key !== '|') {
+          $existing_keys[$key] = TRUE;
+        }
+      }
+
+      foreach ($quest_givers as $quest_giver) {
+        if ((string) ($contact['entity_id'] ?? '') === (string) ($quest_giver['entity_id'] ?? '')) {
+          continue;
+        }
+        $introduction_key = trim((string) ($quest_giver['entity_type'] ?? '')) . '|' . (string) ($quest_giver['entity_id'] ?? '');
+        if ($introduction_key === '|' || isset($existing_keys[$introduction_key])) {
+          continue;
+        }
+        $introductions[] = [
+          'entity_type' => (string) ($quest_giver['entity_type'] ?? 'npc_template'),
+          'entity_id' => (string) ($quest_giver['entity_id'] ?? ''),
+          'relationship_type' => 'knows',
+          'attitude' => (string) ($quest_giver['attitude'] ?? 'friendly'),
+          'display_name' => (string) ($quest_giver['display_name'] ?? ''),
+          'notes' => 'Broker introduction to the primary quest-giver path.',
+          'relationship_state' => ['derived' => TRUE],
+        ];
+      }
+
+      $contact['introduces_to'] = $introductions;
+    }
+    unset($contact);
   }
 
   /**
@@ -1622,6 +1926,905 @@ class StorylineManagerService {
   }
 
   /**
+   * Validate quest objective control-chain integrity for definition/runtime payloads.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateObjectiveControlChainStage(array $storyline_data, string $payload_type): array {
+    if ($this->objectiveTypeService === NULL) {
+      return [];
+    }
+
+    $errors = [];
+    $quest_ids = $this->collectStorylineQuestIdsForObjectiveValidation($storyline_data);
+    if ($quest_ids === []) {
+      return [];
+    }
+
+    $anchors = $this->collectObjectiveReferenceAnchors($storyline_data);
+    foreach ($quest_ids as $quest_id) {
+      if ($payload_type === 'runtime') {
+        try {
+          $runtime_payload = $this->loadRuntimeQuestObjectivePayload($quest_id);
+        }
+        catch (\Throwable $exception) {
+          $errors[] = "Runtime objective validation for quest '{$quest_id}' failed to load runtime payload: {$exception->getMessage()}";
+          continue;
+        }
+
+        if ($runtime_payload !== NULL) {
+          $generated = $runtime_payload['generated_objectives'];
+          if ($generated === []) {
+            $errors[] = "Runtime quest '{$quest_id}' is missing generated_objectives.";
+          }
+          else {
+            $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
+              $generated,
+              $anchors,
+              "runtime quest '{$quest_id}' generated_objectives"
+            ));
+          }
+
+          $states = $runtime_payload['objective_states'] !== []
+            ? $runtime_payload['objective_states']
+            : $generated;
+          if ($states !== []) {
+            $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
+              $states,
+              $anchors,
+              "runtime quest '{$quest_id}' objective_states"
+            ));
+            $errors = array_merge($errors, $this->validateRuntimeObjectiveStateAlignment(
+              $generated,
+              $states,
+              $quest_id
+            ));
+          }
+
+          continue;
+        }
+      }
+
+      try {
+        $template_objectives = $this->loadQuestTemplateObjectivePhases($quest_id);
+      }
+      catch (\Throwable $exception) {
+        $errors[] = "Objective validation for quest template '{$quest_id}' failed: {$exception->getMessage()}";
+        continue;
+      }
+
+      if ($template_objectives === NULL) {
+        $errors[] = "Quest '{$quest_id}' is missing canonical quest template objectives for objective control-chain validation.";
+        continue;
+      }
+      if ($template_objectives === []) {
+        $errors[] = "Quest template '{$quest_id}' has an empty objectives_schema payload.";
+        continue;
+      }
+
+      $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
+        $template_objectives,
+        $anchors,
+        "quest template '{$quest_id}' objectives_schema"
+      ));
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate one quest objective set for structure, references, and control-chain.
+   *
+   * @param array<int, mixed> $objective_phases
+   *   Objective phases payload (definition/runtime shape).
+   * @param array<string, array<string, bool>> $anchors
+   *   Allowed storyline anchors by category.
+   * @param string $path
+   *   Human-readable context path for error messages.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateQuestObjectiveControlChain(array $objective_phases, array $anchors, string $path): array {
+    if ($this->objectiveTypeService === NULL) {
+      return [];
+    }
+
+    $errors = $this->objectiveTypeService->validateObjectivePhases($objective_phases, $path);
+    $graph = $this->buildQuestObjectiveControlGraph($objective_phases, $path);
+    $errors = array_merge($errors, $graph['errors']);
+
+    /** @var array<string, array<string, mixed>> $nodes */
+    $nodes = $graph['nodes'];
+    /** @var array<string, array<int, string>> $depends_on */
+    $depends_on = $graph['depends_on'];
+    /** @var array<string, array<int, string>> $unlocks_to */
+    $unlocks_to = $graph['unlocks_to'];
+
+    foreach ($nodes as $objective_id => $node) {
+      $node_path = (string) ($node['path'] ?? $path);
+      $objective = is_array($node['objective'] ?? NULL) ? $node['objective'] : [];
+
+      $errors = array_merge($errors, $this->validateObjectiveCompletionCriteriaContract($objective, $node_path));
+      $errors = array_merge($errors, $this->validateObjectiveHowTriggerContract(
+        $objective,
+        $node_path,
+        !empty($node['requires_player_interaction'])
+      ));
+
+      if (!empty($node['target_ref']) && !isset($anchors['target_ids'][(string) $node['target_ref']])) {
+        $errors[] = "{$node_path}: target '{$node['target_ref']}' is not anchored to storyline contacts/assets.";
+      }
+      if (!empty($node['item_ref']) && !isset($anchors['item_ids'][(string) $node['item_ref']])) {
+        $errors[] = "{$node_path}: item '{$node['item_ref']}' is not anchored to storyline item assets.";
+      }
+      if (!empty($node['location_ref']) && !isset($anchors['location_ids'][(string) $node['location_ref']])) {
+        $errors[] = "{$node_path}: location_id '{$node['location_ref']}' is not anchored to storyline rooms/scenes.";
+      }
+      if (!empty($node['destination_ref']) && !isset($anchors['location_ids'][(string) $node['destination_ref']])) {
+        $errors[] = "{$node_path}: destination_id '{$node['destination_ref']}' is not anchored to storyline rooms/scenes.";
+      }
+
+      if (!empty($node['requires_player_interaction'])) {
+        $unlocked_by = $depends_on[$objective_id] ?? [];
+        $unlocks = $unlocks_to[$objective_id] ?? [];
+        if ($unlocked_by === []) {
+          $unlocked_by = ['quest_start'];
+        }
+        if ($unlocks === []) {
+          $unlocks = ['quest_completion'];
+        }
+        if ($unlocked_by === []) {
+          $errors[] = "{$node_path}: interaction objective is missing unlocked-by control-chain linkage.";
+        }
+        if ($unlocks === []) {
+          $errors[] = "{$node_path}: interaction objective is missing unlocks-to control-chain linkage.";
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Build objective dependency/unlock graph and validate dependency integrity.
+   *
+   * @param array<int, mixed> $objective_phases
+   *   Objective phase payload.
+   * @param string $path
+   *   Human-readable context path for error messages.
+   *
+   * @return array{
+   *   nodes: array<string, array<string, mixed>>,
+   *   depends_on: array<string, array<int, string>>,
+   *   unlocks_to: array<string, array<int, string>>,
+   *   errors: array<int, string>
+   * }
+   *   Graph nodes/edges plus validation errors.
+   */
+  protected function buildQuestObjectiveControlGraph(array $objective_phases, string $path): array {
+    $nodes = [];
+    $errors = [];
+
+    /** @var array<int, string> $ordered_ids */
+    $ordered_ids = [];
+    /** @var array<string, array<int, string>> $explicit_unlocks */
+    $explicit_unlocks = [];
+
+    foreach ($objective_phases as $phase_index => $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $phase_label = isset($phase['phase']) && is_numeric($phase['phase']) ? (int) $phase['phase'] : ($phase_index + 1);
+      $phase_objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      $this->collectObjectiveGraphNodes(
+        $phase_objectives,
+        "phases[{$phase_index}].objectives",
+        $phase_label,
+        $nodes,
+        $ordered_ids,
+        $explicit_unlocks,
+        $errors
+      );
+    }
+
+    /** @var array<string, array<int, string>> $depends_on */
+    $depends_on = [];
+    foreach ($nodes as $objective_id => $node) {
+      $depends_on[$objective_id] = is_array($node['depends_on'] ?? NULL) ? $node['depends_on'] : [];
+    }
+
+    foreach ($ordered_ids as $index => $objective_id) {
+      if (!isset($depends_on[$objective_id])) {
+        $depends_on[$objective_id] = [];
+      }
+      if ($depends_on[$objective_id] === [] && $index > 0) {
+        $depends_on[$objective_id][] = $ordered_ids[$index - 1];
+      }
+    }
+
+    foreach ($explicit_unlocks as $source_objective_id => $targets) {
+      foreach ($targets as $target_objective_id) {
+        if (!isset($nodes[$target_objective_id])) {
+          $source_path = (string) ($nodes[$source_objective_id]['path'] ?? $path);
+          $errors[] = "{$source_path}: unlock target '{$target_objective_id}' does not exist in the quest objective graph.";
+          continue;
+        }
+        $depends_on[$target_objective_id][] = $source_objective_id;
+      }
+    }
+
+    foreach ($depends_on as $objective_id => $dependencies) {
+      $normalized_dependencies = [];
+      $node_path = (string) ($nodes[$objective_id]['path'] ?? $path);
+      foreach ($dependencies as $dependency_id) {
+        $dependency_id = trim((string) $dependency_id);
+        if ($dependency_id === '') {
+          continue;
+        }
+        if ($dependency_id === $objective_id) {
+          $errors[] = "{$node_path}: objective cannot depend on itself.";
+          continue;
+        }
+        if (!isset($nodes[$dependency_id])) {
+          $errors[] = "{$node_path}: depends_on references unknown objective '{$dependency_id}'.";
+          continue;
+        }
+        $normalized_dependencies[] = $dependency_id;
+      }
+      $depends_on[$objective_id] = array_values(array_unique($normalized_dependencies));
+    }
+
+    $unlocks_to = [];
+    foreach ($depends_on as $objective_id => $dependencies) {
+      foreach ($dependencies as $dependency_id) {
+        $unlocks_to[$dependency_id][] = $objective_id;
+      }
+    }
+    foreach ($unlocks_to as $objective_id => $targets) {
+      $unlocks_to[$objective_id] = array_values(array_unique(array_map('strval', $targets)));
+    }
+
+    if ($nodes !== []) {
+      $errors = array_merge($errors, $this->validateObjectiveDependencyAcyclic($depends_on, $nodes, $path));
+      $errors = array_merge($errors, $this->validateObjectiveDependencyReachability($depends_on, $unlocks_to, $nodes, $path));
+    }
+
+    return [
+      'nodes' => $nodes,
+      'depends_on' => $depends_on,
+      'unlocks_to' => $unlocks_to,
+      'errors' => array_values(array_unique($errors)),
+    ];
+  }
+
+  /**
+   * Collect objective nodes recursively into one flattened graph payload.
+   *
+   * @param array<int, mixed> $objectives
+   *   Objective definitions.
+   * @param string $path_prefix
+   *   Path prefix for error reporting.
+   * @param int $phase
+   *   Objective phase number.
+   * @param array<string, array<string, mixed>> $nodes
+   *   Node map (mutated).
+   * @param array<int, string> $ordered_ids
+   *   Objective ids in deterministic order (mutated).
+   * @param array<string, array<int, string>> $explicit_unlocks
+   *   Explicit unlock edges keyed by source objective id (mutated).
+   * @param array<int, string> $errors
+   *   Validation errors (mutated).
+   * @param string $parent_id
+   *   Optional parent objective id for nested objective trees.
+   */
+  protected function collectObjectiveGraphNodes(
+    array $objectives,
+    string $path_prefix,
+    int $phase,
+    array &$nodes,
+    array &$ordered_ids,
+    array &$explicit_unlocks,
+    array &$errors,
+    string $parent_id = ''
+  ): void {
+    foreach ($objectives as $index => $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+
+      $node_path = "{$path_prefix}[{$index}]";
+      $objective_id = trim((string) ($objective['objective_id'] ?? $objective['id'] ?? ''));
+      if ($objective_id === '') {
+        $errors[] = "{$node_path}: missing objective_id.";
+        continue;
+      }
+      if (isset($nodes[$objective_id])) {
+        $errors[] = "{$node_path}: duplicate objective_id '{$objective_id}' in quest objective graph.";
+        continue;
+      }
+
+      $dependency_ids = array_values(array_filter(array_map('strval', is_array($objective['depends_on'] ?? NULL) ? $objective['depends_on'] : []), static fn(string $id): bool => trim($id) !== ''));
+      if ($parent_id !== '') {
+        $dependency_ids[] = $parent_id;
+      }
+      $dependency_ids = array_values(array_unique($dependency_ids));
+
+      $unlock_targets = array_values(array_filter(array_map('strval', is_array($objective['unlocks_to'] ?? ($objective['unlocks'] ?? NULL)) ? ($objective['unlocks_to'] ?? $objective['unlocks']) : []), static fn(string $id): bool => trim($id) !== ''));
+      $type = strtolower(trim((string) ($objective['type'] ?? '')));
+      $target_ref = trim((string) ($objective['target'] ?? ''));
+      $item_ref = trim((string) ($objective['item'] ?? ''));
+      $location_ref = trim((string) ($objective['location_id'] ?? ''));
+      $destination_ref = trim((string) ($objective['destination_id'] ?? ''));
+      $requires_player_interaction = $target_ref !== ''
+        || $item_ref !== ''
+        || $location_ref !== ''
+        || $destination_ref !== ''
+        || in_array($type, ['interact', 'collect', 'explore', 'escort', 'investigate', 'kill'], TRUE);
+
+      $nodes[$objective_id] = [
+        'objective' => $objective,
+        'path' => $node_path,
+        'phase' => $phase,
+        'depends_on' => $dependency_ids,
+        'target_ref' => $target_ref,
+        'item_ref' => $item_ref,
+        'location_ref' => $location_ref,
+        'destination_ref' => $destination_ref,
+        'requires_player_interaction' => $requires_player_interaction,
+      ];
+      $ordered_ids[] = $objective_id;
+
+      if ($unlock_targets !== []) {
+        $explicit_unlocks[$objective_id] = $unlock_targets;
+      }
+
+      $children = $this->objectiveTypeService?->extractNestedObjectiveDefinitions($objective) ?? [];
+      if ($children !== []) {
+        $this->collectObjectiveGraphNodes(
+          $children,
+          "{$node_path}.children",
+          $phase,
+          $nodes,
+          $ordered_ids,
+          $explicit_unlocks,
+          $errors,
+          $objective_id
+        );
+      }
+    }
+  }
+
+  /**
+   * Validate objective dependency graph has no cycles.
+   *
+   * @param array<string, array<int, string>> $depends_on
+   *   Objective dependency graph.
+   * @param array<string, array<string, mixed>> $nodes
+   *   Objective node metadata.
+   * @param string $path
+   *   Human-readable context path.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateObjectiveDependencyAcyclic(array $depends_on, array $nodes, string $path): array {
+    $errors = [];
+    $visit_state = [];
+
+    $visit = function (string $objective_id, array $trail = []) use (&$visit, &$visit_state, &$depends_on, &$errors, &$nodes, $path): void {
+      $state = $visit_state[$objective_id] ?? 0;
+      if ($state === 2) {
+        return;
+      }
+      if ($state === 1) {
+        $cycle = array_merge($trail, [$objective_id]);
+        $node_path = (string) ($nodes[$objective_id]['path'] ?? $path);
+        $errors[] = "{$node_path}: objective dependency cycle detected (" . implode(' -> ', $cycle) . ").";
+        return;
+      }
+
+      $visit_state[$objective_id] = 1;
+      $next_trail = array_merge($trail, [$objective_id]);
+      foreach ($depends_on[$objective_id] ?? [] as $dependency_id) {
+        if (!isset($depends_on[$dependency_id])) {
+          continue;
+        }
+        $visit($dependency_id, $next_trail);
+      }
+      $visit_state[$objective_id] = 2;
+    };
+
+    foreach (array_keys($nodes) as $objective_id) {
+      if (($visit_state[$objective_id] ?? 0) === 0) {
+        $visit($objective_id);
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate objective graph has a connected chain from roots to each node.
+   *
+   * @param array<string, array<int, string>> $depends_on
+   *   Objective dependency graph.
+   * @param array<string, array<int, string>> $unlocks_to
+   *   Objective unlock graph.
+   * @param array<string, array<string, mixed>> $nodes
+   *   Objective node metadata.
+   * @param string $path
+   *   Human-readable context path.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateObjectiveDependencyReachability(array $depends_on, array $unlocks_to, array $nodes, string $path): array {
+    $roots = [];
+    foreach ($depends_on as $objective_id => $dependencies) {
+      if ($dependencies === []) {
+        $roots[] = $objective_id;
+      }
+    }
+
+    if ($roots === []) {
+      return ["{$path}: objective dependency graph has no root objective (every objective is blocked)."];
+    }
+
+    $visited = [];
+    $stack = array_values($roots);
+    while ($stack !== []) {
+      $current = array_pop($stack);
+      if (!is_string($current) || $current === '' || isset($visited[$current])) {
+        continue;
+      }
+      $visited[$current] = TRUE;
+      foreach ($unlocks_to[$current] ?? [] as $target_id) {
+        if (!isset($visited[$target_id])) {
+          $stack[] = $target_id;
+        }
+      }
+    }
+
+    $errors = [];
+    foreach (array_keys($nodes) as $objective_id) {
+      if (!isset($visited[$objective_id])) {
+        $node_path = (string) ($nodes[$objective_id]['path'] ?? $path);
+        $errors[] = "{$node_path}: objective is disconnected from the control chain roots.";
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate completion_criteria contract fields for one objective.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective payload.
+   * @param string $path
+   *   Objective path for error reporting.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateObjectiveCompletionCriteriaContract(array $objective, string $path): array {
+    $criteria = $objective['completion_criteria'] ?? NULL;
+    if (!is_array($criteria)) {
+      return ["{$path}: missing completion_criteria contract object."];
+    }
+
+    $errors = [];
+    $kind = strtolower(trim((string) ($criteria['kind'] ?? '')));
+    if (!in_array($kind, ['count', 'flag', 'all_children'], TRUE)) {
+      $errors[] = "{$path}: completion_criteria.kind must be one of count, flag, all_children.";
+    }
+
+    $metric = trim((string) ($criteria['metric'] ?? ''));
+    if ($metric === '') {
+      $errors[] = "{$path}: completion_criteria.metric is required.";
+    }
+
+    $description = trim((string) ($criteria['description'] ?? ''));
+    if ($description === '') {
+      $errors[] = "{$path}: completion_criteria.description is required.";
+    }
+
+    if ($kind === 'count') {
+      $target_count = $criteria['target_count'] ?? ($objective['target_count'] ?? NULL);
+      if (!is_numeric($target_count) || (int) $target_count < 1) {
+        $errors[] = "{$path}: count completion criteria requires target_count >= 1.";
+      }
+    }
+    elseif (array_key_exists('required_value', $criteria) && !is_bool($criteria['required_value'])) {
+      $errors[] = "{$path}: completion_criteria.required_value must be boolean when provided.";
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Validate objective HOW trigger contract for player-executed actions.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective payload.
+   * @param string $path
+   *   Objective path for error reporting.
+   * @param bool $requires_player_interaction
+   *   Whether this objective requires player interaction to progress.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateObjectiveHowTriggerContract(array $objective, string $path, bool $requires_player_interaction): array {
+    if (!$requires_player_interaction) {
+      return [];
+    }
+
+    $next_step = trim((string) ($objective['next_step'] ?? ''));
+    if ($next_step !== '') {
+      return [];
+    }
+
+    return ["{$path}: next_step HOW trigger is required for player-action objectives."];
+  }
+
+  /**
+   * Validate runtime objective states align with generated objective node ids.
+   *
+   * @param array<int, mixed> $generated_objectives
+   *   Generated objective phases.
+   * @param array<int, mixed> $objective_states
+   *   Runtime objective state phases.
+   * @param string $quest_id
+   *   Runtime quest id.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateRuntimeObjectiveStateAlignment(array $generated_objectives, array $objective_states, string $quest_id): array {
+    $generated_ids = $this->collectObjectiveIdsFromPhases($generated_objectives);
+    $state_ids = $this->collectObjectiveIdsFromPhases($objective_states);
+    $errors = [];
+
+    foreach (array_keys($generated_ids) as $objective_id) {
+      if (!isset($state_ids[$objective_id])) {
+        $errors[] = "Runtime quest '{$quest_id}' objective_states is missing objective '{$objective_id}' from generated_objectives.";
+      }
+    }
+    foreach (array_keys($state_ids) as $objective_id) {
+      if (!isset($generated_ids[$objective_id])) {
+        $errors[] = "Runtime quest '{$quest_id}' objective_states contains unknown objective '{$objective_id}'.";
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Collect objective ids recursively from phased objective payloads.
+   *
+   * @param array<int, mixed> $phases
+   *   Objective phases.
+   *
+   * @return array<string, bool>
+   *   Objective id set.
+   */
+  protected function collectObjectiveIdsFromPhases(array $phases): array {
+    $ids = [];
+    foreach ($phases as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+        $this->collectObjectiveIdsRecursively($objective, $ids);
+      }
+    }
+
+    return $ids;
+  }
+
+  /**
+   * Collect one objective id and nested child objective ids.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective payload.
+   * @param array<string, bool> $ids
+   *   Objective id set (mutated).
+   */
+  protected function collectObjectiveIdsRecursively(array $objective, array &$ids): void {
+    $objective_id = trim((string) ($objective['objective_id'] ?? $objective['id'] ?? ''));
+    if ($objective_id !== '') {
+      $ids[$objective_id] = TRUE;
+    }
+
+    foreach ($this->objectiveTypeService?->extractNestedObjectiveDefinitions($objective) ?? [] as $child) {
+      if (is_array($child)) {
+        $this->collectObjectiveIdsRecursively($child, $ids);
+      }
+    }
+  }
+
+  /**
+   * Load canonical objective phases for one quest template.
+   *
+   * Source-of-truth rule: dungeoncrawler_content_quest_templates in DB is
+   * authoritative. File templates are not a runtime fallback path.
+   *
+   * @param string $template_id
+   *   Quest template id.
+   *
+   * @return array<int, mixed>|null
+   *   Objective phase payload or NULL when template is missing.
+   */
+  protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+    $template_id = trim($template_id);
+    if ($template_id === '') {
+      return NULL;
+    }
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_quest_templates')) {
+      throw new \RuntimeException(
+        'Canonical quest template table dungeoncrawler_content_quest_templates is required as the system of record for objective validation. ' .
+        'No file-based fallback is permitted. JSON template files are reference material for repairing DB state only.'
+      );
+    }
+    if (!$schema->fieldExists('dungeoncrawler_content_quest_templates', 'objectives_schema')) {
+      throw new \RuntimeException(
+        'Canonical quest template table dungeoncrawler_content_quest_templates is missing required objectives_schema column.'
+      );
+    }
+
+    $row = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+      ->fields('t', ['objectives_schema'])
+      ->condition('template_id', $template_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return NULL;
+    }
+
+    return $this->decodeJsonArrayValue($row['objectives_schema'] ?? NULL);
+  }
+
+  /**
+   * Load runtime objective payload for one campaign quest id.
+   *
+   * @param string $quest_id
+   *   Runtime quest id.
+   *
+   * @return array{
+   *   source_template_id: string,
+   *   generated_objectives: array<int, mixed>,
+   *   objective_states: array<int, mixed>
+   * }|null
+   *   Runtime objective payload or NULL when quest row is not found.
+   */
+  protected function loadRuntimeQuestObjectivePayload(string $quest_id): ?array {
+    $quest_id = trim($quest_id);
+    if ($quest_id === '') {
+      return NULL;
+    }
+
+    $schema = $this->database->schema();
+    $has_generated_objectives = $schema->fieldExists('dc_campaign_quests', 'generated_objectives');
+    $has_objective_states = $schema->fieldExists('dc_campaign_quests', 'objective_states');
+
+    $quest_fields = ['source_template_id'];
+    if ($has_generated_objectives) {
+      $quest_fields[] = 'generated_objectives';
+    }
+    if ($has_objective_states) {
+      $quest_fields[] = 'objective_states';
+    }
+
+    $row = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', $quest_fields)
+      ->condition('quest_id', $quest_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return NULL;
+    }
+
+    $generated_objectives = $has_generated_objectives
+      ? $this->decodeJsonArrayValue($row['generated_objectives'] ?? NULL)
+      : [];
+    $objective_states = $has_objective_states
+      ? $this->decodeJsonArrayValue($row['objective_states'] ?? NULL)
+      : [];
+
+    if ($objective_states === []) {
+      $objective_states = $this->loadQuestProgressObjectiveStates($quest_id);
+    }
+    if ($objective_states === []) {
+      $objective_states = $generated_objectives;
+    }
+
+    return [
+      'source_template_id' => trim((string) ($row['source_template_id'] ?? '')),
+      'generated_objectives' => $generated_objectives,
+      'objective_states' => $objective_states,
+    ];
+  }
+
+  /**
+   * Load objective states from quest progress when quest rows do not store them.
+   *
+   * @return array<int, mixed>
+   *   Objective states from progress storage.
+   */
+  protected function loadQuestProgressObjectiveStates(string $quest_id): array {
+    $quest_id = trim($quest_id);
+    if ($quest_id === '') {
+      return [];
+    }
+
+    $schema = $this->database->schema();
+    if (
+      !$schema->tableExists('dc_quest_progress')
+      || !$schema->fieldExists('dc_quest_progress', 'objective_states')
+    ) {
+      return [];
+    }
+
+    $row = $this->database->select('dc_quest_progress', 'qp')
+      ->fields('qp', ['objective_states'])
+      ->condition('quest_id', $quest_id)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($row)) {
+      return [];
+    }
+
+    return $this->decodeJsonArrayValue($row['objective_states'] ?? NULL);
+  }
+
+  /**
+   * Collect quest ids referenced by storyline graph structures.
+   *
+   * @param array<string, mixed> $storyline_data
+   *   Storyline payload.
+   *
+   * @return array<int, string>
+   *   Deduplicated quest id list.
+   */
+  protected function collectStorylineQuestIdsForObjectiveValidation(array $storyline_data): array {
+    $quest_ids = [];
+    foreach ((array) ($storyline_data['linked_quests'] ?? []) as $quest_key => $quest_link) {
+      $quest_key = trim((string) $quest_key);
+      if ($quest_key !== '') {
+        $quest_ids[$quest_key] = TRUE;
+      }
+      if (is_array($quest_link)) {
+        $quest_id = trim((string) ($quest_link['quest_id'] ?? ''));
+        if ($quest_id !== '') {
+          $quest_ids[$quest_id] = TRUE;
+        }
+      }
+    }
+
+    foreach (array_values(array_filter(array_map('strval', is_array($storyline_data['questline']['ordered_quest_ids'] ?? NULL) ? $storyline_data['questline']['ordered_quest_ids'] : []), static fn(string $id): bool => trim($id) !== '')) as $quest_id) {
+      $quest_ids[$quest_id] = TRUE;
+    }
+
+    foreach (array_values(array_filter(is_array($storyline_data['questline']['quest_nodes'] ?? NULL) ? $storyline_data['questline']['quest_nodes'] : [], 'is_array')) as $quest_node) {
+      $quest_id = trim((string) ($quest_node['quest_id'] ?? ''));
+      if ($quest_id !== '') {
+        $quest_ids[$quest_id] = TRUE;
+      }
+    }
+
+    foreach (array_values(array_filter(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : [], 'is_array')) as $chapter) {
+      foreach (array_values(array_filter(array_map('strval', is_array($chapter['quest_ids'] ?? NULL) ? $chapter['quest_ids'] : []), static fn(string $id): bool => trim($id) !== '')) as $quest_id) {
+        $quest_ids[$quest_id] = TRUE;
+      }
+      foreach (array_values(array_filter(is_array($chapter['scenes'] ?? NULL) ? $chapter['scenes'] : [], 'is_array')) as $scene) {
+        foreach (array_values(array_filter(array_map('strval', is_array($scene['quest_ids'] ?? NULL) ? $scene['quest_ids'] : []), static fn(string $id): bool => trim($id) !== '')) as $quest_id) {
+          $quest_ids[$quest_id] = TRUE;
+        }
+      }
+    }
+
+    return array_values(array_keys($quest_ids));
+  }
+
+  /**
+   * Collect objective target anchors from storyline payload references.
+   *
+   * @param array<string, mixed> $storyline_data
+   *   Storyline payload.
+   *
+   * @return array<string, array<string, bool>>
+   *   Anchor id sets by category.
+   */
+  protected function collectObjectiveReferenceAnchors(array $storyline_data): array {
+    $chapter_ids = [];
+    $scene_ids = [];
+    foreach (array_values(array_filter(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : [], 'is_array')) as $chapter) {
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      if ($chapter_id !== '') {
+        $chapter_ids[$chapter_id] = TRUE;
+      }
+      foreach (array_values(array_filter(is_array($chapter['scenes'] ?? NULL) ? $chapter['scenes'] : [], 'is_array')) as $scene) {
+        $scene_id = trim((string) ($scene['scene_id'] ?? ''));
+        if ($scene_id !== '') {
+          $scene_ids[$scene_id] = TRUE;
+        }
+      }
+    }
+
+    $asset_ids = [];
+    $item_ids = [];
+    $location_ids = $scene_ids;
+    foreach (array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array')) as $reference) {
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_id === '') {
+        continue;
+      }
+      $asset_ids[$asset_id] = TRUE;
+      $asset_type = trim((string) ($reference['asset_type'] ?? ''));
+      if ($asset_type === 'item') {
+        $item_ids[$asset_id] = TRUE;
+      }
+      if (in_array($asset_type, ['room', 'location'], TRUE)) {
+        $location_ids[$asset_id] = TRUE;
+      }
+    }
+
+    $contact_ids = [];
+    foreach (array_values(array_filter(is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : [], 'is_array')) as $contact) {
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_id !== '') {
+        $contact_ids[$entity_id] = TRUE;
+      }
+      foreach (array_values(array_filter(is_array($contact['introduces_to'] ?? NULL) ? $contact['introduces_to'] : [], 'is_array')) as $introduction) {
+        $intro_entity_id = trim((string) ($introduction['entity_id'] ?? ''));
+        if ($intro_entity_id !== '') {
+          $contact_ids[$intro_entity_id] = TRUE;
+        }
+      }
+    }
+
+    $outline_npc_ids = [];
+    $outline = is_array($storyline_data['metadata']['generated_outline'] ?? NULL) ? $storyline_data['metadata']['generated_outline'] : [];
+    $big_boss_id = trim((string) ($outline['big_boss']['boss_id'] ?? ''));
+    if ($big_boss_id !== '') {
+      $outline_npc_ids[$big_boss_id] = TRUE;
+    }
+    foreach (array_values(array_filter(is_array($outline['sub_bosses'] ?? NULL) ? $outline['sub_bosses'] : [], 'is_array')) as $boss) {
+      $boss_id = trim((string) ($boss['boss_id'] ?? ''));
+      if ($boss_id !== '') {
+        $outline_npc_ids[$boss_id] = TRUE;
+      }
+    }
+    foreach (array_values(array_filter(is_array($outline['dungeons'] ?? NULL) ? $outline['dungeons'] : [], 'is_array')) as $dungeon) {
+      foreach (array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array')) as $room) {
+        foreach (array_values(array_filter(array_map('strval', is_array($room['npc_ids'] ?? NULL) ? $room['npc_ids'] : []), static fn(string $id): bool => trim($id) !== '')) as $npc_id) {
+          $outline_npc_ids[$npc_id] = TRUE;
+        }
+      }
+    }
+
+    $target_ids = $asset_ids + $contact_ids + $outline_npc_ids + $location_ids + $chapter_ids;
+
+    return [
+      'target_ids' => $target_ids,
+      'item_ids' => $item_ids,
+      'location_ids' => $location_ids,
+    ];
+  }
+
+  /**
    * Validate cross-object storyline references that schema validation misses.
    *
    * @return array<int, string>
@@ -1644,6 +2847,11 @@ class StorylineManagerService {
           $scene_ids[$scene_id] = TRUE;
           if (!isset($scene_chapter_map[$scene_id])) {
             $scene_chapter_map[$scene_id] = $chapter_id;
+          }
+
+          $scene_quest_ids = array_values(array_filter(array_map('strval', is_array($scene['quest_ids'] ?? NULL) ? $scene['quest_ids'] : []), static fn(string $id): bool => trim($id) !== ''));
+          if ($scene_quest_ids === []) {
+            $errors[] = "Scene '{$scene_id}' is missing quest_ids progression gate.";
           }
         }
       }
@@ -1688,10 +2896,16 @@ class StorylineManagerService {
 
     $contact_entity_ids = [];
     $contact_anchors = [];
+    $contact_roles = [];
+    $broker_introductions = [];
     foreach (array_values(array_filter(is_array($definition['contacts'] ?? NULL) ? $definition['contacts'] : [], 'is_array')) as $contact) {
       $entity_id = trim((string) ($contact['entity_id'] ?? ''));
       if ($entity_id !== '') {
         $contact_entity_ids[$entity_id] = TRUE;
+        $role = trim((string) ($contact['role'] ?? ''));
+        if ($role !== '') {
+          $contact_roles[$entity_id][$role] = TRUE;
+        }
       }
 
       $relationship_state = is_array($contact['relationship_state'] ?? NULL) ? $contact['relationship_state'] : [];
@@ -1706,15 +2920,34 @@ class StorylineManagerService {
       if ($relationship_chapter_id !== '' || $relationship_scene_id !== '') {
         $contact_anchors[$entity_id] = TRUE;
       }
+
+      if ((string) ($contact['role'] ?? '') === 'broker' && $entity_id !== '') {
+        $broker_introductions[$entity_id] = [];
+        foreach (array_values(array_filter(is_array($contact['introduces_to'] ?? NULL) ? $contact['introduces_to'] : [], 'is_array')) as $introduction) {
+          $introduced_entity_id = trim((string) ($introduction['entity_id'] ?? ''));
+          if ($introduced_entity_id !== '') {
+            $broker_introductions[$entity_id][$introduced_entity_id] = TRUE;
+          }
+        }
+      }
     }
 
     $declared_asset_npc_ids = [];
+    $location_asset_anchors = [];
     $asset_references = array_values(array_filter(is_array($definition['asset_references'] ?? NULL) ? $definition['asset_references'] : [], 'is_array'));
     foreach ($asset_references as $reference) {
       $asset_type = trim((string) ($reference['asset_type'] ?? ''));
       $asset_id = trim((string) ($reference['asset_id'] ?? ''));
       if ($asset_type === 'npc' && $asset_id !== '') {
         $declared_asset_npc_ids[$asset_id] = TRUE;
+      }
+      if (in_array($asset_type, ['room', 'location'], TRUE) && $asset_id !== '') {
+        if (!isset($location_asset_anchors[$asset_id])) {
+          $location_asset_anchors[$asset_id] = [
+            'chapter_id' => trim((string) ($reference['chapter_id'] ?? '')),
+            'scene_id' => trim((string) ($reference['scene_id'] ?? '')),
+          ];
+        }
       }
 
       $chapter_id = trim((string) ($reference['chapter_id'] ?? ''));
@@ -1771,6 +3004,143 @@ class StorylineManagerService {
     }
 
     $outline = is_array($definition['metadata']['generated_outline'] ?? NULL) ? $definition['metadata']['generated_outline'] : [];
+    $entry_point = is_array($outline['entry_point'] ?? NULL) ? $outline['entry_point'] : [];
+    if ($entry_point === []) {
+      $errors[] = 'Storyline entry_point is required under metadata.generated_outline and must declare a primary quest giver.';
+    }
+    else {
+      $primary_quest_giver_id = trim((string) ($entry_point['primary_quest_giver_id'] ?? ''));
+      $primary_quest_giver_name = trim((string) ($entry_point['primary_quest_giver_name'] ?? ''));
+      $primary_dungeon_id = trim((string) ($entry_point['primary_dungeon_id'] ?? ''));
+      $primary_chapter_id = trim((string) ($entry_point['primary_chapter_id'] ?? ''));
+      $primary_scene_id = trim((string) ($entry_point['primary_scene_id'] ?? ''));
+      $primary_location_id = trim((string) ($entry_point['primary_location_id'] ?? ''));
+      $introduction_path = strtolower(trim((string) ($entry_point['introduction_path'] ?? '')));
+      $broker_id = trim((string) ($entry_point['broker_id'] ?? ''));
+      $detail_summary = trim((string) ($entry_point['detail_summary'] ?? ''));
+
+      if ($primary_quest_giver_id === '') {
+        $errors[] = 'Storyline entry_point.primary_quest_giver_id is required.';
+      }
+      if ($primary_quest_giver_name === '') {
+        $errors[] = 'Storyline entry_point.primary_quest_giver_name is required.';
+      }
+      if ($primary_dungeon_id === '') {
+        $errors[] = 'Storyline entry_point.primary_dungeon_id is required and must reference a canonical dungeon.';
+      }
+      if ($primary_chapter_id === '') {
+        $errors[] = 'Storyline entry_point.primary_chapter_id is required.';
+      }
+      if ($primary_scene_id === '') {
+        $errors[] = 'Storyline entry_point.primary_scene_id is required.';
+      }
+      if ($primary_location_id === '') {
+        $errors[] = 'Storyline entry_point.primary_location_id is required and must reference a room/location anchor.';
+      }
+      if ($detail_summary === '') {
+        $errors[] = 'Storyline entry_point.detail_summary is required.';
+      }
+      if (!in_array($introduction_path, ['direct', 'brokered'], TRUE)) {
+        $errors[] = "Storyline entry_point.introduction_path must be 'direct' or 'brokered'.";
+      }
+
+      if ($primary_quest_giver_id !== '' && !isset($contact_entity_ids[$primary_quest_giver_id])) {
+        $errors[] = "Storyline entry_point primary quest giver '{$primary_quest_giver_id}' is not declared as a contact.";
+      }
+      if (
+        $primary_quest_giver_id !== ''
+        && !isset($contact_roles[$primary_quest_giver_id]['quest_giver'])
+      ) {
+        $errors[] = "Storyline entry_point primary quest giver '{$primary_quest_giver_id}' must use role quest_giver.";
+      }
+      if ($primary_chapter_id !== '' && !isset($chapter_ids[$primary_chapter_id])) {
+        $errors[] = "Storyline entry_point chapter '{$primary_chapter_id}' is not defined by the storyline.";
+      }
+      if ($primary_scene_id !== '' && !isset($scene_ids[$primary_scene_id])) {
+        $errors[] = "Storyline entry_point scene '{$primary_scene_id}' is not defined by the storyline.";
+      }
+      if (
+        $primary_chapter_id !== ''
+        && $primary_scene_id !== ''
+        && isset($scene_chapter_map[$primary_scene_id])
+        && $scene_chapter_map[$primary_scene_id] !== $primary_chapter_id
+      ) {
+        $errors[] = "Storyline entry_point scene '{$primary_scene_id}' does not belong to chapter '{$primary_chapter_id}'.";
+      }
+      if ($primary_location_id !== '') {
+        if (!isset($location_asset_anchors[$primary_location_id])) {
+          $errors[] = "Storyline entry_point primary location '{$primary_location_id}' is not declared as a room/location asset reference.";
+        }
+        else {
+          $location_anchor = $location_asset_anchors[$primary_location_id];
+          $location_chapter_id = trim((string) ($location_anchor['chapter_id'] ?? ''));
+          $location_scene_id = trim((string) ($location_anchor['scene_id'] ?? ''));
+          if (
+            $primary_chapter_id !== ''
+            && $location_chapter_id !== ''
+            && $location_chapter_id !== $primary_chapter_id
+          ) {
+            $errors[] = "Storyline entry_point primary location '{$primary_location_id}' does not belong to chapter '{$primary_chapter_id}'.";
+          }
+          if (
+            $primary_scene_id !== ''
+            && $location_scene_id !== ''
+            && $location_scene_id !== $primary_scene_id
+          ) {
+            $errors[] = "Storyline entry_point primary location '{$primary_location_id}' does not belong to scene '{$primary_scene_id}'.";
+          }
+        }
+      }
+
+      $canonical_index = $this->loadCanonicalLocationTemplateIndex();
+      foreach ($canonical_index['errors'] as $canonical_error) {
+        $errors[] = $canonical_error;
+      }
+      if ($primary_dungeon_id !== '' && !isset($canonical_index['dungeon_ids'][$primary_dungeon_id])) {
+        $errors[] = "Storyline entry_point primary dungeon '{$primary_dungeon_id}' is not defined in canonical dungeon templates.";
+      }
+      if ($primary_location_id !== '' && !isset($canonical_index['room_ids'][$primary_location_id])) {
+        $errors[] = "Storyline entry_point primary location '{$primary_location_id}' is not defined in canonical room templates.";
+      }
+      if (
+        $primary_dungeon_id !== ''
+        && $primary_location_id !== ''
+        && isset($canonical_index['dungeon_ids'][$primary_dungeon_id])
+        && isset($canonical_index['room_ids'][$primary_location_id])
+      ) {
+        $dungeon_rooms = $canonical_index['dungeon_room_ids'][$primary_dungeon_id] ?? [];
+        if ($dungeon_rooms === []) {
+          $errors[] = "Canonical dungeon '{$primary_dungeon_id}' does not declare entry/room links needed for entry-point validation.";
+        }
+        elseif (!isset($dungeon_rooms[$primary_location_id])) {
+          $errors[] = "Storyline entry_point primary location '{$primary_location_id}' is not linked to canonical dungeon '{$primary_dungeon_id}'.";
+        }
+      }
+
+      if ($introduction_path === 'brokered') {
+        if ($broker_id === '') {
+          $errors[] = 'Storyline entry_point.broker_id is required when introduction_path is brokered.';
+        }
+        elseif (!isset($contact_entity_ids[$broker_id])) {
+          $errors[] = "Storyline entry_point broker '{$broker_id}' is not declared as a contact.";
+        }
+        elseif (!isset($contact_roles[$broker_id]['broker'])) {
+          $errors[] = "Storyline entry_point broker '{$broker_id}' must use role broker.";
+        }
+
+        if (
+          $broker_id !== ''
+          && $primary_quest_giver_id !== ''
+          && !isset($broker_introductions[$broker_id][$primary_quest_giver_id])
+        ) {
+          $errors[] = "Storyline entry_point broker '{$broker_id}' must explicitly introduce primary quest giver '{$primary_quest_giver_id}'.";
+        }
+      }
+      elseif ($broker_id !== '' && !isset($contact_roles[$broker_id]['broker'])) {
+        $errors[] = "Storyline entry_point broker '{$broker_id}' must use role broker when provided.";
+      }
+    }
+
     $outline_dungeons = [];
     $outline_rooms = [];
     $outline_npcs = $contact_entity_ids + $declared_asset_npc_ids;
@@ -2309,6 +3679,138 @@ class StorylineManagerService {
 
     $storyline_data['metadata']['generated_outline'] = $outline;
     return $storyline_data;
+  }
+
+  /**
+   * Load canonical dungeon/room template ids for entry-point existence checks.
+   *
+   * @return array{
+   *   dungeon_ids: array<string, bool>,
+   *   room_ids: array<string, bool>,
+   *   dungeon_room_ids: array<string, array<string, bool>>,
+   *   errors: array<int, string>
+   * }
+   *   Canonical template index and load errors.
+   */
+  protected function loadCanonicalLocationTemplateIndex(): array {
+    if ($this->canonicalLocationTemplateIndex !== NULL) {
+      return $this->canonicalLocationTemplateIndex;
+    }
+
+    $index = [
+      'dungeon_ids' => [],
+      'room_ids' => [],
+      'dungeon_room_ids' => [],
+      'errors' => [],
+    ];
+
+    $templates_root = dirname(__DIR__, 2) . '/config/examples/templates';
+    $dungeon_dir = $templates_root . '/dungeoncrawler_content_dungeons';
+    $room_dir = $templates_root . '/dungeoncrawler_content_rooms';
+    foreach ([$dungeon_dir, $room_dir] as $required_dir) {
+      if (!is_dir($required_dir)) {
+        $index['errors'][] = "Canonical template directory is missing: {$required_dir}";
+      }
+    }
+
+    foreach (glob($dungeon_dir . '/*.json') ?: [] as $path) {
+      $rows = $this->loadCanonicalTemplateRowsFromFile($path, $index['errors']);
+      foreach ($rows as $row) {
+        if (!is_array($row)) {
+          continue;
+        }
+        $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
+        if ($dungeon_id === '') {
+          continue;
+        }
+        $index['dungeon_ids'][$dungeon_id] = TRUE;
+
+        $dungeon_data = [];
+        if (is_array($row['dungeon_data'] ?? NULL)) {
+          $dungeon_data = $row['dungeon_data'];
+        }
+        elseif (is_string($row['dungeon_data'] ?? NULL)) {
+          $decoded_data = json_decode((string) $row['dungeon_data'], TRUE);
+          if (is_array($decoded_data)) {
+            $dungeon_data = $decoded_data;
+          }
+        }
+
+        $entry_room_id = trim((string) ($dungeon_data['entry_room'] ?? ''));
+        if ($entry_room_id !== '') {
+          $index['dungeon_room_ids'][$dungeon_id][$entry_room_id] = TRUE;
+        }
+        foreach (array_values(array_filter(array_map('strval', is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []), static fn(string $id): bool => trim($id) !== '')) as $room_id) {
+          $index['dungeon_room_ids'][$dungeon_id][$room_id] = TRUE;
+        }
+      }
+    }
+
+    foreach (glob($room_dir . '/*.json') ?: [] as $path) {
+      $rows = $this->loadCanonicalTemplateRowsFromFile($path, $index['errors']);
+      foreach ($rows as $row) {
+        if (!is_array($row)) {
+          continue;
+        }
+        $room_id = trim((string) ($row['room_id'] ?? ''));
+        if ($room_id !== '') {
+          $index['room_ids'][$room_id] = TRUE;
+        }
+      }
+    }
+
+    foreach ($index['dungeon_room_ids'] as $dungeon_id => $room_ids) {
+      $index['dungeon_room_ids'][$dungeon_id] = array_fill_keys(array_keys($room_ids), TRUE);
+    }
+
+    $this->canonicalLocationTemplateIndex = $index;
+    return $this->canonicalLocationTemplateIndex;
+  }
+
+  /**
+   * Load template rows from one canonical template file.
+   *
+   * @param array<int, string> $errors
+   *   Error collection (mutated).
+   *
+   * @return array<int, mixed>
+   *   Decoded rows payload.
+   */
+  protected function loadCanonicalTemplateRowsFromFile(string $path, array &$errors): array {
+    $raw = @file_get_contents($path);
+    if (!is_string($raw)) {
+      $errors[] = "Failed to read canonical template file: {$path}";
+      return [];
+    }
+
+    $decoded = json_decode($raw, TRUE);
+    if (!is_array($decoded)) {
+      $errors[] = "Canonical template file is not valid JSON: {$path}";
+      return [];
+    }
+
+    if (!is_array($decoded['rows'] ?? NULL)) {
+      $errors[] = "Canonical template file is missing rows[] payload: {$path}";
+      return [];
+    }
+
+    return $decoded['rows'];
+  }
+
+  /**
+   * Decode mixed JSON/array values into arrays.
+   */
+  protected function decodeJsonArrayValue(mixed $value): array {
+    if (is_array($value)) {
+      return $value;
+    }
+
+    if (!is_string($value) || trim($value) === '') {
+      return [];
+    }
+
+    $decoded = json_decode($value, TRUE);
+    return is_array($decoded) ? $decoded : [];
   }
 
   /**

@@ -12,7 +12,20 @@
       },
       "contents_data": {
         "obstacles": ["stone-door", "scattered-crates"],
-        "npcs": [],
+        "npcs": [
+          {
+            "content_id": "ltba-hookclaw-vault-guide",
+            "name": "Zikza Hookclaw",
+            "role": "guide",
+            "orientation": "s"
+          },
+          {
+            "content_id": "ltba-hookclaw-lookout",
+            "name": "Skritch Hookclaw",
+            "role": "scout",
+            "orientation": "w"
+          }
+        ],
         "creatures": [],
         "items": []
       }
@@ -29,7 +42,14 @@
       },
       "contents_data": {
         "obstacles": ["pressure-plate", "dart-slots"],
-        "npcs": [],
+        "npcs": [
+          {
+            "content_id": "ltba-hookclaw-hazard-scout",
+            "name": "Pikkik Hookclaw",
+            "role": "hazard_scout",
+            "orientation": "n"
+          }
+        ],
         "creatures": [],
         "hazards": ["ltba-tomb-hazard"]
       }

@@ -1,8 +1,12 @@
 /**
  * @file systems/NavigationSystem.js
  *
- * Room transition and dungeon context switching.
- * Methods ported verbatim from hexmap.js UIManager.
+ * Room transition and in-session dungeon context switching.
+ *
+ * Authority boundary:
+ * - This system dispatches intents and applies server-authoritative results.
+ * - It is not a navigation-rule engine and must not invent local legality.
+ * - Any client-side checks here are UX guards only; server remains decisive.
  */
 
 export class NavigationSystem {
@@ -28,7 +32,7 @@ export class NavigationSystem {
   _subscribe() {
     this._unsubs.push(
       this.bus.on('user:navigate', (d) => this.executeDirectNavigate(d?.button)),
-      this.bus.on('user:navigate-dungeon', (d) => this.navigateToDungeonContext(d?.dungeonSwitch)),
+      this.bus.on('user:navigate-dungeon', (d) => this.executeInSessionDungeonSwitch(d?.dungeonSwitch)),
       this.bus.on('navigation:apply-result', (d) => this.handleNavigationResult(d?.navigation)),
     );
   }
@@ -77,26 +81,45 @@ export class NavigationSystem {
       }
 
       // If the target room does not exist in the current dungeon's visual rooms,
-      // it is an ungenerated or cross-dungeon destination (e.g. a quest target).
-      // Route through dungeon-context switch rather than the encounter action API.
+      // resolve it through in-session generation/runtime-state loading.
       const visualRooms = typeof hexmap.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
       const roomExistsInCurrentDungeon = Boolean(visualRooms[roomId]);
+      const activeRoomId = String(hexmap.resolveActiveRoomId?.() || '').trim();
+      const capabilities = typeof hexmap.resolveNavigationCapabilities === 'function'
+        ? hexmap.resolveNavigationCapabilities(activeRoomId)
+        : [];
+      const matchedCapability = Array.isArray(capabilities)
+        ? capabilities.find((capability) => {
+          if (connectionId) {
+            return String(capability?.connection_id || '').trim() === connectionId;
+          }
+          return String(capability?.target_room_id || '').trim() === roomId;
+        }) || null
+        : null;
+      const isQuestSyntheticDestination = connectionId.startsWith('quest-synthetic-')
+        || (
+          matchedCapability?.quest_reference === true
+          && String(matchedCapability?.type || '').trim().toLowerCase() === 'synthetic'
+        );
       console.log('[Navigation] executeDirectNavigate: room resolution', {
         roomId,
         roomExistsInCurrentDungeon,
+        isQuestSyntheticDestination,
+        activeRoomId,
         visualRoomCount: Object.keys(visualRooms).length,
         visualRoomKeys: Object.keys(visualRooms).slice(0, 5),
       });
 
-      if (!roomExistsInCurrentDungeon) {
-        // For quest/ungenerated rooms not in the current dungeon, do NOT pass
-        // mapId — let the server find or generate the appropriate dungeon.
-        const dungeonSwitch = { room_id: roomId, target_room_id: roomId };
-        if (dungeonLevelId) {
-          dungeonSwitch.dungeon_level_id = dungeonLevelId;
-        }
-        console.log('[Navigation] executeDirectNavigate: room not in current dungeon — dungeon context switch', { roomId, dungeonSwitch });
-        this.navigateToDungeonContext(dungeonSwitch);
+      if (!roomExistsInCurrentDungeon || isQuestSyntheticDestination) {
+        // Keep a single authoritative path for off-topology or quest-synthetic
+        // destinations:
+        // ask the server to resolve/generate the destination and any required
+        // in-session dungeon switch metadata, then apply that response.
+        await this.requestInSessionDestination(roomId || roomName, {
+          fallbackRoomId: roomId,
+          mapId,
+          dungeonLevelId,
+        });
         return;
       }
 
@@ -140,9 +163,42 @@ export class NavigationSystem {
       }
 
       console.log('[Navigation] executeDirectNavigate: sending transition action', { actorId, params });
-      const result = await coordinator.api.sendAction('transition', actorId, params, {
-        stateVersion: coordinator.phaseManager?.stateVersion,
-      });
+      // Authoritative transition validation and state mutation happen on server.
+      let result = null;
+      try {
+        result = await coordinator.api.sendAction('transition', actorId, params, {
+          stateVersion: coordinator.phaseManager?.stateVersion,
+        });
+      } catch (error) {
+        const serverError = String(
+          error?.payload?.error
+          || error?.message
+          || 'That destination is not navigable right now.'
+        ).trim();
+        const isReachabilityFailure = Number(error?.status || 0) === 422
+          && (
+            /not reachable from the active room/i.test(serverError)
+            || /not available for transition/i.test(serverError)
+          );
+
+        if (isReachabilityFailure) {
+          console.warn('[Navigation] transition reachability failed, rerouting through in-session destination resolver', {
+            roomId,
+            connectionId,
+            status: error?.status,
+            error: serverError,
+          });
+          await this.requestInSessionDestination(roomId || roomName, {
+            fallbackRoomId: roomId,
+            mapId,
+            dungeonLevelId,
+          });
+          return;
+        }
+
+        this._appendChatLine('System', serverError, 'error');
+        return;
+      }
       console.log('[Navigation] executeDirectNavigate: transition result', {
         success: result?.success,
         error: result?.error,
@@ -179,6 +235,8 @@ export class NavigationSystem {
   }
 
   handleNavigationResult(nav) {
+    // Apply navigation receipt produced by server systems. This method projects
+    // server-authored deltas into local runtime structures for rendering.
     const hexmap = this.stateManager?.hexmap;
     if (!hexmap || !hexmap.dungeonData) {
       console.error('[Navigation] hexmap or dungeonData not available');
@@ -195,7 +253,11 @@ export class NavigationSystem {
 
     if (nav.dungeon_switch?.map_id) {
       this._appendChatLine('System', `🗺️ Traveling to ${nav.destination || targetRoomId}...`, 'system');
-      this.navigateToDungeonContext(nav.dungeon_switch);
+      void this.executeInSessionDungeonSwitch({
+        ...nav.dungeon_switch,
+        room_id: nav.dungeon_switch.room_id || targetRoomId,
+        target_room_id: targetRoomId || nav.dungeon_switch.target_room_id,
+      });
       return;
     }
 
@@ -312,49 +374,147 @@ export class NavigationSystem {
     console.log('[Navigation] Room switch complete:', targetRoomId);
   }
 
-  navigateToDungeonContext(dungeonSwitch) {
-    if (typeof window === 'undefined' || !window.location) {
-      console.error('[Navigation] navigateToDungeonContext: window.location not available');
+  async executeInSessionDungeonSwitch(dungeonSwitch) {
+    // Cross-dungeon travel is now in-session: fetch authoritative runtime state
+    // and hydrate; do not redirect URL or derive local dungeon snapshots.
+    const hexmap = this.stateManager?.hexmap;
+    if (!hexmap || !this.shell?.loadRuntimeStateBundle) {
+      this._appendChatLine('System', 'Unable to switch destination in-session right now.', 'error');
+      return;
+    }
+
+    const roomId = String(dungeonSwitch?.room_id || dungeonSwitch?.target_room_id || '').trim();
+    const mapId = String(dungeonSwitch?.map_id || '').trim();
+    const dungeonLevelId = String(dungeonSwitch?.dungeon_level_id || '').trim();
+    const nextRoomId = String(dungeonSwitch?.next_room_id || '').trim();
+    const campaignId = Number(hexmap.resolveCampaignId?.() || this.shell.resolveCampaignId?.() || 0);
+    const characterId = Number(hexmap.launchContext?.character_id || this.shell.launchContext?.character_id || 0);
+
+    if (!campaignId || !roomId) {
+      this._appendChatLine('System', 'Navigation could not resolve campaign or destination room.', 'error');
+      return;
+    }
+
+    try {
+      const bundle = await this.shell.loadRuntimeStateBundle({
+        campaign_id: campaignId,
+        character_id: characterId || undefined,
+        room_id: roomId,
+        map_id: mapId || undefined,
+        dungeon_level_id: dungeonLevelId || undefined,
+        next_room_id: nextRoomId || undefined,
+        start_q: 0,
+        start_r: 0,
+      });
+      const resolvedRoomName = this.resolveRoomNameFromBundle(bundle, roomId);
+      this._appendChatLine('System', `🗺️ Traveling to ${resolvedRoomName}...`, 'system');
+      this._refreshActionRail();
+      return bundle;
+    } catch (error) {
+      this._appendChatLine('System', error?.message || 'Unable to load destination runtime state.', 'error');
+      return null;
+    }
+  }
+
+  async requestInSessionDestination(destinationLabel, options = {}) {
+    // Destination expansion/generation remains server-owned. Client requests and
+    // then applies returned navigation receipts.
+    if (typeof fetch !== 'function') {
+      this._appendChatLine('System', 'Navigation API is unavailable in this environment.', 'error');
       return;
     }
 
     const hexmap = this.stateManager?.hexmap;
-    const params = new URLSearchParams(window.location.search);
-    const campaignId = hexmap?.resolveCampaignId?.() || params.get('campaign_id');
-    const characterId = hexmap?.launchContext?.character_id || params.get('character_id');
+    const campaignId = Number(hexmap?.resolveCampaignId?.() || this.shell?.resolveCampaignId?.() || 0);
+    const originRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
+    const fallbackRoomId = typeof options === 'string'
+      ? String(options).trim()
+      : String(options?.fallbackRoomId || '').trim();
+    const mapId = typeof options === 'object' ? String(options?.mapId || '').trim() : '';
+    const dungeonLevelId = typeof options === 'object' ? String(options?.dungeonLevelId || '').trim() : '';
+    const destination = String(destinationLabel || fallbackRoomId || '').trim();
+    const characterId = Number(hexmap?.launchContext?.character_id || this.shell?.launchContext?.character_id || 0);
+    const fallbackMapId = mapId
+      || String(hexmap?.launchContext?.map_id || this.shell?.launchContext?.map_id || '').trim();
+    const fallbackDungeonLevelId = dungeonLevelId
+      || String(
+        hexmap?.launchContext?.dungeon_level_id
+        || this.shell?.launchContext?.dungeon_level_id
+        || '',
+      ).trim();
 
-    if (campaignId) {
-      params.set('campaign_id', String(campaignId));
-    }
-    if (characterId) {
-      params.set('character_id', String(characterId));
+    if (!campaignId || !destination) {
+      this._appendChatLine('System', 'Navigation could not resolve destination metadata.', 'error');
+      return;
     }
 
-    params.set('room_id', String(dungeonSwitch.room_id || dungeonSwitch.target_room_id || ''));
-    if (dungeonSwitch.map_id) {
-      params.set('map_id', String(dungeonSwitch.map_id));
-    } else {
-      params.delete('map_id');
-    }
-    if (dungeonSwitch.dungeon_level_id) {
-      params.set('dungeon_level_id', String(dungeonSwitch.dungeon_level_id));
-    }
-    if (dungeonSwitch.next_room_id) {
-      params.set('next_room_id', String(dungeonSwitch.next_room_id));
-    } else {
-      params.delete('next_room_id');
-    }
-    params.set('start_q', '0');
-    params.set('start_r', '0');
+    try {
+      const response = await fetch(`/api/campaign/${campaignId}/gm/locations/request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          destination,
+          origin_room_id: originRoomId || undefined,
+          character_id: characterId || undefined,
+          map_id: fallbackMapId || undefined,
+          dungeon_level_id: fallbackDungeonLevelId || undefined,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success || !payload?.data?.navigation) {
+        throw new Error(payload?.error || 'Unable to resolve destination in-session.');
+      }
 
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    console.log('[Navigation] navigateToDungeonContext: redirecting', {
-      dungeonSwitch,
-      currentUrl: window.location.href.split('?')[1] || '',
-      newParams: params.toString(),
-      isSameUrl: newUrl === window.location.href,
-    });
-    window.location.assign(newUrl);
+      const navigation = payload.data.navigation;
+      const resolvedRoomId = String(
+        navigation?.dungeon_switch?.room_id
+        || navigation?.target_room_id
+        || fallbackRoomId
+        || '',
+      ).trim();
+
+      const shouldForceBundleReload = !navigation?.dungeon_switch?.map_id
+        && fallbackMapId !== ''
+        && resolvedRoomId !== '';
+
+      if (navigation?.dungeon_switch?.map_id || shouldForceBundleReload) {
+        const switchPayload = navigation?.dungeon_switch?.map_id
+          ? {
+            ...navigation.dungeon_switch,
+            room_id: resolvedRoomId,
+            target_room_id: navigation.target_room_id || navigation.dungeon_switch.target_room_id || resolvedRoomId,
+          }
+          : {
+            map_id: fallbackMapId,
+            dungeon_level_id: fallbackDungeonLevelId || undefined,
+            room_id: resolvedRoomId,
+            target_room_id: resolvedRoomId,
+            next_room_id: '',
+          };
+        await this.executeInSessionDungeonSwitch(switchPayload);
+        return;
+      }
+      this.handleNavigationResult(navigation);
+    } catch (error) {
+      this._appendChatLine('System', error?.message || 'Unable to generate destination.', 'error');
+    }
+  }
+
+  resolveRoomNameFromBundle(bundle, fallbackRoomId = '') {
+    const roomId = String(bundle?.launch_context?.room_id || fallbackRoomId || '').trim();
+    const rooms = bundle?.map_visual_state?.topology?.rooms;
+    if (roomId && rooms && typeof rooms === 'object') {
+      const room = rooms[roomId];
+      const roomName = String(room?.name || room?.title || '').trim();
+      if (roomName) {
+        return roomName;
+      }
+    }
+    return roomId || 'destination';
   }
 
   // --- Proxy helpers (UIManager methods now live on panels/bus) ---

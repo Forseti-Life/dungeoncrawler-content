@@ -1,0 +1,18 @@
+- command: |
+    Groom feature dc-cr-dwarf-ancestry for release entry (suggestion process flow).
+
+    Feature stub: features/dc-cr-dwarf-ancestry/feature.md (status: planned/ready, P2)
+    Needs: 01-acceptance-criteria.md, then run pm-qa-handoff.sh
+
+    Context: Dwarf ancestry stat block: HP 10, speed 20, Con/Wis boosts, clan dagger. All deps satisfied: ancestry-system ✓, heritage-system ✓, clan-dagger shipped ✓
+
+    ## Steps
+    1. Read features/dc-cr-dwarf-ancestry/feature.md
+    2. Review https://dungeoncrawler.forseti.life/Roadmap for this section's Not Started reqs
+    3. Write features/dc-cr-dwarf-ancestry/01-acceptance-criteria.md (use templates/01-acceptance-criteria.md)
+       Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+    4. Ensure features/dc-cr-dwarf-ancestry/feature.md has ## Security acceptance criteria section
+       (or add: - Security AC exemption: <reason> if no security surface)
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-cr-dwarf-ancestry
+    6. Write outbox confirming AC written and QA handoff dispatched
+- roi: 7

@@ -1,0 +1,12 @@
+diff --git a/node_modules/react-native-geolocation-service/android/build.gradle b/node_modules/react-native-geolocation-service/android/build.gradle
+index cf167cf..932f6d3 100644
+--- a/node_modules/react-native-geolocation-service/android/build.gradle
++++ b/node_modules/react-native-geolocation-service/android/build.gradle
+@@ -11,6 +11,7 @@ def safeExtGet(prop, fallback) {
+ }
+ 
+ android {
++  namespace "com.agontuk.RNFusedLocation"
+   compileSdkVersion safeExtGet('compileSdkVersion', DEFAULT_COMPILE_SDK_VERSION)
+   buildToolsVersion safeExtGet('buildToolsVersion', DEFAULT_BUILD_TOOLS_VERSION)
+ 

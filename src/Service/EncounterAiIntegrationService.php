@@ -72,31 +72,33 @@ class EncounterAiIntegrationService {
     }
 
     $actor_id = $this->resolveCurrentActorId($current_actor);
-    $heritage = $this->actionAvailability->resolveActorHeritageFromReference(
-      $current_actor['entity_ref'] ?? NULL,
-      is_string($current_actor['heritage'] ?? NULL) ? $current_actor['heritage'] : NULL
-    );
-    $allowed_actions = $this->actionAvailability->resolveAvailableActionsFromTurnState(
-      FALSE,
-      $actor_id !== '' ? $actor_id : NULL,
-      $actor_id !== '' ? $actor_id : NULL,
-      max(0, (int) ($current_actor['actions_remaining'] ?? 3)),
-      !empty($current_actor['reaction_available']),
-      $heritage
-    );
-    $actor_action_contract = $this->actionAvailability->buildActionContractFromAvailableActions(
-      $allowed_actions,
-      $actor_id !== '' ? $actor_id : NULL,
+    $actions_remaining = max(0, (int) ($current_actor['actions_remaining'] ?? 3));
+    $reaction_available = !empty($current_actor['reaction_available']);
+    $availability = $this->actionAvailability->resolveEncounterAvailability(
+      [
+        'encounter_id' => $encounter_id,
+        'turn' => [
+          'entity' => $actor_id,
+          'actions_remaining' => $actions_remaining,
+          'reaction_available' => $reaction_available,
+        ],
+        'encounter_context' => [
+          'mode' => 'encounter',
+          'room_id' => (string) ($encounter['room_id'] ?? ''),
+        ],
+      ],
+      $this->buildAvailabilityDungeonSnapshot($participants, $encounter),
       $actor_id !== '' ? $actor_id : NULL
     );
-    $actions_available_to_me_this_turn = $this->actionAvailability->buildAvailabilityEnvelopeFromAvailableActions(
-      $actor_id !== '' ? $actor_id : NULL,
-      TRUE,
-      max(0, (int) ($current_actor['actions_remaining'] ?? 3)),
-      !empty($current_actor['reaction_available']),
-      $allowed_actions,
-      $actor_action_contract
-    );
+    $allowed_actions = is_array($availability['available_actions'] ?? NULL)
+      ? $availability['available_actions']
+      : [];
+    $actor_action_contract = is_array($availability['action_contract'] ?? NULL)
+      ? $availability['action_contract']
+      : [];
+    $actions_available_to_me_this_turn = is_array($availability['availability_envelope'] ?? NULL)
+      ? $availability['availability_envelope']
+      : [];
 
     return [
       'campaign_id' => $campaign_id,
@@ -108,6 +110,9 @@ class EncounterAiIntegrationService {
       'participants' => $participants,
       'allowed_actions' => $allowed_actions,
       'action_contract' => $actor_action_contract,
+      'action_option_families' => is_array($actor_action_contract['action_option_families'] ?? NULL)
+        ? $actor_action_contract['action_option_families']
+        : [],
       'actions_available_to_me_this_turn' => $actions_available_to_me_this_turn,
       'context_built_at' => $this->time->getCurrentTime(),
     ];
@@ -244,6 +249,9 @@ class EncounterAiIntegrationService {
     $action_contract = is_array($availability['action_contract'] ?? NULL)
       ? $availability['action_contract']
       : (is_array($context['action_contract'] ?? NULL) ? $context['action_contract'] : []);
+    if (!is_array($action_contract['action_option_families'] ?? NULL) && is_array($availability['action_option_families'] ?? NULL)) {
+      $action_contract['action_option_families'] = $availability['action_option_families'];
+    }
 
     $allowed_actions = is_array($availability['available_actions'] ?? NULL)
       ? $availability['available_actions']
@@ -316,6 +324,45 @@ class EncounterAiIntegrationService {
     }
 
     return '';
+  }
+
+  /**
+   * Build a minimal dungeon snapshot for shared actor availability resolution.
+   *
+   * @param array<int, mixed> $participants
+   *   Encounter participant rows.
+   * @param array<string, mixed> $encounter
+   *   Encounter snapshot payload.
+   *
+   * @return array<string, mixed>
+   *   Dungeon-like snapshot with entity and room collections.
+   */
+  protected function buildAvailabilityDungeonSnapshot(array $participants, array $encounter): array {
+    $entities = [];
+    foreach ($participants as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+
+      $entity_id = $this->resolveCurrentActorId($participant);
+      if ($entity_id === '') {
+        continue;
+      }
+
+      $entities[] = [
+        'entity_instance_id' => $entity_id,
+        'entity_ref' => $participant['entity_ref'] ?? $entity_id,
+        'state' => is_array($participant['state'] ?? NULL) ? $participant['state'] : [],
+        'heritage' => $participant['heritage'] ?? NULL,
+      ];
+    }
+
+    $room_id = (string) ($encounter['room_id'] ?? '');
+    return [
+      'active_room_id' => $room_id,
+      'entities' => $entities,
+      'rooms' => $room_id !== '' ? [['room_id' => $room_id]] : [],
+    ];
   }
 
 }

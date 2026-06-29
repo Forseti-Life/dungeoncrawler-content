@@ -1,0 +1,87 @@
+company: Copilot Sessions HQ
+principles:
+  - "Single seat per agent id (one inbox/outbox)."
+  - "All roles follow org-wide instructions + their role-specific instructions."
+  - "CEO ensures subordinates always have a concrete next task (active queue)."
+  - "PM ensures BA/Dev/QA are unblocked and working to acceptance criteria."
+
+authority:
+  human_owner: "User"
+  executive_agent: "ceo-copilot"
+  notes: "Copilot agents act as delegates; the human owner retains final approval authority."
+
+reporting_chain:
+  - from: "User"
+    to: "ceo-copilot"
+    responsibility: "Orchestration, prioritization, enforcing protocol + clear audit trail."
+  - from: "ceo-copilot"
+    to: "pm-*"
+    responsibility: "PMs own module-level scope + acceptance criteria; maintain active queues for subordinates."
+  - from: "ceo-copilot"
+    to: "accountant-*"
+    responsibility: "Finance operations, expenditure tracking, vendor billing reconciliation, and cost reporting for leadership."
+  - from: "pm-*"
+    to: "ba-*"
+    responsibility: "Requirements, analysis, documentation, status reporting."
+  - from: "pm-*"
+    to: "dev-*"
+    responsibility: "Engineering lead/implementation: code, integration, design, verification steps."
+  - from: "pm-*"
+    to: "qa-*"
+    responsibility: "QA test design + execution, independent verification, APPROVE/BLOCK."
+
+roles:
+  - ceo
+  - software-developer
+  - product-manager
+  - business-analyst
+  - tester
+  - security-analyst
+  - accountant
+
+websites:
+  - infrastructure
+  - forseti.life
+  - dungeoncrawler
+  - stlouisintegration.com
+  - theoryofconspiracies.com
+  - thetruthperspective.org
+
+agents:
+  - ceo-copilot
+  - ceo-copilot-2
+  - ceo-copilot-3
+  - pm-infra
+  - ba-infra
+  - dev-infra
+  - qa-infra
+  - agent-explore-infra
+  - sec-analyst-infra
+  - pm-forseti
+  - pm-dungeoncrawler
+  - pm-stlouisintegration
+  - pm-theoryofconspiracies
+  - pm-thetruthperspective
+  - ba-forseti
+  - ba-dungeoncrawler
+  - ba-stlouisintegration
+  - ba-theoryofconspiracies
+  - ba-thetruthperspective
+  - agent-explore-forseti
+  - agent-explore-dungeoncrawler
+  - sec-analyst
+  - sec-analyst-forseti
+  - sec-analyst-dungeoncrawler
+  - sec-analyst-forseti-agent-tracker
+  - accountant-forseti
+  - dev-forseti
+  - dev-dungeoncrawler
+  - qa-forseti
+  - qa-dungeoncrawler
+  - agent-explore
+  - agent-code-review
+  - agent-task-runner
+  - pm-forseti-agent-tracker
+  - ba-forseti-agent-tracker
+  - dev-forseti-agent-tracker
+  - qa-forseti-agent-tracker

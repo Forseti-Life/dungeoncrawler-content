@@ -198,12 +198,22 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     $actions_available_to_me_this_turn = is_array($context['actions_available_to_me_this_turn'] ?? NULL)
       ? $context['actions_available_to_me_this_turn']
       : [];
-    // TODO(actor-action-availability): Expand this prompt contract from
-    // top-level action IDs to resolved concrete options for action families
-    // like spells, feats, consumables, and item activations.
+    // Shared actor availability now includes resolved high-option families via
+    // action_contract.action_option_families for spells/feats/items/hazards.
     $action_contract = is_array($actions_available_to_me_this_turn['action_contract'] ?? NULL)
       ? $actions_available_to_me_this_turn['action_contract']
       : (is_array($context['action_contract'] ?? NULL) ? $context['action_contract'] : []);
+    if (!is_array($action_contract['action_option_families'] ?? NULL)) {
+      if (is_array($actions_available_to_me_this_turn['action_option_families'] ?? NULL)) {
+        $action_contract['action_option_families'] = $actions_available_to_me_this_turn['action_option_families'];
+      }
+      elseif (is_array($context['action_option_families'] ?? NULL)) {
+        $action_contract['action_option_families'] = $context['action_option_families'];
+      }
+      else {
+        $action_contract['action_option_families'] = [];
+      }
+    }
     $allowed_actions = is_array($actions_available_to_me_this_turn['available_actions'] ?? NULL)
       ? $actions_available_to_me_this_turn['available_actions']
       : [];

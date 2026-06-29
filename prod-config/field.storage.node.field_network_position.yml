@@ -1,0 +1,20 @@
+uuid: 7e9c83d8-a8c3-45fa-aff9-4489f63d5000
+langcode: en
+status: true
+dependencies:
+  module:
+    - node
+id: node.field_network_position
+field_name: field_network_position
+entity_type: node
+type: integer
+settings:
+  unsigned: false
+  size: normal
+module: core
+locked: false
+cardinality: 1
+translatable: true
+indexes: {  }
+persist_with_no_fields: false
+custom_storage: false

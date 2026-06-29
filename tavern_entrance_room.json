@@ -1,7 +1,7 @@
 {
   "room_id": "tavern_entrance",
   "name": "The Gilded Tankard",
-  "description": "The Gilded Tankard is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth. Warm candlelight washes over rough-hewn wooden floors and a polished bar lined with bottles and tankards. Eldric, the broad-shouldered barkeep, stands behind the bar polishing a mug while keeping a steady eye on the room. Marta the Scholar works at a table buried in spellbooks, loose notes, and a crystal-bound codex. Gribbles Rindsworth lounges nearby with a tankard in hand, his sharp goblin eyes tracking every conversation from a seat close to Marta. Iron sconces and a stone fireplace cast steady amber light across the otherwise empty tavern.",
+  "description": "The Gilded Tankard in Absalom is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth. Warm candlelight washes over rough-hewn wooden floors and a polished bar lined with bottles and tankards. Eldric, the broad-shouldered barkeep, stands behind the bar polishing a mug while keeping a steady eye on the room. Marta the Scholar works at a table buried in spellbooks, loose notes, and a crystal-bound codex. Gribbles Rindsworth lounges nearby with a tankard in hand, his sharp goblin eyes tracking every conversation from a seat close to Marta. Iron sconces and a stone fireplace cast steady amber light across the otherwise empty tavern.",
   "environment_tags": ["indoor", "tavern", "safe", "starting_area", "social"],
   "layout_data": {
     "dimensions": {
@@ -219,8 +219,8 @@
         "quests": [
           {
             "quest_id": "collect_spellbooks",
-            "title": "Recover Lost Spellbooks",
-            "description": "Marta seeks lost spellbooks scattered around the tavern"
+            "title": "Recover Lost Spellbook",
+            "description": "Marta seeks a missing spellbook in the tavern"
           },
           {
             "quest_id": "stabilize_arcane_resonance",
@@ -387,8 +387,7 @@
         "type": "collectible_item",
         "position": {"q": 1, "r": 1},
         "description": "A mystical tome written in an unusual script",
-        "tags": ["collect_spellbooks", "collectible", "knowledge"],
-        "quest_association": "collect_spellbooks"
+        "tags": ["collectible", "knowledge"]
       },
       {
         "content_id": "spellbook_3",
@@ -396,8 +395,7 @@
         "type": "collectible_item",
         "position": {"q": 2, "r": -1},
         "description": "A faded journal filled with spell notes",
-        "tags": ["collect_spellbooks", "collectible", "knowledge"],
-        "quest_association": "collect_spellbooks"
+        "tags": ["collectible", "knowledge"]
       },
       {
         "content_id": "spellbook_4",
@@ -405,8 +403,7 @@
         "type": "collectible_item",
         "position": {"q": 0, "r": -1},
         "description": "A codex with a crystal clasping its cover",
-        "tags": ["collect_spellbooks", "collectible", "knowledge"],
-        "quest_association": "collect_spellbooks"
+        "tags": ["collectible", "knowledge"]
       },
       {
         "content_id": "torch_component_1",

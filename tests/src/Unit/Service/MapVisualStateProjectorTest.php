@@ -208,8 +208,8 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertSame('room-a', $result['topology']['rooms']['room-b']['exits'][0]['target_room_id']);
     $this->assertSame('room-b:1:0', $result['topology']['rooms']['room-b']['exits'][0]['origin_hex']['hex_id']);
     $this->assertSame('room-a:0:0', $result['topology']['rooms']['room-b']['exits'][0]['target_hex']['hex_id']);
-    $this->assertSame('door-1', $result['topology']['rooms']['room-b']['exits'][0]['connection_id']);
-    $this->assertTrue($result['topology']['rooms']['room-b']['exits'][0]['is_passable']);
+    $this->assertSame('room', $result['topology']['rooms']['room-b']['exits'][0]['destination_type']);
+    $this->assertSame('room-a', $result['topology']['rooms']['room-b']['exits'][0]['destination_id']);
     $this->assertSame('pc-1', $result['occupants']['party'][0]['occupant_id']);
     $this->assertSame(365, $result['occupants']['party'][0]['character_id']);
     $this->assertSame('room-a:0:0', $result['occupants']['party'][0]['hex_id']);
@@ -303,6 +303,42 @@ class MapVisualStateProjectorTest extends UnitTestCase {
   }
 
   /**
+   * Verifies projector accepts hex_map connections and derives canonical implicit ids.
+   */
+  public function testProjectNormalizesHexMapConnectionIdsCanonically(): void {
+    $projector = new MapVisualStateProjector();
+
+    $result = $projector->project([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        'room-a' => [
+          'room_id' => 'room-a',
+          'hexes' => [['q' => 0, 'r' => 0]],
+        ],
+        'room-b' => [
+          'room_id' => 'room-b',
+          'hexes' => [['q' => 1, 'r' => 0]],
+        ],
+      ],
+      'hex_map' => [
+        'connections' => [
+          [
+            'from_room_id' => 'room-a',
+            'to_room_id' => 'room-b',
+            'type' => 'passage',
+            'from' => ['q' => 0, 'r' => 0],
+            'to' => ['q' => 1, 'r' => 0],
+          ],
+        ],
+      ],
+    ], [], []);
+
+    $this->assertCount(1, $result['topology']['connections']);
+    $this->assertSame('room-a__room-b__passage__0:0__1:0', $result['topology']['connections'][0]['connection_id']);
+    $this->assertSame('room-a__room-b__passage__0:0__1:0', $result['topology']['rooms']['room-a']['exits'][0]['connection_id']);
+  }
+
+  /**
    * Verifies occupant presentation includes role and is_merchant fields.
    */
   public function testOccupantPresentationIncludesMerchantAndRole(): void {
@@ -389,6 +425,88 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     // Explicit merchant_enabled flag.
     $this->assertTrue($byId['npc-vendor-explicit']['presentation']['is_merchant'], 'Explicit merchant_enabled flag detected');
     $this->assertSame('', $byId['npc-vendor-explicit']['presentation']['role'], 'Role is empty string when no role/occupation');
+  }
+
+  /**
+   * Quest destinations are surfaced as synthetic exits in the active room.
+   */
+  public function testProjectAddsQuestDestinationExitForActiveRoom(): void {
+    $projector = new MapVisualStateProjector();
+
+    $result = $projector->project([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        'room-a' => [
+          'room_id' => 'room-a',
+          'name' => 'Room A',
+          'hexes' => [['q' => 0, 'r' => 0]],
+        ],
+        'room-b' => [
+          'room_id' => 'room-b',
+          'name' => 'Room B',
+          'hexes' => [['q' => 1, 'r' => 0]],
+        ],
+      ],
+      'connections' => [],
+      'quest_summary' => [
+        'active' => [
+          [
+            'quest_id' => 'quest-1',
+            'generated_objectives' => [
+              [
+                'phase' => 1,
+                'objectives' => [
+                  ['destination_id' => 'room-b'],
+                ],
+              ],
+            ],
+          ],
+        ],
+      ],
+    ], [], []);
+
+    $exits = $result['topology']['rooms']['room-a']['exits'] ?? [];
+    $this->assertCount(1, $exits);
+    $this->assertSame('room-b', (string) ($exits[0]['target_room_id'] ?? ''));
+    $this->assertTrue(!empty($exits[0]['quest_reference']));
+    $this->assertSame(['quest-1'], (array) ($exits[0]['quest_ids'] ?? []));
+  }
+
+  /**
+   * Invalid quest destination references hard-fail visual projection.
+   */
+  public function testProjectRejectsInvalidQuestDestinationContract(): void {
+    $projector = new MapVisualStateProjector();
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('Quest destination contract violation');
+
+    $projector->project([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        'room-a' => [
+          'room_id' => 'room-a',
+          'name' => 'Room A',
+          'hexes' => [['q' => 0, 'r' => 0]],
+        ],
+      ],
+      'connections' => [],
+      'quest_summary' => [
+        'active' => [
+          [
+            'quest_id' => 'quest-1',
+            'generated_objectives' => [
+              [
+                'phase' => 1,
+                'objectives' => [
+                  ['destination_id' => 'missing-room'],
+                ],
+              ],
+            ],
+          ],
+        ],
+      ],
+    ], [], []);
   }
 
 }

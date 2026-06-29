@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-cr-vivacious-conduit",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-cr-vivacious-conduit/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-cr-vivacious-conduit-e2e",
+      "feature_id": "dc-cr-vivacious-conduit",
+      "label": "Vivacious Conduit feat - feat progression, rest interaction, and healing behavior",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-cr-vivacious-conduit\"",
+      "artifacts": [
+        "playwright-report/dc-cr-vivacious-conduit.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/rest",
+      "status": "pending_implementation",
+      "notes": "Security AC exemption granted in the test plan (existing healing routes only); no qa-permissions change required at activation time."
+    }
+  ]
+}

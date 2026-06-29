@@ -1,0 +1,131 @@
+{
+  "base_url": "https://dungeoncrawler.forseti.life",
+  "config": "org-chart/sites/dungeoncrawler/qa-permissions.json",
+  "generated_at": "2026-04-10T00:38:11+0000",
+  "label": "dungeoncrawler",
+  "probe_issue_count": 13,
+  "probe_issues": [
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/admin/reports/genai-debug/1/delete",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/1/delete"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/delete-all",
+      "note": "probe_error_or_timeout",
+      "path": "/admin/reports/genai-debug/delete-all",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/delete-all"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/objects",
+      "note": "probe_error_or_timeout",
+      "path": "/dungeoncrawler/objects",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/objects"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/create",
+      "note": "probe_error_or_timeout",
+      "path": "/campaigns/create",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/create"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/characters/create/step/1",
+      "note": "probe_error_or_timeout",
+      "path": "/characters/create/step/1",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/characters/create/step/1"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/characters/create/step/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/characters/create/step/1/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/characters/create/step/1/save"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/start",
+      "note": "probe_error_or_timeout",
+      "path": "/dungeoncrawler/testing/import-open-issues/reconcile/start",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/start"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/tick",
+      "note": "probe_error_or_timeout",
+      "path": "/dungeoncrawler/testing/import-open-issues/reconcile/tick",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/tick"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report/dead-value-close",
+      "note": "probe_error_or_timeout",
+      "path": "/dungeoncrawler/testing/import-open-issues/issue-pr-report/dead-value-close",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report/dead-value-close"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report/bulk-close-query-run",
+      "note": "probe_error_or_timeout",
+      "path": "/dungeoncrawler/testing/import-open-issues/issue-pr-report/bulk-close-query-run",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report/bulk-close-query-run"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/run",
+      "note": "probe_error_or_timeout",
+      "path": "/dungeoncrawler/testing/queue/run",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/run"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/item/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/dungeoncrawler/testing/queue/item/delete",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/item/delete"
+    },
+    {
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/item/rerun",
+      "note": "probe_error_or_timeout",
+      "path": "/dungeoncrawler/testing/queue/item/rerun",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/item/rerun"
+    }
+  ],
+  "roles_run": [
+    "anon"
+  ],
+  "violation_count": 0,
+  "violations": []
+}

@@ -1,0 +1,359 @@
+{
+  "coordinate_quality": [
+    {
+      "issue_type": "NULL lat",
+      "record_count": 0,
+      "percentage": "0.00"
+    },
+    {
+      "issue_type": "NULL lng",
+      "record_count": 0,
+      "percentage": "0.00"
+    },
+    {
+      "issue_type": "Invalid lat range",
+      "record_count": 0,
+      "percentage": "0.00"
+    },
+    {
+      "issue_type": "Invalid lng range",
+      "record_count": 0,
+      "percentage": "0.00"
+    },
+    {
+      "issue_type": "Zero coordinates",
+      "record_count": 0,
+      "percentage": "0.00"
+    },
+    {
+      "issue_type": "Valid coordinates",
+      "record_count": 3406194,
+      "percentage": "100.00"
+    }
+  ],
+  "h3_population": {
+    "h3_res_5": {
+      "populated_count": 3261194,
+      "missing_count": 145000,
+      "fill_rate": "95.74",
+      "total_valid_coords": 3406194
+    },
+    "h3_res_6": {
+      "populated_count": 3406193,
+      "missing_count": 1,
+      "fill_rate": "100.00",
+      "total_valid_coords": 3406194
+    },
+    "h3_res_7": {
+      "populated_count": 3406193,
+      "missing_count": 1,
+      "fill_rate": "100.00",
+      "total_valid_coords": 3406194
+    },
+    "h3_res_8": {
+      "populated_count": 3406194,
+      "missing_count": 0,
+      "fill_rate": "100.00",
+      "total_valid_coords": 3406194
+    },
+    "h3_res_9": {
+      "populated_count": 3406194,
+      "missing_count": 0,
+      "fill_rate": "100.00",
+      "total_valid_coords": 3406194
+    },
+    "h3_res_10": {
+      "populated_count": 3406193,
+      "missing_count": 1,
+      "fill_rate": "100.00",
+      "total_valid_coords": 3406194
+    },
+    "h3_res_11": {
+      "populated_count": 3261194,
+      "missing_count": 145000,
+      "fill_rate": "95.74",
+      "total_valid_coords": 3406194
+    },
+    "h3_res_12": {
+      "populated_count": 3261194,
+      "missing_count": 145000,
+      "fill_rate": "95.74",
+      "total_valid_coords": 3406194
+    },
+    "h3_res_13": {
+      "populated_count": 3261194,
+      "missing_count": 145000,
+      "fill_rate": "95.74",
+      "total_valid_coords": 3406194
+    }
+  },
+  "missing_h3_samples": [
+    {
+      "id": 1451314,
+      "incident_id": "obj_369780",
+      "lat": "39.9965265",
+      "lng": "-75.1133580",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "24",
+      "location_block": "1800 BLOCK E ALLEGHENY AVE"
+    },
+    {
+      "id": 1451315,
+      "incident_id": "obj_369785",
+      "lat": "39.9965265",
+      "lng": "-75.1133580",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "24",
+      "location_block": "1800 BLOCK E ALLEGHENY AVE"
+    },
+    {
+      "id": 1451316,
+      "incident_id": "obj_369793",
+      "lat": "39.9054427",
+      "lng": "-75.1741436",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "1",
+      "location_block": "1400 BLOCK PATTISON AV"
+    },
+    {
+      "id": 1451317,
+      "incident_id": "obj_369800",
+      "lat": "39.9307032",
+      "lng": "-75.1700503",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "17",
+      "location_block": "S 15TH ST  /  TASKER ST"
+    },
+    {
+      "id": 1451318,
+      "incident_id": "obj_371973",
+      "lat": "39.9681548",
+      "lng": "-75.2251428",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "19",
+      "location_block": "5200 BLOCK WESTMINSTER AVE"
+    },
+    {
+      "id": 1451319,
+      "incident_id": "obj_371981",
+      "lat": "40.0448108",
+      "lng": "-75.1637412",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "14",
+      "location_block": "800 BLOCK E WOODLAWN ST"
+    },
+    {
+      "id": 1451320,
+      "incident_id": "obj_371985",
+      "lat": "39.9973068",
+      "lng": "-75.0734944",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "15",
+      "location_block": "4300 BLOCK RICHMOND ST"
+    },
+    {
+      "id": 1451321,
+      "incident_id": "obj_371986",
+      "lat": "39.9973068",
+      "lng": "-75.0734944",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "15",
+      "location_block": "4300 BLOCK RICHMOND ST"
+    },
+    {
+      "id": 1451322,
+      "incident_id": "obj_371989",
+      "lat": "40.0325429",
+      "lng": "-75.1241737",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "35",
+      "location_block": "MASCHER ST  /  W TABOR RD"
+    },
+    {
+      "id": 1451323,
+      "incident_id": "obj_369811",
+      "lat": "40.1178778",
+      "lng": "-75.0067616",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "7",
+      "location_block": "1200 BLOCK BYBERRY RD"
+    },
+    {
+      "id": 1451324,
+      "incident_id": "obj_371992",
+      "lat": "39.9909696",
+      "lng": "-75.1314399",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "25",
+      "location_block": "100 BLOCK W LEHIGH AV"
+    },
+    {
+      "id": 1451325,
+      "incident_id": "obj_371994",
+      "lat": "39.9924364",
+      "lng": "-75.0926002",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "24",
+      "location_block": "2500 BLOCK CASTOR AVE"
+    },
+    {
+      "id": 1451326,
+      "incident_id": "obj_371995",
+      "lat": "39.9924364",
+      "lng": "-75.0926002",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "24",
+      "location_block": "2500 BLOCK CASTOR AVE"
+    },
+    {
+      "id": 1451327,
+      "incident_id": "obj_371997",
+      "lat": "39.9611122",
+      "lng": "-75.1881044",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "16",
+      "location_block": "300 BLOCK N 32ND ST"
+    },
+    {
+      "id": 1451328,
+      "incident_id": "obj_371998",
+      "lat": "40.0708255",
+      "lng": "-75.1941392",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "14",
+      "location_block": "7700 BLOCK CRITTENDEN ST"
+    },
+    {
+      "id": 1451329,
+      "incident_id": "obj_371999",
+      "lat": "39.9267241",
+      "lng": "-75.1525027",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "4",
+      "location_block": "1700 BLOCK S 04TH ST"
+    },
+    {
+      "id": 1451330,
+      "incident_id": "obj_372005",
+      "lat": "39.9864155",
+      "lng": "-75.1695774",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "22",
+      "location_block": "2000 BLOCK N 22ND ST"
+    },
+    {
+      "id": 1451331,
+      "incident_id": "obj_372006",
+      "lat": "39.9183078",
+      "lng": "-75.2087035",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "12",
+      "location_block": "3100 BLOCK S 61ST ST"
+    },
+    {
+      "id": 1451332,
+      "incident_id": "obj_372007",
+      "lat": "40.0030274",
+      "lng": "-75.1512779",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "25",
+      "location_block": "3200 BLOCK N BROAD ST"
+    },
+    {
+      "id": 1451333,
+      "incident_id": "obj_372008",
+      "lat": "40.0249604",
+      "lng": "-75.1143517",
+      "coordinate_status": "VALID",
+      "h3_res_5": null,
+      "h3_res_11": null,
+      "h3_res_12": null,
+      "h3_res_13": null,
+      "dc_dist": "25",
+      "location_block": "4900 BLOCK RORER ST"
+    }
+  ],
+  "summary": {
+    "total_records": 3406194,
+    "coordinate_quality_rate": 100.0,
+    "average_h3_fill_rate": 98.11,
+    "records_needing_h3_population": 145000,
+    "data_quality_grade": "A+ (Excellent)"
+  }
+}

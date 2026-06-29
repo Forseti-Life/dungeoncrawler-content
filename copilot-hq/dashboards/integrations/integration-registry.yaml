@@ -1,0 +1,217 @@
+version: 1
+project: PROJ-010
+last_updated: 2026-04-17
+governance_team:
+  pm: pm-integrations
+  ba: ba-integrations
+  dev: dev-integrations
+  qa: qa-integrations
+  security: sec-analyst-integrations
+entries:
+  - id: aws-bedrock
+    name: AWS Bedrock
+    domain: ai
+    purpose: Primary AI inference for Forseti chat and AI workflows.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/web/modules/custom/ai_conversation/src/Service/AIApiService.php
+      - sites/forseti/config/sync/ai_conversation.settings.yml
+    config_plane: drupal_config_plus_env_fallback
+    secret_plane: env_or_active_drupal_config
+    setup_doc: null
+    verification_method: application-level AI conversation test or drush/runtime verification
+    status: active
+    risk_level: high
+
+  - id: aws-billing
+    name: AWS Cost Explorer Billing
+    domain: billing
+    purpose: Month-to-date AWS expense pulls for Forseti accounting.
+    owner: accountant-forseti
+    system_scope: copilot-hq.ops
+    code_paths:
+      - copilot-hq/runbooks/finance/expense-pulls.md
+    config_plane: aws_cli_runtime
+    secret_plane: aws_runtime_credentials
+    setup_doc: copilot-hq/runbooks/finance/expense-pulls.md
+    verification_method: aws ce get-cost-and-usage
+    status: blocked
+    risk_level: high
+
+  - id: github-billing
+    name: GitHub Billing API
+    domain: billing
+    purpose: Usage-based GitHub billing pulls for Forseti accounting.
+    owner: accountant-forseti
+    system_scope: copilot-hq.ops
+    code_paths:
+      - copilot-hq/runbooks/finance/expense-pulls.md
+      - copilot-hq/runbooks/finance/billing-sources.md
+    config_plane: server_token_file
+    secret_plane: /home/ubuntu/github.token
+    setup_doc: copilot-hq/runbooks/finance/expense-pulls.md
+    verification_method: gh api /organizations/Forseti-Life/settings/billing/usage
+    status: active
+    risk_level: high
+
+  - id: github-deploy
+    name: GitHub Deploy Workflows
+    domain: devops
+    purpose: Production deploy and repository automation.
+    owner: needs-owner-confirmation
+    system_scope: org-wide.ops
+    code_paths:
+      - .github/workflows/deploy.yml
+      - copilot-hq/.github/workflows/deploy.yml
+    config_plane: github_actions_workflows
+    secret_plane: github_actions_secrets_and_server_token_file
+    setup_doc: null
+    verification_method: GitHub Actions workflow run plus production verification
+    status: active
+    risk_level: high
+
+  - id: serpapi
+    name: SerpAPI
+    domain: job-sources
+    purpose: Active Google Jobs ingestion for Job Hunter.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/web/modules/custom/job_hunter/src/Service/SerpApiService.php
+      - sites/forseti/config/sync/job_hunter.settings.yml
+    config_plane: drupal_config_sync
+    secret_plane: tracked_config_sync_secret
+    setup_doc: null
+    verification_method: controlled Job Hunter search using SerpApiService
+    status: active
+    risk_level: critical
+
+  - id: google-cloud-talent-solution
+    name: Google Cloud Talent Solution
+    domain: job-sources
+    purpose: Optional enterprise job search source for Job Hunter.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/web/modules/custom/job_hunter/src/Service/CloudTalentSolutionService.php
+      - sites/forseti/config/sync/job_hunter.settings.yml
+    config_plane: drupal_config
+    secret_plane: unknown_or_active_drupal_config
+    setup_doc: null
+    verification_method: service credential check and API call validation
+    status: config-surface-only
+    risk_level: medium
+
+  - id: adzuna
+    name: Adzuna Jobs API
+    domain: job-sources
+    purpose: Optional aggregated job source for Job Hunter.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/web/modules/custom/job_hunter/src/Service/AdzunaApiService.php
+      - sites/forseti/config/sync/job_hunter.settings.yml
+    config_plane: drupal_config
+    secret_plane: unknown_or_active_drupal_config
+    setup_doc: null
+    verification_method: Adzuna API credential check and test query
+    status: config-surface-only
+    risk_level: medium
+
+  - id: usajobs
+    name: USAJobs API
+    domain: job-sources
+    purpose: Optional federal job source for Job Hunter.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/web/modules/custom/job_hunter/src/Service/UsaJobsApiService.php
+      - sites/forseti/config/sync/job_hunter.settings.yml
+    config_plane: drupal_config
+    secret_plane: unknown_or_active_drupal_config
+    setup_doc: null
+    verification_method: USAJobs API test query
+    status: config-surface-only
+    risk_level: medium
+
+  - id: google-tag
+    name: Google Tag / Analytics
+    domain: analytics
+    purpose: Site analytics integration.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/composer.json
+      - sites/forseti/config/sync/google_tag.settings.yml
+    config_plane: drupal_config_sync
+    secret_plane: none
+    setup_doc: null
+    verification_method: review synced Google Tag config and rendered analytics output
+    status: active
+    risk_level: low
+
+  - id: google-social-auth
+    name: Google Social Auth
+    domain: auth
+    purpose: Google login/auth integration surface.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/composer.json
+      - sites/forseti/web/modules/contrib/social_auth_google/
+    config_plane: drupal_active_config
+    secret_plane: unknown_or_active_drupal_config
+    setup_doc: null
+    verification_method: OAuth settings check and login flow validation
+    status: installed-surface
+    risk_level: medium
+
+  - id: recaptcha
+    name: reCAPTCHA
+    domain: security
+    purpose: Bot protection integration surface.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/composer.json
+      - sites/forseti/web/modules/contrib/recaptcha/
+      - sites/forseti/web/modules/contrib/recaptcha_v3/
+    config_plane: drupal_active_config
+    secret_plane: unknown_or_active_drupal_config
+    setup_doc: null
+    verification_method: recaptcha config check and protected-form validation
+    status: installed-surface
+    risk_level: medium
+
+  - id: nfr-neris
+    name: USFA NERIS
+    domain: regulatory
+    purpose: Registry synchronization integration surface for the NFR module.
+    owner: needs-owner-confirmation
+    system_scope: forseti.drupal
+    code_paths:
+      - sites/forseti/web/modules/custom/nfr/src/Form/NFRSettingsForm.php
+    config_plane: drupal_active_config
+    secret_plane: unknown_or_active_drupal_config
+    setup_doc: null
+    verification_method: NERIS settings review and endpoint connectivity test
+    status: config-surface-only
+    risk_level: medium
+
+  - id: hugging-face-downloads
+    name: Hugging Face Model Downloads
+    domain: ml-ops
+    purpose: Download GGUF models for the local LLM stack in copilot-hq.
+    owner: architect-copilot
+    system_scope: copilot-hq.ops
+    code_paths:
+      - copilot-hq/llm/download-models.sh
+      - copilot-hq/llm/model-manifest.yaml
+      - copilot-hq/llm/requirements.txt
+    config_plane: local_manifest_and_script
+    secret_plane: none
+    setup_doc: copilot-hq/llm/README.md
+    verification_method: llm/download-models.sh plus model presence in llm/models
+    status: active
+    risk_level: low

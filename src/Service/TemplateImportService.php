@@ -357,6 +357,10 @@ class TemplateImportService {
       'dc_campaign_quest_log',
       'dc_campaign_quest_rewards_claimed',
       'dc_campaign_quest_confirmations',
+      'dc_campaign_quests',
+      'dc_campaign_settings',
+      'dc_campaign_subject_registry',
+      'dc_campaign_institution_backfill_review',
     ];
 
     if (in_array($campaign_table, $runtime_only_tables, TRUE)) {

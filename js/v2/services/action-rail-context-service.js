@@ -82,11 +82,12 @@ export function buildActionRailContext(stateManager) {
   const isActorTurn = !hasServerTurn
     || !serverTurnEntity
     || (Boolean(actorRef) && serverTurnEntity === actorRef);
+  // Prefer canonical runtime campaign character id over embedded sheet/library ids.
   const characterId = Number(
-    state?.characterId
-    || state?.id
-    || runtimeContext?.characterId
+    runtimeContext?.characterId
     || hexmap?.launchContext?.character_id
+    || state?.id
+    || state?.characterId
     || 0
   ) || 0;
   const baseStatus = buildActionRailEntrySummary([

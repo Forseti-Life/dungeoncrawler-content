@@ -18,6 +18,7 @@ use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
 use Drupal\dungeoncrawler_content\Service\FamiliarService;
 use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
 use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
@@ -130,6 +131,7 @@ class CharacterCreationStepForm extends FormBase {
     protected InstitutionNormalizationService $institutionNormalization,
     protected FactionGenerationService $factionGeneration,
     protected CampaignCharacterRuntimeResolverService $runtimeResolver,
+    protected CharacterWizardHardeningService $wizardHardening,
   ) {}
 
   /**
@@ -155,6 +157,7 @@ class CharacterCreationStepForm extends FormBase {
       $container->get('dungeoncrawler_content.institution_normalization'),
       $container->get('dungeoncrawler_content.faction_generation'),
       $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
+      $container->get('dungeoncrawler_content.character_wizard_hardening'),
     );
   }
 
@@ -2831,7 +2834,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_cantrip'] = trim((string) ($selection['selected_cantrip'] ?? ''));
+        $selection['selected_cantrip'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'first-world-magic', 'selected_cantrip'],
+          $selection['selected_cantrip'] ?? ''
+        ));
         $character_data['feat_selections']['first-world-magic'] = $selection;
       }
 
@@ -2843,7 +2849,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_cantrip'] = trim((string) ($selection['selected_cantrip'] ?? ''));
+        $selection['selected_cantrip'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'otherworldly-magic', 'selected_cantrip'],
+          $selection['selected_cantrip'] ?? ''
+        ));
         $character_data['feat_selections']['otherworldly-magic'] = $selection;
       }
 
@@ -2855,7 +2864,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['bonus_general_feat'] = trim((string) ($selection['bonus_general_feat'] ?? ''));
+        $selection['bonus_general_feat'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'general-training', 'bonus_general_feat'],
+          $selection['bonus_general_feat'] ?? ''
+        ));
         $character_data['feat_selections']['general-training'] = $selection;
       }
 
@@ -2867,7 +2879,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_feat'] = trim((string) ($selection['selected_feat'] ?? ''));
+        $selection['selected_feat'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'elf-atavism', 'selected_feat'],
+          $selection['selected_feat'] ?? ''
+        ));
         $character_data['feat_selections']['elf-atavism'] = $selection;
       }
 
@@ -2879,8 +2894,14 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_skill'] = trim((string) ($selection['selected_skill'] ?? ''));
-        $selection['selected_language'] = trim((string) ($selection['selected_language'] ?? ''));
+        $selection['selected_skill'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'multitalented', 'selected_skill'],
+          $selection['selected_skill'] ?? ''
+        ));
+        $selection['selected_language'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'multitalented', 'selected_language'],
+          $selection['selected_language'] ?? ''
+        ));
         $character_data['feat_selections']['multitalented'] = $selection;
       }
 
@@ -2892,7 +2913,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_skill'] = trim((string) ($selection['selected_skill'] ?? ''));
+        $selection['selected_skill'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'mixed-heritage-adaptability', 'selected_skill'],
+          $selection['selected_skill'] ?? ''
+        ));
         $character_data['feat_selections']['mixed-heritage-adaptability'] = $selection;
       }
 
@@ -2904,7 +2928,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_feat'] = trim((string) ($selection['selected_feat'] ?? ''));
+        $selection['selected_feat'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'orc-atavism', 'selected_feat'],
+          $selection['selected_feat'] ?? ''
+        ));
         $character_data['feat_selections']['orc-atavism'] = $selection;
       }
 
@@ -2916,7 +2943,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['damage_type'] = trim((string) ($selection['damage_type'] ?? ''));
+        $selection['damage_type'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'draconic-ties', 'damage_type'],
+          $selection['damage_type'] ?? ''
+        ));
         $character_data['feat_selections']['draconic-ties'] = $selection;
       }
 
@@ -2928,7 +2958,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['skills'] = self::normalizeList($selection['skills'] ?? []);
+        $selection['skills'] = self::normalizeList($form_state->getValue(
+          ['feat_selections', 'natural-skill', 'skills'],
+          $selection['skills'] ?? []
+        ));
         $character_data['feat_selections']['natural-skill'] = $selection;
       }
 
@@ -2940,7 +2973,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_weapon_id'] = trim((string) ($selection['selected_weapon_id'] ?? ''));
+        $selection['selected_weapon_id'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'unconventional-weaponry', 'selected_weapon_id'],
+          $selection['selected_weapon_id'] ?? ''
+        ));
         $character_data['feat_selections']['unconventional-weaponry'] = $selection;
       }
 
@@ -2952,7 +2988,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['target_type'] = trim((string) ($selection['target_type'] ?? ''));
+        $selection['target_type'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'vengeful-hatred', 'target_type'],
+          $selection['target_type'] ?? ''
+        ));
         $character_data['feat_selections']['vengeful-hatred'] = $selection;
       }
 
@@ -2964,7 +3003,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_skills'] = self::normalizeList($selection['selected_skills'] ?? []);
+        $selection['selected_skills'] = self::normalizeList($form_state->getValue(
+          ['feat_selections', 'ancestral-longevity', 'selected_skills'],
+          $selection['selected_skills'] ?? []
+        ));
         $character_data['feat_selections']['ancestral-longevity'] = $selection;
       }
 
@@ -2976,7 +3018,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_lore'] = $this->normalizeLoreSkillName((string) ($selection['selected_lore'] ?? ''));
+        $selection['selected_lore'] = $this->normalizeLoreSkillName((string) $form_state->getValue(
+          ['feat_selections', 'gnome-obsession', 'selected_lore'],
+          $selection['selected_lore'] ?? ''
+        ));
         $character_data['feat_selections']['gnome-obsession'] = $selection;
       }
 
@@ -2988,7 +3033,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['specialty'] = trim((string) ($selection['specialty'] ?? ''));
+        $selection['specialty'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'natural-performer', 'specialty'],
+          $selection['specialty'] ?? ''
+        ));
         $character_data['feat_selections']['natural-performer'] = $selection;
       }
     }
@@ -3030,8 +3078,14 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_tradition'] = trim((string) ($selection['selected_tradition'] ?? ''));
-        $selection['selected_cantrip'] = trim((string) ($selection['selected_cantrip'] ?? ''));
+        $selection['selected_tradition'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'adapted-cantrip', 'selected_tradition'],
+          $selection['selected_tradition'] ?? ''
+        ));
+        $selection['selected_cantrip'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'adapted-cantrip', 'selected_cantrip'],
+          $selection['selected_cantrip'] ?? ''
+        ));
         $character_data['feat_selections']['adapted-cantrip'] = $selection;
       }
 
@@ -3043,7 +3097,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['bonus_class_feat'] = trim((string) ($selection['bonus_class_feat'] ?? ''));
+        $selection['bonus_class_feat'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'natural-ambition', 'bonus_class_feat'],
+          $selection['bonus_class_feat'] ?? ''
+        ));
         $character_data['feat_selections']['natural-ambition'] = $selection;
       }
 
@@ -3057,7 +3114,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_monster_type'] = trim((string) ($selection['selected_monster_type'] ?? ''));
+        $selection['selected_monster_type'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'monster-hunter', 'selected_monster_type'],
+          $selection['selected_monster_type'] ?? ''
+        ));
         $character_data['feat_selections']['monster-hunter'] = $selection;
       }
 
@@ -3069,8 +3129,14 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_cantrip'] = trim((string) ($selection['selected_cantrip'] ?? ''));
-        $selection['selected_spell'] = trim((string) ($selection['selected_spell'] ?? ''));
+        $selection['selected_cantrip'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'staff-nexus', 'selected_cantrip'],
+          $selection['selected_cantrip'] ?? ''
+        ));
+        $selection['selected_spell'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'staff-nexus', 'selected_spell'],
+          $selection['selected_spell'] ?? ''
+        ));
         $character_data['feat_selections']['staff-nexus'] = $selection;
       }
 
@@ -3082,7 +3148,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_dedication'] = trim((string) ($selection['selected_dedication'] ?? $selection['dedication'] ?? ''));
+        $selection['selected_dedication'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'eldritch-trickster-racket', 'selected_dedication'],
+          $selection['selected_dedication'] ?? $selection['dedication'] ?? ''
+        ));
         $character_data['feat_selections']['eldritch-trickster-racket'] = $selection;
       }
 
@@ -3094,7 +3163,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_skill'] = trim((string) ($selection['selected_skill'] ?? $selection['knowledge_skill'] ?? ''));
+        $selection['selected_skill'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'mastermind-racket', 'selected_skill'],
+          $selection['selected_skill'] ?? $selection['knowledge_skill'] ?? ''
+        ));
         $character_data['feat_selections']['mastermind-racket'] = $selection;
       }
 
@@ -3109,9 +3181,15 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_companion_species'] = strtolower(trim((string) ($selection['selected_companion_species'] ?? $selection['species_id'] ?? '')));
+        $selection['selected_companion_species'] = strtolower(trim((string) $form_state->getValue(
+          ['feat_selections', $animal_companion_source, 'selected_companion_species'],
+          $selection['selected_companion_species'] ?? $selection['species_id'] ?? ''
+        )));
         $selection['species_id'] = $selection['selected_companion_species'];
-        $selection['name'] = trim((string) ($selection['name'] ?? $selection['display_name'] ?? ''));
+        $selection['name'] = trim((string) $form_state->getValue(
+          ['feat_selections', $animal_companion_source, 'name'],
+          $selection['name'] ?? $selection['display_name'] ?? ''
+        ));
         $character_data['feat_selections'][$animal_companion_source] = $selection;
       }
 
@@ -3126,10 +3204,19 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_familiar_type'] = strtolower(trim((string) ($selection['selected_familiar_type'] ?? $selection['familiar_type'] ?? 'standard')));
+        $selection['selected_familiar_type'] = strtolower(trim((string) $form_state->getValue(
+          ['feat_selections', $familiar_source, 'selected_familiar_type'],
+          $selection['selected_familiar_type'] ?? $selection['familiar_type'] ?? 'standard'
+        )));
         $selection['familiar_type'] = $selection['selected_familiar_type'] !== '' ? $selection['selected_familiar_type'] : 'standard';
-        $selection['selected_familiar_abilities'] = self::normalizeList($selection['selected_familiar_abilities'] ?? []);
-        $selection['name'] = trim((string) ($selection['name'] ?? ''));
+        $selection['selected_familiar_abilities'] = self::normalizeList($form_state->getValue(
+          ['feat_selections', $familiar_source, 'selected_familiar_abilities'],
+          $selection['selected_familiar_abilities'] ?? []
+        ));
+        $selection['name'] = trim((string) $form_state->getValue(
+          ['feat_selections', $familiar_source, 'name'],
+          $selection['name'] ?? ''
+        ));
         $character_data['feat_selections'][$familiar_source] = $selection;
         $character_data['familiar'] = $this->buildCreationFamiliarPayload($character_data, $selected_class, $selection);
       }
@@ -3156,7 +3243,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['specialty'] = trim((string) ($selection['specialty'] ?? ''));
+        $selection['specialty'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'specialty-crafting', 'specialty'],
+          $selection['specialty'] ?? ''
+        ));
         $character_data['feat_selections']['specialty-crafting'] = $selection;
       }
 
@@ -3168,7 +3258,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['specialty'] = trim((string) ($selection['specialty'] ?? ''));
+        $selection['specialty'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'virtuosic-performer', 'specialty'],
+          $selection['specialty'] ?? ''
+        ));
         $character_data['feat_selections']['virtuosic-performer'] = $selection;
       }
 
@@ -3180,7 +3273,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_proficiency'] = trim((string) ($selection['selected_proficiency'] ?? ''));
+        $selection['selected_proficiency'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'canny-acumen', 'selected_proficiency'],
+          $selection['selected_proficiency'] ?? ''
+        ));
         $character_data['feat_selections']['canny-acumen'] = $selection;
       }
 
@@ -3192,7 +3288,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_ancestry'] = trim((string) ($selection['selected_ancestry'] ?? ''));
+        $selection['selected_ancestry'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'adopted-ancestry', 'selected_ancestry'],
+          $selection['selected_ancestry'] ?? ''
+        ));
         $character_data['feat_selections']['adopted-ancestry'] = $selection;
       }
 
@@ -3204,7 +3303,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_weapon_id'] = trim((string) ($selection['selected_weapon_id'] ?? ''));
+        $selection['selected_weapon_id'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'weapon-proficiency', 'selected_weapon_id'],
+          $selection['selected_weapon_id'] ?? ''
+        ));
         $character_data['feat_selections']['weapon-proficiency'] = $selection;
       }
 
@@ -3218,7 +3320,10 @@ class CharacterCreationStepForm extends FormBase {
         if (!is_array($selection)) {
           $selection = [];
         }
-        $selection['selected_domain'] = trim((string) ($selection['selected_domain'] ?? ''));
+        $selection['selected_domain'] = trim((string) $form_state->getValue(
+          ['feat_selections', 'domain-initiate', 'selected_domain'],
+          $selection['selected_domain'] ?? ''
+        ));
         $character_data['feat_selections']['domain-initiate'] = $selection;
       }
 
@@ -3326,6 +3431,14 @@ class CharacterCreationStepForm extends FormBase {
 
     $next_step = min(8, (int) $step + 1);
     $character_data['step'] = $next_step;
+    $pending_completion_grants = [];
+    if ($next_step >= 8) {
+      $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
+      $character_data['wizard_complete'] = $pending_completion_grants === [];
+    }
+    else {
+      $character_data['wizard_complete'] = FALSE;
+    }
 
     // Save to database
     $character_id = $this->saveCharacter($character_id, $character_data, $next_version, $campaign_id, $form_state, (int) $step);
@@ -3349,6 +3462,32 @@ class CharacterCreationStepForm extends FormBase {
 
     // Redirect to next step or character view
     if ($step >= 8) {
+      if ($pending_completion_grants !== []) {
+        $pending_selection_messages = array_values(array_map(static function (array $grant): string {
+          $description = trim((string) ($grant['description'] ?? ''));
+          if ($description !== '') {
+            return $description;
+          }
+          $selection_id = trim((string) ($grant['id'] ?? ''));
+          return $selection_id !== '' ? $selection_id : 'unresolved selection';
+        }, $pending_completion_grants));
+        $this->messenger()->addError($this->t('Character creation is not complete. Resolve pending selections: @pending', [
+          '@pending' => implode('; ', $pending_selection_messages),
+        ]));
+        $redirect_query = ['character_id' => $character_id];
+        if ($campaign_id) {
+          $redirect_query['campaign_id'] = $campaign_id;
+        }
+        $redirect_query = $this->preserveShellQueryFlags($redirect_query);
+        if ($setup_shell) {
+          $redirect_query['step'] = 8;
+          $form_state->setRedirect('dungeoncrawler_content.character_setup', [], ['query' => $redirect_query]);
+        }
+        else {
+          $form_state->setRedirect('dungeoncrawler_content.character_step', ['step' => 8], ['query' => $redirect_query]);
+        }
+        return;
+      }
       if ($campaign_id) {
         $this->ensureCampaignCharacterHasCanonicalSource((int) $character_id, (int) $campaign_id);
       }
@@ -3411,6 +3550,104 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     return $query;
+  }
+
+  /**
+   * Return unresolved character-creation selection grants.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Selection grant rows that still require explicit user choice.
+   */
+  private function collectPendingCreationSelectionGrants(array $character_data): array {
+    $selection_grants = $character_data['features']['featEffects']['selection_grants'] ?? [];
+    if (!is_array($selection_grants)) {
+      return [];
+    }
+
+    $pending = [];
+    foreach ($selection_grants as $grant) {
+      if (!is_array($grant)) {
+        continue;
+      }
+
+      $status = strtolower(trim((string) ($grant['status'] ?? '')));
+      if ($status === 'pending_choice' && !$this->isSelectionGrantResolved($grant, $character_data)) {
+        $pending[] = $grant;
+      }
+    }
+
+    return $pending;
+  }
+
+  /**
+   * Determine whether a selection grant is already satisfied by current data.
+   */
+  private function isSelectionGrantResolved(array $grant, array $character_data): bool {
+    $selection_type = trim((string) ($grant['selection_type'] ?? ''));
+    return match ($selection_type) {
+      'bonus_class_feat' => $this->isBonusClassFeatSelectionResolved($character_data),
+      'familiar_creation' => $this->isFamiliarCreationSelectionResolved($character_data),
+      default => FALSE,
+    };
+  }
+
+  /**
+   * True when Natural Ambition bonus feat is either not active or selected.
+   */
+  private function isBonusClassFeatSelectionResolved(array $character_data): bool {
+    if (trim((string) ($character_data['ancestry_feat'] ?? '')) !== 'natural-ambition') {
+      return TRUE;
+    }
+
+    $selected = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
+    return $selected !== '';
+  }
+
+  /**
+   * True when familiar creation is either not required or already selected.
+   */
+  private function isFamiliarCreationSelectionResolved(array $character_data): bool {
+    if (!$this->hasActiveFamiliarRequirement($character_data)) {
+      return TRUE;
+    }
+
+    $expected_count = (($class_id = strtolower(trim((string) ($character_data['class'] ?? '')))) === 'wizard'
+      && strtolower(trim((string) ($character_data['arcane_thesis'] ?? ''))) === 'improved-familiar-attunement')
+      ? 3
+      : 2;
+    $feat_selections = is_array($character_data['feat_selections'] ?? NULL) ? $character_data['feat_selections'] : [];
+    foreach ($feat_selections as $selection) {
+      if (!is_array($selection)) {
+        continue;
+      }
+
+      $abilities = self::normalizeList($selection['selected_familiar_abilities'] ?? []);
+      if (count($abilities) === $expected_count) {
+        return TRUE;
+      }
+    }
+
+    $familiar_payload = is_array($character_data['familiar'] ?? NULL) ? $character_data['familiar'] : [];
+    $familiar_abilities = self::normalizeList($familiar_payload['abilities'] ?? []);
+    return count($familiar_abilities) === $expected_count;
+  }
+
+  /**
+   * Determine whether the current build requires familiar-creation choices.
+   */
+  private function hasActiveFamiliarRequirement(array $character_data): bool {
+    $class_feat = trim((string) ($character_data['class_feat'] ?? ''));
+    $bonus_feat = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
+    $class_id = strtolower(trim((string) ($character_data['class'] ?? '')));
+    $subclass = strtolower(trim((string) ($character_data['subclass'] ?? '')));
+    $arcane_thesis = strtolower(trim((string) ($character_data['arcane_thesis'] ?? '')));
+    $familiar_sources = $this->getFamiliarSelectionSourceIds();
+
+    return in_array($class_feat, $familiar_sources, TRUE)
+      || in_array($bonus_feat, $familiar_sources, TRUE)
+      || ($class_id === 'druid' && $subclass === 'leaf')
+      || ($class_id === 'wizard' && $arcane_thesis === 'improved-familiar-attunement')
+      || $class_id === 'witch';
   }
 
   /**
@@ -3787,9 +4024,11 @@ class CharacterCreationStepForm extends FormBase {
       }
 
       $character_data = $this->syncWizardDraftFromCharacterData($character_data);
+      $pending_completion_grants = [];
       if ((int) ($character_data['step'] ?? 0) >= 8) {
-        $character_data['wizard_complete'] = TRUE;
+        $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
       }
+      $character_data['wizard_complete'] = ((int) ($character_data['step'] ?? 0) >= 8) && $pending_completion_grants === [];
 
       $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
       if (empty($schema_data['created_at'])) {
@@ -3814,7 +4053,7 @@ class CharacterCreationStepForm extends FormBase {
             'position_r' => (int) ($schema_data['position']['r'] ?? 0),
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-            'status' => $schema_data['step'] >= 8 ? 1 : 0,
+            'status' => ((int) ($schema_data['step'] ?? 0) >= 8 && !empty($schema_data['wizard_complete'])) ? 1 : 0,
             'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
             'version' => $next_version,
             'changed' => $now,
@@ -3848,6 +4087,12 @@ class CharacterCreationStepForm extends FormBase {
             'position_r' => (int) ($schema_data['position']['r'] ?? 0),
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+            'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''
+              ? (string) $schema_data['default_locations']
+              : NULL,
+            'portrait' => trim((string) ($schema_data['portrait'] ?? '')) !== ''
+              ? (string) $schema_data['portrait']
+              : NULL,
             'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
             'status' => 0,
             'created' => $now,
@@ -3862,6 +4107,9 @@ class CharacterCreationStepForm extends FormBase {
           $instance_id,
           $schema_data
         );
+      }
+      if ($resolved_campaign_id === 0 && (int) $character_id > 0) {
+        $this->runtimeResolver->ensureCanonicalLibraryFollowerDataset((int) $character_id);
       }
     }
     catch (\Throwable $exception) {
@@ -3920,6 +4168,12 @@ class CharacterCreationStepForm extends FormBase {
         'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
         'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
         'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+        'default_locations' => trim((string) ($campaign_record->default_locations ?? '')) !== ''
+          ? (string) $campaign_record->default_locations
+          : NULL,
+        'portrait' => trim((string) ($campaign_record->portrait ?? '')) !== ''
+          ? (string) $campaign_record->portrait
+          : NULL,
         'status' => max(1, (int) ($campaign_record->status ?? 1)),
         'changed' => $now,
         'updated' => $now,
@@ -3933,15 +4187,7 @@ class CharacterCreationStepForm extends FormBase {
    * Keep the nested wizard draft aligned with the latest top-level character data.
    */
   private function syncWizardDraftFromCharacterData(array $character_data): array {
-    $wizard = [];
-    foreach ($character_data as $key => $value) {
-      if ($key === 'wizard') {
-        continue;
-      }
-      $wizard[$key] = $value;
-    }
-    $character_data['wizard'] = $wizard;
-    return $character_data;
+    return $this->wizardHardening->syncWizardDraftFromCharacterData($character_data);
   }
 
   /**
@@ -4023,93 +4269,7 @@ class CharacterCreationStepForm extends FormBase {
    * Ensure a campaign-created character points back to a canonical library row.
    */
   private function ensureCampaignCharacterHasCanonicalSource(int $character_id, int $campaign_id): void {
-    if ($character_id <= 0 || $campaign_id <= 0) {
-      return;
-    }
-
-    $record = $this->characterManager->loadCharacter($character_id);
-    if (!$record || (int) ($record->campaign_id ?? 0) !== $campaign_id) {
-      return;
-    }
-
-    $linked_character_id = (int) ($record->source_character_id ?? $record->character_id ?? 0);
-    if ($linked_character_id > 0 && $linked_character_id !== (int) $record->id) {
-      return;
-    }
-
-    $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
-    if (!is_array($character_data)) {
-      $character_data = [];
-    }
-    $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
-    $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
-    $now = $this->time->getRequestTime();
-    $library_instance_id = $this->uuid->generate();
-
-    $library_row_id = (int) $this->database->insert('dc_campaign_characters')
-      ->fields([
-        'uuid' => $library_instance_id,
-        'campaign_id' => 0,
-        'character_id' => 0,
-        'source_character_id' => NULL,
-        'instance_id' => $library_instance_id,
-        'uid' => (int) ($record->uid ?? $this->currentUser->id()),
-        'name' => $schema_data['name'] ?: 'Unnamed Character',
-        'level' => $schema_data['level'],
-        'ancestry' => $schema_data['ancestry'] ?? '',
-        'class' => $schema_data['class'] ?? '',
-        'hp_current' => $hot['hp_current'],
-        'hp_max' => $hot['hp_max'],
-        'armor_class' => $hot['armor_class'],
-        'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-        'position_q' => 0,
-        'position_r' => 0,
-        'last_room_id' => '',
-        'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-        'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-        'location_type' => 'roster',
-        'location_ref' => '',
-        'role' => (string) ($record->role ?? 'player'),
-        'type' => (string) ($record->type ?? 'pc'),
-        'lifecycle_state' => 'ready_library',
-        'status' => max(1, (int) ($record->status ?? 1)),
-        'is_active' => 0,
-        'created' => $now,
-        'changed' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
-
-    $starter_room_id = $this->runtimeResolver->resolveStarterRoomIdForCampaign($campaign_id);
-    $runtime_fields = [
-      'character_id' => $library_row_id,
-      'source_character_id' => $library_row_id,
-      'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
-      'lifecycle_state' => 'campaign_runtime',
-      'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-      'changed' => $now,
-      'updated' => $now,
-    ];
-    $existing_location_type = trim((string) ($record->location_type ?? ''));
-    $existing_location_ref = trim((string) ($record->location_ref ?? ''));
-    if ($starter_room_id !== '' && ($existing_location_type === '' || $existing_location_type === 'global' || $existing_location_ref === '')) {
-      $runtime_fields['last_room_id'] = $starter_room_id;
-      $runtime_fields['location_type'] = 'room';
-      $runtime_fields['location_ref'] = $starter_room_id;
-    }
-
-    $this->database->update('dc_campaign_characters')
-      ->fields($runtime_fields)
-      ->condition('id', $character_id)
-      ->execute();
-
-    $this->database->update('dc_campaigns')
-      ->fields([
-        'active_character_id' => $library_row_id,
-        'changed' => $now,
-      ])
-      ->condition('id', $campaign_id)
-      ->execute();
+    $this->wizardHardening->ensureCampaignCharacterHasCanonicalSource($character_id, $campaign_id);
   }
 
   /**
@@ -8352,12 +8512,18 @@ class CharacterCreationStepForm extends FormBase {
     if ($familiar_type === '' || ($familiar_type !== 'standard' && !isset(FamiliarService::FAMILIAR_TYPES[$familiar_type]))) {
       $familiar_type = 'standard';
     }
+    $familiar_species_name = $familiar_type !== 'standard' && isset(FamiliarService::FAMILIAR_TYPES[$familiar_type]['name'])
+      ? (string) FamiliarService::FAMILIAR_TYPES[$familiar_type]['name']
+      : 'Familiar';
+    $familiar_description = sprintf('Bound %s familiar ally.', strtolower($familiar_species_name));
 
     return [
       'familiar_id' => ((string) ($character_data['name'] ?? 'character')) . '_familiar',
       'character_id' => (string) ($character_data['character_id'] ?? ''),
       'familiar_type' => $familiar_type,
+      'familiar_species_name' => $familiar_species_name,
       'name' => trim((string) ($selection['name'] ?? '')),
+      'description' => $familiar_description,
       'hp' => FamiliarService::HP_PER_LEVEL * $level,
       'max_hp' => FamiliarService::HP_PER_LEVEL * $level,
       'speed' => FamiliarService::DEFAULT_SPEED,

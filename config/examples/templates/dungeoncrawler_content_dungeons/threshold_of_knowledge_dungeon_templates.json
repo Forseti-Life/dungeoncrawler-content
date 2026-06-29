@@ -1,0 +1,18 @@
+{
+  "rows": [
+    {
+      "dungeon_id": "magaambya-campus",
+      "name": "Magaambya Campus",
+      "description": "Academy grounds used as the opening investigation space for Threshold of Knowledge.",
+      "theme": "academy_mystery",
+      "dungeon_data": {
+        "levels": 1,
+        "entry_room": "tok-missing-teacher",
+        "rooms": [
+          "tok-missing-teacher"
+        ],
+        "source_module": "threshold-of-knowledge"
+      }
+    }
+  ]
+}

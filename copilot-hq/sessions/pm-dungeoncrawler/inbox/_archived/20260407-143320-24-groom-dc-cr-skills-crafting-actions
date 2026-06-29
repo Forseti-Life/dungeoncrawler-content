@@ -1,0 +1,18 @@
+- command: |
+    Groom feature dc-cr-skills-crafting-actions for release entry (suggestion process flow).
+
+    Feature stub: features/dc-cr-skills-crafting-actions/feature.md (status: planned/ready, P2)
+    Needs: 01-acceptance-criteria.md, then run pm-qa-handoff.sh
+
+    Context: Crafting actions: Craft, Earn Income (Crafting), Identify Alchemy, Repair. Deps: skill-system ✓, equipment-ch06 (planned), economy (planned)
+
+    ## Steps
+    1. Read features/dc-cr-skills-crafting-actions/feature.md
+    2. Review https://dungeoncrawler.forseti.life/Roadmap for this section's Not Started reqs
+    3. Write features/dc-cr-skills-crafting-actions/01-acceptance-criteria.md (use templates/01-acceptance-criteria.md)
+       Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+    4. Ensure features/dc-cr-skills-crafting-actions/feature.md has ## Security acceptance criteria section
+       (or add: - Security AC exemption: <reason> if no security surface)
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-cr-skills-crafting-actions
+    6. Write outbox confirming AC written and QA handoff dispatched
+- roi: 7

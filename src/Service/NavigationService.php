@@ -668,13 +668,13 @@ class NavigationService {
    * Collect quest entries embedded in dungeon payload context.
    *
    * @return array<int, array<string, mixed>>
-   *   Quest entries from quest summary or active quest context.
+   *   Active quest entries from quest summary or active quest context.
    */
   protected function collectQuestEntriesFromDungeonData(array $dungeon_data): array {
     $entries = [];
     $quest_summary = is_array($dungeon_data['quest_summary'] ?? NULL) ? $dungeon_data['quest_summary'] : [];
 
-    foreach (['active', 'offers', 'leads'] as $bucket) {
+    foreach (['active'] as $bucket) {
       if (!is_array($quest_summary[$bucket] ?? NULL)) {
         continue;
       }
@@ -714,6 +714,7 @@ class NavigationService {
     ?array $quest_entries = NULL
   ): array {
     $resolved_entries = is_array($quest_entries) ? $quest_entries : $this->collectQuestEntriesFromDungeonData($dungeon_data);
+    $resolved_entries = $this->filterQuestEntriesForDestinationProjection($resolved_entries);
     if ($resolved_entries === []) {
       return $capabilities;
     }
@@ -779,6 +780,34 @@ class NavigationService {
     }
 
     return $capabilities;
+  }
+
+  /**
+   * Keep only active quest entries for destination projection.
+   *
+   * Offered/lead quests may reference destinations not yet realized in the
+   * active dungeon topology. Destination projection is restricted to active
+   * quests so hard-fail contract checks apply only to active objectives.
+   *
+   * @param array<int, mixed> $quest_entries
+   *   Candidate quest entries.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Entries eligible for destination projection.
+   */
+  protected function filterQuestEntriesForDestinationProjection(array $quest_entries): array {
+    $filtered = [];
+    foreach ($quest_entries as $quest_entry) {
+      if (!is_array($quest_entry)) {
+        continue;
+      }
+      $status = strtolower(trim((string) ($quest_entry['status'] ?? '')));
+      if ($status !== '' && $status !== 'active') {
+        continue;
+      }
+      $filtered[] = $quest_entry;
+    }
+    return $filtered;
   }
 
   /**

@@ -1,0 +1,557 @@
+[
+  {
+    "id": 1,
+    "name": "Arbiter",
+    "creature_family": "Aeon",
+    "variant_name": "Arbiter",
+    "level": 1,
+    "rarity": "common",
+    "alignment": "LN",
+    "size": "Tiny",
+    "traits": ["Aeon", "Inevitable", "Monitor"],
+    "perception_bonus": 7,
+    "special_senses": ["darkvision", "detect alignment (chaotic only)", "locate inevitable"],
+    "languages": ["Celestial", "Common", "Infernal", "Utopian"],
+    "skills": {
+      "Acrobatics": 9,
+      "Axis Lore": 5,
+      "Diplomacy": 6,
+      "Stealth": 9
+    },
+    "strength": 1,
+    "dexterity": 4,
+    "constitution": 2,
+    "intelligence": 0,
+    "wisdom": 2,
+    "charisma": 1,
+    "items": ["shortsword"],
+    "interaction_abilities": [
+      {
+        "name": "Locate Inevitable",
+        "description": "An arbiter can always sense the direction of the nearest non-arbiter inevitable on the plane, but it cannot sense the range of the inevitable."
+      }
+    ],
+    "armor_class": 16,
+    "ac_special": "+1 status to all saves vs. magic",
+    "fortitude_save": 5,
+    "reflex_save": 7,
+    "will_save": 7,
+    "save_special": "+1 status to all saves vs. magic",
+    "hit_points": 22,
+    "immunities": ["death effects", "disease", "emotion", "poison", "unconscious"],
+    "weaknesses": {
+      "chaotic": 3
+    },
+    "resistances": {
+      "electricity": 3
+    },
+    "automatic_abilities": [],
+    "reactive_abilities": [],
+    "speeds": {
+      "ground": 20,
+      "fly": 40
+    },
+    "strikes": [
+      {
+        "name": "shortsword",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 9,
+        "traits": ["agile", "finesse", "lawful", "magical", "versatile S"],
+        "damage": "1d6+1 piercing plus 1d4 lawful"
+      }
+    ],
+    "innate_spells": {
+      "tradition": "divine",
+      "dc": 17,
+      "spells": {
+        "4": [
+          {"name": "read omens", "uses": null}
+        ],
+        "1": [
+          {"name": "command", "uses": null},
+          {"name": "detect alignment", "uses": "at-will", "notes": "chaotic only"},
+          {"name": "mending", "uses": 3}
+        ]
+      }
+    },
+    "offensive_abilities": [
+      {
+        "name": "Electrical Burst",
+        "action_cost": 2,
+        "traits": ["divine", "electricity", "evocation"],
+        "effect": "The arbiter releases an electrical burst from its body that deals 3d6 electricity damage (DC 17 basic Reflex save). Following such a burst, the arbiter becomes stunned for 24 hours."
+      }
+    ],
+    "description": "These spherical inevitables are scouts and diplomats. Found throughout the multiverse, they have traditionally kept watch over on chaos and its agents. With the announcement of the Convergence, many arbiters now serve as go-betweens among the aeon alliance and its mortal associates.",
+    "family_description": "Aeons have always been the caretakers of reality and defenders of the natural order of balance. Each type of aeon takes on some form of duality in its manifestation and works either to shape the multiverse within the aspects of this duality in some way, or to correct imbalances to the perfect order of existence.",
+    "source_book": "Bestiary 1",
+    "page_reference": "8"
+  },
+  {
+    "id": 2,
+    "name": "Axiomite",
+    "creature_family": "Aeon",
+    "variant_name": "Axiomite",
+    "level": 8,
+    "rarity": "common",
+    "alignment": "LN",
+    "size": "Medium",
+    "traits": ["Aeon", "Monitor"],
+    "perception_bonus": 19,
+    "special_senses": ["darkvision"],
+    "languages": ["Abyssal", "Celestial", "Common", "Draconic", "Infernal", "Utopian"],
+    "skills": {
+      "Acrobatics": 16,
+      "Axis Lore": 17,
+      "Craft": 21,
+      "Diplomacy": 15,
+      "Occultism": 17,
+      "Religion": 17
+    },
+    "strength": 5,
+    "dexterity": 4,
+    "constitution": 3,
+    "intelligence": 5,
+    "wisdom": 5,
+    "charisma": 3,
+    "items": ["sterling artisan's tools", "+1 striking warhammer"],
+    "interaction_abilities": [],
+    "armor_class": 26,
+    "ac_special": "+1 status to all saves vs. magic",
+    "fortitude_save": 13,
+    "reflex_save": 16,
+    "will_save": 18,
+    "save_special": "+1 status to all saves vs. magic",
+    "hit_points": 155,
+    "immunities": ["disease", "emotion", "fear"],
+    "weaknesses": {
+      "chaotic": 10
+    },
+    "resistances": {
+      "electricity": 10,
+      "mental": 10
+    },
+    "automatic_abilities": [],
+    "reactive_abilities": [],
+    "speeds": {
+      "ground": 25
+    },
+    "strikes": [
+      {
+        "name": "warhammer",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 20,
+        "traits": ["lawful", "magical", "shove"],
+        "damage": "2d8+11 bludgeoning plus 1d6 lawful"
+      },
+      {
+        "name": "fist",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 17,
+        "traits": ["agile", "lawful", "magical"],
+        "damage": "1d8+5 bludgeoning plus 1d6 lawful"
+      }
+    ],
+    "innate_spells": {
+      "tradition": "divine",
+      "dc": 27,
+      "attack": 17,
+      "spells": {
+        "5": [
+          {"name": "telekinetic haul", "uses": null}
+        ],
+        "4": [
+          {"name": "dispel magic", "uses": null},
+          {"name": "divine wrath", "uses": null, "notes": "lawful"},
+          {"name": "lightning bolt", "uses": 3}
+        ],
+        "3": [
+          {"name": "haste", "uses": 3},
+          {"name": "paralyze", "uses": null}
+        ],
+        "2": [
+          {"name": "telekinetic maneuver", "uses": null}
+        ],
+        "1": [
+          {"name": "true strike", "uses": "at-will"}
+        ]
+      },
+      "cantrips": {
+        "4": [
+          {"name": "telekinetic projectile"}
+        ]
+      }
+    },
+    "offensive_abilities": [
+      {
+        "name": "Crystalline Dust Form",
+        "action_cost": 1,
+        "traits": ["polymorph"],
+        "effect": "The axiomite shifts between its humanoid form and that of a cloud of crystalline dust in which strange symbols and equations flash. In this form it gains a fly Speed of 40 feet and can fit through even tiny apertures, similarly to gaseous form. It can cast spells, but it can't make melee or ranged attacks in this state. It can return to its humanoid form by using this action while in crystalline dust form."
+      }
+    ],
+    "description": "According to the axiomites, their kind rose from the raw mathematical underpinnings of the universe, manifesting as great builders who created the ancient, colossal cities of the Outer Planes and gave life to the mechanical inevitables. A particular axiomite may look like any humanoid creature, though the particular form it takes on does not affect its abilities. Beneath this assumed form, all axiomites are the same—clouds of glowing, crystalline dust that constantly swirls and congeals into complex tangles of symbols and equations, evincing their existence as literal creatures of pure mathematical law.",
+    "family_description": "Aeons have always been the caretakers of reality and defenders of the natural order of balance. Each type of aeon takes on some form of duality in its manifestation and works either to shape the multiverse within the aspects of this duality in some way, or to correct imbalances to the perfect order of existence.",
+    "sidebar_title": "AXIOMITES IN AXIS",
+    "sidebar_content": "On the planar metropolis of Axis, an axiomite fills one of three roles: construction and maintenance of inevitables, building and repairing Axis's buildings, and exploring the laws and constants that underlie all of reality.",
+    "source_book": "Bestiary 1",
+    "page_reference": "9"
+  },
+  {
+    "id": 3,
+    "name": "Kolyarut",
+    "creature_family": "Aeon",
+    "variant_name": "Kolyarut",
+    "level": 12,
+    "rarity": "common",
+    "alignment": "LN",
+    "size": "Medium",
+    "traits": ["Aeon", "Inevitable", "Monitor"],
+    "perception_bonus": 23,
+    "perception_special": "+27 to detect lies",
+    "special_senses": ["darkvision"],
+    "languages": ["Celestial", "Infernal", "Utopian"],
+    "language_abilities": ["truespeech"],
+    "skills": {
+      "Acrobatics": 22,
+      "Athletics": 27,
+      "Axis Lore": 22,
+      "Diplomacy": 20,
+      "Deception": 20,
+      "Survival": 22
+    },
+    "strength": 7,
+    "dexterity": 4,
+    "constitution": 5,
+    "intelligence": 1,
+    "wisdom": 4,
+    "charisma": 2,
+    "items": ["+1 striking bastard sword"],
+    "interaction_abilities": [
+      {
+        "name": "Truespeech",
+        "description": "A kolyarut can speak with and understand any creature that has a language."
+      }
+    ],
+    "armor_class": 34,
+    "ac_special": "+1 status to all saves vs. magic",
+    "fortitude_save": 23,
+    "reflex_save": 24,
+    "will_save": 22,
+    "save_special": "+1 status to all saves vs. magic",
+    "hit_points": 215,
+    "hp_special": "regeneration 15 (deactivated by chaotic)",
+    "immunities": ["death effects", "disease", "emotion", "poison", "unconscious"],
+    "weaknesses": {
+      "chaotic": 15
+    },
+    "resistances": {},
+    "automatic_abilities": [],
+    "reactive_abilities": [],
+    "speeds": {
+      "ground": 25
+    },
+    "strikes": [
+      {
+        "name": "bastard sword",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 26,
+        "traits": ["lawful", "magical", "two-hand d12"],
+        "damage": "2d8+13 slashing plus 1d6 lawful"
+      },
+      {
+        "name": "fist",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 23,
+        "traits": ["agile", "lawful", "magical"],
+        "damage": "1d10+11 bludgeoning plus 1d6 lawful"
+      }
+    ],
+    "innate_spells": {
+      "tradition": "divine",
+      "dc": 32,
+      "spells": {
+        "8": [
+          {"name": "discern location", "uses": null}
+        ],
+        "5": [
+          {"name": "command", "uses": null}
+        ],
+        "4": [
+          {"name": "illusory disguise", "uses": "at-will"},
+          {"name": "suggestion", "uses": 2}
+        ],
+        "3": [
+          {"name": "paralyze", "uses": 2}
+        ],
+        "2": [
+          {"name": "invisibility", "uses": null, "notes": "self only"}
+        ],
+        "1": [
+          {"name": "command", "uses": "at-will"}
+        ]
+      }
+    },
+    "rituals": [
+      {
+        "name": "geas",
+        "dc": 32
+      }
+    ],
+    "offensive_abilities": [],
+    "description": "Kolyarut inevitables are enforcers of bargains and punishers of those who fail to uphold them. Their humanoid shape, ability to disguise themselves among a humanoid population, and diplomatic leanings make them the most approachable inevitables, and thus more likely to ally themselves with others. They are among the most talkative of all inevitables, naturally possessing a courtly grace and an encyclopedic knowledge of social customs, which they use to assist their efforts in gathering information on their targets or issuing challenges in a legal manner.",
+    "family_description": "Aeons have always been the caretakers of reality and defenders of the natural order of balance. Each type of aeon takes on some form of duality in its manifestation and works either to shape the multiverse within the aspects of this duality in some way, or to correct imbalances to the perfect order of existence.",
+    "sidebar_title": "INEVITABLE FATES",
+    "sidebar_content": "The fact that the aeons known as inevitables seem to be on the decline is taken by some planar scholars as metaphysical proof that entropy is on the rise and the Great Beyond is past its prime and on the way to the end of this cycle of reality.",
+    "source_book": "Bestiary 1",
+    "page_reference": "10"
+  },
+  {
+    "id": 4,
+    "name": "Pleroma",
+    "creature_family": "Aeon",
+    "variant_name": "Pleroma",
+    "level": 20,
+    "rarity": "common",
+    "alignment": "LN",
+    "size": "Large",
+    "traits": ["Aeon", "Monitor"],
+    "perception_bonus": 37,
+    "special_senses": ["darkvision", "lifesense 120 feet", "true seeing"],
+    "languages": ["envisioning"],
+    "language_abilities": [],
+    "skills": {
+      "Acrobatics": 33,
+      "Arcana": 38,
+      "Deception": 34,
+      "Diplomacy": 34,
+      "Occultism": 38,
+      "Religion": 39,
+      "Stealth": 35
+    },
+    "strength": 6,
+    "dexterity": 7,
+    "constitution": 6,
+    "intelligence": 8,
+    "wisdom": 9,
+    "charisma": 6,
+    "items": [],
+    "interaction_abilities": [
+      {
+        "name": "Envisioning",
+        "description": "Pleromas care little for communication with other creatures, but when they do convey information, they do so wordlessly through a series of psychic projections. This acts as telepathy with a range of 100 feet but is understandable to all creatures regardless of whether they have a language, though the aeon's meaning to non-aeons can be vague and is often mysterious. An aeon can use this ability to communicate flawlessly with any other aeon on the same plane as itself."
+      }
+    ],
+    "armor_class": 45,
+    "ac_special": "+1 status to all saves vs. magic",
+    "fortitude_save": 32,
+    "reflex_save": 31,
+    "will_save": 37,
+    "save_special": "+1 status to all saves vs. magic",
+    "hit_points": 335,
+    "hp_special": "regeneration 20 (deactivated by chaotic)",
+    "immunities": ["negative", "positive"],
+    "weaknesses": {
+      "chaotic": 20
+    },
+    "resistances": {},
+    "automatic_abilities": [],
+    "reactive_abilities": [
+      {
+        "name": "Reality Twist",
+        "type": "reaction",
+        "trigger": "The pleroma critically fails the saving throw.",
+        "effect": "The critical failure becomes a normal failure."
+      }
+    ],
+    "speeds": {
+      "fly": 40
+    },
+    "speed_special": "freedom of movement",
+    "strikes": [
+      {
+        "name": "energy touch",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 36,
+        "traits": ["agile", "lawful", "magical"],
+        "damage": "5d8+18 positive or negative damage plus 1d6 lawful"
+      },
+      {
+        "name": "Sphere of Oblivion",
+        "action_cost": 1,
+        "type": "ranged",
+        "attack_bonus": 37,
+        "traits": ["magical"],
+        "effect": "see Sphere of Oblivion"
+      }
+    ],
+    "innate_spells": {
+      "tradition": "divine",
+      "dc": 47,
+      "attack": 37,
+      "spells": {
+        "10": [
+          {"name": "alter reality", "uses": null}
+        ],
+        "9": [
+          {"name": "banishment", "uses": null},
+          {"name": "blade barrier", "uses": null},
+          {"name": "disjunction", "uses": null},
+          {"name": "overwhelming presence", "uses": null}
+        ],
+        "8": [
+          {"name": "disintegrate", "uses": 2},
+          {"name": "unrelenting observation", "uses": null}
+        ],
+        "7": [
+          {"name": "plane shift", "uses": null},
+          {"name": "retrocognition", "uses": null}
+        ],
+        "5": [
+          {"name": "creation", "uses": "at-will"}
+        ],
+        "4": [
+          {"name": "create food", "uses": "at-will"},
+          {"name": "shape stone", "uses": "at-will"}
+        ],
+        "3": [
+          {"name": "hypercognition", "uses": "at-will"}
+        ],
+        "2": [
+          {"name": "detect alignment", "uses": "at-will"},
+          {"name": "shape wood", "uses": "at-will"}
+        ],
+        "1": [
+          {"name": "create water", "uses": "at-will"}
+        ]
+      },
+      "constant": {
+        "8": [
+          {"name": "true seeing"}
+        ],
+        "4": [
+          {"name": "freedom of movement"}
+        ]
+      }
+    },
+    "offensive_abilities": [
+      {
+        "name": "Energy Touch",
+        "action_cost": 0,
+        "traits": [],
+        "effect": "A pleroma's touch deals its choice of positive or negative damage, but neither energy can be used to heal a creature."
+      },
+      {
+        "name": "Sphere of Creation",
+        "action_cost": 2,
+        "traits": ["incapacitation", "magical"],
+        "frequency": "three times per day",
+        "effect": "A pleroma can manifest a 2-foot-diameter sphere of white energy that hovers above its left hand. By using a single action, which has the concentrate trait, the pleroma can cause the sphere to fly 10 feet. The sphere can move in any direction, ignoring difficult terrain, but it can't move farther than 300 feet away from the pleroma. Wherever the sphere travels, it leaves behind a 5-foot-wide path of new matter, creating either new terrain (the pleroma's choice of normal, difficult, or greater difficult terrain) or a 5-foot-square solid barrier of a single natural substance (such as clay, wood, or stone). The sphere can enter the space of a creature; when it does, the creature must succeed at a DC 43 Fortitude save or be absorbed into the sphere. On a successful save, the creature is pushed to a space of the GM's choice away from the sphere. Those who fail take 20d6 positive damage (even if they are living) and are pushed away as a success. Those who critically fail, or are reduced to 0 HP by the damage from a failure, become one with the new material and can be restored only via a 10th-level spell. A pleroma can have only one Sphere of Creation in existence at a time, and the sphere automatically vanishes in a flash of blinding light after 1d4 minutes. All creatures within 30 feet of the sphere of creation when it vanishes must succeed at a DC 43 Fortitude save or be permanently blinded."
+      },
+      {
+        "name": "Sphere of Oblivion",
+        "action_cost": 2,
+        "traits": ["incapacitation", "magical"],
+        "frequency": "three times per day",
+        "effect": "A pleroma can manifest a 2-foot-diameter sphere of complete and utter darkness that hovers above its right hand. It can move and control the sphere in the same manner as its Sphere of Creation. The sphere is an empty void that lasts for 1 minute before collapsing in on itself and winking out of existence. Once manifested, the sphere can be used as a ranged attack, but it blinks out of existence immediately after that attack is resolved. Any unattended object that touches the void is sucked in and completely destroyed. Larger objects (such as ships or buildings) are destroyed at a rate of one 10-foot cube per round of contact. The sphere can enter the space of a creature, with effects similar to the Sphere of Creation except that it deals negative damage (even to undead) on a failure and annihilates rather than incorporating the creature into material. Such a destroyed creature can be restored only by a 10th-level spell."
+      }
+    ],
+    "description": "Among the most powerful of all the true aeons, pleromas are a manifestation of the duality of creation and destruction. Their physical manifestation is a constant state of flux between these two poles, their forms a shifting cloak of black where galaxies and other celestial objects flit in and out of existence, as if depicting the constant life, death, and rebirth of a miniature, self-contained universe. Pleromas see the multiverse as both eternal and cyclical, doomed and malleable, ending only if these cycles ever become unbalanced.",
+    "family_description": "Aeons have always been the caretakers of reality and defenders of the natural order of balance. Each type of aeon takes on some form of duality in its manifestation and works either to shape the multiverse within the aspects of this duality in some way, or to correct imbalances to the perfect order of existence.",
+    "sidebar_title": "OTHER AEONS",
+    "sidebar_content": "Aeons are among the least understood of the Great Beyond's immortal creatures, and they have a wide range of powers and abilities. Far more aeons exist than those presented here, including guardians of time like the four-armed bythos and the weirdly symmetrical theletos, which moderates the duality between freedom and fate.",
+    "source_book": "Bestiary 1",
+    "page_reference": "10-11"
+  },
+  {
+    "id": 5,
+    "name": "Skum",
+    "creature_family": "Alghollthu",
+    "variant_name": "Ulat-Kini",
+    "level": 2,
+    "rarity": "common",
+    "alignment": "LE",
+    "size": "Medium",
+    "traits": ["Amphibious", "Humanoid"],
+    "perception_bonus": 6,
+    "special_senses": ["darkvision"],
+    "languages": ["Alghollthu", "Undercommon"],
+    "language_abilities": [],
+    "skills": {
+      "Athletics": 8,
+      "Intimidation": 4,
+      "Stealth": 7
+    },
+    "strength": 4,
+    "dexterity": 1,
+    "constitution": 3,
+    "intelligence": 0,
+    "wisdom": 0,
+    "charisma": -2,
+    "items": ["trident"],
+    "interaction_abilities": [],
+    "armor_class": 16,
+    "fortitude_save": 7,
+    "reflex_save": 7,
+    "will_save": 4,
+    "hit_points": 40,
+    "immunities": [],
+    "weaknesses": {},
+    "resistances": {
+      "cold": 5
+    },
+    "automatic_abilities": [],
+    "reactive_abilities": [],
+    "speeds": {
+      "ground": 20,
+      "swim": 40
+    },
+    "strikes": [
+      {
+        "name": "trident",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 10,
+        "traits": [],
+        "damage": "1d8+4 piercing"
+      },
+      {
+        "name": "claw",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 10,
+        "traits": ["agile"],
+        "damage": "1d6+4 slashing"
+      },
+      {
+        "name": "fangs",
+        "action_cost": 1,
+        "type": "melee",
+        "attack_bonus": 10,
+        "traits": [],
+        "damage": "2d4+4 piercing"
+      },
+      {
+        "name": "trident",
+        "action_cost": 1,
+        "type": "ranged",
+        "attack_bonus": 7,
+        "traits": ["thrown 20 feet"],
+        "damage": "1d8+3 piercing"
+      }
+    ],
+    "offensive_abilities": [],
+    "description": "The most numerous of the alghollthus are the ulat-kinis, a servitor race created from human stock to serve as rank-and-file soldiers in alghollthu armies. At the zenith of alghollthu power, ulat-kinis formed massive legions and enjoyed significant power over other species. When the alghollthus retreated from the world, they abandoned teeming hordes of ulat-kinis. Although these erstwhile soldiers tried to continue their conquering ways, their numbers declined rapidly in battlefield defeats and purposeful exterminations enacted by their enemies. Ulat-kini society degenerated, so that now only a few enclaves exist in the depths of the earth or along isolated coastlines. Few remember their own species' name, instead using the epithet their foes gave them: 'skum.'",
+    "family_description": "In bygone millennia, aquatic monsters known as alghollthus used their occult powers to conquer and rule vast parts of the world. Their empires contained countless mortal slaves treated as little more than cattle. Alghollthus shaped their slaves and other creatures using mental manipulation and physically transformative magic. Aberrant horrors from faceless stalkers to mimics can be traced back to this meddling.",
+    "sidebar_title": "ALGHOLLTHU DOMAINS",
+    "sidebar_content": "The ruling castes of the alghollthu species dwell in oceanic depths or underground waterways, while their servitors like ulat-kinis and ugothols can often be found in coastal regions and marshes.",
+    "source_book": "Bestiary 1",
+    "page_reference": "12"
+  }
+]

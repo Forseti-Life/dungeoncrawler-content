@@ -6965,4 +6965,94 @@ class FeatEffectManagerTest extends UnitTestCase {
     $this->assertArrayNotHasKey('virtuosic-performer_master_tier_pending', $effects['feat_overrides'] ?? []);
   }
 
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testUnknownFeatRoutesToTodoReviewFeatures(): void {
+    $character = $this->buildCharacterWithFeat('unknown-feat-contract-check');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertNotEmpty($effects['todo_review_features']);
+    $this->assertSame('unknown-feat-contract-check', $effects['todo_review_features'][0]['id'] ?? '');
+    $this->assertSame('missing-handler-stub', $effects['todo_review_features'][0]['reason'] ?? '');
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testTodoMarkedFeatRoutesToTodoReviewWithoutApplying(): void {
+    $character = $this->buildCharacterWithFeat('todo-explicit-review-feat');
+    $effects = $this->manager->buildEffectState($character);
+
+    $this->assertNotEmpty($effects['todo_review_features']);
+    $this->assertSame('todo-explicit-review-feat', $effects['todo_review_features'][0]['id'] ?? '');
+    $this->assertSame('todo-marker', $effects['todo_review_features'][0]['reason'] ?? '');
+    $this->assertNotContains('todo-explicit-review-feat', $effects['applied_feats']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testFallbackDispatchAppliesBulkFirstPassFeat(): void {
+    $create_envelope = new \ReflectionMethod(FeatEffectManager::class, 'createEffectsEnvelope');
+    $create_envelope->setAccessible(TRUE);
+    $effects = $create_envelope->invoke($this->manager);
+
+    $fallback_dispatch = new \ReflectionMethod(FeatEffectManager::class, 'applyFallbackFeatDispatch');
+    $fallback_dispatch->setAccessible(TRUE);
+    $fallback_dispatch->invokeArgs($this->manager, [&$effects, 'underwater-marauder', []]);
+
+    $this->assertContains('underwater-marauder', $effects['applied_feats']);
+    $this->assertEmpty($effects['todo_review_features']);
+
+    $movement_ids = array_map(
+      static fn(array $entry): string => (string) ($entry['id'] ?? ''),
+      $effects['conditional_modifiers']['movement']
+    );
+    $this->assertContains('underwater-marauder', $movement_ids);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testComputedSpeedUsesBaseSpeedBonusAndOverride(): void {
+    $character = [
+      'level' => 3,
+      'feats' => [
+        ['id' => 'fleet'],
+        ['id' => 'nimble-elf'],
+      ],
+    ];
+
+    $effects = $this->manager->buildEffectState($character, ['base_speed' => 25]);
+
+    $this->assertSame(25, $effects['derived_adjustments']['base_speed']);
+    $this->assertSame(5, $effects['derived_adjustments']['speed_bonus']);
+    $this->assertSame(35, $effects['derived_adjustments']['speed_override']);
+    $this->assertSame(35, $effects['derived_adjustments']['computed_speed']);
+  }
+
+  /**
+   * @covers ::buildEffectState
+   */
+  public function testAppliedFeatsAreDeduplicatedBeforeReturn(): void {
+    $character = [
+      'level' => 3,
+      'heritage' => 'halfling-weapon-expertise',
+      'feats' => [
+        ['id' => 'fleet'],
+      ],
+    ];
+
+    $effects = $this->manager->buildEffectState($character);
+    $fleet_hits = 0;
+    foreach ($effects['applied_feats'] as $feat_id) {
+      if ($feat_id === 'fleet') {
+        $fleet_hits++;
+      }
+    }
+
+    $this->assertSame(1, $fleet_hits, 'applied_feats should be unique in final envelope.');
+  }
+
 }

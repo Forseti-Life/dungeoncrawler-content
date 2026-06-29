@@ -61,8 +61,11 @@ class CharacterStateService {
     }
 
     // Parse library payloads (defaults + overrides).
-    $character_data = json_decode($record->character_data, TRUE) ?? [];
-    $default_data = json_decode($record->default_character_data ?? '', TRUE);
+    $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
+    if (!is_array($character_data)) {
+      $character_data = [];
+    }
+    $default_data = json_decode((string) ($record->default_character_data ?? ''), TRUE);
     if (!is_array($default_data)) {
       $default_data = [];
     }
@@ -214,6 +217,13 @@ class CharacterStateService {
       ];
       $state['metadata']['version'] = (int) ($campaign_row['updated'] ?? 0);
       $state['metadata']['updatedAt'] = $campaign_row['updated'] ? date('c', (int) $campaign_row['updated']) : date('c');
+    }
+
+    if ($type === 'pc') {
+      // Campaign state_data may carry legacy null portrait keys; enforce canonical runtime portrait source.
+      $portrait_url = $this->resolvePortraitUrl($record, $campaign_id);
+      $state['portrait_url'] = $portrait_url;
+      $state['portrait'] = $portrait_url;
     }
 
     $state = $this->resolveEffectiveState($state);
@@ -1251,31 +1261,19 @@ class CharacterStateService {
       if (!is_string($text) || trim($text) === '') {
         continue;
       }
-      $names = array_merge($names, $this->parseConditionNamesFromConsumableText($text));
+      if (preg_match_all('/removes? (?:the )?([a-z][a-z _-]+?) condition/i', $text, $matches)) {
+        foreach ($matches[1] as $match) {
+          $names[] = strtolower(trim($match));
+        }
+      }
+      if (preg_match_all('/cures? (?:the )?([a-z][a-z _-]+?)(?: condition|\\b)/i', $text, $matches)) {
+        foreach ($matches[1] as $match) {
+          $names[] = strtolower(trim($match));
+        }
+      }
     }
 
     return array_values(array_unique(array_filter($names)));
-  }
-
-  /**
-   * Parse removable condition names from consumable effect text.
-   *
-   * @return array<int, string>
-   *   Lowercased condition names parsed from freeform text.
-   */
-  private function parseConditionNamesFromConsumableText(string $text): array {
-    $names = [];
-    if (preg_match_all('/removes? (?:the )?([a-z][a-z _-]+?) condition/i', $text, $matches)) {
-      foreach ($matches[1] as $match) {
-        $names[] = strtolower(trim($match));
-      }
-    }
-    if (preg_match_all('/cures? (?:the )?([a-z][a-z _-]+?)(?: condition|\\b)/i', $text, $matches)) {
-      foreach ($matches[1] as $match) {
-        $names[] = strtolower(trim($match));
-      }
-    }
-    return $names;
   }
 
   /**

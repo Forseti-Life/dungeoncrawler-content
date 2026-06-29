@@ -1,0 +1,1137 @@
+# AUDIT: PF2E Gamemastery Guide
+
+**Source:** `PF2E Gamemastery Guide.txt`  
+**Total Lines:** 34,345  
+**Status:** 🔴 PENDING
+
+---
+
+## Legend
+- `[ ]` = Pending extraction
+- `[x]` = Requirements extracted
+- `[S]` = Skipped (pure lore/atmosphere, no mechanics)
+- `[!]` = Needs review
+
+---
+
+## [ ] Chapter 1: Gamemastery Basics
+*Lines 1–8,000 (7,999 lines)*
+
+- [ ] **AUTHORS** *(line 64)*
+- [ ] **PUBLISHER** *(line 165)*
+- [ ] **INTRODUCTION** *(line 338)*
+- [ ] **THE GAME MASTER** *(line 346)*
+- [ ] **HOW TO USE THIS BOOK** *(line 377)*
+- [ ] **CHOOSING** *(line 422)*
+- [ ] **REMEMBER THE FIRST RULE** *(line 515)*
+- [ ] **CHAPTER 1: GAMEMASTERY BASICS** *(line 559)*
+- [ ] **GENERAL ADVICE** *(line 609)*
+- [ ] **SESSION ZERO** *(line 622)*
+- [ ] **PACING GAME SESSIONS** *(line 651)*
+- [ ] **STAKES AND CONSEQUENCES** *(line 674)*
+- [ ] **IMPROVISATION** *(line 739)*
+- [ ] **SECRET CHECKS** *(line 793)*
+- [ ] **HERO POINTS** *(line 833)*
+- [ ] **METAGAMING** *(line 845)*
+- [ ] **PORTRAYING NPCS** *(line 864)*
+- [ ] **RUNNING ENCOUNTERS** *(line 963)*
+- [ ] **SPEED OF PLAY** *(line 987)*
+- [ ] **LOOKING UP RULES** *(line 1,009)*
+- [ ] **REWINDING** *(line 1,030)*
+- [ ] **COMPLEX ROLLS** *(line 1,052)*
+- [ ] **ENEMY TACTICS** *(line 1,101)*
+- [ ] **INITIATIVE** *(line 1,122)*
+- [ ] **INITIATIVE AND STEALTH** *(line 1,157)*
+- [ ] **SETTING THE SCENE** *(line 1,185)*
+- [ ] **BATCH INITIATIVE** *(line 1,196)*
+- [ ] **PLACING CHARACTERS ON THE MAP** *(line 1,208)*
+- [ ] **INAPPROPRIATE SKILLS** *(line 1,232)*
+- [ ] **AD HOC BONUSES AND** *(line 1,245)*
+- [ ] **ADJUDICATING ACTIONS** *(line 1,290)*
+- [ ] **READY** *(line 1,339)*
+- [ ] **TAKE COVER** *(line 1,365)*
+- [ ] **MAPS AND MINIATURES** *(line 1,375)*
+- [ ] **SENSE MOTIVE** *(line 1,414)*
+- [ ] **COVER** *(line 1,416)*
+- [ ] **SEEK** *(line 1,440)*
+- [ ] **VARIANT RULES ON THE GRID** *(line 1,463)*
+- [ ] **UNIFORM DIAGONALS** *(line 1,467)*
+- [ ] **HEX GRIDS** *(line 1,482)*
+- [ ] **SPLITTING AND COMBINING MOVEMENT** *(line 1,497)*
+- [ ] **GOING GRIDLESS** *(line 1,514)*
+- [ ] **SPECIAL BATTLES AND** *(line 1,535)*
+- [ ] **MOUNTED COMBAT** *(line 1,542)*
+- [ ] **AERIAL COMBAT** *(line 1,621)*
+- [ ] **AQUATIC COMBAT** *(line 1,647)*
+- [ ] **THREATS IN PUBLISHED ADVENTURES** *(line 1,678)*
+- [ ] **UNEXPECTED DIFFICULTY** *(line 1,711)*
+- [ ] **SOCIAL ENCOUNTERS** *(line 1,739)*
+- [ ] **RUNNING EXPLORATION** *(line 1,810)*
+- [ ] **EVOCATIVE** *(line 1,847)*
+- [ ] **FLOW OF TIME** *(line 1,871)*
+- [ ] **ARCTIC** *(line 1,956)*
+- [ ] **FOREST** *(line 1,965)*
+- [ ] **QUICK ENVIRONMENTAL DETAILS** *(line 1,981)*
+- [ ] **AQUATIC** *(line 1,983)*
+- [ ] **MOUNTAIN** *(line 1,985)*
+- [ ] **MORE ON SEARCHING** *(line 2,004)*
+- [ ] **PLAINS** *(line 2,015)*
+- [ ] **SWAMP** *(line 2,025)*
+- [ ] **UNDERGROUND** *(line 2,035)*
+- [ ] **MORE ON FOLLOW THE EXPERT** *(line 2,098)*
+- [ ] **IMPROVISING NEW ACTIVITIES** *(line 2,115)*
+- [ ] **SCENES WITHIN** *(line 2,145)*
+- [ ] **HAZARDS** *(line 2,193)*
+- [ ] **INVESTIGATIONS** *(line 2,240)*
+- [ ] **GETTING LOST** *(line 2,281)*
+- [ ] **SURPRISE ATTACKS** *(line 2,346)*
+- [ ] **RUNNING DOWNTIME** *(line 2,380)*
+- [ ] **DEPTH OF DOWNTIME** *(line 2,404)*
+- [ ] **GROUP ENGAGEMENT** *(line 2,436)*
+- [ ] **CAMPAIGNS WITHOUT DOWNTIME** *(line 2,464)*
+- [ ] **LONG-TERM GOALS** *(line 2,482)*
+- [ ] **SUCCESS AND FAILURE** *(line 2,555)*
+- [ ] **BUYING AND SELLING** *(line 2,594)*
+- [ ] **TASKS AND EVENTS** *(line 2,666)*
+- [ ] **MONEY IN DOWNTIME** *(line 2,845)*
+- [ ] **INVESTMENTS** *(line 2,871)*
+- [ ] **MONEY DURING LONG PERIODS OF DOWNTIME** *(line 2,890)*
+- [ ] **RETRAINING** *(line 2,906)*
+- [ ] **TEACHERS** *(line 2,924)*
+- [ ] **EXTREME RETRAINING** *(line 3,011)*
+- [ ] **ADJUDICATING RULES** *(line 3,045)*
+- [ ] **CORE PRINCIPLES** *(line 3,066)*
+- [ ] **THE BASICS** *(line 3,085)*
+- [ ] **CONSISTENCY AND FAIRNESS** *(line 3,096)*
+- [ ] **LISTEN TO THE PLAYERS** *(line 3,140)*
+- [ ] **MAKE THE CALL** *(line 3,182)*
+- [ ] **TAKE TIME FOR REVIEW** *(line 3,200)*
+- [ ] **HOUSE RULES** *(line 3,279)*
+- [ ] **RESOLVING PROBLEMS** *(line 3,311)*
+- [ ] **TOTAL PARTY KILLS** *(line 3,325)*
+- [ ] **PROBLEMATIC PLAYERS** *(line 3,400)*
+- [ ] **SAFETY TOOLS** *(line 3,438)*
+- [ ] **EJECTING A PLAYER** *(line 3,448)*
+- [ ] **CHEATING** *(line 3,454)*
+- [ ] **POWER IMBALANCES** *(line 3,499)*
+- [ ] **NARRATIVE COLLABORATION** *(line 3,535)*
+- [ ] **IDEA FARM** *(line 3,551)*
+- [ ] **CREATIVE** *(line 3,575)*
+- [ ] **DECENTRALIZED** *(line 3,596)*
+- [ ] **CHALLENGES** *(line 3,620)*
+- [ ] **STORY POINTS** *(line 3,638)*
+- [ ] **SPECIAL CIRCUMSTANCES** *(line 3,666)*
+- [ ] **PATHFINDER SOCIETY** *(line 3,674)*
+- [ ] **UNUSUAL GROUP SIZES** *(line 3,702)*
+- [ ] **SMALL GROUPS** *(line 3,709)*
+- [ ] **LARGE GROUPS** *(line 3,756)*
+- [ ] **PLAYER NEEDS** *(line 3,812)*
+- [ ] **SENSORY DIFFERENCES** *(line 3,821)*
+- [ ] **ATTENTION SPAN** *(line 3,839)*
+- [ ] **RARITY IN YOUR GAME** *(line 3,872)*
+- [ ] **THE FOUR RARITIES** *(line 3,880)*
+- [ ] **DIFFERENT CONTEXTS** *(line 3,906)*
+- [ ] **ACCESS ENTRIES** *(line 3,925)*
+- [ ] **STARTING ELEMENTS** *(line 3,934)*
+- [ ] **STORYTELLING** *(line 3,965)*
+- [ ] **WORLDBUILDING** *(line 3,974)*
+- [ ] **CAMPAIGN STRUCTURE** *(line 4,006)*
+- [ ] **BASIC STRUCTURES** *(line 4,021)*
+- [ ] **ONE-SHOT** *(line 4,029)*
+- [ ] **BRIEF CAMPAIGN** *(line 4,042)*
+- [ ] **EXTENDED CAMPAIGN** *(line 4,051)*
+- [ ] **EPIC CAMPAIGN** *(line 4,062)*
+- [ ] **LINKING ADVENTURES** *(line 4,075)*
+- [ ] **ADVENTURE THEMES** *(line 4,092)*
+- [ ] **PLAYER GOALS** *(line 4,106)*
+- [ ] **CHANGING THE WORLD** *(line 4,156)*
+- [ ] **POWER LEVEL** *(line 4,166)*
+- [ ] **RECURRING VILLAINS** *(line 4,179)*
+- [ ] **VILLAIN GOALS** *(line 4,199)*
+- [ ] **REWARDS** *(line 4,231)*
+- [ ] **EXPERIENCE POINTS** *(line 4,243)*
+- [ ] **TREASURE** *(line 4,269)*
+- [ ] **STARTING THE CAMPAIGN** *(line 4,352)*
+- [ ] **AT THE FIRST SESSION** *(line 4,376)*
+- [ ] **STARTING AT A HIGHER LEVEL** *(line 4,399)*
+- [ ] **ENDING THE CAMPAIGN** *(line 4,417)*
+- [ ] **DEALING WITH FAILURE** *(line 4,460)*
+- [ ] **THE NEXT CAMPAIGN** *(line 4,471)*
+- [ ] **ADVENTURE DESIGN** *(line 4,492)*
+- [ ] **PLAYER MOTIVATIONS** *(line 4,507)*
+- [ ] **KEEPING IT VARIED** *(line 4,534)*
+- [ ] **THEME AND FEELING** *(line 4,558)*
+- [ ] **ADVENTURE RECIPES** *(line 4,570)*
+- [ ] **STYLES** *(line 4,622)*
+- [ ] **ADVENTURE PRESENTATION** *(line 4,624)*
+- [ ] **RUNNING YOUR OWN ADVENTURE** *(line 4,697)*
+- [ ] **THREATS** *(line 4,863)*
+- [ ] **BUILDING A SANDBOX** *(line 4,931)*
+- [ ] **MOTIVATIONS** *(line 5,001)*
+- [ ] **STORY ARCS** *(line 5,024)*
+- [ ] **NPCS AND ORGANIZATIONS** *(line 5,100)*
+- [ ] **MECHANICS** *(line 5,118)*
+- [ ] **ENCOUNTER DESIGN** *(line 5,145)*
+- [ ] **VARIETY** *(line 5,169)*
+- [ ] **ENCOUNTER LOCATIONS** *(line 5,209)*
+- [ ] **MAPS AND TERRAIN** *(line 5,230)*
+- [ ] **WILD WEATHER** *(line 5,304)*
+- [ ] **BUDGETING FOR TERRAIN** *(line 5,328)*
+- [ ] **ENEMY MOTIVATIONS** *(line 5,333)*
+- [ ] **MORALE** *(line 5,335)*
+- [ ] **QUICK ADVENTURE GROUPS** *(line 5,354)*
+- [ ] **DYNAMIC ENCOUNTERS** *(line 5,388)*
+- [ ] **HAZARDS IN COMBAT** *(line 5,404)*
+- [ ] **EVOLVING BATTLEFIELDS** *(line 5,430)*
+- [ ] **COMBINING AND SEPARATING ENCOUNTERS** *(line 5,502)*
+- [ ] **TIME PRESSURE** *(line 5,543)*
+- [ ] **PITFALLS** *(line 5,569)*
+- [ ] **SECONDARY OBJECTIVES** *(line 5,604)*
+- [ ] **OPPONENT SYNERGY** *(line 5,636)*
+- [ ] **MISDIRECTION** *(line 5,670)*
+- [ ] **TREASURE BY** *(line 5,754)*
+- [ ] **DRAWING MAPS** *(line 5,952)*
+- [ ] **CREATE A LEGEND** *(line 5,985)*
+- [ ] **START SKETCHING** *(line 6,008)*
+- [ ] **NUMBER ENCOUNTER AREAS** *(line 6,048)*
+- [ ] **ADD DEFINITION** *(line 6,058)*
+- [ ] **SAMPLE MAP** *(line 6,078)*
+- [ ] **CHAPTER 2: TOOLS** *(line 6,129)*
+- [ ] **BUILDING VERSUS MODIFYING** *(line 6,184)*
+- [ ] **BUILDING CREATURES** *(line 6,249)*
+- [ ] **DEVELOP THE CONCEPT** *(line 6,273)*
+- [ ] **BUILDING CREATURES OVERVIEW** *(line 6,326)*
+- [ ] **UNDERSTANDING AND** *(line 6,399)*
+- [ ] **PUSH AND PULL** *(line 6,438)*
+- [ ] **RESKINNING A CREATURE** *(line 6,464)*
+- [ ] **EXTREME INCREASES** *(line 6,518)*
+- [ ] **ALIGNMENT, SIZE, AND** *(line 6,522)*
+- [ ] **ABILITY MODIFIERS** *(line 6,572)*
+- [ ] **BASE ROAD MAPS** *(line 6,660)*
+- [ ] **CONVERTING FIRST EDITION CREATURES** *(line 6,812)*
+- [ ] **PERCEPTION** *(line 6,851)*
+- [ ] **SENSES** *(line 6,863)*
+- [ ] **LANGUAGES** *(line 7,044)*
+- [ ] **SKILLS** *(line 7,060)*
+- [ ] **SPECIAL MODIFIERS** *(line 7,237)*
+- [ ] **ITEMS** *(line 7,245)*
+- [ ] **IMPROVISING A CREATURE** *(line 7,258)*
+- [ ] **GLOSSARY** *(line 7,293)*
+- [ ] **ARMOR CLASS** *(line 7,345)*
+- [ ] **COMPENSATING WITH HP AND SAVES** *(line 7,523)*
+- [ ] **SAVING THROWS** *(line 7,534)*
+- [ ] **HIT POINTS** *(line 7,716)*
+- [ ] **REGENERATION AND HEALING ABILITIES** *(line 7,729)*
+- [ ] **IMMUNITIES,** *(line 7,858)*
+
+## [ ] Chapter 2: Tools (Building Creatures/Hazards/Items)
+*Lines 8,001–18,000 (9,999 lines)*
+
+- [ ] **SPEED** *(line 8,047)*
+- [ ] **STRIKES** *(line 8,070)*
+- [ ] **STRIKE ATTACK BONUS** *(line 8,086)*
+- [ ] **STRIKE DAMAGE** *(line 8,239)*
+- [ ] **SPELLS** *(line 8,399)*
+- [ ] **MANUFACTURED WEAPONS** *(line 8,440)*
+- [ ] **SPELL DC AND SPELL ATTACK ROLL** *(line 8,492)*
+- [ ] **PREPARED AND SPONTANEOUS SPELLS** *(line 8,727)*
+- [ ] **INNATE SPELLS** *(line 8,729)*
+- [ ] **RITUALS** *(line 8,801)*
+- [ ] **DESIGN ABILITIES** *(line 8,808)*
+- [ ] **FOCUS SPELLS** *(line 8,825)*
+- [ ] **BASICS OF ABILITY DESIGN** *(line 8,868)*
+- [ ] **ACTIVE ABILITIES** *(line 8,922)*
+- [ ] **DEFENSIVE ABILITIES** *(line 9,098)*
+- [ ] **REACTIVE ABILITIES** *(line 9,114)*
+- [ ] **CONSTANT AND AUTOMATIC ABILITIES** *(line 9,164)*
+- [ ] **SKILL ABILITIES** *(line 9,202)*
+- [ ] **REVIEW HOLISTICALLY** *(line 9,208)*
+- [ ] **TRAIT ABILITIES** *(line 9,237)*
+- [ ] **COLD** *(line 9,244)*
+- [ ] **ABERRATION** *(line 9,247)*
+- [ ] **AEON** *(line 9,251)*
+- [ ] **CONSTRUCT** *(line 9,258)*
+- [ ] **DAEMON** *(line 9,264)*
+- [ ] **ANGEL** *(line 9,276)*
+- [ ] **DEMON** *(line 9,278)*
+- [ ] **ASTRAL** *(line 9,307)*
+- [ ] **DEVIL** *(line 9,309)*
+- [ ] **CELESTIAL** *(line 9,327)*
+- [ ] **DRAGON** *(line 9,329)*
+- [ ] **ANIMAL** *(line 9,349)*
+- [ ] **ARCHON** *(line 9,354)*
+- [ ] **AZATA** *(line 9,356)*
+- [ ] **BEAST** *(line 9,363)*
+- [ ] **EARTH** *(line 9,385)*
+- [ ] **PLANT** *(line 9,395)*
+- [ ] **ELEMENTAL** *(line 9,397)*
+- [ ] **PROTEAN** *(line 9,406)*
+- [ ] **ETHEREAL** *(line 9,408)*
+- [ ] **FIEND** *(line 9,416)*
+- [ ] **FIRE** *(line 9,433)*
+- [ ] **RAKSHASA** *(line 9,435)*
+- [ ] **PSYCHOPOMP** *(line 9,460)*
+- [ ] **FUNGUS** *(line 9,468)*
+- [ ] **SPIRIT** *(line 9,474)*
+- [ ] **GIANT** *(line 9,477)*
+- [ ] **SWARM** *(line 9,482)*
+- [ ] **INEVITABLE** *(line 9,492)*
+- [ ] **UNDEAD** *(line 9,494)*
+- [ ] **OOZE** *(line 9,511)*
+- [ ] **WATER** *(line 9,513)*
+- [ ] **HUMANOID** *(line 9,521)*
+- [ ] **MONITOR** *(line 9,523)*
+- [ ] **DESIGNING NPCS** *(line 9,536)*
+- [ ] **NON-COMBAT LEVEL** *(line 9,579)*
+- [ ] **PC-STYLE BUILD** *(line 9,618)*
+- [ ] **CLASS ROAD MAPS** *(line 9,672)*
+- [ ] **CLASS ABILITIES** *(line 9,674)*
+- [ ] **BUILDING HAZARDS** *(line 9,821)*
+- [ ] **CONCEPT** *(line 9,828)*
+- [ ] **HAZARD TYPES** *(line 9,839)*
+- [ ] **UNDERSTANDING AND** *(line 9,878)*
+- [ ] **STEALTH AND DISABLE** *(line 9,927)*
+- [ ] **DEFENSES** *(line 10,092)*
+- [ ] **OFFENSE** *(line 10,197)*
+- [ ] **DESIGNING SIMPLE HAZARDS** *(line 10,274)*
+- [ ] **DESIGNING COMPLEX HAZARDS** *(line 10,289)*
+- [ ] **SIMPLE HAZARDS** *(line 10,348)*
+- [ ] **SHRIEKER** *(line 10,352)*
+- [ ] **ENVIRONMENTAL FUNGUS** *(line 10,356)*
+- [ ] **SNOWFALL** *(line 10,373)*
+- [ ] **HAZARD 0** *(line 10,375)*
+- [ ] **ENVIRONMENTAL** *(line 10,377)*
+- [ ] **HAMPERING WEB** *(line 10,396)*
+- [ ] **BROWN MOLD** *(line 10,402)*
+- [ ] **HAZARD 2** *(line 10,404)*
+- [ ] **HAZARD 3** *(line 10,437)*
+- [ ] **HAZARD 1** *(line 10,455)*
+- [ ] **TITANIC FLYTRAP** *(line 10,493)*
+- [ ] **HAZARD 4** *(line 10,529)*
+- [ ] **SPECTRAL REFLECTION** *(line 10,533)*
+- [ ] **HAZARD 5** *(line 10,535)*
+- [ ] **HAUNT** *(line 10,537)*
+- [ ] **GHOSTLY CHOIR** *(line 10,572)*
+- [ ] **HAZARD 6** *(line 10,574)*
+- [ ] **GREEN SLIME** *(line 10,599)*
+- [ ] **HAZARD 9** *(line 10,603)*
+- [ ] **HAZARD 11** *(line 10,658)*
+- [ ] **PLUMMETING DOOM** *(line 10,681)*
+- [ ] **GRASP OF THE DAMNED** *(line 10,696)*
+- [ ] **HAZARD 17** *(line 10,706)*
+- [ ] **HAZARD 15** *(line 10,731)*
+- [ ] **COMPLEX HAZARDS** *(line 10,779)*
+- [ ] **ETERNAL FLAME** *(line 10,783)*
+- [ ] **HAZARD 7** *(line 10,823)*
+- [ ] **COMPLEX HAUNT** *(line 10,825)*
+- [ ] **CONFOUNDING BETRAYAL** *(line 10,827)*
+- [ ] **HAZARD 8** *(line 10,829)*
+- [ ] **PERILOUS FLASH FLOOD** *(line 10,867)*
+- [ ] **HAZARD 10** *(line 10,871)*
+- [ ] **COMPLEX ENVIRONMENTAL** *(line 10,873)*
+- [ ] **HAZARD 12** *(line 10,946)*
+- [ ] **HAZARD 16** *(line 10,983)*
+- [ ] **BUILDING ITEMS** *(line 11,055)*
+- [ ] **SPECIAL ABILITIES** *(line 11,068)*
+- [ ] **ITEM EFFECTS** *(line 11,115)*
+- [ ] **CONCEPT AND ROLE** *(line 11,119)*
+- [ ] **ITEM LEVEL** *(line 11,144)*
+- [ ] **COMPARISON** *(line 11,149)*
+- [ ] **BONUSES** *(line 11,204)*
+- [ ] **DESIGNING BY TYPE** *(line 11,252)*
+- [ ] **ALCHEMICAL ITEMS** *(line 11,256)*
+- [ ] **AMMUNITION** *(line 11,292)*
+- [ ] **ARMOR AND WEAPONS** *(line 11,306)*
+- [ ] **POTIONS VS. ELIXIRS** *(line 11,341)*
+- [ ] **HELD ITEMS** *(line 11,359)*
+- [ ] **OILS** *(line 11,376)*
+- [ ] **POTIONS** *(line 11,386)*
+- [ ] **RUNES** *(line 11,394)*
+- [ ] **SCROLLS** *(line 11,401)*
+- [ ] **SHIELDS** *(line 11,408)*
+- [ ] **STAVES** *(line 11,415)*
+- [ ] **STRUCTURES** *(line 11,423)*
+- [ ] **TALISMANS** *(line 11,432)*
+- [ ] **WANDS** *(line 11,444)*
+- [ ] **WORN ITEMS** *(line 11,454)*
+- [ ] **FILL IN THE NUMBERS** *(line 11,482)*
+- [ ] **ITEM PRICES** *(line 11,538)*
+- [ ] **ITEM QUIRKS** *(line 11,698)*
+- [ ] **INTELLIGENT ITEMS** *(line 12,158)*
+- [ ] **INTELLIGENT ITEM** *(line 12,183)*
+- [ ] **ALIGNMENT** *(line 12,202)*
+- [ ] **PERCEPTION AND SENSES** *(line 12,209)*
+- [ ] **COMMUNICATION AND LANGUAGES** *(line 12,218)*
+- [ ] **SKILLS** *(line 12,234)*
+- [ ] **ABILITY SCORES** *(line 12,241)*
+- [ ] **WILL SAVE** *(line 12,246)*
+- [ ] **ITEM AGENCY** *(line 12,250)*
+- [ ] **DESIGNING INTELLIGENT** *(line 12,286)*
+- [ ] **SPECIFIC INTELLIGENT** *(line 12,318)*
+- [ ] **APEX** *(line 12,330)*
+- [ ] **ARCANE** *(line 12,332)*
+- [ ] **ITEM 18** *(line 12,334)*
+- [ ] **INTELLIGENT** *(line 12,337)*
+- [ ] **ABJURATION** *(line 12,369)*
+- [ ] **ITEM 7** *(line 12,371)*
+- [ ] **CG ENCHANTMENT INTELLIGENT** *(line 12,404)*
+- [ ] **ITEM 5** *(line 12,412)*
+- [ ] **OCCULT** *(line 12,416)*
+- [ ] **CURSED ITEMS** *(line 12,457)*
+- [ ] **SPECIFIC CURSED ITEMS** *(line 12,548)*
+- [ ] **CONJURATION CURSED EXTRADIMENSIONAL** *(line 12,554)*
+- [ ] **MAGICAL** *(line 12,556)*
+- [ ] **CURSED ENCHANTMENT INVESTED** *(line 12,568)*
+- [ ] **ITEM 11** *(line 12,570)*
+- [ ] **CURSED EVOCATION INVESTED** *(line 12,603)*
+- [ ] **ABJURATION CURSED EXTRADIMENSIONAL INVESTED MAGICAL** *(line 12,626)*
+- [ ] **ITEM 14** *(line 12,642)*
+- [ ] **CURSED INVESTED MAGICAL TRANSMUTATION** *(line 12,644)*
+- [ ] **CURSED** *(line 12,656)*
+- [ ] **ITEM 20** *(line 12,660)*
+- [ ] **NECROMANCY** *(line 12,663)*
+- [ ] **CURSED INVESTED** *(line 12,694)*
+- [ ] **ITEM 15** *(line 12,698)*
+- [ ] **TRANSMUTATION** *(line 12,700)*
+- [ ] **RING OF TRUTH** *(line 12,754)*
+- [ ] **ENCHANTMENT INVESTED** *(line 12,759)*
+- [ ] **ITEM 10** *(line 12,761)*
+- [ ] **CONJURATION** *(line 12,790)*
+- [ ] **ITEM 2** *(line 12,792)*
+- [ ] **CURSE 8** *(line 12,830)*
+- [ ] **CURSE 7** *(line 12,847)*
+- [ ] **CURSED EVOCATION** *(line 12,849)*
+- [ ] **ITEM CURSES** *(line 12,869)*
+- [ ] **CURSE 4** *(line 12,876)*
+- [ ] **POISONOUS CLOAK** *(line 12,894)*
+- [ ] **CURSE 6** *(line 12,898)*
+- [ ] **ACID** *(line 12,936)*
+- [ ] **OVERDRAMATIC** *(line 12,945)*
+- [ ] **CURSE 5** *(line 12,948)*
+- [ ] **CURSE 9** *(line 12,955)*
+- [ ] **RAUCOUS** *(line 12,958)*
+- [ ] **CONJURATION CURSED** *(line 12,978)*
+- [ ] **CURSE 3** *(line 13,000)*
+- [ ] **RAVENOUS** *(line 13,026)*
+- [ ] **CURSE 1** *(line 13,037)*
+- [ ] **RELICS** *(line 13,113)*
+- [ ] **DISCOVERING A RELIC** *(line 13,144)*
+- [ ] **BACKGROUND RELICS** *(line 13,179)*
+- [ ] **CAMPAIGN RELICS** *(line 13,190)*
+- [ ] **RELIC ASPECTS** *(line 13,217)*
+- [ ] **ADVANCING A RELIC** *(line 13,241)*
+- [ ] **ADJUSTING TREASURE** *(line 13,330)*
+- [ ] **MAKING RELIC SEEDS** *(line 13,350)*
+- [ ] **PLAYER-DRIVEN RELICS** *(line 13,377)*
+- [ ] **RELIC GIFTS** *(line 13,395)*
+- [ ] **GIFT SAVES AND SPELL ATTACK ROLLS** *(line 13,413)*
+- [ ] **AIR GIFTS** *(line 13,415)*
+- [ ] **ELECTRICITY** *(line 13,418)*
+- [ ] **MINOR GIFT** *(line 13,420)*
+- [ ] **FEATHER STEPS** *(line 13,430)*
+- [ ] **WIND BARRIER** *(line 13,433)*
+- [ ] **LIGHTNING STORM** *(line 13,455)*
+- [ ] **MAJOR GIFT** *(line 13,460)*
+- [ ] **EVOCATION** *(line 13,462)*
+- [ ] **PROPELLING WINDS** *(line 13,473)*
+- [ ] **LIVING STORM** *(line 13,484)*
+- [ ] **DEADLY SPARK** *(line 13,494)*
+- [ ] **GRAND GIFT** *(line 13,505)*
+- [ ] **BEAST GIFTS** *(line 13,514)*
+- [ ] **CALL OF THE WILD** *(line 13,527)*
+- [ ] **RUNES AS GIFTS** *(line 13,554)*
+- [ ] **LIFE** *(line 13,574)*
+- [ ] **MIND** *(line 13,583)*
+- [ ] **MORPH** *(line 13,596)*
+- [ ] **FORM OF FURY** *(line 13,608)*
+- [ ] **TRACK OF THE BEAST** *(line 13,624)*
+- [ ] **GLOSSARY** *(line 13,635)*
+- [ ] **FERAL CLAWS** *(line 13,645)*
+- [ ] **DEATH** *(line 13,653)*
+- [ ] **SHADOW** *(line 13,659)*
+- [ ] **FORM OF VENGEANCE** *(line 13,676)*
+- [ ] **CELESTIAL GIFTS** *(line 13,692)*
+- [ ] **HEALING** *(line 13,733)*
+- [ ] **DEATH GIFTS** *(line 13,755)*
+- [ ] **POSITIVE** *(line 13,758)*
+- [ ] **CONJURATION GOOD** *(line 13,771)*
+- [ ] **ANGELIC VESSEL** *(line 13,783)*
+- [ ] **EVOCATION GOOD** *(line 13,787)*
+- [ ] **NEGATIVE** *(line 13,819)*
+- [ ] **SHROUD OF THE AFTERLIFE** *(line 13,853)*
+- [ ] **GRIM SPECTER** *(line 13,921)*
+- [ ] **EARTH GIFTS** *(line 13,950)*
+- [ ] **EASE BURDEN** *(line 13,954)*
+- [ ] **ROLLING GEODE** *(line 13,971)*
+- [ ] **SHATTERED EARTH** *(line 13,999)*
+- [ ] **UNDERGROUND BOUNTY** *(line 14,037)*
+- [ ] **FIENDISH BARGAIN** *(line 14,063)*
+- [ ] **FIEND GIFTS** *(line 14,071)*
+- [ ] **EVIL** *(line 14,075)*
+- [ ] **FIENDISH DEFIANCE** *(line 14,093)*
+- [ ] **DIVINATION** *(line 14,095)*
+- [ ] **FIRE GIFTS** *(line 14,250)*
+- [ ] **INCANDESCENT SIGHT** *(line 14,287)*
+- [ ] **JET PROPULSION** *(line 14,290)*
+- [ ] **SEARING WAVE** *(line 14,317)*
+- [ ] **HEAT HAZE** *(line 14,322)*
+- [ ] **BLAZING SOUL** *(line 14,355)*
+- [ ] **LIFE GIFTS** *(line 14,380)*
+- [ ] **MIND GIFTS** *(line 14,416)*
+- [ ] **INEXTINGUISHABLE** *(line 14,447)*
+- [ ] **VITALITY SIPHON** *(line 14,461)*
+- [ ] **LIFE EVERLASTING** *(line 14,481)*
+- [ ] **MENTAL** *(line 14,493)*
+- [ ] **REPOSITORY OF KNOWLEDGE** *(line 14,539)*
+- [ ] **SPROUT ALLY** *(line 14,642)*
+- [ ] **PLANT GIFTS** *(line 14,706)*
+- [ ] **MENTAL BASTION** *(line 14,723)*
+- [ ] **POLLEN SPRAY** *(line 14,725)*
+- [ ] **SHADOW GIFTS** *(line 14,818)*
+- [ ] **CONJURATION SHADOW** *(line 14,823)*
+- [ ] **OBSCURE** *(line 14,838)*
+- [ ] **ILLUSION SHADOW** *(line 14,842)*
+- [ ] **SHADOW SMITH** *(line 14,852)*
+- [ ] **SHADOW EVOCATION** *(line 14,874)*
+- [ ] **DARK ROADS** *(line 14,901)*
+- [ ] **CONJURATION SHADOW TELEPORTATION** *(line 14,905)*
+- [ ] **SHADOW TRANSMUTATION** *(line 14,938)*
+- [ ] **WATER GIFTS** *(line 14,948)*
+- [ ] **EVOCATION WATER** *(line 14,953)*
+- [ ] **TIDAL CRASH** *(line 14,998)*
+- [ ] **BOTTOMLESS RESERVOIR** *(line 15,013)*
+- [ ] **CONJURATION EXTRADIMENSIONAL WATER** *(line 15,026)*
+- [ ] **FLOWING FOOTSTEPS** *(line 15,043)*
+- [ ] **TRANSMUTATION WATER** *(line 15,052)*
+- [ ] **RIPPLES AND WAVES** *(line 15,060)*
+- [ ] **ARTIFACTS** *(line 15,093)*
+- [ ] **ARTIFACT RULES** *(line 15,118)*
+- [ ] **ARTIFACT DESTRUCTION** *(line 15,131)*
+- [ ] **CREATING AN ARTIFACT** *(line 15,141)*
+- [ ] **AXE OF THE DWARVEN LORDS** *(line 15,196)*
+- [ ] **ARTIFACT** *(line 15,199)*
+- [ ] **ITEM 26** *(line 15,205)*
+- [ ] **DECK OF MANY THINGS** *(line 15,249)*
+- [ ] **ITEM 22** *(line 15,256)*
+- [ ] **CARD SUBSTITUTIONS** *(line 15,377)*
+- [ ] **ELDER SIGN** *(line 15,473)*
+- [ ] **ITEM 25** *(line 15,478)*
+- [ ] **ESSENCE PRISM** *(line 15,510)*
+- [ ] **ITEM 28** *(line 15,515)*
+- [ ] **ITEM 24** *(line 15,618)*
+- [ ] **HORNS OF NARAGA** *(line 15,688)*
+- [ ] **INVESTED** *(line 15,693)*
+- [ ] **ENCHANTMENT** *(line 15,757)*
+- [ ] **SERITHTIAL** *(line 16,036)*
+- [ ] **ITEM 23** *(line 16,039)*
+- [ ] **DIVINE** *(line 16,044)*
+- [ ] **SHOT OF THE FIRST VAULT** *(line 16,103)*
+- [ ] **SPHERE OF ANNIHILATION** *(line 16,202)*
+- [ ] **ITEM 27** *(line 16,209)*
+- [ ] **TALISMAN OF THE SPHERE** *(line 16,249)*
+- [ ] **GEMS AND ART OBJECTS** *(line 16,284)*
+- [ ] **GEMS** *(line 16,295)*
+- [ ] **ART OBJECTS** *(line 16,451)*
+- [ ] **AFFLICTIONS** *(line 16,751)*
+- [ ] **CURSES** *(line 16,769)*
+- [ ] **CURSE OF NIGHTMARES** *(line 16,797)*
+- [ ] **ILLUSION** *(line 16,800)*
+- [ ] **CURSE 2** *(line 16,804)*
+- [ ] **THEFT OF THOUGHT** *(line 16,814)*
+- [ ] **VISUAL** *(line 16,842)*
+- [ ] **CURSE OF THE RAVENOUS** *(line 16,875)*
+- [ ] **CURSE** *(line 16,894)*
+- [ ] **OATH OF THE FLESH** *(line 16,923)*
+- [ ] **EMOTION** *(line 16,946)*
+- [ ] **CURSE OF SLUMBER** *(line 16,964)*
+- [ ] **INCAPACITATION** *(line 16,967)*
+- [ ] **CURSE 11** *(line 16,969)*
+- [ ] **SLEEP** *(line 16,974)*
+- [ ] **REVILING EARTH** *(line 16,985)*
+- [ ] **CURSE 12** *(line 16,990)*
+- [ ] **SPIRIT ANCHOR** *(line 17,001)*
+- [ ] **CURSE 13** *(line 17,006)*
+- [ ] **UNENDING THIRST** *(line 17,016)*
+- [ ] **REVILED OF NATURE** *(line 17,021)*
+- [ ] **CURSE 15** *(line 17,023)*
+- [ ] **CURSE 18** *(line 17,035)*
+- [ ] **CURSE 19** *(line 17,055)*
+- [ ] **SWORD OF ANATHEMA** *(line 17,057)*
+- [ ] **CURSE 20** *(line 17,093)*
+- [ ] **GRAVE CURSE** *(line 17,105)*
+- [ ] **CURSE, LEVEL VARIES** *(line 17,110)*
+- [ ] **DISEASES** *(line 17,144)*
+- [ ] **DISEASE 2** *(line 17,146)*
+- [ ] **BOG ROT** *(line 17,158)*
+- [ ] **BUBONIC PLAGUE** *(line 17,160)*
+- [ ] **DISEASE 0** *(line 17,162)*
+- [ ] **DISEASE** *(line 17,164)*
+- [ ] **SCARLET FEVER** *(line 17,166)*
+- [ ] **DISEASE 1** *(line 17,168)*
+- [ ] **TETANUS** *(line 17,180)*
+- [ ] **TUBERCULOSIS** *(line 17,193)*
+- [ ] **DISEASE 3** *(line 17,197)*
+- [ ] **MALARIA** *(line 17,214)*
+- [ ] **SCARLET LEPROSY** *(line 17,255)*
+- [ ] **DISEASE 4** *(line 17,258)*
+- [ ] **VIRULENT** *(line 17,260)*
+- [ ] **BONECHILL** *(line 17,273)*
+- [ ] **DISEASE 5** *(line 17,280)*
+- [ ] **CHOKING DEATH** *(line 17,293)*
+- [ ] **DISEASE 6** *(line 17,295)*
+- [ ] **BLINDING SICKNESS** *(line 17,322)*
+- [ ] **DISEASE 7** *(line 17,324)*
+- [ ] **SEWER HAZE** *(line 17,336)*
+- [ ] **NIGHTMARE FEVER** *(line 17,350)*
+- [ ] **CRIMSON OOZE** *(line 17,360)*
+- [ ] **DISEASE 15** *(line 17,363)*
+- [ ] **DISEASE 8** *(line 17,388)*
+- [ ] **BRAIN WORMS** *(line 17,408)*
+- [ ] **DISEASE 11** *(line 17,413)*
+- [ ] **DRUGS** *(line 17,442)*
+- [ ] **DISEASE, LEVEL VARIES** *(line 17,464)*
+- [ ] **ITEM 0** *(line 17,493)*
+- [ ] **DRUG** *(line 17,496)*
+- [ ] **INGESTED** *(line 17,498)*
+- [ ] **POISON** *(line 17,500)*
+- [ ] **BLOODEYE COFFEE** *(line 17,521)*
+- [ ] **CONSUMABLE** *(line 17,524)*
+- [ ] **FLAYLEAF** *(line 17,546)*
+- [ ] **INHALED** *(line 17,556)*
+- [ ] **BLOOD SAP** *(line 17,573)*
+- [ ] **ITEM 1** *(line 17,580)*
+- [ ] **REFINED PESH** *(line 17,598)*
+- [ ] **ITEM 3** *(line 17,643)*
+- [ ] **ITEM 4** *(line 17,668)*
+- [ ] **INJURY** *(line 17,696)*
+- [ ] **ALCHEMICAL** *(line 17,714)*
+- [ ] **DRUGS IN YOUR GAME** *(line 17,734)*
+- [ ] **ITEM 8** *(line 17,801)*
+- [ ] **BUILDING WORLDS** *(line 17,837)*
+- [ ] **DESIGN APPROACH** *(line 17,858)*
+- [ ] **TOP DOWN** *(line 17,897)*
+- [ ] **BOTTOM UP** *(line 17,909)*
+- [ ] **THE WORLD** *(line 17,921)*
+- [ ] **PLANETARY BASICS** *(line 17,928)*
+
+## [ ] Chapter 3: Subsystems
+*Lines 18,001–25,000 (6,999 lines)*
+
+- [ ] **ENVIRONMENT** *(line 18,022)*
+- [ ] **MAPPING A WORLD** *(line 18,024)*
+- [ ] **CAMPAIGN REFERENCE** *(line 18,109)*
+- [ ] **CIVILIZATION** *(line 18,132)*
+- [ ] **SOCIETAL BENCHMARKS** *(line 18,155)*
+- [ ] **DESIGNING NATIONS** *(line 18,274)*
+- [ ] **CONSCIENTIOUS CULTURE DESIGN** *(line 18,324)*
+- [ ] **BUILDING SETTLEMENTS** *(line 18,384)*
+- [ ] **RELIGION** *(line 18,488)*
+- [ ] **THEOLOGY** *(line 18,498)*
+- [ ] **PANTHEONS** *(line 18,547)*
+- [ ] **DEITIES** *(line 18,573)*
+- [ ] **COSMOLOGY** *(line 18,691)*
+- [ ] **THE UNIVERSE** *(line 18,707)*
+- [ ] **THE MULTIVERSE** *(line 18,747)*
+- [ ] **COMPOSITION OF OUTER SPACE** *(line 18,759)*
+- [ ] **SOLAR SYSTEM** *(line 18,789)*
+- [ ] **PLANETS AND MOONS** *(line 18,801)*
+- [ ] **NATIONS** *(line 18,826)*
+- [ ] **NATION STAT BLOCK** *(line 18,871)*
+- [ ] **NATION NAME** *(line 18,876)*
+- [ ] **NATION** *(line 18,879)*
+- [ ] **OTHER TRAITS** *(line 18,881)*
+- [ ] **NATIONS OF LOST OMENS** *(line 18,970)*
+- [ ] **RAHADOUM** *(line 18,972)*
+- [ ] **ANDORAN** *(line 18,978)*
+- [ ] **SETTLEMENTS** *(line 19,046)*
+- [ ] **POWER STRUCTURES** *(line 19,125)*
+- [ ] **SETTLEMENTS IN A GAME** *(line 19,141)*
+- [ ] **SETTLEMENT ADVENTURES** *(line 19,153)*
+- [ ] **MARKETPLACES** *(line 19,156)*
+- [ ] **COMMON NPCS** *(line 19,255)*
+- [ ] **SETTLEMENT STAT BLOCK** *(line 19,296)*
+- [ ] **SETTLEMENT NAME** *(line 19,301)*
+- [ ] **SAMPLE SETTLEMENT ABILITIES** *(line 19,372)*
+- [ ] **CHANGING A SETTLEMENT** *(line 19,426)*
+- [ ] **SETTLEMENTS OF LOST OMENS** *(line 19,452)*
+- [ ] **SETTLEMENT 11** *(line 19,458)*
+- [ ] **METROPOLIS** *(line 19,460)*
+- [ ] **OTARI** *(line 19,492)*
+- [ ] **SETTLEMENT 4** *(line 19,507)*
+- [ ] **TOWN** *(line 19,509)*
+- [ ] **THE PLANES** *(line 19,543)*
+- [ ] **PLANAR TRAITS** *(line 19,555)*
+- [ ] **GRAVITY TRAITS** *(line 19,557)*
+- [ ] **ENHANCED AND IMPEDED MAGIC** *(line 19,567)*
+- [ ] **ALIGNMENT TRAIT** *(line 19,583)*
+- [ ] **SCOPE TRAIT** *(line 19,597)*
+- [ ] **TIME TRAITS** *(line 19,667)*
+- [ ] **MORPHIC TRAITS** *(line 19,700)*
+- [ ] **PLANAR ESSENCE TRAITS** *(line 19,719)*
+- [ ] **PLANAR STAT BLOCKS** *(line 19,831)*
+- [ ] **INNER SPHERE PLANES** *(line 19,850)*
+- [ ] **MATERIAL PLANE** *(line 19,863)*
+- [ ] **PLANE** *(line 19,865)*
+- [ ] **NEGATIVE ENERGY PLANE** *(line 19,909)*
+- [ ] **NEGATIVE** *(line 19,912)*
+- [ ] **SUBJECTIVE GRAVITY** *(line 19,914)*
+- [ ] **POSITIVE ENERGY PLANE** *(line 19,948)*
+- [ ] **POSITIVE** *(line 19,951)*
+- [ ] **PLANE OF AIR** *(line 19,984)*
+- [ ] **PLANE OF EARTH** *(line 20,030)*
+- [ ] **EARTH** *(line 20,037)*
+- [ ] **PLANE OF FIRE** *(line 20,077)*
+- [ ] **FIRE** *(line 20,112)*
+- [ ] **PLANE OF WATER** *(line 20,114)*
+- [ ] **TRANSITIVE PLANES** *(line 20,155)*
+- [ ] **ASTRAL PLANE** *(line 20,169)*
+- [ ] **ETHEREAL PLANE** *(line 20,237)*
+- [ ] **SHADOW PLANE** *(line 20,239)*
+- [ ] **FIRST WORLD** *(line 20,278)*
+- [ ] **ERRATIC** *(line 20,281)*
+- [ ] **METAMORPHIC** *(line 20,285)*
+- [ ] **SHADOW** *(line 20,307)*
+- [ ] **GLOSSARY** *(line 20,339)*
+- [ ] **OUTER SPHERE PLANES** *(line 20,344)*
+- [ ] **ABADDON** *(line 20,374)*
+- [ ] **ABYSS** *(line 20,413)*
+- [ ] **AXIS** *(line 20,431)*
+- [ ] **BONEYARD** *(line 20,458)*
+- [ ] **TIMELESS** *(line 20,485)*
+- [ ] **ELYSIUM** *(line 20,557)*
+- [ ] **HEAVEN** *(line 20,559)*
+- [ ] **HELL** *(line 20,624)*
+- [ ] **MAELSTROM** *(line 20,663)*
+- [ ] **CN METAMORPHIC** *(line 20,667)*
+- [ ] **NIRVANA** *(line 20,697)*
+- [ ] **DIMENSIONS** *(line 20,732)*
+- [ ] **DIMENSION OF TIME** *(line 20,767)*
+- [ ] **DIMENSION** *(line 20,772)*
+- [ ] **STATIC** *(line 20,774)*
+- [ ] **DREAMLANDS** *(line 20,807)*
+- [ ] **FLOWING** *(line 20,812)*
+- [ ] **DEMIPLANES** *(line 20,855)*
+- [ ] **CHAPTER 3: SUBSYSTEMS** *(line 20,925)*
+- [ ] **COMBINING SUBSYSTEMS** *(line 20,968)*
+- [ ] **DECIDING TO USE A SUBSYSTEM** *(line 20,999)*
+- [ ] **VICTORY POINTS** *(line 21,030)*
+- [ ] **NAMING YOUR VICTORY** *(line 21,044)*
+- [ ] **VICTORY POINT** *(line 21,070)*
+- [ ] **ACCUMULATING VICTORY POINTS** *(line 21,123)*
+- [ ] **DIMINISHING VICTORY POINTS** *(line 21,157)*
+- [ ] **ENEMY VICTORY POINTS** *(line 21,185)*
+- [ ] **MULTIPLE POINT SUBSYSTEMS** *(line 21,229)*
+- [ ] **OBSTACLES AND DCS** *(line 21,244)*
+- [ ] **SETTING YOUR SCALE** *(line 21,259)*
+- [ ] **RUNNING YOUR** *(line 21,338)*
+- [ ] **REWARDS** *(line 21,360)*
+- [ ] **INFLUENCE** *(line 21,388)*
+- [ ] **DISCOVER** *(line 21,454)*
+- [ ] **SECRET** *(line 21,457)*
+- [ ] **SAMPLE STAT BLOCK** *(line 21,481)*
+- [ ] **DANPHY MOLLWETHER** *(line 21,488)*
+- [ ] **HUMAN** *(line 21,497)*
+- [ ] **HUMANOID** *(line 21,499)*
+- [ ] **INFLUENCE STAT BLOCKS** *(line 21,543)*
+- [ ] **NPC NAME** *(line 21,560)*
+- [ ] **SETTING DCS** *(line 21,649)*
+- [ ] **RUNNING AN INFLUENCE** *(line 21,668)*
+- [ ] **RESEARCH** *(line 21,704)*
+- [ ] **CONCENTRATION** *(line 21,735)*
+- [ ] **LINGUISTIC** *(line 21,739)*
+- [ ] **BUILDING A** *(line 21,753)*
+- [ ] **CHOOSING THRESHOLDS** *(line 21,784)*
+- [ ] **LIBRARY STAT BLOCK** *(line 21,844)*
+- [ ] **RUNNING RESEARCH** *(line 21,883)*
+- [ ] **GLADE OF FORGOTTEN TIME** *(line 21,906)*
+- [ ] **LIBRARY 7** *(line 21,915)*
+- [ ] **PRIMAL** *(line 21,917)*
+- [ ] **CHASES** *(line 21,984)*
+- [ ] **OBSTACLES** *(line 22,018)*
+- [ ] **CROWD** *(line 22,080)*
+- [ ] **OBSTACLE 1** *(line 22,084)*
+- [ ] **BUILDING A CHASE** *(line 22,091)*
+- [ ] **SETTING OBSTACLE DCS** *(line 22,139)*
+- [ ] **SHORTCUTS AND SPLIT PATHS** *(line 22,159)*
+- [ ] **SOLO CHASES** *(line 22,170)*
+- [ ] **ENDING CHASES** *(line 22,190)*
+- [ ] **TYPES OF CHASES** *(line 22,214)*
+- [ ] **RUNNING A CHASE** *(line 22,257)*
+- [ ] **VISUAL AIDS** *(line 22,286)*
+- [ ] **IF THE PCS GET STUCK** *(line 22,295)*
+- [ ] **SAMPLE OBSTACLES** *(line 22,308)*
+- [ ] **UNDERGROUND OBSTACLES** *(line 22,330)*
+- [ ] **URBAN OBSTACLES** *(line 22,349)*
+- [ ] **WILDERNESS OBSTACLES** *(line 22,387)*
+- [ ] **INFILTRATION** *(line 22,435)*
+- [ ] **BUILDING AN INFILTRATION** *(line 22,471)*
+- [ ] **OBJECTIVE** *(line 22,478)*
+- [ ] **SETTING INFILTRATION SKILLS AND DCS** *(line 22,562)*
+- [ ] **AWARENESS POINTS** *(line 22,601)*
+- [ ] **OBSTACLE** *(line 22,661)*
+- [ ] **COMPLICATIONS** *(line 22,717)*
+- [ ] **COMPLICATION** *(line 22,765)*
+- [ ] **OPPORTUNITIES** *(line 22,778)*
+- [ ] **SMOOTH THE PATH** *(line 22,796)*
+- [ ] **OPPORTUNITY** *(line 22,798)*
+- [ ] **PC PREPARATIONS** *(line 22,811)*
+- [ ] **EDGE POINTS** *(line 22,853)*
+- [ ] **PREPARATION ACTIVITIES** *(line 22,878)*
+- [ ] **GOSSIP** *(line 22,881)*
+- [ ] **FORGE DOCUMENTS** *(line 22,902)*
+- [ ] **SCOUT LOCATION** *(line 22,904)*
+- [ ] **GAIN CONTACT** *(line 22,941)*
+- [ ] **SECURE DISGUISES** *(line 22,943)*
+- [ ] **REPUTATION** *(line 23,009)*
+- [ ] **FAVORS** *(line 23,023)*
+- [ ] **DISSERVICES** *(line 23,042)*
+- [ ] **REPUTATIONS** *(line 23,068)*
+- [ ] **IGNORED** *(line 23,077)*
+- [ ] **LIKED** *(line 23,085)*
+- [ ] **ADMIRED** *(line 23,092)*
+- [ ] **REVERED** *(line 23,099)*
+- [ ] **DISLIKED** *(line 23,172)*
+- [ ] **HATED** *(line 23,179)*
+- [ ] **HUNTED** *(line 23,188)*
+- [ ] **RUNNING REPUTATION** *(line 23,196)*
+- [ ] **REPUTATION IN PATHFINDER SOCIETY** *(line 23,214)*
+- [ ] **DUELS** *(line 23,234)*
+- [ ] **SETTING UP A DUEL** *(line 23,242)*
+- [ ] **COMPETE ALONE** *(line 23,250)*
+- [ ] **LIMITED TOOLS** *(line 23,256)*
+- [ ] **ADJUDICATION** *(line 23,282)*
+- [ ] **COMBAT DUELS** *(line 23,289)*
+- [ ] **INITIATIVE AND DUELING ACTIONS** *(line 23,312)*
+- [ ] **ENDING THE DUEL** *(line 23,365)*
+- [ ] **SPELLCASTING DUELS** *(line 23,378)*
+- [ ] **LEADERSHIP** *(line 23,457)*
+- [ ] **ORGANIZATION LEVELS** *(line 23,473)*
+- [ ] **BASE OF OPERATIONS** *(line 23,608)*
+- [ ] **ORGANIZATION NPCS** *(line 23,623)*
+- [ ] **COHORTS AND NEW PCS** *(line 23,651)*
+- [ ] **RUNNING LEADERSHIP** *(line 23,691)*
+- [ ] **LEADERSHIP EVENTS** *(line 23,705)*
+- [ ] **HEXPLORATION** *(line 23,753)*
+- [ ] **DESIGNING A** *(line 23,782)*
+- [ ] **POPULATING HEXES** *(line 23,807)*
+- [ ] **GENERATING RANDOM HEX MAPS** *(line 23,909)*
+- [ ] **TYPES OF TERRAIN** *(line 23,974)*
+- [ ] **AQUATIC** *(line 23,981)*
+- [ ] **ARCTIC** *(line 23,989)*
+- [ ] **DESERT** *(line 23,996)*
+- [ ] **FOREST** *(line 24,005)*
+- [ ] **MOUNTAIN** *(line 24,013)*
+- [ ] **PLAIN** *(line 24,020)*
+- [ ] **SWAMP** *(line 24,026)*
+- [ ] **RUNNING HEXPLORATION** *(line 24,032)*
+- [ ] **GROUP ACTIVITIES** *(line 24,079)*
+- [ ] **TRAVEL** *(line 24,088)*
+- [ ] **RECONNOITER** *(line 24,132)*
+- [ ] **INDIVIDUAL ACTIVITIES** *(line 24,168)*
+- [ ] **FORTIFY CAMP** *(line 24,174)*
+- [ ] **MAP THE AREA** *(line 24,181)*
+- [ ] **RANDOM ENCOUNTERS** *(line 24,200)*
+- [ ] **SWITCHING OUT OF HEXPLORATION** *(line 24,241)*
+- [ ] **VEHICLES** *(line 24,270)*
+- [ ] **VEHICLE BASICS** *(line 24,286)*
+- [ ] **SIZE, SPACE, AND CAPACITY** *(line 24,295)*
+- [ ] **MOVEMENT AND HEADING** *(line 24,315)*
+- [ ] **PROPULSION** *(line 24,346)*
+- [ ] **PILOTING A VEHICLE** *(line 24,441)*
+- [ ] **VEHICLE MOMENTUM** *(line 24,448)*
+- [ ] **PILOTING CHECKS** *(line 24,458)*
+- [ ] **PILOTING ACTIONS** *(line 24,488)*
+- [ ] **RECKLESS** *(line 24,546)*
+- [ ] **RECKLESS PILOTING** *(line 24,572)*
+- [ ] **UNCONTROLLED VEHICLES** *(line 24,585)*
+- [ ] **MANIPULATE** *(line 24,587)*
+- [ ] **VEHICLES IN COMBAT** *(line 24,639)*
+- [ ] **BROKEN VEHICLES** *(line 24,659)*
+- [ ] **VEHICLE STATISTICS** *(line 24,673)*
+- [ ] **GALLOP** *(line 24,679)*
+- [ ] **VEHICLE NAME** *(line 24,692)*
+- [ ] **SAMPLE VEHICLES** *(line 24,738)*
+- [ ] **AIRSHIP** *(line 24,743)*
+- [ ] **VEHICLE 12** *(line 24,745)*
+- [ ] **RARE GARGANTUAN** *(line 24,747)*
+- [ ] **CHARIOT, HEAVY** *(line 24,774)*
+- [ ] **CHARIOT, LIGHT** *(line 24,788)*
+- [ ] **VEHICLE 0** *(line 24,790)*
+- [ ] **LARGE** *(line 24,792)*
+- [ ] **VEHICLE 3** *(line 24,798)*
+- [ ] **CARRIAGE** *(line 24,819)*
+- [ ] **GALLEY** *(line 24,821)*
+- [ ] **VEHICLE 2** *(line 24,823)*
+- [ ] **VEHICLE 10** *(line 24,827)*
+- [ ] **GARGANTUAN** *(line 24,829)*
+- [ ] **CART** *(line 24,843)*
+- [ ] **GLIDER** *(line 24,877)*
+- [ ] **ROWBOAT** *(line 24,911)*
+- [ ] **SAILING SHIP** *(line 24,933)*
+- [ ] **VEHICLE 9** *(line 24,935)*
+- [ ] **SLEIGH** *(line 24,952)*
+- [ ] **STEAM GIANT** *(line 24,960)*
+- [ ] **VEHICLE 14** *(line 24,963)*
+- [ ] **HUGE** *(line 24,965)*
+- [ ] **WAGON** *(line 24,984)*
+- [ ] **VEHICLE 1** *(line 24,997)*
+
+## [ ] Chapter 4: Variant Rules
+*Lines 25,001–30,000 (4,999 lines)*
+
+- [ ] **VEHICLE 1** *(line 25,015)*
+- [ ] **LARGE** *(line 25,017)*
+- [ ] **CHAPTER 4: VARIANT RULES** *(line 25,063)*
+- [ ] **COMBINING VARIANTS** *(line 25,096)*
+- [ ] **CHOOSING VARIANT RULES** *(line 25,135)*
+- [ ] **ABILITY SCORE VARIANTS** *(line 25,169)*
+- [ ] **GRADUAL ABILITY BOOSTS** *(line 25,175)*
+- [ ] **POINT BUY** *(line 25,200)*
+- [ ] **STEP 1: DECREASE STARTING SCORES** *(line 25,211)*
+- [ ] **STEP 2: SPEND POINTS** *(line 25,219)*
+- [ ] **INCREASING SCORES AT HIGHER LEVELS** *(line 25,277)*
+- [ ] **EXAMPLE** *(line 25,388)*
+- [ ] **ALTERNATIVE SCORES** *(line 25,436)*
+- [ ] **ALIGNMENT VARIANTS** *(line 25,487)*
+- [ ] **MINOR CHANGES** *(line 25,505)*
+- [ ] **MAJOR CHANGES** *(line 25,513)*
+- [ ] **EXTREME GOOD AND EVIL** *(line 25,515)*
+- [ ] **NO ALIGNMENT** *(line 25,551)*
+- [ ] **INCREMENTAL ALIGNMENT** *(line 25,568)*
+- [ ] **FULLY** *(line 25,595)*
+- [ ] **SOMEWHAT** *(line 25,598)*
+- [ ] **FULLY GOOD** *(line 25,630)*
+- [ ] **FULLY EVIL** *(line 25,647)*
+- [ ] **MORAL INTENTIONS** *(line 25,664)*
+- [ ] **EXAMPLE MORAL** *(line 25,682)*
+- [ ] **RULES ADJUSTMENTS** *(line 25,694)*
+- [ ] **DEEP BACKGROUNDS** *(line 25,758)*
+- [ ] **USING DEEP** *(line 25,765)*
+- [ ] **REROLLING AND SELECTING** *(line 25,773)*
+- [ ] **GENERATING DEEP** *(line 25,813)*
+- [ ] **STEP 1: FAMILY BACKGROUND** *(line 25,819)*
+- [ ] **STEP 2: HOMELAND** *(line 25,954)*
+- [ ] **STEP 3: MAJOR CHILDHOOD EVENT** *(line 26,070)*
+- [ ] **STEP 4: INFLUENTIAL ASSOCIATE** *(line 26,245)*
+- [ ] **STEP 5: RELATIONSHIPS** *(line 26,436)*
+- [ ] **FEATS AND FEATURES** *(line 26,667)*
+- [ ] **DUAL-CLASS PCS** *(line 26,675)*
+- [ ] **BUILDING A DUAL-CLASS CHARACTER** *(line 26,687)*
+- [ ] **PLAYING WITH DUAL-CLASS CHARACTERS** *(line 26,785)*
+- [ ] **FREE ARCHETYPE** *(line 26,832)*
+- [ ] **BUILDING A CHARACTER** *(line 26,843)*
+- [ ] **PLAYING WITH FREE ARCHETYPES** *(line 26,873)*
+- [ ] **PLAYING WITH ANCESTRY PARAGON CHARACTERS** *(line 26,877)*
+- [ ] **ANCESTRY PARAGON** *(line 26,898)*
+- [ ] **SIMPLIFIED ANCESTRIES** *(line 26,900)*
+- [ ] **BUILDING A SIMPLIFIED ANCESTRY CHARACTER** *(line 26,902)*
+- [ ] **SIMPLIFIED SKILL FEATS** *(line 26,912)*
+- [ ] **BUILDING A SIMPLIFIED SKILL FEAT CHARACTER** *(line 26,932)*
+- [ ] **BUILDING AN ANCESTRY PARAGON CHARACTER** *(line 26,934)*
+- [ ] **PLAYING WITH SIMPLIFIED SKILL FEAT CHARACTERS** *(line 26,959)*
+- [ ] **LEVEL 0 CHARACTERS** *(line 26,976)*
+- [ ] **BUILDING CHARACTERS** *(line 26,984)*
+- [ ] **INITIAL PROFICIENCIES** *(line 26,992)*
+- [ ] **HIT POINTS** *(line 27,002)*
+- [ ] **STARTING MONEY** *(line 27,007)*
+- [ ] **APPRENTICE OPTION** *(line 27,012)*
+- [ ] **GAMEPLAY** *(line 27,060)*
+- [ ] **TREASURE** *(line 27,085)*
+- [ ] **MAGIC ITEM VARIANTS** *(line 27,106)*
+- [ ] **AUTOMATIC BONUS** *(line 27,114)*
+- [ ] **SPECIAL CLASS FEATURES** *(line 27,128)*
+- [ ] **ADJUSTING ITEMS AND TREASURE** *(line 27,432)*
+- [ ] **HIGH-QUALITY WEAPONS AND ARMOR** *(line 27,434)*
+- [ ] **HIGH-QUALITY** *(line 27,467)*
+- [ ] **HIGH-QUALITY SKILL ITEMS** *(line 27,477)*
+- [ ] **PROFICIENCY WITHOUT LEVEL** *(line 27,518)*
+- [ ] **ADJUSTING TREASURE** *(line 27,570)*
+- [ ] **ADJUSTING ENCOUNTERS** *(line 27,586)*
+- [ ] **SKILL POINTS** *(line 27,669)*
+- [ ] **ASSIGNING SKILL POINTS** *(line 27,682)*
+- [ ] **SKILL POINTS IN PLAY** *(line 27,701)*
+- [ ] **ROGUES** *(line 27,763)*
+- [ ] **RETRAINING** *(line 27,768)*
+- [ ] **STAMINA POINTS** *(line 27,798)*
+- [ ] **RESOLVE POINTS** *(line 27,816)*
+- [ ] **STAMINA** *(line 27,822)*
+- [ ] **STABILIZE** *(line 27,859)*
+- [ ] **STAMINA ACTIONS** *(line 27,867)*
+- [ ] **RALLY** *(line 27,915)*
+- [ ] **NO-LIMIT STAMINA** *(line 27,918)*
+- [ ] **EXPLORATION LINGUISTIC MENTAL** *(line 27,921)*
+- [ ] **STAMINA FEATS** *(line 27,935)*
+- [ ] **GENERAL** *(line 27,939)*
+- [ ] **LINGUISTIC MENTAL** *(line 27,941)*
+- [ ] **FEAT 2** *(line 27,943)*
+- [ ] **FEAT 3** *(line 27,998)*
+- [ ] **OTHER CREATURES** *(line 28,005)*
+- [ ] **CHAPTER 5: NPC GALLERY** *(line 28,054)*
+- [ ] **USING THE NPC GALLERY** *(line 28,067)*
+- [ ] **CUSTOMIZING NPCS** *(line 28,084)*
+- [ ] **CHAPTER MAP** *(line 28,095)*
+- [ ] **ADJUSTING LEVEL** *(line 28,127)*
+- [ ] **CHANGING ALIGNMENT** *(line 28,136)*
+- [ ] **CHANGING LANGUAGES** *(line 28,144)*
+- [ ] **ORGANIZATION AND** *(line 28,159)*
+- [ ] **NPC ANCESTRY ADJUSTMENTS** *(line 28,208)*
+- [ ] **KEEN EYES** *(line 28,222)*
+- [ ] **MAKING A SPECIALIST** *(line 28,229)*
+- [ ] **COURTIERS** *(line 28,561)*
+- [ ] **NOBLE** *(line 28,572)*
+- [ ] **HUMAN** *(line 28,586)*
+- [ ] **CREATURE 3** *(line 28,588)*
+- [ ] **PALACE GUARD** *(line 28,617)*
+- [ ] **CREATURE 4** *(line 28,635)*
+- [ ] **HUMANOID** *(line 28,637)*
+- [ ] **ADVISOR** *(line 28,668)*
+- [ ] **CREATURE 5** *(line 28,680)*
+- [ ] **INTRIGUING PLOTS** *(line 28,709)*
+- [ ] **CREATURE 6** *(line 28,743)*
+- [ ] **CRIMINALS** *(line 28,781)*
+- [ ] **GRAVE ROBBER** *(line 28,800)*
+- [ ] **CREATURE 1** *(line 28,811)*
+- [ ] **BANDIT** *(line 28,838)*
+- [ ] **CREATURE 2** *(line 28,852)*
+- [ ] **RUFFIAN** *(line 28,892)*
+- [ ] **MORE SCAMS** *(line 28,932)*
+- [ ] **CHARLATAN** *(line 28,955)*
+- [ ] **BURGLAR** *(line 29,004)*
+- [ ] **FENCE** *(line 29,063)*
+- [ ] **PROTECTION MONEY** *(line 29,127)*
+- [ ] **ASSASSIN** *(line 29,156)*
+- [ ] **GLOSSARY** *(line 29,162)*
+- [ ] **CREATURE 8** *(line 29,165)*
+- [ ] **DEVOTEES** *(line 29,219)*
+- [ ] **ACOLYTE** *(line 29,234)*
+- [ ] **PROPHET** *(line 29,263)*
+- [ ] **ZEALOT** *(line 29,309)*
+- [ ] **SPELL SWAP EXAMPLE** *(line 29,369)*
+- [ ] **PRIEST** *(line 29,390)*
+- [ ] **DOWNTRODDEN** *(line 29,445)*
+- [ ] **BEGGAR** *(line 29,461)*
+- [ ] **COMMONER** *(line 29,503)*
+- [ ] **URCHIN** *(line 29,556)*
+- [ ] **SMALL** *(line 29,565)*
+- [ ] **WORD ON THE STREET** *(line 29,592)*
+- [ ] **PRISONER** *(line 29,624)*
+- [ ] **EXPLORERS** *(line 29,679)*
+- [ ] **TORCHBEARER** *(line 29,692)*
+- [ ] **CREATURE 0** *(line 29,702)*
+- [ ] **CHRONICLER** *(line 29,719)*
+- [ ] **GUIDE** *(line 29,770)*
+- [ ] **PATHFINDER CHRONICLES** *(line 29,824)*
+- [ ] **TOMB RAIDER** *(line 29,845)*
+- [ ] **FORESTERS** *(line 29,901)*
+- [ ] **POACHER** *(line 29,914)*
+- [ ] **TRACKER** *(line 29,977)*
+
+## [S] Chapter 5: NPC Gallery *(LORE — skip)*
+*Lines 30,001–34,344 (4,343 lines)*
+
+- [S] **CREATURE 3** *(line 30,005)*
+- [S] **HUMANOID** *(line 30,008)*
+- [S] **HUNTER** *(line 30,026)*
+- [S] **FAMED FORESTS** *(line 30,036)*
+- [S] **CREATURE 7** *(line 30,081)*
+- [S] **HEALERS** *(line 30,126)*
+- [S] **APOTHECARY** *(line 30,138)*
+- [S] **HUMAN** *(line 30,149)*
+- [S] **PHYSICIAN** *(line 30,180)*
+- [S] **SURGEON** *(line 30,214)*
+- [S] **CREATURE 2** *(line 30,243)*
+- [S] **AILMENTS** *(line 30,273)*
+- [S] **PLAGUE DOCTOR** *(line 30,294)*
+- [S] **CREATURE 5** *(line 30,308)*
+- [S] **LABORERS** *(line 30,343)*
+- [S] **SERVANT** *(line 30,357)*
+- [S] **DOCKHAND** *(line 30,382)*
+- [S] **CREATURE 0** *(line 30,401)*
+- [S] **FARMER** *(line 30,426)*
+- [S] **FORCED LABOR** *(line 30,476)*
+- [S] **MINER** *(line 30,493)*
+- [S] **GLOSSARY** *(line 30,501)*
+- [S] **GRAVEDIGGER** *(line 30,529)*
+- [S] **CREATURE 1** *(line 30,542)*
+- [S] **MAGISTRATES** *(line 30,574)*
+- [S] **JUDGE** *(line 30,589)*
+- [S] **TAX COLLECTOR** *(line 30,627)*
+- [S] **HARBORMASTER** *(line 30,681)*
+- [S] **AT YOUR SERVICE** *(line 30,721)*
+- [S] **WARDEN** *(line 30,745)*
+- [S] **CREATURE 6** *(line 30,757)*
+- [S] **MERCENARIES** *(line 30,794)*
+- [S] **BODYGUARD** *(line 30,810)*
+- [S] **MAGE FOR HIRE** *(line 30,846)*
+- [S] **BOUNTY HUNTER** *(line 30,876)*
+- [S] **CREATURE 4** *(line 30,907)*
+- [S] **MONSTER HUNTER** *(line 30,929)*
+- [S] **MERCENARY BANTER** *(line 30,934)*
+- [S] **MYSTICS** *(line 31,022)*
+- [S] **ADEPT** *(line 31,035)*
+- [S] **HARROW READER** *(line 31,077)*
+- [S] **CULTIST** *(line 31,112)*
+- [S] **MYSTIC RITUALS** *(line 31,161)*
+- [S] **FALSE PRIEST** *(line 31,185)*
+- [S] **NECROMANCER** *(line 31,247)*
+- [S] **CULT LEADER** *(line 31,304)*
+- [S] **DARK RITUALS** *(line 31,373)*
+- [S] **DEMONOLOGIST** *(line 31,405)*
+- [S] **OFFICERS** *(line 31,463)*
+- [S] **BARRISTER** *(line 31,473)*
+- [S] **GUARD** *(line 31,521)*
+- [S] **ARCHER SENTRY** *(line 31,568)*
+- [S] **JAILER** *(line 31,620)*
+- [S] **WATCH OFFICER** *(line 31,677)*
+- [S] **CAPTAIN OF THE GUARD** *(line 31,737)*
+- [S] **UNUSUAL MISDEMEANORS** *(line 31,809)*
+- [S] **EXECUTIONER** *(line 31,829)*
+- [S] **PERFORMERS** *(line 31,890)*
+- [S] **DANCER** *(line 31,895)*
+- [S] **ACROBAT** *(line 31,932)*
+- [S] **TROUBADOUR** *(line 31,986)*
+- [S] **BEAST TAMER** *(line 32,043)*
+- [S] **PUBLICANS** *(line 32,098)*
+- [S] **SERVER** *(line 32,111)*
+- [S] **BARKEEP** *(line 32,140)*
+- [S] **INNKEEPER** *(line 32,206)*
+- [S] **DRUNKARD** *(line 32,270)*
+- [S] **SCHOLARS** *(line 32,318)*
+- [S] **LIBRARIAN** *(line 32,330)*
+- [S] **TEACHER** *(line 32,376)*
+- [S] **ASTRONOMER** *(line 32,426)*
+- [S] **CENTERS OF LEARNING** *(line 32,463)*
+- [S] **SAGE** *(line 32,483)*
+- [S] **SEAFARERS** *(line 32,537)*
+- [S] **NAVIGATOR** *(line 32,558)*
+- [S] **PIRATE** *(line 32,595)*
+- [S] **BOSUN** *(line 32,643)*
+- [S] **NAUTICAL SUPERSTITIONS** *(line 32,682)*
+- [S] **SHIP CAPTAIN** *(line 32,710)*
+- [S] **TRADESPEOPLE** *(line 32,760)*
+- [S] **APPRENTICE** *(line 32,774)*
+- [S] **MERCHANT** *(line 32,817)*
+- [S] **SMITH** *(line 32,868)*
+- [S] **MORE ARTISAN GUILDS** *(line 32,902)*
+- [S] **GUILDMASTER** *(line 32,924)*
+- [S] **CREATURE 8** *(line 32,945)*
+- [S] **VILLAINS** *(line 32,981)*
+- [S] **SABOTEUR** *(line 32,992)*
+- [S] **MASTERMIND** *(line 33,036)*
+- [S] **ANTIPALADIN** *(line 33,097)*
+- [S] **SERVANTS OF DESTRUCTION** *(line 33,114)*
+- [S] **HP 75** *(line 33,145)*
+- [S] **TOUCH OF CORRUPTION** *(line 33,166)*
+- [S] **NECROMANCY** *(line 33,169)*
+- [S] **FOCUS 3** *(line 33,173)*
+- [S] **NEGATIVE** *(line 33,175)*
+- [S] **DESPOT** *(line 33,199)*
+- [S] **RECKLESS SCIENTIST** *(line 33,256)*
+- [S] **GANG STRUCTURE** *(line 33,325)*
+- [S] **GANG LEADER** *(line 33,357)*
+- [S] **GLOSSARY AND INDEX** *(line 33,416)*
+- [S] **PAIZO INC.** *(line 34,218)*
+
+---
+
+**Total auditable sections: 1103**

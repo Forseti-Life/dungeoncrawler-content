@@ -7,6 +7,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignStateService;
+use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\Tests\UnitTestCase;
 
@@ -437,6 +438,33 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $method->setAccessible(TRUE);
 
     $storyline_data = [
+      'metadata' => [
+        'generated_outline' => [
+          'entry_point' => [
+            'primary_quest_giver_id' => 'test-questgiver',
+            'primary_quest_giver_name' => 'Test Questgiver',
+            'primary_dungeon_id' => 'tpl_dungeon_tavern_basement',
+            'primary_chapter_id' => 'chapter-1',
+            'primary_scene_id' => 'scene-1',
+            'primary_location_id' => 'tpl_room_tavern_entrance',
+            'introduction_path' => 'direct',
+            'detail_summary' => 'A test storyline.',
+          ],
+        ],
+      ],
+      'contacts' => [[
+        'entity_id' => 'test-questgiver',
+        'entity_type' => 'campaign_npc',
+        'role' => 'quest_giver',
+        'relationship_state' => ['chapter_id' => 'chapter-1', 'scene_id' => 'scene-1'],
+      ]],
+      'asset_references' => [[
+        'asset_type' => 'room',
+        'asset_id' => 'tpl_room_tavern_entrance',
+        'asset_role' => 'entrance',
+        'chapter_id' => 'chapter-1',
+        'scene_id' => 'scene-1',
+      ]],
       'chapters' => [
         [
           'chapter_id' => 'chapter-1',
@@ -487,6 +515,33 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $method->setAccessible(TRUE);
 
     $storyline_data = [
+      'metadata' => [
+        'generated_outline' => [
+          'entry_point' => [
+            'primary_quest_giver_id' => 'test-questgiver',
+            'primary_quest_giver_name' => 'Test Questgiver',
+            'primary_dungeon_id' => 'tpl_dungeon_tavern_basement',
+            'primary_chapter_id' => 'chapter-1',
+            'primary_scene_id' => 'scene-1',
+            'primary_location_id' => 'tpl_room_tavern_entrance',
+            'introduction_path' => 'direct',
+            'detail_summary' => 'A test storyline.',
+          ],
+        ],
+      ],
+      'contacts' => [[
+        'entity_id' => 'test-questgiver',
+        'entity_type' => 'campaign_npc',
+        'role' => 'quest_giver',
+        'relationship_state' => ['chapter_id' => 'chapter-1', 'scene_id' => 'scene-1'],
+      ]],
+      'asset_references' => [[
+        'asset_type' => 'room',
+        'asset_id' => 'tpl_room_tavern_entrance',
+        'asset_role' => 'entrance',
+        'chapter_id' => 'chapter-1',
+        'scene_id' => 'scene-1',
+      ]],
       'chapters' => [
         [
           'chapter_id' => 'chapter-1',
@@ -817,6 +872,29 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $normalized = $normalize->invoke($service, [
       'name' => 'Valid Runtime Story',
       'source' => 'npc-storyline-bootstrap',
+      'asset_references' => [
+        [
+          'asset_type' => 'dungeon',
+          'asset_id' => 'tpl_dungeon_tavern_basement',
+          'asset_role' => 'entry-dungeon',
+          'chapter_id' => 'tpl_dungeon_tavern_basement',
+          'scene_id' => 'tavern_entrance',
+        ],
+        [
+          'asset_type' => 'room',
+          'asset_id' => 'tavern_entrance',
+          'asset_role' => 'entry-room',
+          'chapter_id' => 'tpl_dungeon_tavern_basement',
+          'scene_id' => 'tavern_entrance',
+        ],
+        [
+          'asset_type' => 'room',
+          'asset_id' => 'tpl_room_tavern_entrance',
+          'asset_role' => 'entrance',
+          'chapter_id' => 'tpl_dungeon_tavern_basement',
+          'scene_id' => 'tavern_entrance',
+        ],
+      ],
       'contacts' => [[
         'contact_id' => 'eldric-contact',
         'entity_type' => 'campaign_npc',
@@ -824,14 +902,34 @@ class StorylineManagerServiceTest extends UnitTestCase {
         'role' => 'quest_giver',
         'display_name' => 'Eldric',
         'attitude' => 'friendly',
+        'relationship_state' => [
+          'chapter_id' => 'tpl_dungeon_tavern_basement',
+          'scene_id' => 'tavern_entrance',
+        ],
       ]],
       'chapters' => [[
-        'name' => 'Bootstrap Chapter',
+        'chapter_id' => 'tpl_dungeon_tavern_basement',
+        'name' => 'Absalom',
         'scenes' => [[
-          'name' => 'Bootstrap Scene',
+          'scene_id' => 'tavern_entrance',
+          'name' => 'The Gilded Tankard',
           'quest_ids' => ['bootstrap-quest'],
         ]],
       ]],
+      'metadata' => [
+        'generated_outline' => [
+          'entry_point' => [
+            'primary_quest_giver_id' => 'npc_tavern_keeper',
+            'primary_quest_giver_name' => 'Eldric',
+            'primary_dungeon_id' => 'tpl_dungeon_tavern_basement',
+            'primary_chapter_id' => 'tpl_dungeon_tavern_basement',
+            'primary_scene_id' => 'tavern_entrance',
+            'primary_location_id' => 'tpl_room_tavern_entrance',
+            'introduction_path' => 'direct',
+            'detail_summary' => 'Eldric briefs the party on the first lead.',
+          ],
+        ],
+      ],
     ]);
 
     $runtime = [
@@ -843,10 +941,10 @@ class StorylineManagerServiceTest extends UnitTestCase {
       'questline' => $normalized['questline'],
       'asset_references' => $normalized['asset_references'],
       'contacts' => $normalized['contacts'],
-      'unlocked_chapter_ids' => ['bootstrap-chapter'],
-      'unlocked_scene_ids' => ['bootstrap-scene'],
-      'current_chapter_id' => 'bootstrap-chapter',
-      'current_scene_id' => 'bootstrap-scene',
+      'unlocked_chapter_ids' => ['tpl_dungeon_tavern_basement'],
+      'unlocked_scene_ids' => ['tavern_entrance'],
+      'current_chapter_id' => 'tpl_dungeon_tavern_basement',
+      'current_scene_id' => 'tavern_entrance',
       'status' => 'active',
       'variables' => [],
     ];
@@ -860,6 +958,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertTrue($validation['stages']['cross_references']['valid']);
     $this->assertTrue($validation['stages']['questline_progression']['valid']);
     $this->assertTrue($validation['stages']['navigation_progression']['valid']);
+    $this->assertTrue($validation['stages']['objective_control_chain']['valid']);
   }
 
   /**
@@ -1026,12 +1125,323 @@ class StorylineManagerServiceTest extends UnitTestCase {
   /**
    * @covers ::validateStorylineEndToEndContract
    */
+  public function testValidateStorylineEndToEndContractRequiresEntryPointMetadata(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, [
+      'name' => 'Entry Point Required Story',
+      'source' => 'npc-storyline-bootstrap',
+      'contacts' => [[
+        'contact_id' => 'quest-giver-contact',
+        'entity_type' => 'npc_template',
+        'entity_id' => 'entry-point-giver',
+        'role' => 'quest_giver',
+        'display_name' => 'Entry Point Giver',
+        'attitude' => 'friendly',
+      ]],
+      'chapters' => [[
+        'name' => 'Entry Chapter',
+        'scenes' => [[
+          'name' => 'Entry Scene',
+          'quest_ids' => ['entry-quest'],
+        ]],
+      ]],
+    ]);
+
+    $runtime = [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => $normalized['metadata'],
+      'chapters' => $normalized['chapters'],
+      'linked_quests' => $normalized['linked_quests'],
+      'questline' => $normalized['questline'],
+      'asset_references' => $normalized['asset_references'],
+      'contacts' => $normalized['contacts'],
+      'unlocked_chapter_ids' => ['entry-chapter'],
+      'unlocked_scene_ids' => ['entry-scene'],
+      'current_chapter_id' => 'entry-chapter',
+      'current_scene_id' => 'entry-scene',
+      'status' => 'active',
+      'variables' => [],
+    ];
+    unset($runtime['metadata']['generated_outline']['entry_point']);
+
+    $validation = $service->validateStorylineEndToEndContract($runtime, 'runtime');
+
+    $this->assertFalse($validation['valid']);
+    $this->assertFalse($validation['stages']['cross_references']['valid']);
+    $this->assertStringContainsString(
+      'entry_point is required',
+      implode('; ', $validation['stages']['cross_references']['errors'] ?? [])
+    );
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
+  public function testValidateStorylineEndToEndContractRequiresBrokerIntroductionEdgeWhenBrokered(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, [
+      'name' => 'Brokered Entry Story',
+      'source' => 'npc-storyline-bootstrap',
+      'contacts' => [
+        [
+          'contact_id' => 'eldric-broker',
+          'entity_type' => 'campaign_npc',
+          'entity_id' => 'npc_tavern_keeper',
+          'role' => 'broker',
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+          'introduces_to' => [],
+        ],
+        [
+          'contact_id' => 'okoro-contact',
+          'entity_type' => 'npc_template',
+          'entity_id' => 'okoro',
+          'role' => 'quest_giver',
+          'display_name' => 'Okoro',
+          'attitude' => 'friendly',
+        ],
+      ],
+      'chapters' => [[
+        'name' => 'Entry Chapter',
+        'scenes' => [[
+          'name' => 'Entry Scene',
+          'quest_ids' => ['entry-quest'],
+        ]],
+      ]],
+    ]);
+
+    $runtime = [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => $normalized['metadata'],
+      'chapters' => $normalized['chapters'],
+      'linked_quests' => $normalized['linked_quests'],
+      'questline' => $normalized['questline'],
+      'asset_references' => $normalized['asset_references'],
+      'contacts' => $normalized['contacts'],
+      'unlocked_chapter_ids' => ['entry-chapter'],
+      'unlocked_scene_ids' => ['entry-scene'],
+      'current_chapter_id' => 'entry-chapter',
+      'current_scene_id' => 'entry-scene',
+      'status' => 'active',
+      'variables' => [],
+    ];
+
+    $runtime['metadata']['generated_outline']['entry_point']['introduction_path'] = 'brokered';
+    $runtime['metadata']['generated_outline']['entry_point']['broker_id'] = 'npc_tavern_keeper';
+    foreach ($runtime['contacts'] as &$contact) {
+      if ((string) ($contact['entity_id'] ?? '') === 'npc_tavern_keeper') {
+        $contact['introduces_to'] = [];
+      }
+    }
+    unset($contact);
+
+    $validation = $service->validateStorylineEndToEndContract($runtime, 'runtime');
+
+    $this->assertFalse($validation['valid']);
+    $this->assertFalse($validation['stages']['cross_references']['valid']);
+    $this->assertStringContainsString(
+      "must explicitly introduce primary quest giver",
+      implode('; ', $validation['stages']['cross_references']['errors'] ?? [])
+    );
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
   public function testValidateStorylineEndToEndContractRejectsUnsupportedPayloadType(): void {
     $service = $this->buildService();
     $this->expectException(\InvalidArgumentException::class);
     $this->expectExceptionMessage('Unsupported storyline payload type');
 
     $service->validateStorylineEndToEndContract([], 'unsupported');
+  }
+
+  /**
+   * @covers ::validateQuestObjectiveControlChain
+   */
+  public function testValidateQuestObjectiveControlChainRejectsUnknownDependencies(): void {
+    $service = $this->buildServiceWithObjectiveType();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestObjectiveControlChain');
+    $method->setAccessible(TRUE);
+
+    $errors = $method->invoke(
+      $service,
+      [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'speak-with-guide',
+          'type' => 'interact',
+          'description' => 'Speak with the guide.',
+          'target' => 'npc-guide',
+          'depends_on' => ['missing-objective'],
+          'completion_criteria' => [
+            'kind' => 'flag',
+            'metric' => 'completed',
+            'required_value' => TRUE,
+            'description' => 'Complete after speaking with the guide.',
+          ],
+        ]],
+      ]],
+      [
+        'target_ids' => ['npc-guide' => TRUE],
+        'item_ids' => [],
+        'location_ids' => [],
+      ],
+      'quest template dependency-check'
+    );
+
+    $this->assertNotEmpty($errors);
+    $this->assertStringContainsString("depends_on references unknown objective 'missing-objective'", implode('; ', $errors));
+  }
+
+  /**
+   * @covers ::validateQuestObjectiveControlChain
+   */
+  public function testValidateQuestObjectiveControlChainRejectsUnanchoredInteractionTargets(): void {
+    $service = $this->buildServiceWithObjectiveType();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestObjectiveControlChain');
+    $method->setAccessible(TRUE);
+
+    $errors = $method->invoke(
+      $service,
+      [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'speak-with-guide',
+          'type' => 'interact',
+          'description' => 'Speak with the guide.',
+          'target' => 'npc-missing',
+          'completion_criteria' => [
+            'kind' => 'flag',
+            'metric' => 'completed',
+            'required_value' => TRUE,
+            'description' => 'Complete after speaking with the guide.',
+          ],
+        ]],
+      ]],
+      [
+        'target_ids' => [],
+        'item_ids' => [],
+        'location_ids' => [],
+      ],
+      'quest template anchor-check'
+    );
+
+    $this->assertNotEmpty($errors);
+    $this->assertStringContainsString("target 'npc-missing' is not anchored", implode('; ', $errors));
+  }
+
+  /**
+   * @covers ::validateQuestObjectiveControlChain
+   */
+  public function testValidateQuestObjectiveControlChainRequiresHowTriggerNextStep(): void {
+    $service = $this->buildServiceWithObjectiveType();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestObjectiveControlChain');
+    $method->setAccessible(TRUE);
+
+    $errors = $method->invoke(
+      $service,
+      [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'inspect-ledger',
+          'type' => 'investigate',
+          'description' => 'Inspect the ledger for clues.',
+          'target' => 'campus-ledger',
+          'completion_criteria' => [
+            'kind' => 'count',
+            'metric' => 'current',
+            'target_count' => 1,
+            'description' => 'Complete after one successful investigation pass.',
+          ],
+        ]],
+      ]],
+      [
+        'target_ids' => ['campus-ledger' => TRUE],
+        'item_ids' => [],
+        'location_ids' => [],
+      ],
+      'quest template missing-how'
+    );
+
+    $this->assertNotEmpty($errors);
+    $this->assertStringContainsString('next_step HOW trigger is required', implode('; ', $errors));
+  }
+
+  /**
+   * @covers ::validateQuestObjectiveControlChain
+   */
+  public function testValidateQuestObjectiveControlChainAcceptsLinkedInteractionChain(): void {
+    $service = $this->buildServiceWithObjectiveType();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateQuestObjectiveControlChain');
+    $method->setAccessible(TRUE);
+
+    $errors = $method->invoke(
+      $service,
+      [[
+        'phase' => 1,
+        'objectives' => [
+          [
+            'objective_id' => 'speak-with-guide',
+            'type' => 'interact',
+            'description' => 'Speak with the guide.',
+            'target' => 'npc-guide',
+            'next_step' => 'Talk to the guide in the staging room.',
+            'completion_criteria' => [
+              'kind' => 'flag',
+              'metric' => 'completed',
+              'required_value' => TRUE,
+              'description' => 'Complete after speaking with the guide.',
+            ],
+          ],
+          [
+            'objective_id' => 'reach-vault-entry',
+            'type' => 'explore',
+            'description' => 'Reach the vault entry.',
+            'location' => 'Vault Entry',
+            'location_id' => 'vault-entry-room',
+            'depends_on' => ['speak-with-guide'],
+            'next_step' => 'Move into the vault entry room.',
+            'completion_criteria' => [
+              'kind' => 'flag',
+              'metric' => 'discovered',
+              'required_value' => TRUE,
+              'description' => 'Complete when vault entry is discovered.',
+            ],
+          ],
+          [
+            'objective_id' => 'recover-key',
+            'type' => 'collect',
+            'description' => 'Recover the vault key.',
+            'item' => 'vault-key',
+            'depends_on' => ['reach-vault-entry'],
+            'next_step' => 'Search the room and loot the key.',
+            'completion_criteria' => [
+              'kind' => 'count',
+              'metric' => 'current',
+              'target_count' => 1,
+              'description' => 'Collect the vault key.',
+            ],
+          ],
+        ],
+      ]],
+      [
+        'target_ids' => ['npc-guide' => TRUE],
+        'item_ids' => ['vault-key' => TRUE],
+        'location_ids' => ['vault-entry-room' => TRUE],
+      ],
+      'quest template valid-chain'
+    );
+
+    $this->assertSame([], $errors);
   }
 
   /**
@@ -1046,6 +1456,24 @@ class StorylineManagerServiceTest extends UnitTestCase {
       $this->buildLoggerFactory(),
       $uuid,
       $this->createMock(CampaignStateService::class)
+    );
+  }
+
+  /**
+   * Builds a lightweight service instance with objective-type validation wired.
+   */
+  private function buildServiceWithObjectiveType(): StorylineManagerService {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+
+    return new StorylineManagerService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      NULL,
+      NULL,
+      new ObjectiveTypeService()
     );
   }
 

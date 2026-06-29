@@ -1,0 +1,24 @@
+# Release close trigger: 20260412-dungeoncrawler-release-m
+
+- Agent: pm-dungeoncrawler
+- Release: 20260412-dungeoncrawler-release-m
+- Status: pending
+- Created: 2026-04-15T00:16:48.333739+00:00
+
+## Auto-close conditions met
+  - FEATURE_CAP: 12/10 features in_progress for dungeoncrawler release 20260412-dungeoncrawler-release-m
+
+## Action required — close this release now
+The release has hit an auto-close trigger. Do not wait to fill more scope.
+20 features is a **maximum cap**, not a target. Ship what is ready.
+
+**Steps:**
+1. Confirm all in-progress features for `dungeoncrawler` have Dev commits and QA APPROVE (Gate 1b + Gate 2)
+2. Any feature not yet QA-approved: defer it (set feature.md Status: ready, remove from this release)
+3. Write Release Notes to `sessions/pm-dungeoncrawler/artifacts/release-notes/20260412-dungeoncrawler-release-m.md`
+4. Record your signoff: `./scripts/release-signoff.sh dungeoncrawler 20260412-dungeoncrawler-release-m`
+5. Notify the partner PM to also sign off (coordinated release)
+
+## Acceptance criteria
+- `sessions/pm-dungeoncrawler/artifacts/release-signoffs/20260412-dungeoncrawler-release-m.md` exists with `- Status: approved`
+- All features left in scope have Gate 2 APPROVE evidence

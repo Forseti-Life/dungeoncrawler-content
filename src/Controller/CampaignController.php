@@ -25,6 +25,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  */
 class CampaignController extends ControllerBase {
 
+  private const STARTER_CITY_DUNGEON_NAME = 'Absalom';
+
   protected Connection $database;
   protected CharacterManager $characterManager;
   protected FormBuilderInterface $formBuilderService;
@@ -564,7 +566,7 @@ class CampaignController extends ControllerBase {
     $quest_rows = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['status', 'location_id', 'generated_objectives'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('status', ['offered', 'active', 'ready_for_turn_in'], 'IN')
+      ->condition('status', ['offered', 'available', 'lead', 'active', 'ready_for_turn_in'], 'IN')
       ->execute()
       ->fetchAll();
 
@@ -578,6 +580,7 @@ class CampaignController extends ControllerBase {
     $primary_dungeon_id = array_key_first($dungeon_rows) ?? '';
     $active_room_id = '';
     $active_room_name = '';
+    $active_dungeon_name = '';
 
     foreach ($dungeon_rows as $dungeon_id => $dungeon_row) {
       $payload = json_decode((string) ($dungeon_row->dungeon_data ?? '{}'), TRUE);
@@ -590,6 +593,7 @@ class CampaignController extends ControllerBase {
       // Track the active room for the primary dungeon so the client can
       // display it as "Current Location" rather than a navigable destination.
       if ($is_primary) {
+        $active_dungeon_name = (string) ($dungeon_row->name ?? $dungeon_id);
         $active_room_id = (string) ($payload['active_room_id'] ?? '');
         // Resolve the room name from dungeon data
         foreach ((array) ($payload['rooms'] ?? []) as $room) {
@@ -599,7 +603,11 @@ class CampaignController extends ControllerBase {
           }
         }
         if ($active_room_name === '' && $active_room_id !== '') {
-          $active_room_name = (string) ($room_rows[$active_room_id]->name ?? $active_room_id);
+          $active_room_name = (string) (
+            $room_rows[$active_room_id]->name
+            ?? $global_room_rows[$active_room_id]->name
+            ?? $active_room_id
+          );
         }
       }
 
@@ -656,6 +664,7 @@ class CampaignController extends ControllerBase {
       'active_room' => $active_room_id !== '' ? [
         'room_id' => $active_room_id,
         'room_name' => $active_room_name,
+        'dungeon_name' => $active_dungeon_name,
       ] : NULL,
       'dungeons' => $groups,
     ]);
@@ -1038,6 +1047,12 @@ class CampaignController extends ControllerBase {
         $tokens[] = $value;
       }
     }
+    foreach (['next_step', 'description'] as $text_key) {
+      $text = trim((string) ($objective[$text_key] ?? ''));
+      if ($text !== '') {
+        $tokens = array_merge($tokens, $this->extractNavigationTokensFromInstruction($text));
+      }
+    }
     foreach ((array) ($objective['children'] ?? []) as $child) {
       if (!is_array($child)) {
         continue;
@@ -1055,6 +1070,44 @@ class CampaignController extends ControllerBase {
     $normalized = str_replace(['_', '-'], ' ', $normalized);
     $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
     return trim($normalized);
+  }
+
+  /**
+   * Extract destination-like location tokens from human quest instructions.
+   *
+   * @return string[]
+   */
+  protected function extractNavigationTokensFromInstruction(string $text): array {
+    $normalized = trim($text);
+    if ($normalized === '') {
+      return [];
+    }
+
+    $tokens = [];
+    $patterns = [
+      '/\btravel\s+to(?:\s+and\s+reveal)?\s+([^.!?]+)/i',
+      '/\breveal\s+([^.!?]+)/i',
+      '/\bgo\s+to\s+([^.!?]+)/i',
+      '/\bhead\s+to\s+([^.!?]+)/i',
+    ];
+
+    foreach ($patterns as $pattern) {
+      if (!preg_match($pattern, $normalized, $matches)) {
+        continue;
+      }
+      $candidate = trim((string) ($matches[1] ?? ''));
+      $candidate = preg_replace('/^(the|a|an)\s+/i', '', $candidate) ?? $candidate;
+      $candidate = trim((string) preg_replace('/\s+/', ' ', $candidate));
+      if ($candidate !== '') {
+        $tokens[] = $candidate;
+        $slug_candidate = strtolower(str_replace([' ', '-'], '_', $candidate));
+        if ($slug_candidate !== '') {
+          $tokens[] = $slug_candidate;
+        }
+      }
+    }
+
+    return array_values(array_unique(array_filter($tokens, static fn(string $value): bool => $value !== '')));
   }
 
   /**
@@ -1158,6 +1211,68 @@ class CampaignController extends ControllerBase {
       ->fetchField();
 
     if ($has_dungeon) {
+      $starter_row = $this->database->select('dc_campaign_dungeons', 'd')
+        ->fields('d', ['id', 'name', 'dungeon_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('source_dungeon_id', 'asset-library-starter-room')
+        ->orderBy('updated', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+
+      if (!is_array($starter_row)) {
+        return;
+      }
+
+      $dungeon_data = json_decode((string) ($starter_row['dungeon_data'] ?? '{}'), TRUE);
+      if (!is_array($dungeon_data)) {
+        return;
+      }
+
+      $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+      $has_tavern_room = FALSE;
+      foreach ($rooms as $room) {
+        if (!is_array($room)) {
+          continue;
+        }
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        $source_room_id = trim((string) ($room['source_room_id'] ?? ''));
+        if ($room_id === 'tavern_entrance' || $source_room_id === 'tavern_entrance') {
+          $has_tavern_room = TRUE;
+          break;
+        }
+      }
+      if (!$has_tavern_room) {
+        return;
+      }
+
+      $current_name = trim((string) ($starter_row['name'] ?? ''));
+      $canonical_name = self::STARTER_CITY_DUNGEON_NAME;
+      if ($current_name !== $canonical_name) {
+        $dungeon_data['name'] = $canonical_name;
+        if (is_array($dungeon_data['hex_map'] ?? NULL)) {
+          $dungeon_data['hex_map']['name'] = $canonical_name;
+        }
+        if (is_array($dungeon_data['hex_map']['regions'] ?? NULL)) {
+          foreach ($dungeon_data['hex_map']['regions'] as &$region) {
+            if (!is_array($region)) {
+              continue;
+            }
+            $region['name'] = $canonical_name;
+          }
+          unset($region);
+        }
+
+        $now = $this->time->getRequestTime();
+        $this->database->update('dc_campaign_dungeons')
+          ->fields([
+            'name' => $canonical_name,
+            'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated' => $now,
+          ])
+          ->condition('id', (int) $starter_row['id'])
+          ->execute();
+      }
       return;
     }
 

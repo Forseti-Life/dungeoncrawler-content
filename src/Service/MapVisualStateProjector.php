@@ -224,6 +224,7 @@ class MapVisualStateProjector {
 
     $connections = $this->normalizeConnections($dungeon_payload, $topology_rooms);
     $topology_rooms = $this->attachRoomExits($topology_rooms, $connections);
+    $topology_rooms = $this->attachQuestDestinationExits($topology_rooms, $dungeon_payload, $active_room_id);
     $occupants = $this->normalizeOccupants(
       $dungeon_payload,
       $active_room_id,
@@ -391,9 +392,7 @@ class MapVisualStateProjector {
    */
   protected function normalizeConnections(array $dungeon_payload, array $rooms = []): array {
     $connections = [];
-    $idx = 0;
-    foreach ((is_array($dungeon_payload['connections'] ?? NULL) ? $dungeon_payload['connections'] : []) as $connection) {
-      $idx++;
+    foreach ($this->extractRawConnections($dungeon_payload) as $connection) {
       if (!is_array($connection)) {
         continue;
       }
@@ -416,25 +415,31 @@ class MapVisualStateProjector {
       $to_r = (int) ($to_hex['r'] ?? 0);
 
       $type = (string) ($connection['type'] ?? 'open_passage');
+      $destination_type = NavigationService::normalizeDestinationType($connection);
+      $destination_id = NavigationService::normalizeDestinationId($connection, $to_room_id, $destination_type);
+      $distance = NavigationService::normalizeDistance($connection, $destination_type);
 
       $is_discovered = array_key_exists('is_discovered', $connection)
         ? (bool) $connection['is_discovered']
         : (array_key_exists('is_known', $connection) ? (bool) $connection['is_known'] : TRUE);
+      $is_passable = (bool) ($connection['is_passable'] ?? TRUE);
+      $bidirectional = array_key_exists('bidirectional', $connection)
+        ? (bool) $connection['bidirectional']
+        : $type !== 'one_way';
+      $requires_interaction = NavigationService::resolveRequiresInteraction($connection);
+      $blocked_reason = NavigationService::resolveBlockedReason(
+        $to_room_id,
+        $destination_type,
+        $destination_id,
+        $distance,
+        $is_discovered,
+        $is_passable,
+        NavigationService::hasRoomRoadAnchorInPayload($dungeon_payload, $from_room_id)
+      );
 
       $connection_id = trim((string) ($connection['connection_id'] ?? $connection['id'] ?? ''));
       if ($connection_id === '') {
-        $signature = [
-          'from_room_id' => $from_room_id,
-          'to_room_id' => $to_room_id,
-          'type' => $type,
-          'from_q' => $has_from_hex ? $from_q : NULL,
-          'from_r' => $has_from_hex ? $from_r : NULL,
-          'to_q' => $has_to_hex ? $to_q : NULL,
-          'to_r' => $has_to_hex ? $to_r : NULL,
-          'idx' => $idx,
-        ];
-        $hash = substr(sha1(json_encode($signature)), 0, 12);
-        $connection_id = sprintf('%s:%s:%s:%s', $from_room_id ?: 'unknown', $to_room_id ?: 'unknown', $type ?: 'open_passage', $hash);
+        $connection_id = $this->deriveCanonicalConnectionId($connection, $from_room_id, $to_room_id);
       }
 
       $normalized_from_hex_id = ($from_room_id !== '' && $has_from_hex)
@@ -463,13 +468,123 @@ class MapVisualStateProjector {
           'r' => $to_r,
         ],
         'type' => $type,
+        'destination_type' => $destination_type,
+        'destination_id' => $destination_id,
+        'distance' => $distance,
+        'available' => $blocked_reason === NULL,
+        'blocked_reason' => $blocked_reason,
+        'bidirectional' => $bidirectional,
+        'requires_interaction' => $requires_interaction,
         'is_discovered' => $is_discovered,
-        'is_passable' => (bool) ($connection['is_passable'] ?? TRUE),
+        'is_passable' => $is_passable,
         'visibility_state' => $is_discovered ? 'visible' : 'hidden',
+        'travel_time_seconds' => is_numeric($connection['travel_time_seconds'] ?? NULL) ? max(0, (int) $connection['travel_time_seconds']) : NULL,
       ];
     }
 
     return $connections;
+  }
+
+  /**
+   * Merge connection sources into one canonical list for projection.
+   */
+  protected function extractRawConnections(array $dungeon_payload): array {
+    $sources = [];
+    if (is_array($dungeon_payload['hex_map']['connections'] ?? NULL)) {
+      $sources[] = $dungeon_payload['hex_map']['connections'];
+    }
+    if (is_array($dungeon_payload['connections'] ?? NULL)) {
+      $sources[] = $dungeon_payload['connections'];
+    }
+    if ($sources === []) {
+      return [];
+    }
+
+    $connections = [];
+    $seen = [];
+    foreach ($sources as $bucket) {
+      foreach ($bucket as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $identity = $this->buildConnectionIdentityKey($connection);
+        if (isset($seen[$identity])) {
+          continue;
+        }
+        $seen[$identity] = TRUE;
+        $connections[] = $connection;
+      }
+    }
+
+    return $connections;
+  }
+
+  /**
+   * Build a stable identity key for connection deduplication.
+   */
+  protected function buildConnectionIdentityKey(array $connection): string {
+    $explicit = trim((string) ($connection['connection_id'] ?? $connection['id'] ?? ''));
+    if ($explicit !== '') {
+      return 'id:' . $explicit;
+    }
+
+    $from_room = trim((string) (
+      $connection['from_room']
+      ?? $connection['from_room_id']
+      ?? ($connection['from']['room_id'] ?? $connection['from']['room'] ?? '')
+    ));
+    $to_room = trim((string) (
+      $connection['to_room']
+      ?? $connection['to_room_id']
+      ?? ($connection['to']['room_id'] ?? $connection['to']['room'] ?? '')
+    ));
+    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
+    $from_hex = $this->normalizeHex($connection['from_hex'] ?? ($connection['from'] ?? NULL));
+    $to_hex = $this->normalizeHex($connection['to_hex'] ?? ($connection['to'] ?? NULL));
+
+    return 'sig:' . sha1(json_encode([
+      'from_room' => $from_room,
+      'to_room' => $to_room,
+      'type' => $type,
+      'from_q' => $from_hex['q'] ?? NULL,
+      'from_r' => $from_hex['r'] ?? NULL,
+      'to_q' => $to_hex['q'] ?? NULL,
+      'to_r' => $to_hex['r'] ?? NULL,
+      'destination_type' => trim((string) ($connection['destination_type'] ?? $connection['to_type'] ?? '')),
+      'destination_id' => trim((string) ($connection['destination_id'] ?? $connection['road_node_id'] ?? $connection['road_id'] ?? '')),
+      'distance' => $connection['distance'] ?? $connection['travel_distance'] ?? $connection['distance_units'] ?? NULL,
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  }
+
+  /**
+   * Canonical implicit connection id aligned with NavigationService.
+   */
+  protected function deriveCanonicalConnectionId(array $connection, string $from_room_id, string $to_room_id): string {
+    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
+    $from_hex = $this->normalizeHex($connection['from_hex'] ?? ($connection['from'] ?? NULL));
+    $to_hex = $this->normalizeHex($connection['to_hex'] ?? ($connection['to'] ?? NULL));
+    $scope_suffix = 'unscoped';
+    if ($from_hex !== NULL && $to_hex !== NULL) {
+      $scope_suffix = $from_hex['q'] . ':' . $from_hex['r'] . '__' . $to_hex['q'] . ':' . $to_hex['r'];
+    }
+    return ($from_room_id ?: 'unknown') . '__' . ($to_room_id ?: 'unknown') . '__' . $type . '__' . $scope_suffix;
+  }
+
+  /**
+   * Normalize one hex payload into canonical integer coordinates.
+   *
+   * @return array<string, int>|null
+   *   Canonical hex coordinate payload or NULL when unavailable.
+   */
+  protected function normalizeHex(mixed $hex): ?array {
+    if (!is_array($hex) || !array_key_exists('q', $hex) || !array_key_exists('r', $hex)) {
+      return NULL;
+    }
+
+    return [
+      'q' => (int) $hex['q'],
+      'r' => (int) $hex['r'],
+    ];
   }
 
   /**
@@ -500,11 +615,25 @@ class MapVisualStateProjector {
       $is_passable = (bool) ($connection['is_passable'] ?? TRUE);
       $is_discovered = (bool) ($connection['is_discovered'] ?? TRUE);
       $visibility_state = (string) ($connection['visibility_state'] ?? ($is_discovered ? 'visible' : 'hidden'));
+      $distance = is_numeric($connection['distance'] ?? NULL) ? max(0, (int) $connection['distance']) : 0;
+      $blocked_reason = trim((string) ($connection['blocked_reason'] ?? '')) ?: NULL;
+      $available = array_key_exists('available', $connection)
+        ? (bool) $connection['available']
+        : $blocked_reason === NULL;
+      $bidirectional = array_key_exists('bidirectional', $connection)
+        ? (bool) $connection['bidirectional']
+        : $type !== 'one_way';
+      $requires_interaction = array_key_exists('requires_interaction', $connection)
+        ? (bool) $connection['requires_interaction']
+        : NavigationService::resolveRequiresInteraction($connection);
+      $destination_type = NavigationService::normalizeDestinationType($connection);
+      $destination_id = NavigationService::normalizeDestinationId($connection, $to_room_id, $destination_type);
+      $travel_time_seconds = is_numeric($connection['travel_time_seconds'] ?? NULL) ? max(0, (int) $connection['travel_time_seconds']) : NULL;
 
       $from = is_array($connection['from'] ?? NULL) ? $connection['from'] : [];
       $to = is_array($connection['to'] ?? NULL) ? $connection['to'] : [];
 
-      $exit_from = $this->buildProjectedRoomExit(
+      $exit_from = $this->buildRoomExitPayload(
         $connection_id,
         $type,
         $to_room_id,
@@ -514,10 +643,30 @@ class MapVisualStateProjector {
         (string) ($connection['to_hex_id'] ?? ''),
         $is_passable,
         $is_discovered,
-        $visibility_state
+        $visibility_state,
+        $destination_type,
+        $destination_id,
+        $distance,
+        $available,
+        $blocked_reason,
+        $bidirectional,
+        $requires_interaction,
+        $travel_time_seconds
       );
 
-      $exit_to = $this->buildProjectedRoomExit(
+      $reverse_destination_type = 'room';
+      $reverse_destination_id = $from_room_id;
+      $reverse_blocked_reason = NavigationService::resolveBlockedReason(
+        $from_room_id,
+        $reverse_destination_type,
+        $reverse_destination_id,
+        $distance,
+        $is_discovered,
+        $is_passable,
+        TRUE
+      );
+
+      $exit_to = $this->buildRoomExitPayload(
         $connection_id,
         $type,
         $from_room_id,
@@ -527,7 +676,15 @@ class MapVisualStateProjector {
         (string) ($connection['from_hex_id'] ?? ''),
         $is_passable,
         $is_discovered,
-        $visibility_state
+        $visibility_state,
+        $reverse_destination_type,
+        $reverse_destination_id,
+        $distance,
+        $reverse_blocked_reason === NULL,
+        $reverse_blocked_reason,
+        $bidirectional,
+        $requires_interaction,
+        $travel_time_seconds
       );
 
       if (isset($rooms[$from_room_id]) && is_array($rooms[$from_room_id])) {
@@ -556,9 +713,9 @@ class MapVisualStateProjector {
   }
 
   /**
-   * Build one canonical projected room-exit payload.
+   * Build one canonical room-exit payload.
    */
-  protected function buildProjectedRoomExit(
+  protected function buildRoomExitPayload(
     string $connection_id,
     string $type,
     string $target_room_id,
@@ -568,29 +725,190 @@ class MapVisualStateProjector {
     string $target_hex_fallback,
     bool $is_passable,
     bool $is_discovered,
-    string $visibility_state
+    string $visibility_state,
+    string $destination_type,
+    string $destination_id,
+    int $distance,
+    bool $available,
+    ?string $blocked_reason,
+    bool $bidirectional,
+    bool $requires_interaction,
+    ?int $travel_time_seconds
   ): array {
     return [
       'connection_id' => $connection_id,
       'type' => $type,
       'target_room_id' => $target_room_id,
-      'origin_hex' => $this->buildExitHexPayload($origin, $origin_hex_fallback),
-      'target_hex' => $this->buildExitHexPayload($target, $target_hex_fallback),
+      'origin_hex' => $this->buildExitHexReference($origin, $origin_hex_fallback),
+      'target_hex' => $this->buildExitHexReference($target, $target_hex_fallback),
       'is_passable' => $is_passable,
       'is_discovered' => $is_discovered,
       'visibility_state' => $visibility_state,
+      'destination_type' => $destination_type,
+      'destination_id' => $destination_id,
+      'distance' => $distance,
+      'available' => $available,
+      'blocked_reason' => $blocked_reason,
+      'bidirectional' => $bidirectional,
+      'requires_interaction' => $requires_interaction,
+      'travel_time_seconds' => $travel_time_seconds,
     ];
   }
 
   /**
-   * Build canonical origin/target hex payload for an exit endpoint.
+   * Build canonical hex endpoint payload for a room exit.
    */
-  protected function buildExitHexPayload(array $hex, string $hex_id_fallback): array {
+  protected function buildExitHexReference(array $endpoint, string $hex_id_fallback): array {
     return [
-      'hex_id' => (string) ($hex['hex_id'] ?? $hex_id_fallback),
-      'q' => (int) ($hex['q'] ?? 0),
-      'r' => (int) ($hex['r'] ?? 0),
+      'hex_id' => (string) ($endpoint['hex_id'] ?? $hex_id_fallback),
+      'q' => (int) ($endpoint['q'] ?? 0),
+      'r' => (int) ($endpoint['r'] ?? 0),
     ];
+  }
+
+  /**
+   * Attach synthetic quest destination exits for the active room.
+   */
+  protected function attachQuestDestinationExits(array $rooms, array $dungeon_payload, string $active_room_id): array {
+    $active_room_id = trim($active_room_id);
+    if ($active_room_id === '' || !isset($rooms[$active_room_id]) || !is_array($rooms[$active_room_id])) {
+      return $rooms;
+    }
+
+    $quest_entries = $this->extractQuestEntriesFromPayload($dungeon_payload);
+    if ($quest_entries === []) {
+      return $rooms;
+    }
+
+    $navigation_service = new NavigationService();
+    $capabilities = $navigation_service->buildNavigationCapabilitiesWithQuestTargets($dungeon_payload, $active_room_id, $quest_entries);
+    $quest_capabilities = array_values(array_filter($capabilities, static fn(array $capability): bool => !empty($capability['quest_reference'])));
+    if ($quest_capabilities === []) {
+      return $rooms;
+    }
+
+    $rooms[$active_room_id]['exits'] = is_array($rooms[$active_room_id]['exits'] ?? NULL) ? $rooms[$active_room_id]['exits'] : [];
+    $existing_exits = &$rooms[$active_room_id]['exits'];
+
+    $target_indexes = [];
+    foreach ($existing_exits as $index => $exit) {
+      $target_room_id = trim((string) ($exit['target_room_id'] ?? ''));
+      if ($target_room_id === '') {
+        continue;
+      }
+      $target_indexes[$target_room_id][] = $index;
+    }
+
+    foreach ($quest_capabilities as $capability) {
+      $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+      if ($target_room_id === '' || $target_room_id === $active_room_id) {
+        continue;
+      }
+
+      $quest_ids = array_values(array_unique(array_map(
+        'strval',
+        is_array($capability['quest_ids'] ?? NULL) ? $capability['quest_ids'] : []
+      )));
+
+      if (isset($target_indexes[$target_room_id])) {
+        foreach ($target_indexes[$target_room_id] as $index) {
+          $existing_quest_ids = array_values(array_unique(array_map(
+            'strval',
+            is_array($existing_exits[$index]['quest_ids'] ?? NULL) ? $existing_exits[$index]['quest_ids'] : []
+          )));
+          $existing_exits[$index]['quest_reference'] = TRUE;
+          $existing_exits[$index]['quest_ids'] = array_values(array_unique(array_merge($existing_quest_ids, $quest_ids)));
+        }
+        continue;
+      }
+
+      $existing_exits[] = $this->buildQuestExitFromCapability($capability);
+      $target_indexes[$target_room_id] = [count($existing_exits) - 1];
+    }
+
+    usort($existing_exits, static function (array $a, array $b): int {
+      $key_a = (string) ($a['connection_id'] ?? '') . ':' . (string) ($a['target_room_id'] ?? '');
+      $key_b = (string) ($b['connection_id'] ?? '') . ':' . (string) ($b['target_room_id'] ?? '');
+      return $key_a <=> $key_b;
+    });
+
+    return $rooms;
+  }
+
+  /**
+   * Build one projected quest destination exit from a navigation capability.
+   */
+  protected function buildQuestExitFromCapability(array $capability): array {
+    $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+    $origin_hex = is_array($capability['origin_hex'] ?? NULL) ? $capability['origin_hex'] : [];
+    $target_hex = is_array($capability['target_hex'] ?? NULL) ? $capability['target_hex'] : [];
+    $is_discovered = array_key_exists('is_discovered', $capability) ? (bool) $capability['is_discovered'] : TRUE;
+    $is_passable = array_key_exists('is_passable', $capability) ? (bool) $capability['is_passable'] : TRUE;
+
+    return [
+      'connection_id' => trim((string) ($capability['connection_id'] ?? '')) !== ''
+        ? (string) $capability['connection_id']
+        : "quest-synthetic-{$target_room_id}",
+      'type' => (string) ($capability['type'] ?? 'synthetic'),
+      'target_room_id' => $target_room_id,
+      'origin_hex' => [
+        'hex_id' => (string) ($origin_hex['hex_id'] ?? ''),
+        'q' => (int) ($origin_hex['q'] ?? 0),
+        'r' => (int) ($origin_hex['r'] ?? 0),
+      ],
+      'target_hex' => [
+        'hex_id' => (string) ($target_hex['hex_id'] ?? ''),
+        'q' => (int) ($target_hex['q'] ?? 0),
+        'r' => (int) ($target_hex['r'] ?? 0),
+      ],
+      'is_passable' => $is_passable,
+      'is_discovered' => $is_discovered,
+      'visibility_state' => $is_discovered ? 'visible' : 'hidden',
+      'destination_type' => (string) ($capability['destination_type'] ?? 'room'),
+      'destination_id' => (string) ($capability['destination_id'] ?? $target_room_id),
+      'distance' => is_numeric($capability['distance'] ?? NULL) ? max(0, (int) $capability['distance']) : 0,
+      'available' => array_key_exists('available', $capability) ? (bool) $capability['available'] : TRUE,
+      'blocked_reason' => trim((string) ($capability['blocked_reason'] ?? '')) ?: NULL,
+      'bidirectional' => array_key_exists('bidirectional', $capability) ? (bool) $capability['bidirectional'] : FALSE,
+      'requires_interaction' => array_key_exists('requires_interaction', $capability) ? (bool) $capability['requires_interaction'] : FALSE,
+      'travel_time_seconds' => is_numeric($capability['travel_time_seconds'] ?? NULL) ? max(0, (int) $capability['travel_time_seconds']) : NULL,
+      'quest_reference' => TRUE,
+      'quest_ids' => array_values(array_unique(array_map(
+        'strval',
+        is_array($capability['quest_ids'] ?? NULL) ? $capability['quest_ids'] : []
+      ))),
+    ];
+  }
+
+  /**
+   * Extract quest entries from launch payload.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Quest entries from active/offered/lead buckets.
+   */
+  protected function extractQuestEntriesFromPayload(array $dungeon_payload): array {
+    $entries = [];
+    $quest_summary = is_array($dungeon_payload['quest_summary'] ?? NULL) ? $dungeon_payload['quest_summary'] : [];
+    foreach (['active', 'offers', 'leads'] as $bucket) {
+      if (!is_array($quest_summary[$bucket] ?? NULL)) {
+        continue;
+      }
+      foreach ((array) $quest_summary[$bucket] as $quest_entry) {
+        if (is_array($quest_entry)) {
+          $entries[] = $quest_entry;
+        }
+      }
+    }
+
+    if ($entries === [] && is_array($dungeon_payload['active_quests'] ?? NULL)) {
+      foreach ((array) $dungeon_payload['active_quests'] as $quest_entry) {
+        if (is_array($quest_entry)) {
+          $entries[] = $quest_entry;
+        }
+      }
+    }
+
+    return $entries;
   }
 
   /**

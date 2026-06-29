@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-ui-map-first-player-shell",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-ui-map-first-player-shell/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-ui-map-first-player-shell-runtime",
+      "feature_id": "dc-ui-map-first-player-shell",
+      "label": "Map-first player shell - board-first layout, debug gating, and control persistence",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-ui-map-first-player-shell\"",
+      "artifacts": [
+        "playwright-report/dc-ui-map-first-player-shell.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/hexmap",
+      "status": "pending_implementation",
+      "notes": "Role-url-audit baseline already covers /hexmap and existing campaign ownership protections; add feature-specific qa-permissions rules later only if new concrete routes appear."
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "rows": [
+    {
+      "room_id": "tok-missing-teacher",
+      "source_room_id": "tok-missing-teacher",
+      "name": "Magaambya: Last Known Classroom",
+      "description": "A quiet Magaambya classroom where the missing teacher was last seen before disappearing. This room acts as the concrete investigation anchor for Threshold of Knowledge.",
+      "environment_tags": [
+        "threshold_of_knowledge",
+        "magaambya",
+        "investigation",
+        "academy"
+      ],
+      "layout_data": {
+        "shape": "classroom",
+        "width": 8,
+        "height": 6
+      },
+      "contents_data": {
+        "obstacles": [
+          "study-desks",
+          "chalkboard",
+          "warded-cabinet"
+        ],
+        "npcs": [],
+        "creatures": [],
+        "items": [],
+        "interactables": [
+          "attendance-ledger",
+          "lesson-notes",
+          "arcane-residue"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+analysis_id: "20260322-improvement-round-20260322-dungeoncrawler-release-b"
+objective: "Post-release gap review for dungeoncrawler-release-b from pm-infra (infra) perspective. Assess which infra-layer gaps contributed to release delays and queue follow-through items. Prior seats (ceo-copilot-2, pm-dungeoncrawler, pm-forseti) have already documented the product-layer gaps."
+decision_owner: "pm-infra"
+
+scope:
+  in_scope:
+    - "Stale HQ path references in seat instructions (16 files flagged by CEO-2, infra-seat impact)"
+    - "pm-infra outbox format gate and recovery (malformed 20260322-improvement-round-20260322-forseti-release-next.md)"
+    - "dev-infra workspace-merge-backup-hook status (ROI 80, queued 72c2ff378 — was it processed?)"
+    - "Infra improvement round state (dev-infra, qa-infra) in new repo"
+    - "Proactive patch-applied scan"
+  out_of_scope:
+    - "dungeoncrawler permission regression fix (dev-dungeoncrawler scope, already queued 20260322-142611-qa-findings-dungeoncrawler-1)"
+    - "QA testgen throughput bottleneck (executor throughput — CEO scope)"
+    - "Release signoff hold artifact convention (pm-forseti escalation to CEO)"
+
+assumptions:
+  - "The 16 stale HQ path references flagged by CEO-2 include infra-seat files: dev-infra.instructions.md, qa-infra.instructions.md, ba-infra.instructions.md, and potentially others"
+  - "dev-infra has 1 inbox item (20260322-improvement-round-20260322-dungeoncrawler-release-b) — no backup hook outbox yet"
+  - "The workspace-merge-backup-hook (ROI 80, queued as 20260322-workspace-merge-preMerge-backup-hook in 72c2ff378) was implemented by dev-infra in commit 334e93ab5 — need to verify"
+  - "qa-infra stale-inbox-age-detection was approved at commit 25fa2d87f (seen in git log)"
+
+evidence:
+  - source: "copilot-hq/sessions/ceo-copilot-2/outbox/20260322-improvement-round-20260322-dungeoncrawler-release-b.md (93993ef7c)"
+    summary: "GAP-DC-03: 16 seat instructions files still have stale HQ path /home/keithaumiller/copilot-sessions-hq; CEO-2 fixed dev-dungeoncrawler and pm-dungeoncrawler in 85bd68e7c"
+    finding: "Infra seat files (dev-infra, qa-infra, ba-infra, pm-infra site.instructions.md) likely still reference old path. pm-infra already updated its own instructions (2198ec94e). Infra subordinate seats need refresh at next release-cycle start — pm-infra should verify and escalate."
+    reliability: 5
+  - source: "git --no-pager log -- copilot-hq/sessions/dev-infra/ (most recent: 334e93ab5)"
+    summary: "dev-infra committed 334e93ab5 'feat(dev-infra): pre-merge artifact backup hook + orchestration runbook gate' — workspace merge backup hook was implemented"
+    finding: "The backup hook (ROI 80) was implemented by dev-infra in 334e93ab5. This is the highest-value infra action from the prior cycle and it is complete. dev-infra improvement round for dungeoncrawler-release-b is still unprocessed (inbox item present, no outbox)."
+    reliability: 5
+  - source: "copilot-hq/sessions/qa-infra/outbox/20260322-stale-inbox-age-detection.md (commit 25fa2d87f)"
+    summary: "qa-infra APPROVE for stale-inbox-age-detection unit test — executor age detection feature verified"
+    finding: "qa-infra processed one unit test item. qa-infra improvement round for dungeoncrawler-release-b is still in inbox (no outbox yet)."
+    reliability: 5
+  - source: "pm-infra outbox format gate recovery: 20260322-improvement-round-20260322-forseti-release-next.md (preamble at line 11)"
+    summary: "Another preamble injection — same executor persistence bug, same cycle"
+    finding: "Format gate PASS 10/10 after recovery. Pattern: every improvement-round outbox written by the executor gets a preamble prepended if the prior session ran long or context was large. pm-infra instructions already document the recovery procedure (updated 2198ec94e)."
+    reliability: 5
+  - source: "Proactive patch-applied scan (dev-infra, dev-forseti, dev-dungeoncrawler outboxes)"
+    summary: "0 patch-applied files — scan clean"
+    finding: "No undispatched patches."
+    reliability: 5
+
+counter_evidence:
+  - "dev-infra improvement round (dungeoncrawler-release-b inbox) may have been processed after the git log snapshot — check outbox before assuming unprocessed"
+  - "Some of the 16 stale HQ path files may belong to non-infra seats; pm-infra cannot directly update them"
+
+options:
+  - id: "verify-backup-hook-and-flag-stale-paths"
+    description: "Confirm backup hook done (334e93ab5). Flag infra-seat stale HQ path files to CEO for batch refresh. Surface dev-infra/qa-infra improvement round backlog. Report done."
+    pros:
+      - "Closes the loop on the backup hook (confirms it done)"
+      - "CEO gets targeted infra-seat stale path list — actionable in one pass"
+    cons:
+      - "pm-infra cannot directly update other seats' instruction files"
+    roi_delta: 6
+  - id: "report-done-minimal"
+    description: "Note all gaps already handled by CEO-2/dev-infra; report done with short escalation."
+    pros:
+      - "Fast"
+    cons:
+      - "Misses the opportunity to close the loop on stale HQ paths for infra seats"
+    roi_delta: 3
+
+recommendation:
+  option_id: "verify-backup-hook-and-flag-stale-paths"
+  rationale: "The workspace merge backup hook being confirmed done is the highest-value infra closure this cycle. Flagging the stale HQ paths for infra seats to CEO ensures they get refreshed before the next improvement round causes path-related failures. Both actions are low-cost and directly prevent repeat blockers."
+  tradeoffs:
+    - "CEO must trigger infra seat instruction refreshes — pm-infra cannot do this directly"
+    - "dev-infra and qa-infra improvement rounds are still unprocessed but do not block any current action"
+  decision_needed: "CEO to trigger dev-infra and qa-infra improvement round processing; verify and refresh stale HQ paths in remaining infra seat instructions (dev-infra, qa-infra, ba-infra)"
+
+confidence: 0.93
+
+verification:
+  acceptance_criteria:
+    - "pm-infra outbox format gate PASS 10/10 after malformed outbox recovery"
+    - "Proactive patch-applied scan: 0 NEEDS QA DISPATCH"
+    - "Analysis artifact passes scripts/analysis-policy-check.sh 31/31"
+    - "Backup hook confirmed done in git history (334e93ab5)"
+  checks:
+    - "python3 format gate inline — PASS 10/10 after recovery of 20260322-improvement-round-20260322-forseti-release-next.md (preamble at line 11)"
+    - "bash patch-applied scan — clean"
+    - "git --no-pager show 334e93ab5 --stat — confirms backup hook commit"
+    - "scripts/analysis-policy-check.sh copilot-hq/sessions/pm-infra/artifacts/analysis/20260322-improvement-round-20260322-dungeoncrawler-release-b.yaml"

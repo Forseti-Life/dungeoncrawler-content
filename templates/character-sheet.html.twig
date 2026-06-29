@@ -29,6 +29,13 @@
           {# Only show Launch Campaign when viewing character IN a campaign context #}
           <a href="{{ launch_url }}" class="dc-btn dc-btn-success">▶️ Launch Campaign</a>
         {% endif %}
+        <button
+          type="button"
+          class="dc-btn dc-btn-secondary"
+          data-dc-save-library-button
+          data-character-id="{{ character.id }}"
+          data-campaign-id="{{ effective_campaign_id ?: (actor_identity.campaign_id ?? campaign_id ?? 0) }}"
+        >📚 Save to Library</button>
         <a href="{{ edit_url }}" class="dc-btn dc-btn-primary">✏️ Edit</a>
         <a href="{{ archive_url }}" class="dc-btn dc-btn-danger" onclick="return confirm('Archive this character? You can unarchive later.');">🗄️ Archive</a>
       </div>
@@ -438,7 +445,13 @@
       <h2 class="dc-sheet__section-title">Followers</h2>
       {% for follower in followers %}
         <div class="dc-sheet__feat-item">
-          <strong>{{ follower.name }}</strong>
+          {% if follower.follower_kind is defined and follower.follower_kind %}
+            {% set follower_route_params = {'character_id': character.id, 'follower_kind': follower.follower_kind} %}
+            {% set follower_route_options = campaign_id ? {'query': {'campaign_id': campaign_id}} : {} %}
+            <strong><a href="{{ path('dungeoncrawler_content.character_follower_view', follower_route_params, follower_route_options) }}">{{ follower.name }}</a></strong>
+          {% else %}
+            <strong>{{ follower.name }}</strong>
+          {% endif %}
           <span class="dc-sheet__tag dc-sheet__tag--feat-type">{{ follower.kind }}</span>
           <span class="dc-sheet__tag">{{ follower.status|capitalize }}</span>
           {% for detail in follower.details %}

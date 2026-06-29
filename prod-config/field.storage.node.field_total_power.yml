@@ -1,0 +1,22 @@
+uuid: 2ae65e08-8c40-4c51-8e49-2b1e2fe47b6d
+langcode: en
+status: true
+dependencies:
+  module:
+    - node
+_core:
+  default_config_hash: b2sdUenjcmfjpNfM8agkPBtmXUL3YudZ9GU8tqHAchk
+id: node.field_total_power
+field_name: field_total_power
+entity_type: node
+type: integer
+settings:
+  unsigned: false
+  size: normal
+module: core
+locked: false
+cardinality: 1
+translatable: false
+indexes: {  }
+persist_with_no_fields: false
+custom_storage: false

@@ -1,0 +1,28 @@
+# FREEZE PACKET: community_incident_report
+
+Generated: 2026-04-21T13:01:20Z
+Module Path: ./sites/forseti/web/modules/custom/community_incident_report
+
+## FILE INVENTORY
+- Total Files: 9
+- PHP Files: 2
+- YAML Config Files: 4
+- Test Files: 0
+- Documentation Files: 0
+- Module Size: 0MB (68KB)
+
+## INTEGRITY CHECK
+Files Hash: 224fe359a311cad2495236d736932415
+
+## FREEZE STATE
+This freeze packet represents the module state at audit time.
+Used for baseline comparison and rollback reference.
+
+## MODULE STRUCTURE
+  ./sites/forseti/web/modules/custom/community_incident_report/community_incident_report.module
+  ./sites/forseti/web/modules/custom/community_incident_report/community_incident_report.permissions.yml
+  ./sites/forseti/web/modules/custom/community_incident_report/community_incident_report.install
+  ./sites/forseti/web/modules/custom/community_incident_report/community_incident_report.libraries.yml
+  ./sites/forseti/web/modules/custom/community_incident_report/js/community-incident-layer.js
+  ./sites/forseti/web/modules/custom/community_incident_report/community_incident_report.routing.yml
+  ./sites/forseti/web/modules/custom/community_incident_report/community_incident_report.info.yml

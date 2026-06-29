@@ -6,9 +6,13 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Controller\CharacterViewController;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
+use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
+use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
+use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -23,9 +27,13 @@ class CharacterViewControllerEffectSummaryTest extends UnitTestCase {
   protected function buildController(): CharacterViewController {
     return new CharacterViewController(
       $this->createMock(CharacterManager::class),
+      $this->createMock(CharacterStateService::class),
       $this->createMock(FeatEffectManager::class),
       $this->createMock(FeatLibraryService::class),
+      $this->createMock(RelationshipManagerService::class),
+      $this->createMock(NpcPsychologyService::class),
       $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(FollowerSubsystemService::class),
       $this->createMock(Connection::class),
       $this->createMock(TimeInterface::class),
     );

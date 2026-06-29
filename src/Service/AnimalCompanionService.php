@@ -82,6 +82,10 @@ class AnimalCompanionService {
     $resolved_existing = $this->resolveCompanionFromCharacterData($char_data, $character_id);
     $current_hp = (int) ($existing['current_hp'] ?? $resolved_existing['stats']['currentHp'] ?? 0);
     $now = time();
+    $bond_contract = FollowerSubsystemService::buildCreationBondContract(
+      FollowerSubsystemService::FOLLOWER_KIND_ANIMAL_COMPANION,
+      (int) $character_id
+    );
 
     $char_data['animal_companion'] = array_replace($existing, [
       'companion_id' => $existing['companion_id'] ?? ($character_id . '_animal_companion'),
@@ -91,6 +95,10 @@ class AnimalCompanionService {
       'state' => 'active',
       'created_at' => (int) ($existing['created_at'] ?? $now),
       'updated_at' => $now,
+      'bond_contract' => $bond_contract,
+      'loyalty_profile' => (string) ($bond_contract['loyalty_profile'] ?? ''),
+      'motivation_profile' => (string) ($bond_contract['motivation_profile'] ?? ''),
+      'psychology_defaults' => is_array($bond_contract['psychology_defaults'] ?? NULL) ? $bond_contract['psychology_defaults'] : [],
     ]);
 
     $char_data['feat_selections'] = is_array($char_data['feat_selections'] ?? NULL) ? $char_data['feat_selections'] : [];

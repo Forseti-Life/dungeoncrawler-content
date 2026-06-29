@@ -248,4 +248,85 @@
     }
   };
 
+  /**
+   * Save campaign runtime characters to the canonical library from sheet page.
+   */
+  Drupal.behaviors.dcCharacterSaveToLibrary = {
+    attach: function (context) {
+      once('dc-save-to-library', '[data-dc-save-library-button]', context).forEach(function (button) {
+        function ensureStatusEl() {
+          var existing = button.parentElement && button.parentElement.querySelector('[data-dc-save-library-status]');
+          if (existing) {
+            return existing;
+          }
+          var statusEl = document.createElement('span');
+          statusEl.setAttribute('data-dc-save-library-status', 'true');
+          statusEl.style.marginLeft = '8px';
+          statusEl.style.fontSize = '0.9em';
+          button.insertAdjacentElement('afterend', statusEl);
+          return statusEl;
+        }
+
+        function setStatus(message, kind) {
+          var statusEl = ensureStatusEl();
+          statusEl.textContent = message || '';
+          statusEl.style.color = kind === 'error' ? '#ef4444' : (kind === 'success' ? '#10b981' : '#9ca3af');
+        }
+
+        button.addEventListener('click', async function () {
+          var characterId = parseInt(button.getAttribute('data-character-id') || '0', 10);
+          var campaignId = parseInt(button.getAttribute('data-campaign-id') || '0', 10);
+          if (!characterId) {
+            setStatus('Missing character context; unable to save.', 'error');
+            return;
+          }
+
+          button.disabled = true;
+          var originalLabel = button.textContent;
+          button.textContent = 'Saving...';
+          setStatus('Saving to library…', 'info');
+
+          try {
+            var response = await fetch('/api/character/' + encodeURIComponent(characterId) + '/convert-library', {
+              method: 'POST',
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+              },
+              credentials: 'same-origin',
+              body: JSON.stringify(campaignId > 0 ? { campaignId: campaignId } : {})
+            });
+            var payload = await response.json().catch(function () { return {}; });
+            if (!response.ok || !payload.success) {
+              throw new Error(payload.error || ('Library save failed (' + response.status + ').'));
+            }
+
+            var data = payload.data || {};
+            var libraryCharacterId = parseInt(data.library_character_id || '0', 10);
+            var createdLibraryRow = Boolean(data.created_library_row);
+            button.textContent = createdLibraryRow ? 'Saved to Library' : 'Already in Library';
+            button.classList.add('is-success');
+            if (libraryCharacterId > 0) {
+              setStatus(
+                createdLibraryRow
+                  ? ('Saved as library character #' + libraryCharacterId + '.')
+                  : ('Already saved as library character #' + libraryCharacterId + '.'),
+                'success'
+              );
+            }
+            else {
+              setStatus(createdLibraryRow ? 'Saved to library.' : 'Already saved in library.', 'success');
+            }
+          }
+          catch (error) {
+            button.disabled = false;
+            button.textContent = originalLabel;
+            setStatus(error && error.message ? error.message : 'Unable to save this character to the library.', 'error');
+          }
+        });
+      });
+    }
+  };
+
 })(typeof Drupal !== 'undefined' ? Drupal : undefined, typeof once !== 'undefined' ? once : undefined);

@@ -177,8 +177,34 @@ class CharacterPortraitGenerationService {
       'portrait',
       'original'
     );
+    if (!empty($images)) {
+      return TRUE;
+    }
 
-    return !empty($images);
+    if ($campaign_id !== NULL && $campaign_id > 0) {
+      $global_images = $this->generatedImageRepository->loadImagesForObject(
+        'dc_campaign_characters',
+        (string) $character_id,
+        NULL,
+        'portrait',
+        'original'
+      );
+      if (!empty($global_images)) {
+        return TRUE;
+      }
+    }
+
+    $legacy_portrait = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['portrait'])
+      ->condition('cc.id', $character_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (trim((string) $legacy_portrait) !== '') {
+      return TRUE;
+    }
+
+    return FALSE;
   }
 
   /**

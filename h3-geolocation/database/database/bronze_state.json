@@ -1,0 +1,22 @@
+{
+  "crime2006.csv": {
+    "processed_at": "2025-12-22T13:47:19.807530",
+    "record_count": 223266,
+    "file_path": "data/raw/crime2006.csv"
+  },
+  "crime2007.csv": {
+    "processed_at": "2025-12-22T13:47:50.141226",
+    "record_count": 211382,
+    "file_path": "data/raw/crime2007.csv"
+  },
+  "crime2008.csv": {
+    "processed_at": "2025-12-22T13:48:21.337443",
+    "record_count": 211900,
+    "file_path": "data/raw/crime2008.csv"
+  },
+  "crime2009.csv": {
+    "processed_at": "2025-12-22T13:48:59.528710",
+    "record_count": 195271,
+    "file_path": "data/raw/crime2009.csv"
+  }
+}

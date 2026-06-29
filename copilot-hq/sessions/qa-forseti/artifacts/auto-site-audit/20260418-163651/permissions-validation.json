@@ -1,0 +1,2098 @@
+{
+  "base_url": "https://forseti.life",
+  "config": "org-chart/sites/forseti.life/qa-permissions.json",
+  "generated_at": "2026-04-18T16:40:36+0000",
+  "label": "forseti-life",
+  "probe_issue_count": 220,
+  "probe_issues": [
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/run",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/run",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/run"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/run-all",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/run-all",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/run-all"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/delete-job",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/delete-job",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/delete-job"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/delete-search",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/delete-search",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/delete-search"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/bulk-delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/bulk-delete",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/bulk-delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/delete-item",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/delete-item",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/delete-item"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/suspend-item",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/suspend-item",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/suspend-item"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/delete-file",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/delete-file",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/delete-file"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/pause",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/pause",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/pause"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/resume",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/resume",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/resume"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/retry-suspended",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/retry-suspended",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/retry-suspended"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/clear-genai-cache",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/clear-genai-cache",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/clear-genai-cache"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/job-discovery/search-ajax",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/job-discovery/search-ajax",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/job-discovery/search-ajax"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/job-discovery/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/job-discovery/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/job-discovery/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/my-jobs/bulk-archive",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/my-jobs/bulk-archive",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/my-jobs/bulk-archive"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/my-jobs/1/applied",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/my-jobs/1/applied",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/my-jobs/1/applied"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/identify-auth-path",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/identify-auth-path",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/identify-auth-path"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/create-account",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/create-account",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/create-account"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/submit-application",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/submit-application",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/submit-application"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/step/1",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/step/1",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/step/1"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/apply",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/apply",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/apply"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/delete/1",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/delete/1",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/delete/1"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-resume/ajax",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-resume/ajax",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-resume/ajax"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/profile/add-skill",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/profile/add-skill",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/profile/add-skill"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-resume/refresh-skills-gap",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-resume/refresh-skills-gap",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-resume/refresh-skills-gap"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobtailoring/1/save-resume",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobtailoring/1/save-resume",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobtailoring/1/save-resume"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/pdf/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/pdf/1/delete",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/pdf/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/toggle-sync",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/toggle-sync",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/toggle-sync"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/generate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/generate",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/generate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/validate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/validate",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/validate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/api/googlejobs/import",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/api/googlejobs/import",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/api/googlejobs/import"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/api/googlejobs/batch-import",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/api/googlejobs/batch-import",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/api/googlejobs/batch-import"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/settings/credentials/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/settings/credentials/1/delete",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/settings/credentials/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/settings/credentials/1/test",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/settings/credentials/1/test",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/settings/credentials/1/test"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/coverletter/1/generate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/coverletter/1/generate",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/coverletter/1/generate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/coverletter/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/coverletter/1/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/coverletter/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-prep/1/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-prep/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-rounds/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-rounds/1/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-rounds/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1/ai-tips",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-prep/1/ai-tips",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-prep/1/ai-tips"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/saved-search/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/saved-search/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/saved-search/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/saved-search/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/saved-search/1/delete",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/saved-search/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/notes/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/notes/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/notes/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-feedback",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-feedback",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-feedback"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/deadline/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/deadline/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/deadline/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/applications/bulk-update",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/applications/bulk-update",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/applications/bulk-update"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/companies/1/interest/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/companies/1/interest/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/companies/1/interest/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/companies/1/research/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/companies/1/research/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/companies/1/research/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/1/delete",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/1/link-job",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/1/link-job",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/1/link-job"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/preferences/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/preferences/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/preferences/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/preferences/sources/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/preferences/sources/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/preferences/sources/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/1/edit/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/1/edit/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/1/edit/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/resume-source/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/resume-source/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/resume-source/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/offer/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/offer/save",
+      "role": "anon",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/offer/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/run",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/run",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/run"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/run-all",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/run-all",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/run-all"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/delete-job",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/delete-job",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/delete-job"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/delete-search",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/delete-search",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/delete-search"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/bulk-delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/bulk-delete",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/bulk-delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/delete-item",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/delete-item",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/delete-item"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/suspend-item",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/suspend-item",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/suspend-item"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/delete-file",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/delete-file",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/delete-file"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/pause",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/pause",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/pause"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/resume",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/resume",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/resume"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/retry-suspended",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/retry-suspended",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/retry-suspended"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/clear-genai-cache",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/clear-genai-cache",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/clear-genai-cache"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/job-discovery/search-ajax",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/job-discovery/search-ajax",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/job-discovery/search-ajax"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/job-discovery/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/job-discovery/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/job-discovery/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/my-jobs/bulk-archive",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/my-jobs/bulk-archive",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/my-jobs/bulk-archive"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/my-jobs/1/applied",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/my-jobs/1/applied",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/my-jobs/1/applied"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/identify-auth-path",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/identify-auth-path",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/identify-auth-path"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/create-account",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/create-account",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/create-account"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/submit-application",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/submit-application",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/submit-application"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/step/1",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/step/1",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/step/1"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/apply",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/apply",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/apply"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/delete/1",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/delete/1",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/delete/1"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-resume/ajax",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-resume/ajax",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-resume/ajax"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/profile/add-skill",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/profile/add-skill",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/profile/add-skill"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-resume/refresh-skills-gap",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-resume/refresh-skills-gap",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-resume/refresh-skills-gap"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobtailoring/1/save-resume",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobtailoring/1/save-resume",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobtailoring/1/save-resume"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/pdf/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/pdf/1/delete",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/pdf/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/toggle-sync",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/toggle-sync",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/toggle-sync"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/generate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/generate",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/generate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/validate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/validate",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/validate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/api/googlejobs/import",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/api/googlejobs/import",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/api/googlejobs/import"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/api/googlejobs/batch-import",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/api/googlejobs/batch-import",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/api/googlejobs/batch-import"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/settings/credentials/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/settings/credentials/1/delete",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/settings/credentials/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/settings/credentials/1/test",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/settings/credentials/1/test",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/settings/credentials/1/test"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/coverletter/1/generate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/coverletter/1/generate",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/coverletter/1/generate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/coverletter/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/coverletter/1/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/coverletter/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-prep/1/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-prep/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-rounds/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-rounds/1/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-rounds/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1/ai-tips",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-prep/1/ai-tips",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-prep/1/ai-tips"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/saved-search/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/saved-search/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/saved-search/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/saved-search/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/saved-search/1/delete",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/saved-search/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/notes/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/notes/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/notes/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-feedback",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-feedback",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-feedback"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/deadline/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/deadline/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/deadline/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/applications/bulk-update",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/applications/bulk-update",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/applications/bulk-update"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/companies/1/interest/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/companies/1/interest/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/companies/1/interest/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/companies/1/research/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/companies/1/research/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/companies/1/research/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/1/delete",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/1/link-job",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/1/link-job",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/1/link-job"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/preferences/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/preferences/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/preferences/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/preferences/sources/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/preferences/sources/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/preferences/sources/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/1/edit/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/1/edit/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/1/edit/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/resume-source/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/resume-source/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/resume-source/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/offer/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/offer/save",
+      "role": "authenticated",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/offer/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/run",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/run",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/run"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/run-all",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/run-all",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/run-all"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/delete-job",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/delete-job",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/delete-job"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/delete-search",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/delete-search",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/delete-search"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/bulk-delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/bulk-delete",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/bulk-delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/delete-item",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/delete-item",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/delete-item"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/suspend-item",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/suspend-item",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/suspend-item"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/delete-file",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/delete-file",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/delete-file"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/pause",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/pause",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/pause"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/resume",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/resume",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/resume"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/retry-suspended",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/retry-suspended",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/retry-suspended"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/clear-genai-cache",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/clear-genai-cache",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/clear-genai-cache"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/job-discovery/search-ajax",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/job-discovery/search-ajax",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/job-discovery/search-ajax"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/job-discovery/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/job-discovery/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/job-discovery/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/my-jobs/bulk-archive",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/my-jobs/bulk-archive",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/my-jobs/bulk-archive"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/my-jobs/1/applied",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/my-jobs/1/applied",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/my-jobs/1/applied"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/identify-auth-path",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/identify-auth-path",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/identify-auth-path"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/create-account",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/create-account",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/create-account"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/submit-application",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/submit-application",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/submit-application"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/step/1",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/step/1",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/step/1"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/apply",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/apply",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/apply"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/delete/1",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/delete/1",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/delete/1"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-resume/ajax",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-resume/ajax",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-resume/ajax"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/profile/add-skill",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/profile/add-skill",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/profile/add-skill"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-resume/refresh-skills-gap",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-resume/refresh-skills-gap",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-resume/refresh-skills-gap"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobtailoring/1/save-resume",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobtailoring/1/save-resume",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobtailoring/1/save-resume"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/pdf/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/pdf/1/delete",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/pdf/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/toggle-sync",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/toggle-sync",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/toggle-sync"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/generate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/generate",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/generate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/validate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/validate",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/validate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/api/googlejobs/import",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/api/googlejobs/import",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/api/googlejobs/import"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/api/googlejobs/batch-import",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/api/googlejobs/batch-import",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/api/googlejobs/batch-import"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/settings/credentials/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/settings/credentials/1/delete",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/settings/credentials/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/settings/credentials/1/test",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/settings/credentials/1/test",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/settings/credentials/1/test"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/coverletter/1/generate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/coverletter/1/generate",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/coverletter/1/generate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/coverletter/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/coverletter/1/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/coverletter/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-prep/1/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-prep/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-rounds/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-rounds/1/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-rounds/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1/ai-tips",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-prep/1/ai-tips",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-prep/1/ai-tips"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/saved-search/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/saved-search/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/saved-search/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/saved-search/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/saved-search/1/delete",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/saved-search/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/notes/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/notes/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/notes/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-feedback",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-feedback",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-feedback"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/deadline/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/deadline/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/deadline/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/applications/bulk-update",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/applications/bulk-update",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/applications/bulk-update"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/companies/1/interest/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/companies/1/interest/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/companies/1/interest/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/companies/1/research/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/companies/1/research/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/companies/1/research/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/1/delete",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/1/link-job",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/1/link-job",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/1/link-job"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/preferences/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/preferences/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/preferences/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/preferences/sources/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/preferences/sources/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/preferences/sources/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/1/edit/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/1/edit/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/1/edit/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/resume-source/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/resume-source/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/resume-source/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/offer/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/offer/save",
+      "role": "content_editor",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/offer/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/run",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/run",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/run"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/run-all",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/run-all",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/run-all"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/delete-job",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/delete-job",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/delete-job"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/delete-search",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/delete-search",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/delete-search"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/opportunity/bulk-delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/opportunity/bulk-delete",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/opportunity/bulk-delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/delete-item",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/delete-item",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/delete-item"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/suspend-item",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/suspend-item",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/suspend-item"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/delete-file",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/delete-file",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/delete-file"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/pause",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/pause",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/pause"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/resume",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/resume",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/resume"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/retry-suspended",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/retry-suspended",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/retry-suspended"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/queue/clear-genai-cache",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/queue/clear-genai-cache",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/queue/clear-genai-cache"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/job-discovery/search-ajax",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/job-discovery/search-ajax",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/job-discovery/search-ajax"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/job-discovery/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/job-discovery/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/job-discovery/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/my-jobs/bulk-archive",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/my-jobs/bulk-archive",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/my-jobs/bulk-archive"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/my-jobs/1/applied",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/my-jobs/1/applied",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/my-jobs/1/applied"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/identify-auth-path",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/identify-auth-path",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/identify-auth-path"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/create-account",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/create-account",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/create-account"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/submit-application",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/submit-application",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/submit-application"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/step/1",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/application-submission/1/step/1",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/application-submission/1/step/1"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/apply",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/apply",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/apply"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/delete/1",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/delete/1",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/delete/1"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-resume/ajax",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-resume/ajax",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-resume/ajax"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/profile/add-skill",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/profile/add-skill",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/profile/add-skill"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-resume/refresh-skills-gap",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-resume/refresh-skills-gap",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-resume/refresh-skills-gap"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobtailoring/1/save-resume",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobtailoring/1/save-resume",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobtailoring/1/save-resume"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/pdf/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/pdf/1/delete",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/pdf/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/toggle-sync",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/toggle-sync",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/toggle-sync"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/generate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/generate",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/generate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/googlejobsintegration/validate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/googlejobsintegration/validate",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/googlejobsintegration/validate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/api/googlejobs/import",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/api/googlejobs/import",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/api/googlejobs/import"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/api/googlejobs/batch-import",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/api/googlejobs/batch-import",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/api/googlejobs/batch-import"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/settings/credentials/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/settings/credentials/1/delete",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/settings/credentials/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/settings/credentials/1/test",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/settings/credentials/1/test",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/settings/credentials/1/test"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/coverletter/1/generate",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/coverletter/1/generate",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/coverletter/1/generate"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/coverletter/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/coverletter/1/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/coverletter/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-prep/1/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-prep/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-rounds/1/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-rounds/1/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-rounds/1/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1/ai-tips",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/interview-prep/1/ai-tips",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/interview-prep/1/ai-tips"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/saved-search/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/saved-search/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/saved-search/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/saved-search/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/saved-search/1/delete",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/saved-search/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/notes/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/notes/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/notes/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/tailor-feedback",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/tailor-feedback",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/tailor-feedback"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/deadline/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/deadline/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/deadline/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/applications/bulk-update",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/applications/bulk-update",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/applications/bulk-update"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/companies/1/interest/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/companies/1/interest/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/companies/1/interest/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/companies/1/research/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/companies/1/research/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/companies/1/research/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/1/delete",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/1/delete",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/1/delete"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/contacts/1/link-job",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/contacts/1/link-job",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/contacts/1/link-job"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/preferences/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/preferences/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/preferences/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/preferences/sources/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/preferences/sources/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/preferences/sources/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/resume/1/edit/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/resume/1/edit/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/resume/1/edit/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/resume-source/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/resume-source/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/resume-source/save"
+    },
+    {
+      "final_url": "https://forseti.life/jobhunter/jobs/1/offer/save",
+      "note": "probe_error_or_timeout",
+      "path": "/jobhunter/jobs/1/offer/save",
+      "role": "administrator",
+      "source": "route",
+      "status": 0,
+      "url": "https://forseti.life/jobhunter/jobs/1/offer/save"
+    }
+  ],
+  "roles_run": [
+    "anon",
+    "authenticated",
+    "content_editor",
+    "administrator"
+  ],
+  "violation_count": 10,
+  "violations": [
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/analytics",
+      "path": "/jobhunter/analytics",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "crawl",
+      "status": 500,
+      "url": "https://forseti.life/jobhunter/analytics"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/application-submission/1/screenshot/test",
+      "path": "/jobhunter/application-submission/1/screenshot/test",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 404,
+      "url": "https://forseti.life/jobhunter/application-submission/1/screenshot/test"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/applications/test",
+      "path": "/jobhunter/applications/test",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 403,
+      "url": "https://forseti.life/jobhunter/applications/test"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/applications/test/edit",
+      "path": "/jobhunter/applications/test/edit",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 403,
+      "url": "https://forseti.life/jobhunter/applications/test/edit"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/applications/test/workflow",
+      "path": "/jobhunter/applications/test/workflow",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 403,
+      "url": "https://forseti.life/jobhunter/applications/test/workflow"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/companies/1/research",
+      "path": "/jobhunter/companies/1/research",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 404,
+      "url": "https://forseti.life/jobhunter/companies/1/research"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/coverletter/1",
+      "path": "/jobhunter/coverletter/1",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 500,
+      "url": "https://forseti.life/jobhunter/coverletter/1"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/googlejobsdetail/1",
+      "path": "/jobhunter/googlejobsdetail/1",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 500,
+      "url": "https://forseti.life/jobhunter/googlejobsdetail/1"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/interview-prep/1",
+      "path": "/jobhunter/interview-prep/1",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 500,
+      "url": "https://forseti.life/jobhunter/interview-prep/1"
+    },
+    {
+      "expected": "allow",
+      "final_url": "https://forseti.life/jobhunter/resume/1/edit",
+      "path": "/jobhunter/resume/1/edit",
+      "role": "authenticated",
+      "rule_id": "jobhunter-surface",
+      "source": "route",
+      "status": 500,
+      "url": "https://forseti.life/jobhunter/resume/1/edit"
+    }
+  ]
+}

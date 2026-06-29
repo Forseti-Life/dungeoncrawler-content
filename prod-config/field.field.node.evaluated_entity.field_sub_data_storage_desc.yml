@@ -1,0 +1,22 @@
+uuid: 7bd2034a-0fe7-4ec1-ad6f-502d3f5f2e22
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_sub_data_storage_desc
+    - node.type.evaluated_entity
+  module:
+    - text
+id: node.evaluated_entity.field_sub_data_storage_desc
+field_name: field_sub_data_storage_desc
+entity_type: node
+bundle: evaluated_entity
+label: 'Data Storage Description'
+description: 'AI-provided description for data_storage sub-dimension'
+required: false
+translatable: true
+default_value: {  }
+default_value_callback: ''
+settings:
+  allowed_formats: {  }
+field_type: text_long

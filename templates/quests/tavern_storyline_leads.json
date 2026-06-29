@@ -20,7 +20,7 @@
           "objective_id": "speak_to_eldric",
           "type": "interact",
           "target": "tavern_keeper",
-          "description": "Speak to Eldric and gather his storyline lead.",
+          "description": "Gather Eldric's storyline lead.",
           "next_step": "Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
           "completion_criteria": {
             "kind": "flag",
@@ -33,7 +33,7 @@
           "objective_id": "speak_to_marta",
           "type": "interact",
           "target": "scholar_npc",
-          "description": "Speak to Marta the Scholar and gather her storyline lead.",
+          "description": "Gather Marta the Scholar's storyline lead.",
           "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
           "completion_criteria": {
             "kind": "flag",
@@ -58,6 +58,11 @@
   },
   "prerequisites": {
     "level_min": 1
+  },
+  "story_impact": {
+    "storyline_id": "torment-and-legacy",
+    "chapter_id": "onboarding",
+    "scene_id": "briefing"
   },
   "estimated_duration_minutes": 10,
   "version": "1.0.0"

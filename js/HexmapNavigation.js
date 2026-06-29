@@ -5,7 +5,6 @@
  * navigation requests for the hexmap runtime.
  */
 
-import combatApi from './hexmap-api.js';
 import { Team } from './ecs/index.js';
 
 export class HexmapNavigation {
@@ -182,47 +181,6 @@ export class HexmapNavigation {
     return true;
   }
 
-  async requestAuthoritativeNavigation(connection, currentRoomId, targetHex) {
-    const hm = this._hexmap;
-    const campaignId = hm.resolveCampaignId();
-    const characterId = Number(hm.launchContext?.character_id || 0);
-
-    if (!hm.canUseServerCombatApi() || !campaignId || characterId <= 0) {
-      const reason = 'Room travel requires an authenticated campaign character.';
-      console.warn(`[Navigation] ${reason}`, {
-        currentUserId: hm.currentUserId,
-        campaignId,
-        characterId,
-      });
-      if (hm.uiManager?.appendChatLine) {
-        hm.uiManager.appendChatLine('System', reason, 'system');
-      }
-      return false;
-    }
-
-    try {
-      const response = await combatApi.navigate({
-        campaignId,
-        characterId,
-        mapId: hm.stateManager.get('mapId') || hm.launchContext?.map_id || null,
-        currentRoomId,
-        connectionId: connection?.connection_id || null,
-        targetHex,
-      });
-      const navigation = response?.data || response;
-      if (!navigation || !navigation.target_room_id) {
-        throw new Error('Navigation response did not include a destination room.');
-      }
-
-      return this.applyAuthoritativeNavigation(navigation);
-    } catch (err) {
-      console.error('[Navigation] Authoritative transition failed:', err);
-      if (hm.uiManager?.appendChatLine) {
-        hm.uiManager.appendChatLine('System', 'Unable to travel right now.', 'system');
-      }
-      return false;
-    }
-  }
 }
 
 export default HexmapNavigation;

@@ -1,0 +1,20 @@
+uuid: f2c2338c-1bb3-481e-9e1e-2ce915158409
+langcode: en
+status: true
+dependencies:
+  module:
+    - node
+id: node.field_sub_granularity
+field_name: field_sub_granularity
+entity_type: node
+type: integer
+settings:
+  unsigned: false
+  size: normal
+module: core
+locked: false
+cardinality: 1
+translatable: true
+indexes: {  }
+persist_with_no_fields: false
+custom_storage: false

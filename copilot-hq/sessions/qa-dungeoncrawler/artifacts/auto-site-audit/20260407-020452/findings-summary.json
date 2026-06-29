@@ -1,0 +1,26 @@
+{
+  "base_url": "https://dungeoncrawler.forseti.life",
+  "config_drift_warnings": [],
+  "counts": {
+    "failures": 0,
+    "missing_assets_404s": 0,
+    "permission_violations": 0,
+    "pm_acl_questions": 0,
+    "pm_acl_questions_suppressed": 45
+  },
+  "evidence": {
+    "crawl_json": "sessions/qa-dungeoncrawler/artifacts/auto-site-audit/20260407-020452/dungeoncrawler-crawl.json",
+    "crawl_md": "sessions/qa-dungeoncrawler/artifacts/auto-site-audit/20260407-020452/dungeoncrawler-crawl.md",
+    "permissions_json": "sessions/qa-dungeoncrawler/artifacts/auto-site-audit/20260407-020452/permissions-validation.json",
+    "permissions_md": "sessions/qa-dungeoncrawler/artifacts/auto-site-audit/20260407-020452/permissions-validation.md",
+    "routes_json": "sessions/qa-dungeoncrawler/artifacts/auto-site-audit/20260407-020452/dungeoncrawler-custom-routes.json",
+    "routes_md": "sessions/qa-dungeoncrawler/artifacts/auto-site-audit/20260407-020452/route-audit-summary.md"
+  },
+  "failures": [],
+  "is_prod": true,
+  "label": "dungeoncrawler",
+  "missing_assets_404s": [],
+  "permission_violations": [],
+  "pm_acl_questions": [],
+  "run_ts": "20260407-020452"
+}

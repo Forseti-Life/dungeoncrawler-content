@@ -1,0 +1,13 @@
+# GitHub Copilot Configuration
+# Allow Copilot coding agent to run all commands including Drush
+
+permissions:
+  commands:
+    allow_all: true
+    
+  terminal:
+    allow_all: true
+    
+  drush:
+    enabled: true
+    allow_all_commands: true

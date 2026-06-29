@@ -29,10 +29,29 @@ class CharacterImagePromptBuilder {
     $ability_line = $this->buildAbilityLine($character_data['abilities'] ?? []);
     $ability_guidance = $this->buildAbilityAppearanceGuidance($character_data['abilities'] ?? []);
     $resolved_user_prompt = trim($user_prompt);
+    $role = $this->resolvePortraitRole($character_data);
+    $familiar_species = $this->resolveFamiliarSpeciesName($character_data);
 
-    $subject = $this->buildSubjectPhrase($base_ancestry, $class, $background);
+    $subject = $this->buildSubjectPhrase($base_ancestry, $class, $background, $role, $familiar_species);
     $lines = [];
     $lines[] = 'Full-body fantasy portrait of ' . $subject . ', standing alone with the entire body visible from head to toe.';
+
+    if ($role === 'familiar') {
+      $familiar_profile = $this->buildFamiliarPromptLine($character_data, $familiar_species);
+      if ($familiar_profile !== '') {
+        $lines[] = $familiar_profile;
+      }
+      $lines[] = 'Render a true animal body plan only: non-anthropomorphic anatomy, on all fours, realistic animal proportions, and natural facial structure.';
+      $lines[] = 'Do not depict humanoid posture, human hands, human feet, human torso, clothing, armor, tools, or weapons.';
+      $lines[] = 'Keep scene composition simple and clear with minimal background detail so the familiar remains the sole focal point.';
+      $lines[] = 'Pure illustration only: no readable text, no labels, no signs, no runes, no spell circles, and no decorative borders.';
+
+      if ($resolved_user_prompt !== '') {
+        $lines[] = 'Additional art direction: ' . $this->truncateValue($resolved_user_prompt, 140) . '.';
+      }
+
+      return implode("\n", $lines);
+    }
 
     $visual_traits = [];
     if ($equipment !== '') {
@@ -461,7 +480,12 @@ class CharacterImagePromptBuilder {
   /**
    * Builds a compact subject phrase for the image model.
    */
-  private function buildSubjectPhrase(string $base_ancestry, string $class, string $background): string {
+  private function buildSubjectPhrase(string $base_ancestry, string $class, string $background, string $role = '', string $familiar_species = ''): string {
+    if ($role === 'familiar') {
+      $species = trim($familiar_species) !== '' ? strtolower(trim($familiar_species)) : ($base_ancestry !== '' ? $base_ancestry : 'small magical');
+      return 'a ' . $species . ' familiar companion';
+    }
+
     $parts = [];
 
     if ($base_ancestry !== '') {
@@ -479,6 +503,82 @@ class CharacterImagePromptBuilder {
     }
 
     return implode(' ', $parts);
+  }
+
+  /**
+   * Resolve the actor role used for portrait prompt specialization.
+   */
+  private function resolvePortraitRole(array $character_data): string {
+    return strtolower(trim((string) (
+      $character_data['role']
+      ?? $character_data['follower_kind']
+      ?? $character_data['familiar']['role']
+      ?? ''
+    )));
+  }
+
+  /**
+   * Resolve familiar species display label from known familiar fields.
+   */
+  private function resolveFamiliarSpeciesName(array $character_data): string {
+    $raw_species = trim((string) (
+      $character_data['familiar_species_name']
+      ?? $character_data['species_name']
+      ?? $character_data['species']
+      ?? ''
+    ));
+    if ($raw_species !== '') {
+      return $this->humanizeShortValue($raw_species);
+    }
+
+    $familiar_type = strtolower(trim((string) (
+      $character_data['familiar_type']
+      ?? $character_data['familiar']['familiar_type']
+      ?? ''
+    )));
+    if ($familiar_type !== '') {
+      if ($familiar_type !== 'standard' && isset(FamiliarService::FAMILIAR_TYPES[$familiar_type]['name'])) {
+        return (string) FamiliarService::FAMILIAR_TYPES[$familiar_type]['name'];
+      }
+      return $this->humanizeShortValue($familiar_type);
+    }
+
+    return '';
+  }
+
+  /**
+   * Build a concise familiar descriptor line for portrait generation.
+   */
+  private function buildFamiliarPromptLine(array $character_data, string $species_name): string {
+    $parts = [];
+    if ($species_name !== '') {
+      $parts[] = 'Species: ' . $species_name;
+    }
+    else {
+      $parts[] = 'Species: Familiar';
+    }
+
+    $description = trim((string) (
+      $character_data['description']
+      ?? $character_data['familiar']['description']
+      ?? ''
+    ));
+    if ($description !== '') {
+      $parts[] = 'Description: ' . rtrim($this->truncateValue($description, 180), ". \t\n\r\0\x0B");
+    }
+
+    $ability_ids = [];
+    $candidate_abilities = $character_data['abilities'] ?? $character_data['familiar']['abilities'] ?? NULL;
+    if (is_array($candidate_abilities)) {
+      $ability_ids = array_slice(array_values(array_filter(array_map(static function ($value): string {
+        return strtolower(trim((string) $value));
+      }, $candidate_abilities))), 0, 4);
+    }
+    if ($ability_ids !== []) {
+      $parts[] = 'Abilities: ' . implode(', ', array_map([$this, 'humanizeShortValue'], $ability_ids));
+    }
+
+    return $parts !== [] ? 'Familiar profile — ' . implode('. ', $parts) . '.' : '';
   }
 
 }

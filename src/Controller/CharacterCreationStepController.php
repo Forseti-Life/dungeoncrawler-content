@@ -7,11 +7,11 @@ use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Url;
-use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
+use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -29,16 +29,16 @@ class CharacterCreationStepController extends ControllerBase {
   protected Connection $database;
   protected CharacterPortraitGenerationService $portraitGenerator;
   protected FeatLibraryService $featLibrary;
-  protected CampaignCharacterRuntimeResolverService $runtimeResolver;
+  protected CharacterWizardHardeningService $wizardHardening;
 
-  public function __construct(CharacterManager $character_manager, SchemaLoader $schema_loader, CsrfTokenGenerator $csrf_token, Connection $database, CharacterPortraitGenerationService $portrait_generator, FeatLibraryService $feat_library, CampaignCharacterRuntimeResolverService $runtime_resolver) {
+  public function __construct(CharacterManager $character_manager, SchemaLoader $schema_loader, CsrfTokenGenerator $csrf_token, Connection $database, CharacterPortraitGenerationService $portrait_generator, FeatLibraryService $feat_library, CharacterWizardHardeningService $wizard_hardening) {
     $this->characterManager = $character_manager;
     $this->schemaLoader = $schema_loader;
     $this->csrfToken = $csrf_token;
     $this->database = $database;
     $this->portraitGenerator = $portrait_generator;
     $this->featLibrary = $feat_library;
-    $this->runtimeResolver = $runtime_resolver;
+    $this->wizardHardening = $wizard_hardening;
   }
 
   public static function create(ContainerInterface $container) {
@@ -49,7 +49,7 @@ class CharacterCreationStepController extends ControllerBase {
       $container->get('database'),
       $container->get('dungeoncrawler_content.character_portrait_generator'),
       $container->get('dungeoncrawler_content.feat_library'),
-      $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
+      $container->get('dungeoncrawler_content.character_wizard_hardening'),
     );
   }
 
@@ -216,8 +216,13 @@ class CharacterCreationStepController extends ControllerBase {
     $next_step = $this->getNextStep($step);
     $character_data['step'] = $next_step; // Advance to next step
     $character_data = $this->syncWizardDraftFromCharacterData($character_data);
+    $pending_completion_grants = [];
     if ((int) ($character_data['step'] ?? 0) >= 8) {
-      $character_data['wizard_complete'] = TRUE;
+      $pending_completion_grants = $this->collectPendingCreationSelectionGrants($character_data);
+      $character_data['wizard_complete'] = $pending_completion_grants === [];
+    }
+    else {
+      $character_data['wizard_complete'] = FALSE;
     }
     $character_data = CharacterManager::normalizePersistentCharacterPayload($character_data);
 
@@ -250,6 +255,25 @@ class CharacterCreationStepController extends ControllerBase {
 
     // Return JSON response with redirect URL
     if ($step >= 8) {
+      if ($pending_completion_grants !== []) {
+        $this->characterManager->updateCharacter((int) $character_id, ['status' => 0]);
+        $pending_selection_errors = array_values(array_map(static function (array $grant): string {
+          $description = trim((string) ($grant['description'] ?? ''));
+          if ($description !== '') {
+            return $description;
+          }
+          $selection_id = trim((string) ($grant['id'] ?? ''));
+          return $selection_id !== '' ? $selection_id : 'unresolved selection';
+        }, $pending_completion_grants));
+
+        return new JsonResponse([
+          'success' => FALSE,
+          'message' => $this->t('Character creation is not complete. Resolve all pending feature selections before finalizing.'),
+          'errors' => [
+            'pending_selections' => $pending_selection_errors,
+          ],
+        ], 422);
+      }
       if ($campaign_id !== NULL && $campaign_id !== '') {
         $this->ensureCampaignCharacterHasCanonicalSource((int) $character_id, (int) $campaign_id);
       }
@@ -376,6 +400,7 @@ class CharacterCreationStepController extends ControllerBase {
     if (!empty($result['provider'])) {
       $summary['provider'] = (string) $result['provider'];
     }
+
     if (!empty($result['reason'])) {
       $summary['reason'] = (string) $result['reason'];
     }
@@ -401,111 +426,133 @@ class CharacterCreationStepController extends ControllerBase {
   }
 
   /**
+   * Return unresolved character-creation selection grants.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Selection grant rows that still require explicit user choice.
+   */
+  private function collectPendingCreationSelectionGrants(array $character_data): array {
+    $selection_grants = $character_data['features']['featEffects']['selection_grants'] ?? [];
+    if (!is_array($selection_grants)) {
+      return [];
+    }
+
+    $pending = [];
+    foreach ($selection_grants as $grant) {
+      if (!is_array($grant)) {
+        continue;
+      }
+
+      $status = strtolower(trim((string) ($grant['status'] ?? '')));
+      if ($status === 'pending_choice' && !$this->isSelectionGrantResolved($grant, $character_data)) {
+        $pending[] = $grant;
+      }
+    }
+
+    return $pending;
+  }
+
+  /**
+   * Determine whether a selection grant is already satisfied by current data.
+   */
+  private function isSelectionGrantResolved(array $grant, array $character_data): bool {
+    $selection_type = trim((string) ($grant['selection_type'] ?? ''));
+    return match ($selection_type) {
+      'bonus_class_feat' => $this->isBonusClassFeatSelectionResolved($character_data),
+      'familiar_creation' => $this->isFamiliarCreationSelectionResolved($character_data),
+      default => FALSE,
+    };
+  }
+
+  /**
+   * True when Natural Ambition bonus feat is either not active or selected.
+   */
+  private function isBonusClassFeatSelectionResolved(array $character_data): bool {
+    if (trim((string) ($character_data['ancestry_feat'] ?? '')) !== 'natural-ambition') {
+      return TRUE;
+    }
+
+    $selected = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
+    return $selected !== '';
+  }
+
+  /**
+   * True when familiar creation is either not required or already selected.
+   */
+  private function isFamiliarCreationSelectionResolved(array $character_data): bool {
+    if (!$this->hasActiveFamiliarRequirement($character_data)) {
+      return TRUE;
+    }
+
+    $expected_count = $this->getExpectedFamiliarAbilityCount($character_data);
+    $feat_selections = is_array($character_data['feat_selections'] ?? NULL) ? $character_data['feat_selections'] : [];
+    foreach ($feat_selections as $selection) {
+      if (!is_array($selection)) {
+        continue;
+      }
+
+      $abilities = $this->normalizeSelectionList($selection['selected_familiar_abilities'] ?? []);
+      if (count($abilities) === $expected_count) {
+        return TRUE;
+      }
+    }
+
+    $familiar_payload = is_array($character_data['familiar'] ?? NULL) ? $character_data['familiar'] : [];
+    $familiar_abilities = $this->normalizeSelectionList($familiar_payload['abilities'] ?? []);
+    return count($familiar_abilities) === $expected_count;
+  }
+
+  /**
+   * Determine whether the current build requires familiar-creation choices.
+   */
+  private function hasActiveFamiliarRequirement(array $character_data): bool {
+    $class_feat = trim((string) ($character_data['class_feat'] ?? ''));
+    $bonus_feat = trim((string) ($character_data['feat_selections']['natural-ambition']['bonus_class_feat'] ?? ''));
+    $class_id = strtolower(trim((string) ($character_data['class'] ?? '')));
+    $subclass = strtolower(trim((string) ($character_data['subclass'] ?? '')));
+    $arcane_thesis = strtolower(trim((string) ($character_data['arcane_thesis'] ?? '')));
+
+    $familiar_sources = [
+      'familiar',
+      'familiar-druid',
+      'familiar-sorcerer',
+      'alchemical-familiar',
+      'leshy-familiar-druid',
+      'improved-familiar-attunement',
+      'familiar-witch-class',
+    ];
+
+    return in_array($class_feat, $familiar_sources, TRUE)
+      || in_array($bonus_feat, $familiar_sources, TRUE)
+      || ($class_id === 'druid' && $subclass === 'leaf')
+      || ($class_id === 'wizard' && $arcane_thesis === 'improved-familiar-attunement')
+      || $class_id === 'witch';
+  }
+
+  /**
+   * Familiar abilities at creation: base 2, +1 for Improved Familiar Attunement.
+   */
+  private function getExpectedFamiliarAbilityCount(array $character_data): int {
+    $class_id = strtolower(trim((string) ($character_data['class'] ?? '')));
+    $arcane_thesis = strtolower(trim((string) ($character_data['arcane_thesis'] ?? '')));
+    if ($class_id === 'wizard' && $arcane_thesis === 'improved-familiar-attunement') {
+      return 3;
+    }
+    return 2;
+  }
+
+  /**
    * Keep the nested wizard draft aligned with the latest top-level character data.
    */
   private function syncWizardDraftFromCharacterData(array $character_data): array {
-    $wizard = [];
-    foreach ($character_data as $key => $value) {
-      if ($key === 'wizard') {
-        continue;
-      }
-      $wizard[$key] = $value;
-    }
-    $character_data['wizard'] = $wizard;
-    return $character_data;
+    return $this->wizardHardening->syncWizardDraftFromCharacterData($character_data);
   }
 
   /**
    * Ensure a campaign-created character points back to a canonical library row.
    */
   private function ensureCampaignCharacterHasCanonicalSource(int $character_id, int $campaign_id): void {
-    if ($character_id <= 0 || $campaign_id <= 0) {
-      return;
-    }
-
-    $record = $this->characterManager->loadCharacter($character_id);
-    if (!$record || (int) ($record->campaign_id ?? 0) !== $campaign_id) {
-      return;
-    }
-
-    $linked_character_id = (int) ($record->source_character_id ?? $record->character_id ?? 0);
-    if ($linked_character_id > 0 && $linked_character_id !== (int) $record->id) {
-      return;
-    }
-
-    $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
-    if (!is_array($character_data)) {
-      $character_data = [];
-    }
-    $schema_data = $this->characterManager->canonicalizeCharacterData($character_data);
-    $hot = $this->characterManager->extractHotColumnsFromData($schema_data);
-    $now = \Drupal::time()->getRequestTime();
-    $library_instance_id = \Drupal::service('uuid')->generate();
-
-    $library_row_id = (int) $this->database->insert('dc_campaign_characters')
-      ->fields([
-        'uuid' => $library_instance_id,
-        'campaign_id' => 0,
-        'character_id' => 0,
-        'source_character_id' => NULL,
-        'instance_id' => $library_instance_id,
-        'uid' => (int) ($record->uid ?? $this->currentUser()->id()),
-        'name' => $schema_data['name'] ?: 'Unnamed Character',
-        'level' => $schema_data['level'],
-        'ancestry' => $schema_data['ancestry'] ?? '',
-        'class' => $schema_data['class'] ?? '',
-        'hp_current' => $hot['hp_current'],
-        'hp_max' => $hot['hp_max'],
-        'armor_class' => $hot['armor_class'],
-        'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
-        'position_q' => 0,
-        'position_r' => 0,
-        'last_room_id' => '',
-        'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-        'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-        'location_type' => 'roster',
-        'location_ref' => '',
-        'role' => (string) ($record->role ?? 'player'),
-        'type' => (string) ($record->type ?? 'pc'),
-        'lifecycle_state' => 'ready_library',
-        'status' => max(1, (int) ($record->status ?? 1)),
-        'is_active' => 0,
-        'created' => $now,
-        'changed' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
-
-    $starter_room_id = $this->runtimeResolver->resolveStarterRoomIdForCampaign($campaign_id);
-    $runtime_fields = [
-      'character_id' => $library_row_id,
-      'source_character_id' => $library_row_id,
-      'instance_id' => sprintf('pc-%d-%d', $campaign_id, $library_row_id),
-      'lifecycle_state' => 'campaign_runtime',
-      'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
-      'changed' => $now,
-      'updated' => $now,
-    ];
-    $existing_location_type = trim((string) ($record->location_type ?? ''));
-    $existing_location_ref = trim((string) ($record->location_ref ?? ''));
-    if ($starter_room_id !== '' && ($existing_location_type === '' || $existing_location_type === 'global' || $existing_location_ref === '')) {
-      $runtime_fields['last_room_id'] = $starter_room_id;
-      $runtime_fields['location_type'] = 'room';
-      $runtime_fields['location_ref'] = $starter_room_id;
-    }
-
-    $this->database->update('dc_campaign_characters')
-      ->fields($runtime_fields)
-      ->condition('id', $character_id)
-      ->execute();
-
-    $this->database->update('dc_campaigns')
-      ->fields([
-        'active_character_id' => $library_row_id,
-        'changed' => $now,
-      ])
-      ->condition('id', $campaign_id)
-      ->execute();
+    $this->wizardHardening->ensureCampaignCharacterHasCanonicalSource($character_id, $campaign_id);
   }
 
   /**
@@ -575,6 +622,8 @@ class CharacterCreationStepController extends ControllerBase {
         'position_r' => 0,
         'last_room_id' => '',
         'character_data' => json_encode($character_data, JSON_PRETTY_PRINT),
+        'default_locations' => NULL,
+        'portrait' => NULL,
         'lifecycle_state' => 'draft_library',
         'status' => 0, // Draft
         'created' => $now,
@@ -609,6 +658,10 @@ class CharacterCreationStepController extends ControllerBase {
           $character_data[$field] = $form_data[$field];
         }
       }
+    }
+
+    if (isset($form_data['feat_selections']) && is_array($form_data['feat_selections'])) {
+      $character_data['feat_selections'] = $form_data['feat_selections'];
     }
 
     // Step 4: Store class proficiencies and 1st-level class features; build spellcasting for casters.

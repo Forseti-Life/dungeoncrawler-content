@@ -1,0 +1,18 @@
+{
+  "rows": [
+    {
+      "dungeon_id": "onboarding",
+      "name": "Onboarding Annex",
+      "description": "Tutorial staging area used for the Torment and Legacy storyline entry sequence.",
+      "theme": "tutorial",
+      "dungeon_data": {
+        "levels": 1,
+        "entry_room": "tal-briefing-room",
+        "rooms": [
+          "tal-briefing-room"
+        ],
+        "source_module": "torment-and-legacy"
+      }
+    }
+  ]
+}

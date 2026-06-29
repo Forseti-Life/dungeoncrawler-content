@@ -70,7 +70,11 @@
     "prerequisites": {
       "level_min": 1
     },
-    "story_impact": "",
+    "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "briefing"
+    },
     "estimated_duration_minutes": "15",
     "created": "1772904063",
     "updated": "1772904063",
@@ -148,7 +152,11 @@
     "prerequisites": {
       "level_min": 1
     },
-    "story_impact": "",
+    "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "briefing"
+    },
     "estimated_duration_minutes": "12",
     "created": "1772904063",
     "updated": "1772904063",
@@ -227,7 +235,11 @@
     "prerequisites": {
       "level_min": 1
     },
-    "story_impact": "",
+    "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "briefing"
+    },
     "estimated_duration_minutes": "20",
     "created": "1772904063",
     "updated": "1772904063",
@@ -300,7 +312,11 @@
     "prerequisites": {
       "level_min": 1
     },
-    "story_impact": "",
+    "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "first-engagement"
+    },
     "estimated_duration_minutes": "60",
     "created": "1772904063",
     "updated": "1772904063",
@@ -368,7 +384,11 @@
     "prerequisites": {
       "level_min": 1
     },
-    "story_impact": "",
+    "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "first-engagement"
+    },
     "estimated_duration_minutes": "40",
     "created": "1772904063",
     "updated": "1772904063",
@@ -445,7 +465,11 @@
     "prerequisites": {
       "level_min": 1
     },
-    "story_impact": "",
+    "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "first-engagement"
+    },
     "estimated_duration_minutes": "30",
     "created": "1772904063",
     "updated": "1772904063",
@@ -521,7 +545,11 @@
     "prerequisites": {
       "level_min": 1
     },
-    "story_impact": "",
+    "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "briefing"
+    },
     "estimated_duration_minutes": "10",
     "created": "1772904063",
     "updated": "1772904063",
@@ -632,6 +660,9 @@
       "level_min": 3
     },
     "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "first-engagement",
       "unlocks": [
         "ruins_questline_part2"
       ]
@@ -759,7 +790,11 @@
     "prerequisites": {
       "level_min": 2
     },
-    "story_impact": "",
+    "story_impact": {
+      "storyline_id": "torment-and-legacy",
+      "chapter_id": "onboarding",
+      "scene_id": "first-engagement"
+    },
     "estimated_duration_minutes": "45",
     "created": "1772904063",
     "updated": "1772904063",

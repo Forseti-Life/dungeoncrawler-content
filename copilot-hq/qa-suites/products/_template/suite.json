@@ -1,0 +1,20 @@
+{
+  "product_id": "example",
+  "product_label": "Example Product",
+  "tools": [
+    "playwright",
+    "python"
+  ],
+  "suites": [
+    {
+      "id": "smoke",
+      "label": "Smoke",
+      "type": "e2e",
+      "command": "<replace-with-command>",
+      "artifacts": [
+        "<describe-expected-output-artifacts>"
+      ],
+      "required_for_release": true
+    }
+  ]
+}

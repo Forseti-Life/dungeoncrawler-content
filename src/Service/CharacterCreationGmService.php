@@ -611,6 +611,12 @@ PROMPT;
             'position_r' => (int) ($schema_data['position']['r'] ?? 0),
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+            'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''
+              ? (string) $schema_data['default_locations']
+              : NULL,
+            'portrait' => trim((string) ($schema_data['portrait'] ?? '')) !== ''
+              ? (string) $schema_data['portrait']
+              : NULL,
             'status' => $schema_data['step'] >= 8 ? 1 : 0,
             'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
             'version' => $next_version,
@@ -643,6 +649,12 @@ PROMPT;
             'position_r' => (int) ($schema_data['position']['r'] ?? 0),
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
+            'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''
+              ? (string) $schema_data['default_locations']
+              : NULL,
+            'portrait' => trim((string) ($schema_data['portrait'] ?? '')) !== ''
+              ? (string) $schema_data['portrait']
+              : NULL,
             'status' => $schema_data['step'] >= 8 ? 1 : 0,
             'lifecycle_state' => $resolved_campaign_id > 0 ? 'campaign_draft' : 'draft_library',
             'created' => $now,

@@ -1,0 +1,20 @@
+uuid: fc05c368-0433-41d4-992b-9d83fc569f25
+langcode: en
+status: true
+dependencies:
+  module:
+    - node
+id: node.field_sub_financial
+field_name: field_sub_financial
+entity_type: node
+type: integer
+settings:
+  unsigned: false
+  size: normal
+module: core
+locked: false
+cardinality: 1
+translatable: true
+indexes: {  }
+persist_with_no_fields: false
+custom_storage: false

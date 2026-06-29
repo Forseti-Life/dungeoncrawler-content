@@ -13,6 +13,12 @@
  *   - Rendering (HexCanvas owns that)
  *   - DOM manipulation (panels own that)
  *   - Game rules (systems own that)
+ *   - Authoritative game-state decisions (server engine owns that)
+ *
+ * Authority boundary:
+ *   - This shell is a projection/runtime host for server-authored state.
+ *   - Do not add client-side rule engines that reinterpret encounter or
+ *     navigation legality. Consume server contracts and render/dispatch only.
  *
  * @see GameEventBus
  * @see canvas/HexCanvas
@@ -25,18 +31,17 @@ import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260619-v2-search-reward-refresh-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20260624-v2-room-sync-nav-2';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20260629-v2-nav-canonical-transition-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
-import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260624-v2-room-sync-nav-2';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260626-v2-navigate-labels-1';
 import { ChatPanel } from './panels/ChatPanel.js?v=20260624-v2-room-sync-nav-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';
 import { InventoryPanel } from './panels/InventoryPanel.js';
-import { CharacterPanel } from './panels/CharacterPanel.js?v=20260619-v2-character-loop-fix-1';
+import { CharacterPanel } from './panels/CharacterPanel.js?v=20260629-v2-party-only-tab-1';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
-import { PartyRailPanel } from './panels/PartyRailPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
@@ -112,7 +117,7 @@ export class GameShell {
     /** @type {{ encounter: EncounterSystem, navigation: NavigationSystem, automation: PlayerAutomation, quest: QuestSystem }} */
     this.systems = {};
 
-    /** @type {{ merchant: MerchantPanel, combat: CombatPanel, actionRail: ActionRailPanel, chat: ChatPanel, quest: QuestPanel, inventory: InventoryPanel, character: CharacterPanel, roomView: RoomViewPanel, partyRail: PartyRailPanel, status: StatusPanel }} */
+    /** @type {{ merchant: MerchantPanel, combat: CombatPanel, actionRail: ActionRailPanel, chat: ChatPanel, quest: QuestPanel, inventory: InventoryPanel, character: CharacterPanel, roomView: RoomViewPanel, status: StatusPanel }} */
     this.panels = {};
 
     /** @type {GameCoordinator|null} */
@@ -152,13 +157,30 @@ export class GameShell {
    * @returns {Promise<boolean>}
    *   TRUE when refreshed successfully; otherwise FALSE.
    */
-  async refreshQuestJournalFromApi() {
+  async refreshQuestJournalFromApi(context = {}) {
     const campaignId = this.resolveCampaignId();
     if (!campaignId || typeof fetch !== 'function') {
       return false;
     }
 
-    const characterId = Number(this.launchContext?.character_id || 0);
+    const requestedCharacterId = Number(context?.characterId || 0);
+    const hasExplicitCharacterScope = Object.prototype.hasOwnProperty.call(context || {}, 'characterId');
+    if (hasExplicitCharacterScope && requestedCharacterId <= 0) {
+      this.questSummary = normalizeQuestSummaryPayload({
+        schema_version: 'quest-summary-v2',
+        location_id: this.resolveActiveRoomId() || '',
+        active: [],
+        offers: [],
+        leads: [],
+        completed: [],
+        management_tree: [],
+      });
+      this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary, characterId: null, campaignId });
+      return true;
+    }
+    const characterId = requestedCharacterId > 0
+      ? requestedCharacterId
+      : Number(this.launchContext?.character_id || 0);
     const endpoint = characterId > 0
       ? `/api/campaign/${campaignId}/character/${characterId}/quest-journal`
       : `/api/campaign/${campaignId}/quest-journal`;
@@ -210,7 +232,7 @@ export class GameShell {
         });
       }
 
-      this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary });
+      this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary, characterId: characterId || null, campaignId });
       return true;
     } catch (error) {
       console.warn('[GameShell] refreshQuestJournalFromApi failed', { campaignId, error });
@@ -331,7 +353,8 @@ export class GameShell {
       activeRoomId:  this.activeRoomId,
     });
     if (launchInventoryContext.characterId) {
-      void this.refreshCharacterInventoryFromApi(launchInventoryContext);
+      // Hydrate from canonical runtime API state on boot so sheet XP/items are never stale.
+      void this.loadCharacterFromApi(launchInventoryContext.characterId);
     }
     this._emitInitialRoomState();
     this._syncActiveRoomEntities();
@@ -584,8 +607,8 @@ export class GameShell {
     });
 
     // Character/quest UI requests canonical quest journal refresh.
-    this.bus.on('quest:refresh-requested', () => {
-      void this.refreshQuestJournalFromApi();
+    this.bus.on('quest:refresh-requested', (ctx) => {
+      void this.refreshQuestJournalFromApi(ctx || {});
     });
 
     this.bus.on('inventory:changed', (ctx) => {
@@ -662,9 +685,9 @@ export class GameShell {
     if (tabId === 'merchant')  this._loadMerchantStock();
     if (tabId !== 'view' && prevTab === 'view') this._clearRoomViewRetry();
     if (tabId === 'chat' && !this._chatHistoryLoaded) this._loadChatHistory();
-    if (tabId === 'character') {
+    if (tabId === 'party' || tabId === 'character') {
       const charId = this.launchCharacter?.id ?? this.launchContext?.character_id ?? null;
-      console.log('[GameShell] character tab → sheet-requested', { charId });
+      console.log('[GameShell] party tab → sheet-requested', { charId });
       if (charId) this.bus.emit('character:sheet-requested', { characterId: charId });
       void this.refreshQuestJournalFromApi();
     }
@@ -794,9 +817,13 @@ export class GameShell {
       });
 
       // Relay any quest progress updates — merge into local summary and emit full summary
-      const questUpdates = result.data?.quest_updates ?? [];
+      const questUpdates = Array.isArray(result.data?.quest_updates) ? result.data.quest_updates : [];
       if (questUpdates.length > 0) {
         await this.applyQuestUpdates(questUpdates);
+        const launchCharacterId = this.resolveLaunchCharacterStateId();
+        if (launchCharacterId > 0) {
+          await this.loadCharacterFromApi(launchCharacterId);
+        }
       }
 
       // Notify ChatPanel the turn is complete
@@ -828,6 +855,14 @@ export class GameShell {
     // Full implementation deferred to full ChatPanel session-view sprint;
     // for now emit turn-status-changed to unblock the UI
     this.bus.emit('chat:turn-status-changed', { status: 'idle' });
+  }
+
+  async fetchSessionViewData(view, options = {}) {
+    const chatPanel = this.panels?.chat || null;
+    if (!chatPanel || typeof chatPanel.fetchSessionViewData !== 'function') {
+      throw new Error('ChatPanel session view data adapter unavailable.');
+    }
+    return chatPanel.fetchSessionViewData(view, options);
   }
 
   /**
@@ -1540,7 +1575,6 @@ export class GameShell {
     this.panels.inventory  = new InventoryPanel(panel('[data-panel="inventory"]'), bus);
     this.panels.character  = new CharacterPanel(panel('[data-panel="character"]'), bus);
     this.panels.roomView   = new RoomViewPanel(panel('[data-panel="room-view"]'), bus);
-    this.panels.partyRail  = new PartyRailPanel(panel('[data-panel="party-rail"]'), bus);
     this.panels.status     = new StatusPanel(panel('[data-panel="status"]'), bus);
 
     this.panels.merchant.init(this.dungeonData, stateManager, this.panels.inventory);
@@ -1548,7 +1582,6 @@ export class GameShell {
     this.panels.chat.init(this.dungeonData, stateManager);
     this.panels.inventory.init(this.dungeonData, stateManager);
     this.panels.character.init(this.dungeonData, stateManager);
-    this.panels.partyRail.init(this.dungeonData, stateManager);
     // Panels with no-arg init
     this.panels.combat.init();
     this.panels.quest.init();
@@ -1722,6 +1755,132 @@ export class GameShell {
   // --- ported from hexmap.js ---
   resolveCampaignId() {
     return Number(this.launchContext?.campaign_id || 0) || null;
+  }
+
+  async loadRuntimeStateBundle(query = {}) {
+    // Canonical runtime contract comes from the server. Client must hydrate
+    // from this payload, not locally reconstruct game state.
+    if (typeof fetch !== 'function') {
+      throw new Error('Runtime state API is unavailable in this environment.');
+    }
+
+    const params = new URLSearchParams();
+    const numericCampaignId = Number(query.campaign_id || query.campaignId || this.resolveCampaignId() || 0);
+    const numericCharacterId = Number(query.character_id || query.characterId || this.launchContext?.character_id || 0);
+    const roomId = String(query.room_id || query.roomId || '').trim();
+    const mapId = String(query.map_id || query.mapId || '').trim();
+    const dungeonLevelId = String(query.dungeon_level_id || query.dungeonLevelId || '').trim();
+    const nextRoomId = String(query.next_room_id || query.nextRoomId || '').trim();
+    const startQ = Number.isFinite(Number(query.start_q ?? query.startQ)) ? Number(query.start_q ?? query.startQ) : 0;
+    const startR = Number.isFinite(Number(query.start_r ?? query.startR)) ? Number(query.start_r ?? query.startR) : 0;
+
+    if (!numericCampaignId) {
+      throw new Error('Campaign id is required to load runtime state.');
+    }
+
+    params.set('campaign_id', String(numericCampaignId));
+    if (numericCharacterId > 0) {
+      params.set('character_id', String(numericCharacterId));
+    }
+    if (roomId) {
+      params.set('room_id', roomId);
+    }
+    if (mapId) {
+      params.set('map_id', mapId);
+    }
+    if (dungeonLevelId) {
+      params.set('dungeon_level_id', dungeonLevelId);
+    }
+    if (nextRoomId) {
+      params.set('next_room_id', nextRoomId);
+    }
+    params.set('start_q', String(startQ));
+    params.set('start_r', String(startR));
+
+    const response = await fetch(`/api/map/visual-state?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'include',
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.error || 'Unable to load runtime state.');
+    }
+
+    this.applyRuntimeStateBundle(payload);
+    return payload;
+  }
+
+  applyRuntimeStateBundle(bundle = {}) {
+    // Apply authoritative bundle as-is. This is a state projection/update, not
+    // a client simulation step.
+    const launchContext = bundle?.launch_context && typeof bundle.launch_context === 'object'
+      ? bundle.launch_context
+      : {};
+    const dungeonPayload = bundle?.dungeon_payload && typeof bundle.dungeon_payload === 'object'
+      ? bundle.dungeon_payload
+      : {};
+    const visualState = bundle?.map_visual_state && typeof bundle.map_visual_state === 'object'
+      ? bundle.map_visual_state
+      : {};
+    const launchCharacter = bundle?.launch_character && typeof bundle.launch_character === 'object'
+      ? bundle.launch_character
+      : {};
+    const questSummary = bundle?.quest_summary && typeof bundle.quest_summary === 'object'
+      ? normalizeQuestSummaryPayload(bundle.quest_summary)
+      : null;
+
+    this.launchContext = {
+      ...this.launchContext,
+      ...launchContext,
+    };
+    if (Object.keys(dungeonPayload).length > 0) {
+      this.dungeonData = dungeonPayload;
+    }
+    if (Object.keys(visualState).length > 0) {
+      this.mapVisualState = visualState;
+    }
+    if (Object.keys(launchCharacter).length > 0) {
+      this.launchCharacter = launchCharacter;
+      this.characterData = launchCharacter;
+    }
+    if (questSummary) {
+      this.questSummary = questSummary;
+      this.bus?.emit('quest:progress-updated', { questSummary });
+    }
+
+    this.activeRoomId =
+      this.mapVisualState?.map_meta?.active_room_id
+      || this.launchContext?.room_id
+      || this.activeRoomId
+      || null;
+    this._chatHistoryLoaded = false;
+    this._emitInitialRoomState();
+    this._syncActiveRoomEntities(this.activeRoomId);
+    this._loadChatHistory();
+    this._loadRoomView({ force: true, preserveExisting: true });
+    this.panels?.actionRail?.refreshActionRail?.();
+    void this.syncCoordinatorStateFromServer();
+  }
+
+  async syncCoordinatorStateFromServer() {
+    // Keep client coordinator aligned with authoritative server state after any
+    // bundle swap to avoid local drift in phase/version snapshots.
+    if (!this.gameCoordinator?.api?.getState || !this.gameCoordinator?.applyAuthoritativeUpdate) {
+      return;
+    }
+
+    try {
+      const state = await this.gameCoordinator.api.getState();
+      if (state?.success) {
+        this.gameCoordinator.applyAuthoritativeUpdate(state);
+      }
+    } catch (error) {
+      console.warn('[GameShell] Failed to resync coordinator state after runtime bundle apply', error);
+    }
   }
 
   // --- ported from hexmap.js ---
@@ -2015,7 +2174,25 @@ export class GameShell {
 
   // --- ported from hexmap.js ---
   resolveNavigationCapabilities(roomId = null) {
-    return _resolveNavigationCapabilities(this.getVisualConnections(), roomId || this.resolveActiveRoomId());
+    // Navigation capability source-of-truth is server-projected room.exits.
+    // If this contract is missing, fail closed and surface the contract error
+    // rather than inferring client-side legality.
+    const activeRoomId = String(roomId || this.resolveActiveRoomId() || '').trim();
+    if (activeRoomId === '') {
+      return [];
+    }
+
+    const rooms = this.getVisualRooms();
+    const room = rooms && typeof rooms === 'object' ? rooms[activeRoomId] : null;
+    const exits = Array.isArray(room?.exits) ? room.exits : [];
+    if (!Array.isArray(room?.exits)) {
+      console.error('[Navigation] Missing authoritative room.exits contract for active room', { activeRoomId });
+      return [];
+    }
+
+    return exits
+      .map((exit) => _normalizeAuthoritativeNavigationCapability(exit, activeRoomId))
+      .filter((capability) => capability.target_room_id);
   }
 
   // --- ported from hexmap.js ---
@@ -2327,6 +2504,14 @@ export class GameShell {
     }
 
     coordinator.applyAuthoritativeUpdate?.(data);
+    const questUpdates = Array.isArray(data?.quest_updates) ? data.quest_updates : [];
+    if (questUpdates.length > 0) {
+      await this.applyQuestUpdates(questUpdates);
+      const launchCharacterId = this.resolveLaunchCharacterStateId();
+      if (launchCharacterId > 0) {
+        await this.loadCharacterFromApi(launchCharacterId);
+      }
+    }
     if (data?.game_state?.encounter_id) {
       this._setStateValue('encounterId', data.game_state.encounter_id);
     }
@@ -2873,60 +3058,59 @@ function _getHostileTargets(actor, entityManager, movementSystem = null, hasLine
   return hostileTargets;
 }
 
-function _resolveNavigationCapabilities(rawConnections = [], roomId = null) {
-  const activeRoomId = String(roomId || '').trim();
-  if (!activeRoomId || !Array.isArray(rawConnections) || !rawConnections.length) {
-    return [];
+function _normalizeAuthoritativeNavigationCapability(exit, activeRoomId) {
+  const targetRoomId = String(exit?.target_room_id || '').trim();
+  const destinationType = String(exit?.destination_type || 'room').trim().toLowerCase() || 'room';
+  const destinationId = String(exit?.destination_id || (destinationType === 'room' ? targetRoomId : '')).trim();
+  const type = String(exit?.type || 'passage').trim() || 'passage';
+  const distance = Number.isFinite(Number(exit?.distance)) ? Math.max(0, Math.trunc(Number(exit.distance))) : 0;
+  const blockedReason = String(exit?.blocked_reason || '').trim() || null;
+  const isDiscovered = Object.prototype.hasOwnProperty.call(exit || {}, 'is_discovered') ? Boolean(exit.is_discovered) : true;
+  const isPassable = Object.prototype.hasOwnProperty.call(exit || {}, 'is_passable') ? Boolean(exit.is_passable) : true;
+  const available = typeof exit?.available === 'boolean'
+    ? exit.available
+    : (blockedReason === null && Boolean(targetRoomId) && isDiscovered && isPassable);
+  const originHex = _normalizeHexPayload(exit?.origin_hex) || _normalizeHexPayload(_getConnectionHex(exit, 'from'));
+  const targetHex = _normalizeHexPayload(exit?.target_hex) || _normalizeHexPayload(_getConnectionHex(exit, 'to'));
+
+  return {
+    connection_id: String(exit?.connection_id || `${activeRoomId || 'unknown'}__${targetRoomId || 'unknown'}`),
+    origin_room_id: String(exit?.origin_room_id || activeRoomId || '').trim(),
+    target_room_id: targetRoomId,
+    destination_type: destinationType,
+    destination_id: destinationId,
+    type,
+    available,
+    blocked_reason: blockedReason || (available ? null : 'blocked'),
+    is_discovered: isDiscovered,
+    is_passable: isPassable,
+    bidirectional: Object.prototype.hasOwnProperty.call(exit || {}, 'bidirectional')
+      ? Boolean(exit.bidirectional)
+      : type !== 'one_way',
+    requires_interaction: Object.prototype.hasOwnProperty.call(exit || {}, 'requires_interaction')
+      ? Boolean(exit.requires_interaction)
+      : !isPassable,
+    distance,
+    quest_reference: exit?.quest_reference === true,
+    quest_ids: Array.isArray(exit?.quest_ids)
+      ? exit.quest_ids.map((value) => String(value || '').trim()).filter(Boolean)
+      : [],
+    origin_hex: originHex,
+    target_hex: targetHex,
+    connection: exit,
+  };
+}
+
+function _normalizeHexPayload(hex) {
+  if (!hex || typeof hex !== 'object') {
+    return null;
   }
-
-  return rawConnections
-    .filter((connection) => connection && typeof connection === 'object' && (_getConnectionRoomId(connection, 'from') === activeRoomId || _getConnectionRoomId(connection, 'to') === activeRoomId))
-    .map((connection) => {
-      const travelsForward = _getConnectionRoomId(connection, 'from') === activeRoomId;
-      const targetRoomId = String(travelsForward ? (_getConnectionRoomId(connection, 'to') || '') : (_getConnectionRoomId(connection, 'from') || ''));
-      const isDiscovered = Object.prototype.hasOwnProperty.call(connection, 'is_discovered')
-        ? Boolean(connection.is_discovered)
-        : true;
-      const isPassable = Object.prototype.hasOwnProperty.call(connection, 'is_passable')
-        ? Boolean(connection.is_passable)
-        : true;
-      const type = String(connection.type || 'passage');
-      const destinationTypeRaw = String(connection.destination_type || connection.to_type || '').trim().toLowerCase();
-      const destinationType = (destinationTypeRaw === 'road' || destinationTypeRaw === 'room')
-        ? destinationTypeRaw
-        : 'room';
-      const parsedDistance = Number(connection.distance ?? connection.travel_distance ?? connection.distance_units ?? 0);
-      const distance = Number.isFinite(parsedDistance) ? Math.max(0, Math.trunc(parsedDistance)) : 0;
-      const blockedReason = !targetRoomId
-        ? 'unresolved_destination'
-        : ((destinationType === 'room' && distance !== 0)
-          ? 'invalid_distance_contract'
-          : (!isDiscovered ? 'undiscovered' : (!isPassable ? 'blocked' : null)))
-      ;
-
-      return {
-        connection_id: String(connection.connection_id || `${_getConnectionRoomId(connection, 'from') || 'unknown'}__${_getConnectionRoomId(connection, 'to') || 'unknown'}`),
-        origin_room_id: activeRoomId,
-        target_room_id: targetRoomId,
-        destination_type: destinationType,
-        destination_id: destinationType === 'road'
-          ? String(connection.road_node_id || connection.road_id || connection.to_id || '')
-          : targetRoomId,
-        type,
-        available: blockedReason === null,
-        blocked_reason: blockedReason,
-        is_discovered: isDiscovered,
-        is_passable: isPassable,
-        bidirectional: Object.prototype.hasOwnProperty.call(connection, 'bidirectional')
-          ? Boolean(connection.bidirectional)
-          : type !== 'one_way',
-        requires_interaction: !isPassable || ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'].includes(type),
-        distance,
-        origin_hex: travelsForward ? (_getConnectionHex(connection, 'from') || null) : (_getConnectionHex(connection, 'to') || null),
-        target_hex: travelsForward ? (_getConnectionHex(connection, 'to') || null) : (_getConnectionHex(connection, 'from') || null),
-        connection,
-      };
-    });
+  const q = Number(hex.q);
+  const r = Number(hex.r);
+  if (!Number.isFinite(q) || !Number.isFinite(r)) {
+    return null;
+  }
+  return { q, r };
 }
 
 function _findLaunchPlayerEntity(entityManager, launchContext = {}, launchCharacterId = 0) {

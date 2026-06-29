@@ -397,6 +397,72 @@ class QuestGeneratorServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies legacy LTBA objective anchors are repaired from template metadata.
+   */
+  public function testBuildQuestSummaryEntryBackfillsLegacyLtbaObjectiveAnchors(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class)
+    ) extends QuestGeneratorService {
+      protected function loadCanonicalObjectiveMapForTemplate(?string $template_id): array {
+        if ($template_id !== 'ltba-clear-the-tomb') {
+          return [];
+        }
+
+        return [
+          'clear_tomb_hazards' => [
+            'target' => 'ltba-hookclaw-hazard-scout',
+            'location_id' => 'ltba-tomb-hazard-room',
+            'next_step' => 'Enter the hazard chamber and use skills, spells, or alternate routes to neutralize each hazard.',
+            'completion_criteria' => [
+              'kind' => 'flag',
+              'metric' => 'completed',
+              'required_value' => TRUE,
+              'description' => 'Complete when the tomb hazards are disarmed, bypassed, or otherwise made safe.',
+            ],
+          ],
+        ];
+      }
+    };
+
+    $entry = $service->buildQuestSummaryEntry([
+      'quest_id' => 'ltba-clear-the-tomb_297_legacy',
+      'source_template_id' => 'ltba-clear-the-tomb',
+      'quest_name' => 'Clear the Tomb Hazards',
+      'generated_objectives' => [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'clear_tomb_hazards',
+          'type' => 'interact',
+          'description' => 'Disarm or bypass the chamber hazards.',
+          'target' => 'ltba-tomb-hazard-room',
+          'completed' => FALSE,
+          'completion_criteria' => [
+            'kind' => 'flag',
+            'metric' => 'completed',
+            'required_value' => TRUE,
+            'description' => 'Complete this objective.',
+          ],
+        ]],
+      ]],
+    ]);
+
+    $objective = $entry['generated_objectives'][0]['objectives'][0];
+    $this->assertSame('ltba-hookclaw-hazard-scout', $objective['target']);
+    $this->assertSame('ltba-tomb-hazard-room', $objective['location_id']);
+    $this->assertSame(
+      'Complete when the tomb hazards are disarmed, bypassed, or otherwise made safe.',
+      $objective['completion_criteria']['description']
+    );
+    $this->assertStringContainsString('hazard chamber', (string) ($objective['next_step'] ?? ''));
+  }
+
+  /**
    * Verifies management-tree verification fails closed on invalid storyline data.
    */
   public function testBuildQuestManagementTreeRejectsInvalidStorylineRuntimeContract(): void {

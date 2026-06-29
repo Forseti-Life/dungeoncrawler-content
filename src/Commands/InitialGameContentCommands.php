@@ -444,6 +444,8 @@ class InitialGameContentCommands extends DrushCommands {
           'type' => 'npc',
           'lifecycle_state' => 'campaign_npc',
           'state_data' => json_encode($state_data),
+          'default_locations' => NULL,
+          'portrait' => NULL,
           'location_type' => 'room',
           'location_ref' => $room_id,
           'is_active' => 1,

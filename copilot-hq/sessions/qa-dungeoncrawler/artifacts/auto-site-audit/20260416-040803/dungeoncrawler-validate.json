@@ -1,0 +1,722 @@
+{
+  "base_url": "https://dungeoncrawler.forseti.life",
+  "count": 119,
+  "generated_at": "2026-04-16T04:08:13+0000",
+  "input": "tmp/site-audit/dungeoncrawler-20260416-040803/dungeoncrawler-all-paths.txt",
+  "results": [
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/about",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/about"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/ai-conversation/get-node10",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/ai-conversation/get-node10"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/ai-conversation/update-prompt",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/ai-conversation/update-prompt"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/config/ai-conversation/settings",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/config/ai-conversation/settings"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/config/content/dungeoncrawler",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/config/content/dungeoncrawler"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/config/development/dungeoncrawler-tester",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/config/development/dungeoncrawler-tester"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/content/dungeoncrawler",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/content/dungeoncrawler"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/content/dungeoncrawler/gemini-image",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/content/dungeoncrawler/gemini-image"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/content/dungeoncrawler/image-generation",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/content/dungeoncrawler/image-generation"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/dungeoncrawler/testing",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/dungeoncrawler/testing"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/1",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/1"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/1/delete",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/1/delete"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/delete-all",
+      "status": 404,
+      "url": "https://dungeoncrawler.forseti.life/admin/reports/genai-debug/delete-all"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/reports/genai-pricing",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/reports/genai-pricing"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/admin/reports/genai-usage",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/admin/reports/genai-usage"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/ai-conversation/send-message",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/ai-conversation/send-message"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/ai-conversation/stats",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/ai-conversation/stats"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/architecture",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/architecture"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/architecture/controllers",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/architecture/controllers"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/architecture/data-lineage",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/architecture/data-lineage"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/architecture/encounter-ai-integration",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/architecture/encounter-ai-integration"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/architecture/encounter-ai-integration/metrics.csv",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/architecture/encounter-ai-integration/metrics.csv"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/1/archive",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/1/archive"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/1/characters",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/1/characters"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/1/delete",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/1/delete"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/1/dungeons",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/1/dungeons"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/1/select-character/1",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/1/select-character/1"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/1/tavernentrance",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/1/tavernentrance"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/1/unarchive",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/1/unarchive"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/archived",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/archived"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/campaigns/create",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/campaigns/create"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/characters/1",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/characters/1"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/characters/1/archive",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/characters/1/archive"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/characters/1/delete",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/characters/1/delete"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/characters/1/edit",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/characters/1/edit"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/characters/1/embed",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/characters/1/embed"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/characters/create",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/characters/create"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/characters/create/step/1",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/characters/create/step/1"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/characters/create/step/1/save",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/characters/create/step/1/save"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/core/assets/vendor/jquery/jquery.min.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/core/assets/vendor/jquery/jquery.min.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/core/misc/favicon.ico",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/core/misc/favicon.ico"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/credits",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/credits"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/objects",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/objects"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation-home",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation-home"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/execution-playbook",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/execution-playbook"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/failure-triage",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/failure-triage"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/getting-started",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/getting-started"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/issue-automation",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/issue-automation"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/issues-directory",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/issues-directory"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/module-readme",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/module-readme"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/process-flow",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/process-flow"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/quick-start",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/quick-start"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/release-process-flow",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/release-process-flow"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/sdlc-process-flow",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/sdlc-process-flow"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/strategy-design",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/strategy-design"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/testing-module-readme",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/testing-module-readme"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/tests-readme",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/documentation/tests-readme"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report/bulk-close-query-run",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report/bulk-close-query-run"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report/dead-value-close",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/issue-pr-report/dead-value-close"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/logs",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/logs"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/start",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/start"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/status",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/status"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/tick",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/import-open-issues/reconcile/tick"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/item/delete",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/item/delete"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/item/rerun",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/item/rerun"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/logs",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/logs"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/run",
+      "status": 405,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/run"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/status",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/queue/status"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/thetest",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/testing/thetest"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/dungeoncrawler/traits",
+      "status": 403,
+      "url": "https://dungeoncrawler.forseti.life/dungeoncrawler/traits"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/hexmap",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/hexmap"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/home",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/home"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/how-to-play",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/how-to-play"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/SpriteService.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/SpriteService.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/Component.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/Component.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/Entity.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/Entity.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/EntityManager.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/EntityManager.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/System.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/System.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/ActionsComponent.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/ActionsComponent.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/CombatComponent.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/CombatComponent.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/IdentityComponent.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/IdentityComponent.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/MovementComponent.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/MovementComponent.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/PositionComponent.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/PositionComponent.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/RenderComponent.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/RenderComponent.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/StatsComponent.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/components/StatsComponent.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/index.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/index.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/systems/CombatSystem.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/systems/CombatSystem.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/systems/MovementSystem.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/systems/MovementSystem.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/systems/RenderSystem.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/systems/RenderSystem.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/systems/TurnManagementSystem.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/ecs/systems/TurnManagementSystem.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/hexmap.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/modules/custom/dungeoncrawler_content/js/hexmap.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/roadmap",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/roadmap"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_1aelygkyjWCQ0ReU5N3aQXPJu3qi_H3Ls0bgEhWC56o.css",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_1aelygkyjWCQ0ReU5N3aQXPJu3qi_H3Ls0bgEhWC56o.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_Das5CNKktILcaXA95o4JNLc-ByBTalyou0jHxfW2SPI.css",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_Das5CNKktILcaXA95o4JNLc-ByBTalyou0jHxfW2SPI.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_UlCe2KE7HGFkAMvnA1lAJ3Dz51AJKs4VPsvrIZfcA5M.css",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_UlCe2KE7HGFkAMvnA1lAJ3Dz51AJKs4VPsvrIZfcA5M.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_atFv8DW-k7ugSxkxkBLtFu45WfEwFWoKc0FTA7fAfzw.css",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_atFv8DW-k7ugSxkxkBLtFu45WfEwFWoKc0FTA7fAfzw.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_pqRnmnxHkWfHfTfyB067jAtsIwI_OWvz6y5vrAYTlMM.css",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_pqRnmnxHkWfHfTfyB067jAtsIwI_OWvz6y5vrAYTlMM.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_puFBfX98HbwwXHEsUJ6sxHDSI0uSWJ_dFJBZLZ5NEzw.css",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/css/css_puFBfX98HbwwXHEsUJ6sxHDSI0uSWJ_dFJBZLZ5NEzw.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_P9bdgN5YC0hh91QnaTufSSNOcYNBCI2FXNk0cwixreg.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_P9bdgN5YC0hh91QnaTufSSNOcYNBCI2FXNk0cwixreg.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_hkOt0D2mOCsCLjIUBevvQVNXa8mBwRSjUCC6AbH9FMo.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_hkOt0D2mOCsCLjIUBevvQVNXa8mBwRSjUCC6AbH9FMo.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_q5uqyyk715KBt7kPsXSNC1gzwcrBkQopLrsH1mfot8A.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_q5uqyyk715KBt7kPsXSNC1gzwcrBkQopLrsH1mfot8A.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_sbMixTJD7FOXibTCtZPmmVDR4WjnAuZ3a_koWGtNSiE.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_sbMixTJD7FOXibTCtZPmmVDR4WjnAuZ3a_koWGtNSiE.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_xbo8hsxRSN8gI4UVD-ra9_kmO1fyj-Kl4zOVmlkqLDs.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_xbo8hsxRSN8gI4UVD-ra9_kmO1fyj-Kl4zOVmlkqLDs.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_y_IlLbbDhjLKWdiJ3W45G1XZYaUG41vJOpb8KZFlGXI.js",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/sites/default/files/js/js_y_IlLbbDhjLKWdiJ3W45G1XZYaUG41vJOpb8KZFlGXI.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/dungeoncrawler_navbar.png",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/dungeoncrawler_navbar.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicon.ico",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicon.ico"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/android-chrome-192x192.png",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/android-chrome-192x192.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/android-chrome-512x512.png",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/android-chrome-512x512.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/apple-touch-icon.png",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/apple-touch-icon.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/favicon-16x16.png",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/favicon-16x16.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/favicon-32x32.png",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/images/logos/favicons/favicon-32x32.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/manifest.json",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/themes/custom/dungeoncrawler/manifest.json"
+    },
+    {
+      "error": null,
+      "final_url": "https://dungeoncrawler.forseti.life/world",
+      "status": 200,
+      "url": "https://dungeoncrawler.forseti.life/world"
+    }
+  ]
+}

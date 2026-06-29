@@ -1,0 +1,20 @@
+uuid: cdc51bb1-38cb-44f0-84f7-4279191ea49d
+langcode: en
+status: true
+dependencies:
+  module:
+    - node
+id: node.field_sub_execution
+field_name: field_sub_execution
+entity_type: node
+type: integer
+settings:
+  unsigned: false
+  size: normal
+module: core
+locked: false
+cardinality: 1
+translatable: true
+indexes: {  }
+persist_with_no_fields: false
+custom_storage: false

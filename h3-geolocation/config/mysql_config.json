@@ -1,0 +1,9 @@
+{
+  "host": "127.0.0.1",
+  "port": 3306,
+  "user": "drupal_user",
+  "password": "${DB_PASSWORD}",
+  "database": "amisafe_database",
+  "charset": "utf8mb4",
+  "note": "Use environment variable DB_PASSWORD to set password from secrets"
+}

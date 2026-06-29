@@ -31,8 +31,17 @@ assert(
   source.includes("this.bus.on('character:updated', (d) => {")
     && source.includes('this.stateManager?.hexmap?.launchCharacter')
     && source.includes('this.stateManager?.hexmap?.characterData')
-    && source.includes('if (launchCharacter) this.showLaunchCharacter(launchCharacter);'),
-  'CharacterPanel re-renders launch character data on character:updated events'
+    && source.includes('this.consumeLaunchCharacterUpdate(launchCharacter);')
+    && source.includes('this.consumeLaunchCharacterUpdate(d.launchCharacter);'),
+  'CharacterPanel routes game:init and character:updated launch payloads through one update path'
+);
+
+assert(
+  source.includes('hydrateLaunchCharacterWithPrimaryFollowerRoster(launchCharacter = null) {')
+    && source.includes('consumeLaunchCharacterUpdate(launchCharacter = null) {')
+    && source.includes('const hydratedLaunchCharacter = this.hydrateLaunchCharacterWithPrimaryFollowerRoster(launchCharacter);')
+    && source.includes('launchCharacter = this.hydrateLaunchCharacterWithPrimaryFollowerRoster(launchCharacter);'),
+  'CharacterPanel preserves canonical follower roster when runtime refresh payloads omit followers'
 );
 
 assert(

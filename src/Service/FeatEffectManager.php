@@ -22,53 +22,10 @@ class FeatEffectManager {
     $level = max(1, (int) ($context['level'] ?? $character_data['level'] ?? 1));
     $base_speed = (int) ($context['base_speed'] ?? $this->resolveBaseSpeed($character_data));
 
-    $effects = [
-      'derived_adjustments' => [
-        'speed_bonus' => 0,
-        'speed_override' => NULL,
-        'initiative_bonus' => 0,
-        'hp_max_bonus' => 0,
-        'perception_bonus' => 0,
-        'flags' => [],
-      ],
-      'senses' => [],
-      'spell_augments' => [
-        'metamagic' => [],
-        'innate_spells' => [],
-      ],
-      'training_grants' => [
-        'skills' => [],
-        'lore' => [],
-        'lores' => [],
-        'weapons' => [],
-        'proficiencies' => [],
-      ],
-      'selection_grants' => [],
-      'conditional_modifiers' => [
-        'saving_throws' => [],
-        'skills' => [],
-        'movement' => [],
-        'outcome_upgrades' => [],
-      ],
-      'available_actions' => [
-        'at_will' => [],
-        'per_short_rest' => [],
-        'per_long_rest' => [],
-      ],
-      'rest_resources' => [
-        'per_short_rest' => [],
-        'per_long_rest' => [],
-      ],
-      'feat_overrides' => [],
-      'todo_review_features' => [],
-      'applied_feats' => [],
-      'notes' => [],
-    ];
+    $effects = $this->createEffectsEnvelope();
 
     foreach ($this->extractSelectedFeatIds($character_data) as $feat_id) {
-      $selection = $this->selectFeatureProcessingMode($feat_id, $character_data);
-      if (($selection['mode'] ?? '') === 'todo_review') {
-        $this->addTodoReviewFeature($effects, $feat_id, (string) ($selection['reason'] ?? 'todo-marker'));
+      if ($this->routeFeatToTodoReview($effects, $feat_id, $character_data)) {
         continue;
       }
 
@@ -6033,11 +5990,7 @@ class FeatEffectManager {
           break;
 
         default:
-          if ($this->applyBulkFirstPassFeat($effects, $feat_id, $character_data)) {
-            $effects['applied_feats'][] = $feat_id;
-            break;
-          }
-          $this->addTodoReviewFeature($effects, $feat_id, 'missing-handler-stub');
+          $this->applyFallbackFeatDispatch($effects, $feat_id, $character_data);
           break;
       }
     }
@@ -6289,18 +6242,97 @@ class FeatEffectManager {
         break;
     }
 
+    $this->finalizeEffectsEnvelope($effects, $base_speed);
+
+    return $effects;
+  }
+
+  /**
+   * Build the canonical feat effects envelope.
+   */
+  private function createEffectsEnvelope(): array {
+    return [
+      'derived_adjustments' => [
+        'speed_bonus' => 0,
+        'speed_override' => NULL,
+        'initiative_bonus' => 0,
+        'hp_max_bonus' => 0,
+        'perception_bonus' => 0,
+        'flags' => [],
+      ],
+      'senses' => [],
+      'spell_augments' => [
+        'metamagic' => [],
+        'innate_spells' => [],
+      ],
+      'training_grants' => [
+        'skills' => [],
+        'lore' => [],
+        'lores' => [],
+        'weapons' => [],
+        'proficiencies' => [],
+      ],
+      'selection_grants' => [],
+      'conditional_modifiers' => [
+        'saving_throws' => [],
+        'skills' => [],
+        'movement' => [],
+        'outcome_upgrades' => [],
+      ],
+      'available_actions' => [
+        'at_will' => [],
+        'per_short_rest' => [],
+        'per_long_rest' => [],
+      ],
+      'rest_resources' => [
+        'per_short_rest' => [],
+        'per_long_rest' => [],
+      ],
+      'feat_overrides' => [],
+      'todo_review_features' => [],
+      'applied_feats' => [],
+      'notes' => [],
+    ];
+  }
+
+  /**
+   * Finalize computed fields and canonical uniqueness constraints.
+   */
+  private function finalizeEffectsEnvelope(array &$effects, int $base_speed): void {
     $computed_speed = $base_speed + (int) ($effects['derived_adjustments']['speed_bonus'] ?? 0);
-    $speed_override = $effects['derived_adjustments']['speed_override'];
+    $speed_override = $effects['derived_adjustments']['speed_override'] ?? NULL;
     if (is_int($speed_override) && $speed_override > $computed_speed) {
       $computed_speed = $speed_override;
     }
 
     $effects['derived_adjustments']['computed_speed'] = $computed_speed;
     $effects['derived_adjustments']['base_speed'] = $base_speed;
-
     $effects['applied_feats'] = array_values(array_unique($effects['applied_feats']));
+  }
 
-    return $effects;
+  /**
+   * Route TODO-marked feats into explicit review queue.
+   */
+  private function routeFeatToTodoReview(array &$effects, string $feat_id, array $character_data): bool {
+    $selection = $this->selectFeatureProcessingMode($feat_id, $character_data);
+    if (($selection['mode'] ?? '') !== 'todo_review') {
+      return FALSE;
+    }
+
+    $this->addTodoReviewFeature($effects, $feat_id, (string) ($selection['reason'] ?? 'todo-marker'));
+    return TRUE;
+  }
+
+  /**
+   * Apply default dispatch for feats that do not have explicit switch handlers.
+   */
+  private function applyFallbackFeatDispatch(array &$effects, string $feat_id, array $character_data): void {
+    if ($this->applyBulkFirstPassFeat($effects, $feat_id, $character_data)) {
+      $effects['applied_feats'][] = $feat_id;
+      return;
+    }
+
+    $this->addTodoReviewFeature($effects, $feat_id, 'missing-handler-stub');
   }
 
   /**

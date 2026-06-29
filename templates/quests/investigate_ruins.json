@@ -103,6 +103,9 @@
     "level_min": 3
   },
   "story_impact": {
+    "storyline_id": "torment-and-legacy",
+    "chapter_id": "onboarding",
+    "scene_id": "first-engagement",
     "unlocks": [
       "ruins_questline_part2"
     ]

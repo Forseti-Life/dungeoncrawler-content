@@ -20,6 +20,12 @@ Core content module for the living dungeon crawler RPG. Provides character manag
 - **Quest journal rendering is explicitly sectioned** into Active, Available, and Completed for clearer state semantics.
 - **Hexmap v2 GameShell recursion overflow is fixed** for active room resolution (`resolveActiveRoomId` no longer self-recurses through state getter).
 
+## Storyline Validator Source of Truth
+
+- **DB authority**: `dungeoncrawler_content_quest_templates` is the runtime system of truth for storyline objective-contract validation.
+- **JSON role**: `config/examples/templates/dungeoncrawler_content_storylines/default_storyline_templates.json` is reference material for reconciling/fixing DB records, not a runtime fallback source.
+- **Failure policy**: missing DB schema/rows for required storyline objective contracts should fail validation explicitly.
+
 ## Documentation Index
 
 ### Canonical (Active)

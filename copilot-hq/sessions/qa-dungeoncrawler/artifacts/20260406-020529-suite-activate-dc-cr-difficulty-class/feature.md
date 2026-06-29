@@ -1,0 +1,31 @@
+# Feature Brief: Difficulty Class (DC) System
+
+- Work item id: dc-cr-difficulty-class
+- Website: dungeoncrawler
+- Module: dungeoncrawler_content
+- Status: ready
+- Priority: P0 (core check resolution mechanic — encounter and skill systems depend on this)
+- Release: 20260319-dungeoncrawler-release-b
+- PM owner: pm-dungeoncrawler
+- Dev owner: dev-dungeoncrawler
+- QA owner: qa-dungeoncrawler
+- Source: PF2E Core Rulebook (Fourth Printing), lines 1–300
+- Category: rule-system
+- Created: 2026-02-26
+
+## Goal
+
+Implement the Difficulty Class system that defines target numbers for all checks in the game. DCs are set by level-based tables (Simple DC by level), skill DC guidelines, and fixed DCs for specific tasks. The four degrees of success (critical success / success / failure / critical failure) determined by comparing d20 + modifiers to DC are the resolution core of PF2E and govern all non-attack checks.
+
+## Source reference
+
+> "Rules for setting Difficulty Classes, granting rewards, environments, and hazards can also be found here." (Chapter 10: Game Mastering)
+
+## Implementation hint
+
+DC lookup table by level (1–20) and task difficulty (Trivial/Low/Moderate/High/Extreme/Incredible). Check resolution function: input (roll total, DC) → degree of success enum. Degree of success: roll ≥ DC+10 = crit success; roll ≥ DC = success; roll < DC = failure; roll ≤ DC−10 = crit failure. Natural 20 bumps one degree up; natural 1 bumps one degree down. Reusable across all check types.
+
+## Mission alignment
+
+- [x] Aligns with democratized community game experience
+- [x] Does not add surveillance or restrict community access

@@ -44,7 +44,8 @@ const roomPostSource = roomPostStart >= 0
   : '';
 
 assert(
-  gmSubsystemSource.includes("'route' => 'free_player_room_chat'"),
+  gmSubsystemSource.includes("protected const ROUTE_FREE_PLAYER_ROOM_CHAT = 'free_player_room_chat';")
+    && gmSubsystemSource.includes('self::ROUTE_FREE_PLAYER_ROOM_CHAT'),
   'GM subsystem exposes a distinct free-player-room-chat route'
 );
 assert(
@@ -68,7 +69,8 @@ assert(
   'free player room chat resolves NPC replies immediately instead of deferring them behind turn order'
 );
 assert(
-  gmSubsystemSource.includes("'route' => 'deterministic_turn_control'"),
+  gmSubsystemSource.includes("protected const ROUTE_DETERMINISTIC_TURN_CONTROL = 'deterministic_turn_control';")
+    && gmSubsystemSource.includes('self::ROUTE_DETERMINISTIC_TURN_CONTROL'),
   'deterministic turn-control chat routing remains available'
 );
 assert(

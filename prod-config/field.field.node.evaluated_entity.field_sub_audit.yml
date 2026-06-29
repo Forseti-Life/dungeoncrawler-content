@@ -1,0 +1,25 @@
+uuid: deb68704-4f8f-4c58-bc45-36359a23803a
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_sub_audit
+    - node.type.evaluated_entity
+id: node.evaluated_entity.field_sub_audit
+field_name: field_sub_audit
+entity_type: node
+bundle: evaluated_entity
+label: 'Audit & Accountability'
+description: 'Sub-dimension power level (0-9) for Audit & Accountability'
+required: false
+translatable: true
+default_value:
+  -
+    value: 0
+default_value_callback: ''
+settings:
+  min: null
+  max: null
+  prefix: ''
+  suffix: ''
+field_type: integer

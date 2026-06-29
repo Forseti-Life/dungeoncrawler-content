@@ -1,0 +1,19 @@
+{
+  "followup_due_epoch": 1776779825,
+  "last_auto_investigate_epoch": 1776779225,
+  "last_auto_remediate_epoch": 1776713874,
+  "last_auto_requeue_epoch": 1776709380,
+  "last_changed_epoch": 1776684698,
+  "last_followup_epoch": 1776704007,
+  "last_handoff_escalated_epoch": 1776703614,
+  "last_handoff_investigated_epoch": 1776703614,
+  "last_handoff_recovery_epoch": 1776703614,
+  "last_investigated_epoch": 1776779225,
+  "last_run": "20260420-105935",
+  "last_session_analysis_epoch": 1776776906,
+  "last_session_escalated_epoch": 0,
+  "last_session_reset_epoch": 0,
+  "last_total": 1,
+  "last_total_changed_epoch": 1776684698,
+  "session_reset_failures": 0
+}

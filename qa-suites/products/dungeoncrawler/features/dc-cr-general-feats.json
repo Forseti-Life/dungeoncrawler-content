@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-cr-general-feats",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-cr-general-feats/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-cr-general-feats-e2e",
+      "feature_id": "dc-cr-general-feats",
+      "label": "General Feats - slot gating, feat effects, and prerequisite validation",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-cr-general-feats\"",
+      "artifacts": [
+        "playwright-report/dc-cr-general-feats.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/feat-progression",
+      "status": "pending_implementation",
+      "notes": "Security AC exemption: feat-catalog and character-build scope only; no new routes or input surfaces beyond existing feat assignment handlers."
+    }
+  ]
+}

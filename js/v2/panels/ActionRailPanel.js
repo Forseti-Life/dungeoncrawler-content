@@ -11,7 +11,7 @@ import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEn
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 import { buildActionRailContext } from '../services/action-rail-context-service.js';
-import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260624-v2-room-sync-nav-2';
+import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js';
 import {
   getActionRailDirectRoute,
   getServerActionIdForExecute,
@@ -387,24 +387,77 @@ export class ActionRailPanel {
     this._domListeners = [];
   }
 
+  resolveActionRailActorCardTarget(context = null) {
+    const resolvedContext = context || this.getActionRailContext();
+    const selectedEntity = this.stateManager?.get?.('selectedEntity') || null;
+    const selectedRef = String(
+      selectedEntity?.dcEntityRef
+      || selectedEntity?.dcEntityInstanceId
+      || selectedEntity?.instanceId
+      || selectedEntity?.id
+      || ''
+    ).trim();
+    const selectedCharacterId = Number(
+      selectedEntity?.dcCharacterId
+      || selectedEntity?.dcStatePayload?.metadata?.character_id
+      || selectedEntity?.dcStatePayload?.character_id
+      || selectedEntity?.dcStatePayload?.state?.character_id
+      || 0
+    ) || 0;
+
+    if (selectedEntity && (selectedRef || selectedCharacterId > 0)) {
+      const identity = selectedEntity.getComponent?.('IdentityComponent');
+      const render = selectedEntity.getComponent?.('RenderComponent');
+      const metadata = selectedEntity?.dcStatePayload?.metadata || selectedEntity?.dcStatePayload?.state?.metadata || {};
+      const portraitUrl = String(
+        metadata?.portrait_url
+        || metadata?.portrait
+        || (render?.spriteKey ? this.stateManager?.hexmap?.spriteService?.getCachedUrl?.(render.spriteKey) : '')
+        || ''
+      ).trim();
+      return {
+        actorRef: selectedRef,
+        characterId: selectedCharacterId || null,
+        actorLabel: String(identity?.name || selectedEntity?.dcStatePayload?.label || resolvedContext?.actorLabel || 'Selected actor').trim(),
+        actorPortraitUrl: portraitUrl,
+        entity: selectedEntity,
+      };
+    }
+
+    return {
+      actorRef: String(resolvedContext?.actorRef || '').trim(),
+      characterId: Number(resolvedContext?.characterId || 0) || null,
+      actorLabel: String(resolvedContext?.actorLabel || 'No actor selected').trim(),
+      actorPortraitUrl: String(resolvedContext?.actorPortraitUrl || '').trim(),
+      entity: null,
+    };
+  }
+
   handleActionRailActorCardActivate() {
     const context = this.getActionRailContext();
-    const actorRef = String(context?.actorRef || '').trim();
-    const canOpen = Boolean(context?.characterId || actorRef);
+    const target = this.resolveActionRailActorCardTarget(context);
+    const actorRef = String(target.actorRef || '').trim();
+    const canOpen = Boolean(target.characterId || actorRef);
     if (!canOpen) {
       return;
     }
 
     const hexmap = this.stateManager?.hexmap || null;
-    if (actorRef && hexmap?.entityManager?.getEntity && typeof hexmap?.selectEntity === 'function') {
+    if (target.entity && typeof hexmap?.selectEntity === 'function') {
+      hexmap.selectEntity(target.entity);
+    } else if (actorRef && hexmap?.entityManager?.getEntity && typeof hexmap?.selectEntity === 'function') {
       const actorEntity = hexmap.entityManager.getEntity(actorRef);
       if (actorEntity) {
         hexmap.selectEntity(actorEntity);
       }
     }
 
+    if (target.characterId) {
+      this.bus.emit('character:sheet-requested', { characterId: target.characterId });
+    }
+
     if (typeof hexmap?.activateGameShellTab === 'function') {
-      hexmap.activateGameShellTab('character');
+      hexmap.activateGameShellTab('party');
       return;
     }
 
@@ -413,7 +466,7 @@ export class ActionRailPanel {
       : null;
     if (shell instanceof HTMLElement) {
       shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
-        detail: { tabId: 'character' },
+        detail: { tabId: 'party' },
       }));
     }
   }
@@ -462,18 +515,19 @@ export class ActionRailPanel {
     }
 
     const context = this.getActionRailContext();
+    const actorCardTarget = this.resolveActionRailActorCardTarget(context);
     const maybeWakeAutomation = () => {
       if (context.automationState?.active) {
         hexmap?.queuePlayerAutomationStep?.('action-rail-refresh');
       }
     };
-    actorName.textContent = context.actorLabel;
+    actorName.textContent = actorCardTarget.actorLabel || context.actorLabel;
     if (actorCard) {
-      const actorRef = String(context.actorRef || '').trim();
-      const canOpen = Boolean(context.characterId || actorRef);
+      const actorRef = String(actorCardTarget.actorRef || '').trim();
+      const canOpen = Boolean(actorCardTarget.characterId || actorRef);
       actorCard.setAttribute('aria-disabled', canOpen ? 'false' : 'true');
       actorCard.classList.toggle('action-rail__actor-card--disabled', !canOpen);
-      actorCard.setAttribute('aria-label', canOpen ? `${context.actorLabel}: open character sheet` : context.actorLabel);
+      actorCard.setAttribute('aria-label', canOpen ? `${actorCardTarget.actorLabel || context.actorLabel}: open character sheet` : (actorCardTarget.actorLabel || context.actorLabel));
       if (actorRef) {
         actorCard.dataset.entityId = actorRef;
       } else {
@@ -481,10 +535,10 @@ export class ActionRailPanel {
       }
     }
     if (actorImage && actorInitial) {
-      const portraitUrl = String(context.actorPortraitUrl || '').trim();
+      const portraitUrl = String(actorCardTarget.actorPortraitUrl || context.actorPortraitUrl || '').trim();
       if (portraitUrl) {
         actorImage.src = portraitUrl;
-        actorImage.alt = context.actorLabel;
+        actorImage.alt = actorCardTarget.actorLabel || context.actorLabel;
         actorImage.hidden = false;
         actorInitial.hidden = true;
       } else {
@@ -492,7 +546,8 @@ export class ActionRailPanel {
         actorImage.removeAttribute('src');
         actorImage.alt = '';
         actorInitial.hidden = false;
-        actorInitial.textContent = context.actorLabel.charAt(0).toUpperCase() || '?';
+        const actorInitialLabel = actorCardTarget.actorLabel || context.actorLabel;
+        actorInitial.textContent = actorInitialLabel.charAt(0).toUpperCase() || '?';
       }
     }
     status.textContent = context.statusLabel;

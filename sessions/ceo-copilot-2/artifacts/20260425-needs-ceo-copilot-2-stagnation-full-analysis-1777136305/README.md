@@ -1,0 +1,51 @@
+# Command: stagnation-full-analysis
+
+- Agent: ceo-copilot-2
+- Item: 20260425-needs-ceo-copilot-2-stagnation-full-analysis
+- Work item: stagnation-2-signals
+- Status: pending
+- Supervisor: board
+- Created: 2026-04-25T16:58:18.617935+00:00
+
+## Decision needed
+- Review and action or escalate this command.
+
+## Recommendation
+- See command text below.
+
+## Command text
+[STAGNATION ALERT] The orchestrator has detected that the org is stuck.
+
+## Signals fired (2):
+  - INBOX_AGING: oldest unresolved inbox item is 2516m old (threshold 30m)
+  - NO_RELEASE_PROGRESS: no release signoff in 2h 25m (threshold 2h)
+
+## What to do
+Perform a full system analysis. Review all blocked agents, identify the root cause, and take **direct action** to unblock — run drush commands, trigger audits, clear stale locks, fix permissions, re-enable org. Do not just escalate; act.
+
+For release blockers: check which PMs are missing signoffs and dispatch signoff-reminder inbox items immediately (see cross-site signoff reminder pattern in your seat instructions).
+
+## Release gate snapshot
+### Active release gate status
+- `20260412-forseti-release-s`:
+  - Signed: pm-forseti, pm-dungeoncrawler
+  - **All signed — ready to push!**
+- `20260412-dungeoncrawler-release-u`:
+  - Signed: pm-forseti, pm-dungeoncrawler
+  - **All signed — ready to push!**
+
+### Oldest unresolved inbox items (top 5)
+- pm-forseti: `20260424-sla-outbox-lag-dev-forseti-20260423-1776962948-impl-h3-geol` (26m old)
+- pm-forseti: `20260425-pm-forseti-release-signoff-override-acknowledgment` (26m old)
+- pm-forseti: `20260425-143231-push-ready-20260412-forseti-release-s` (26m old)
+- pm-forseti: `20260425-143231-push-ready-20260412-dungeoncrawler-release-u` (26m old)
+- pm-forseti: `20260425-signoff-reminder-forseti-release-r` (26m old)
+
+### Feature pipeline: no gaps detected
+
+### ⚠️ Inbox data quality issues (will auto-remediate next tick)
+- 1 stale .inwork lock(s)
+
+## Blocked agent summary
+(none currently blocked)
+

@@ -24,8 +24,8 @@
       <button id="game-tab-merchant" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-merchant" data-game-tab="merchant" tabindex="0">
         {{ 'Merchant'|t }}
       </button>
-      <button id="game-tab-character" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-character" data-game-tab="character" tabindex="0">
-        {{ 'Character'|t }}
+      <button id="game-tab-party" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-party" data-game-tab="party" tabindex="0">
+        {{ 'Party'|t }}
       </button>
       <div class="game-shell__tab-actions" role="presentation">
         <button id="fullscreen-toggle" class="btn btn-primary btn--gameplay-fullscreen" type="button" data-status="fullscreen" title="{{ 'Enter fullscreen'|t }}" aria-pressed="false">
@@ -83,7 +83,7 @@
           <button type="button" class="action-rail__category" data-action-rail-category="consumables">{{ 'Consumables'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="skills">{{ 'Skills'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="feats">{{ 'Feats'|t }}</button>
-          <button type="button" class="action-rail__category action-rail__category--alert" data-action-rail-direct="end-turn">{{ 'End Turn'|t }}</button>
+          <button type="button" class="action-rail__category action-rail__category--alert" data-action-rail-category="turn">{{ 'End Turn'|t }}</button>
         </div>
 
         <div class="action-rail__panel">
@@ -211,11 +211,11 @@
               <input id="chat-input" type="text" data-chat="input" placeholder="{{ 'Say something to the room...'|t }}" autocomplete="off" />
               <button id="chat-send" class="btn btn-primary" type="submit" data-chat="send">{{ 'Send'|t }}</button>
             </form>
-            <div class="hexmap-chat__quick-actions" id="chat-quick-actions" style="display:none;"></div>
+            <div class="hexmap-chat__quick-actions" id="chat-quick-actions" style="display:none;">            </div>
           </div>
         </div>
-      </div>
-    </div>
+            </div>
+          </div>
 
     <div class="game-shell__panel" id="game-panel-view" role="tabpanel" aria-labelledby="game-tab-view" hidden>
       <div class="game-shell__view-panel">
@@ -315,11 +315,17 @@
             {{ 'No merchant context is active for this room yet.'|t }}
           </div>
         </div>
-      </div>
-    </div>
+            </div>
+          </div>
 
-    <div class="game-shell__panel" id="game-panel-character" role="tabpanel" aria-labelledby="game-tab-character" hidden>
+    <div class="game-shell__panel" id="game-panel-party" role="tabpanel" aria-labelledby="game-tab-party" hidden>
       <div class="game-shell__character-panel">
+        <div id="party-actor-select-wrap" class="character-sheet__actor-switch">
+          <label for="party-actor-select" class="character-sheet__bio-label">{{ 'Actor'|t }}</label>
+          <select id="party-actor-select" class="character-sheet__actor-select">
+            <option value="">{{ 'No characters available'|t }}</option>
+          </select>
+        </div>
         <div class="game-layout__sidebar">
 
   {# Sidebar Tab Bar #}
@@ -338,7 +344,10 @@
         <img id="char-portrait" src="" alt="" class="character-sheet__portrait-img" data-char="portrait" />
       </div>
       <div class="character-sheet__header-info">
-        <p class="eyebrow">{{ 'Character Sheet'|t }} <a id="char-full-sheet-link" data-char="sheet-link" href="#" class="full-sheet-link" style="display:none;" target="_blank">{{ 'View Full Sheet ↗'|t }}</a></p>
+        <p class="eyebrow">
+          {{ 'Character Sheet'|t }}
+          <a id="char-full-sheet-link" data-char="sheet-link" href="#" class="full-sheet-link" style="display:none;" target="_blank">{{ 'View Full Sheet ↗'|t }}</a>
+        </p>
         <h2 id="char-name" data-char="name">{{ 'Select a character'|t }}</h2>
         <p id="char-type" class="muted" data-char="class">{{ 'Type —'|t }}</p>
         <p id="char-subtitle" class="muted small" style="display:none;"></p>

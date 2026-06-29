@@ -19,6 +19,15 @@ export class CharacterPanel {
     this.stateManager = null;
     this.dungeonData = null;
     this.currentCharacterInventoryContext = null;
+    this.currentCharacterContext = null;
+    this.primaryCharacterContext = null;
+    this.primaryLaunchCharacter = null;
+    this.activeGameShellSurface = 'party';
+    this._tabChangedHandler = null;
+    this._characterPanelContainer = null;
+    this._partyPanelHost = null;
+    this._convertToLibraryInFlight = false;
+    this._suppressActorSelectorChange = false;
   }
 
   init(dungeonData, stateManager) {
@@ -73,6 +82,15 @@ export class CharacterPanel {
       characterLevel:          id('char-level'),
       characterConditions:     id('char-conditions'),
       characterFullSheetLink:  id('char-full-sheet-link'),
+      partyActorSelectWrap:    id('party-actor-select-wrap'),
+      partyActorSelect:        id('party-actor-select'),
+      partyFullSheetLink:      id('party-full-sheet-link'),
+      partySheetName:          id('party-sheet-name'),
+      partySheetSubtitle:      id('party-sheet-subtitle'),
+      partySheetEmbedWrap:     id('party-sheet-embed-wrap'),
+      partySheetEmbed:         id('party-sheet-embed'),
+      partySheetEmpty:         id('party-sheet-empty'),
+      characterConvertLibraryButton: id('char-convert-library-button'),
       characterSheetEmbedWrap: id('char-sheet-embed-wrap'),
       characterSheetEmbed:     id('char-sheet-embed'),
       characterSheetLegacy:    id('char-sheet-legacy'),
@@ -100,8 +118,11 @@ export class CharacterPanel {
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[CharacterPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
+    this._bindGameShellTabChanges();
     this.setupCharacterSheetSections();
     this._initSidebarTabs();
+    this._bindCharacterActions();
+    this.refreshActorSelector();
   }
 
   /**
@@ -134,7 +155,7 @@ export class CharacterPanel {
           this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
         }
         if (tab.dataset.sidebarTab === 'quests') {
-          this.bus.emit('quest:refresh-requested', { source: 'character-sidebar-tab' });
+          this.bus.emit('quest:refresh-requested', this.buildQuestRefreshContext('character-sidebar-tab'));
         }
         console.log('[CharacterPanel] sidebar tab clicked', { target: targetId, panelVisible: !!document.getElementById(targetId) && !document.getElementById(targetId).classList.contains('dc-is-hidden') });
       };
@@ -143,29 +164,145 @@ export class CharacterPanel {
     });
   }
 
+  _bindCharacterActions() {
+    const convertButton = this._el.characterConvertLibraryButton;
+    if (convertButton) {
+      const handler = () => {
+        this.convertCurrentCharacterToLibrary();
+      };
+      convertButton.addEventListener('click', handler);
+      this._unsubs.push(() => convertButton.removeEventListener('click', handler));
+    }
+
+    const partyActorSelect = this._el.partyActorSelect;
+    if (partyActorSelect) {
+      const partyActorSelectHandler = () => {
+        if (this._suppressActorSelectorChange) {
+          return;
+        }
+        this.focusActorFromSelector(partyActorSelect.value, { activateCharacterTab: false });
+      };
+      partyActorSelect.addEventListener('change', partyActorSelectHandler);
+      this._unsubs.push(() => partyActorSelect.removeEventListener('change', partyActorSelectHandler));
+    }
+  }
+
   destroy() {
+    if (this._tabChangedHandler) {
+      window.removeEventListener('dungeoncrawler:game-shell-tab-changed', this._tabChangedHandler);
+      this._tabChangedHandler = null;
+    }
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
   }
 
   _subscribe() {
     this._unsubs.push(
-      this.bus.on('entity:selected',   (d) => this.showEntityInfo(d?.entity)),
-      this.bus.on('entity:deselected', () => this.hideEntityInfo()),
+      this.bus.on('entity:selected',   (d) => {
+        this.showEntityInfo(d?.entity);
+        this.refreshActorSelector();
+      }),
+      this.bus.on('entity:deselected', () => {
+        this.hideEntityInfo();
+        this.refreshActorSelector();
+        this.syncSheetLinksForSelectedEntity();
+      }),
       this.bus.on('game:init',         (d) => {
-        if (d?.launchCharacter) this.showLaunchCharacter(d.launchCharacter);
+        if (d?.launchCharacter) {
+          this.consumeLaunchCharacterUpdate(d.launchCharacter);
+        }
+        this.refreshActorSelector();
       }),
       this.bus.on('character:updated', (d) => {
         const launchCharacter = d?.launchCharacter
           || this.stateManager?.hexmap?.launchCharacter
           || this.stateManager?.hexmap?.characterData
           || null;
-        if (launchCharacter) this.showLaunchCharacter(launchCharacter);
+        if (launchCharacter) {
+          this.consumeLaunchCharacterUpdate(launchCharacter);
+        }
+        this.refreshActorSelector();
+        this.syncSheetLinksForSelectedEntity();
       }),
       this.bus.on('character:sheet-requested', (d) => {
         if (d?.characterId) this.showEmbeddedCharacterSheet(d.characterId);
       }),
+      this.bus.on('room:changed', () => {
+        this.refreshActorSelector();
+        if (this.isPartySurfaceActive()) {
+          this.applyPartyFollowerSelectionToCharacterSheet();
+        }
+      }),
+      this.bus.on('room:occupants-changed', () => {
+        this.refreshActorSelector();
+        if (this.isPartySurfaceActive()) {
+          this.applyPartyFollowerSelectionToCharacterSheet();
+        }
+      }),
     );
+  }
+
+  _bindGameShellTabChanges() {
+    this._characterPanelContainer = document.getElementById('game-panel-party');
+    this._partyPanelHost = document.getElementById('party-character-panel-host');
+    this._tabChangedHandler = (event) => {
+      const tabId = String(event?.detail?.tabId || '').trim().toLowerCase();
+      if (tabId !== 'party' && tabId !== 'character') {
+        return;
+      }
+      this.activeGameShellSurface = tabId === 'character' ? 'party' : tabId;
+      this.syncCharacterSurfaceForActiveTab();
+    };
+    window.addEventListener('dungeoncrawler:game-shell-tab-changed', this._tabChangedHandler);
+    const shell = this.container?.closest?.('[data-game-shell]') || document.querySelector('[data-game-shell]');
+    const currentTabId = String(shell?.dataset?.gameShellActive || '').trim().toLowerCase();
+    if (currentTabId === 'party' || currentTabId === 'character') {
+      this.activeGameShellSurface = currentTabId === 'character' ? 'party' : currentTabId;
+      this.syncCharacterSurfaceForActiveTab();
+    } else {
+      this.syncPartySelectorVisibility();
+    }
+  }
+
+  isPartySurfaceActive() {
+    return this.activeGameShellSurface === 'party';
+  }
+
+  syncCharacterSurfaceForActiveTab() {
+    this.attachCharacterPanelToActiveSurface();
+    this.refreshActorSelector();
+    this.applyPartyFollowerSelectionToCharacterSheet();
+  }
+
+  attachCharacterPanelToActiveSurface() {
+    const characterContainer = this._characterPanelContainer || document.getElementById('game-panel-party');
+    const partyHost = this._partyPanelHost || document.getElementById('party-character-panel-host');
+    const characterSurface = characterContainer?.querySelector('.game-shell__character-panel')
+      || partyHost?.querySelector('.game-shell__character-panel')
+      || null;
+    if (!characterSurface) {
+      return;
+    }
+    if (this.isPartySurfaceActive()) {
+      if (partyHost && characterSurface.parentElement !== partyHost) {
+        partyHost.appendChild(characterSurface);
+      }
+      return;
+    }
+    if (characterContainer && characterSurface.parentElement !== characterContainer) {
+      characterContainer.appendChild(characterSurface);
+    }
+  }
+
+  restorePrimaryCharacterSheet() {
+    const launchCharacter = this.primaryLaunchCharacter
+      || this.stateManager?.hexmap?.launchCharacter
+      || this.stateManager?.hexmap?.characterData
+      || null;
+    if (!launchCharacter) {
+      return;
+    }
+    this.showLaunchCharacter(launchCharacter, { storeAsPrimary: false });
   }
 
   hideEntityInfo() {
@@ -174,6 +311,7 @@ export class CharacterPanel {
       this._el.entityInfoPanel.style.display = 'none';
       this._el.entityInfoPanel.setAttribute('aria-hidden', 'true');
     }
+    this.syncSheetLinksForSelectedEntity();
   }
 
   setupCharacterSheetSections() {
@@ -223,8 +361,993 @@ export class CharacterPanel {
       this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
     }
     if (tabId === 'quests') {
-      this.bus.emit('quest:refresh-requested', { source: 'character-sidebar-programmatic' });
+      this.bus.emit('quest:refresh-requested', this.buildQuestRefreshContext('character-sidebar-programmatic'));
     }
+  }
+
+  buildQuestRefreshContext(source = '') {
+    const contextCharacterId = Number(this.currentCharacterContext?.sheetCharacterId || 0) || 0;
+    const campaignId = Number(this.currentCharacterContext?.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || 0) || 0;
+    return {
+      source,
+      actorScope: this.isPartySurfaceActive() ? 'party' : 'character',
+      characterId: contextCharacterId > 0 ? contextCharacterId : null,
+      campaignId: campaignId > 0 ? campaignId : null,
+    };
+  }
+
+  _activateCharacterTab() {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const shell = this.container?.closest?.('[data-game-shell]') || document.querySelector('[data-game-shell]');
+    if (!(shell instanceof HTMLElement)) {
+      return;
+    }
+    shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
+      detail: { tabId: 'party' },
+    }));
+  }
+
+  resolveEntityRef(entity = null) {
+    return String(
+      entity?.dcEntityRef
+      || entity?.dcEntityInstanceId
+      || entity?.instanceId
+      || entity?.id
+      || ''
+    ).trim();
+  }
+
+  resolveEntityByRef(actorRef = '') {
+    const normalizedRef = String(actorRef || '').trim();
+    if (!normalizedRef) {
+      return null;
+    }
+
+    const hexmap = this.stateManager?.hexmap || null;
+    const direct = hexmap?.entityManager?.getEntity?.(normalizedRef) || null;
+    if (direct) {
+      return direct;
+    }
+
+    const entities = hexmap?.entityManager?.getEntitiesWith?.('PositionComponent') || [];
+    return entities.find((entity) => this.resolveEntityRef(entity) === normalizedRef) || null;
+  }
+
+  resolveEntityCharacterId(entity = null) {
+    return Number(
+      entity?.dcCharacterId
+      || entity?.dcStatePayload?.metadata?.character_id
+      || entity?.dcStatePayload?.character_id
+      || entity?.dcStatePayload?.state?.character_id
+      || entity?.dcEntityPayload?.character_id
+      || entity?.dcEntityPayload?.state?.character_id
+      || 0
+    ) || 0;
+  }
+
+  resolveEntityLabel(entity = null) {
+    return String(
+      entity?.getComponent?.('IdentityComponent')?.name
+      || entity?.dcStatePayload?.metadata?.name
+      || entity?.dcStatePayload?.label
+      || entity?.dcEntityPayload?.label
+      || this.resolveEntityRef(entity)
+      || 'Unknown actor'
+    ).trim();
+  }
+
+  resolveEntityMetadata(entity = null) {
+    const metadata = entity?.dcStatePayload?.metadata
+      || entity?.dcStatePayload?.state?.metadata
+      || entity?.dcEntityPayload?.metadata
+      || entity?.dcEntityPayload?.state?.metadata
+      || null;
+    return metadata && typeof metadata === 'object' ? metadata : {};
+  }
+
+  resolveEntityFollowerKind(entity = null) {
+    const entityRef = this.resolveEntityRef(entity).toLowerCase();
+    if (entityRef.startsWith('familiar-')) {
+      return 'familiar';
+    }
+    if (entityRef.startsWith('companion-')) {
+      return 'companion';
+    }
+    if (entityRef.startsWith('follower-')) {
+      return 'follower';
+    }
+    const metadata = this.resolveEntityMetadata(entity);
+    const explicitKind = String(metadata?.follower_kind || metadata?.bond_contract?.follower_kind || '').trim().toLowerCase();
+    if (explicitKind) {
+      return explicitKind;
+    }
+    const roleKind = String(
+      metadata?.role
+      || metadata?.bond_contract?.role
+      || entity?.dcStatePayload?.metadata?.role
+      || entity?.dcStatePayload?.metadata?.occupation
+      || entity?.dcStatePayload?.role
+      || entity?.dcStatePayload?.state?.role
+      || entity?.dcStatePayload?.content_id
+      || entity?.dcEntityPayload?.content_id
+      || entity?.dcEntityPayload?.role
+      || entity?.dcEntityPayload?.state?.role
+      || ''
+    ).trim().toLowerCase();
+    if (roleKind.includes('familiar')) {
+      return 'familiar';
+    }
+    if (roleKind.includes('companion')) {
+      return 'companion';
+    }
+    if (roleKind.includes('follower')) {
+      return 'follower';
+    }
+    return roleKind;
+  }
+
+  resolveEntityOwnerCharacterId(entity = null) {
+    const metadata = this.resolveEntityMetadata(entity);
+    const explicitOwnerId = Number(metadata?.owner_character_id || metadata?.bond_contract?.owner_character_id || 0) || 0;
+    if (explicitOwnerId > 0) {
+      return explicitOwnerId;
+    }
+    const fallbackCharacterId = this.resolveEntityCharacterId(entity);
+    if (fallbackCharacterId > 0 && this.resolveEntityFollowerKind(entity) !== '') {
+      return fallbackCharacterId;
+    }
+    const entityRef = this.resolveEntityRef(entity);
+    const refMatch = entityRef.match(/^(?:familiar|follower|companion)-(\d+)$/i);
+    if (refMatch) {
+      return Number(refMatch[1] || 0) || 0;
+    }
+    return 0;
+  }
+
+  resolveCurrentCharacterId() {
+    const contextCharacterId = Number(
+      this.primaryCharacterContext?.sheetCharacterId
+      || this.currentCharacterContext?.sheetCharacterId
+      || 0
+    ) || 0;
+    if (contextCharacterId > 0) {
+      return contextCharacterId;
+    }
+    const primaryState = this.primaryLaunchCharacter?.data || this.primaryLaunchCharacter || null;
+    const primaryCharacterId = Number(
+      primaryState?.sheet_character_id
+      || primaryState?.character_id
+      || this.primaryLaunchCharacter?.sheet_character_id
+      || this.primaryLaunchCharacter?.character_id
+      || this.primaryLaunchCharacter?.characterId
+      || this.primaryLaunchCharacter?.id
+      || 0
+    ) || 0;
+    if (primaryCharacterId > 0) {
+      return primaryCharacterId;
+    }
+    const launchPlayerEntity = this.stateManager?.hexmap?.findLaunchPlayerEntity?.() || null;
+    return this.resolveEntityCharacterId(launchPlayerEntity);
+  }
+
+  extractFollowerRosterFromLaunchCharacter(launchCharacter = null) {
+    if (!launchCharacter || typeof launchCharacter !== 'object') {
+      return [];
+    }
+    const state = launchCharacter.data || launchCharacter;
+    const roster = state?.followers ?? launchCharacter?.followers ?? [];
+    return Array.isArray(roster)
+      ? roster.filter((entry) => entry && typeof entry === 'object')
+      : [];
+  }
+
+  resolvePrimaryFollowerRoster() {
+    const candidates = [
+      this.primaryLaunchCharacter,
+      this.stateManager?.hexmap?.launchCharacter,
+      this.stateManager?.hexmap?.characterData,
+    ];
+    for (const candidate of candidates) {
+      const roster = this.extractFollowerRosterFromLaunchCharacter(candidate);
+      if (roster.length > 0) {
+        return roster;
+      }
+    }
+    return [];
+  }
+
+  hydrateLaunchCharacterWithPrimaryFollowerRoster(launchCharacter = null) {
+    if (!launchCharacter || typeof launchCharacter !== 'object') {
+      return launchCharacter;
+    }
+    const incomingRoster = this.extractFollowerRosterFromLaunchCharacter(launchCharacter);
+    if (incomingRoster.length > 0) {
+      return launchCharacter;
+    }
+    const existingPrimaryRoster = this.resolvePrimaryFollowerRoster();
+    if (existingPrimaryRoster.length === 0) {
+      return launchCharacter;
+    }
+    const incomingState = launchCharacter.data && typeof launchCharacter.data === 'object'
+      ? launchCharacter.data
+      : null;
+    return incomingState
+      ? { ...launchCharacter, data: { ...incomingState, followers: existingPrimaryRoster } }
+      : { ...launchCharacter, followers: existingPrimaryRoster };
+  }
+
+  consumeLaunchCharacterUpdate(launchCharacter = null) {
+    if (!launchCharacter || typeof launchCharacter !== 'object') {
+      return;
+    }
+    const hydratedLaunchCharacter = this.hydrateLaunchCharacterWithPrimaryFollowerRoster(launchCharacter);
+    this.primaryLaunchCharacter = hydratedLaunchCharacter;
+    if (this._el.partyActorSelect) {
+      this.applyPartyFollowerSelectionToCharacterSheet();
+      return;
+    }
+    this.showLaunchCharacter(hydratedLaunchCharacter);
+  }
+
+  resolveFollowerRosterEntryByRef(actorRef = '') {
+    const normalizedRef = String(actorRef || '').trim();
+    if (!normalizedRef) {
+      return null;
+    }
+    return this.resolvePrimaryFollowerRoster().find((entry) => String(
+      entry?.runtime_entity_id
+      || entry?.instance_id
+      || entry?.entity_instance_id
+      || ''
+    ).trim() === normalizedRef) || null;
+  }
+
+  resolveFollowerEntityFromRosterEntry(followerEntry = null) {
+    if (!followerEntry || typeof followerEntry !== 'object') {
+      return null;
+    }
+
+    const runtimeRef = String(
+      followerEntry?.runtime_entity_id
+      || followerEntry?.instance_id
+      || followerEntry?.entity_instance_id
+      || ''
+    ).trim();
+    if (runtimeRef) {
+      const direct = this.resolveEntityByRef(runtimeRef);
+      if (direct) {
+        return direct;
+      }
+    }
+
+    const followerCharacterId = Number(followerEntry?.follower_character_id || 0) || 0;
+    if (followerCharacterId <= 0) {
+      return null;
+    }
+    const entities = this.stateManager?.hexmap?.entityManager?.getEntitiesWith?.('PositionComponent') || [];
+    return entities.find((entity) => {
+      const metadata = this.resolveEntityMetadata(entity);
+      const candidateIds = [
+        this.resolveEntityCharacterId(entity),
+        Number(metadata?.character_id || 0) || 0,
+        Number(metadata?.campaign_character_id || 0) || 0,
+        Number(metadata?.follower_character_id || 0) || 0,
+      ].filter((value) => value > 0);
+      return candidateIds.includes(followerCharacterId);
+    }) || null;
+  }
+
+  resolveOccupantMetadata(occupant = null) {
+    const metadata = occupant?.metadata
+      || occupant?.state?.metadata
+      || occupant?.state_payload?.metadata
+      || null;
+    return metadata && typeof metadata === 'object' ? metadata : {};
+  }
+
+  resolveOccupantFollowerKind(occupant = null) {
+    const metadata = this.resolveOccupantMetadata(occupant);
+    const explicitKind = String(
+      metadata?.follower_kind
+      || metadata?.bond_contract?.follower_kind
+      || occupant?.follower_kind
+      || ''
+    ).trim().toLowerCase();
+    if (explicitKind) {
+      return explicitKind;
+    }
+    const roleKind = String(
+      metadata?.role
+      || metadata?.bond_contract?.role
+      || occupant?.presentation?.role
+      || occupant?.role
+      || occupant?.state?.role
+      || occupant?.content_id
+      || ''
+    ).trim().toLowerCase();
+    if (roleKind.includes('familiar')) {
+      return 'familiar';
+    }
+    if (roleKind.includes('companion')) {
+      return 'companion';
+    }
+    if (roleKind.includes('follower')) {
+      return 'follower';
+    }
+    const occupantRef = String(occupant?.occupant_id || '').trim().toLowerCase();
+    if (occupantRef.startsWith('familiar-')) {
+      return 'familiar';
+    }
+    if (occupantRef.startsWith('companion-')) {
+      return 'companion';
+    }
+    if (occupantRef.startsWith('follower-')) {
+      return 'follower';
+    }
+    return '';
+  }
+
+  resolveOccupantOwnerCharacterId(occupant = null) {
+    const metadata = this.resolveOccupantMetadata(occupant);
+    const explicitOwnerId = Number(
+      metadata?.owner_character_id
+      || metadata?.bond_contract?.owner_character_id
+      || occupant?.owner_character_id
+      || occupant?.state?.owner_character_id
+      || 0
+    ) || 0;
+    if (explicitOwnerId > 0) {
+      return explicitOwnerId;
+    }
+    const occupantRef = String(occupant?.occupant_id || '').trim();
+    if (occupantRef) {
+      const linkedEntity = this.resolveEntityByRef(occupantRef);
+      const linkedEntityOwnerId = this.resolveEntityOwnerCharacterId(linkedEntity);
+      if (linkedEntityOwnerId > 0) {
+        return linkedEntityOwnerId;
+      }
+    }
+    const fallbackCharacterId = Number(occupant?.character_id || occupant?.state?.character_id || 0) || 0;
+    if (fallbackCharacterId > 0 && this.resolveOccupantFollowerKind(occupant) !== '') {
+      return fallbackCharacterId;
+    }
+    const refMatch = occupantRef.match(/^(?:familiar|follower|companion)-(\d+)$/i);
+    if (refMatch) {
+      return Number(refMatch[1] || 0) || 0;
+    }
+    return 0;
+  }
+
+  isFollowerOccupantForCurrentCharacter(occupant = null, currentCharacterId = 0) {
+    if ((Number(currentCharacterId || 0) || 0) <= 0 || !occupant) {
+      return false;
+    }
+    const ownerCharacterId = this.resolveOccupantOwnerCharacterId(occupant);
+    if (ownerCharacterId !== currentCharacterId) {
+      return false;
+    }
+    const followerKind = this.resolveOccupantFollowerKind(occupant);
+    return followerKind !== '';
+  }
+
+  isFollowerEntityForCurrentCharacter(entity = null, currentCharacterId = 0) {
+    if ((Number(currentCharacterId || 0) || 0) <= 0 || !entity) {
+      return false;
+    }
+    const ownerCharacterId = this.resolveEntityOwnerCharacterId(entity);
+    if (ownerCharacterId !== currentCharacterId) {
+      return false;
+    }
+    const followerKind = this.resolveEntityFollowerKind(entity);
+    return followerKind !== '';
+  }
+
+  buildCharacterSheetHref(characterId, followerKind = '') {
+    const normalizedCharacterId = Number(characterId || 0) || 0;
+    if (normalizedCharacterId <= 0) {
+      return '';
+    }
+
+    const normalizedFollowerKind = String(followerKind || '').trim().toLowerCase();
+    const basePath = normalizedFollowerKind
+      ? `/characters/${normalizedCharacterId}/followers/${encodeURIComponent(normalizedFollowerKind)}`
+      : `/characters/${normalizedCharacterId}`;
+    const campaignId = Number(this.currentCharacterContext?.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || 0) || 0;
+    if (campaignId > 0) {
+      return `${basePath}?campaign_id=${campaignId}`;
+    }
+    return basePath;
+  }
+
+  resolveSheetHrefForEntity(entity = null) {
+    const selectedFollowerKind = this.resolveEntityFollowerKind(entity);
+    const selectedFollowerOwnerId = this.resolveEntityOwnerCharacterId(entity);
+    const selectedCharacterId = this.resolveEntityCharacterId(entity);
+    const fallbackCharacterId = Number(this.currentCharacterContext?.sheetCharacterId || 0) || 0;
+    const resolvedCharacterId = selectedFollowerOwnerId || selectedCharacterId || fallbackCharacterId;
+    return this.buildCharacterSheetHref(resolvedCharacterId, selectedFollowerKind);
+  }
+
+  resolveCurrentCharacterSheetHref() {
+    const sheetCharacterId = Number(this.currentCharacterContext?.sheetCharacterId || 0) || 0;
+    return this.buildCharacterSheetHref(sheetCharacterId);
+  }
+
+  syncSheetLinksForSelectedEntity(entity = null) {
+    this.syncCharacterSheetLinkForSelectedEntity(entity);
+    this.syncPartySheetLinkForSelectedEntity(entity);
+  }
+
+  syncCharacterSheetLinkForSelectedEntity(entity = null) {
+    const link = this._el.characterFullSheetLink;
+    if (!link) {
+      return;
+    }
+
+    let href = this.resolveCurrentCharacterSheetHref();
+    const selectedOption = this._el.partyActorSelect?.selectedOptions?.[0] || null;
+    const selectedActorKind = String(selectedOption?.dataset?.actorKind || '').trim().toLowerCase();
+    if (selectedActorKind === 'follower') {
+      const selectedEntity = entity || this.resolveSelectedFollowerEntityFromSelector();
+      if (selectedEntity) {
+        href = this.resolveSheetHrefForEntity(selectedEntity);
+      } else {
+        const selectedFollowerKind = String(selectedOption?.dataset?.followerKind || '').trim().toLowerCase();
+        const selectedOwnerCharacterId = Number(selectedOption?.dataset?.ownerCharacterId || 0) || 0;
+        href = this.buildCharacterSheetHref(selectedOwnerCharacterId, selectedFollowerKind);
+      }
+    }
+
+    if (href) {
+      link.href = href;
+      link.style.display = '';
+    } else {
+      link.style.display = 'none';
+    }
+  }
+
+  syncPartySheetLinkForSelectedEntity(entity = null) {
+    const link = this._el.partyFullSheetLink;
+    if (!link) {
+      return;
+    }
+    const partySelect = this._el.partyActorSelect;
+    const partySelectionRef = String(partySelect?.value || '').trim();
+    const selectedOption = partySelect?.selectedOptions?.[0] || null;
+    const selectedFollowerKindFromOption = String(selectedOption?.dataset?.followerKind || '').trim().toLowerCase();
+    const selectedOwnerCharacterIdFromOption = Number(selectedOption?.dataset?.ownerCharacterId || 0) || 0;
+    const selectedEntity = entity || this.resolveEntityByRef(partySelectionRef) || null;
+    const href = selectedEntity
+      ? this.resolveSheetHrefForEntity(selectedEntity)
+      : this.buildCharacterSheetHref(selectedOwnerCharacterIdFromOption, selectedFollowerKindFromOption);
+    const selectedLabel = this.resolveEntityLabel(selectedEntity);
+    const selectedFollowerKind = selectedEntity
+      ? this.resolveEntityFollowerKind(selectedEntity)
+      : selectedFollowerKindFromOption;
+    const selectedFollowerKindLabel = selectedFollowerKind ? selectedFollowerKind.toUpperCase() : '';
+
+    if (this._el.partySheetName) {
+      const fallbackLabel = String(selectedOption?.textContent || '').replace(/\s+\([^)]+\)\s*$/, '').trim();
+      this._el.partySheetName.textContent = href ? (selectedLabel || fallbackLabel || 'Follower') : 'Select a follower';
+    }
+    if (this._el.partySheetSubtitle) {
+      this._el.partySheetSubtitle.textContent = selectedFollowerKindLabel
+        ? `${selectedFollowerKindLabel} follower`
+        : 'Follower character sheet';
+    }
+    if (href) {
+      link.href = href;
+      link.style.display = '';
+      if (this._el.partySheetEmbed && this._el.partySheetEmbedWrap) {
+        if (this._el.partySheetEmbed.getAttribute('src') !== href) {
+          this._el.partySheetEmbed.setAttribute('src', href);
+        }
+        this._el.partySheetEmbedWrap.style.display = '';
+      }
+      if (this._el.partySheetEmpty) {
+        this._el.partySheetEmpty.style.display = 'none';
+      }
+    } else {
+      link.style.display = 'none';
+      if (this._el.partySheetEmbed) {
+        this._el.partySheetEmbed.removeAttribute('src');
+      }
+      if (this._el.partySheetEmbedWrap) {
+        this._el.partySheetEmbedWrap.style.display = 'none';
+      }
+      if (this._el.partySheetEmpty) {
+        this._el.partySheetEmpty.style.display = '';
+      }
+    }
+  }
+
+  refreshActorSelector() {
+    const hexmap = this.stateManager?.hexmap || null;
+    if (!hexmap) {
+      return;
+    }
+    const selectorTargets = [
+      { wrap: this._el.partyActorSelectWrap, select: this._el.partyActorSelect },
+    ].filter((target) => target.wrap && target.select);
+    if (selectorTargets.length === 0) {
+      return;
+    }
+
+    const followerRoster = this.resolvePrimaryFollowerRoster();
+    const options = [];
+    const seen = new Set();
+    const primaryLaunchCharacter = this.primaryLaunchCharacter
+      || this.stateManager?.hexmap?.launchCharacter
+      || this.stateManager?.hexmap?.characterData
+      || null;
+    const primaryState = primaryLaunchCharacter?.data || primaryLaunchCharacter || {};
+    const primaryLabel = String(
+      primaryState?.basicInfo?.name
+      || primaryState?.name
+      || this.resolveEntityLabel(this.stateManager?.hexmap?.findLaunchPlayerEntity?.() || null)
+      || 'Main character'
+    ).trim() || 'Main character';
+    options.push({
+      value: '__primary__',
+      label: `${primaryLabel} (PC)`,
+      actorKind: 'primary',
+      ownerCharacterId: Number(primaryState?.sheet_character_id || primaryState?.character_id || primaryState?.characterId || 0) || 0,
+      followerKind: '',
+      followerCharacterId: Number(primaryState?.sheet_character_id || primaryState?.character_id || primaryState?.characterId || 0) || 0,
+    });
+    seen.add('__primary__');
+
+    followerRoster.forEach((follower) => {
+      const actorRef = String(
+        follower?.runtime_entity_id
+        || follower?.instance_id
+        || follower?.entity_instance_id
+        || ''
+      ).trim();
+      if (!actorRef) {
+        throw new Error('Follower roster entry is missing runtime_entity_id.');
+      }
+      if (seen.has(actorRef)) {
+        return;
+      }
+
+      const followerKind = String(follower?.follower_kind || follower?.role || '').trim().toLowerCase();
+      if (!followerKind) {
+        throw new Error(`Follower roster entry "${actorRef}" is missing follower_kind.`);
+      }
+      const ownerCharacterId = Number(follower?.owner_character_id || 0) || 0;
+      if (ownerCharacterId <= 0) {
+        throw new Error(`Follower roster entry "${actorRef}" is missing owner_character_id.`);
+      }
+      const followerCharacterId = Number(follower?.follower_character_id || 0) || 0;
+      if (followerCharacterId <= 0) {
+        throw new Error(`Follower roster entry "${actorRef}" is missing follower_character_id.`);
+      }
+
+      const actorName = String(follower?.display_name || actorRef).trim() || actorRef;
+      const kindLabel = followerKind.toUpperCase();
+      options.push({
+        value: actorRef,
+        label: `${actorName} (${kindLabel})`,
+        actorKind: 'follower',
+        ownerCharacterId,
+        followerKind,
+        followerCharacterId,
+      });
+      seen.add(actorRef);
+    });
+    const [primaryOption, ...followerOptions] = options;
+    followerOptions.sort((a, b) => a.label.localeCompare(b.label));
+    const resolvedOptions = [primaryOption, ...followerOptions];
+
+    if (resolvedOptions.length === 0) {
+      this._suppressActorSelectorChange = true;
+      selectorTargets.forEach(({ wrap, select }) => {
+        select.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'No characters available';
+        select.appendChild(placeholder);
+        select.disabled = true;
+        wrap.style.display = '';
+      });
+      this._suppressActorSelectorChange = false;
+      this.syncSheetLinksForSelectedEntity();
+      this.syncPartySelectorVisibility();
+      return;
+    }
+
+    const selectedValue = String(this._el.partyActorSelect?.value || '').trim();
+    const preferredValue = [selectedValue, resolvedOptions[0]?.value]
+      .find((candidate) => candidate && resolvedOptions.some((option) => option.value === candidate)) || '';
+
+    this._suppressActorSelectorChange = true;
+    selectorTargets.forEach(({ wrap, select }) => {
+      select.innerHTML = '';
+      resolvedOptions.forEach((option) => {
+        const el = document.createElement('option');
+        el.value = option.value;
+        el.textContent = option.label;
+        if (option.actorKind) {
+          el.dataset.actorKind = String(option.actorKind);
+        }
+        if (option.ownerCharacterId > 0) {
+          el.dataset.ownerCharacterId = String(option.ownerCharacterId);
+        }
+        if (option.followerKind) {
+          el.dataset.followerKind = String(option.followerKind);
+        }
+        if (option.followerCharacterId > 0) {
+          el.dataset.followerCharacterId = String(option.followerCharacterId);
+        }
+        select.appendChild(el);
+      });
+      select.disabled = false;
+      select.value = preferredValue;
+      wrap.style.display = '';
+    });
+    this._suppressActorSelectorChange = false;
+    this.syncSheetLinksForSelectedEntity();
+    this.syncPartySelectorVisibility();
+  }
+
+  syncPartySelectorVisibility() {
+    if (!this._el.partyActorSelectWrap) {
+    return;
+    }
+    this._el.partyActorSelectWrap.style.display = '';
+  }
+
+  focusActorFromSelector(actorRef = '', options = {}) {
+    const { activateCharacterTab = true } = options;
+    const normalizedRef = String(actorRef || '').trim();
+    if (!normalizedRef) {
+      return;
+    }
+    const selectedOption = this._el.partyActorSelect?.selectedOptions?.[0] || null;
+    const selectedActorKind = String(selectedOption?.dataset?.actorKind || '').trim().toLowerCase();
+    if (selectedActorKind === 'primary' || normalizedRef === '__primary__') {
+      this.restorePrimaryCharacterSheet();
+      this.syncSheetLinksForSelectedEntity();
+      this.togglePartyEmptyState(false);
+      if (activateCharacterTab) {
+        this._activateCharacterTab();
+      }
+      return;
+    }
+
+    const hexmap = this.stateManager?.hexmap || null;
+    const entity = this.resolveEntityByRef(normalizedRef);
+    if (entity && typeof hexmap?.selectEntity === 'function') {
+      hexmap.selectEntity(entity);
+    }
+    if (entity) {
+      this.showFollowerCharacterFromEntity(entity);
+      this.syncSheetLinksForSelectedEntity(entity);
+      this.togglePartyEmptyState(false);
+      if (activateCharacterTab) {
+        this._activateCharacterTab();
+      }
+      return;
+    }
+    const followerRosterEntry = this.resolveFollowerRosterEntryByRef(normalizedRef);
+    const fallbackPayload = this.buildFollowerLaunchCharacterPayloadFromRosterEntry(followerRosterEntry);
+    if (fallbackPayload) {
+      this.showLaunchCharacter(fallbackPayload, { storeAsPrimary: false });
+      this.syncSheetLinksForSelectedEntity();
+      this.togglePartyEmptyState(false);
+      if (activateCharacterTab) {
+        this._activateCharacterTab();
+      }
+      return;
+    }
+    if (!entity || !hexmap) {
+      this.togglePartyEmptyState(true);
+      return;
+    }
+  }
+
+  applyPartyFollowerSelectionToCharacterSheet() {
+    const selectedRef = String(this._el.partyActorSelect?.value || '').trim();
+    const selectedOption = this._el.partyActorSelect?.selectedOptions?.[0] || null;
+    const selectedActorKind = String(selectedOption?.dataset?.actorKind || '').trim().toLowerCase();
+    if (selectedActorKind === 'primary' || selectedRef === '__primary__' || selectedRef === '') {
+      this.restorePrimaryCharacterSheet();
+      this.syncSheetLinksForSelectedEntity();
+      this.togglePartyEmptyState(false);
+      return;
+    }
+    const selectedEntity = this.resolveSelectedFollowerEntityFromSelector();
+    if (selectedEntity) {
+      this.showFollowerCharacterFromEntity(selectedEntity);
+      this.syncSheetLinksForSelectedEntity(selectedEntity);
+      this.togglePartyEmptyState(false);
+      return;
+    }
+    const followerRosterEntry = this.resolveFollowerRosterEntryByRef(selectedRef);
+    const fallbackPayload = this.buildFollowerLaunchCharacterPayloadFromRosterEntry(followerRosterEntry);
+    if (fallbackPayload) {
+      this.showLaunchCharacter(fallbackPayload, { storeAsPrimary: false });
+      this.syncSheetLinksForSelectedEntity();
+      this.togglePartyEmptyState(false);
+      return;
+    }
+    this.togglePartyEmptyState(true);
+  }
+
+  resolveSelectedFollowerEntityFromSelector() {
+    const selectedRef = String(this._el.partyActorSelect?.value || '').trim();
+    if (!selectedRef) {
+      return null;
+    }
+    const followerRosterEntry = this.resolveFollowerRosterEntryByRef(selectedRef);
+    if (!followerRosterEntry) {
+      return null;
+    }
+    const selectedEntity = this.resolveFollowerEntityFromRosterEntry(followerRosterEntry);
+    if (!selectedEntity) {
+      return null;
+    }
+    return selectedEntity;
+  }
+
+  togglePartyEmptyState(showEmpty = false) {
+    const empty = document.getElementById('party-sheet-empty');
+    const host = this._partyPanelHost || document.getElementById('party-character-panel-host');
+    if (empty) {
+      empty.style.display = showEmpty ? '' : 'none';
+    }
+    if (host) {
+      host.style.display = showEmpty ? 'none' : '';
+    }
+  }
+
+  showFollowerCharacterFromEntity(entity) {
+    const payload = this.buildFollowerLaunchCharacterPayload(entity);
+    if (!payload) {
+      return;
+    }
+    this.showLaunchCharacter(payload, { storeAsPrimary: false });
+  }
+
+  buildFollowerLaunchCharacterPayload(entity) {
+    if (!entity) {
+      return null;
+    }
+    const metadata = this.resolveEntityMetadata(entity);
+    const displayName = String(metadata.display_name || metadata.name || this.resolveEntityLabel(entity) || 'Follower').trim();
+    if (!displayName) {
+      return null;
+    }
+
+    const followerKind = String(
+      metadata.follower_kind
+      || this.resolveEntityFollowerKind(entity)
+      || metadata.role
+      || 'follower'
+    ).trim().toLowerCase();
+    const classId = String(metadata.class_id || followerKind || 'follower').trim();
+    const ancestry = String(
+      metadata.familiar_species_name
+      || metadata.follower_species
+      || metadata.species
+      || metadata.ancestry
+      || 'Follower'
+    ).trim();
+    const level = Number(metadata.level || metadata.stats?.level || 1) || 1;
+    const stats = (metadata && typeof metadata.stats === 'object' && metadata.stats !== null) ? metadata.stats : {};
+    const hpCurrent = Number(stats.currentHp ?? stats.current_hp ?? metadata.hp_current ?? 0) || 0;
+    const hpMax = Number(stats.maxHp ?? stats.max_hp ?? metadata.hp_max ?? hpCurrent) || hpCurrent;
+    const armorClass = Number(stats.ac ?? metadata.armor_class ?? 0) || 0;
+    const speed = Number(metadata.movement_speed ?? stats.speed ?? 25) || 25;
+    const perception = Number(stats.perception ?? metadata.perception ?? 0) || 0;
+    const ownerCharacterId = Number(metadata.owner_character_id || 0) || 0;
+    let followerCharacterId = Number(
+      metadata.follower_character_id
+      || metadata.campaign_character_id
+      || metadata.character_id
+      || 0
+    ) || 0;
+    if (ownerCharacterId > 0 && followerCharacterId === ownerCharacterId) {
+      followerCharacterId = 0;
+    }
+    const sourceCharacterId = Number(
+      metadata.follower_source_character_id
+      || metadata.source_character_id
+      || 0
+    ) || 0;
+    const campaignId = Number(this.currentCharacterContext?.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || 0) || 0;
+    const followerPortraitUrl = String(metadata.portrait_url || metadata.portrait || '').trim();
+    const resourcesPayload = (metadata && typeof metadata.resources === 'object' && metadata.resources !== null) ? metadata.resources : {};
+    const inventorySeed = normalizeInventoryState(
+      resourcesPayload.inventory || metadata.inventory || {},
+      resourcesPayload.currency || metadata.currency || {}
+    );
+
+    const abilitiesPayload = (metadata && typeof metadata.abilities === 'object' && metadata.abilities !== null) ? metadata.abilities : {};
+    const ability = (key, fallback = 10) => Number(
+      abilitiesPayload[key]
+      ?? abilitiesPayload[String(key).toLowerCase()]
+      ?? fallback
+    ) || fallback;
+
+    const skillsPayload = (metadata && typeof metadata.skills === 'object' && metadata.skills !== null) ? metadata.skills : {};
+    const skills = Array.isArray(skillsPayload)
+      ? skillsPayload
+      : Object.entries(skillsPayload).map(([name, value]) => ({
+        name,
+        modifier: Number(value?.modifier ?? value?.bonus ?? value ?? 0) || 0,
+        proficiency: String(value?.proficiency ?? value?.rank ?? ''),
+      }));
+
+    const savesPayload = (metadata && typeof metadata.saves === 'object' && metadata.saves !== null) ? metadata.saves : {};
+    const spellsPayload = (metadata && typeof metadata.spellcasting === 'object' && metadata.spellcasting !== null) ? metadata.spellcasting : {};
+    const classFeatureOptions = Array.isArray(metadata.class_feature_options)
+      ? metadata.class_feature_options
+      : (Array.isArray(metadata.familiar_class_feature_options) ? metadata.familiar_class_feature_options : []);
+    const familiarAbilityDetails = Array.isArray(metadata.familiar_ability_details) ? metadata.familiar_ability_details : [];
+    const features = {
+      classFeatures: classFeatureOptions.map((option) => ({
+        id: option.id || option.option_id || '',
+        name: option.name || option.option_id || 'Class feature',
+        description: option.description || '',
+        type: 'class_feature',
+      })),
+      feats: familiarAbilityDetails.map((feat) => ({
+        id: feat.class_feature_option_id || feat.id || '',
+        name: feat.name || feat.id || 'Familiar ability',
+        description: feat.description || '',
+        type: 'feat',
+      })),
+    };
+
+    return {
+      id: followerCharacterId || null,
+      character_id: followerCharacterId || null,
+      sheet_character_id: followerCharacterId || null,
+      owner_character_id: ownerCharacterId || null,
+      source_character_id: sourceCharacterId || null,
+      campaignId,
+      is_follower_actor: true,
+      follower_kind: followerKind,
+      portrait: followerPortraitUrl,
+      data: {
+        id: followerCharacterId || null,
+        characterId: followerCharacterId || null,
+        character_id: followerCharacterId || null,
+        sheet_character_id: followerCharacterId || null,
+        owner_character_id: ownerCharacterId || null,
+        source_character_id: sourceCharacterId || null,
+        is_follower_actor: true,
+        follower_kind: followerKind,
+        name: displayName,
+        ancestry,
+        class: classId,
+        level,
+        speed,
+        hp_current: hpCurrent,
+        hp_max: hpMax,
+        armor_class: armorClass,
+        perception,
+        portrait_url: followerPortraitUrl,
+        basicInfo: {
+          name: displayName,
+          ancestry,
+          class: classId,
+          level,
+        },
+        inventory: inventorySeed,
+        resources: {
+          hitPoints: { current: hpCurrent, max: hpMax },
+          heroPoints: {
+            current: Number(resourcesPayload.heroPoints?.current ?? resourcesPayload.hero_points ?? 0) || 0,
+            max: Number(resourcesPayload.heroPoints?.max ?? resourcesPayload.hero_points_max ?? 0) || 0,
+          },
+          inventory: inventorySeed,
+        },
+        defenses: {
+          armorClass,
+          perception,
+          fortitude: Number(savesPayload.fortitude?.base ?? savesPayload.fortitude ?? 0) || 0,
+          reflex: Number(savesPayload.reflex?.base ?? savesPayload.reflex ?? 0) || 0,
+          will: Number(savesPayload.will?.base ?? savesPayload.will ?? 0) || 0,
+        },
+        saves: {
+          fortitude: Number(savesPayload.fortitude?.base ?? savesPayload.fortitude ?? 0) || 0,
+          reflex: Number(savesPayload.reflex?.base ?? savesPayload.reflex ?? 0) || 0,
+          will: Number(savesPayload.will?.base ?? savesPayload.will ?? 0) || 0,
+        },
+        abilities: {
+          strength: ability('strength'),
+          dexterity: ability('dexterity'),
+          constitution: ability('constitution'),
+          intelligence: ability('intelligence'),
+          wisdom: ability('wisdom'),
+          charisma: ability('charisma'),
+        },
+        skills,
+        spells: spellsPayload,
+        features,
+        conditions: Array.isArray(metadata.conditions) ? metadata.conditions : [],
+        personality: {
+          personality: String(metadata.psychology_profile?.personality || '').trim(),
+          backstory: String(metadata.description || '').trim(),
+        },
+        equipment: Array.isArray(metadata.equipment) ? metadata.equipment : [],
+      },
+    };
+  }
+
+  buildFollowerLaunchCharacterPayloadFromRosterEntry(followerEntry = null) {
+    if (!followerEntry || typeof followerEntry !== 'object') {
+      return null;
+    }
+    const ownerCharacterId = Number(followerEntry?.owner_character_id || 0) || 0;
+    const followerCharacterId = Number(followerEntry?.follower_character_id || 0) || 0;
+    if (ownerCharacterId <= 0 || followerCharacterId <= 0) {
+      return null;
+    }
+    const followerKind = String(followerEntry?.follower_kind || followerEntry?.role || 'follower').trim().toLowerCase() || 'follower';
+    const displayName = String(followerEntry?.display_name || 'Follower').trim() || 'Follower';
+    const portraitUrl = String(followerEntry?.portrait_url || '').trim();
+    const sourceCharacterId = Number(followerEntry?.follower_source_character_id || 0) || 0;
+    const campaignId = Number(this.currentCharacterContext?.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || 0) || 0;
+
+    return {
+      id: followerCharacterId,
+      character_id: followerCharacterId,
+      sheet_character_id: followerCharacterId,
+      owner_character_id: ownerCharacterId,
+      source_character_id: sourceCharacterId || null,
+      campaignId,
+      is_follower_actor: true,
+      follower_kind: followerKind,
+      portrait: portraitUrl,
+      data: {
+        id: followerCharacterId,
+        characterId: followerCharacterId,
+        character_id: followerCharacterId,
+        sheet_character_id: followerCharacterId,
+        owner_character_id: ownerCharacterId,
+        source_character_id: sourceCharacterId || null,
+        is_follower_actor: true,
+        follower_kind: followerKind,
+        name: displayName,
+        portrait_url: portraitUrl,
+        basicInfo: {
+          name: displayName,
+          level: 1,
+        },
+        resources: {
+          hitPoints: { current: 0, max: 0 },
+          heroPoints: { current: 0, max: 0 },
+          inventory: { items: [], currency: { gp: 0, sp: 0, cp: 0 } },
+        },
+        defenses: {
+          armorClass: 0,
+          perception: 0,
+        },
+        abilities: {
+          strength: 10,
+          dexterity: 10,
+          constitution: 10,
+          intelligence: 10,
+          wisdom: 10,
+          charisma: 10,
+        },
+        skills: [],
+        saves: {
+          fortitude: 0,
+          reflex: 0,
+          will: 0,
+        },
+        features: {},
+        conditions: [],
+        inventory: { items: [], currency: { gp: 0, sp: 0, cp: 0 } },
+      },
+    };
   }
 
   showEmbeddedCharacterSheet(characterId) {
@@ -253,7 +1376,7 @@ export class CharacterPanel {
       legacyShown: !!this._el.characterSheetLegacy,
       embedHidden: !!this._el.characterSheetEmbedWrap,
       legacyStyle: this._el.characterSheetLegacy?.style?.display ?? 'no-el',
-      gamePanelHidden: document.getElementById('game-panel-character')?.hidden ?? 'no-el',
+      gamePanelHidden: document.getElementById('game-panel-party')?.hidden ?? 'no-el',
       charSubPanelDisplay: charSubPanel?.style?.display ?? 'no-el',
       charSubPanelActive: charSubPanel?.classList?.contains('sidebar-panel--active') ?? false,
     });
@@ -362,15 +1485,21 @@ export class CharacterPanel {
     if (this._el.entityMovement) {
       this._el.entityMovement.textContent = movementValue;
     }
+    this.syncSheetLinksForSelectedEntity(entity);
 
     // NOTE: Character sheet (character* elements) is only populated by
     // showLaunchCharacter() with the PC's full data.  Do NOT overwrite it
     // here — this method fires for every selected entity including NPCs.
   }
 
-  showLaunchCharacter(launchCharacter) {
+  showLaunchCharacter(launchCharacter, options = {}) {
     if (!launchCharacter || typeof launchCharacter !== 'object') {
       return;
+    }
+    const storeAsPrimary = options.storeAsPrimary !== false;
+    if (storeAsPrimary) {
+      launchCharacter = this.hydrateLaunchCharacterWithPrimaryFollowerRoster(launchCharacter);
+      this.primaryLaunchCharacter = launchCharacter;
     }
 
     console.log('[CharacterPanel] showLaunchCharacter', { id: launchCharacter?.id, instance: launchCharacter?.instance_id });
@@ -481,13 +1610,25 @@ export class CharacterPanel {
     const formatMod = (val) => val >= 0 ? `+${val}` : `${val}`;
 
     // Portrait
-    const portraitUrl = state.portrait_url || state.portrait || launchCharacter.portrait_url || launchCharacter.portrait || null;
+    const portraitUrl = firstNonEmptyText(
+      state.portrait_url,
+      state.portrait?.url,
+      state.portrait,
+      basicInfo.portrait_url,
+      basicInfo.portrait?.url,
+      basicInfo.portrait,
+      launchCharacter.portrait_url,
+      launchCharacter.portrait?.url,
+      launchCharacter.portrait
+    );
     if (this._el.characterPortrait && this._el.characterPortraitWrap) {
       if (portraitUrl) {
         this._el.characterPortrait.src = portraitUrl;
         this._el.characterPortrait.alt = `${name} portrait`;
         this._el.characterPortraitWrap.style.display = '';
       } else {
+        this._el.characterPortrait.removeAttribute('src');
+        this._el.characterPortrait.alt = '';
         this._el.characterPortraitWrap.style.display = 'none';
       }
     }
@@ -522,7 +1663,7 @@ export class CharacterPanel {
     }
     // "View Full Sheet" link
     if (this._el.characterFullSheetLink && sheetCharacterId) {
-      this._el.characterFullSheetLink.href = `/characters/${sheetCharacterId}`;
+      this._el.characterFullSheetLink.href = this.buildCharacterSheetHref(sheetCharacterId);
       this._el.characterFullSheetLink.style.display = '';
     }
     this.showEmbeddedCharacterSheet(sheetCharacterId);
@@ -628,7 +1769,22 @@ export class CharacterPanel {
       equipment,
       currency,
       abilities: normalizedAbilities,
+      isFollowerActor: Boolean(state.is_follower_actor || launchCharacter.is_follower_actor),
+      followerKind: String(state.follower_kind || launchCharacter.follower_kind || '').trim().toLowerCase() || null,
     };
+    this.currentCharacterContext = {
+      runtimeCharacterId: Number(launchCharacter.id || launchCharacter.characterId || characterId || 0) || null,
+      sheetCharacterId: Number(sheetCharacterId || 0) || null,
+      sourceCharacterId: Number(state.source_character_id || launchCharacter.source_character_id || 0) || null,
+      linkedCharacterId: Number(state.character_id || launchCharacter.character_id || 0) || null,
+      campaignId: activeCampaignId,
+    };
+    if (storeAsPrimary) {
+      this.primaryCharacterContext = { ...this.currentCharacterContext };
+    }
+    this.refreshActorSelector();
+    this.syncSheetLinksForSelectedEntity();
+    this.updateLibraryConversionAction();
     this.bus.emit('inventory:changed', this.currentCharacterInventoryContext);
 
     // Update features & feats (with type badges)
@@ -894,8 +2050,88 @@ export class CharacterPanel {
       ac: this._el.characterAc?.textContent,
       level: this._el.characterLevel?.textContent,
       legacyStyle: this._el.characterSheetLegacy?.style?.display ?? 'no-el',
-      gamePanelHidden: document.getElementById('game-panel-character')?.hidden ?? 'no-el',
+      gamePanelHidden: document.getElementById('game-panel-party')?.hidden ?? 'no-el',
     });
+  }
+
+  updateLibraryConversionAction() {
+    const button = this._el.characterConvertLibraryButton;
+    if (!button) {
+      return;
+    }
+
+    const context = this.currentCharacterContext || {};
+    const campaignId = Number(context.campaignId || 0) || 0;
+    const runtimeCharacterId = Number(context.runtimeCharacterId || context.sheetCharacterId || 0) || 0;
+    const sourceCharacterId = Number(context.sourceCharacterId || 0) || 0;
+    const linkedCharacterId = Number(context.linkedCharacterId || 0) || 0;
+    const alreadyLinked = sourceCharacterId > 0 || (linkedCharacterId > 0 && linkedCharacterId !== runtimeCharacterId);
+    const canConvert = campaignId > 0 && runtimeCharacterId > 0 && !alreadyLinked && !this._convertToLibraryInFlight;
+
+    button.style.display = canConvert ? '' : 'none';
+    button.disabled = !canConvert;
+  }
+
+  async convertCurrentCharacterToLibrary() {
+    if (this._convertToLibraryInFlight) {
+      return;
+    }
+
+    const context = this.currentCharacterContext || {};
+    const campaignId = Number(context.campaignId || 0) || 0;
+    const runtimeCharacterId = Number(context.runtimeCharacterId || context.sheetCharacterId || 0) || 0;
+    if (campaignId <= 0 || runtimeCharacterId <= 0) {
+      return;
+    }
+
+    this._convertToLibraryInFlight = true;
+    this.updateLibraryConversionAction();
+
+    try {
+      const response = await fetch(`/api/character/${encodeURIComponent(runtimeCharacterId)}/convert-library`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ campaignId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.success || !result?.data) {
+        throw new Error(result?.error || `Library conversion failed (${response.status}).`);
+      }
+
+      const converted = result.data || {};
+      const libraryCharacterId = Number(converted.library_character_id || 0) || null;
+      const refreshedRuntimeId = Number(converted.runtime_character_id || runtimeCharacterId) || runtimeCharacterId;
+      this.currentCharacterContext = {
+        ...context,
+        runtimeCharacterId: refreshedRuntimeId,
+        sourceCharacterId: libraryCharacterId,
+        linkedCharacterId: libraryCharacterId,
+      };
+
+      this.bus?.emit?.('chat:system-message', {
+        speaker: 'System',
+        kind: 'success',
+        text: 'Character saved to the permanent library.',
+      });
+
+      const hexmap = this.stateManager?.hexmap;
+      await hexmap?.loadCharacterFromApi?.(refreshedRuntimeId);
+    } catch (error) {
+      console.error('[CharacterPanel] convertCurrentCharacterToLibrary failed', error);
+      this.bus?.emit?.('chat:system-message', {
+        speaker: 'System',
+        kind: 'error',
+        text: error?.message || 'Unable to save this character to the library.',
+      });
+    } finally {
+      this._convertToLibraryInFlight = false;
+      this.updateLibraryConversionAction();
+    }
   }
 
 }

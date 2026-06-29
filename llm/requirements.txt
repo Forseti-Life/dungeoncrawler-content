@@ -1,0 +1,12 @@
+# llm/requirements.txt — Python dependencies for the local LLM layer.
+# Install via: pip install -r llm/requirements.txt
+# Or use: ./llm/setup.sh  (creates a venv and installs these automatically)
+
+# CPU inference engine — compiles from source; see setup.sh for build flags
+llama-cpp-python
+
+# Model downloads from Hugging Face Hub
+huggingface_hub>=0.20.0
+
+# YAML config parsing (model-manifest.yaml, routing.yaml)
+pyyaml>=6.0

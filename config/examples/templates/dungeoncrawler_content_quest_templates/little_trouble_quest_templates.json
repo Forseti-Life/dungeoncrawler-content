@@ -21,14 +21,17 @@
               "objective_id": "enter_vault",
               "type": "explore",
               "description": "Reach the vault entry and begin the delve.",
-              "next_step": "Travel with the Hookclaw kobolds to the vault entry and enter the first vault area.",
+              "target": "ltba-hookclaw-vault-guide",
+              "npc_id": "ltba-hookclaw-vault-guide",
+              "next_step": "Travel with the Hookclaw kobolds to ltba-vault-entry and cross into the first vault area.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "discovered",
                 "required_value": true,
-                "description": "Complete when the vault entry location is discovered."
+                "description": "Complete when enter_vault marks ltba-vault-entry discovered."
               },
-              "location": "Vault Entry",
+              "location": "ltba-vault-entry",
+              "location_id": "ltba-vault-entry",
               "destination_id": "ltba-vault-entry"
             }
           ]
@@ -68,14 +71,17 @@
             {
               "objective_id": "clear_tomb_hazards",
               "type": "interact",
-              "description": "Disarm or bypass the chamber hazards.",
-              "target": "ltba-tomb-hazard-room",
-              "next_step": "Enter the hazard chamber and use skills, spells, or alternate routes to neutralize each hazard.",
+              "description": "Coordinate with the hazard scout and disarm or bypass the chamber hazards.",
+              "target": "ltba-hookclaw-hazard-scout",
+              "npc_id": "ltba-hookclaw-hazard-scout",
+              "location": "ltba-tomb-hazard-room",
+              "location_id": "ltba-tomb-hazard-room",
+              "next_step": "Enter ltba-tomb-hazard-room and use disarm, bypass, or alternate route interactions to neutralize each hazard.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "completed",
                 "required_value": true,
-                "description": "Complete when the tomb hazards are disarmed, bypassed, or otherwise made safe."
+                "description": "Complete when clear_tomb_hazards sets the hazard room outcome to completed."
               }
             }
           ]
@@ -117,12 +123,14 @@
               "type": "interact",
               "description": "Speak with the old lady and accept the job.",
               "target": "ltba-grandmother",
-              "next_step": "Speak with Grandmother and explicitly accept her request to recover the magical hedge trimmer.",
+              "npc_id": "ltba-grandmother",
+              "location": "grandmothers-request",
+              "next_step": "Speak with Grandmother in grandmothers-request and explicitly accept her hedge trimmer recovery request.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "completed",
                 "required_value": true,
-                "description": "Complete when the party accepts Grandmother's request."
+                "description": "Complete when accept_request records the party has accepted Grandmother's task."
               }
             }
           ]
@@ -168,12 +176,13 @@
                 1
               ],
               "description": "Recover the magical hedge trimmer.",
-              "next_step": "Search the upstairs area for the magical hedge trimmer and pick it up.",
+              "location": "recover-the-trimmer",
+              "next_step": "Search recover-the-trimmer for ltba-magical-hedge-trimmer and pick it up.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
                 "target_count": 1,
-                "description": "Complete when the magical hedge trimmer has been collected."
+                "description": "Complete when retrieve_trimmer records one ltba-magical-hedge-trimmer collected."
               }
             }
           ]

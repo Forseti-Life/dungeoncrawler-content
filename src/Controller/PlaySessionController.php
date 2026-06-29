@@ -346,6 +346,8 @@ class PlaySessionController extends ControllerBase {
         'class' => '',
         'status' => 0,
         'version' => 0,
+        'default_locations' => NULL,
+        'portrait' => NULL,
         'hp_current' => 0,
         'hp_max' => 0,
         'armor_class' => 0,

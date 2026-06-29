@@ -1,0 +1,52 @@
+# CEO Scope Routing: Release Readiness State Machine Implementation
+
+- Status: pending
+- Topic: state-machine-implementation
+- Owner: dev-infra
+- ROI: 40
+- Rationale: Dev-forseti correctly identified scope ownership conflict. Orchestrator/run.py is dev-infra responsibility; this work is routed to correct team.
+
+## Context
+
+Dev-forseti completed design for release readiness state machine but identified a scope boundary issue: the implementation requires modifying `orchestrator/run.py` and `tmp/release-cycle-active/` files, which are owned by dev-infra, not dev-forseti.
+
+**CEO Decision:** Route implementation to dev-infra (correct ownership).
+
+## Design Deliverable (From dev-forseti)
+
+State machine design is **complete and actionable**:
+- States and transitions documented
+- Release flow clarified
+- Auditable orchestration path defined
+
+Location: `sessions/dev-forseti/outbox/20260420-151023-design-release-readiness-state-machine.md`
+
+## Implementation Task (For dev-infra)
+
+Implement the state machine in orchestrator:
+
+- [ ] **Review design** (from dev-forseti outbox)
+- [ ] **Implement state transitions** in `orchestrator/run.py` per design
+- [ ] **Update `tmp/release-cycle-active/` metadata** to track state
+- [ ] **Add state logging** to orchestrator heartbeat (for audit/debugging)
+- [ ] **Verify release cycles** transition correctly through all states
+- [ ] **Test:** Simulate release-q → release-r transition; verify state machine accuracy
+
+## Acceptance Criteria
+
+- [ ] State machine implemented in `orchestrator/run.py`
+- [ ] Release state tracked in `tmp/release-cycle-active/<release-id>-state.md`
+- [ ] Orchestrator logs state transitions (visible in `tmp/orchestrator-heartbeat`)
+- [ ] Release cycle tests pass with new state machine
+- [ ] Design review sign-off from dev-forseti (optional but recommended)
+
+## Success Metrics
+
+- [ ] All release cycles flow through state machine correctly
+- [ ] No additional orchestrator failures due to state machine
+- [ ] Release readiness is now auditable (can trace release-q → release-r → activate release-r)
+
+---
+
+**Co-authored with:** dev-forseti (design), CEO (scope routing decision)  
+**Created:** 2026-04-21T14:11:00+00:00

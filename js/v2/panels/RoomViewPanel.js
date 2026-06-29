@@ -175,6 +175,7 @@ export class RoomViewPanel {
       const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
       const kind = rawType === 'npc' ? 'NPC' : 'PC';
       const summary = String(occupant?.presentation?.role || objectDefinition?.description || '').trim();
+      const characterId = Number(occupant?.character_id || occupant?.state?.character_id || 0) || 0;
 
       entries.push({
         entityId,
@@ -182,6 +183,7 @@ export class RoomViewPanel {
         kind,
         portraitUrl,
         summary,
+        characterId,
       });
     });
 
@@ -197,6 +199,18 @@ export class RoomViewPanel {
   buildRoomPortraitCard(entry = {}) {
     const card = document.createElement('article');
     card.className = 'npc-portrait-card';
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.dataset.entityId = String(entry.entityId || '').trim();
+    card.setAttribute('aria-label', `${entry.name || 'Room occupant'}: open character sheet`);
+    card.addEventListener('click', () => this.focusRoomPortraitActor(entry));
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+      event.preventDefault();
+      this.focusRoomPortraitActor(entry);
+    });
 
     const frame = document.createElement('div');
     frame.className = 'npc-portrait-card__frame';
@@ -227,6 +241,67 @@ export class RoomViewPanel {
 
     card.append(frame, name, meta, summary);
     return card;
+  }
+
+  resolvePortraitEntityByRef(actorRef = '') {
+    const normalizedRef = String(actorRef || '').trim();
+    if (!normalizedRef) {
+      return null;
+    }
+
+    const hexmap = this.stateManager?.hexmap || null;
+    const direct = hexmap?.entityManager?.getEntity?.(normalizedRef) || null;
+    if (direct) {
+      return direct;
+    }
+
+    const entities = hexmap?.entityManager?.getEntitiesWith?.('PositionComponent') || [];
+    return entities.find((entity) => String(
+      entity?.dcEntityRef
+      || entity?.dcEntityInstanceId
+      || entity?.instanceId
+      || entity?.id
+      || ''
+    ).trim() === normalizedRef) || null;
+  }
+
+  focusRoomPortraitActor(entry = {}) {
+    const actorRef = String(entry?.entityId || '').trim();
+    if (!actorRef) {
+      return;
+    }
+
+    const hexmap = this.stateManager?.hexmap || null;
+    const entity = this.resolvePortraitEntityByRef(actorRef);
+    if (entity && typeof hexmap?.selectEntity === 'function') {
+      hexmap.selectEntity(entity);
+    }
+
+    const resolvedCharacterId = Number(
+      entry?.characterId
+      || entity?.dcCharacterId
+      || entity?.dcStatePayload?.metadata?.character_id
+      || entity?.dcStatePayload?.character_id
+      || entity?.dcStatePayload?.state?.character_id
+      || 0
+    ) || 0;
+    if (resolvedCharacterId > 0) {
+      this.bus.emit('character:sheet-requested', { characterId: resolvedCharacterId });
+    }
+
+    if (typeof hexmap?.activateGameShellTab === 'function') {
+      hexmap.activateGameShellTab('party');
+      return;
+    }
+
+    const shell = typeof document !== 'undefined'
+      ? document.querySelector('[data-game-shell]')
+      : null;
+    if (shell instanceof HTMLElement) {
+      shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
+        detail: { tabId: 'party' },
+      }));
+    }
   }
 
   buildRoomViewCacheKey(campaignId, roomId) {

@@ -1,0 +1,23 @@
+CSRF FINDING-3 — dungeoncrawler_content routes patched
+Date: 2026-04-05
+Commit: 3f7c8300
+
+Routes patched (8 total):
+  FINDING-3a  api.dice_roll          POST JSON   _access:TRUE removed, +_permission, +_csrf_request_header_mode
+  FINDING-3b  api.rules_check        POST JSON   _access:TRUE removed, +_permission, +_csrf_request_header_mode
+  FINDING-3c  api.game_action        POST JSON   +_csrf_request_header_mode
+  FINDING-3d  api.game_transition    POST JSON   +_csrf_request_header_mode
+  FINDING-3e  campaign_create        GET+POST    split-route; .post sibling gets _csrf_token:TRUE
+  FINDING-3f  character_step         GET+POST    split-route; .post sibling gets _csrf_token:TRUE
+  FINDING-3g  game_objects           GET+POST    split-route; .post sibling gets _csrf_token:TRUE
+  FINDING-3h  inventory_sell_item    POST JSON   +_csrf_request_header_mode
+
+Verification: python3 inline script — ALL PASS (11/11 checks)
+  8 POST routes: has_post=True, has_csrf=True, no_open_access=True
+  3 GET-only splits: GET-only=True, POST=False
+
+drush cr: [success] Cache rebuild complete.
+
+Note: Browser routes (campaign_create, character_step, game_objects) used split-route
+pattern instead of adding _csrf_token:TRUE to combined GET+POST route.
+Rationale: _csrf_token:TRUE on GET+POST causes GET 403 (KB lesson — CSRF routing).

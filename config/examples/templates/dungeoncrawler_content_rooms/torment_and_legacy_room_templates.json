@@ -1,0 +1,35 @@
+{
+  "rows": [
+    {
+      "room_id": "tal-briefing-room",
+      "source_room_id": "tal-briefing-room",
+      "name": "Pathfinder Briefing Room",
+      "description": "A secure Pathfinder briefing chamber where Venture-Captain Celia Arvanxi delivers the opening mission and tactical expectations.",
+      "environment_tags": [
+        "torment_and_legacy",
+        "onboarding",
+        "tutorial",
+        "briefing"
+      ],
+      "layout_data": {
+        "shape": "chamber",
+        "width": 7,
+        "height": 5
+      },
+      "contents_data": {
+        "obstacles": [
+          "briefing-table",
+          "mission-board"
+        ],
+        "npcs": [],
+        "creatures": [],
+        "items": [],
+        "interactables": [
+          "mission-dossier",
+          "regional-map",
+          "tactical-slate"
+        ]
+      }
+    }
+  ]
+}

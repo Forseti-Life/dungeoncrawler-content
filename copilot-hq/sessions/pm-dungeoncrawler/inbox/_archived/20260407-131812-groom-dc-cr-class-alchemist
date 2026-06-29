@@ -1,0 +1,42 @@
+- command: |
+    Groom feature dc-cr-class-alchemist for release entry.
+
+    The roadmap audit identified dc-cr-class-alchemist as the first "Not Started" section
+    in the live roadmap (https://dungeoncrawler.forseti.life/Roadmap). Its feature file
+    exists at features/dc-cr-class-alchemist/feature.md (status: planned) but has no
+    grooming artifacts — no acceptance criteria, no test plan.
+
+    Your task: write the acceptance criteria file for this feature so it can proceed
+    through the standard grooming pipeline.
+
+    ## Steps
+
+    1. Read features/dc-cr-class-alchemist/feature.md (full brief + dependencies)
+
+    2. Check the live roadmap for this class's Not Started requirements:
+       https://dungeoncrawler.forseti.life/Roadmap
+       Focus on core/ch03/Alchemist — these are the pending requirements that
+       this feature must deliver.
+
+    3. Write features/dc-cr-class-alchemist/01-acceptance-criteria.md
+       Use templates/01-acceptance-criteria.md as the template.
+       - Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+       - Happy path: cover the core class mechanics (infused reagents, advanced alchemy,
+         quick alchemy, formula book, research fields Bomber/Chirurgeon/Mutagenist)
+       - Edge cases: reagent exhaustion, invalid formula, wrong research field
+       - Failure modes: standard error handling
+
+    4. Add a Security acceptance criteria section to feature.md if not present.
+       (Alchemist is game mechanics only — use Security AC exemption if appropriate.)
+
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-cr-class-alchemist
+       This dispatches to QA for test plan generation.
+
+    6. Write outbox confirming AC written, handoff dispatched.
+
+    ## Reference
+    - Feature file: features/dc-cr-class-alchemist/feature.md
+    - Template: templates/01-acceptance-criteria.md
+    - DB section: core/ch03/Alchemist (~115 pending requirements)
+    - Depends on: dc-cr-character-class ✓, dc-cr-character-creation ✓, dc-cr-equipment-system (in-progress — groom now, activate after equipment ships)
+- roi: 8

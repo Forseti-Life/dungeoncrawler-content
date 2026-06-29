@@ -2,8 +2,8 @@
   "rows": [
     {
       "dungeon_id": "tpl_dungeon_tavern_basement",
-      "name": "Tavern Basement Intro",
-      "description": "Small starter dungeon template.",
+      "name": "Absalom",
+      "description": "City hub containing The Gilded Tankard and nearby starter routes.",
       "theme": "classic_dungeon",
       "dungeon_data": {
         "levels": 1,

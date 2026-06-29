@@ -23,7 +23,11 @@ export async function fetchVisitedNavigateLocationGroups(campaignId) {
   }
 
   const activeRoom = data.active_room
-    ? { roomId: String(data.active_room.room_id || ''), roomName: String(data.active_room.room_name || '') }
+    ? {
+      roomId: String(data.active_room.room_id || ''),
+      roomName: String(data.active_room.room_name || data.active_room.room_id || ''),
+      dungeonName: String(data.active_room.dungeon_name || ''),
+    }
     : null;
 
   const groups = (Array.isArray(data.dungeons) ? data.dungeons : [])

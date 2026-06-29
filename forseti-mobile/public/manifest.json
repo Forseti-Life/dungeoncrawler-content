@@ -1,0 +1,22 @@
+{
+  "short_name": "Forseti",
+  "name": "Forseti - Stay Informed, Stay Safe",
+  "description": "Real-time crime safety monitoring and community awareness",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#1a1a2e",
+  "background_color": "#1a1a2e",
+  "orientation": "portrait"
+}

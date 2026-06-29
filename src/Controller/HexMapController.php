@@ -113,7 +113,8 @@ class HexMapController extends ControllerBase {
     $is_admin = in_array('administrator', $account->getRoles(), TRUE)
       || (int) $account->id() === 1;
 
-    $hexmap_state = $this->resolveLaunchStateBundle($launch_context, $is_admin);
+    $this->assertCampaignAccess($launch_context, $is_admin);
+    $hexmap_state = $this->buildHexmapStateBundle($launch_context);
     $dungeon_payload = $hexmap_state['dungeon_payload'];
     $launch_character = $hexmap_state['launch_character'];
     $quest_summary = $hexmap_state['quest_summary'];
@@ -154,24 +155,10 @@ class HexMapController extends ControllerBase {
    */
   public function visualState(): JsonResponse {
     $launch_context = $this->buildLaunchContextFromRequest();
-    $hexmap_state = $this->resolveLaunchStateBundle($launch_context);
+    $this->assertCampaignAccess($launch_context);
+    $hexmap_state = $this->buildHexmapStateBundle($launch_context);
 
-    return new JsonResponse($this->buildVisualStatePayload($launch_context, $hexmap_state));
-  }
-
-  /**
-   * Resolve canonical launch state bundle after access enforcement.
-   */
-  protected function resolveLaunchStateBundle(array $launch_context, bool $is_admin = FALSE): array {
-    $this->assertCampaignAccess($launch_context, $is_admin);
-    return $this->buildHexmapStateBundle($launch_context);
-  }
-
-  /**
-   * Build the canonical visual-state API response payload.
-   */
-  protected function buildVisualStatePayload(array $launch_context, array $hexmap_state): array {
-    return [
+    return new JsonResponse([
       'success' => TRUE,
       'launch_context' => $launch_context,
       'dungeon_payload' => $hexmap_state['dungeon_payload'],
@@ -180,7 +167,7 @@ class HexMapController extends ControllerBase {
       'quest_summary' => $hexmap_state['quest_summary'],
       'storyline_contacts' => $hexmap_state['storyline_contacts'],
       'campaign_title' => $hexmap_state['campaign_title'],
-    ];
+    ]);
   }
 
   /**
@@ -257,6 +244,7 @@ class HexMapController extends ControllerBase {
     $quest_summary = $this->loadQuestSummary($launch_context);
     $storyline_contacts = $this->loadStorylineContactSummary($launch_context);
     $campaign_title = $this->loadCampaignTitle($launch_context);
+    $dungeon_payload['quest_summary'] = $quest_summary;
     $dungeon_payload = $this->injectQuestItemEntities($dungeon_payload, $quest_summary);
     $dungeon_payload = $this->attachEntityPortraitUrls($dungeon_payload, $launch_context);
     $dungeon_payload = $this->ensurePayloadObjectOrientations($dungeon_payload);
@@ -448,6 +436,7 @@ class HexMapController extends ControllerBase {
         'armor_class' => 0,
         'team' => 'player',
         'entity_type' => 'player_character',
+        'followers' => [],
       ];
     }
 
@@ -581,22 +570,34 @@ class HexMapController extends ControllerBase {
 
     $sheet_character_id = (int) (($record['character_id'] ?? 0) ?: ($record['id'] ?? 0));
 
-    // Resolve portrait URL using the same logic as entity portrait injection.
-    $portrait_url = NULL;
-    $char_id = (int) $record['id'];
-    $portrait_rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $char_id, $campaign_id > 0 ? $campaign_id : NULL, 'portrait', 'original');
-    if (empty($portrait_rows) && $campaign_id > 0) {
-      $portrait_rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $char_id, NULL, 'portrait', 'original');
+    // Resolve portrait URL from the runtime/source character row first.
+    $portrait_url = $this->normalizePortraitUrl((string) ($record['portrait'] ?? ''));
+    if ($portrait_url === NULL || $portrait_url === '') {
+      $portrait_url = $this->normalizePortraitUrl((string) ($character_data['portrait_url'] ?? $character_data['portrait'] ?? ''));
     }
-    if (empty($portrait_rows) && $sheet_character_id > 0 && $sheet_character_id !== $char_id) {
-      $portrait_rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $sheet_character_id, $campaign_id > 0 ? $campaign_id : NULL, 'portrait', 'original');
+
+    // If the runtime record does not carry a portrait URL, resolve from image records.
+    $char_id = (int) $record['id'];
+    if ($portrait_url === NULL || $portrait_url === '') {
+      $portrait_rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $char_id, $campaign_id > 0 ? $campaign_id : NULL, 'portrait', 'original');
       if (empty($portrait_rows) && $campaign_id > 0) {
-        $portrait_rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $sheet_character_id, NULL, 'portrait', 'original');
+        $portrait_rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $char_id, NULL, 'portrait', 'original');
+      }
+      if (empty($portrait_rows) && $sheet_character_id > 0 && $sheet_character_id !== $char_id) {
+        $portrait_rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $sheet_character_id, $campaign_id > 0 ? $campaign_id : NULL, 'portrait', 'original');
+        if (empty($portrait_rows) && $campaign_id > 0) {
+          $portrait_rows = $this->imageRepository->loadImagesForObject('dc_campaign_characters', (string) $sheet_character_id, NULL, 'portrait', 'original');
+        }
+      }
+      if (!empty($portrait_rows)) {
+        $portrait_url = $this->imageRepository->resolveClientUrl($portrait_rows[0]);
       }
     }
-    if (!empty($portrait_rows)) {
-      $portrait_url = $this->imageRepository->resolveClientUrl($portrait_rows[0]);
-    }
+
+    $followers = $this->campaignCharacterRuntimeSync->getFollowers(
+      $campaign_id,
+      (int) ($record['id'] ?? $character_id)
+    );
 
     return [
       'id' => (int) $record['id'],
@@ -631,6 +632,8 @@ class HexMapController extends ControllerBase {
       'hero_points' => $hero_points,
       'conditions' => $conditions,
       'portrait_url' => $portrait_url,
+      'portrait' => $portrait_url,
+      'followers' => $followers,
     ];
   }
 
@@ -1791,7 +1794,13 @@ class HexMapController extends ControllerBase {
       return $dungeon_payload;
     }
 
-    $content_id = (string) ($barkeep['content_id'] ?? 'tavern_barkeep');
+    $content_id = $this->canonicalizeRoomNpcContentId((string) ($barkeep['content_id'] ?? ''));
+    if ($content_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Room "%s" barkeep content_id is required by the room NPC contract.',
+        $room_id
+      ));
+    }
     $instance_id = 'npc-' . (preg_replace('/[^a-zA-Z0-9_\-]+/', '-', $content_id) ?: 'tavern_barkeep');
 
     $placement_room_id = $this->resolveBarkeepTargetRoomId($dungeon_payload, $room_id);
@@ -1905,7 +1914,7 @@ class HexMapController extends ControllerBase {
       if (!is_array($entity)) {
         continue;
       }
-      $ecid = strtolower((string) ($entity['entity_ref']['content_id'] ?? ''));
+      $ecid = $this->canonicalizeRoomNpcContentId((string) ($entity['entity_ref']['content_id'] ?? ''));
       if ($ecid !== '') {
         $existing_content_ids[$ecid] = TRUE;
       }
@@ -1916,7 +1925,14 @@ class HexMapController extends ControllerBase {
         continue;
       }
 
-      $content_id = strtolower((string) ($npc['content_id'] ?? ''));
+      $content_id = $this->canonicalizeRoomNpcContentId((string) ($npc['content_id'] ?? ''));
+      if ($content_id === '') {
+        throw new \RuntimeException(sprintf(
+          'Room "%s" NPC "%s" is missing canonical content_id.',
+          $placement_room_id,
+          (string) ($npc['name'] ?? 'unknown')
+        ));
+      }
 
       // Skip if already present (barkeep was already injected).
       if ($content_id !== '' && isset($existing_content_ids[$content_id])) {
@@ -1924,7 +1940,7 @@ class HexMapController extends ControllerBase {
       }
 
       $name = (string) ($npc['name'] ?? 'Unknown NPC');
-      $instance_id = 'npc-' . (preg_replace('/[^a-zA-Z0-9_\-]+/', '-', $content_id ?: strtolower($name)) ?: 'npc');
+      $instance_id = 'npc-' . (preg_replace('/[^a-zA-Z0-9_\-]+/', '-', $content_id) ?: 'npc');
       $campaign_portrait_row = $this->findCampaignRoomNpcPortraitRow($campaign_portrait_rows, $content_id, $name);
 
       // Use authored position or random offset.
@@ -1937,7 +1953,7 @@ class HexMapController extends ControllerBase {
         'instance_id' => $instance_id,
         'entity_ref' => [
           'content_type' => 'npc',
-          'content_id' => $content_id ?: 'generic_npc',
+          'content_id' => $content_id,
         ],
         'placement' => [
           'room_id' => $placement_room_id,
@@ -2001,7 +2017,7 @@ class HexMapController extends ControllerBase {
       $normalized[] = [
         'id' => (int) ($row['id'] ?? 0),
         'name' => trim((string) ($row['name'] ?? '')),
-        'content_id' => strtolower(trim((string) ($state_data['content_id'] ?? ''))),
+        'content_id' => $this->canonicalizeRoomNpcContentId((string) ($state_data['content_id'] ?? '')),
       ];
     }
 
@@ -2012,14 +2028,14 @@ class HexMapController extends ControllerBase {
    * Match an injected room NPC to its campaign character row.
    */
   protected function findCampaignRoomNpcPortraitRow(array $rows, string $content_id, string $name): ?array {
-    $normalized_content_id = strtolower(trim($content_id));
+    $normalized_content_id = $this->canonicalizeRoomNpcContentId($content_id);
     $normalized_name = strtolower(trim($name));
 
     foreach ($rows as $row) {
       if (!is_array($row)) {
         continue;
       }
-      if ($normalized_content_id !== '' && strtolower(trim((string) ($row['content_id'] ?? ''))) === $normalized_content_id) {
+      if ($normalized_content_id !== '' && $this->canonicalizeRoomNpcContentId((string) ($row['content_id'] ?? '')) === $normalized_content_id) {
         return $row;
       }
     }
@@ -2920,6 +2936,7 @@ class HexMapController extends ControllerBase {
     // Try the DB-slug form first (barkeep + NPC methods use this).
     $db_room_id = $this->resolveDbRoomSlug($campaign_id, $room_id, $dungeon_payload);
     $effective_id = $db_room_id ?? $room_id;
+    $contents_room_id = $effective_id;
     $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap loadRoomContentsData entry: campaign_id=@campaign_id requested_room_id=@requested_room_id resolved_db_room_id=@resolved_db_room_id effective_room_id=@effective_room_id launch_context_room_id=@launch_context_room_id', [
       '@campaign_id' => $campaign_id,
       '@requested_room_id' => $room_id,
@@ -2960,6 +2977,7 @@ class HexMapController extends ControllerBase {
           ->fetchField();
         // Update cache key if fallback succeeded.
         if ($raw_contents !== FALSE && $raw_contents !== NULL && $raw_contents !== '') {
+          $contents_room_id = $fallback_room_id;
           $cache_key = $campaign_id . ':' . $fallback_room_id;
           $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap loadRoomContentsData fallback hit: campaign_id=@campaign_id effective_room_id=@effective_room_id fallback_room_id=@fallback_room_id', [
             '@campaign_id' => $campaign_id,
@@ -2982,7 +3000,23 @@ class HexMapController extends ControllerBase {
     $decoded = json_decode((string) $raw_contents, TRUE);
     $result = is_array($decoded) ? $decoded : NULL;
     if (is_array($result)) {
-      $this->ensureRoomItemInstancesSeeded($campaign_id, $effective_id, $result);
+      $backfill = $this->backfillMissingRoomNpcContracts($campaign_id, $contents_room_id, $result);
+      $result = $backfill['contents_data'];
+      $normalization = $this->normalizeRoomNpcContentIdContracts($result, $contents_room_id);
+      $result = $normalization['contents_data'];
+      if (!empty($backfill['changed']) || !empty($normalization['changed'])) {
+        $this->database->update('dc_campaign_rooms')
+          ->fields([
+            'contents_data' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated' => time(),
+          ])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('room_id', $contents_room_id)
+          ->execute();
+      }
+    }
+    if (is_array($result)) {
+      $this->ensureRoomItemInstancesSeeded($campaign_id, $contents_room_id, $result);
     }
     $this->roomContentsCache[$cache_key] = $result;
     $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap loadRoomContentsData exit: campaign_id=@campaign_id effective_room_id=@effective_room_id result=loaded creature_count=@creature_count item_count=@item_count interactable_count=@interactable_count', [
@@ -2993,6 +3027,167 @@ class HexMapController extends ControllerBase {
       '@interactable_count' => count($result['interactables'] ?? []),
     ]);
     return $result;
+  }
+
+  /**
+   * Backfill missing campaign-room NPCs from canonical room templates.
+   *
+   * Older campaigns can carry room rows with empty `contents_data.npcs` even
+   * when the canonical library room now defines grounded NPC anchors (for
+   * example LTBA Hookclaw kobolds). This repair hydrates those NPC entries at
+   * read time and persists the corrected room contract.
+   *
+   * @return array{contents_data: array, changed: bool}
+   *   Updated contents payload and whether persistence is required.
+   */
+  protected function backfillMissingRoomNpcContracts(int $campaign_id, string $room_id, array $contents_data): array {
+    $existing_npcs = $contents_data['npcs'] ?? [];
+    if (is_array($existing_npcs) && $existing_npcs !== []) {
+      return [
+        'contents_data' => $contents_data,
+        'changed' => FALSE,
+      ];
+    }
+
+    $source_room_id = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['source_room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    $lookup_ids = array_values(array_unique(array_filter([
+      is_string($source_room_id) ? trim($source_room_id) : '',
+      trim($room_id),
+    ], static fn(string $value): bool => $value !== '')));
+    if ($lookup_ids === []) {
+      return [
+        'contents_data' => $contents_data,
+        'changed' => FALSE,
+      ];
+    }
+
+    $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['contents_data']);
+    $query->condition(
+      $query->orConditionGroup()
+        ->condition('room_id', $lookup_ids, 'IN')
+        ->condition('source_room_id', $lookup_ids, 'IN')
+    );
+    $canonical_raw = $query
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    if ($canonical_raw === FALSE || $canonical_raw === NULL || $canonical_raw === '') {
+      return [
+        'contents_data' => $contents_data,
+        'changed' => FALSE,
+      ];
+    }
+
+    $canonical_contents = json_decode((string) $canonical_raw, TRUE);
+    $canonical_npcs = is_array($canonical_contents) && is_array($canonical_contents['npcs'] ?? NULL)
+      ? array_values(array_filter($canonical_contents['npcs'], 'is_array'))
+      : [];
+    if ($canonical_npcs === []) {
+      return [
+        'contents_data' => $contents_data,
+        'changed' => FALSE,
+      ];
+    }
+
+    $contents_data['npcs'] = $canonical_npcs;
+    return [
+      'contents_data' => $contents_data,
+      'changed' => TRUE,
+    ];
+  }
+
+  /**
+   * Enforce canonical room-NPC content_id contracts at the room-management source.
+   *
+   * @return array{contents_data: array, changed: bool}
+   *   Normalized contents payload and whether persistence is required.
+   */
+  protected function normalizeRoomNpcContentIdContracts(array $contents_data, string $room_id): array {
+    $npcs = $contents_data['npcs'] ?? [];
+    if (!is_array($npcs) || $npcs === []) {
+      return [
+        'contents_data' => $contents_data,
+        'changed' => FALSE,
+      ];
+    }
+
+    $normalized_npcs = [];
+    $changed = FALSE;
+    $seen_content_ids = [];
+    foreach ($npcs as $index => $npc) {
+      if (!is_array($npc)) {
+        throw new \RuntimeException(sprintf(
+          'Room "%s" NPC entry at index %d must be an object.',
+          $room_id,
+          (int) $index
+        ));
+      }
+
+      $canonical_content_id = $this->canonicalizeRoomNpcContentId((string) ($npc['content_id'] ?? ''));
+      if ($canonical_content_id === '') {
+        throw new \RuntimeException(sprintf(
+          'Room "%s" NPC "%s" is missing canonical content_id.',
+          $room_id,
+          (string) ($npc['name'] ?? 'unknown')
+        ));
+      }
+
+      $existing_content_id = trim((string) ($npc['content_id'] ?? ''));
+      if ($existing_content_id !== $canonical_content_id) {
+        $changed = TRUE;
+      }
+      $npc['content_id'] = $canonical_content_id;
+
+      if (isset($seen_content_ids[$canonical_content_id])) {
+        throw new \RuntimeException(sprintf(
+          'Room "%s" contains duplicate NPC content_id "%s" (indexes %d and %d).',
+          $room_id,
+          $canonical_content_id,
+          $seen_content_ids[$canonical_content_id],
+          (int) $index
+        ));
+      }
+      $seen_content_ids[$canonical_content_id] = (int) $index;
+      $normalized_npcs[] = $npc;
+    }
+
+    if ($changed) {
+      $contents_data['npcs'] = $normalized_npcs;
+    }
+
+    return [
+      'contents_data' => $contents_data,
+      'changed' => $changed,
+    ];
+  }
+
+  /**
+   * Canonicalize room-NPC content IDs to one room-management standard.
+   */
+  protected function canonicalizeRoomNpcContentId(string $content_id): string {
+    $normalized = strtolower(trim($content_id));
+    if ($normalized === '') {
+      return '';
+    }
+
+    if (str_starts_with($normalized, 'npc_')) {
+      $normalized = substr($normalized, 4);
+    }
+    elseif (str_starts_with($normalized, 'npc-')) {
+      $normalized = substr($normalized, 4);
+    }
+
+    return trim($normalized);
   }
 
   /**

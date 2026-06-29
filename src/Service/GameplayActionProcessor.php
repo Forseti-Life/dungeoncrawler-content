@@ -64,11 +64,21 @@ class GameplayActionProcessor {
    *   Full dungeon_data payload (for location awareness context).
    * @param int|string|null $room_index
    *   Current room index in dungeon_data['rooms'].
+   * @param array $action_availability
+   *   Optional authoritative actor-scoped availability payload.
    *
    * @return string
    *   Enhanced system prompt with mechanical instructions.
    */
-  public function buildEnhancedSystemPrompt(string $base_system_prompt, array $character_data, array $room_meta, array $room_inventory = [], array $dungeon_data = [], $room_index = NULL): string {
+  public function buildEnhancedSystemPrompt(
+    string $base_system_prompt,
+    array $character_data,
+    array $room_meta,
+    array $room_inventory = [],
+    array $dungeon_data = [],
+    $room_index = NULL,
+    array $action_availability = []
+  ): string {
     $char_name = $character_data['name'] ?? 'the character';
     $char_class = $character_data['class'] ?? 'unknown';
     $char_level = $character_data['level'] ?? 1;
@@ -442,6 +452,23 @@ PARTYRULES;
         }
         $enhanced .= $eff_line . "\n";
       }
+    }
+
+    $availability_actions = is_array($action_availability['available_actions'] ?? NULL)
+      ? array_values(array_filter(array_map('strval', $action_availability['available_actions']), static fn(string $value): bool => trim($value) !== ''))
+      : [];
+    $availability_contract = is_array($action_availability['action_contract'] ?? NULL)
+      ? $action_availability['action_contract']
+      : NULL;
+    if ($availability_actions !== [] || $availability_contract !== NULL) {
+      $availability_payload = [
+        'available_actions' => $availability_actions,
+        'action_contract' => $availability_contract,
+      ];
+      $enhanced .= "\n=== ACTOR ACTION AVAILABILITY (AUTHORITATIVE) ===\n";
+      $enhanced .= "Use this contract as the source of truth for mechanical choices and legality.\n";
+      $enhanced .= "Do not propose mechanical actions outside available_actions.\n";
+      $enhanced .= json_encode($availability_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
     }
 
     // Location awareness context (exits, world map, history).

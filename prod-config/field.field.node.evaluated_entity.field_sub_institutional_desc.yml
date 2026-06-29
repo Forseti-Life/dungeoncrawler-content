@@ -1,0 +1,22 @@
+uuid: 3f6c91ae-d806-4b99-81b3-b7b325a00b5d
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_sub_institutional_desc
+    - node.type.evaluated_entity
+  module:
+    - text
+id: node.evaluated_entity.field_sub_institutional_desc
+field_name: field_sub_institutional_desc
+entity_type: node
+bundle: evaluated_entity
+label: 'Institutional Description'
+description: 'AI-provided description for institutional sub-dimension'
+required: false
+translatable: true
+default_value: {  }
+default_value_callback: ''
+settings:
+  allowed_formats: {  }
+field_type: text_long

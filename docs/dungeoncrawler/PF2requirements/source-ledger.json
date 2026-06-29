@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "system_of_record": "BA source-document traceability ledger",
+  "product": "dungeoncrawler",
+  "updated_at": "2026-04-18",
+  "status_legend": {
+    "requirements_status": ["pending", "in_progress", "complete", "skipped"],
+    "issue_mapping_status": ["unmapped", "partial", "mapped"],
+    "feature_mapping_status": ["unmapped", "partial", "mapped"],
+    "release_handoff_status": ["pending", "submitted", "triaged", "activated", "released"]
+  },
+  "source_documents": [
+    {
+      "source_id": "core-rulebook-4p",
+      "label": "PF2E Core Rulebook (Fourth Printing)",
+      "kind": "rulebook",
+      "source_object_kind": "chapters",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Core Rulebook - Fourth Printing.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Core_Rulebook_Fourth_Printing_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/core-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/core-",
+      "feature_prefixes": ["dc-cr-"],
+      "requirements_coverage": {
+        "total_objects": 11,
+        "complete_objects": 10,
+        "skipped_objects": 1,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "partial",
+        "feature_mapping_status": "partial",
+        "release_handoff_status": "submitted"
+      },
+      "gaps": [
+        "Chapter 8 is intentionally skipped as lore-only for requirements extraction; record any gameplay-relevant world-building as feature-only derivations.",
+        "Chapter 2 now has a pilot traceability path through Issue #18 and dc-cr-half-elf-heritage, but the rest of Core Chapter 2+ still need explicit issue grouping or a no-issue rationale."
+      ]
+    },
+    {
+      "source_id": "advanced-players-guide",
+      "label": "PF2E Advanced Players Guide",
+      "kind": "rulebook",
+      "source_object_kind": "chapters",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Advanced Players Guide.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Advanced_Players_Guide_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/apg-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/apg-",
+      "feature_prefixes": ["dc-apg-"],
+      "requirements_coverage": {
+        "total_objects": 6,
+        "complete_objects": 6,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "partial",
+        "release_handoff_status": "pending"
+      },
+      "gaps": [
+        "Reference docs exist, but issue-group traceability is not maintained in docs/dungeoncrawler/issues/README.md.",
+        "Feature stubs exist for APG concepts, but they are not yet mapped back to source-object records."
+      ]
+    },
+    {
+      "source_id": "gamemastery-guide",
+      "label": "PF2E Gamemastery Guide",
+      "kind": "rulebook",
+      "source_object_kind": "chapters",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Gamemastery Guide.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Gamemastery_Guide_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/gmg-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/gmg-",
+      "feature_prefixes": ["dc-gmg-"],
+      "requirements_coverage": {
+        "total_objects": 4,
+        "complete_objects": 4,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "partial",
+        "release_handoff_status": "pending"
+      },
+      "gaps": [
+        "Downstream issue grouping has not been synchronized into the issues README.",
+        "Feature submission traceability exists only indirectly through dc-gmg-* stubs."
+      ]
+    },
+    {
+      "source_id": "guns-and-gears",
+      "label": "PF2E Guns and Gears",
+      "kind": "rulebook",
+      "source_object_kind": "chapters",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Guns and Gears.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Guns_and_Gears_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/gng-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/gng-",
+      "feature_prefixes": ["dc-gg-"],
+      "requirements_coverage": {
+        "total_objects": 5,
+        "complete_objects": 5,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "unmapped",
+        "release_handoff_status": "pending"
+      },
+      "gaps": [
+        "Requirements docs are complete, but no controlled issue or feature mappings are recorded yet."
+      ]
+    },
+    {
+      "source_id": "secrets-of-magic",
+      "label": "PF2E Secrets of Magic",
+      "kind": "rulebook",
+      "source_object_kind": "chapters",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Secrets of Magic.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Secrets_of_Magic_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/som-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/som-",
+      "feature_prefixes": ["dc-som-"],
+      "requirements_coverage": {
+        "total_objects": 5,
+        "complete_objects": 5,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "partial",
+        "release_handoff_status": "pending"
+      },
+      "gaps": [
+        "Requirements docs are complete, but downstream issue mapping is not controlled in the issue inventory."
+      ]
+    },
+    {
+      "source_id": "gods-and-magic",
+      "label": "PF2E Gods and Magic",
+      "kind": "rulebook",
+      "source_object_kind": "sections",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Gods and Magic.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Gods_and_Magic_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/gam-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/gam-",
+      "feature_prefixes": ["dc-gam-"],
+      "requirements_coverage": {
+        "total_objects": 6,
+        "complete_objects": 6,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "unmapped",
+        "release_handoff_status": "pending"
+      },
+      "gaps": [
+        "Character-options material needs explicit feature and release traceability."
+      ]
+    },
+    {
+      "source_id": "bestiary-1",
+      "label": "PF2E Bestiary 1",
+      "kind": "bestiary",
+      "source_object_kind": "sections",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Bestiary 1.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Bestiary_1_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/b1-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/b1-",
+      "feature_prefixes": ["dc-b1-"],
+      "requirements_coverage": {
+        "total_objects": 3,
+        "complete_objects": 3,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "partial",
+        "release_handoff_status": "pending"
+      },
+      "gaps": [
+        "Creature-schema requirements are extracted, but per-creature feature derivations are not formally linked from the tracker."
+      ]
+    },
+    {
+      "source_id": "bestiary-2",
+      "label": "PF2E Bestiary 2",
+      "kind": "bestiary",
+      "source_object_kind": "sections",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Bestiary 2.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Bestiary_2_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/b2-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/b2-",
+      "feature_prefixes": ["dc-b2-"],
+      "requirements_coverage": {
+        "total_objects": 2,
+        "complete_objects": 2,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "partial",
+        "release_handoff_status": "pending"
+      },
+      "gaps": [
+        "Reference extraction is complete, but downstream feature/release traceability is incomplete."
+      ]
+    },
+    {
+      "source_id": "bestiary-3",
+      "label": "PF2E Bestiary 3",
+      "kind": "bestiary",
+      "source_object_kind": "sections",
+      "source_path": "docs/dungeoncrawler/reference documentation/PF2E Bestiary 3.txt",
+      "outline_path": "docs/dungeoncrawler/reference documentation/outlines/PF2E_Bestiary_3_OUTLINE.md",
+      "tracker_path": "docs/dungeoncrawler/PF2requirements/EXTRACTION_TRACKER.md",
+      "audit_path": "docs/dungeoncrawler/PF2requirements/audit/b3-audit.md",
+      "reference_prefix": "docs/dungeoncrawler/PF2requirements/references/b3-",
+      "feature_prefixes": ["dc-b3-"],
+      "requirements_coverage": {
+        "total_objects": 3,
+        "complete_objects": 3,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "complete",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "partial",
+        "release_handoff_status": "pending"
+      },
+      "gaps": [
+        "Requirements extraction exists, but issue grouping and release-handoff mapping are not controlled."
+      ]
+    }
+  ]
+}

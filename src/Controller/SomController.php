@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -30,10 +31,12 @@ class SomController extends ControllerBase {
    * @var \Drupal\dungeoncrawler_content\Service\CharacterManager
    */
   protected CharacterManager $characterManager;
+  protected FollowerSubsystemService $followerSubsystem;
   protected NumberGenerationService $numberGeneration;
 
-  public function __construct(CharacterManager $character_manager, NumberGenerationService $number_generation) {
+  public function __construct(CharacterManager $character_manager, FollowerSubsystemService $follower_subsystem, NumberGenerationService $number_generation) {
     $this->characterManager = $character_manager;
+    $this->followerSubsystem = $follower_subsystem;
     $this->numberGeneration = $number_generation;
   }
 
@@ -43,6 +46,7 @@ class SomController extends ControllerBase {
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('dungeoncrawler_content.character_manager'),
+      $container->get('dungeoncrawler_content.follower_subsystem'),
       $container->get('dungeoncrawler_content.number_generation')
     );
   }
@@ -323,6 +327,10 @@ class SomController extends ControllerBase {
     }
 
     $template = CharacterManager::EIDOLONS['types'][$eidolonType];
+    $bond_contract = FollowerSubsystemService::buildCreationBondContract(
+      FollowerSubsystemService::FOLLOWER_KIND_EIDOLON,
+      $character_id
+    );
 
     $data['som_state']['eidolon'] = [
       'type'       => $eidolonType,
@@ -335,13 +343,31 @@ class SomController extends ControllerBase {
       'movement'   => $template['movement'],
       'attacks'    => $template['attacks'],
       'evolutions' => [],
+      'bond_contract' => $bond_contract,
+      'loyalty_profile' => (string) ($bond_contract['loyalty_profile'] ?? ''),
+      'motivation_profile' => (string) ($bond_contract['motivation_profile'] ?? ''),
+      'psychology_defaults' => is_array($bond_contract['psychology_defaults'] ?? NULL) ? $bond_contract['psychology_defaults'] : [],
     ];
-    $this->saveData($character_id, $data);
+    $actor_record = $this->followerSubsystem->resolveFollowerActorRecord(
+      $this->characterManager->canonicalizeCharacterData($data),
+      (string) $character_id,
+      FollowerSubsystemService::FOLLOWER_KIND_EIDOLON
+    );
+    $data = $this->followerSubsystem->persistActorRecordOnCharacterData(
+      $data,
+      FollowerSubsystemService::FOLLOWER_KIND_EIDOLON,
+      $actor_record
+    );
+
+    if (!$this->saveData($character_id, $data)) {
+      return $this->jsonError('Failed to save character data.', 500);
+    }
 
     return $this->jsonOk([
       'character_id'    => $character_id,
       'eidolon'         => $data['som_state']['eidolon'],
       'shared_hp_rule'  => CharacterManager::EIDOLONS['shared_hp_rule'],
+      'actor_record'    => $actor_record,
     ]);
   }
 
@@ -369,11 +395,24 @@ class SomController extends ControllerBase {
     }
 
     $data['som_state']['eidolon']['dismissed'] = ($action === 'dismiss');
-    $this->saveData($character_id, $data);
+    $actor_record = $this->followerSubsystem->resolveFollowerActorRecord(
+      $this->characterManager->canonicalizeCharacterData($data),
+      (string) $character_id,
+      FollowerSubsystemService::FOLLOWER_KIND_EIDOLON
+    );
+    $data = $this->followerSubsystem->persistActorRecordOnCharacterData(
+      $data,
+      FollowerSubsystemService::FOLLOWER_KIND_EIDOLON,
+      $actor_record
+    );
+    if (!$this->saveData($character_id, $data)) {
+      return $this->jsonError('Failed to save character data.', 500);
+    }
 
     return $this->jsonOk([
       'character_id'      => $character_id,
       'eidolon_dismissed' => $data['som_state']['eidolon']['dismissed'],
+      'actor_record'      => $actor_record,
     ]);
   }
 

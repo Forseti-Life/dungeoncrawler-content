@@ -1,0 +1,166 @@
+Config Comparison Analysis - Forseti Production vs Development
+================================================================
+Generated: $(date)
+
+SUMMARY:
+--------
+📊 Total Differences: 460
+   • Files only in PRODUCTION: 103
+   • Files only in DEVELOPMENT: 40  
+   • Files that DIFFER: 317
+
+CRITICAL FINDINGS:
+-----------------
+⚠️  This represents SIGNIFICANT config drift between dev and production.
+⚠️  Dev config appears to be missing many production configurations.
+
+
+PRODUCTION-ONLY FILES (First 20):
+----------------------------------
+Only in ../../prod-config: admin_toolbar.settings.yml
+Only in ../../prod-config: admin_toolbar_tools.settings.yml
+Only in ../../prod-config: agent_evaluation.settings.yml
+Only in ../../prod-config: backup_migrate.backup_migrate_destination.private_files.yml
+Only in ../../prod-config: backup_migrate.backup_migrate_schedule.daily_schedule.yml
+Only in ../../prod-config: backup_migrate.backup_migrate_source.default_db.yml
+Only in ../../prod-config: backup_migrate.backup_migrate_source.entire_site.yml
+Only in ../../prod-config: backup_migrate.backup_migrate_source.private_files.yml
+Only in ../../prod-config: backup_migrate.backup_migrate_source.public_files.yml
+Only in ../../prod-config: block.block.forseti_sitebranding.yml
+Only in ../../prod-config: block.block.forseti_socialauthlogin_2.yml
+Only in ../../prod-config: block.block.forseti_useraccountmenu.yml
+Only in ../../prod-config: core.entity_form_display.node.evaluated_entity.default.yml
+Only in ../../prod-config: core.entity_view_mode.block_content.token.yml
+Only in ../../prod-config: core.entity_view_mode.block.token.yml
+Only in ../../prod-config: core.entity_view_mode.comment.token.yml
+Only in ../../prod-config: core.entity_view_mode.file.token.yml
+Only in ../../prod-config: core.entity_view_mode.menu_link_content.token.yml
+Only in ../../prod-config: core.entity_view_mode.node.token.yml
+Only in ../../prod-config: core.entity_view_mode.path_alias.token.yml
+
+DEVELOPMENT-ONLY FILES (All 40):
+---------------------------------
+Only in ../../sites/forseti/config/sync: block.block.forseti_branding.yml
+Only in ../../sites/forseti/config/sync: block.block.forseti_breadcrumbs.yml
+Only in ../../sites/forseti/config/sync: block.block.forseti_content.yml
+Only in ../../sites/forseti/config/sync: block.block.forseti_footer.yml
+Only in ../../sites/forseti/config/sync: block.block.forseti_messages.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_account_menu.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_breadcrumbs.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_content.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_forseti_forsetifootermenu.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_help.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_main_menu.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_messages.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_page_title.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_powered.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_primary_admin_actions.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_primary_local_tasks.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_search_form_narrow.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_search_form_wide.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_secondary_local_tasks.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_site_branding.yml
+Only in ../../sites/forseti/config/sync: contact.form.feedback.yml
+Only in ../../sites/forseti/config/sync: contact.form.personal.yml
+Only in ../../sites/forseti/config/sync: contact.settings.yml
+Only in ../../sites/forseti/config/sync: core.entity_form_display.group_relationship.family-group_membership.default.yml
+Only in ../../sites/forseti/config/sync: core.entity_form_display.group_relationship.institution-group_membership.default.yml
+Only in ../../sites/forseti/config/sync: core.entity_view_display.group_relationship.family-group_membership.default.yml
+Only in ../../sites/forseti/config/sync: core.entity_view_display.group_relationship.institution-group_membership.default.yml
+Only in ../../sites/forseti/config/sync: field.field.group_relationship.family-group_membership.group_roles.yml
+Only in ../../sites/forseti/config/sync: field.field.group_relationship.institution-group_membership.group_roles.yml
+Only in ../../sites/forseti/config/sync: field.storage.group_relationship.group_roles.yml
+Only in ../../sites/forseti/config/sync: group.relationship_type.family-group_membership.yml
+Only in ../../sites/forseti/config/sync: group.relationship_type.institution-group_membership.yml
+Only in ../../sites/forseti/config/sync: group.role.family-family-admin.yml
+Only in ../../sites/forseti/config/sync: group.role.family-family-member.yml
+Only in ../../sites/forseti/config/sync: group.role.institution-institution-admin.yml
+Only in ../../sites/forseti/config/sync: group.role.institution-institution-member.yml
+Only in ../../sites/forseti/config/sync: group.settings.yml
+Only in ../../sites/forseti/config/sync: group.type.family.yml
+Only in ../../sites/forseti/config/sync: group.type.institution.yml
+Only in ../../sites/forseti/config/sync: views.view.group_members.yml
+
+
+ANALYSIS:
+---------
+
+DEVELOPMENT-ONLY FILES (All 40):
+---------------------------------
+Only in ../../sites/forseti/config/sync: block.block.forseti_branding.yml
+Only in ../../sites/forseti/config/sync: block.block.forseti_breadcrumbs.yml
+Only in ../../sites/forseti/config/sync: block.block.forseti_content.yml
+Only in ../../sites/forseti/config/sync: block.block.forseti_footer.yml
+Only in ../../sites/forseti/config/sync: block.block.forseti_messages.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_account_menu.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_breadcrumbs.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_content.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_forseti_forsetifootermenu.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_help.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_main_menu.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_messages.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_page_title.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_powered.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_primary_admin_actions.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_primary_local_tasks.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_search_form_narrow.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_search_form_wide.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_secondary_local_tasks.yml
+Only in ../../sites/forseti/config/sync: block.block.radix_site_branding.yml
+Only in ../../sites/forseti/config/sync: contact.form.feedback.yml
+Only in ../../sites/forseti/config/sync: contact.form.personal.yml
+Only in ../../sites/forseti/config/sync: contact.settings.yml
+Only in ../../sites/forseti/config/sync: core.entity_form_display.group_relationship.family-group_membership.default.yml
+Only in ../../sites/forseti/config/sync: core.entity_form_display.group_relationship.institution-group_membership.default.yml
+Only in ../../sites/forseti/config/sync: core.entity_view_display.group_relationship.family-group_membership.default.yml
+Only in ../../sites/forseti/config/sync: core.entity_view_display.group_relationship.institution-group_membership.default.yml
+Only in ../../sites/forseti/config/sync: field.field.group_relationship.family-group_membership.group_roles.yml
+Only in ../../sites/forseti/config/sync: field.field.group_relationship.institution-group_membership.group_roles.yml
+Only in ../../sites/forseti/config/sync: field.storage.group_relationship.group_roles.yml
+Only in ../../sites/forseti/config/sync: group.relationship_type.family-group_membership.yml
+Only in ../../sites/forseti/config/sync: group.relationship_type.institution-group_membership.yml
+Only in ../../sites/forseti/config/sync: group.role.family-family-admin.yml
+Only in ../../sites/forseti/config/sync: group.role.family-family-member.yml
+Only in ../../sites/forseti/config/sync: group.role.institution-institution-admin.yml
+Only in ../../sites/forseti/config/sync: group.role.institution-institution-member.yml
+Only in ../../sites/forseti/config/sync: group.settings.yml
+Only in ../../sites/forseti/config/sync: group.type.family.yml
+Only in ../../sites/forseti/config/sync: group.type.institution.yml
+Only in ../../sites/forseti/config/sync: views.view.group_members.yml
+
+
+EXPECTED DIFFERENCES (from .config-differences.yml):
+----------------------------------------------------
+✓ backup_migrate.* files - Expected in production only
+✓ admin_toolbar.* settings - May legitimately differ  
+? Blocks (radix, forseti themes) - Need investigation
+? Group module configs - Need investigation
+? Contact forms - Need investigation
+
+
+RECOMMENDATION:
+---------------
+The scale of differences (460 total) suggests dev and prod have
+significantly diverged. This is DANGEROUS because:
+
+1. Dev changes cannot be safely tested against prod-like config
+2. Any config export from dev would delete 103 production configs
+3. The 317 modified files need individual review
+
+IMMEDIATE ACTIONS REQUIRED:
+---------------------------
+1. ❌ DO NOT deploy dev config to production
+2. ✅ Sync production config to dev using: ./reconcile-config.sh
+3. ✅ Use "use-prod" strategy to replace dev with prod baseline
+4. ✅ Review the 40 dev-only files to determine if they should exist
+5. ✅ After sync, make changes in dev and test before deploying
+
+NEXT STEPS:
+-----------
+Run: cd /home/keithaumiller/forseti.life/script/production
+     ./reconcile-config.sh ../../prod-config ../../sites/forseti/config/sync
+
+This will:
+- Back up current dev config
+- Replace dev config with production config
+- Establish a safe baseline for future changes

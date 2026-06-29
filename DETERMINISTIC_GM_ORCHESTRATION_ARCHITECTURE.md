@@ -181,6 +181,227 @@ These are conceptual targets; naming may change at implementation time.
 
 ---
 
+## `generateGmReply()` Subsystem Blueprint (current vs target)
+
+`RoomChatService::generateGmReply()` is currently the highest-concentration orchestration seam.
+It should be decomposed into explicit subsystems while preserving the existing response contract.
+
+### Current internal stages (inside one method)
+
+1. **Turn context + intent**
+   - recent chat extraction
+   - room NPC/profile gathering
+   - direct-addressed NPC resolution
+   - turn intent classification
+2. **Deterministic short path**
+   - `buildDeterministicGmResponse()`
+   - role-boundary enforcement + safe fallback narrative
+3. **Fallback generation path**
+   - prompt artifact assembly
+   - system prompt assembly (character/room context)
+   - cache lookup
+   - `generateRealityCheckedGmResponse()`
+4. **Output sanitation + suggestion extraction**
+   - `[CREATE_SUGGESTION]` parsing/stripping
+   - narrative cleanup/sanitization
+5. **Canonical execution**
+   - broker canonical actions (`executeCanonicalAuthoritativeActions()`)
+   - character/room state mutation + state diff
+6. **Transitions + conversation sync**
+   - navigation handling
+   - explicit room conversation state sync
+7. **Transcript projection + persistence**
+   - visible GM narrative shaping
+   - message payload assembly
+   - DB persistence + session bridge
+
+### Target subsystem decomposition
+
+| Subsystem | Owns | Inputs | Outputs |
+|---|---|---|---|
+| `TurnIntentRouter` | route-family decision and deterministic eligibility | room turn context, actor context, message | `route_family`, `intent`, `handoff_reason` |
+| `PromptContextAssembler` | fallback prompt/system context only | campaign+room+actor context, route metadata | `prompt_bundle` |
+| `GmGenerationPolicy` | fallback generation/caching/reality-check policy | `prompt_bundle`, policy flags | normalized `gm_candidate` |
+| `CanonicalExecutionPipeline` | resolve -> validate -> execute -> receipt | `intent`/`actions`, authoritative state | `execution_receipts`, `validation`, state deltas |
+| `NavigationTransitionPipeline` | destination transition side effects | execution artifacts, dungeon state | navigation receipt + updated state |
+| `TranscriptProjector` | player-visible response projection from receipts | narrative candidate + receipts + policy flags | stable `gm_message`, `state_diff`, metadata |
+| `PersistenceCoordinator` | durable write + session bridge + log hooks | transcript payload + mutated state | persisted state + response envelope |
+
+### Stable intermediate contracts
+
+1. **Route envelope** (already present): `gm_subsystem_route_v1`
+2. **Resolution outcome**: `resolved | needs_confirmation | not_possible | fallback_to_llm`
+3. **Execution receipt** (single shape across deterministic routes):
+   - route/tool/status
+   - resolved arguments
+   - validation result
+   - execution mutations
+   - optional clarification
+   - narration hints
+4. **Transcript projection payload**:
+   - `gm_response`
+   - `state_diff`
+   - `canonical_actions`
+   - navigation metadata
+   - suppression/interjection flags
+
+### Extraction order for `generateGmReply()`
+
+1. Extract `TurnIntentRouter` + deterministic route result object.
+2. Extract `PromptContextAssembler` (pure assembly, no execution).
+3. Wrap existing fallback call into `GmGenerationPolicy` (no behavior change).
+4. Move canonical execution + mutation into `CanonicalExecutionPipeline`.
+5. Move navigation + transition writes into `NavigationTransitionPipeline`.
+6. Move message shaping/persistence into `TranscriptProjector` + `PersistenceCoordinator`.
+7. Keep `generateGmReply()` as a thin facade composing the subsystems until callers can be migrated.
+
+### Proposed subsystem interfaces (contract-first)
+
+```php
+interface TurnIntentRouterInterface {
+  public function route(RoomTurnContext $context): RouteDecision;
+}
+
+interface PromptContextAssemblerInterface {
+  public function assemble(RoomTurnContext $context, RouteDecision $decision): PromptBundle;
+}
+
+interface GmGenerationPolicyInterface {
+  public function generate(PromptBundle $bundle, RoomTurnContext $context): GmCandidate;
+}
+
+interface CanonicalExecutionPipelineInterface {
+  public function execute(RoomTurnContext $context, GmCandidate $candidate): ExecutionPipelineResult;
+}
+
+interface NavigationTransitionPipelineInterface {
+  public function apply(RoomTurnContext $context, ExecutionPipelineResult $result): NavigationResult;
+}
+
+interface TranscriptProjectorInterface {
+  public function project(
+    RoomTurnContext $context,
+    GmCandidate $candidate,
+    ExecutionPipelineResult $execution,
+    ?NavigationResult $navigation
+  ): TranscriptProjection;
+}
+
+interface PersistenceCoordinatorInterface {
+  public function persist(
+    RoomTurnContext $context,
+    TranscriptProjection $projection
+  ): PersistedTurnResult;
+}
+```
+
+### Proposed DTO/shape contracts
+
+#### `RouteDecision`
+
+```php
+[
+  'route_family' => 'lookup_then_narrate|transactional|quest_progression|combat_transition|navigation|narrative_only|llm_fallback',
+  'deterministic' => true|false,
+  'handoff_reason' => 'string',
+  'resolution_outcome' => 'resolved|needs_confirmation|not_possible|fallback_to_llm',
+  'intent' => [...], // normalized canonical intent envelope
+]
+```
+
+#### `PromptBundle`
+
+```php
+[
+  'user_prompt' => 'string',
+  'system_prompt' => 'string',
+  'cache_key' => 'string|null',
+  'context_meta' => [...],   // counters, room-entry flag, artifact sizes
+  'guardrails_version' => 'string',
+]
+```
+
+#### `GmCandidate`
+
+```php
+[
+  'source' => 'deterministic|cache|reality_checked_generation',
+  'narrative' => 'string',
+  'actions' => [...],        // normalized action list
+  'dice_rolls' => [...],
+  'validation_errors' => [...],
+  'policy_flags' => [
+    'suppress_visible_gm_response' => true|false,
+    'suppress_npc_interjections' => true|false,
+  ],
+]
+```
+
+#### `ExecutionPipelineResult`
+
+```php
+[
+  'receipts' => [...],       // standard receipt model
+  'canonical_results' => [...],
+  'actions_applied' => [...],
+  'state_diff' => [...],
+  'updated_dungeon_data' => [...],
+]
+```
+
+#### `TranscriptProjection`
+
+```php
+[
+  'gm_message' => [...]|null,
+  'state_diff' => [...]|null,
+  'canonical_actions' => [...],
+  'navigation' => [...]|null,
+  'flags' => [
+    'suppress_visible_gm_response' => true|false,
+    'suppress_npc_interjections' => true|false,
+  ],
+]
+```
+
+### Contract conformance rules for subsystem extraction
+
+1. **No silent contract drift:** every subsystem boundary must validate required fields and throw explicit contract exceptions on malformed shapes.
+2. **No success-shaped fallbacks:** `resolution_outcome=not_possible` and `needs_confirmation` must surface explicitly, never be masked as executed.
+3. **Deterministic first, fallback explicit:** `llm_fallback` is an explicit route outcome, not an implicit branch hidden inside execution code.
+4. **Single receipt grammar:** all deterministic executions must return the shared receipt top-level fields.
+5. **Stable outward response:** existing controller/frontend payload keys remain unchanged during migration.
+
+### First implementation slice (recommended)
+
+**Slice A: isolate routing + prompt assembly without behavior change**
+
+- Add new services:
+  - `src/Service/GmSubsystem/TurnIntentRouter.php`
+  - `src/Service/GmSubsystem/PromptContextAssembler.php`
+- Keep current execution in `generateGmReply()`, but replace inline routing/prompt assembly with subsystem calls.
+- Add unit tests:
+  - `tests/src/Unit/Service/GmSubsystem/TurnIntentRouterTest.php`
+  - `tests/src/Unit/Service/GmSubsystem/PromptContextAssemblerTest.php`
+- Keep a thin compatibility adapter in `RoomChatService` so existing callers and tests remain stable.
+
+**Slice B: wrap fallback generation policy**
+
+- Add:
+  - `src/Service/GmSubsystem/GmGenerationPolicy.php`
+- Move cache + `generateRealityCheckedGmResponse()` invocation policy behind this service.
+- Preserve existing prompt, guardrails, and cache key semantics.
+
+**Slice C: execution pipeline extraction**
+
+- Add:
+  - `src/Service/GmSubsystem/CanonicalExecutionPipeline.php`
+  - `src/Service/GmSubsystem/NavigationTransitionPipeline.php`
+  - `src/Service/GmSubsystem/TranscriptProjector.php`
+- Move state mutation, navigation transition, and transcript projection out of `generateGmReply()` in sequence.
+
+---
+
 ## Route Categories
 
 Every room-chat turn should first be classified into one of these route families:
@@ -396,6 +617,31 @@ ever introduced later, they must be:
 ## Migration Plan
 
 The migration should be incremental and behavior-safe.
+
+### Implementation plan (execution phases + gates)
+
+| Phase | Goal | Primary code seams | Verification gate | Exit criteria |
+|---|---|---|---|---|
+| 0 | Freeze baseline behavior and contracts | `RoomChatService::generateGmReply()`, GM route envelope outputs | Existing unit + contract tests green | Baseline snapshot captured; no net behavior change |
+| 1 | Extract routing boundary | `GameMasterSubsystemService`, new `TurnIntentRouter` | Route envelope contract tests | Route decision is subsystem-owned and contract-stable |
+| 2 | Extract prompt assembly | new `PromptContextAssembler` + adapter in `RoomChatService` | Prompt assembly unit tests + unchanged integration outputs | Prompt/system bundle generated outside `generateGmReply()` |
+| 3 | Extract fallback generation policy | new `GmGenerationPolicy` wrapping cache + reality-check | Fallback policy tests + no response shape drift | Fallback path isolated behind one service |
+| 4 | Extract canonical execution pipeline | new `CanonicalExecutionPipeline` | Receipt-shape tests + canonical action regression tests | Resolve/validate/execute/receipt no longer inline in `generateGmReply()` |
+| 5 | Extract navigation + transcript/persistence | `NavigationTransitionPipeline`, `TranscriptProjector`, `PersistenceCoordinator` | Navigation + transcript contract tests | `generateGmReply()` reduced to orchestration facade |
+| 6 | Prompt contract reduction + cleanup | Prompt templates + fallback-specific mechanics instructions | Deterministic bypass coverage + fallback safety tests | Common deterministic routes no longer depend on prompt-authored mechanics |
+
+### Phase deliverables (required)
+
+1. **Code deliverables:** new subsystem service(s), wiring in `dungeoncrawler_content.services.yml`, and thin compatibility adapter in `RoomChatService`.
+2. **Contract deliverables:** explicit DTO/array shape assertions for route decisions, receipts, and transcript projection.
+3. **Regression deliverables:** existing route/contract tests continue to pass; added subsystem tests cover new boundaries.
+4. **Documentation deliverables:** architecture doc updated per phase with landed service ownership and remaining seams.
+
+### Phase progression policy
+
+- No phase advances until its verification gate is green.
+- No outward API/response shape changes are allowed before explicit compatibility signoff.
+- Contract violations must fail explicitly (no silent fallback-to-success behavior).
 
 ### Phase 0 — Document and stabilize
 

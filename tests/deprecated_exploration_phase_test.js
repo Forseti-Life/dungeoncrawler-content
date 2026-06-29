@@ -134,8 +134,9 @@ assert(
 );
 
 assert(
-  navigatePanel.includes('const serverCurrentLocationLabel = formatNavigationLocationTitle(')
+  navigatePanel.includes('const serverCurrentLocationLabel = resolveServerCurrentLocationLabel(panel);')
     && navigatePanel.includes('const currentLocationLabel = serverCurrentLocationLabel || liveCurrentLocationLabel;')
+    && navigatePanel.includes('if (!dungeonName && !roomName) {')
     && actionRailPanel.includes('this.navigateLocationsCampaignId = null;'),
   'navigation labels refresh from the server snapshot after room changes'
 );

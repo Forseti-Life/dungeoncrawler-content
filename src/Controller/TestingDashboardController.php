@@ -23,9 +23,9 @@ class TestingDashboardController extends ControllerBase {
       '#theme' => 'item_list',
       '#title' => $this->t('Key paths'),
       '#items' => [
-        $this->t('Test definitions: sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/tests/src/Functional'),
-        $this->t('PHPUnit config: sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/phpunit.xml'),
-        $this->t('SimpleTest artifacts: /tmp/dungeoncrawler-simpletest (symlinked from sites/dungeoncrawler/web/sites/simpletest)'),
+        $this->t('Test definitions: tests/src/Functional'),
+        $this->t('PHPUnit config: phpunit.xml'),
+        $this->t('SimpleTest artifacts: /tmp/dungeoncrawler-simpletest (symlinked from /var/www/html/dungeoncrawler/web/sites/simpletest)'),
       ],
     ];
 
@@ -33,8 +33,8 @@ class TestingDashboardController extends ControllerBase {
       '#theme' => 'item_list',
       '#title' => $this->t('Common commands'),
       '#items' => [
-        $this->t('Run functional suite: cd sites/dungeoncrawler && ./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml --testsuite functional'),
-        $this->t('Run a single test (example): ./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml --filter CampaignStateAccessTest'),
+        $this->t('Run functional suite: ./vendor/bin/phpunit --configuration phpunit.xml --testsuite functional'),
+        $this->t('Run a single test (example): ./vendor/bin/phpunit --configuration phpunit.xml --filter CampaignStateAccessTest'),
       ],
     ];
 

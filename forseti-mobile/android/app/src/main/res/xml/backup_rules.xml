@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Include all by default -->
+    <include domain="sharedpref" path="." />
+    <include domain="database" path="." />
+    <include domain="file" path="." />
+    
+    <!-- Exclude sensitive shared preferences -->
+    <exclude domain="sharedpref" path="RCTAsyncLocalStorage_V1" />
+    
+    <!-- Exclude cache directory -->
+    <exclude domain="file" path="cache" />
+</full-backup-content>

@@ -1,0 +1,22 @@
+uuid: b1ad76c3-63e4-4102-90e5-3946cab7b586
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_original_message
+    - node.type.community_suggestion
+  module:
+    - text
+id: node.community_suggestion.field_original_message
+field_name: field_original_message
+entity_type: node
+bundle: community_suggestion
+label: 'Original Message'
+description: 'The original user message containing the suggestion'
+required: false
+translatable: true
+default_value: null
+default_value_callback: ''
+settings:
+  allowed_formats: {  }
+field_type: text_long

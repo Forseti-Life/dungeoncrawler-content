@@ -128,6 +128,35 @@ class NavigationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies canonical connections are merged from both payload sources.
+   */
+  public function testBuildNavigationCapabilitiesMergesHexMapAndTopLevelConnections(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'hex_map' => [
+        'connections' => [],
+      ],
+      'connections' => [
+        [
+          'from_room_id' => 'tavern_entrance',
+          'to_room_id' => 'aca99b77-e480-4d34-bd28-0314dce5cd7f',
+          'type' => 'passage',
+          'from' => ['q' => 0, 'r' => 0],
+          'to' => ['q' => 1, 'r' => 0],
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+        ],
+      ],
+    ], 'tavern_entrance');
+
+    $this->assertCount(1, $capabilities);
+    $this->assertSame('aca99b77-e480-4d34-bd28-0314dce5cd7f', $capabilities[0]['target_room_id']);
+    $this->assertSame('tavern_entrance__aca99b77-e480-4d34-bd28-0314dce5cd7f__passage__0:0__1:0', $capabilities[0]['connection_id']);
+    $this->assertTrue($capabilities[0]['available']);
+  }
+
+  /**
    * Verifies direct room transitions enforce zero-distance contracts.
    */
   public function testBuildNavigationCapabilitiesRejectsNonZeroDirectRoomDistance(): void {
@@ -450,9 +479,9 @@ class NavigationServiceTest extends UnitTestCase {
   }
 
   /**
-   * Tests buildNavigationCapabilitiesWithQuestTargets skips non-existent destinations.
+   * Invalid quest destinations hard-fail contract validation.
    */
-  public function testBuildNavigationCapabilitiesWithQuestTargetsSkipsInvalid(): void {
+  public function testBuildNavigationCapabilitiesWithQuestTargetsRejectsInvalidDestination(): void {
     $dungeon = [
       'connections' => [],
       'rooms' => [
@@ -469,18 +498,47 @@ class NavigationServiceTest extends UnitTestCase {
       ],
     ];
 
-    // Should not throw, just skip the invalid destination
-    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('Quest destination contract violation');
+    $this->service->buildNavigationCapabilitiesWithQuestTargets(
       $dungeon,
       'start',
       $active_quests
     );
+  }
 
-    // No quest capabilities added
-    $quest_caps = array_filter($capabilities, fn($c) => 
-      ($c['quest_reference'] ?? FALSE) === TRUE
+  /**
+   * Quest entries with destination metadata must include quest_id.
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsRejectsDestinationWithoutQuestId(): void {
+    $dungeon = [
+      'connections' => [],
+      'rooms' => [
+        ['room_id' => 'start', 'name' => 'Starting Room'],
+        ['room_id' => 'room-a', 'name' => 'Room A'],
+      ],
+    ];
+
+    $active_quests = [
+      [
+        'generated_objectives' => [
+          [
+            'phase' => 1,
+            'objectives' => [
+              ['destination_id' => 'room-a'],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('quest_id is required');
+    $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'start',
+      $active_quests
     );
-    $this->assertCount(0, $quest_caps);
   }
 
   /**
@@ -538,6 +596,101 @@ class NavigationServiceTest extends UnitTestCase {
 
     // Should just return normal capabilities (empty in this case)
     $this->assertIsArray($capabilities);
+  }
+
+  /**
+   * Quest summary-style phased objectives are recognized as quest destinations.
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsSupportsPhasedObjectiveShape(): void {
+    $dungeon = [
+      'connections' => [],
+      'rooms' => [
+        ['room_id' => 'start', 'name' => 'Starting Room'],
+        ['room_id' => 'vault-entry', 'name' => 'Vault Entry'],
+      ],
+    ];
+
+    $active_quests = [
+      [
+        'quest_id' => 'quest-1',
+        'generated_objectives' => [
+          [
+            'phase' => 1,
+            'objectives' => [
+              ['destination_id' => 'vault-entry'],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'start',
+      $active_quests
+    );
+
+    $quest_caps = array_values(array_filter($capabilities, static fn(array $capability): bool => !empty($capability['quest_reference'])));
+    $this->assertCount(1, $quest_caps);
+    $this->assertSame('vault-entry', (string) ($quest_caps[0]['target_room_id'] ?? ''));
+    $this->assertSame(['quest-1'], (array) ($quest_caps[0]['quest_ids'] ?? []));
+  }
+
+  /**
+   * Existing room capabilities are marked quest-referenced (not silently skipped).
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsMarksExistingCapabilityByReference(): void {
+    $dungeon = [
+      'connections' => [
+        [
+          'connection_id' => 'door-1',
+          'from_room' => 'start',
+          'to_room' => 'vault-entry',
+          'type' => 'open_passage',
+          'distance' => 0,
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+          'bidirectional' => TRUE,
+        ],
+      ],
+      'rooms' => [
+        ['room_id' => 'start', 'name' => 'Starting Room'],
+        ['room_id' => 'vault-entry', 'name' => 'Vault Entry'],
+      ],
+    ];
+
+    $active_quests = [
+      [
+        'quest_id' => 'quest-1',
+        'generated_objectives' => [
+          [
+            'phase' => 1,
+            'objectives' => [
+              ['destination_id' => 'vault-entry'],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'start',
+      $active_quests
+    );
+
+    $vault_capability = NULL;
+    foreach ($capabilities as $capability) {
+      if ((string) ($capability['target_room_id'] ?? '') === 'vault-entry') {
+        $vault_capability = $capability;
+        break;
+      }
+    }
+
+    $this->assertNotNull($vault_capability);
+    $this->assertSame('door-1', (string) ($vault_capability['connection_id'] ?? ''));
+    $this->assertTrue(!empty($vault_capability['quest_reference']));
+    $this->assertSame(['quest-1'], (array) ($vault_capability['quest_ids'] ?? []));
   }
 
   /**

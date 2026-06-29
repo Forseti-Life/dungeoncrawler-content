@@ -1,0 +1,24 @@
+[Unit]
+Description=Copilot Sessions HQ - Master Node Orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/keithaumiller/forseti.life/copilot-hq
+
+Environment=MASTER_NODE_INTERVAL=60
+
+ExecStart=/usr/bin/env bash -lc 'exec ./scripts/orchestrator-loop.sh run ${MASTER_NODE_INTERVAL:-60}'
+
+StandardOutput=journal
+StandardError=journal
+
+Restart=always
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=15
+Nice=5
+
+[Install]
+WantedBy=default.target

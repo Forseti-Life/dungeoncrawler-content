@@ -1,0 +1,874 @@
+# AUDIT: PF2E Secrets of Magic
+
+**Source:** `PF2E Secrets of Magic.txt`  
+**Total Lines:** 30,716  
+**Status:** 🔴 PENDING
+
+---
+
+## Legend
+- `[ ]` = Pending extraction
+- `[x]` = Requirements extracted
+- `[S]` = Skipped (pure lore/atmosphere, no mechanics)
+- `[!]` = Needs review
+
+---
+
+## [ ] Chapter 1: Magical Treatises (Arcane/Divine/Occult/Primal)
+*Lines 1–5,000 (4,999 lines)*
+
+- [ ] **DESIGN LEAD** *(line 35)*
+- [ ] **COVER ARTIST** *(line 50)*
+- [ ] **EDITORS** *(line 63)*
+- [ ] **ART DIRECTION** *(line 73)*
+- [ ] **INTERIOR ARTISTS** *(line 111)*
+- [ ] **EDITING LEAD** *(line 135)*
+- [ ] **ADDITIONAL WRITING** *(line 154)*
+- [ ] **AUTHORS** *(line 173)*
+- [ ] **THE STRUCTURE OF MAGIC** *(line 309)*
+- [ ] **INTRODUCTION** *(line 328)*
+- [ ] **CHAPTER SUMMARIES** *(line 385)*
+- [ ] **CHAPTER 1:** *(line 439)*
+- [ ] **MAGICAL BACKGROUNDS** *(line 489)*
+- [ ] **RARE BACKGROUNDS** *(line 516)*
+- [ ] **ACADEMY DROPOUT** *(line 2,522)*
+- [ ] **BACKGROUND** *(line 2,524)*
+- [ ] **ASTROLOGER** *(line 2,537)*
+- [ ] **FALSE MEDIUM** *(line 2,574)*
+- [ ] **MAGICAL MERCHANT** *(line 2,602)*
+- [ ] **MAGICAL MISFIT** *(line 2,621)*
+- [ ] **OCCULT LIBRARIAN** *(line 2,628)*
+- [ ] **PLANT WHISPERER** *(line 2,644)*
+- [ ] **STREET PREACHER** *(line 2,659)*
+- [ ] **MUSICAL PRODIGY** *(line 2,689)*
+- [ ] **STUDENT OF MAGIC** *(line 2,691)*
+- [ ] **RARE MAGICAL BACKGROUNDS** *(line 2,738)*
+- [ ] **ANTI-MAGICAL** *(line 2,756)*
+- [ ] **CHOSEN ONE** *(line 2,778)*
+- [ ] **GENIE-BLESSED** *(line 2,808)*
+- [ ] **MAGICAL EXPERIMENT** *(line 2,832)*
+- [ ] **SEER OF THE DEAD** *(line 2,869)*
+- [ ] **TIME TRAVELER** *(line 2,910)*
+- [ ] **CHAPTER 2:** *(line 2,951)*
+- [ ] **MAGUS** *(line 2,963)*
+- [ ] **PAGE 35** *(line 2,965)*
+- [ ] **SELTYIEL** *(line 2,976)*
+- [ ] **SUMMONER** *(line 2,987)*
+- [ ] **PAGE 51** *(line 2,989)*
+- [ ] **KEY ABILITY** *(line 3,079)*
+- [ ] **HIT POINTS** *(line 3,081)*
+- [ ] **STRENGTH OR DEXTERITY** *(line 3,083)*
+- [ ] **DURING COMBAT ENCOUNTERS...** *(line 3,096)*
+- [ ] **INITIAL PROFICIENCIES** *(line 3,102)*
+- [ ] **PERCEPTION** *(line 3,109)*
+- [ ] **SAVING THROWS** *(line 3,112)*
+- [ ] **DURING SOCIAL ENCOUNTERS...** *(line 3,117)*
+- [ ] **SKILLS** *(line 3,119)*
+- [ ] **WHILE EXPLORING...** *(line 3,130)*
+- [ ] **ATTACKS** *(line 3,136)*
+- [ ] **IN DOWNTIME...** *(line 3,153)*
+- [ ] **DEFENSES** *(line 3,155)*
+- [ ] **YOU MIGHT...** *(line 3,165)*
+- [ ] **SPELLS** *(line 3,167)*
+- [ ] **OTHERS PROBABLY...** *(line 3,179)*
+- [ ] **ANCESTRY AND BACKGROUND** *(line 3,253)*
+- [ ] **ARCANE SPELLCASTING** *(line 3,263)*
+- [ ] **SPELLSTRIKE** *(line 3,351)*
+- [ ] **COMBINING YOUR ABILITIES** *(line 3,407)*
+- [ ] **ARCANE CASCADE** *(line 3,481)*
+- [ ] **STANCE** *(line 3,490)*
+- [ ] **HYBRID STUDY** *(line 3,514)*
+- [ ] **SPELLSTRIKE OPTIONS** *(line 3,847)*
+- [ ] **MAGUS FEATS** *(line 3,868)*
+- [ ] **SKILL FEATS** *(line 3,870)*
+- [ ] **CONFLUX SPELLS** *(line 3,901)*
+- [ ] **GENERAL FEATS** *(line 3,927)*
+- [ ] **SKILL INCREASES** *(line 3,934)*
+- [ ] **ABILITY BOOSTS** *(line 3,948)*
+- [ ] **ANCESTRY FEATS** *(line 3,958)*
+- [ ] **LIGHTNING REFLEXES** *(line 3,966)*
+- [ ] **WEAPON EXPERTISE** *(line 3,973)*
+- [ ] **STUDIOUS SPELLS** *(line 3,982)*
+- [ ] **WEAPON SPECIALIZATION** *(line 4,008)*
+- [ ] **ALERTNESS** *(line 4,018)*
+- [ ] **EXPERT SPELLCASTER** *(line 4,025)*
+- [ ] **RESOLVE** *(line 4,034)*
+- [ ] **MEDIUM ARMOR EXPERTISE** *(line 4,043)*
+- [ ] **WEAPON MASTERY** *(line 4,052)*
+- [ ] **KEY TERMS** *(line 4,058)*
+- [ ] **GREATER WEAPON SPECIALIZATION** *(line 4,083)*
+- [ ] **JUGGERNAUT** *(line 4,092)*
+- [ ] **MASTER SPELLCASTER** *(line 4,102)*
+- [ ] **MEDIUM ARMOR MASTERY** *(line 4,118)*
+- [ ] **DOUBLE SPELLSTRIKE** *(line 4,127)*
+- [ ] **FAMILIAR** *(line 4,254)*
+- [ ] **FEAT 1** *(line 4,256)*
+- [ ] **FEAT 2** *(line 4,298)*
+- [ ] **SPIRIT SHEATH** *(line 4,394)*
+- [ ] **ABILITY SCORES** *(line 4,404)*
+- [ ] **ARCANE CONJURATION EXTRADIMENSIONAL MAGUS** *(line 4,415)*
+- [ ] **FEAT 4** *(line 4,433)*
+- [ ] **FEATS** *(line 4,440)*
+- [ ] **FEAT 6** *(line 4,544)*
+- [ ] **ARCANE MAGUS TRANSMUTATION** *(line 4,574)*
+- [ ] **FEAT 8** *(line 4,636)*
+- [ ] **FEAT 10** *(line 4,754)*
+- [ ] **ATTACK** *(line 4,782)*
+- [ ] **EVOCATION LIGHT MAGUS VISUAL** *(line 4,822)*
+- [ ] **ARCANE EVOCATION MAGUS** *(line 4,857)*
+- [ ] **ARCANE HEALING MAGUS NECROMANCY POSITIVE** *(line 4,896)*
+- [ ] **FEAT 12** *(line 4,949)*
+- [ ] **DETECTION DIVINATION MAGUS** *(line 4,955)*
+- [ ] **FEAT 14** *(line 4,982)*
+
+## [ ] Chapter 2: Classes (Magus, Summoner + Archetypes)
+*Lines 5,001–14,000 (8,999 lines)*
+
+- [ ] **FEAT 14** *(line 5,009)*
+- [ ] **MAGUS** *(line 5,011)*
+- [ ] **FEAT 16** *(line 5,037)*
+- [ ] **FEAT 18** *(line 5,077)*
+- [ ] **FEAT 20** *(line 5,114)*
+- [ ] **SUMMONER** *(line 5,166)*
+- [ ] **KEY ABILITY** *(line 5,177)*
+- [ ] **HIT POINTS** *(line 5,179)*
+- [ ] **CHARISMA** *(line 5,181)*
+- [ ] **INITIAL PROFICIENCIES** *(line 5,193)*
+- [ ] **PERCEPTION** *(line 5,201)*
+- [ ] **DURING COMBAT ENCOUNTERS...** *(line 5,203)*
+- [ ] **SAVING THROWS** *(line 5,210)*
+- [ ] **DURING SOCIAL ENCOUNTERS...** *(line 5,212)*
+- [ ] **WHILE EXPLORING...** *(line 5,218)*
+- [ ] **IN DOWNTIME...** *(line 5,223)*
+- [ ] **SKILLS** *(line 5,233)*
+- [ ] **ATTACKS** *(line 5,251)*
+- [ ] **DEFENSES** *(line 5,255)*
+- [ ] **YOU MIGHT...** *(line 5,258)*
+- [ ] **SPELLS** *(line 5,260)*
+- [ ] **OTHERS PROBABLY...** *(line 5,276)*
+- [ ] **EIDOLON** *(line 5,287)*
+- [ ] **ANCESTRY AND BACKGROUND** *(line 5,392)*
+- [ ] **CONJURATION MANIPULATE** *(line 5,407)*
+- [ ] **SUMMONER TELEPORTATION** *(line 5,409)*
+- [ ] **DIVINATION** *(line 5,452)*
+- [ ] **SCRYING** *(line 5,479)*
+- [ ] **SUMMONER SPELLCASTING** *(line 5,560)*
+- [ ] **SPELL REPERTOIRE** *(line 5,630)*
+- [ ] **LINK SPELLS** *(line 5,940)*
+- [ ] **EVOLUTION FEAT** *(line 5,985)*
+- [ ] **SKILL FEATS** *(line 5,994)*
+- [ ] **SUMMONER FEATS** *(line 6,002)*
+- [ ] **GENERAL FEATS** *(line 6,009)*
+- [ ] **SHARED VIGILANCE** *(line 6,016)*
+- [ ] **SKILL INCREASES** *(line 6,027)*
+- [ ] **UNLIMITED SIGNATURE SPELLS** *(line 6,045)*
+- [ ] **ABILITY BOOSTS** *(line 6,056)*
+- [ ] **ANCESTRY FEATS** *(line 6,070)*
+- [ ] **EIDOLON UNARMED EXPERTISE** *(line 6,078)*
+- [ ] **EIDOLON SYMBIOSIS** *(line 6,086)*
+- [ ] **EIDOLON WEAPON SPECIALIZATION** *(line 6,095)*
+- [ ] **EXPERT SPELLCASTER** *(line 6,105)*
+- [ ] **SHARED REFLEXES** *(line 6,115)*
+- [ ] **EIDOLON DEFENSIVE EXPERTISE** *(line 6,124)*
+- [ ] **SIMPLE WEAPON EXPERTISE** *(line 6,132)*
+- [ ] **TWIN JUGGERNAUTS** *(line 6,140)*
+- [ ] **DEFENSIVE ROBES** *(line 6,152)*
+- [ ] **WEAPON SPECIALIZATION** *(line 6,160)*
+- [ ] **GREATER EIDOLON SPECIALIZATION** *(line 6,170)*
+- [ ] **SHARED RESOLVE** *(line 6,178)*
+- [ ] **EIDOLON UNARMED MASTERY** *(line 6,210)*
+- [ ] **KEY TERMS** *(line 6,212)*
+- [ ] **EIDOLON TRANSCENDENCE** *(line 6,226)*
+- [ ] **MASTER SPELLCASTER** *(line 6,251)*
+- [ ] **EIDOLON DEFENSIVE MASTERY** *(line 6,261)*
+- [ ] **INSTANT MANIFESTATION** *(line 6,269)*
+- [ ] **PROFICIENCIES** *(line 6,310)*
+- [ ] **ABILITY SCORES** *(line 6,318)*
+- [ ] **UNARMED ATTACKS** *(line 6,326)*
+- [ ] **EIDOLON SPELLS** *(line 6,356)*
+- [ ] **READING AN EIDOLON ENTRY** *(line 6,368)*
+- [ ] **ANGEL EIDOLON** *(line 6,392)*
+- [ ] **ANGER PHANTOM EIDOLON** *(line 6,506)*
+- [ ] **EMOTION** *(line 6,568)*
+- [ ] **MENTAL** *(line 6,570)*
+- [ ] **BEAST EIDOLON** *(line 6,616)*
+- [ ] **CONSTRUCT EIDOLON** *(line 6,670)*
+- [ ] **DEMON EIDOLON** *(line 6,789)*
+- [ ] **MAGIC** *(line 6,860)*
+- [ ] **EMBODIMENTS OF SIN** *(line 6,862)*
+- [ ] **DEVOTION PHANTOM EIDOLON** *(line 6,907)*
+- [ ] **OCCULT** *(line 6,951)*
+- [ ] **TRANSMUTATION** *(line 6,957)*
+- [ ] **DRAGON EIDOLON** *(line 7,011)*
+- [ ] **FEY EIDOLON** *(line 7,113)*
+- [ ] **PLANT EIDOLON** *(line 7,175)*
+- [ ] **PSYCHOPOMP EIDOLON** *(line 7,290)*
+- [ ] **FEAT 1** *(line 7,390)*
+- [ ] **EVOLUTION** *(line 7,442)*
+- [ ] **FEAT 2** *(line 7,635)*
+- [ ] **FEATS** *(line 7,666)*
+- [ ] **FEAT 4** *(line 7,723)*
+- [ ] **FEAT 6** *(line 7,806)*
+- [ ] **TANDEM** *(line 7,873)*
+- [ ] **CONCENTRATE** *(line 7,879)*
+- [ ] **MANIPULATE METAMAGIC** *(line 7,926)*
+- [ ] **FEAT 8** *(line 7,986)*
+- [ ] **RIDING SAPIENT CREATURES** *(line 8,035)*
+- [ ] **FEAT 10** *(line 8,077)*
+- [ ] **CONJURATION** *(line 8,129)*
+- [ ] **TELEPORTATION** *(line 8,157)*
+- [ ] **FEAT 12** *(line 8,177)*
+- [ ] **SUMMONING SPELLS** *(line 8,414)*
+- [ ] **MULTICLASS ARCHETYPES** *(line 8,488)*
+- [ ] **ARCHETYPE** *(line 8,599)*
+- [ ] **DEDICATION MULTICLASS** *(line 8,610)*
+- [ ] **MULTICLASS SUMMONER CHARACTERS** *(line 8,721)*
+- [ ] **SUMMONER DEDICATION** *(line 8,793)*
+- [ ] **BASIC SYNERGY** *(line 8,828)*
+- [ ] **INITIAL EIDOLON ABILITY** *(line 8,837)*
+- [ ] **ADVANCED SYNERGY** *(line 8,848)*
+- [ ] **BASIC SUMMONER SPELLCASTING** *(line 8,861)*
+- [ ] **EXPERT COMBAT EIDOLON** *(line 8,881)*
+- [ ] **MASTER SUMMONER SPELLCASTING** *(line 8,888)*
+- [ ] **SIGNATURE SYNERGY** *(line 8,933)*
+- [ ] **CHAPTER 3:** *(line 8,947)*
+- [ ] **RUNE MANIFESTATIONS** *(line 9,002)*
+- [ ] **SPELL LISTS** *(line 9,035)*
+- [ ] **ARCANE SPELL LIST** *(line 9,059)*
+- [ ] **ARCANE 1ST-LEVEL SPELLS** *(line 9,078)*
+- [ ] **ARCANE 2ND-LEVEL SPELLS** *(line 9,106)*
+- [ ] **ARCANE 3RD-LEVEL SPELLS** *(line 9,143)*
+- [ ] **ARCANE 4TH-LEVEL SPELLS** *(line 9,189)*
+- [ ] **ARCANE 5TH-LEVEL SPELLS** *(line 9,218)*
+- [ ] **ARCANE 6TH-LEVEL SPELLS** *(line 9,244)*
+- [ ] **ARCANE 7TH-LEVEL SPELLS** *(line 9,277)*
+- [ ] **ARCANE 8TH-LEVEL SPELLS** *(line 9,293)*
+- [ ] **ARCANE 9TH-LEVEL SPELLS** *(line 9,300)*
+- [ ] **ARCANE 10TH-LEVEL SPELLS** *(line 9,310)*
+- [ ] **DIVINE SPELL LIST** *(line 9,318)*
+- [ ] **DIVINE 1ST-LEVEL SPELLS** *(line 9,330)*
+- [ ] **DIVINE 2ND-LEVEL SPELLS** *(line 9,347)*
+- [ ] **DIVINE 3RD-LEVEL SPELLS** *(line 9,367)*
+- [ ] **DIVINE 4TH-LEVEL SPELLS** *(line 9,393)*
+- [ ] **HYMN TO THE ETERNAL ROSE** *(line 9,395)*
+- [ ] **DIVINE 5TH-LEVEL SPELLS** *(line 9,424)*
+- [ ] **DIVINE 6TH-LEVEL SPELLS** *(line 9,470)*
+- [ ] **DIVINE 9TH-LEVEL SPELLS** *(line 9,472)*
+- [ ] **DIVINE 7TH-LEVEL SPELLS** *(line 9,485)*
+- [ ] **DIVINE 8TH-LEVEL SPELLS** *(line 9,505)*
+- [ ] **DIVINE 10TH-LEVEL SPELLS** *(line 9,514)*
+- [ ] **OCCULT SPELL LIST** *(line 9,522)*
+- [ ] **OCCULT 1ST-LEVEL SPELLS** *(line 9,537)*
+- [ ] **OCCULT 2ND-LEVEL SPELLS** *(line 9,563)*
+- [ ] **OCCULT 3RD-LEVEL SPELLS** *(line 9,592)*
+- [ ] **OCCULT 4TH-LEVEL SPELLS** *(line 9,629)*
+- [ ] **OCCULT 5TH-LEVEL SPELLS** *(line 9,666)*
+- [ ] **OCCULT 6TH-LEVEL SPELLS** *(line 9,693)*
+- [ ] **OCCULT 7TH-LEVEL SPELLS** *(line 9,702)*
+- [ ] **OCCULT 8TH-LEVEL SPELLS** *(line 9,727)*
+- [ ] **OCCULT 9TH-LEVEL SPELLS** *(line 9,732)*
+- [ ] **OCCULT 10TH-LEVEL SPELLS** *(line 9,740)*
+- [ ] **PRIMAL SPELL LIST** *(line 9,750)*
+- [ ] **PRIMAL 1ST-LEVEL SPELLS** *(line 9,770)*
+- [ ] **PRIMAL 2ND-LEVEL SPELLS** *(line 9,790)*
+- [ ] **PRIMAL 3RD-LEVEL SPELLS** *(line 9,823)*
+- [ ] **PRIMAL 4TH-LEVEL SPELLS** *(line 9,859)*
+- [ ] **NOTES FROM THE GREEN FAITH COUNCIL** *(line 9,877)*
+- [ ] **PRIMAL 5TH-LEVEL SPELLS** *(line 9,900)*
+- [ ] **PRIMAL 6TH-LEVEL SPELLS** *(line 9,921)*
+- [ ] **PRIMAL 7TH-LEVEL SPELLS** *(line 9,931)*
+- [ ] **PRIMAL 8TH-LEVEL SPELLS** *(line 9,953)*
+- [ ] **PRIMAL 9TH-LEVEL SPELLS** *(line 9,962)*
+- [ ] **PRIMAL 10TH-LEVEL SPELLS** *(line 9,966)*
+- [ ] **SPELL DESCRIPTIONS** *(line 9,977)*
+- [ ] **SPELL 5** *(line 9,981)*
+- [ ] **ANGEL FORM** *(line 10,036)*
+- [ ] **POLYMORPH** *(line 10,039)*
+- [ ] **SPELL 7** *(line 10,041)*
+- [ ] **ANIMAL ALLIES** *(line 10,142)*
+- [ ] **SPELL 1** *(line 10,159)*
+- [ ] **APPROXIMATE** *(line 10,176)*
+- [ ] **CANTRIP 1** *(line 10,179)*
+- [ ] **DETECTION** *(line 10,181)*
+- [ ] **ASH CLOUD** *(line 10,204)*
+- [ ] **SPELL 2** *(line 10,209)*
+- [ ] **CURSE** *(line 10,235)*
+- [ ] **BEFITTING ATTIRE** *(line 10,260)*
+- [ ] **VISUAL** *(line 10,265)*
+- [ ] **BITING WORDS** *(line 10,284)*
+- [ ] **AUDITORY** *(line 10,287)*
+- [ ] **LINGUISTIC** *(line 10,292)*
+- [ ] **SONIC** *(line 10,294)*
+- [ ] **BLAZING DIVE** *(line 10,311)*
+- [ ] **EVOCATION** *(line 10,314)*
+- [ ] **SPELL 3** *(line 10,316)*
+- [ ] **BLAZING FISSURE** *(line 10,346)*
+- [ ] **FIRE** *(line 10,353)*
+- [ ] **BLESSING OF DEFIANCE** *(line 10,371)*
+- [ ] **ABJURATION** *(line 10,378)*
+- [ ] **BLINK CHARGE** *(line 10,404)*
+- [ ] **FORCE** *(line 10,407)*
+- [ ] **BLOODSPRAY CURSE** *(line 10,434)*
+- [ ] **SPELL 4** *(line 10,437)*
+- [ ] **NECROMANCY** *(line 10,439)*
+- [ ] **BOIL BLOOD** *(line 10,456)*
+- [ ] **SPELL 8** *(line 10,459)*
+- [ ] **BOTTOMLESS STOMACH** *(line 10,481)*
+- [ ] **EXTRADIMENSIONAL** *(line 10,486)*
+- [ ] **BREADCRUMBS** *(line 10,520)*
+- [ ] **BULLHORN** *(line 10,554)*
+- [ ] **CANTRIP** *(line 10,557)*
+- [ ] **BURNING BLOSSOMS** *(line 10,584)*
+- [ ] **PLANT** *(line 10,594)*
+- [ ] **CANTICLE OF EVERLASTING GRIEF** *(line 10,655)*
+- [ ] **ENCHANTMENT** *(line 10,662)*
+- [ ] **CAST INTO TIME** *(line 10,692)*
+- [ ] **SPELL 6** *(line 10,694)*
+- [ ] **CHROMATIC ARMOR** *(line 10,723)*
+- [ ] **LIGHT** *(line 10,728)*
+- [ ] **CHROMATIC IMAGE** *(line 10,761)*
+- [ ] **CHROMATIC RAY** *(line 10,784)*
+- [ ] **CLAIM CURSE** *(line 10,830)*
+- [ ] **TARGETING COMPANIONS AND EIDOLONS** *(line 10,866)*
+- [ ] **CLONE COMPANION** *(line 10,892)*
+- [ ] **CONCORDANT CHOIR** *(line 10,924)*
+- [ ] **CORAL ERUPTION** *(line 10,949)*
+- [ ] **CORROSIVE BODY** *(line 10,972)*
+- [ ] **COSMIC FORM** *(line 11,017)*
+- [ ] **DAEMON FORM** *(line 11,090)*
+- [ ] **DEMON FORM** *(line 11,210)*
+- [ ] **EVIL** *(line 11,213)*
+- [ ] **DEVIL FORM** *(line 11,269)*
+- [ ] **LAWFUL** *(line 11,272)*
+- [ ] **DISTRACTING CHATTER** *(line 11,349)*
+- [ ] **ILLUSION** *(line 11,352)*
+- [ ] **DIVINE ARMAGEDDON** *(line 11,379)*
+- [ ] **NEGATIVE** *(line 11,382)*
+- [ ] **POSITIVE** *(line 11,384)*
+- [ ] **DRAW IRE** *(line 11,409)*
+- [ ] **DRAW THE LIGHTNING** *(line 11,435)*
+- [ ] **ECHOING WEAPON** *(line 11,467)*
+- [ ] **ELEMENT EMBODIED** *(line 11,490)*
+- [ ] **SPELL 10** *(line 11,493)*
+- [ ] **ELEMENTAL ABSORPTION** *(line 11,585)*
+- [ ] **ELEMENTAL ANNIHILATION WAVE** *(line 11,620)*
+- [ ] **EARTH** *(line 11,623)*
+- [ ] **WATER** *(line 11,631)*
+- [ ] **ELEMENTAL CONFLUENCE** *(line 11,660)*
+- [ ] **ELEMENTAL GIFT** *(line 11,749)*
+- [ ] **ELEMENTAL ZONE** *(line 11,800)*
+- [ ] **ENVENOM COMPANION** *(line 11,830)*
+- [ ] **POISON** *(line 11,835)*
+- [ ] **EXTRACT POISON** *(line 11,852)*
+- [ ] **FATED CONFRONTATION** *(line 11,875)*
+- [ ] **FERAL SHADES** *(line 11,914)*
+- [ ] **FEY FORM** *(line 11,936)*
+- [ ] **FLAME VORTEX** *(line 12,007)*
+- [ ] **FLAME WISP** *(line 12,035)*
+- [ ] **FLAMMABLE FUMES** *(line 12,052)*
+- [ ] **FLOWING STRIKE** *(line 12,084)*
+- [ ] **FORCEFUL HAND** *(line 12,101)*
+- [ ] **FRIGID FLURRY** *(line 12,282)*
+- [ ] **GALE BLAST** *(line 12,308)*
+- [ ] **GEYSER** *(line 12,334)*
+- [ ] **GLIMMER OF CHARM** *(line 12,368)*
+- [ ] **GOUGING CLAW** *(line 12,407)*
+- [ ] **GRAVITATIONAL PULL** *(line 12,429)*
+- [ ] **GRAVITY WELL** *(line 12,450)*
+- [ ] **GUIDING STAR** *(line 12,474)*
+- [ ] **HAUNTING HYMN** *(line 12,495)*
+- [ ] **HEALING PLASTER** *(line 12,529)*
+- [ ] **HEALING WELL** *(line 12,559)*
+- [ ] **HORIZON THUNDER SPHERE** *(line 12,587)*
+- [ ] **ELECTRICITY** *(line 12,594)*
+- [ ] **IGNITE FIREWORKS** *(line 12,631)*
+- [ ] **IMPENDING DOOM** *(line 12,659)*
+- [ ] **FEAR** *(line 12,664)*
+- [ ] **PREDICTION** *(line 12,671)*
+- [ ] **INEVITABLE DISASTER** *(line 12,716)*
+- [ ] **INEXHAUSTIBLE CYNICISM** *(line 12,747)*
+- [ ] **INFECTIOUS ENTHUSIASM** *(line 12,789)*
+- [ ] **INFECTIOUS MELODY** *(line 12,815)*
+- [ ] **INNER RADIANCE TORRENT** *(line 12,855)*
+- [ ] **INSTANT ARMOR** *(line 12,893)*
+- [ ] **CONTINGENCY** *(line 12,896)*
+- [ ] **INVISIBILITY CURTAIN** *(line 12,916)*
+- [ ] **INVOKE SPIRITS** *(line 12,944)*
+- [ ] **JUVENILE COMPANION** *(line 12,971)*
+- [ ] **LIFE CONNECTION** *(line 12,994)*
+- [ ] **LOSE THE PATH** *(line 13,023)*
+- [ ] **LUCKY NUMBER** *(line 13,048)*
+- [ ] **MAGIC MAILBOX** *(line 13,092)*
+- [ ] **MAGNETIC ACCELERATION** *(line 13,125)*
+- [ ] **MAGNETIC ATTRACTION** *(line 13,145)*
+- [ ] **MAGNETIC REPULSION** *(line 13,175)*
+- [ ] **MANTLE OF THE FROZEN HEART** *(line 13,181)*
+- [ ] **MANTLE OF THE MAGMA HEART** *(line 13,184)*
+- [ ] **COLD** *(line 13,204)*
+- [ ] **MORPH** *(line 13,244)*
+- [ ] **MIMIC UNDEAD** *(line 13,281)*
+- [ ] **MIND OF MENACE** *(line 13,327)*
+- [ ] **MIRROR MALEFACTORS** *(line 13,361)*
+- [ ] **MUD PIT** *(line 13,429)*
+- [ ] **MURDEROUS VINE** *(line 13,445)*
+- [ ] **NECROTIZE** *(line 13,536)*
+- [ ] **NUDGE THE ODDS** *(line 13,574)*
+- [ ] **INCAPACITATION** *(line 13,632)*
+- [ ] **SPELL 9** *(line 13,661)*
+- [ ] **ONEIRIC MIRE** *(line 13,700)*
+- [ ] **OOZE FORM** *(line 13,727)*
+- [ ] **ORGANSIGHT** *(line 13,817)*
+- [ ] **REVELATION** *(line 13,822)*
+- [ ] **PAINFUL VIBRATIONS** *(line 13,850)*
+- [ ] **PERNICIOUS POLTERGEIST** *(line 13,873)*
+- [ ] **PERSISTENT SERVANT** *(line 13,909)*
+- [ ] **PETAL STORM** *(line 13,911)*
+- [ ] **PHANTOM CROWD** *(line 13,959)*
+- [ ] **PHANTOM PRISON** *(line 13,986)*
+
+## [ ] Chapter 3: Spells
+*Lines 14,001–24,000 (9,999 lines)*
+
+- [ ] **SPELL 3** *(line 14,006)*
+- [ ] **VISUAL** *(line 14,009)*
+- [ ] **POCKET LIBRARY** *(line 14,028)*
+- [ ] **SPELL 1** *(line 14,031)*
+- [ ] **EXTRADIMENSIONAL** *(line 14,033)*
+- [ ] **PORTRAIT OF THE ARTIST** *(line 14,063)*
+- [ ] **SPELL 5** *(line 14,066)*
+- [ ] **POSITIVE ATTUNEMENT** *(line 14,103)*
+- [ ] **NECROMANCY** *(line 14,106)*
+- [ ] **POSITIVE** *(line 14,110)*
+- [ ] **PRISMATIC ARMOR** *(line 14,134)*
+- [ ] **SPELL 7** *(line 14,136)*
+- [ ] **ABJURATION** *(line 14,138)*
+- [ ] **PROLIFERATING EYES** *(line 14,151)*
+- [ ] **SPELL 9** *(line 14,154)*
+- [ ] **SCRYING** *(line 14,156)*
+- [ ] **PROTECT COMPANION** *(line 14,194)*
+- [ ] **CANTRIP 1** *(line 14,196)*
+- [ ] **PROTECTOR TREE** *(line 14,225)*
+- [ ] **PLANT** *(line 14,230)*
+- [ ] **PUFF OF POISON** *(line 14,254)*
+- [ ] **EVOCATION** *(line 14,257)*
+- [ ] **POISON** *(line 14,262)*
+- [ ] **QUICK SORT** *(line 14,280)*
+- [ ] **TRANSMUTATION** *(line 14,284)*
+- [ ] **RAPID ADAPTATION** *(line 14,308)*
+- [ ] **SPELL 2** *(line 14,310)*
+- [ ] **RAVENOUS PORTAL** *(line 14,341)*
+- [ ] **SPELL 4** *(line 14,343)*
+- [ ] **READ THE AIR** *(line 14,403)*
+- [ ] **DIVINATION** *(line 14,408)*
+- [ ] **REPELLING PULSE** *(line 14,429)*
+- [ ] **FORCE** *(line 14,434)*
+- [ ] **REPLICATE** *(line 14,456)*
+- [ ] **SHADOW** *(line 14,476)*
+- [ ] **RESTYLE** *(line 14,503)*
+- [ ] **REWINDING STEP** *(line 14,528)*
+- [ ] **RIP THE SPIRIT** *(line 14,555)*
+- [ ] **ROARING APPLAUSE** *(line 14,584)*
+- [ ] **ENCHANTMENT** *(line 14,587)*
+- [ ] **MENTAL** *(line 14,591)*
+- [ ] **ROUSE SKELETONS** *(line 14,615)*
+- [ ] **SANGUINE MIST** *(line 14,640)*
+- [ ] **SCATTER SCREE** *(line 14,670)*
+- [ ] **EARTH** *(line 14,673)*
+- [ ] **SCHADENFREUDE** *(line 14,693)*
+- [ ] **SCORCHING RAY** *(line 14,719)*
+- [ ] **SEASHELL OF STOLEN SOUND** *(line 14,748)*
+- [ ] **SONIC** *(line 14,753)*
+- [ ] **SHADOW ARMY** *(line 14,797)*
+- [ ] **ILLUSION** *(line 14,800)*
+- [ ] **SPELL 10** *(line 14,802)*
+- [ ] **SHADOW PROJECTILE** *(line 14,836)*
+- [ ] **SHADOW RAID** *(line 14,864)*
+- [ ] **AUDITORY** *(line 14,871)*
+- [ ] **SHIFT BLAME** *(line 14,901)*
+- [ ] **SONATA SPAN** *(line 14,904)*
+- [ ] **CONJURATION** *(line 14,933)*
+- [ ] **SOOTHING BLOSSOMS** *(line 14,950)*
+- [ ] **SOOTHING SPRING** *(line 14,953)*
+- [ ] **HEALING** *(line 14,980)*
+- [ ] **WATER** *(line 14,998)*
+- [ ] **SPIRITUAL ATTUNEMENT** *(line 15,027)*
+- [ ] **SPOUT** *(line 15,054)*
+- [ ] **SUDDEN RECOLLECTION** *(line 15,077)*
+- [ ] **SUMMON ANARCH** *(line 15,111)*
+- [ ] **SUMMON ARCHMAGE** *(line 15,137)*
+- [ ] **SPELL 8** *(line 15,140)*
+- [ ] **INCARNATE** *(line 15,142)*
+- [ ] **THE OUTER SPHERE** *(line 15,155)*
+- [ ] **SUMMON AXIOM** *(line 15,187)*
+- [ ] **SUMMON DEIFIC HERALD** *(line 15,220)*
+- [ ] **INCARNATE SPELLS** *(line 15,234)*
+- [ ] **HERALD EXAMPLES** *(line 15,330)*
+- [ ] **SUMMON DRACONIC LEGION** *(line 15,360)*
+- [ ] **SUMMON KAIJU** *(line 15,392)*
+- [ ] **SUMMON LESSER SERVITOR** *(line 15,508)*
+- [ ] **SYNCHRONIZE** *(line 15,607)*
+- [ ] **TAME** *(line 15,630)*
+- [ ] **TEMPEST OF SHADES** *(line 15,660)*
+- [ ] **TEMPORARY GLYPH** *(line 15,777)*
+- [ ] **THICKET OF KNIVES** *(line 15,812)*
+- [ ] **THUNDERING DOMINANCE** *(line 15,829)*
+- [ ] **TIME JUMP** *(line 15,854)*
+- [ ] **TIMELY TUTOR** *(line 15,880)*
+- [ ] **TORTOISE AND THE HARE** *(line 15,905)*
+- [ ] **UMBRAL EXTRACTION** *(line 15,930)*
+- [ ] **UMBRAL GRAFT** *(line 15,986)*
+- [ ] **UNEXPECTED TRANSPOSITION** *(line 16,053)*
+- [ ] **SPELL 6** *(line 16,056)*
+- [ ] **TELEPORTATION** *(line 16,058)*
+- [ ] **UNSPEAKABLE SHADOW** *(line 16,077)*
+- [ ] **EMOTION** *(line 16,080)*
+- [ ] **FEAR** *(line 16,082)*
+- [ ] **VARIABLE GRAVITY** *(line 16,118)*
+- [ ] **VORACIOUS GESTALT** *(line 16,170)*
+- [ ] **DEATH** *(line 16,173)*
+- [ ] **EVIL** *(line 16,175)*
+- [ ] **WALL OF WATER** *(line 16,210)*
+- [ ] **WARDING AGGRESSION** *(line 16,244)*
+- [ ] **WASH YOUR LUCK** *(line 16,305)*
+- [ ] **CANTRIP** *(line 16,308)*
+- [ ] **FORTUNE** *(line 16,312)*
+- [ ] **WEB OF EYES** *(line 16,331)*
+- [ ] **WHIRLWIND** *(line 16,372)*
+- [ ] **ZERO GRAVITY** *(line 16,462)*
+- [ ] **FOCUS SPELLS** *(line 16,478)*
+- [ ] **FOCUS 3** *(line 16,495)*
+- [ ] **MAGUS** *(line 16,497)*
+- [ ] **DIMENSIONAL ASSAULT** *(line 16,508)*
+- [ ] **FOCUS 1** *(line 16,513)*
+- [ ] **FORCE FANG** *(line 16,527)*
+- [ ] **HASTED ASSAULT** *(line 16,552)*
+- [ ] **FOCUS 7** *(line 16,557)*
+- [ ] **RUNIC IMPRESSION** *(line 16,568)*
+- [ ] **FOCUS 4** *(line 16,573)*
+- [ ] **SHIELDING STRIKE** *(line 16,596)*
+- [ ] **SHOOTING STAR** *(line 16,621)*
+- [ ] **MAGUS REGIMENS** *(line 16,642)*
+- [ ] **THUNDEROUS STRIKE** *(line 16,644)*
+- [ ] **EIDOLON BONDING** *(line 16,666)*
+- [ ] **BOOST EIDOLON** *(line 16,712)*
+- [ ] **SUMMONER** *(line 16,720)*
+- [ ] **EIDOLON** *(line 16,736)*
+- [ ] **EVOLUTION SURGE** *(line 16,751)*
+- [ ] **SPINNING STAFF** *(line 16,754)*
+- [ ] **MORPH** *(line 16,773)*
+- [ ] **EXTEND BOOST** *(line 16,819)*
+- [ ] **LIFELINK SURGE** *(line 16,845)*
+- [ ] **DESCRIBING LINK SPELLS** *(line 16,850)*
+- [ ] **FOCUS 2** *(line 16,877)*
+- [ ] **REINFORCE EIDOLON** *(line 16,892)*
+- [ ] **UNFETTER EIDOLON** *(line 16,929)*
+- [ ] **RITUALS** *(line 16,951)*
+- [ ] **ASMODEAN WAGER** *(line 16,972)*
+- [ ] **RITUAL 6** *(line 17,007)*
+- [ ] **LINGUISTIC** *(line 17,009)*
+- [ ] **AWAKEN OBJECT** *(line 17,062)*
+- [ ] **SYMPATHETIC MAGIC** *(line 17,108)*
+- [ ] **BATHE IN BLOOD** *(line 17,134)*
+- [ ] **RITUAL 8** *(line 17,137)*
+- [ ] **CURSE** *(line 17,189)*
+- [ ] **RITUAL 4** *(line 17,193)*
+- [ ] **DREAD AMBIENCE** *(line 17,255)*
+- [ ] **CONSECRATION** *(line 17,258)*
+- [ ] **RITUAL 5** *(line 17,260)*
+- [ ] **FEAR MENTAL** *(line 17,265)*
+- [ ] **EMPATHY, SYMPATHY, AND HATE** *(line 17,303)*
+- [ ] **ELEMENTAL SENTINEL** *(line 17,324)*
+- [ ] **RITUAL 1** *(line 17,327)*
+- [ ] **GARDEN OF DEATH** *(line 17,371)*
+- [ ] **RITUAL 3** *(line 17,427)*
+- [ ] **IDEAL MIMICRY** *(line 17,459)*
+- [ ] **MIND SWAP** *(line 17,564)*
+- [ ] **POSSESSION** *(line 17,571)*
+- [ ] **MYSTIC CARRIAGE** *(line 17,591)*
+- [ ] **PORTRAIT OF SPITE** *(line 17,640)*
+- [ ] **CHAPTER 4:** *(line 17,776)*
+- [ ] **CHAPTER MAP** *(line 17,834)*
+- [ ] **TABLE 4-1: TREASURE BY LEVEL** *(line 17,891)*
+- [ ] **FULUS** *(line 18,458)*
+- [ ] **CONSUMABLE** *(line 18,565)*
+- [ ] **LEVEL 5** *(line 18,567)*
+- [ ] **MAGICAL** *(line 18,570)*
+- [ ] **LEVEL 8** *(line 18,591)*
+- [ ] **TALISMAN** *(line 18,596)*
+- [ ] **FULU** *(line 18,613)*
+- [ ] **LEVEL 6** *(line 18,617)*
+- [ ] **LEVEL 3** *(line 18,672)*
+- [ ] **REAL-LIFE USAGE** *(line 18,757)*
+- [ ] **CONSUMABLE FULU MAGICAL NECROMANCY TALISMAN** *(line 18,790)*
+- [ ] **LEVEL 4** *(line 18,812)*
+- [ ] **ENCHANTMENT FORTUNE FULU** *(line 18,832)*
+- [ ] **LEVEL 9** *(line 18,852)*
+- [ ] **ITEM 16** *(line 18,926)*
+- [ ] **CONSUMABLE FULU MAGICAL** *(line 18,928)*
+- [ ] **FULU ITEMS** *(line 18,966)*
+- [ ] **DIVINE** *(line 18,972)*
+- [ ] **POTION** *(line 18,979)*
+- [ ] **SPLASH** *(line 18,981)*
+- [ ] **CONSUMABLE FULU** *(line 18,994)*
+- [ ] **CREATING YOUR OWN FULU** *(line 19,013)*
+- [ ] **MAGICAL NECROMANCY** *(line 19,061)*
+- [ ] **GRIMOIRES** *(line 19,079)*
+- [ ] **ITEM 6** *(line 19,122)*
+- [ ] **GRIMOIRE** *(line 19,146)*
+- [ ] **ITEM 10** *(line 19,148)*
+- [ ] **ITEM 5** *(line 19,235)*
+- [ ] **ITEM 8** *(line 19,309)*
+- [ ] **MAGICAL TATTOOS** *(line 19,371)*
+- [ ] **FEAT 2** *(line 19,411)*
+- [ ] **SKILL** *(line 19,413)*
+- [ ] **CRAFTING A TATTOO** *(line 19,422)*
+- [ ] **THE TATTOO TRAIT** *(line 19,437)*
+- [ ] **TATTOO** *(line 19,470)*
+- [ ] **ITEM 3** *(line 19,472)*
+- [ ] **ARCANE** *(line 19,494)*
+- [ ] **ITEM 12** *(line 19,496)*
+- [ ] **INVESTED** *(line 19,517)*
+- [ ] **CULTURAL TATTOOS** *(line 19,551)*
+- [ ] **PERSONAL STAVES** *(line 19,623)*
+- [ ] **DETERMINING LEVEL AND PRICE** *(line 19,647)*
+- [ ] **PICKING YOUR SPELLS** *(line 19,652)*
+- [ ] **CRAFTING THE STAFF** *(line 19,692)*
+- [ ] **NAMING THE STAFF** *(line 19,839)*
+- [ ] **STAFF** *(line 19,858)*
+- [ ] **ITEM 15** *(line 19,911)*
+- [ ] **SPELL CATALYSTS** *(line 19,955)*
+- [ ] **ITEM 7** *(line 20,002)*
+- [ ] **ITEM 13** *(line 20,050)*
+- [ ] **CATALYST CONSUMABLE** *(line 20,130)*
+- [ ] **SPELLHEARTS** *(line 20,228)*
+- [ ] **SPELLHEART** *(line 20,261)*
+- [ ] **FIRE** *(line 20,311)*
+- [ ] **CONSUMABLES** *(line 20,496)*
+- [ ] **ITEM 4** *(line 20,563)*
+- [ ] **ITEM 9** *(line 20,634)*
+- [ ] **ITEM 11** *(line 20,702)*
+- [ ] **ELECTRICITY** *(line 20,784)*
+- [ ] **ITEM 14** *(line 21,155)*
+- [ ] **MATERIALITY AND MAGIC** *(line 21,182)*
+- [ ] **PLEASANTLY CONSUMABLE** *(line 21,184)*
+- [ ] **PERMANENT ITEMS** *(line 21,294)*
+- [ ] **GOOD** *(line 21,300)*
+- [ ] **ITEM 18** *(line 21,336)*
+- [ ] **RUNE 4** *(line 21,482)*
+- [ ] **ITEM 1** *(line 21,627)*
+- [ ] **DECK OF ILLUSIONS CARDS** *(line 21,878)*
+- [ ] **THE OLD MAGE DECK** *(line 22,000)*
+- [ ] **OLD MAGE DECK SUBSTITUTIONS** *(line 22,026)*
+- [ ] **ITEM 2** *(line 22,244)*
+- [ ] **NEGATIVE** *(line 22,387)*
+- [ ] **INVISIBLE CHAIN SHIRT** *(line 22,445)*
+- [ ] **ENCHANTMENT INVESTED** *(line 22,530)*
+- [ ] **COLD** *(line 22,662)*
+- [ ] **ITEM 20** *(line 22,758)*
+- [ ] **SHADOW SIGNET** *(line 22,868)*
+- [ ] **CHAPTER 5:** *(line 23,287)*
+- [ ] **ACCESS TO RULES ELEMENTS** *(line 23,342)*
+- [ ] **CLASS ARCHETYPES** *(line 23,356)*
+- [ ] **CATHARTIC MAGIC** *(line 23,398)*
+- [ ] **UNPLANNED CATHARSIS** *(line 23,456)*
+- [ ] **ARCHETYPE** *(line 23,481)*
+- [ ] **DEDICATION** *(line 23,485)*
+- [ ] **FEAT 4** *(line 23,524)*
+- [ ] **FEAT 18** *(line 23,560)*
+- [ ] **FEAT 8** *(line 23,582)*
+- [ ] **CONCENTRATE** *(line 23,584)*
+- [ ] **FEAT 12** *(line 23,598)*
+- [ ] **ANGER** *(line 23,636)*
+- [ ] **HATRED** *(line 23,715)*
+- [ ] **LOVE** *(line 23,754)*
+- [ ] **MISERY** *(line 23,774)*
+- [ ] **EMOTIONAL FOCUS** *(line 23,785)*
+- [ ] **PRIDE** *(line 23,817)*
+- [ ] **REMORSE** *(line 23,839)*
+- [ ] **ELEMENTALISM** *(line 23,855)*
+- [ ] **FLAME ORDER** *(line 23,889)*
+- [ ] **STONE ORDER** *(line 23,900)*
+- [ ] **WAVE ORDER** *(line 23,913)*
+- [ ] **FEAT 1** *(line 23,926)*
+- [ ] **DRUID** *(line 23,928)*
+
+## [ ] Chapter 4: Magic Items
+*Lines 24,001–30,715 (6,714 lines)*
+
+- [ ] **DRUID** *(line 24,005)*
+- [ ] **FEAT 4** *(line 24,007)*
+- [ ] **EARTH EXPLORATION PRIMAL** *(line 24,009)*
+- [ ] **FEAT 6** *(line 24,026)*
+- [ ] **THE FOUR ELEMENTS** *(line 24,028)*
+- [ ] **FEAT 8** *(line 24,087)*
+- [ ] **FIRE** *(line 24,089)*
+- [ ] **FEAT 10** *(line 24,103)*
+- [ ] **DRUID EARTH** *(line 24,105)*
+- [ ] **CONCENTRATE** *(line 24,120)*
+- [ ] **METAMAGIC** *(line 24,122)*
+- [ ] **FEAT 12** *(line 24,124)*
+- [ ] **FOCUS 3** *(line 24,144)*
+- [ ] **EVOCATION** *(line 24,146)*
+- [ ] **EARTH** *(line 24,169)*
+- [ ] **TRANSMUTATION** *(line 24,171)*
+- [ ] **FOCUS 1** *(line 24,177)*
+- [ ] **EVOCATION WATER** *(line 24,226)*
+- [ ] **CONJURATION** *(line 24,240)*
+- [ ] **WATER** *(line 24,245)*
+- [ ] **ATTACK** *(line 24,267)*
+- [ ] **INNER FIRE** *(line 24,360)*
+- [ ] **MONK** *(line 24,364)*
+- [ ] **STANCE** *(line 24,366)*
+- [ ] **FEAT 1** *(line 24,368)*
+- [ ] **ELEMENTAL SPELL LIST** *(line 24,468)*
+- [ ] **ELEMENTAL CANTRIPS** *(line 24,478)*
+- [ ] **ELEMENTAL 1ST-LEVEL SPELLS** *(line 24,504)*
+- [ ] **ELEMENTAL 2ND-LEVEL SPELLS** *(line 24,543)*
+- [ ] **ELEMENTAL 3RD-LEVEL SPELLS** *(line 24,601)*
+- [ ] **ELEMENTAL 4TH-LEVEL SPELLS** *(line 24,635)*
+- [ ] **ELEMENTAL 5TH-LEVEL SPELLS** *(line 24,667)*
+- [ ] **ELEMENTAL 6TH-LEVEL SPELLS** *(line 24,698)*
+- [ ] **ELEMENTALISM ON GOLARION** *(line 24,700)*
+- [ ] **ELEMENTAL 7TH-LEVEL SPELLS** *(line 24,758)*
+- [ ] **ELEMENTAL 8TH-LEVEL SPELLS** *(line 24,775)*
+- [ ] **ELEMENTAL 9TH-LEVEL SPELLS** *(line 24,790)*
+- [ ] **ELEMENTAL 10TH-LEVEL SPELLS** *(line 24,811)*
+- [ ] **CLASS** *(line 24,903)*
+- [ ] **FEAT 2** *(line 24,905)*
+- [ ] **DEDICATION** *(line 24,907)*
+- [ ] **METAMAGIC WATER** *(line 24,925)*
+- [ ] **ARCHETYPE** *(line 24,941)*
+- [ ] **FEAT 14** *(line 24,989)*
+- [ ] **METAMAGIC FIRE** *(line 25,010)*
+- [ ] **ARCHETYPE EARTH METAMAGIC** *(line 25,046)*
+- [ ] **FLEXIBLE PREPARATION** *(line 25,068)*
+- [ ] **CLASS DEDICATION** *(line 25,441)*
+- [ ] **HEIGHTENING SPELLS** *(line 25,447)*
+- [ ] **RESTRICTED SPELL SLOTS** *(line 25,451)*
+- [ ] **ADJUDICATING CLASS FEATS AND FEATURES** *(line 25,480)*
+- [ ] **DISALLOWED FEATS** *(line 25,510)*
+- [ ] **GEOMANCY** *(line 25,521)*
+- [ ] **AQUATIC GEOMANCY** *(line 25,555)*
+- [ ] **GEOMANTIC SATURATION** *(line 25,557)*
+- [ ] **ARCTIC GEOMANCY** *(line 25,586)*
+- [ ] **DESERT GEOMANCY** *(line 25,594)*
+- [ ] **FOREST GEOMANCY** *(line 25,603)*
+- [ ] **MOUNTAIN GEOMANCY** *(line 25,612)*
+- [ ] **PLAINS GEOMANCY** *(line 25,622)*
+- [ ] **SKY GEOMANCY** *(line 25,642)*
+- [ ] **SWAMP GEOMANCY** *(line 25,659)*
+- [ ] **UNDERGROUND GEOMANCY** *(line 25,668)*
+- [ ] **TERRAIN SHIELD** *(line 25,862)*
+- [ ] **FEAT 16** *(line 25,891)*
+- [ ] **LEY LINES** *(line 25,943)*
+- [ ] **LEY LINE 2** *(line 26,123)*
+- [ ] **LEY LINE 4** *(line 26,142)*
+- [ ] **PRIMAL** *(line 26,144)*
+- [ ] **LEY LINE 10** *(line 26,167)*
+- [ ] **DIVINE NECROMANCY** *(line 26,192)*
+- [ ] **LEY LINE 12** *(line 26,194)*
+- [ ] **LEY LINE 14** *(line 26,213)*
+- [ ] **RARE ARCANE** *(line 26,215)*
+- [ ] **RITUAL 7** *(line 26,242)*
+- [ ] **CONSECRATION** *(line 26,295)*
+- [ ] **RITUAL 5** *(line 26,297)*
+- [ ] **PERVASIVE MAGIC** *(line 26,331)*
+- [ ] **BACKGROUND** *(line 26,406)*
+- [ ] **FEAT 18** *(line 26,526)*
+- [ ] **ARCANE ADJUSTMENTS** *(line 26,540)*
+- [ ] **DIVINE ADJUSTMENTS** *(line 26,579)*
+- [ ] **OCCULT ADJUSTMENTS** *(line 26,618)*
+- [ ] **PRIMAL ADJUSTMENTS** *(line 26,659)*
+- [ ] **ENERGY SURGE TERRAIN** *(line 26,716)*
+- [ ] **HEIGHTENED TERRAIN** *(line 26,724)*
+- [ ] **METAMAGIC TERRAIN** *(line 26,733)*
+- [ ] **OCCULT MAGIC TERRAIN** *(line 26,744)*
+- [ ] **PRIMAL MAGIC TERRAIN** *(line 26,767)*
+- [ ] **SPELL-TOUCHED TERRAIN** *(line 26,774)*
+- [ ] **ABSALOM AND STARSTONE ISLE** *(line 26,800)*
+- [ ] **BROKEN LANDS** *(line 26,811)*
+- [ ] **EYE OF DREAD** *(line 26,827)*
+- [ ] **GOLDEN ROAD** *(line 26,838)*
+- [ ] **LIMITING PERVASIVE MAGIC** *(line 26,847)*
+- [ ] **IMPOSSIBLE LANDS** *(line 26,872)*
+- [ ] **EXAMPLE PERVASIVE MAGIC LOCATIONS** *(line 26,874)*
+- [ ] **HIGH SEAS** *(line 26,902)*
+- [ ] **MWANGI EXPANSE** *(line 26,904)*
+- [ ] **OLD CHELIAX** *(line 26,920)*
+- [ ] **SAGA LANDS** *(line 26,950)*
+- [ ] **SHINING KINGDOMS** *(line 26,959)*
+- [ ] **SHADOW MAGIC** *(line 26,970)*
+- [ ] **CHELIAX** *(line 27,009)*
+- [ ] **CROWN OF THE WORLD** *(line 27,024)*
+- [ ] **NIDAL** *(line 27,075)*
+- [ ] **SARKORIS** *(line 27,094)*
+- [ ] **THE SHADOW PLANE** *(line 27,110)*
+- [ ] **SOURCES OF SHADOW** *(line 27,123)*
+- [ ] **USTALAV** *(line 27,173)*
+- [ ] **SHADOW** *(line 27,277)*
+- [ ] **ILLUSION** *(line 27,355)*
+- [ ] **SHADOWCASTER FOCUS SPELLS** *(line 27,387)*
+- [ ] **DARKNESS** *(line 27,391)*
+- [ ] **FOCUS 7** *(line 27,393)*
+- [ ] **ANIMAL COMPANION** *(line 27,450)*
+- [ ] **SHADE SPECIALIZATION** *(line 27,481)*
+- [ ] **STALKING THE SHADOWS** *(line 27,491)*
+- [ ] **SHADOW FAMILIAR** *(line 27,535)*
+- [ ] **FAMILIAR ABILITIES** *(line 27,598)*
+- [ ] **SOUL SEEDS** *(line 27,619)*
+- [ ] **MINOR GIFT** *(line 27,625)*
+- [ ] **ABJURATION** *(line 27,635)*
+- [ ] **USING SOUL SEEDS** *(line 27,637)*
+- [ ] **DRAGON GIFTS** *(line 27,676)*
+- [ ] **ENCHANTMENT** *(line 27,706)*
+- [ ] **MAJOR GIFT** *(line 27,710)*
+- [ ] **FORTUNE** *(line 27,712)*
+- [ ] **GRAND GIFT** *(line 27,742)*
+- [ ] **TELEPORTATION** *(line 27,751)*
+- [ ] **SOUL GIFTS** *(line 27,765)*
+- [ ] **NECROMANCY** *(line 27,773)*
+- [ ] **ENCHANTMENT MENTAL** *(line 27,787)*
+- [ ] **SOULFORGED ARMAMENTS** *(line 27,859)*
+- [ ] **SOULFORGED TALES** *(line 27,933)*
+- [ ] **SPECIAL ARMAMENT TYPES** *(line 27,968)*
+- [ ] **DUAL WEAPONS** *(line 27,970)*
+- [ ] **SPECIFIC ITEMS** *(line 27,990)*
+- [ ] **AMMUNITION** *(line 27,999)*
+- [ ] **ATTACHED WEAPONS** *(line 28,019)*
+- [ ] **CORRUPTION** *(line 28,052)*
+- [ ] **REMOVING CORRUPTION** *(line 28,108)*
+- [ ] **CLEANSE SOUL PATH** *(line 28,113)*
+- [ ] **RITUAL 2** *(line 28,127)*
+- [ ] **SOULFORGED CHAMPIONS** *(line 28,194)*
+- [ ] **ARCHETYPE CONCENTRATE** *(line 28,308)*
+- [ ] **ESSENCE POWERS** *(line 28,364)*
+- [ ] **THASSILONIAN RUNE MAGIC** *(line 28,478)*
+- [ ] **SKILL** *(line 28,739)*
+- [ ] **RUNELORD RUNE SPELL** *(line 28,876)*
+- [ ] **WIZARD** *(line 28,888)*
+- [ ] **THE BASICS OF RUNE MAGIC** *(line 28,954)*
+- [ ] **TRUE NAMES** *(line 29,185)*
+- [ ] **NAMELESS THINGS** *(line 29,266)*
+- [ ] **LEARN NAME** *(line 29,323)*
+- [ ] **SECRET** *(line 29,328)*
+- [ ] **SIMPLIFIED NAME RESEARCH** *(line 29,388)*
+- [ ] **USING THE RESEARCH SUBSYSTEM** *(line 29,392)*
+- [ ] **NAMING SKILL FEAT** *(line 29,438)*
+- [ ] **NAMING SPELLS** *(line 29,475)*
+- [ ] **FRAGMENTARY NAMES** *(line 29,477)*
+- [ ] **SPELL 6** *(line 29,482)*
+- [ ] **DIVINATION** *(line 29,484)*
+- [ ] **CANTRIP** *(line 29,526)*
+- [ ] **CANTRIP 1** *(line 29,530)*
+- [ ] **SPELL 4** *(line 29,545)*
+- [ ] **NAMING ITEMS** *(line 29,584)*
+- [ ] **RARE INVESTED MAGICAL** *(line 29,595)*
+- [ ] **WELLSPRING MAGIC** *(line 29,621)*
+- [ ] **MULTICLASS VARIANT** *(line 29,675)*
+- [ ] **AREAS OF WELLSPRING MAGIC** *(line 29,684)*
+- [ ] **GLOSSARY & INDEX** *(line 29,988)*
+- [ ] **PAIZO INC.** *(line 30,578)*
+
+---
+
+**Total auditable sections: 843**

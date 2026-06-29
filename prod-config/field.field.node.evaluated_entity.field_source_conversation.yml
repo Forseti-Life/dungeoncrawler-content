@@ -1,0 +1,21 @@
+uuid: daec0e5a-2995-471f-abe8-18e2127f8405
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_source_conversation
+    - node.type.evaluated_entity
+id: node.evaluated_entity.field_source_conversation
+field_name: field_source_conversation
+entity_type: node
+bundle: evaluated_entity
+label: 'Source Conversation'
+description: 'The AI conversation that created this evaluation'
+required: false
+translatable: true
+default_value: null
+default_value_callback: ''
+settings:
+  handler: 'default:node'
+  handler_settings: {  }
+field_type: entity_reference

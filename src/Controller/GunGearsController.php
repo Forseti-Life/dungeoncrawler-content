@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\EquipmentCatalogService;
+use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -23,19 +24,23 @@ class GunGearsController extends ControllerBase {
 
   protected CharacterManager $characterManager;
   protected EquipmentCatalogService $equipmentCatalog;
+  protected FollowerSubsystemService $followerSubsystem;
 
   public function __construct(
     CharacterManager $character_manager,
     EquipmentCatalogService $equipment_catalog,
+    FollowerSubsystemService $follower_subsystem,
   ) {
     $this->characterManager = $character_manager;
     $this->equipmentCatalog = $equipment_catalog;
+    $this->followerSubsystem = $follower_subsystem;
   }
 
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('dungeoncrawler_content.character_manager'),
       $container->get('dungeoncrawler_content.equipment_catalog'),
+      $container->get('dungeoncrawler_content.follower_subsystem'),
     );
   }
 
@@ -118,6 +123,10 @@ class GunGearsController extends ControllerBase {
 
     // Construct Innovation: initialise construct companion scaffold.
     if ($class === 'inventor' && $subtype === 'construct') {
+      $bond_contract = FollowerSubsystemService::buildCreationBondContract(
+        FollowerSubsystemService::FOLLOWER_KIND_CONSTRUCT_COMPANION,
+        $character_id
+      );
       $char['construct_companion'] = $char['construct_companion'] ?? [
         'advancement' => 'level_1',
         'hp_current'  => NULL,
@@ -125,7 +134,22 @@ class GunGearsController extends ControllerBase {
         'modifications' => [],
         'active_mode' => NULL,
         'disabled' => FALSE,
+        'bond_contract' => $bond_contract,
+        'loyalty_profile' => (string) ($bond_contract['loyalty_profile'] ?? ''),
+        'motivation_profile' => (string) ($bond_contract['motivation_profile'] ?? ''),
+        'psychology_defaults' => is_array($bond_contract['psychology_defaults'] ?? NULL) ? $bond_contract['psychology_defaults'] : [],
       ];
+      $actor_record = $this->followerSubsystem->resolveFollowerActorRecord(
+        $this->characterManager->canonicalizeCharacterData($char),
+        (string) $character_id,
+        FollowerSubsystemService::FOLLOWER_KIND_CONSTRUCT_COMPANION
+      );
+      $data['character'] = $this->followerSubsystem->persistActorRecordOnCharacterData(
+        $char,
+        FollowerSubsystemService::FOLLOWER_KIND_CONSTRUCT_COMPANION,
+        $actor_record
+      );
+      $char = &$data['character'];
     }
 
     if (!$this->saveCharacterData($character_id, $data)) {
@@ -432,6 +456,10 @@ class GunGearsController extends ControllerBase {
       + (CharacterManager::CONSTRUCT_COMPANION['advancement'][$advancement]['new_mod_slot'] ? 1 : 0);
 
     $modifications = array_values(array_filter((array) ($body['modifications'] ?? [])));
+    $bond_contract = FollowerSubsystemService::buildCreationBondContract(
+      FollowerSubsystemService::FOLLOWER_KIND_CONSTRUCT_COMPANION,
+      $character_id
+    );
 
     $char = &$data['character'];
     $char['construct_companion'] = [
@@ -441,7 +469,23 @@ class GunGearsController extends ControllerBase {
       'modifications'      => $modifications,
       'active_mode'        => NULL,
       'disabled'           => FALSE,
+      'bond_contract'      => $bond_contract,
+      'loyalty_profile'    => (string) ($bond_contract['loyalty_profile'] ?? ''),
+      'motivation_profile' => (string) ($bond_contract['motivation_profile'] ?? ''),
+      'psychology_defaults' => is_array($bond_contract['psychology_defaults'] ?? NULL) ? $bond_contract['psychology_defaults'] : [],
     ];
+
+    $actor_record = $this->followerSubsystem->resolveFollowerActorRecord(
+      $this->characterManager->canonicalizeCharacterData($char),
+      (string) $character_id,
+      FollowerSubsystemService::FOLLOWER_KIND_CONSTRUCT_COMPANION
+    );
+    $data['character'] = $this->followerSubsystem->persistActorRecordOnCharacterData(
+      $char,
+      FollowerSubsystemService::FOLLOWER_KIND_CONSTRUCT_COMPANION,
+      $actor_record
+    );
+    $char = &$data['character'];
 
     if (!$this->saveCharacterData($character_id, $data)) {
       return $this->jsonError('Failed to save character data.', 500);
@@ -450,6 +494,7 @@ class GunGearsController extends ControllerBase {
     return $this->jsonOk([
       'construct_companion' => $char['construct_companion'],
       'rules_reference'     => 'CharacterManager::CONSTRUCT_COMPANION',
+      'actor_record'        => $actor_record,
     ]);
   }
 

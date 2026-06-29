@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PF2e NPC Definition",
+  "type": "object",
+  "required": ["id", "level", "combat_stats", "influence_subsystem"],
+  "properties": {
+    "id": { "type": "string", "description": "Unique slug for the NPC." },
+    "level": {
+      "type": "integer",
+      "minimum": -1,
+      "maximum": 25,
+      "description": "Standard level scale used for all DC scaling."
+    },
+    "combat_stats": {
+      "type": "object",
+      "properties": {
+        "attributes": {
+          "type": "object",
+          "properties": {
+            "str": { "type": "integer", "minimum": -5, "maximum": 15 },
+            "dex": { "type": "integer", "minimum": -5, "maximum": 15 },
+            "con": { "type": "integer", "minimum": -5, "maximum": 15 },
+            "int": { "type": "integer", "minimum": -5, "maximum": 15 },
+            "wis": { "type": "integer", "minimum": -5, "maximum": 15 },
+            "cha": { "type": "integer", "minimum": -5, "maximum": 15 }
+          }
+        },
+        "ac": { "type": "integer", "minimum": 10, "maximum": 60 },
+        "perception": { "type": "integer", "description": "Total modifier including proficiency." }
+      }
+    },
+    "influence_subsystem": {
+      "type": "object",
+      "description": "Based on the Gamemastery Guide Influence Subsystem.",
+      "properties": {
+        "will_dc": { "type": "integer", "description": "Base DC to resist influence/discovery." },
+        "discovery_dcs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "skill": { "type": "string" },
+              "dc": { "type": "integer", "description": "Standard level-based DC (Lvl 1: 15, Lvl 20: 40)." }
+            }
+          }
+        },
+        "influence_skills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "skill": { "type": "string" },
+              "dc": { "type": "integer" }
+            }
+          }
+        },
+        "thresholds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ip": { "type": "integer", "enum": [2, 4, 6, 8, 10, 12] },
+              "benefit": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "relationship_framework": {
+      "type": "object",
+      "description": "Long-term bond tracking from NPC Core.",
+      "properties": {
+        "standing": {
+          "type": "string",
+          "enum": ["Hostile", "Unfriendly", "Indifferent", "Friendly", "Helpful"]
+        },
+        "bond_level": {
+          "type": "string",
+          "enum": ["Acquaintance", "Friend", "Confidant", "Soulmate", "Rival", "Nemesis"]
+        },
+        "perk": {
+          "type": "string",
+          "description": "Mechanical reward (e.g., Thematic Spell List or Tactical Aid)."
+        }
+      }
+    }
+  }
+}

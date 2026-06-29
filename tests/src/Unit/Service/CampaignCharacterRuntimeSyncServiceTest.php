@@ -116,7 +116,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
   /**
    * @covers ::syncActiveRoomNpcEntities
    */
-  public function testSyncActiveRoomNpcEntitiesDoesNotMatchByName(): void {
+  public function testSyncActiveRoomNpcEntitiesMatchesByNameWhenContentIdDiffers(): void {
     $database = $this->createMock(Connection::class);
     $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
     $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
@@ -205,13 +205,13 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
 
     $result = $service->syncNpcEntities($payload, 69, 'room-tavern');
 
-    $this->assertCount(2, $result['entities']);
-    $this->assertSame('wrong_ref', $result['entities'][0]['entity_ref']['content_id']);
-    $this->assertSame('npc_scholar_npc', $result['entities'][1]['instance_id']);
-    $this->assertSame('scholar_npc', $result['entities'][1]['entity_ref']['content_id']);
-    $this->assertSame(259, $result['entities'][1]['state']['metadata']['character_id']);
-    $this->assertSame(259, $result['entities'][1]['state']['metadata']['campaign_character_id']);
-    $this->assertSame('npc_scholar_npc', $result['entities'][1]['state']['metadata']['runtime_entity_id']);
+    $this->assertCount(1, $result['entities']);
+    $this->assertSame('npc_scholar_npc', $result['entities'][0]['instance_id']);
+    $this->assertSame('npc_scholar_npc', $result['entities'][0]['entity_instance_id']);
+    $this->assertSame('scholar_npc', $result['entities'][0]['entity_ref']['content_id']);
+    $this->assertSame(259, $result['entities'][0]['state']['metadata']['character_id']);
+    $this->assertSame(259, $result['entities'][0]['state']['metadata']['campaign_character_id']);
+    $this->assertSame('npc_scholar_npc', $result['entities'][0]['state']['metadata']['runtime_entity_id']);
   }
 
   /**
@@ -338,6 +338,109 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
     $this->assertSame(259, $result['entities'][0]['state']['metadata']['campaign_character_id']);
     $this->assertSame('npc_scholar_npc', $result['entities'][0]['state']['metadata']['runtime_entity_id']);
     $this->assertSame('quest_giver', $result['entities'][0]['state']['metadata']['role']);
+  }
+
+  /**
+   * @covers ::syncActiveRoomNpcEntities
+   */
+  public function testSyncActiveRoomNpcEntitiesCanonicalizesPrefixedContentIdWithoutDuplication(): void {
+    $database = $this->createMock(Connection::class);
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
+    $service = new class($database, $follower_subsystem) extends CampaignCharacterRuntimeSyncService {
+      public function syncNpcEntities(array $payload, int $campaign_id, string $active_room_id): array {
+        return $this->syncActiveRoomNpcEntities($payload, $campaign_id, $active_room_id);
+      }
+    };
+
+    $npc_statement = $this->createMock(StatementInterface::class);
+    $npc_statement->method('fetchAll')->with(\PDO::FETCH_ASSOC)->willReturn([
+      [
+        'id' => 398,
+        'instance_id' => 'npc_tavern_keeper',
+        'name' => 'Eldric',
+        'state_data' => json_encode([
+          'content_id' => 'npc_tavern_keeper',
+          'role' => 'contact',
+          'team' => 'neutral',
+        ]),
+        'position_q' => 2,
+        'position_r' => 1,
+        'location_ref' => 'room-tavern',
+      ],
+    ]);
+    $room_statement = $this->createMock(StatementInterface::class);
+    $room_statement->method('fetchField')->willReturn('room-tavern');
+
+    $npc_select = $this->createSelectMock($npc_statement);
+    $room_select = $this->createSelectMock($room_statement);
+    $database->method('select')->willReturnCallback(function (string $table, string $alias) use ($npc_select, $room_select) {
+      if ($table === 'dc_campaign_characters' && $alias === 'cc') {
+        return $npc_select;
+      }
+      if ($table === 'dc_campaign_rooms' && $alias === 'r') {
+        return $room_select;
+      }
+      throw new \RuntimeException(sprintf('Unexpected select %s %s', $table, $alias));
+    });
+
+    $update = new class() {
+      public array $fields = [];
+      public function fields(array $fields): self {
+        $this->fields = $fields;
+        return $this;
+      }
+      public function condition(string $field, mixed $value, ?string $operator = NULL): self {
+        return $this;
+      }
+      public function execute(): int {
+        return 1;
+      }
+    };
+    $database->method('update')->with('dc_campaign_characters')->willReturn($update);
+
+    $payload = [
+      'active_room_id' => 'room-tavern',
+      'rooms' => [
+        'room-tavern' => [
+          'hexes' => [
+            ['q' => 2, 'r' => 1],
+            ['q' => 1, 'r' => 1],
+          ],
+        ],
+      ],
+      'entities' => [
+        [
+          'entity_type' => 'npc',
+          'instance_id' => 'npc-tavern_keeper',
+          'entity_instance_id' => 'npc-tavern_keeper',
+          'entity_ref' => [
+            'content_type' => 'npc',
+            'content_id' => 'tavern_keeper',
+          ],
+          'placement' => [
+            'room_id' => 'room-tavern',
+            'hex' => ['q' => 2, 'r' => 1],
+          ],
+          'state' => [
+            'metadata' => [
+              'display_name' => 'Eldric',
+              'name' => 'Eldric',
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $result = $service->syncNpcEntities($payload, 295, 'room-tavern');
+
+    $this->assertCount(1, $result['entities']);
+    $this->assertSame('npc_tavern_keeper', $result['entities'][0]['instance_id']);
+    $this->assertSame('tavern_keeper', $result['entities'][0]['entity_ref']['content_id']);
+    $this->assertSame(398, $result['entities'][0]['state']['metadata']['campaign_character_id']);
+    $this->assertArrayHasKey('state_data', $update->fields);
+    $state_data = json_decode((string) $update->fields['state_data'], TRUE);
+    $this->assertSame('tavern_keeper', $state_data['content_id'] ?? NULL);
   }
 
   /**
@@ -564,6 +667,147 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
     $this->assertCount(1, $result['entities']);
     $this->assertSame(329, $result['entities'][0]['state']['metadata']['character_id']);
     $this->assertSame('bousterous', $result['entities'][0]['entity_ref']['content_id']);
+  }
+
+  /**
+   * @covers ::syncActiveRoomNpcEntities
+   */
+  public function testSyncActiveRoomNpcEntitiesEnrichesFamiliarPortraitPayloadWithSpeciesData(): void {
+    $database = $this->createMock(Connection::class);
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
+    $npc_sheet_generation = $this->createMock(NpcSheetGenerationService::class);
+    $portrait_generator = $this->createMock(CharacterPortraitGenerationService::class);
+    $service = new class($database, $follower_subsystem, $npc_sheet_generation, $portrait_generator) extends CampaignCharacterRuntimeSyncService {
+      public function syncNpcEntities(array $payload, int $campaign_id, string $active_room_id): array {
+        return $this->syncActiveRoomNpcEntities($payload, $campaign_id, $active_room_id);
+      }
+    };
+
+    $npc_statement = $this->createMock(StatementInterface::class);
+    $npc_statement->method('fetchAll')->with(\PDO::FETCH_ASSOC)->willReturn([
+      [
+        'id' => 931,
+        'instance_id' => 'npc_familiar_weasel',
+        'name' => 'Mimi',
+        'state_data' => json_encode([
+          'content_id' => 'familiar_weasel',
+          'role' => 'familiar',
+          'description' => '',
+          'team' => 'ally',
+          'metadata' => [
+            'follower_kind' => 'familiar',
+            'familiar_type' => 'weasel',
+          ],
+        ]),
+        'character_data' => json_encode([
+          'name' => 'Mimi',
+          'type' => 'npc',
+          'role' => 'familiar',
+          'stats' => [
+            'maxHp' => 5,
+            'currentHp' => 5,
+            'speed' => 25,
+          ],
+        ]),
+        'uid' => 0,
+        'position_q' => 0,
+        'position_r' => 0,
+        'location_ref' => 'room-entry',
+      ],
+    ]);
+    $room_statement = $this->createMock(StatementInterface::class);
+    $room_statement->method('fetchField')->willReturn('room-entry');
+
+    $npc_select = $this->createSelectMock($npc_statement);
+    $room_select = $this->createSelectMock($room_statement);
+    $empty_statement = $this->createMock(StatementInterface::class);
+    $empty_statement->method('fetchField')->willReturn(FALSE);
+    $link_statement = $this->createMock(StatementInterface::class);
+    $link_statement->method('fetchField')->willReturn(9101);
+    $library_select = $this->createSelectMock($empty_statement);
+    $campaign_portrait_select = $this->createSelectMock($link_statement);
+    $existing_library_link_select = $this->createSelectMock($empty_statement);
+    $generated_image_link_calls = 0;
+    $database->method('select')->willReturnCallback(function (string $table, string $alias) use ($npc_select, $room_select, $library_select, $campaign_portrait_select, $existing_library_link_select, &$generated_image_link_calls) {
+      if ($table === 'dc_campaign_characters' && $alias === 'cc') {
+        return $npc_select;
+      }
+      if ($table === 'dc_campaign_characters' && $alias === 'lib') {
+        return $library_select;
+      }
+      if ($table === 'dc_campaign_rooms' && $alias === 'r') {
+        return $room_select;
+      }
+      if ($table === 'dc_generated_image_links' && $alias === 'l') {
+        $generated_image_link_calls++;
+        return $generated_image_link_calls === 1 ? $campaign_portrait_select : $existing_library_link_select;
+      }
+      throw new \RuntimeException(sprintf('Unexpected select %s %s', $table, $alias));
+    });
+    $database->method('update')->with('dc_campaign_characters')->willReturn(new class() {
+      public function fields(array $fields): self {
+        return $this;
+      }
+      public function condition(string $field, mixed $value, ?string $operator = NULL): self {
+        return $this;
+      }
+      public function execute(): int {
+        return 1;
+      }
+    });
+    $database->method('insert')->willReturnCallback(function (string $table) {
+      return new class($table) {
+        public function __construct(private readonly string $table) {}
+        public function fields(array $fields): self {
+          return $this;
+        }
+        public function execute(): int {
+          return $this->table === 'dc_campaign_characters' ? 802 : 1;
+        }
+      };
+    });
+
+    $npc_sheet_generation->expects($this->once())
+      ->method('enqueueNpcSheetGeneration')
+      ->with(294, 'familiar_weasel', $this->callback(static function (array $seed): bool {
+        return ($seed['role'] ?? '') === 'familiar'
+          && ($seed['familiar_type'] ?? '') === 'weasel'
+          && ($seed['familiar_species_name'] ?? '') === 'Weasel';
+      }));
+
+    $portrait_generator->expects($this->once())
+      ->method('generatePortrait')
+      ->with(
+        $this->callback(static function (array $payload): bool {
+          return ($payload['name'] ?? '') === 'Mimi'
+            && ($payload['role'] ?? '') === 'familiar'
+            && ($payload['class'] ?? '') === 'familiar'
+            && ($payload['ancestry'] ?? '') === 'Weasel'
+            && ($payload['familiar_type'] ?? '') === 'weasel'
+            && ($payload['familiar_species_name'] ?? '') === 'Weasel'
+            && str_contains((string) ($payload['description'] ?? ''), 'weasel familiar ally')
+            && !empty($payload['portrait_generate']);
+        }),
+        931,
+        0,
+        294,
+        ['generate' => TRUE]
+      );
+
+    $payload = [
+      'active_room_id' => 'room-entry',
+      'rooms' => [
+        'room-entry' => [
+          'hexes' => [
+            ['q' => 0, 'r' => 0],
+          ],
+        ],
+      ],
+      'entities' => [],
+    ];
+
+    $service->syncNpcEntities($payload, 294, 'room-entry');
   }
 
   /**

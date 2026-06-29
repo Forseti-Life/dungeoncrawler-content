@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-gam-gods-magic",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-gam-gods-magic/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-gam-gods-magic-e2e",
+      "feature_id": "dc-gam-gods-magic",
+      "label": "Gods and Magic deity integration - schema, character creation, encounter hooks, and ACL expectations",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-gam-gods-magic\"",
+      "artifacts": [
+        "playwright-report/dc-gam-gods-magic.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/character-creation",
+      "status": "pending_implementation",
+      "notes": "Test plan calls out CSRF + ownership on deity-selection paths, but the current baseline character-creation and API route families already cover the expected access shape; add feature-specific qa-permissions rules only when concrete route paths land."
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+QUICK DECISION CHECKLIST
+=========================
+
+Before reconciling configs, answer these YES/NO questions:
+
+1. GROUP MODULE (13 config files in dev, 0 in prod)
+   - Is the family/institution feature actually used in production?
+   - Answer: YES / NO / DON'T KNOW
+   
+   If NO: These 13 files will be deleted during sync
+   If YES: Module should be installed in prod with these configs
+   If DON'T KNOW: Check production site for "Groups", "Families", "Institutions"
+
+2. FORSETI_CONTENT vs FORSETI_SAFETY_CONTENT
+   - Dev has: forseti_safety_content
+   - Prod has: forseti_content
+   - Are these the SAME module renamed? Or DIFFERENT modules?
+   - Answer: SAME / DIFFERENT / DON'T KNOW
+   
+   Check: ls -la sites/forseti/web/modules/custom/ | grep forseti
+
+3. CONTACT MODULE (3 config files in dev, 0 in prod)
+   - Does production have contact forms?
+   - Answer: YES / NO / DON'T KNOW
+   
+   If NO: These 3 files will be deleted (probably fine, using webform instead)
+   If YES: Install contact module in prod
+
+4. WEBFORM MODULE (14 config files in prod, 0 in dev)
+   - Does production use webforms for forms?
+   - Answer: YES / NO / DON'T KNOW
+   
+   If YES: MUST install webform module in dev before sync
+
+5. SOCIAL AUTH (4 config files in prod, 0 in dev)
+   - Does production have "Sign in with Google"?
+   - Answer: YES / NO / DON'T KNOW
+   
+   If YES: MUST install social_auth modules in dev
+
+6. READY TO SYNC?
+   - I understand this will replace ALL dev config with production config
+   - I understand 40 dev-only files will be deleted
+   - I understand 317 modified files will be overwritten with prod versions
+   - I have backups
+   - Answer: YES / NOT YET
+
+
+RECOMMENDATION IF UNCERTAIN:
+============================
+
+If you answered "DON'T KNOW" to any questions:
+
+1. Check production site manually first
+2. Look for these features:
+   - Google login button
+   - Contact/feedback forms
+   - Family/group/institution pages
+   
+3. Check module directories:
+   cd ~/forseti.life/sites/forseti/web/modules/custom
+   ls -la | grep -E "forseti|group|nfr|safety"
+
+4. Then come back and answer the questions
+
+
+SAFE DEFAULT APPROACH:
+======================
+
+If you want to proceed safely:
+
+1. Run: ./reconcile-config.sh ../../prod-config ../../sites/forseti/config/sync
+2. Choose: use-prod
+3. This syncs everything from prod → dev
+4. Test dev environment
+5. Install any missing modules in dev manually:
+   - drush pm:list --status=enabled  (see what's in prod)
+   - composer require + drush pm:enable for each
+6. Re-export dev config after modules installed
+7. Commit to git
+
+This way dev becomes a clone of prod, then you add back any dev-specific tools.

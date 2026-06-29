@@ -1,0 +1,51 @@
+# FREEZE PACKET: forseti_safety_content
+
+Generated: 2026-04-21T13:01:21Z
+Module Path: ./sites/forseti/web/modules/custom/forseti_safety_content
+
+## FILE INVENTORY
+- Total Files: 51
+- PHP Files: 10
+- YAML Config Files: 7
+- Test Files: 0
+- Documentation Files: 2
+- Module Size: 0MB (876KB)
+
+## INTEGRITY CHECK
+Files Hash: 6d4aad960605acf9cdf534d342769c92
+
+## FREEZE STATE
+This freeze packet represents the module state at audit time.
+Used for baseline comparison and rollback reference.
+
+## MODULE STRUCTURE
+  ./sites/forseti/web/modules/custom/forseti_safety_content/forseti_safety_content.links.menu.yml
+  ./sites/forseti/web/modules/custom/forseti_safety_content/css/forseti-pages.css
+  ./sites/forseti/web/modules/custom/forseti_safety_content/forseti_safety_content.routing.yml
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-accessibility.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-data-usage.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-legal.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-cookie-policy.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-agent-evaluate.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-us-government-power.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-ai-terms.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-dimension.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-terms.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-evaluation-matrix.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-about.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-how-it-works.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-contact-thank-you.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-all-dimensions.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-safety-factors.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-copyright.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-privacy.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-mobile-app.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-evaluations-list.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-mobile-app-beta.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-agent-hierarchy.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-disclaimer.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-example-entities.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-community.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-mobile-app-terms.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-api-terms.html.twig
+  ./sites/forseti/web/modules/custom/forseti_safety_content/templates/forseti-page-community-guidelines.html.twig

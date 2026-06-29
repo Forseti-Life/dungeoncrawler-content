@@ -1,0 +1,22 @@
+uuid: b56b3514-973d-4023-a033-a507311fd6b8
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_sub_planning_desc
+    - node.type.evaluated_entity
+  module:
+    - text
+id: node.evaluated_entity.field_sub_planning_desc
+field_name: field_sub_planning_desc
+entity_type: node
+bundle: evaluated_entity
+label: 'Planning Description'
+description: 'AI-provided description for planning sub-dimension'
+required: false
+translatable: true
+default_value: {  }
+default_value_callback: ''
+settings:
+  allowed_formats: {  }
+field_type: text_long

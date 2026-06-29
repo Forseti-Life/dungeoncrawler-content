@@ -1,0 +1,20 @@
+- Status: done
+- Completed: 2026-04-29T19:32:42Z
+
+# Code Review Gate — Manual Verification Required
+
+**Release:** `20260412-forseti-release-v`
+**Triggered:** Coordinated push fired without a verified `agent-code-review` completion for this release.
+
+## Features shipping without automated code review:
+- (none found)
+
+## Action required
+1. Review the diff for the features above: `git log --oneline --name-only -20`
+2. Verify no regressions, security issues, or unreviewed logic changes.
+3. Write verdict to `sessions/agent-code-review/outbox/20260429-193149-manual-cr-20260412-forseti-release-v.md`:
+   ```
+   - Status: done
+   - Verdict: APPROVE / REJECT
+   ```
+4. Archive this inbox item.

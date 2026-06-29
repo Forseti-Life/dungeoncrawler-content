@@ -31,7 +31,7 @@
     },
     "metadata": {
       "type": "object",
-      "required": ["template_id", "name", "synopsis", "level_range", "source", "tags"],
+      "required": ["template_id", "name", "synopsis", "level_range", "source", "tags", "generated_outline"],
       "additionalProperties": true,
       "properties": {
         "template_id": {"type": "string"},
@@ -39,7 +39,42 @@
         "synopsis": {"type": "string"},
         "level_range": {"type": "string"},
         "source": {"type": "string"},
-        "tags": {"type": "array", "items": {"type": "string"}}
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "generated_outline": {
+          "type": "object",
+          "required": ["entry_point"],
+          "additionalProperties": true,
+          "properties": {
+            "entry_point": {
+              "type": "object",
+              "required": [
+                "primary_quest_giver_id",
+                "primary_quest_giver_name",
+                "primary_dungeon_id",
+                "primary_chapter_id",
+                "primary_scene_id",
+                "primary_location_id",
+                "broker_id",
+                "broker_name",
+                "introduction_path",
+                "detail_summary"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "primary_quest_giver_id": {"type": "string"},
+                "primary_quest_giver_name": {"type": "string"},
+                "primary_dungeon_id": {"type": "string"},
+                "primary_chapter_id": {"type": "string"},
+                "primary_scene_id": {"type": "string"},
+                "primary_location_id": {"type": "string"},
+                "broker_id": {"type": "string"},
+                "broker_name": {"type": "string"},
+                "introduction_path": {"type": "string", "enum": ["direct", "brokered"]},
+                "detail_summary": {"type": "string"}
+              }
+            }
+          }
+        }
       }
     },
     "chapters": {

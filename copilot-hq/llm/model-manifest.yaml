@@ -1,0 +1,63 @@
+# LLM Model Manifest
+# Defines available local models, their Hugging Face sources, and task assignments.
+# Models are downloaded as GGUF quantized files (CPU-compatible, no GPU required).
+# Run: llm/download-models.sh [model-id] to pull a specific model.
+#
+# size_gb is approximate download size. Plan storage accordingly.
+# tasks: which org roles/workflows this model is suited for.
+
+version: "1"
+
+models:
+  - id: phi-3-mini
+    name: "Phi-3 Mini 4K Instruct (Q4_K_M)"
+    hf_repo: "microsoft/Phi-3-mini-4k-instruct-gguf"
+    filename: "Phi-3-mini-4k-instruct-q4.gguf"
+    hf_filename: "Phi-3-mini-4k-instruct-q4.gguf"
+    size_gb: 2.2
+    context_length: 4096
+    tasks:
+      - qa
+      - explore
+      - checklist
+      - summarize
+    notes: "Fast, low-memory. Good for QA checklists, explore agents, simple summaries."
+
+  - id: mistral-7b-instruct
+    name: "Mistral 7B Instruct v0.2 (Q4_K_M)"
+    hf_repo: "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+    filename: "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+    hf_filename: "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+    size_gb: 4.1
+    context_length: 8192
+    tasks:
+      - business-analyst
+      - security-analyst
+      - structured-output
+      - documentation
+    notes: "Strong instruction following. Good for BA requirements, security checklists, structured markdown output."
+
+  - id: deepseek-coder
+    name: "DeepSeek Coder 6.7B Instruct (Q4_K_M)"
+    hf_repo: "TheBloke/deepseek-coder-6.7B-instruct-GGUF"
+    filename: "deepseek-coder-6.7b-instruct.Q4_K_M.gguf"
+    hf_filename: "deepseek-coder-6.7b-instruct.Q4_K_M.gguf"
+    size_gb: 3.8
+    context_length: 8192
+    tasks:
+      - code-review
+      - code-analysis
+      - refactor
+    notes: "Specialized for code. Best choice for agent-code-review and dev-* code analysis tasks."
+
+  - id: codellama-7b-instruct
+    name: "CodeLlama 7B Instruct (Q4_K_M)"
+    hf_repo: "TheBloke/CodeLlama-7B-Instruct-GGUF"
+    filename: "codellama-7b-instruct.Q4_K_M.gguf"
+    hf_filename: "codellama-7b-instruct.Q4_K_M.gguf"
+    size_gb: 3.8
+    context_length: 16384
+    tasks:
+      - code-review
+      - code-analysis
+    notes: "Alternative to deepseek-coder. Longer context window. Use if deepseek is unavailable."

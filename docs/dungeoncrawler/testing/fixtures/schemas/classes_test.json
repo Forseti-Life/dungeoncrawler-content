@@ -1,0 +1,88 @@
+{
+  "classes": [
+    {
+      "id": "fighter",
+      "name": "Fighter",
+      "hit_points": 10,
+      "key_ability": ["STR", "DEX"],
+      "initial_proficiencies": {
+        "perception": "expert",
+        "fortitude": "expert",
+        "reflex": "trained",
+        "will": "trained"
+      },
+      "description": "Fighting for honor, greed, loyalty, or simply the thrill of battle",
+      "class_features": ["attack_of_opportunity", "shield_block"]
+    },
+    {
+      "id": "wizard",
+      "name": "Wizard",
+      "hit_points": 6,
+      "key_ability": ["INT"],
+      "initial_proficiencies": {
+        "perception": "trained",
+        "fortitude": "trained",
+        "reflex": "trained",
+        "will": "expert"
+      },
+      "description": "You are an eternal student of the arcane secrets of the universe",
+      "class_features": ["arcane_spellcasting", "arcane_school", "arcane_thesis"]
+    },
+    {
+      "id": "rogue",
+      "name": "Rogue",
+      "hit_points": 8,
+      "key_ability": ["DEX", "STR", "INT", "CHA"],
+      "initial_proficiencies": {
+        "perception": "expert",
+        "fortitude": "trained",
+        "reflex": "expert",
+        "will": "expert"
+      },
+      "description": "You are skilled and opportunistic",
+      "class_features": ["sneak_attack", "surprise_attack", "rogue_feat", "skill_increase"]
+    },
+    {
+      "id": "cleric",
+      "name": "Cleric",
+      "hit_points": 8,
+      "key_ability": ["WIS"],
+      "initial_proficiencies": {
+        "perception": "trained",
+        "fortitude": "expert",
+        "reflex": "trained",
+        "will": "expert"
+      },
+      "description": "You are a cleric, and you serve a deity or philosophy",
+      "class_features": ["divine_spellcasting", "deity", "divine_font"]
+    },
+    {
+      "id": "ranger",
+      "name": "Ranger",
+      "hit_points": 10,
+      "key_ability": ["STR", "DEX"],
+      "initial_proficiencies": {
+        "perception": "expert",
+        "fortitude": "expert",
+        "reflex": "expert",
+        "will": "trained"
+      },
+      "description": "You have studied the secrets of survival and navigation",
+      "class_features": ["hunt_prey", "rangers_edge"]
+    },
+    {
+      "id": "barbarian",
+      "name": "Barbarian",
+      "hit_points": 12,
+      "key_ability": ["STR"],
+      "initial_proficiencies": {
+        "perception": "expert",
+        "fortitude": "expert",
+        "reflex": "trained",
+        "will": "trained"
+      },
+      "description": "Rage empowers you in battle",
+      "class_features": ["rage", "instinct"]
+    }
+  ]
+}

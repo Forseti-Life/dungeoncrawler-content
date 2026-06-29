@@ -1,0 +1,37 @@
+# FREEZE PACKET: institutional_management
+
+Generated: 2026-04-21T13:01:21Z
+Module Path: ./sites/forseti/web/modules/custom/institutional_management
+
+## FILE INVENTORY
+- Total Files: 19
+- PHP Files: 3
+- YAML Config Files: 5
+- Test Files: 0
+- Documentation Files: 2
+- Module Size: 0MB (160KB)
+
+## INTEGRITY CHECK
+Files Hash: b284c59c5b423a0e36dde9c1a63e6f48
+
+## FREEZE STATE
+This freeze packet represents the module state at audit time.
+Used for baseline comparison and rollback reference.
+
+## MODULE STRUCTURE
+  ./sites/forseti/web/modules/custom/institutional_management/institutional_management.routing.yml
+  ./sites/forseti/web/modules/custom/institutional_management/css/group-map.css
+  ./sites/forseti/web/modules/custom/institutional_management/css/institutional-dashboard.css
+  ./sites/forseti/web/modules/custom/institutional_management/templates/institutional-dashboard.html.twig
+  ./sites/forseti/web/modules/custom/institutional_management/templates/page--front.html.twig
+  ./sites/forseti/web/modules/custom/institutional_management/templates/group-location-map.html.twig
+  ./sites/forseti/web/modules/custom/institutional_management/templates/README.md
+  ./sites/forseti/web/modules/custom/institutional_management/institutional_management.module
+  ./sites/forseti/web/modules/custom/institutional_management/js/institutional-dashboard.js
+  ./sites/forseti/web/modules/custom/institutional_management/js/group-map.js
+  ./sites/forseti/web/modules/custom/institutional_management/institutional_management.libraries.yml
+  ./sites/forseti/web/modules/custom/institutional_management/institutional_management.links.menu.yml
+  ./sites/forseti/web/modules/custom/institutional_management/README.md
+  ./sites/forseti/web/modules/custom/institutional_management/institutional_management.install
+  ./sites/forseti/web/modules/custom/institutional_management/institutional_management.permissions.yml
+  ./sites/forseti/web/modules/custom/institutional_management/institutional_management.info.yml

@@ -78,6 +78,13 @@ dungeoncrawler_content.menu.campaigns:
   menu_name: main
   weight: 20
 
+dungeoncrawler_content.menu.storyline_explorer:
+  title: 'Storyline Explorer'
+  description: 'Inspect storyline nodes, edges, and campaign runtime pointers'
+  route_name: dungeoncrawler_content.storyline_explorer
+  menu_name: main
+  weight: 21
+
 dungeoncrawler_content.menu.character_setup:
   title: 'Character Setup'
   description: 'Create a new character or continue your current setup flow'
@@ -205,6 +212,13 @@ dungeoncrawler_content.menu.dc_administration_institution_review:
   route_name: dungeoncrawler_content.institution_review_browser
   parent: dungeoncrawler_content.menu.dc_administration
   weight: 12
+
+dungeoncrawler_content.menu.dc_administration_storyline_explorer:
+  title: 'Storyline Explorer'
+  description: 'Inspect storyline nodes, edges, and campaign runtime pointers.'
+  route_name: dungeoncrawler_content.storyline_explorer
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 13
 
 # ==============================================================================
 # FOOTER MENU LINKS

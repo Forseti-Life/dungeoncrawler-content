@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -17,11 +18,13 @@ class CharacterApiController extends ControllerBase {
 
   protected CharacterManager $characterManager;
   protected CharacterCreationGmService $characterCreationGm;
+  protected CampaignCharacterRuntimeResolverService $runtimeResolver;
   protected CsrfTokenGenerator $csrfToken;
 
-  public function __construct(CharacterManager $character_manager, CharacterCreationGmService $character_creation_gm, CsrfTokenGenerator $csrf_token) {
+  public function __construct(CharacterManager $character_manager, CharacterCreationGmService $character_creation_gm, CampaignCharacterRuntimeResolverService $runtime_resolver, CsrfTokenGenerator $csrf_token) {
     $this->characterManager = $character_manager;
     $this->characterCreationGm = $character_creation_gm;
+    $this->runtimeResolver = $runtime_resolver;
     $this->csrfToken = $csrf_token;
   }
 
@@ -29,6 +32,7 @@ class CharacterApiController extends ControllerBase {
     return new static(
       $container->get('dungeoncrawler_content.character_manager'),
       $container->get('dungeoncrawler_content.character_creation_gm'),
+      $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
       $container->get('csrf_token'),
     );
   }
@@ -180,6 +184,7 @@ class CharacterApiController extends ControllerBase {
         }
 
         $this->characterManager->updateCharacter($character_id, $fields);
+        $this->runtimeResolver->ensureCanonicalLibraryFollowerDataset((int) $character_id);
         
         return new JsonResponse([
           'success' => TRUE,
@@ -214,12 +219,15 @@ class CharacterApiController extends ControllerBase {
             'position_r' => (int) ($character_data['position']['r'] ?? 0),
             'last_room_id' => (string) ($character_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($character_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+            'default_locations' => NULL,
+            'portrait' => NULL,
             'lifecycle_state' => 'draft_library',
             'status' => 0, // Draft status until wizard is complete
             'created' => $now,
             'changed' => $now,
           ])
           ->execute();
+        $this->runtimeResolver->ensureCanonicalLibraryFollowerDataset((int) $character_id);
 
         return new JsonResponse([
           'success' => TRUE,

@@ -37,6 +37,60 @@
       },
       "location_type": "room",
       "location_ref": "ltba-grandmas-house-parlor"
+    },
+    {
+      "character_id": 4103,
+      "instance_id": "ltba-hookclaw-vault-guide",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Zikza Hookclaw",
+        "class": "guide",
+        "level": 1,
+        "hp_current": 14,
+        "conditions": [],
+        "source_module": "little-trouble-in-big-absalom",
+        "description": "A practical Hookclaw scout coordinating the party at the vault entry."
+      },
+      "location_type": "room",
+      "location_ref": "ltba-vault-entry"
+    },
+    {
+      "character_id": 4104,
+      "instance_id": "ltba-hookclaw-lookout",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Skritch Hookclaw",
+        "class": "lookout",
+        "level": 1,
+        "hp_current": 12,
+        "conditions": [],
+        "source_module": "little-trouble-in-big-absalom",
+        "description": "A vigilant Hookclaw lookout watching the tomb entrance."
+      },
+      "location_type": "room",
+      "location_ref": "ltba-vault-entry"
+    },
+    {
+      "character_id": 4105,
+      "instance_id": "ltba-hookclaw-hazard-scout",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Pikkik Hookclaw",
+        "class": "hazard_scout",
+        "level": 1,
+        "hp_current": 13,
+        "conditions": [],
+        "source_module": "little-trouble-in-big-absalom",
+        "description": "A nimble Hookclaw hazard scout mapping trap triggers in the tomb chamber."
+      },
+      "location_type": "room",
+      "location_ref": "ltba-tomb-hazard-room"
     }
   ]
 }

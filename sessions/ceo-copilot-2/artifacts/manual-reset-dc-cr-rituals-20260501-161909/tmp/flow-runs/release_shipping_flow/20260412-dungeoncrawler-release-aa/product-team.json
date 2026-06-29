@@ -1,0 +1,8 @@
+{
+  "id": "dungeoncrawler",
+  "label": "Dungeoncrawler",
+  "site": "dungeoncrawler",
+  "pm_agent": "pm-dungeoncrawler",
+  "qa_agent": "qa-dungeoncrawler",
+  "dev_agent": "dev-dungeoncrawler"
+}

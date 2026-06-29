@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example PHPUnit Configuration for Dungeon Crawler Module
+  
+  This is a DESIGN EXAMPLE showing how to configure PHPUnit for testing.
+  Place this file at: sites/dungeoncrawler/phpunit.xml
+  
+  Actual implementation should be adjusted based on Drupal core version and project needs.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.0/phpunit.xsd"
+         bootstrap="web/core/tests/bootstrap.php"
+         cacheDirectory=".phpunit.cache"
+         colors="true"
+         beStrictAboutOutputDuringTests="true"
+         failOnWarning="true"
+         failOnRisky="true">
+  
+  <!-- Define test suites -->
+  <testsuites>
+    <!-- Unit tests: Fast, isolated, no Drupal bootstrap -->
+    <testsuite name="unit">
+      <directory>web/modules/custom/*/tests/src/Unit</directory>
+      <exclude>web/modules/custom/*/tests/src/Unit/Traits</exclude>
+    </testsuite>
+    
+    <!-- Kernel tests: Integration with minimal Drupal -->
+    <testsuite name="kernel">
+      <directory>web/modules/custom/*/tests/src/Kernel</directory>
+    </testsuite>
+    
+    <!-- Functional tests: Full Drupal with simulated browser -->
+    <testsuite name="functional">
+      <directory>web/modules/custom/*/tests/src/Functional</directory>
+    </testsuite>
+    
+    <!-- Functional JavaScript tests: Full Drupal with real browser -->
+    <testsuite name="functional-javascript">
+      <directory>web/modules/custom/*/tests/src/FunctionalJavascript</directory>
+    </testsuite>
+  </testsuites>
+  
+  <!-- Code coverage configuration -->
+  <coverage>
+    <report>
+      <html outputDirectory="coverage/html"/>
+      <text outputFile="coverage/coverage.txt"/>
+      <clover outputFile="coverage/clover.xml"/>
+    </report>
+    
+    <!-- Include source code in coverage -->
+    <include>
+      <directory suffix=".php">web/modules/custom/dungeoncrawler_content/src</directory>
+      <directory suffix=".php">web/modules/custom/ai_conversation/src</directory>
+    </include>
+    
+    <!-- Exclude test files and generated code from coverage -->
+    <exclude>
+      <directory>web/modules/custom/*/tests</directory>
+      <directory>web/modules/custom/*/vendor</directory>
+      <directory>web/core</directory>
+      <directory>web/modules/contrib</directory>
+    </exclude>
+  </coverage>
+  
+  <!-- Test groups for organizing tests -->
+  <groups>
+    <!-- Feature-based groups -->
+    <group>character-creation</group>
+    <group>combat</group>
+    <group>spellcasting</group>
+    <group>leveling</group>
+    
+    <!-- PF2e rules validation -->
+    <group>pf2e-rules</group>
+    
+    <!-- API tests -->
+    <group>api</group>
+    
+    <!-- Performance tests (slow, run separately) -->
+    <group>performance</group>
+    <group>slow</group>
+    
+    <!-- Module-specific -->
+    <group>dungeoncrawler_content</group>
+    <group>ai_conversation</group>
+  </groups>
+  
+  <!-- PHP environment variables for Drupal testing -->
+  <php>
+    <!-- Base URL for functional tests -->
+    <env name="SIMPLETEST_BASE_URL" value="http://localhost:8080"/>
+    
+    <!-- Database connection for tests -->
+    <env name="SIMPLETEST_DB" value="mysql://root:drupal@127.0.0.1:3306/drupal_test"/>
+    
+    <!-- Browser output directory (for debugging functional tests) -->
+    <env name="BROWSERTEST_OUTPUT_DIRECTORY" value="web/sites/simpletest/browser_output"/>
+    <env name="BROWSERTEST_OUTPUT_FILE" value=""/>
+    
+    <!-- Mink driver (for JavaScript tests) -->
+    <env name="MINK_DRIVER_CLASS" value=""/>
+    <env name="MINK_DRIVER_ARGS" value=""/>
+    <env name="MINK_DRIVER_ARGS_WEBDRIVER" value='["chrome", {"browserName":"chrome","chromeOptions":{"args":["--disable-gpu","--headless", "--no-sandbox"]}}, "http://localhost:4444/wd/hub"]'/>
+    
+    <!-- Symfony deprecation helper -->
+    <env name="SYMFONY_DEPRECATIONS_HELPER" value="disabled"/>
+    
+    <!-- Memory limit for tests -->
+    <ini name="memory_limit" value="512M"/>
+    
+    <!-- Display errors during tests -->
+    <ini name="display_errors" value="1"/>
+    <ini name="display_startup_errors" value="1"/>
+    <ini name="error_reporting" value="-1"/>
+    
+    <!-- Timezone -->
+    <ini name="date.timezone" value="UTC"/>
+  </php>
+  
+  <!-- Logging configuration -->
+  <logging>
+    <!-- JUnit format for CI systems -->
+    <!-- <junit outputFile="test-results.xml"/> -->
+    
+    <!-- TeamCity format (if using TeamCity) -->
+    <!-- <teamcity outputFile="teamcity.txt"/> -->
+  </logging>
+  
+  <!-- Extensions (optional, for enhanced functionality) -->
+  <!-- 
+  <extensions>
+    <bootstrap class="Drupal\TestTools\PhpUnitCompatibility\PhpUnit9\TestRunner"/>
+  </extensions>
+  -->
+</phpunit>
+
+<!--
+  Usage Examples:
+  
+  Run all tests:
+    ./vendor/bin/phpunit
+  
+  Run specific test suite:
+    ./vendor/bin/phpunit --testsuite=unit
+    ./vendor/bin/phpunit --testsuite=functional
+  
+  Run specific group:
+    ./vendor/bin/phpunit --group=character-creation
+    ./vendor/bin/phpunit --group=pf2e-rules
+  
+  Run single test file:
+    ./vendor/bin/phpunit web/modules/custom/dungeoncrawler_content/tests/src/Unit/Service/CharacterCalculatorTest.php
+  
+  Run with coverage:
+    ./vendor/bin/phpunit --coverage-html coverage
+  
+  Run excluding slow tests:
+    ./vendor/bin/phpunit --exclude-group=slow,performance
+  
+  Run with verbose output:
+    ./vendor/bin/phpunit --testdox
+  
+  Stop on first failure:
+    ./vendor/bin/phpunit --stop-on-failure
+  
+  Notes:
+  - Adjust paths based on your Drupal installation
+  - Ensure database credentials are correct for test environment
+  - For JavaScript tests, you need chromedriver running on port 4444
+  - Browser output directory must be writable
+-->

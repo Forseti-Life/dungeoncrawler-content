@@ -1,0 +1,627 @@
+# AUDIT: PF2E Bestiary 2
+
+**Source:** `PF2E Bestiary 2.txt`  
+**Total Lines:** 35,875  
+**Status:** 🔴 PENDING
+
+---
+
+## Legend
+- `[ ]` = Pending extraction
+- `[x]` = Requirements extracted
+- `[S]` = Skipped (pure lore/atmosphere, no mechanics)
+- `[!]` = Needs review
+
+---
+
+## [ ] Chapter 1: Introduction & Monster Rules
+*Lines 1–3,000 (2,999 lines)*
+
+- [ ] **BESTIARY 2** *(line 41)*
+- [ ] **AUTHORS** *(line 61)*
+- [ ] **EDITING LEAD** *(line 82)*
+- [ ] **GRAPHIC DESIGN** *(line 106)*
+- [ ] **ADDITIONAL DEVELOPMENT** *(line 147)*
+- [ ] **ART DIRECTION** *(line 150)*
+- [ ] **INTRODUCTION** *(line 888)*
+- [ ] **READING CREATURE STATISTICS** *(line 931)*
+- [ ] **CREATURE NAME** *(line 960)*
+- [ ] **RARITY TRAIT** *(line 1,008)*
+- [ ] **ALIGNMENT ABBREVIATION** *(line 1,010)*
+- [ ] **SIZE** *(line 1,012)*
+- [ ] **OTHER TRAITS** *(line 1,020)*
+- [ ] **APPENDIX** *(line 1,022)*
+- [ ] **ROLEPLAYING CREATURES** *(line 1,059)*
+- [ ] **COMBAT POWER** *(line 1,093)*
+- [ ] **LANGUAGES** *(line 1,183)*
+- [ ] **GEAR** *(line 1,205)*
+- [ ] **SKILLS, PERCEPTION, AND PROFICIENCY** *(line 1,241)*
+- [ ] **THELETOS** *(line 1,311)*
+- [ ] **CREATURE 7** *(line 1,328)*
+- [ ] **MONITOR** *(line 1,331)*
+- [ ] **ZELEKHUT** *(line 1,401)*
+- [ ] **LARGE** *(line 1,423)*
+- [ ] **PARADOX AND UNITY** *(line 1,427)*
+- [ ] **CREATURE 9** *(line 1,449)*
+- [ ] **INEVITABLE** *(line 1,452)*
+- [ ] **MARUT** *(line 1,501)*
+- [ ] **CREATURE 15** *(line 1,515)*
+- [ ] **AEON** *(line 1,519)*
+- [ ] **BYTHOS** *(line 1,572)*
+- [ ] **CREATURE 16** *(line 1,603)*
+- [ ] **GUARDIANS OF TIME** *(line 1,670)*
+- [ ] **AHUIZOTL** *(line 1,718)*
+- [ ] **CREATURE 6** *(line 1,721)*
+- [ ] **AMPHIBIOUS** *(line 1,726)*
+- [ ] **BEAST** *(line 1,728)*
+- [ ] **AKATA** *(line 1,822)*
+- [ ] **NOQUAL COCOONS** *(line 1,829)*
+- [ ] **CREATURE 1** *(line 1,840)*
+- [ ] **ABERRATION** *(line 1,851)*
+- [ ] **MOVANIC DEVA** *(line 1,936)*
+- [ ] **ANGEL** *(line 1,941)*
+- [ ] **CREATURE 10** *(line 1,943)*
+- [ ] **MONADIC DEVA** *(line 2,018)*
+- [ ] **CREATURE 12** *(line 2,025)*
+- [ ] **PLANETAR JUSTICE** *(line 2,112)*
+- [ ] **CELESTIAL** *(line 2,135)*
+- [ ] **SOLAR** *(line 2,189)*
+- [ ] **CREATURE 23** *(line 2,194)*
+- [ ] **SOLAR GENESIS** *(line 2,279)*
+- [ ] **ANIMATE DREAM** *(line 2,359)*
+- [ ] **CREATURE 8** *(line 2,368)*
+- [ ] **INCORPOREAL** *(line 2,371)*
+- [ ] **ANKOU GUILDS** *(line 2,428)*
+- [ ] **CREATURE 14** *(line 2,437)*
+- [ ] **ANT HIVES** *(line 2,509)*
+- [ ] **GIANT ANT** *(line 2,524)*
+- [ ] **CREATURE 2** *(line 2,533)*
+- [ ] **ARMY ANT SWARM** *(line 2,551)*
+- [ ] **CREATURE 5** *(line 2,563)*
+- [ ] **ANIMAL** *(line 2,566)*
+- [ ] **SWARM** *(line 2,568)*
+- [ ] **CREATURE 18** *(line 2,630)*
+- [ ] **GARGANTUAN** *(line 2,633)*
+- [ ] **CONSTRUCT** *(line 2,635)*
+- [ ] **JISTKAN BEHEMOTHS** *(line 2,639)*
+- [ ] **HOUND ARCHON** *(line 2,730)*
+- [ ] **ARCHON** *(line 2,744)*
+- [ ] **CREATURE 4** *(line 2,746)*
+- [ ] **INSTRUMENTS OF WAR** *(line 2,873)*
+- [ ] **STAR ARCHON** *(line 2,899)*
+- [ ] **HEAVENLY MOUNTAIN** *(line 2,920)*
+- [ ] **CREATURE 19** *(line 2,944)*
+- [ ] **BASTION ARCHON** *(line 2,990)*
+
+## [ ] Chapter 2: Monsters A-Z
+*Lines 3,001–33,000 (29,999 lines)*
+
+- [ ] **HUGE** *(line 3,027)*
+- [ ] **CREATURE 20** *(line 3,029)*
+- [ ] **ARCHON** *(line 3,031)*
+- [ ] **CELESTIAL** *(line 3,033)*
+- [ ] **ARMORED ARCHONS** *(line 3,086)*
+- [ ] **ASSASSIN VINE** *(line 3,170)*
+- [ ] **CREATURE 3** *(line 3,173)*
+- [ ] **MINDLESS** *(line 3,176)*
+- [ ] **PLANT** *(line 3,178)*
+- [ ] **ATHACH TREASURE** *(line 3,250)*
+- [ ] **CREATURE 12** *(line 3,264)*
+- [ ] **HUMANOID** *(line 3,277)*
+- [ ] **ATTIC WHISPERER** *(line 3,361)*
+- [ ] **SMALL** *(line 3,364)*
+- [ ] **CREATURE 4** *(line 3,366)*
+- [ ] **UNDEAD** *(line 3,368)*
+- [ ] **AURUMVORAX** *(line 3,445)*
+- [ ] **CREATURE 9** *(line 3,450)*
+- [ ] **GOLDEN GUARDIAN** *(line 3,454)*
+- [ ] **ANIMAL** *(line 3,479)*
+- [ ] **BRALANI CONTESTS** *(line 3,535)*
+- [ ] **BRALANI** *(line 3,563)*
+- [ ] **CREATURE 6** *(line 3,568)*
+- [ ] **PRIMORDIAL VERANALLIA** *(line 3,657)*
+- [ ] **BADGER** *(line 3,760)*
+- [ ] **CREATURE 0** *(line 3,771)*
+- [ ] **GIANT BADGER** *(line 3,784)*
+- [ ] **CREATURE 2** *(line 3,801)*
+- [ ] **HAUNTING LAIRS** *(line 3,869)*
+- [ ] **BASIDIROND** *(line 3,974)*
+- [ ] **CREATURE 5** *(line 3,979)*
+- [ ] **FUNGUS** *(line 3,982)*
+- [ ] **DRACOLISK** *(line 4,057)*
+- [ ] **LARGE** *(line 4,063)*
+- [ ] **BEAST** *(line 4,065)*
+- [ ] **DRAGON** *(line 4,067)*
+- [ ] **DRACONIC HERITAGE** *(line 4,117)*
+- [ ] **BLACK BEAR** *(line 4,167)*
+- [ ] **POLAR BEAR** *(line 4,196)*
+- [ ] **BEBILITH** *(line 4,270)*
+- [ ] **CREATURE 10** *(line 4,275)*
+- [ ] **FIEND** *(line 4,278)*
+- [ ] **ADAPTIVE HUNTERS** *(line 4,327)*
+- [ ] **BEHIR** *(line 4,389)*
+- [ ] **CREATURE 8** *(line 4,394)*
+- [ ] **ELECTRICITY** *(line 4,397)*
+- [ ] **SIGNAL LIGHTS** *(line 4,504)*
+- [ ] **BLODEUWEDDS AND NYMPHS** *(line 4,747)*
+- [ ] **TREMOR TAPPING** *(line 4,912)*
+- [ ] **ABERRATION** *(line 4,930)*
+- [ ] **BROWNIE** *(line 5,047)*
+- [ ] **TINY** *(line 5,050)*
+- [ ] **CREATURE 1** *(line 5,054)*
+- [ ] **CALATHGAR** *(line 5,111)*
+- [ ] **VENGEFUL FLOWERS** *(line 5,165)*
+- [ ] **CALIGNI SLAYER** *(line 5,216)*
+- [ ] **CARBUNCLE** *(line 5,313)*
+- [ ] **CARBUNCLE CHATTER** *(line 5,372)*
+- [ ] **CATOBLEPAS** *(line 5,445)*
+- [ ] **CAVE FISHER** *(line 5,510)*
+- [ ] **FISHER FILAMENTS** *(line 5,541)*
+- [ ] **GIANT WHIPTAIL CENTIPEDE** *(line 5,600)*
+- [ ] **TITAN CENTIPEDE** *(line 5,629)*
+- [ ] **GARGANTUAN** *(line 5,646)*
+- [ ] **CHOKER** *(line 5,717)*
+- [ ] **CHOKER TRINKETS** *(line 5,726)*
+- [ ] **CHUPACABRA** *(line 5,819)*
+- [ ] **GIANT COCKROACH** *(line 5,915)*
+- [ ] **COCKROACH SPECIES** *(line 5,923)*
+- [ ] **COCKROACH SWARM** *(line 5,970)*
+- [ ] **SWARM** *(line 5,993)*
+- [ ] **QUETZ COUATL** *(line 6,029)*
+- [ ] **COUATL** *(line 6,039)*
+- [ ] **CRAB SPECIES** *(line 6,133)*
+- [ ] **GIANT CRAB** *(line 6,172)*
+- [ ] **AQUATIC** *(line 6,179)*
+- [ ] **CRAWLING HAND** *(line 6,229)*
+- [ ] **GIANT CRAWLING HAND** *(line 6,261)*
+- [ ] **CULDEWEN** *(line 6,325)*
+- [ ] **CREATURE 7** *(line 6,330)*
+- [ ] **THE CURSE OF CRAWLEY JACK** *(line 6,379)*
+- [ ] **ABADDON** *(line 6,425)*
+- [ ] **PISCODAEMON** *(line 6,458)*
+- [ ] **AMPHIBIOUS** *(line 6,463)*
+- [ ] **DAEMON** *(line 6,532)*
+- [ ] **CREATURE 11** *(line 6,534)*
+- [ ] **FORMED IN HIS IMAGE** *(line 6,574)*
+- [ ] **DERGHODAEMON** *(line 6,634)*
+- [ ] **DAEMON HARBINGERS** *(line 6,637)*
+- [ ] **CREATURE 13** *(line 6,744)*
+- [ ] **STYX PASSAGE FEES** *(line 6,792)*
+- [ ] **PURRODAEMON** *(line 6,843)*
+- [ ] **DAEMONIC DEACONS** *(line 6,846)*
+- [ ] **CREATURE 18** *(line 6,870)*
+- [ ] **SOUL GEMS AS GEAR** *(line 6,969)*
+- [ ] **INCORPOREAL** *(line 7,160)*
+- [ ] **CONJURING DEMONS** *(line 7,200)*
+- [ ] **NABASU** *(line 7,249)*
+- [ ] **NABASU GROWTH** *(line 7,252)*
+- [ ] **DEMON** *(line 7,359)*
+- [ ] **HALF-DEMONS** *(line 7,396)*
+- [ ] **NALFESHNEE** *(line 7,453)*
+- [ ] **SECRET MONGERS** *(line 7,456)*
+- [ ] **CREATURE 14** *(line 7,475)*
+- [ ] **CREATURE 19** *(line 7,553)*
+- [ ] **VROLIKAI NEWCOMERS** *(line 7,620)*
+- [ ] **DESTRACHAN LANGUAGE** *(line 7,775)*
+- [ ] **ZEBUB** *(line 7,891)*
+- [ ] **HELLFIRE** *(line 8,013)*
+- [ ] **OSYLUTH** *(line 8,060)*
+- [ ] **HELLMOUTHS** *(line 8,063)*
+- [ ] **HAMATULA TREASURES** *(line 8,205)*
+- [ ] **GYLOU** *(line 8,266)*
+- [ ] **QUEENS OF THE NIGHT** *(line 8,269)*
+- [ ] **CREATURE 16** *(line 8,369)*
+- [ ] **THE MALEBRANCHE** *(line 8,432)*
+- [ ] **DEVOURER** *(line 8,471)*
+- [ ] **DIG-WIDGET** *(line 8,573)*
+- [ ] **WIDGET WORKSHOPS** *(line 8,625)*
+- [ ] **COMPSOGNATHUS** *(line 8,687)*
+- [ ] **PACHYCEPHALOSAURUS** *(line 8,746)*
+- [ ] **DINOSAUR** *(line 8,783)*
+- [ ] **DINOSAUR ABILITIES** *(line 8,807)*
+- [ ] **HADROSAURID** *(line 8,829)*
+- [ ] **HADROSAURID CRESTS** *(line 8,879)*
+- [ ] **IGUANODON** *(line 8,908)*
+- [ ] **SPINOSAURUS** *(line 8,960)*
+- [ ] **MAGICAL DINOSAURS** *(line 9,013)*
+- [ ] **BOTTLENOSE DOLPHIN** *(line 9,107)*
+- [ ] **ORCA** *(line 9,141)*
+- [ ] **DOPRILLU** *(line 9,200)*
+- [ ] **DOPRILLU MASKS** *(line 9,257)*
+- [ ] **YOUNG** *(line 9,299)*
+- [ ] **ADULT** *(line 9,308)*
+- [ ] **ANCIENT** *(line 9,317)*
+- [ ] **PRIMAL DRAGON SPELLCASTERS** *(line 9,343)*
+- [ ] **PRIMAL DRAGONS OF GOLARION** *(line 9,351)*
+- [ ] **BRINE DRAGON** *(line 9,372)*
+- [ ] **ELEMENTAL** *(line 9,423)*
+- [ ] **WATER** *(line 9,425)*
+- [ ] **ADULT BRINE DRAGON** *(line 9,457)*
+- [ ] **REZLARABREN** *(line 9,466)*
+- [ ] **CLOUD DRAGON SPELLCASTERS** *(line 9,524)*
+- [ ] **CREATURE 17** *(line 9,581)*
+- [ ] **CLOUD DRAGON** *(line 9,621)*
+- [ ] **ZANEMBIS** *(line 9,677)*
+- [ ] **PRIMAL DRAGON HOARDS** *(line 9,757)*
+- [ ] **PRIMAL DRAGON RELIGION** *(line 9,905)*
+- [ ] **CRYSTAL DRAGON** *(line 9,948)*
+- [ ] **CRYSTAL DRAGON SPELLCASTERS** *(line 9,995)*
+- [ ] **SHARDIZHAD** *(line 10,167)*
+- [ ] **MAGMA DRAGON** *(line 10,190)*
+- [ ] **MAGMA DRAGON SPELLCASTERS** *(line 10,227)*
+- [ ] **FIRE** *(line 10,273)*
+- [ ] **MOSCHABBATT** *(line 10,410)*
+- [ ] **UMBRAL DRAGON** *(line 10,432)*
+- [ ] **UMBRAL DRAGON SPELLCASTERS** *(line 10,464)*
+- [ ] **CREATURE 15** *(line 10,563)*
+- [ ] **UGOTHOGO** *(line 10,624)*
+- [ ] **GIANT DRAGONFLY NYMPH** *(line 10,713)*
+- [ ] **GIANT DRAGONFLY** *(line 10,756)*
+- [ ] **DRAINBERRY COLLECTIONS** *(line 10,831)*
+- [ ] **DRAKES AND DRAGONS** *(line 10,915)*
+- [ ] **SHADOW DRAKE** *(line 10,982)*
+- [ ] **SEA DRAKE** *(line 11,007)*
+- [ ] **DRAKE LOCATIONS** *(line 11,026)*
+- [ ] **DWEOMERCAT FAMILIARS** *(line 11,273)*
+- [ ] **SHADOW** *(line 11,356)*
+- [ ] **OTHER AQUATIC REPTILES** *(line 11,437)*
+- [ ] **DIVERSE ELEMENTALS** *(line 11,509)*
+- [ ] **LIVING THUNDERCLAP** *(line 11,548)*
+- [ ] **SPARK BAT** *(line 11,586)*
+- [ ] **BELKER** *(line 11,590)*
+- [ ] **BELKER LORE** *(line 11,646)*
+- [ ] **MELODY ON THE WIND** *(line 11,657)*
+- [ ] **LIVING BOULDER** *(line 11,744)*
+- [ ] **EARTH** *(line 11,755)*
+- [ ] **EARTHEN DESTRIER** *(line 11,773)*
+- [ ] **SAND SENTRY** *(line 11,817)*
+- [ ] **GRANITE GLYPTODONT** *(line 11,867)*
+- [ ] **SAND MIMICS** *(line 11,869)*
+- [ ] **EMBER FOX** *(line 11,971)*
+- [ ] **FILTH FIRE** *(line 11,997)*
+- [ ] **STRIDING FIRE** *(line 12,071)*
+- [ ] **ELEMENTAL ALIGNMENTS** *(line 12,073)*
+- [ ] **MAGMA SCORPION** *(line 12,129)*
+- [ ] **DUST MEPHIT** *(line 12,193)*
+- [ ] **ICE MEPHIT** *(line 12,227)*
+- [ ] **MEPHIT NAMES** *(line 12,334)*
+- [ ] **STEAM MEPHIT** *(line 12,364)*
+- [ ] **ICICLE SNAKE** *(line 12,437)*
+- [ ] **COLD** *(line 12,449)*
+- [ ] **MIST STALKER** *(line 12,466)*
+- [ ] **BLIZZARDBORN** *(line 12,518)*
+- [ ] **ELEMENTAL WYRMS** *(line 12,574)*
+- [ ] **ICEWYRM** *(line 12,593)*
+- [ ] **ROGUE ELEPHANTS** *(line 12,654)*
+- [ ] **ANANCUS** *(line 12,672)*
+- [ ] **MASTODON** *(line 12,707)*
+- [ ] **FETCHLING** *(line 12,797)*
+- [ ] **MASTERS OF ADAPTATION** *(line 12,801)*
+- [ ] **IRNAKURSE** *(line 12,879)*
+- [ ] **GHONHATINE** *(line 12,970)*
+- [ ] **GIANT MAGGOT** *(line 13,088)*
+- [ ] **GIANT FLY** *(line 13,120)*
+- [ ] **SPEAR FROG** *(line 13,175)*
+- [ ] **FROG SPECIES** *(line 13,177)*
+- [ ] **SPEAR FROG POISON** *(line 13,230)*
+- [ ] **CONSUMABLE** *(line 13,236)*
+- [ ] **ITEM 1** *(line 13,238)*
+- [ ] **POISON** *(line 13,243)*
+- [ ] **GIANT FROG** *(line 13,251)*
+- [ ] **UNKNOWN ORIGINS** *(line 13,424)*
+- [ ] **WOOD GIANT** *(line 13,514)*
+- [ ] **GAFFS** *(line 13,630)*
+- [ ] **TAIGA GIANT** *(line 13,708)*
+- [ ] **GIANT** *(line 13,723)*
+- [ ] **SHADOW GIANT** *(line 13,807)*
+- [ ] **SHADOW GIANT LOCATIONS** *(line 13,841)*
+- [ ] **GOLEM ANTIMAGIC** *(line 13,929)*
+- [ ] **CARRION GOLEM** *(line 13,955)*
+- [ ] **GOLEM** *(line 13,983)*
+- [ ] **ICE GOLEM COMPONENTS** *(line 14,034)*
+- [ ] **ICE GOLEM** *(line 14,062)*
+- [ ] **CONSTRUCT** *(line 14,091)*
+- [ ] **WOOD GOLEM COMPONENTS** *(line 14,125)*
+- [ ] **WOOD GOLEM** *(line 14,140)*
+- [ ] **GLASS GOLEM** *(line 14,236)*
+- [ ] **GLASS GOLEM COMPONENTS** *(line 14,256)*
+- [ ] **DOMINION PLOTS** *(line 14,502)*
+- [ ] **VEXGIT** *(line 14,553)*
+- [ ] **GREMLIN** *(line 14,598)*
+- [ ] **NUGLUB** *(line 14,648)*
+- [ ] **GREMLIN FAITH** *(line 14,674)*
+- [ ] **GRIMSTALKER FORESTRY** *(line 14,893)*
+- [ ] **GRINDYLOW** *(line 14,961)*
+- [ ] **GRIPPLI** *(line 15,086)*
+- [ ] **A HISTORY OF NEUTRALITY** *(line 15,090)*
+- [ ] **CATS AND DOGS** *(line 15,292)*
+- [ ] **HIPPOCAMPUS** *(line 15,372)*
+- [ ] **GIANT HIPPOCAMPUS** *(line 15,425)*
+- [ ] **HIPPOGRIFF EGGS** *(line 15,515)*
+- [ ] **HIPPOPOTAMUS** *(line 15,576)*
+- [ ] **BEHEMOTH HIPPOPOTAMUS** *(line 15,605)*
+- [ ] **HODAG TALES** *(line 15,697)*
+- [ ] **SENSATION SEEKERS** *(line 15,953)*
+- [ ] **EXILES FROM BEYOND** *(line 16,168)*
+- [ ] **VARIANT JABBERWOCKS** *(line 16,276)*
+- [ ] **JABBERWOCK** *(line 16,306)*
+- [ ] **CREATURE 23** *(line 16,313)*
+- [ ] **TANE** *(line 16,316)*
+- [ ] **JABBERWOCKS AND DRAGONS** *(line 16,365)*
+- [ ] **FIRE JELLYFISH SWARM** *(line 16,417)*
+- [ ] **GIANT JELLYFISH** *(line 16,463)*
+- [ ] **CRYSTAL VAULTS** *(line 16,535)*
+- [ ] **POSITIVE** *(line 16,608)*
+- [ ] **KELPIE** *(line 16,654)*
+- [ ] **KORRED** *(line 16,740)*
+- [ ] **KORRED DANCES** *(line 16,797)*
+- [ ] **GIANT LEECH** *(line 16,849)*
+- [ ] **BROOD LEECH SWARM** *(line 16,878)*
+- [ ] **LENG SPIDER** *(line 16,950)*
+- [ ] **DREAM** *(line 16,960)*
+- [ ] **WEB TEMPLES** *(line 17,015)*
+- [ ] **LEPRECHAUN** *(line 17,063)*
+- [ ] **LERRITAN** *(line 17,157)*
+- [ ] **CREATURE 21** *(line 17,162)*
+- [ ] **LERRITAN CAVALCADES** *(line 17,220)*
+- [ ] **SUNFLOWER LESHY** *(line 17,273)*
+- [ ] **LESHY** *(line 17,305)*
+- [ ] **FLYTRAP LESHY** *(line 17,357)*
+- [ ] **LESHY HEROES** *(line 17,378)*
+- [ ] **LEUCROTTA** *(line 17,479)*
+- [ ] **LEYDROTH** *(line 17,560)*
+- [ ] **LEYDROTH LEGACY** *(line 17,619)*
+- [ ] **SHOAL LINNORM** *(line 17,688)*
+- [ ] **FJORD LINNORM** *(line 17,774)*
+- [ ] **NEWBORN LINNORMS** *(line 17,794)*
+- [ ] **FIRST WORLD CONNECTIONS** *(line 17,874)*
+- [ ] **CAIRN LINNORM** *(line 17,887)*
+- [ ] **TAIGA LINNORM** *(line 17,977)*
+- [ ] **RARER LINNORMS** *(line 17,993)*
+- [ ] **GIANT CHAMELEON** *(line 18,094)*
+- [ ] **MEGALANIA** *(line 18,131)*
+- [ ] **LURKER IN LIGHT** *(line 18,192)*
+- [ ] **GREATER RITUAL GATES** *(line 18,246)*
+- [ ] **MANDRAGORA** *(line 18,301)*
+- [ ] **FEY MANIPULATORS** *(line 18,415)*
+- [ ] **MOHRG** *(line 18,497)*
+- [ ] **MOHRG SPAWN** *(line 18,555)*
+- [ ] **DOMINION SEEDLINGS** *(line 18,606)*
+- [ ] **MORLOCK** *(line 18,696)*
+- [ ] **FEN MOSQUITO SWARM** *(line 18,784)*
+- [ ] **MALARIA STRAINS** *(line 18,820)*
+- [ ] **GIANT MOSQUITO** *(line 18,851)*
+- [ ] **MUDWRETCH** *(line 18,912)*
+- [ ] **NATURAL WARNINGS** *(line 19,030)*
+- [ ] **LUNAR NAGA** *(line 19,119)*
+- [ ] **SPIRIT NAGA** *(line 19,210)*
+- [ ] **SPIRIT NAGA COVENS** *(line 19,239)*
+- [ ] **NECROPHIDIUS** *(line 19,326)*
+- [ ] **NEOTHELID** *(line 19,421)*
+- [ ] **DENEBRUM** *(line 19,480)*
+- [ ] **NEREID** *(line 19,529)*
+- [ ] **BOG NIXIES** *(line 19,657)*
+- [ ] **WORSHIPPING NORNS** *(line 19,766)*
+- [ ] **NORN** *(line 19,791)*
+- [ ] **LOST NORNS** *(line 19,878)*
+- [ ] **NUCKELAVEE** *(line 19,929)*
+- [ ] **BLUE-RINGED OCTOPUS** *(line 20,020)*
+- [ ] **OCTOPUS SPECIES** *(line 20,022)*
+- [ ] **REEF OCTOPUS** *(line 20,081)*
+- [ ] **ONIDOSHI** *(line 20,185)*
+- [ ] **ONI SHAPECHANGERS** *(line 20,248)*
+- [ ] **ICE YAI** *(line 20,274)*
+- [ ] **FIRE YAI** *(line 20,343)*
+- [ ] **ONI DAIMYO** *(line 20,465)*
+- [ ] **AMOEBA SWARM** *(line 20,564)*
+- [ ] **OOZE** *(line 20,580)*
+- [ ] **GIANT AMOEBA** *(line 20,598)*
+- [ ] **SLIME MOLD** *(line 20,669)*
+- [ ] **SLIME MOLD FUNGI** *(line 20,692)*
+- [ ] **GRAY OOZE** *(line 20,738)*
+- [ ] **GRAY OOZE ADAPTABILITY** *(line 20,761)*
+- [ ] **VERDUROUS OOZE** *(line 20,797)*
+- [ ] **CARNIVOROUS BLOB** *(line 20,881)*
+- [ ] **VERDUROUS CONGREGATION** *(line 20,903)*
+- [ ] **PERYTON FLOCKS** *(line 21,107)*
+- [ ] **FIRST WORLD PETITIONERS** *(line 21,343)*
+- [ ] **IFRIT** *(line 21,399)*
+- [ ] **HUMAN** *(line 21,427)*
+- [ ] **OREAD** *(line 21,458)*
+- [ ] **EXTRAPLANAR HUMANOIDS** *(line 21,525)*
+- [ ] **SULI** *(line 21,552)*
+- [ ] **GENIEKIN ON GOLARION** *(line 21,587)*
+- [ ] **SYLPH** *(line 21,642)*
+- [ ] **OTHER PLANAR SCIONS** *(line 21,712)*
+- [ ] **UNDINE** *(line 21,751)*
+- [ ] **WARPWAVES** *(line 21,812)*
+- [ ] **AKIZENDRI** *(line 21,839)*
+- [ ] **PROTEAN** *(line 21,870)*
+- [ ] **MOCK CHORUSES** *(line 21,945)*
+- [ ] **AZURETZI** *(line 21,970)*
+- [ ] **GALISEMNI** *(line 22,005)*
+- [ ] **IMENTESH** *(line 22,107)*
+- [ ] **MOUTHPIECES OF CHAOS** *(line 22,117)*
+- [ ] **MONITOR** *(line 22,187)*
+- [ ] **ESOBOK** *(line 22,224)*
+- [ ] **PSYCHOPOMP** *(line 22,242)*
+- [ ] **PSYCHOPOMP FOES** *(line 22,328)*
+- [ ] **VANTH** *(line 22,409)*
+- [ ] **PSYCHOPOMP COURTS** *(line 22,579)*
+- [ ] **CYTHNIGOT** *(line 22,634)*
+- [ ] **QLIPPOTH** *(line 22,652)*
+- [ ] **SHOGGTI** *(line 22,728)*
+- [ ] **QLIPPOTH AND MORTALS** *(line 22,781)*
+- [ ] **NYOGOTH** *(line 22,807)*
+- [ ] **QLIPPOTH REALMS** *(line 22,832)*
+- [ ] **CHERNOBUE** *(line 22,898)*
+- [ ] **OTHER QLIPPOTH** *(line 22,996)*
+- [ ] **AUGNAGAR** *(line 23,026)*
+- [ ] **AUGNAGARS AND THULGANTS** *(line 23,049)*
+- [ ] **THULGANT** *(line 23,132)*
+- [ ] **QLIPPOTH LORDS** *(line 23,220)*
+- [ ] **QUICKLING** *(line 23,268)*
+- [ ] **QUOPPOPAK** *(line 23,371)*
+- [ ] **COASTAL HUNTERS** *(line 23,380)*
+- [ ] **RADIANT WARDEN** *(line 23,494)*
+- [ ] **RAVEN** *(line 23,567)*
+- [ ] **RAVEN TRADERS** *(line 23,569)*
+- [ ] **RAVEN SWARM** *(line 23,631)*
+- [ ] **CREATING A RAVENER** *(line 23,702)*
+- [ ] **RAVENOUS REANIMATION** *(line 23,827)*
+- [ ] **EVIL** *(line 23,830)*
+- [ ] **RITUAL 7** *(line 23,832)*
+- [ ] **NECROMANCY** *(line 23,834)*
+- [ ] **RAVENER MINIONS** *(line 23,854)*
+- [ ] **RAVENER SPELLCASTERS** *(line 23,871)*
+- [ ] **RAVENER** *(line 23,923)*
+- [ ] **RAVENER PATRONS** *(line 23,926)*
+- [ ] **RAVENER HUSK** *(line 23,998)*
+- [ ] **RAVENER TREASURE** *(line 24,054)*
+- [ ] **STINGRAY** *(line 24,111)*
+- [ ] **MANTA RAY** *(line 24,146)*
+- [ ] **REVENANT** *(line 24,211)*
+- [ ] **EXCEPTIONS TO EVIL** *(line 24,220)*
+- [ ] **RHINOCEROS** *(line 24,326)*
+- [ ] **WOOLLY RHINOCEROS** *(line 24,358)*
+- [ ] **WOOLLY RHINOCEROS CREATURE 6** *(line 24,367)*
+- [ ] **RUSALKA** *(line 24,414)*
+- [ ] **BLUE WEEK** *(line 24,477)*
+- [ ] **SANDPOINT DEVIL** *(line 24,542)*
+- [ ] **SARD** *(line 24,622)*
+- [ ] **THE WITCH-TREE** *(line 24,688)*
+- [ ] **SCARECROW** *(line 24,731)*
+- [ ] **SCEADUINAR CRYSTALS** *(line 24,843)*
+- [ ] **NEGATIVE** *(line 24,859)*
+- [ ] **CAVE SCORPION** *(line 24,937)*
+- [ ] **BLACK SCORPION** *(line 24,966)*
+- [ ] **SCYTHEWOOD** *(line 25,061)*
+- [ ] **YDERSIUS** *(line 25,208)*
+- [ ] **SERPENTFOLK MAGIC** *(line 25,233)*
+- [ ] **ZYSS SERPENTFOLK** *(line 25,256)*
+- [ ] **SERPENTFOLK** *(line 25,282)*
+- [ ] **AAPOPH SERPENTFOLK** *(line 25,308)*
+- [ ] **AAPOPH MUTATIONS** *(line 25,336)*
+- [ ] **MUTANT** *(line 25,364)*
+- [ ] **COIL SPY** *(line 25,386)*
+- [ ] **BONE PROPHET** *(line 25,472)*
+- [ ] **WHAT FALLS WILL RISE** *(line 25,476)*
+- [ ] **SHOCKER LIZARD** *(line 25,575)*
+- [ ] **SKAVELING** *(line 25,678)*
+- [ ] **SKAVELING INTELLECT** *(line 25,685)*
+- [ ] **SKRIK NETTLE** *(line 25,774)*
+- [ ] **SKULK TREASURE** *(line 25,897)*
+- [ ] **SKULK** *(line 25,926)*
+- [ ] **GIANT SLUG** *(line 25,975)*
+- [ ] **SEA SNAKE** *(line 26,059)*
+- [ ] **EATING HABITS** *(line 26,090)*
+- [ ] **EMPEROR COBRA** *(line 26,118)*
+- [ ] **GIANT SOLIFUGID** *(line 26,180)*
+- [ ] **DUNESHAKER SOLIFUGID** *(line 26,206)*
+- [ ] **SOUL EATER** *(line 26,276)*
+- [ ] **SOUL GLUTTONS** *(line 26,340)*
+- [ ] **SPECTER** *(line 26,386)*
+- [ ] **DREAM SPIDER** *(line 26,477)*
+- [ ] **SHIVER ADDICTS** *(line 26,479)*
+- [ ] **OGRE SPIDER** *(line 26,531)*
+- [ ] **SPIRAL CENTURION** *(line 26,595)*
+- [ ] **SPORTLEBORE** *(line 26,690)*
+- [ ] **HAZARD 7** *(line 26,696)*
+- [ ] **OTHER SPORTLEBORES** *(line 26,715)*
+- [ ] **SPORTLEBORE SWARM** *(line 26,743)*
+- [ ] **SPRIGGAN BULLY** *(line 26,856)*
+- [ ] **GNOME** *(line 26,869)*
+- [ ] **SPRIGGAN** *(line 26,874)*
+- [ ] **SPRIGGAN WARLORD** *(line 26,916)*
+- [ ] **SPRIGGAN DISTRACTIONS** *(line 26,935)*
+- [ ] **VAMPIRE SQUID** *(line 27,027)*
+- [ ] **GIANT SQUID** *(line 27,057)*
+- [ ] **STYGIRA GEMS** *(line 27,149)*
+- [ ] **TATZLWYRM** *(line 27,273)*
+- [ ] **TENDRICULOS LACQUER** *(line 27,362)*
+- [ ] **THRASFYR** *(line 27,451)*
+- [ ] **THUNDERBIRD** *(line 27,545)*
+- [ ] **THUNDER AND FIRE** *(line 27,609)*
+- [ ] **GIANT TICK** *(line 27,668)*
+- [ ] **TICK SWARM** *(line 27,702)*
+- [ ] **FROGS AND TOADS** *(line 27,793)*
+- [ ] **TOAD TEARS** *(line 27,817)*
+- [ ] **ITEM 2** *(line 27,831)*
+- [ ] **TRITON CONCH TRUMPETS** *(line 28,001)*
+- [ ] **FROST TROLL** *(line 28,075)*
+- [ ] **TROLL** *(line 28,098)*
+- [ ] **CAVERN TROLL** *(line 28,142)*
+- [ ] **NAR-VOTH DELICACIES** *(line 28,217)*
+- [ ] **TWO-HEADED TROLL** *(line 28,242)*
+- [ ] **MOTHER OF TROLLS** *(line 28,273)*
+- [ ] **JOTUND TROLL** *(line 28,328)*
+- [ ] **HUGE GIANT** *(line 28,374)*
+- [ ] **RAVENOUS MUTANTS** *(line 28,439)*
+- [ ] **BEAST TROLL** *(line 28,533)*
+- [ ] **SNAPPING TURTLE** *(line 28,580)*
+- [ ] **BUILDING WITH SHELLS** *(line 28,612)*
+- [ ] **GIANT SNAPPING TURTLE** *(line 28,634)*
+- [ ] **UMONLEE FABLES** *(line 28,814)*
+- [ ] **URDEFHAN WARRIOR** *(line 28,941)*
+- [ ] **URDEFHAN TORMENTOR** *(line 29,006)*
+- [ ] **RHOKA SWORDS** *(line 29,010)*
+- [ ] **URDEFHAN** *(line 29,050)*
+- [ ] **CREATING A VRYKOLAKAS** *(line 29,129)*
+- [ ] **VRYKOLAKAS HABITS** *(line 29,219)*
+- [ ] **DEBASED AND DISTORTED** *(line 29,301)*
+- [ ] **VRYKOLAKAS SPAWN** *(line 29,317)*
+- [ ] **VAMPIRE** *(line 29,330)*
+- [ ] **VRYKOLAKAS MASTER** *(line 29,347)*
+- [ ] **VRYKOLAKAS ANCIENT** *(line 29,417)*
+- [ ] **MYTHOLOGICAL ORIGINS** *(line 29,486)*
+- [ ] **FORBIDDEN ARMOR** *(line 29,692)*
+- [ ] **AUGUR** *(line 29,740)*
+- [ ] **VELSTRAC** *(line 29,755)*
+- [ ] **VELSTRAC DIVINITIES** *(line 29,847)*
+- [ ] **EVANGELIST** *(line 29,910)*
+- [ ] **DESPICABLE ORIGINS** *(line 29,926)*
+- [ ] **SACRISTAN** *(line 29,993)*
+- [ ] **THE SHADOW FORGE** *(line 30,074)*
+- [ ] **INTERLOCUTOR** *(line 30,097)*
+- [ ] **VELSTRACS ON GOLARION** *(line 30,127)*
+- [ ] **EREMITE** *(line 30,198)*
+- [ ] **OTHER VELSTRACS** *(line 30,292)*
+- [ ] **VIOLET VENOM** *(line 30,384)*
+- [ ] **ITEM 3** *(line 30,399)*
+- [ ] **VIPER VINE POLLEN** *(line 30,458)*
+- [ ] **LOCAL ORMS** *(line 30,677)*
+- [ ] **WERECREATURE ABILITIES** *(line 30,765)*
+- [ ] **WEREBOAR** *(line 30,801)*
+- [ ] **WERECREATURE** *(line 30,826)*
+- [ ] **LYCANTHROPY** *(line 30,866)*
+- [ ] **WERETIGER** *(line 30,883)*
+- [ ] **WIGHT** *(line 30,978)*
+- [ ] **WISPS AND FIRE** *(line 31,076)*
+- [ ] **SPIRIT** *(line 31,090)*
+- [ ] **WOLVERINE** *(line 31,260)*
+- [ ] **TERRITORIAL BEASTS** *(line 31,262)*
+- [ ] **GIANT WOLVERINE** *(line 31,321)*
+- [ ] **CREATING A WORM THAT WALKS** *(line 31,386)*
+- [ ] **WORMS REDEEMED** *(line 31,498)*
+- [ ] **WORM THAT WALKS** *(line 31,522)*
+- [ ] **WRAITH** *(line 31,603)*
+- [ ] **ETHEREAL** *(line 31,699)*
+- [ ] **THE ETHER WAR** *(line 31,751)*
+- [ ] **YELLOW MUSK THRALL** *(line 31,863)*
+- [ ] **RECOVERY FROM THRALLDOM** *(line 31,919)*
+- [ ] **YELLOW MUSK VIAL** *(line 31,976)*
+- [ ] **INHALED** *(line 31,985)*
+
+## [ ] Chapter 3: Appendix
+*Lines 33,001–35,874 (2,873 lines)*
+
+- [ ] **RITUAL 1** *(line 33,043)*
+- [ ] **UNCOMMON CONJURATION** *(line 33,045)*
+- [ ] **DAEMONIC PACT** *(line 33,102)*
+- [ ] **TABLE: UNCOMMON LANGUAGES** *(line 33,153)*
+- [ ] **PAIZO INC.** *(line 35,703)*
+- [ ] **GAMEMASTERY GUIDE** *(line 35,835)*
+
+---
+
+**Total auditable sections: 599**

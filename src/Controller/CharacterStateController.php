@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -21,13 +22,15 @@ class CharacterStateController extends ControllerBase {
 
   protected CharacterStateService $characterStateService;
   protected Connection $database;
+  protected CampaignCharacterRuntimeResolverService $runtimeResolver;
 
   /**
    * Constructor.
    */
-  public function __construct(CharacterStateService $character_state_service, Connection $database) {
+  public function __construct(CharacterStateService $character_state_service, Connection $database, CampaignCharacterRuntimeResolverService $runtime_resolver) {
     $this->characterStateService = $character_state_service;
     $this->database = $database;
+    $this->runtimeResolver = $runtime_resolver;
   }
 
   /**
@@ -37,6 +40,7 @@ class CharacterStateController extends ControllerBase {
     return new static(
       $container->get('dungeoncrawler_content.character_state_service'),
       $container->get('database'),
+      $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
     );
   }
 
@@ -186,6 +190,58 @@ class CharacterStateController extends ControllerBase {
       ], $code);
     }
     catch (\Exception $e) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => $e->getMessage(),
+      ], 500);
+    }
+  }
+
+  /**
+   * Convert a campaign runtime character into a canonical library character.
+   *
+   * POST /api/character/{characterId}/convert-library
+   */
+  public function convertToLibrary(string $character_id, Request $request): JsonResponse {
+    if (!$this->hasCharacterAccess($character_id)) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
+    }
+
+    $raw_content = trim((string) $request->getContent());
+    $data = $raw_content === '' ? [] : json_decode($raw_content, TRUE);
+    if (!is_array($data)) {
+      return new JsonResponse(['success' => FALSE, 'error' => 'Invalid JSON'], 400);
+    }
+
+    $campaign_id = isset($data['campaignId']) ? (int) $data['campaignId'] : $request->query->getInt('campaignId');
+    if ($campaign_id <= 0) {
+      $campaign_id = (int) ($this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['campaign_id'])
+        ->condition('id', (int) $character_id)
+        ->execute()
+        ->fetchField() ?: 0);
+    }
+    if ($campaign_id <= 0) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => 'Character is not in a campaign runtime context.',
+      ], 400);
+    }
+
+    try {
+      $result = $this->runtimeResolver->ensureCanonicalSourceForCampaignCharacter($campaign_id, (int) $character_id);
+      return new JsonResponse([
+        'success' => TRUE,
+        'data' => $result,
+      ]);
+    }
+    catch (\InvalidArgumentException $e) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => $e->getMessage(),
+      ], 400);
+    }
+    catch (\Throwable $e) {
       return new JsonResponse([
         'success' => FALSE,
         'error' => $e->getMessage(),

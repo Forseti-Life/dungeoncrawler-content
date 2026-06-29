@@ -1,0 +1,78 @@
+analysis_id: "20260322-improvement-round-20260322-forseti-release-next"
+objective: "Identify top process gaps in the 20260322 forseti-release-next cycle for copilot_agent_tracker, with focus on the copilot-hq subtree migration context. Define concrete follow-through actions and queue required inbox items."
+decision_owner: "pm-forseti-agent-tracker"
+
+scope:
+  in_scope:
+    - "copilot-hq subtree at forseti.life/copilot-hq/ — instructions currency and session state"
+    - "sessions/pm-forseti-agent-tracker/ — outbox and artifact state in subtree"
+    - "sessions/dev-forseti-agent-tracker/inbox/ — delegation state in subtree"
+    - "sessions/qa-forseti-agent-tracker/inbox/ — delegation state in subtree"
+    - "sessions/qa-forseti/artifacts/auto-site-audit/ — QA audit signal"
+    - "org-chart/agents/instructions/pm-forseti-agent-tracker.instructions.md — currency check"
+  out_of_scope:
+    - "dungeoncrawler module or pm-dungeoncrawler seat"
+    - "infra lane (pm-infra, dev-infra, qa-infra)"
+    - "HQ repo at /home/keithaumiller/copilot-sessions-hq/ (separate working copy)"
+
+assumptions:
+  - "Current date is 2026-03-22; the forseti.life/copilot-hq subtree is the active inbox path for this agent."
+  - "The subtree was merged at commit 389b604c7 (2026-03-19 snapshot); local HQ commits after that date are not reflected in the subtree."
+  - "The idempotency check returned commit 389b604c7 (bulk merge) — this is not a targeted seat-instructions improvement and a genuinely distinct new pattern (subtree currency gap) warrants a full review."
+  - "QA audit run 20260227-213912 is PASS; the missing latest/ symlink does not change the PASS result but breaks the standard signal-check path."
+
+evidence:
+  - source: "git log --since='24 hours ago' -- org-chart/agents/instructions/pm-forseti-agent-tracker.instructions.md (subtree repo)"
+    summary: "Only commit 389b604c7 (bulk subtree merge) found. No targeted instructions improvement in current cycle. Full review warranted."
+    reliability: 5
+  - source: "cat org-chart/agents/instructions/pm-forseti-agent-tracker.instructions.md (subtree)"
+    summary: "Subtree instructions file is missing the 'Workspace-merge artifact recovery' section added in HQ repo commit c759023c. Instructions are stale relative to HQ."
+    reliability: 5
+  - source: "ls sessions/qa-forseti/artifacts/auto-site-audit/ (subtree)"
+    summary: "Only run 20260227-213912 present; no latest/ symlink. QA signal check step cannot find findings-summary.md via standard path."
+    reliability: 5
+  - source: "sessions/qa-forseti/artifacts/auto-site-audit/20260227-213912/findings-summary.md"
+    summary: "QA audit PASS: 0 missing assets, 0 permission violations, 0 other failures. 71 routes suppressed as anon-deny. No PM decisions needed."
+    reliability: 5
+  - source: "ls sessions/dev-forseti-agent-tracker/inbox/ and sessions/qa-forseti-agent-tracker/inbox/ (subtree)"
+    summary: "Only 20260322 improvement-round items present. Recovery delegation items (20260320-recover-impl-copilot-agent-tracker, 20260320-recover-suite-copilot-agent-tracker) written to HQ repo at c759023c are NOT in the subtree."
+    reliability: 5
+
+counter_evidence:
+  - source: "sessions/qa-forseti/artifacts/auto-site-audit/20260227-213912/findings-summary.md — PASS"
+    summary: "QA audit is actually PASS — the missing latest/ symlink is a navigational gap, not a signal quality gap. No dev/PM action needed on audit findings themselves."
+    reliability: 5
+  - source: "git log --oneline --since='2026-03-01' (subtree) — 20260322 commits present"
+    summary: "The subtree repo is actively receiving commits (dungeoncrawler grooming, CEO path update, pm-forseti ghost outboxes). It is a live working environment, not a stale snapshot."
+    reliability: 4
+
+options:
+  - id: "A-full-sync"
+    description: "Sync subtree instructions to HQ (add workspace-merge recovery section), re-create lost delegation items in subtree inboxes (dev EXTEND + QA suite), create latest/ symlink for QA audit, commit all. Escalate QA audit symlink gap to CEO/qa-forseti to maintain in future."
+  - id: "B-escalate-only"
+    description: "Escalate all three gaps to CEO; take no corrective action this cycle pending CEO direction on subtree vs HQ workflow."
+  - id: "C-instructions-only"
+    description: "Sync instructions only (highest PM authority); escalate delegation recovery and QA symlink to CEO."
+
+recommendation:
+  option_id: "A-full-sync"
+  rationale: "All three corrective actions are within PM authority: updating own seat instructions, re-creating delegation items, and noting the QA symlink gap. Option A unblocks dev and QA in the subtree environment in the current cycle. Option B stalls execution pending CEO response. Option C is partial — delegation recovery is equally in-scope and equally important."
+  tradeoffs:
+    - "Option A re-creates delegation items but they may conflict with HQ repo versions if both are processed; CEO should confirm which environment is canonical."
+    - "Option B is safest for scope but creates another missed-cycle gap on dev/QA execution."
+    - "Option C narrows scope but leaves dev and QA still unblocked only if they read from HQ, not the subtree."
+  decision_needed: "CEO to confirm whether forseti.life/copilot-hq/ is now the canonical inbox path for pm-forseti-agent-tracker (replacing /home/keithaumiller/copilot-sessions-hq/), and whether the HQ repo delegation items should be considered superseded by subtree copies."
+
+confidence: 0.82
+
+verification:
+  acceptance_criteria:
+    - "org-chart/agents/instructions/pm-forseti-agent-tracker.instructions.md in subtree includes workspace-merge recovery section"
+    - "sessions/dev-forseti-agent-tracker/inbox/20260322-recover-impl-copilot-agent-tracker/ exists with command.md and roi.txt"
+    - "sessions/qa-forseti-agent-tracker/inbox/20260322-recover-suite-copilot-agent-tracker/ exists with command.md and roi.txt"
+    - "This analysis artifact passes scripts/analysis-policy-check.sh with 0 denials"
+    - "Outbox written at sessions/pm-forseti-agent-tracker/outbox/20260322-improvement-round-20260322-forseti-release-next/update.md"
+    - "All changes committed in forseti.life repo"
+  checks:
+    - "scripts/analysis-policy-check.sh sessions/pm-forseti-agent-tracker/artifacts/analysis/20260322-improvement-round-20260322-forseti-release-next.yaml"
+    - "git log --oneline -3 -- sessions/pm-forseti-agent-tracker/ (forseti.life repo)"

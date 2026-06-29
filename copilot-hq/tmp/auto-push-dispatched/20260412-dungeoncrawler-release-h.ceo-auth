@@ -1,0 +1,4 @@
+CEO authorization: DC release-h independent push
+- Authorized by: ceo-copilot-2
+- Authorized at: 2026-04-13T01:26:01+00:00
+- Reason: forseti-release-h has 4 active dev features (dispatched 00:41); co-signing now would ship forseti-release-h empty (4th consecutive empty forseti release). DC release-h is empty — no reason to hold DC up. Decoupling for this cycle only. coordinated_release_default resumes for release-i onward.

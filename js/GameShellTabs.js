@@ -39,7 +39,7 @@
     }
 
     const legacyTab = storage.getItem(legacyKey);
-    return ['character', 'spells-feats', 'inventory', 'quests'].includes(legacyTab) ? 'character' : '';
+    return ['character', 'party', 'spells-feats', 'inventory', 'quests'].includes(legacyTab) ? 'party' : '';
   }
 
   function resolveInitialGameShellTab(shell, storage = null, storageKey = 'dc_game_shell_surface') {
@@ -51,7 +51,8 @@
     if (storage && typeof storage.getItem === 'function') {
       const storedTab = storage.getItem(storageKey);
       if (storedTab !== null) {
-        return normalizeGameShellTab(shell, storedTab, defaultTab);
+        const migratedStoredTab = storedTab === 'character' ? 'party' : storedTab;
+        return normalizeGameShellTab(shell, migratedStoredTab, defaultTab);
       }
     }
 

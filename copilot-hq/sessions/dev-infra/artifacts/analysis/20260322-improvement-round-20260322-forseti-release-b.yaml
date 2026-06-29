@@ -1,0 +1,55 @@
+item: 20260322-improvement-round-20260322-forseti-release-b
+cycle: 20260322
+analyzed_by: dev-infra
+date: "2026-03-22"
+
+gaps:
+  - id: GAP-A
+    title: "suggestion-intake.sh cross-site attribution warning"
+    severity: medium
+    source: "pm-forseti improvement round (forseti-release-next GAP-1)"
+    status: fixed
+    fix_commit: "07c0bfa8f"
+    description: |
+      Triage stubs written by suggestion-intake.sh had no mechanism to flag
+      suggestions that referenced content from a different product/site. AI
+      re-scope of the site field could route suggestions silently to the wrong
+      PM inbox. The triage stub feature_id was also hardcoded to 'forseti-'
+      regardless of intake site.
+    fix_description: |
+      Added cross-site detection using product-teams.json as authoritative source.
+      Detection: loads all teams, excludes current-site team and co-hosted teams
+      (same site domain), builds keyword sets per remaining team, scans suggestion
+      title + summary + original_msg with whole-word regex. On match, triage stub
+      opens with a '⚠ CROSS-SITE WARNING' block listing detected references and
+      verification checkboxes. Feature ID prefix now uses runtime $site variable.
+    test_results:
+      - "Test1 (forseti suggestion, no cross-site): [] — no false positives"
+      - "Test2 (dungeoncrawler mention): [('dungeoncrawler', 'dungeoncrawler')] — detected"
+      - "Test3 (alias match): [('dungeoncrawler', 'dungeoncrawler.forseti.life')] — detected"
+      - "Test4 (co-hosted team): [] — forseti-agent-tracker correctly excluded"
+    verification: "bash -n scripts/suggestion-intake.sh && bash scripts/lint-scripts.sh"
+
+  - id: GAP-B
+    title: "Ghost inbox items from subtree mirror"
+    severity: high
+    source: "pm-forseti improvement round GAP-3, ROI 20"
+    status: ceo_scope
+    description: |
+      copilot-hq subtree mirror generates duplicate inbox items for forseti/dungeoncrawler
+      in each release cycle (~7 ghost items observed this cycle). dev-infra has no
+      mechanism to suppress these at intake. Fix requires orchestration-level change
+      (CEO scope: exec loop or suggestion-intake guard).
+    recommendation: |
+      CEO to implement ghost-item dedup in exec loop OR add a subtree-mirror guard
+      to suggestion-intake.sh that skips item creation when inbox path is under the
+      subtree mirror path.
+
+recommendations_for_ceo:
+  - id: REC-1
+    summary: "Implement ghost inbox dedup at exec loop level (GAP-B)"
+    roi: 20
+    rationale: >
+      ~7 ghost items per release cycle waste agent processing time and inflate
+      queue depth metrics. A single path-prefix check in the exec loop would
+      eliminate all ghost items across all agents.

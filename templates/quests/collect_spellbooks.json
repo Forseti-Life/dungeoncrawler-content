@@ -1,7 +1,7 @@
 {
   "template_id": "collect_spellbooks",
-  "name": "Collect Lost {item_name}",
-  "description": "A scholar in the tavern is searching for {item_name} that have been scattered around. Help recover them and earn a reward.",
+  "name": "Collect Lost Spellbook",
+  "description": "A scholar in the tavern is searching for a missing spellbook. Recover it and return it for a reward.",
   "quest_type": "side_quest",
   "level_min": 1,
   "level_max": 3,
@@ -20,17 +20,17 @@
           "type": "collect",
           "item": "{item_name}",
           "target_count_range": [
-            2,
-            4
+            1,
+            1
           ],
           "location_id": "{location}",
-          "description": "Find and collect {item_name} in {room_name}",
-          "next_step": "Search {room_name} and pick up each {item_name} quest item.",
+          "description": "Find and recover the lost spellbook in {room_name}",
+          "next_step": "Search {room_name} and recover the missing spellbook.",
           "completion_criteria": {
             "kind": "count",
             "metric": "current",
             "target_count": 1,
-            "description": "Collect {target_count} {item_name} in {room_name}."
+            "description": "Recover the missing spellbook in {room_name}."
           }
         }
       ]
@@ -43,13 +43,13 @@
           "type": "interact",
           "target": "scholar_npc",
           "location_id": "{location}",
-          "description": "Return the books to the scholar",
-          "next_step": "Speak to Marta the Scholar in {room_name} after collecting the {item_name}.",
+          "description": "Return the spellbook to the scholar",
+          "next_step": "Speak to Marta the Scholar in {room_name} after recovering the spellbook.",
           "completion_criteria": {
             "kind": "flag",
             "metric": "completed",
             "required_value": true,
-            "description": "Speak to the scholar and hand over the recovered books."
+            "description": "Speak to the scholar and hand over the recovered spellbook."
           }
         }
       ]
@@ -72,6 +72,11 @@
   },
   "prerequisites": {
     "level_min": 1
+  },
+  "story_impact": {
+    "storyline_id": "torment-and-legacy",
+    "chapter_id": "onboarding",
+    "scene_id": "briefing"
   },
   "estimated_duration_minutes": 20,
   "version": "1.0.0"

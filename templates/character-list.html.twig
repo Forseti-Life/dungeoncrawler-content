@@ -7,7 +7,7 @@
     <h1 class="dc-character-list__title">My Characters</h1>
     <div class="dc-sheet__nav-actions">
       {% if not campaign_id %}
-        <a href="{{ campaigns_url }}" class="dc-btn dc-btn-success">Campaigns</a>
+        <a href="{{ path('dungeoncrawler_content.campaigns') }}" class="dc-btn dc-btn-success">Campaigns</a>
         <a href="{{ archived_url }}" class="dc-btn dc-btn-secondary">Archived Characters</a>
       {% endif %}
       <a href="{{ create_url }}" class="dc-btn dc-btn-primary">

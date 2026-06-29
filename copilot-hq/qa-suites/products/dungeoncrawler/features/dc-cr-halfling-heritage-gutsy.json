@@ -1,0 +1,30 @@
+{
+  "feature_id": "dc-cr-halfling-heritage-gutsy",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "test_plan": "features/dc-cr-halfling-heritage-gutsy/03-test-plan.md",
+  "suites": [
+    {
+      "id": "dc-cr-halfling-heritage-gutsy-e2e",
+      "feature_id": "dc-cr-halfling-heritage-gutsy",
+      "label": "Halfling heritage Gutsy - save resolution, encounter behavior, and selection rules",
+      "type": "e2e",
+      "command": "npx playwright test --grep \"dc-cr-halfling-heritage-gutsy\"",
+      "artifacts": [
+        "playwright-report/dc-cr-halfling-heritage-gutsy.html"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/",
+      "env_requirements": [
+        "Node.js with Playwright installed",
+        "Dungeoncrawler UI test environment"
+      ],
+      "release_checkpoint": "final-pre-ship",
+      "suite_context": "playwright/character-creation",
+      "status": "pending_implementation",
+      "notes": "Security AC exemption granted in the test plan (existing save-resolution routes only); no qa-permissions change required at activation time."
+    }
+  ]
+}

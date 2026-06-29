@@ -1,0 +1,18 @@
+- command: |
+    Groom feature dc-apg-class-swashbuckler for release entry (suggestion process flow).
+
+    Feature stub: features/dc-apg-class-swashbuckler/feature.md (status: planned/ready, P2)
+    Needs: 01-acceptance-criteria.md, then run pm-qa-handoff.sh
+
+    Context: Swashbuckler class (APG). Deps: character-class ✓, character-leveling (ready), encounter-rules ✓
+
+    ## Steps
+    1. Read features/dc-apg-class-swashbuckler/feature.md
+    2. Review https://dungeoncrawler.forseti.life/Roadmap for this section's Not Started reqs
+    3. Write features/dc-apg-class-swashbuckler/01-acceptance-criteria.md (use templates/01-acceptance-criteria.md)
+       Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+    4. Ensure features/dc-apg-class-swashbuckler/feature.md has ## Security acceptance criteria section
+       (or add: - Security AC exemption: <reason> if no security surface)
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-apg-class-swashbuckler
+    6. Write outbox confirming AC written and QA handoff dispatched
+- roi: 7

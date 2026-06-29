@@ -29,8 +29,7 @@ export function buildNavigateActionRailPanel(panel, context) {
   const groups = dedupeNavigateGroups([...exitGroups, ...visitedGroups]);
 
   // Current location: prefer the refreshed server snapshot, fall back to the live shell room.
-  const serverActiveRoom = panel.navigateActiveRoom || null;
-  const serverCurrentLocationLabel = String(serverActiveRoom?.roomName || '').trim();
+  const serverCurrentLocationLabel = resolveServerCurrentLocationLabel(panel);
   const liveCurrentLocationLabel = resolveNavigateCurrentLocationLabel(context);
   const currentLocationLabel = serverCurrentLocationLabel || liveCurrentLocationLabel;
 
@@ -118,7 +117,14 @@ function resolveNavigateCurrentLocationLabel(context) {
   const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
   const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
   const activeRoom = rooms[activeRoomId] || null;
-  return String(activeRoom?.name || activeRoom?.title || activeRoomId).trim();
+  const dungeonName = String(
+    hexmap?.dungeonData?.name
+    || hexmap?.dungeonData?.dungeon_name
+    || hexmap?.launchContext?.dungeon_name
+    || ''
+  ).trim();
+  const roomName = String(activeRoom?.name || activeRoom?.title || activeRoomId).trim();
+  return formatNavigationLocationTitle(dungeonName, roomName);
 }
 
 function collectNavigateExitGroups(panel, context) {
@@ -259,8 +265,8 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
 
       return {
         ...group,
-        title: `Known destinations — ${resolveNavigateGroupLabel(group, panel)}`,
-        dungeonName: resolveNavigateGroupLabel(group, panel),
+        title: `Known destinations — ${resolveNavigateGroupLabel(group, panel, context)}`,
+        dungeonName: resolveNavigateGroupLabel(group, panel, context),
         mapId,
         dungeonLevelId,
         locations,
@@ -286,13 +292,43 @@ function resolveNavigateKnownLocationStatusLabel(location) {
   return 'Known';
 }
 
-function resolveNavigateGroupLabel(group, panel) {
+function resolveNavigateGroupLabel(group, panel, context) {
   const groupLabel = String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations').trim();
   const normalized = groupLabel.toLowerCase();
-  if ((normalized === 'onboarding' || normalized === 'tavern entrance') && panel?.navigateActiveRoom?.roomName) {
-    return String(panel.navigateActiveRoom.roomName).trim();
+  if (normalized === 'onboarding' || normalized === 'tavern entrance') {
+    const activeDungeonName = resolveActiveDungeonName(panel, context);
+    if (activeDungeonName) {
+      return activeDungeonName;
+    }
+    if (panel?.navigateActiveRoom?.roomName) {
+      return String(panel.navigateActiveRoom.roomName).trim();
+    }
   }
   return groupLabel;
+}
+
+function resolveServerCurrentLocationLabel(panel) {
+  const serverActiveRoom = panel?.navigateActiveRoom || null;
+  const dungeonName = String(serverActiveRoom?.dungeonName || '').trim();
+  const roomName = String(serverActiveRoom?.roomName || '').trim();
+  if (!dungeonName && !roomName) {
+    return '';
+  }
+  return formatNavigationLocationTitle(dungeonName, roomName);
+}
+
+function resolveActiveDungeonName(panel, context) {
+  const serverDungeonName = String(panel?.navigateActiveRoom?.dungeonName || '').trim();
+  if (serverDungeonName) {
+    return serverDungeonName;
+  }
+  const hexmap = context?.hexmap;
+  return String(
+    hexmap?.dungeonData?.name
+    || hexmap?.dungeonData?.dungeon_name
+    || hexmap?.launchContext?.dungeon_name
+    || ''
+  ).trim();
 }
 
 function formatDestinationType(destinationType) {

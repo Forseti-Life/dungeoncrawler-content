@@ -11,6 +11,7 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\dungeoncrawler_content\Controller\CharacterCreationStepController;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
+use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use PHPUnit\Framework\TestCase;
@@ -52,6 +53,7 @@ class CharacterCreationStepControllerTest extends TestCase {
       $this->createMock(Connection::class),
       $this->createMock(CharacterPortraitGenerationService::class),
       $this->createMock(FeatLibraryService::class),
+      $this->createMock(CharacterWizardHardeningService::class),
       $account
     ) extends CharacterCreationStepController {
       public function __construct(
@@ -61,9 +63,10 @@ class CharacterCreationStepControllerTest extends TestCase {
         Connection $database,
         CharacterPortraitGenerationService $portrait_generator,
         FeatLibraryService $feat_library,
+        CharacterWizardHardeningService $wizard_hardening,
         private AccountInterface $account,
       ) {
-        parent::__construct($character_manager, $schema_loader, $csrf_token, $database, $portrait_generator, $feat_library);
+        parent::__construct($character_manager, $schema_loader, $csrf_token, $database, $portrait_generator, $feat_library, $wizard_hardening);
       }
 
       public function currentUser() {

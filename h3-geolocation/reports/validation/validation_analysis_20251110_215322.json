@@ -1,0 +1,55 @@
+{
+  "accounting_timestamp": "2025-11-10T21:53:22.449915",
+  "baseline_counts": {
+    "raw_total": 3406192,
+    "transform_total": 845335,
+    "excluded_total": 2560857
+  },
+  "detailed_exclusion_analysis": {
+    "total_records_analyzed": 3406192,
+    "exclusion_breakdown": {
+      "invalid_coordinates": {
+        "count": 17,
+        "percentage": 0.0,
+        "description": "Invalid coordinates (non-numeric or outside Philadelphia bounds)"
+      },
+      "invalid_district": {
+        "count": 60733,
+        "percentage": 1.783,
+        "description": "Missing or invalid dc_dist (not in valid districts)"
+      },
+      "duplicate_cartodb_id": {
+        "count": 2492470,
+        "percentage": 73.175,
+        "description": "Duplicate cartodb_id"
+      },
+      "duplicate_composite": {
+        "count": 8462,
+        "percentage": 0.248,
+        "description": "Duplicate composite (lat/lng/datetime/crime_type)"
+      },
+      "valid": {
+        "count": 844510,
+        "percentage": 24.793,
+        "description": "Valid records"
+      }
+    },
+    "exclusion_summary": {
+      "total_valid_records": 844510,
+      "total_excluded_records": 2561682,
+      "validation_success_rate_pct": 24.79,
+      "exclusion_rate_pct": 75.21
+    }
+  },
+  "record_reconciliation": {
+    "expected_total": 3406192,
+    "calculated_total": 3406192,
+    "difference": 0,
+    "reconciles_perfectly": true,
+    "transform_layer_matches": false
+  },
+  "recovery_opportunities": [
+    "Review 2,500,932 duplicates (73.4%) for potential legitimate records",
+    "Validate 60,733 records (1.8%) with district mapping issues"
+  ]
+}

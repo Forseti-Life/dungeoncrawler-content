@@ -1,0 +1,171 @@
+{
+  "product_id": "infrastructure",
+  "product_label": "HQ Infrastructure Automation",
+  "tools": [
+    "python"
+  ],
+  "notes": [
+    "This manifest is the canonical list of automated verification suites for HQ automation infrastructure.",
+    "Keep these suites fast and deterministic; they should validate invariants for scripts/config/runbooks."
+  ],
+  "suites": [
+    {
+      "id": "qa-suite-manifest-validate",
+      "label": "Validate QA suite manifests",
+      "type": "lint",
+      "command": "python3 scripts/qa-suite-validate.py",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "seat-instructions-completeness",
+      "label": "Verify all agent seats have instructions files",
+      "type": "lint",
+      "command": "python3 -c \"import yaml,pathlib,sys; agents=yaml.safe_load(open('org-chart/agents/agents.yaml')).get('agents',[]); missing=[a['id'] for a in agents if not pathlib.Path('org-chart/agents/instructions/'+a['id']+'.instructions.md').exists()]; [print('MISSING:',m) for m in missing]; sys.exit(1) if missing else print('PASS: all',len(agents),'agents have instructions files')\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "site-instructions-completeness",
+      "label": "Verify all website_scope entries have site.instructions.md",
+      "type": "lint",
+      "command": "python3 -c \"import yaml,pathlib,sys; agents=yaml.safe_load(open('org-chart/agents/agents.yaml')).get('agents',[]); scopes={s for a in agents for s in a.get('website_scope',[]) if '*' not in s}; missing=[s for s in sorted(scopes) if not pathlib.Path('org-chart/sites/'+s+'/site.instructions.md').exists()]; [print('MISSING:',m) for m in missing]; sys.exit(1) if missing else print('PASS: all',len(scopes),'website_scope entries have site.instructions.md')\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "bash-script-lint",
+      "label": "Shell script lint (word-split, nullglob, bare-grep, find-printf, roi.txt)",
+      "type": "lint",
+      "command": "python3 -c \"import subprocess,sys; r=subprocess.run(['bash','scripts/lint-scripts.sh'],capture_output=False); sys.exit(r.returncode)\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "bash-syntax-check",
+      "label": "Bash syntax check: all scripts/*.sh pass bash -n",
+      "type": "lint",
+      "command": "python3 -c \"import subprocess,pathlib,sys; errors=[(str(f),subprocess.run(['bash','-n',str(f)],capture_output=True,text=True)) for f in sorted(pathlib.Path('scripts').glob('*.sh'))]; fails=[(f,r.stderr.strip()) for f,r in errors if r.returncode!=0]; [print('FAIL:',f,e) for f,e in fails]; sys.exit(1) if fails else print('PASS: all',len(errors),'scripts pass bash -n')\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "agents-supervisor-defined",
+      "label": "Verify all agents in agents.yaml have a supervisor field",
+      "type": "lint",
+      "command": "python3 -c \"import yaml,sys; agents=yaml.safe_load(open('org-chart/agents/agents.yaml')).get('agents',[]); missing=[a['id'] for a in agents if not a.get('supervisor')]; [print('MISSING supervisor:',m) for m in missing]; sys.exit(1) if missing else print('PASS: all',len(agents),'agents have supervisor defined')\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "inbox-roi-completeness",
+      "label": "Verify all active inbox items have roi.txt (org-wide ROI ordering policy, 2026-02-22)",
+      "type": "lint",
+      "command": "python3 -c \"import pathlib,sys; s=pathlib.Path('sessions'); items=[x for x in s.glob('*/inbox/*/') if not x.name.startswith('_') and not x.name.startswith('.') and ((x/'command.md').exists() or (x/'README.md').exists())]; missing=[str(x) for x in items if not (x/'roi.txt').exists()]; [print('MISSING roi.txt:',m) for m in missing]; sys.exit(1) if missing else print('PASS: all',len(items),'active inbox items have roi.txt')\"",
+      "notes": "Upgraded to required_for_release: true 2026-02-28 (second time; first upgrade at commit 22158728 was reverted by merge b063ba49). All 164 active inbox items now have roi.txt (PASS). Legacy backfill gap resolved.",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "pm-infra-outbox-format",
+      "label": "Verify pm-infra outbox files (20260227+) start with '- Status:' on line 1",
+      "type": "lint",
+      "command": "python3 -c \"import pathlib,sys; ob=pathlib.Path('sessions/pm-infra/outbox'); recent=sorted([f for f in ob.glob('*.md') if f.stem>='20260227']); bad=[f.name for f in recent if not f.read_text(encoding='utf-8').splitlines()[0:1] or not f.read_text(encoding='utf-8').splitlines()[0].startswith('- Status:')]; [print('MALFORMED:',b) for b in bad]; sys.exit(1) if bad else print('PASS: all',len(recent),'pm-infra outbox files (20260227+) start with - Status:')\"",
+      "notes": "Detects executor outbox-persistence bug (chat text appended instead of file replaced). Scoped to 20260227+ to track clean-outbox progress going forward. Historical pre-20260227 files are grandfathered.",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "all-seats-outbox-format-monitor",
+      "label": "Monitor outbox format health across all seats (20260227+)",
+      "type": "lint",
+      "command": "python3 -c \"import pathlib; s=pathlib.Path('sessions'); data=[(d.name,[f.name for f in sorted((d/'outbox').glob('*.md')) if f.stem>='20260227' and (not f.read_text(encoding='utf-8').splitlines()[0:1] or not f.read_text(encoding='utf-8').splitlines()[0].startswith('- Status:'))]) for d in sorted(s.iterdir()) if d.is_dir() and (d/'outbox').exists()]; bad=[(k,v) for k,v in data if v]; total=sum(len([f for f in (s/k/'outbox').glob('*.md') if f.stem>='20260227']) for k,_ in data); print(f'MONITORING: {sum(len(v) for _,v in bad)} malformed of {total} outbox files across {len(bad)} seat(s)'); [print(f'  {k}: {len(v)}') for k,v in bad]\"",
+      "notes": "Monitoring-only (required_for_release: false). Tracks org-wide executor outbox-persistence bug: chat text written to file instead of structured outbox content. Baseline 2026-02-28: 83/228 malformed across 22 seats. Upgrade to required_for_release: true when executor bug is fixed and baseline reaches 0.",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": false
+    },
+    {
+      "id": "infra-team-outbox-format-monitor",
+      "label": "Monitor outbox format health for all infrastructure-team seats (20260227+)",
+      "type": "lint",
+      "command": "python3 -c \"import pathlib; seats=['pm-infra','dev-infra','qa-infra','sec-analyst-infra','ba-infra','agent-explore-infra']; s=pathlib.Path('sessions'); data=[(seat,[(d.name,len([f.name for f in sorted((d/'outbox').glob('*.md')) if f.stem>='20260227' and (not f.read_text(encoding='utf-8').splitlines()[0:1] or not f.read_text(encoding='utf-8').splitlines()[0].startswith('- Status:'))])) for d in [s/seat] if (s/seat/'outbox').exists()]) for seat in seats]; total=sum(len([f for f in (s/seat/'outbox').glob('*.md') if f.stem>='20260227']) for seat in seats if (s/seat/'outbox').exists()); bad=[(seat,cnt) for seat,rows in data for _,cnt in rows if cnt>0]; print(f'INFRA-TEAM: {sum(c for _,c in bad)} malformed of {total} files across {len(bad)} infra seat(s)'); [print(f'  {k}: {v}') for k,v in bad]\"",
+      "notes": "Monitoring-only (required_for_release: false). Scoped to the 6 infrastructure-team seats (pm-infra, dev-infra, qa-infra, sec-analyst-infra, ba-infra, agent-explore-infra). Baseline 2026-02-28: 22/47 malformed. More focused than all-seats-outbox-format-monitor; provides infra team a single dashboard command. Upgrade to required_for_release: true when executor bug is fixed.",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": false
+    },
+    {
+      "id": "qa-infra-instructions-drift",
+      "label": "Verify qa-infra.instructions.md suite table matches suite.json required_for_release values",
+      "type": "lint",
+      "command": "python3 -c \"import json,pathlib,re,sys; suite=json.load(open('qa-suites/products/infrastructure/suite.json')); sm={s['id']:s['required_for_release'] for s in suite['suites']}; inst=pathlib.Path('org-chart/agents/instructions/qa-infra.instructions.md').read_text(); rows=re.findall(r'\\|\\s+\\x60([^\\x60|]+)\\x60\\s+\\|[^|]+\\|\\s+(\\w[^|]*)\\|', inst); drifted=[f'{s.strip()}: instructions says yes={v.strip().lower().startswith(\\\"yes\\\")} but suite.json says {sm.get(s.strip())}' for s,v in rows if s.strip() in sm and v.strip().lower().startswith('yes')!=sm[s.strip()]]; [print('DRIFT:',d) for d in drifted]; sys.exit(1) if drifted else print(f'PASS: {len(rows)} suite table rows in qa-infra.instructions.md match suite.json')\"",
+      "notes": "Prevents merge-induced silent regressions where required_for_release fields in suite.json are downgraded but seat instructions table still says 'yes'. Added 2026-02-28 after inbox-roi-completeness was silently reverted twice by prefer-remote merges.",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "executor-failures-prune-logic",
+      "label": "Verify agent-exec-next.sh contains auto-prune logic for executor failures dir",
+      "type": "lint",
+      "command": "grep -q 'Auto-prune: keep only the 200 most-recent' scripts/agent-exec-next.sh && echo 'PASS: executor failures prune logic present' || (echo 'FAIL: prune logic missing from agent-exec-next.sh'; exit 1)",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true,
+      "notes": "Added 2026-04-10 after 20260410-syshealth-executor-failures-prune. Confirms the 200-entry cap guard is present in the failure-write path."
+    },
+    {
+      "id": "workspace-merge-safe-syntax",
+      "label": "Verify workspace-merge-safe.sh passes bash syntax check",
+      "type": "lint",
+      "command": "bash -n scripts/workspace-merge-safe.sh && echo 'PASS: workspace-merge-safe.sh syntax ok'",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true
+    },
+    {
+      "id": "workspace-merge-safe-functional",
+      "label": "Verify workspace-merge-safe.sh --dry-run exits 0 from git repo",
+      "type": "functional",
+      "command": "bash scripts/workspace-merge-safe.sh --dry-run HEAD 2>&1 | grep -v '^$'; echo exit:$?",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": false,
+      "notes": "dry-run mode: verifies script executes without performing a merge"
+    },
+    {
+      "id": "workspace-merge-safe-adoption",
+      "label": "Verify HQ shell scripts do not use raw git merge outside the safe wrapper",
+      "type": "lint",
+      "command": "python3 -c \"from pathlib import Path; import re, sys; root = Path('scripts'); allowed = root / 'workspace-merge-safe.sh'; rx = re.compile(r'^\\\\s*(?:if\\\\s+!\\\\s+)?git\\\\s+merge\\\\b'); violations = [];\\nfor path in sorted(root.rglob('*.sh')):\\n    if path == allowed:\\n        continue\\n    for line_number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), start=1):\\n        stripped = line.lstrip()\\n        if stripped.startswith('#'):\\n            continue\\n        if rx.search(line):\\n            violations.append(f'{path}:{line_number}:{stripped}')\\nif violations:\\n    print('FAIL: raw git merge found outside workspace-merge-safe.sh')\\n    print('\\\\n'.join(violations))\\n    sys.exit(1)\\nprint('PASS: no raw git merge outside workspace-merge-safe.sh')\"",
+      "artifacts": [
+        "stdout/stderr logs"
+      ],
+      "required_for_release": true,
+      "notes": "Added 2026-04-15 to close the recurring merge-safety adoption gap by enforcing the safe wrapper structurally."
+    }
+  ]
+}

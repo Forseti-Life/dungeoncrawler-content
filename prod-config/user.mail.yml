@@ -1,0 +1,30 @@
+_core:
+  default_config_hash: 6CZIzFifRq3qbdq3n3nDpEOO4hWIQtKOAQNPvGNGKeM
+langcode: en
+cancel_confirm:
+  subject: 'Account Cancellation Request - [site:name]'
+  body: "Hello [user:display-name],\r\n\r\nWe've received a request to cancel your Forseti account. We're sorry to see you go.\r\n\r\nTo confirm this cancellation, click the link below:\r\n\r\n[user:cancel-url]\r\n\r\n⚠️ IMPORTANT: This action is permanent and cannot be undone. All your data, preferences, and safety alerts will be removed.\r\n\r\nThis link expires in 24 hours. If you didn't request this, simply ignore this email and your account will remain active.\r\n\r\nStay safe,\r\nThe Forseti Team\r\n\r\n---\r\nForseti.life - AI Looking Out For Us\r\nBuilding safer communities through intelligent monitoring"
+password_reset:
+  subject: 'Password Reset Request - [site:name]'
+  body: "Hello [user:display-name],\r\n\r\nWe received a request to reset your password for your Forseti account.\r\n\r\nClick the secure link below to set a new password:\r\n\r\n[user:one-time-login-url]\r\n\r\n🔒 Security Notice:\r\n- This link works only once\r\n- It expires in 24 hours\r\n- You'll be prompted to create a new password\r\n\r\nIf you didn't request this reset, please ignore this email. Your current password will remain unchanged.\r\n\r\nStay vigilant,\r\nThe Forseti Team\r\n\r\n---\r\nForseti.life - AI Looking Out For Us\r\nQuestions? Visit forseti.life/privacy-security"
+register_admin_created:
+  subject: 'Welcome to Forseti - Free Resume Tailoring Access'
+  body: "Hello [user:display-name],\r\n\r\nWelcome to Forseti. Right now Forseti is focused on one free service: resume tailoring for job applications.\r\n\r\nComplete account setup:\r\n[user:one-time-login-url]\r\n\r\nAfter setting your password, sign in at [site:login-url].\r\n\r\nWhat you can do now:\r\n- Use free resume tailoring tools\r\n- Match resumes to specific job descriptions\r\n- Manage your job search workflow in Job Hunter\r\n\r\nUsername: [user:name]\r\nPassword: Set via the secure link above\r\n\r\nThanks,\r\nThe Forseti Team"
+register_no_approval_required:
+  subject: 'Welcome to Forseti - Free Resume Tailoring Access'
+  body: "Hello [user:display-name],\r\n\r\nWelcome to Forseti. Right now Forseti is focused on one free service: resume tailoring for job applications.\r\n\r\nActivate your account:\r\n[user:one-time-login-url]\r\n\r\nAfter setting your password, sign in at [site:login-url].\r\n\r\nWhat you can do now:\r\n- Use free resume tailoring tools\r\n- Match resumes to specific job descriptions\r\n- Manage your job search workflow in Job Hunter\r\n\r\nUsername: [user:name]\r\nPassword: Set via the secure link above\r\n\r\nThanks,\r\nThe Forseti Team"
+register_pending_approval:
+  subject: 'Forseti account pending approval - free resume tailoring access'
+  body: "Hello [user:display-name],\r\n\r\nThanks for registering with Forseti. Your account is pending admin approval.\r\n\r\nCurrent service focus: free resume tailoring and Job Hunter workflows.\r\n\r\nOnce approved, you will receive a follow-up email with your one-time login link.\r\n\r\nQuestions? Visit [site:url]contact\r\n\r\nThanks,\r\nThe Forseti Team"
+register_pending_approval_admin:
+  subject: '[ACTION REQUIRED] New User Registration - [user:display-name]'
+  body: "🔔 New Forseti Account Registration\r\n\r\nUser Details:\r\nName: [user:display-name]\r\nUsername: [user:name]\r\nRegistration Time: [site:current-date]\r\n\r\nReview and approve this account:\r\n[user:edit-url]\r\n\r\nAs a Forseti administrator, please review this registration to ensure our community maintains the highest standards of safety and trust.\r\n\r\n---\r\nForseti Admin Team\r\n[site:name]"
+status_activated:
+  subject: 'Your Forseti account is active - free resume tailoring ready'
+  body: "Hello [user:display-name],\r\n\r\nYour Forseti account has been approved and activated.\r\n\r\nSet your password and sign in:\r\n[user:one-time-login-url]\r\n\r\nCurrent service focus: free resume tailoring and Job Hunter workflows.\r\n\r\nFuture sign-ins: [site:login-url]\r\nUsername: [user:account-name]\r\n\r\nThanks,\r\nThe Forseti Team"
+status_blocked:
+  subject: 'Forseti Account Status Update'
+  body: "Hello [user:display-name],\r\n\r\nWe're writing to inform you that your Forseti account has been temporarily blocked.\r\n\r\n🔒 Account Status: Blocked\r\n\r\nThis action was taken to protect the integrity and security of our community safety platform.\r\n\r\nIf you believe this is an error or would like to discuss your account status, please contact our support team:\r\n• Visit: forseti.life/contact\r\n• Email: support@forseti.life\r\n\r\nWe take community safety seriously and are committed to fair resolution of all account matters.\r\n\r\nThe Forseti Team\r\n\r\n---\r\nForseti.life - AI Looking Out For Us\r\nCommitted to justice and transparency"
+status_canceled:
+  subject: 'Your Forseti Account Has Been Canceled'
+  body: "Hello [user:display-name],\r\n\r\nYour Forseti account has been successfully canceled.\r\n\r\n✓ Account Status: Canceled\r\n✓ All personal data has been removed\r\n✓ You will no longer receive alerts or notifications\r\n\r\nWe're sorry to see you go. Your commitment to community safety matters to us.\r\n\r\n📝 What's Been Removed:\r\n• Login credentials\r\n• Saved locations and preferences\r\n• Alert subscriptions\r\n• Conversation history\r\n\r\nIf you change your mind, you can always create a new account at:\r\nforseti.life/user/register\r\n\r\nThank you for being part of our community. Stay safe out there.\r\n\r\nThe Forseti Team\r\n\r\n---\r\nForseti.life - AI Looking Out For Us\r\nBuilding safer communities through intelligent monitoring"

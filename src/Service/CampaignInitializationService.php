@@ -27,6 +27,9 @@ use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
  */
 class CampaignInitializationService {
 
+  private const STARTER_CITY_DUNGEON_NAME = 'Absalom';
+  private const STARTER_CITY_DUNGEON_DESCRIPTION = 'City hub containing The Gilded Tankard and nearby starter routes.';
+
   protected Connection $database;
   protected UuidInterface $uuid;
   protected TimeInterface $time;
@@ -279,14 +282,16 @@ class CampaignInitializationService {
 
     $dungeon_id = $this->uuid->generate();
     $level_id = $this->uuid->generate();
-    $dungeon_name = (string) ($starter_room['name'] ?? 'Starter Tavern');
-    $dungeon_description = (string) ($starter_room['description'] ?? 'Starter tavern asset.');
+    $room_name = (string) ($starter_room['name'] ?? 'The Gilded Tankard');
+    $room_description = (string) ($starter_room['description'] ?? 'Starter tavern asset.');
+    $dungeon_name = self::STARTER_CITY_DUNGEON_NAME;
+    $dungeon_description = self::STARTER_CITY_DUNGEON_DESCRIPTION;
     $dungeon_theme = $theme !== '' ? $theme : 'starter_asset';
     $room_payload = [
       'room_id' => $runtime_room_id,
       'source_room_id' => (string) ($starter_room['room_id'] ?? $runtime_room_id),
-      'name' => $dungeon_name,
-      'description' => $dungeon_description,
+      'name' => $room_name,
+      'description' => $room_description,
       'hexes' => is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [],
       'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
       'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
@@ -550,9 +555,25 @@ class CampaignInitializationService {
         ->execute();
     }
 
-    // Create NPCs
+    // Create NPCs from room-management canonical content IDs.
+    $seen_content_ids = [];
     foreach ($contents_data['npcs'] as $npc) {
-      $instance_id = 'npc_' . $npc['content_id'];
+      $content_id = $this->canonicalizeRoomNpcContentId((string) ($npc['content_id'] ?? ''));
+      if ($content_id === '') {
+        throw new \RuntimeException(sprintf(
+          'Starter room NPC "%s" is missing canonical content_id.',
+          (string) ($npc['name'] ?? 'unknown')
+        ));
+      }
+      if (isset($seen_content_ids[$content_id])) {
+        throw new \RuntimeException(sprintf(
+          'Starter room contains duplicate NPC content_id "%s".',
+          $content_id
+        ));
+      }
+      $seen_content_ids[$content_id] = TRUE;
+
+      $instance_id = 'npc_' . $content_id;
       $npc_stats = is_array($npc['stats'] ?? NULL) ? $npc['stats'] : [];
       $npc_level = max(1, (int) ($npc['level'] ?? 1));
       $npc_hp_current = max(0, (int) ($npc_stats['currentHp'] ?? 0));
@@ -566,7 +587,7 @@ class CampaignInitializationService {
       $npc_class = (string) ($npc['class'] ?? 'npc');
       $npc_ancestry = (string) ($npc['ancestry'] ?? 'humanoid');
       $npc_seed_payload = [
-        'content_id' => $npc['content_id'],
+        'content_id' => $content_id,
         'role' => $npc_role,
         'description' => $npc['description'] ?? '',
         'backstory' => $npc['backstory'] ?? '',
@@ -586,7 +607,7 @@ class CampaignInitializationService {
         'animation_state' => 'idle',
       ];
       $state_data = [
-        'content_id' => $npc['content_id'],
+        'content_id' => $content_id,
         'role' => $npc_role,
         'description' => $npc['description'] ?? '',
         'quests' => $npc['quests'] ?? [],
@@ -604,7 +625,7 @@ class CampaignInitializationService {
         ],
       ]);
 
-      $this->database->insert('dc_campaign_characters')
+      $npc_row_id = (int) $this->database->insert('dc_campaign_characters')
         ->fields([
           'campaign_id' => $campaign_id,
           'character_id' => 0,
@@ -643,6 +664,8 @@ class CampaignInitializationService {
             ],
           ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
           'state_data' => json_encode($state_data),
+          'default_locations' => NULL,
+          'portrait' => NULL,
           'location_type' => 'room',
           'location_ref' => $runtime_room_id,
           'is_active' => 1,
@@ -655,12 +678,19 @@ class CampaignInitializationService {
           'updated' => $now,
         ])
         ->execute();
+      $this->seedRuntimeNpcPortraitFromExistingActor(
+        $campaign_id,
+        $npc_row_id,
+        (string) $instance_id,
+        (string) ($npc['name'] ?? ''),
+        $now
+      );
 
       if ($this->npcSheetGenerationService) {
         $this->npcSheetGenerationService->enqueueNpcSheetGeneration($campaign_id, $instance_id, [
           'entity_ref' => $instance_id,
           'instance_id' => $instance_id,
-          'content_id' => (string) ($npc['content_id'] ?? $instance_id),
+          'content_id' => $content_id,
           'name' => $npc['name'],
           'role' => $npc_role,
           'description' => $npc['description'] ?? '',
@@ -719,6 +749,154 @@ class CampaignInitializationService {
       'source_room_id' => $source_room_id,
       'runtime_room_id' => $runtime_room_id,
     ];
+  }
+
+  /**
+   * Seed runtime NPC portrait from existing authoritative NPC actor rows.
+   */
+  private function seedRuntimeNpcPortraitFromExistingActor(
+    int $campaign_id,
+    int $target_row_id,
+    string $instance_id,
+    string $name,
+    int $now
+  ): void {
+    if ($campaign_id <= 0 || $target_row_id <= 0) {
+      return;
+    }
+
+    $target_portrait = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['portrait'])
+      ->condition('cc.id', $target_row_id)
+      ->condition('cc.campaign_id', $campaign_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (trim((string) $target_portrait) !== '') {
+      return;
+    }
+
+    $instance_id = trim($instance_id);
+    $name = trim($name);
+
+    $source_row = NULL;
+    if ($instance_id !== '') {
+      $source_row = $this->database->select('dc_campaign_characters', 'cc')
+        ->fields('cc', ['id', 'campaign_id', 'portrait'])
+        ->condition('cc.type', 'npc')
+        ->condition('cc.instance_id', $instance_id)
+        ->condition('cc.id', $target_row_id, '<>')
+        ->condition('cc.portrait', '', '<>')
+        ->isNotNull('cc.portrait')
+        ->orderBy('cc.updated', 'DESC')
+        ->orderBy('cc.id', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+
+    if (!$source_row && $name !== '') {
+      $source_row = $this->database->select('dc_campaign_characters', 'cc')
+        ->fields('cc', ['id', 'campaign_id', 'portrait'])
+        ->condition('cc.type', 'npc')
+        ->condition('cc.name', $name)
+        ->condition('cc.id', $target_row_id, '<>')
+        ->condition('cc.portrait', '', '<>')
+        ->isNotNull('cc.portrait')
+        ->orderBy('cc.updated', 'DESC')
+        ->orderBy('cc.id', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+
+    if (!$source_row) {
+      return;
+    }
+
+    $source_row_id = (int) ($source_row['id'] ?? 0);
+    $source_campaign_id = (int) ($source_row['campaign_id'] ?? 0);
+    $source_portrait = trim((string) ($source_row['portrait'] ?? ''));
+    if ($source_row_id <= 0 || $source_portrait === '') {
+      return;
+    }
+
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'portrait' => $source_portrait,
+        'changed' => $now,
+        'updated' => $now,
+      ])
+      ->condition('id', $target_row_id)
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+
+    $links = [];
+    if ($source_campaign_id > 0) {
+      $links = $this->database->select('dc_generated_image_links', 'l')
+        ->fields('l')
+        ->condition('l.table_name', 'dc_campaign_characters')
+        ->condition('l.object_id', (string) $source_row_id)
+        ->condition('l.slot', 'portrait')
+        ->condition('l.campaign_id', $source_campaign_id)
+        ->orderBy('l.is_primary', 'DESC')
+        ->orderBy('l.created', 'DESC')
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+    if ($links === []) {
+      $links = $this->database->select('dc_generated_image_links', 'l')
+        ->fields('l')
+        ->condition('l.table_name', 'dc_campaign_characters')
+        ->condition('l.object_id', (string) $source_row_id)
+        ->condition('l.slot', 'portrait')
+        ->isNull('l.campaign_id')
+        ->orderBy('l.is_primary', 'DESC')
+        ->orderBy('l.created', 'DESC')
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    foreach ($links as $link) {
+      $image_id = (int) ($link['image_id'] ?? 0);
+      $slot = (string) ($link['slot'] ?? 'portrait');
+      $variant = (string) ($link['variant'] ?? 'original');
+      if ($image_id <= 0) {
+        continue;
+      }
+
+      $exists = (bool) $this->database->select('dc_generated_image_links', 'l')
+        ->fields('l', ['id'])
+        ->condition('l.campaign_id', $campaign_id)
+        ->condition('l.table_name', 'dc_campaign_characters')
+        ->condition('l.object_id', (string) $target_row_id)
+        ->condition('l.slot', $slot)
+        ->condition('l.variant', $variant)
+        ->condition('l.image_id', $image_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($exists) {
+        continue;
+      }
+
+      $this->database->insert('dc_generated_image_links')
+        ->fields([
+          'image_id' => $image_id,
+          'scope_type' => (string) ($link['scope_type'] ?? 'campaign'),
+          'campaign_id' => $campaign_id,
+          'table_name' => 'dc_campaign_characters',
+          'object_id' => (string) $target_row_id,
+          'slot' => $slot,
+          'variant' => $variant,
+          'is_primary' => (int) ($link['is_primary'] ?? 1),
+          'sort_weight' => (int) ($link['sort_weight'] ?? 0),
+          'visibility' => (string) ($link['visibility'] ?? 'owner'),
+          'created' => $now,
+          'updated' => $now,
+        ])
+        ->execute();
+    }
   }
 
   /**
@@ -818,6 +996,25 @@ class CampaignInitializationService {
   }
 
   /**
+   * Canonicalize room-management NPC content IDs.
+   */
+  private function canonicalizeRoomNpcContentId(string $content_id): string {
+    $normalized = strtolower(trim($content_id));
+    if ($normalized === '') {
+      return '';
+    }
+
+    if (str_starts_with($normalized, 'npc_')) {
+      $normalized = substr($normalized, 4);
+    }
+    elseif (str_starts_with($normalized, 'npc-')) {
+      $normalized = substr($normalized, 4);
+    }
+
+    return trim($normalized);
+  }
+
+  /**
    * Resolve NPC instance IDs for a campaign by content IDs.
    *
    * @param int $campaign_id
@@ -833,9 +1030,17 @@ class CampaignInitializationService {
       return [];
     }
 
+    $canonical_content_ids = array_values(array_filter(array_unique(array_map(
+      fn(string $content_id): string => $this->canonicalizeRoomNpcContentId($content_id),
+      $content_ids
+    ))));
+    if ($canonical_content_ids === []) {
+      return [];
+    }
+
     $instance_ids = array_map(static function (string $content_id): string {
       return 'npc_' . $content_id;
-    }, $content_ids);
+    }, $canonical_content_ids);
 
     $rows = $this->database->select('dc_campaign_characters', 'cc')
       ->fields('cc', ['id', 'instance_id'])

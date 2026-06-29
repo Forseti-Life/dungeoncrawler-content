@@ -1,0 +1,18 @@
+- command: |
+    Groom feature dc-cr-class-monk for release entry (suggestion process flow).
+
+    Feature stub: features/dc-cr-class-monk/feature.md (status: planned/ready, P2)
+    Needs: 01-acceptance-criteria.md, then run pm-qa-handoff.sh
+
+    Context: Monk class mechanics: powerful fist, flurry of blows, ki spells, stance feats. Deps: character-class ✓, focus-spells (deferred — groom now, activate later)
+
+    ## Steps
+    1. Read features/dc-cr-class-monk/feature.md
+    2. Review https://dungeoncrawler.forseti.life/Roadmap for this section's Not Started reqs
+    3. Write features/dc-cr-class-monk/01-acceptance-criteria.md (use templates/01-acceptance-criteria.md)
+       Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+    4. Ensure features/dc-cr-class-monk/feature.md has ## Security acceptance criteria section
+       (or add: - Security AC exemption: <reason> if no security surface)
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-cr-class-monk
+    6. Write outbox confirming AC written and QA handoff dispatched
+- roi: 7

@@ -1,0 +1,96 @@
+{
+  "name": "Goblin Commando",
+  "creature_family": "Goblin",
+  "variant_name": "Commando",
+  "level": 1,
+  "rarity": "common",
+  "alignment": "CE",
+  "size": "Small",
+  "traits": ["Goblin", "Humanoid"],
+  
+  "perception_bonus": 5,
+  "special_senses": ["darkvision"],
+  
+  "languages": ["Common", "Goblin"],
+  
+  "interaction_abilities": [],
+  
+  "skills": {
+    "Acrobatics": 6,
+    "Athletics": 6,
+    "Intimidation": 5,
+    "Nature": 5,
+    "Stealth": 6
+  },
+  
+  "strength": 3,
+  "dexterity": 3,
+  "constitution": 2,
+  "intelligence": -1,
+  "wisdom": 0,
+  "charisma": 2,
+  
+  "items": ["horsechopper", "leather armor", "shortbow", "20 arrows"],
+  
+  "armor_class": 17,
+  "fortitude_save": 7,
+  "reflex_save": 8,
+  "will_save": 5,
+  "hit_points": 18,
+  
+  "immunities": [],
+  "weaknesses": {},
+  "resistances": {},
+  
+  "automatic_abilities": [],
+  
+  "reactive_abilities": [
+    {
+      "name": "Goblin Scuttle",
+      "type": "reaction",
+      "trigger": "A goblin ally ends a move action adjacent to the warrior.",
+      "effect": "The goblin warrior Steps."
+    }
+  ],
+  
+  "speeds": {
+    "ground": 25
+  },
+  
+  "strikes": [
+    {
+      "name": "horsechopper",
+      "action_cost": 1,
+      "type": "melee",
+      "attack_bonus": 8,
+      "traits": ["reach 10 feet", "trip", "versatile P"],
+      "damage": "1d8+3 slashing"
+    },
+    {
+      "name": "shortbow",
+      "action_cost": 1,
+      "type": "ranged",
+      "attack_bonus": 8,
+      "traits": ["deadly 1d10", "range increment 60 feet", "reload 0"],
+      "damage": "1d6 piercing"
+    }
+  ],
+  
+  "prepared_spells": null,
+  "spontaneous_spells": null,
+  "innate_spells": null,
+  "focus_spells": null,
+  "rituals": null,
+  
+  "offensive_abilities": [],
+  
+  "description": "The theoretical leaders of goblin raids are called goblin commandos. In practice, goblin commandos rarely continue to lead their comrades once a battle has begun. Most shirk their responsibilities in favor of wading into the fray and claiming more glory from their tribe-mates.",
+  
+  "family_description": "These small humanoids have green or gray skin and large heads with wide ears. While some goblins are civilized and have worked hard to be considered upstanding members of humanoid communities, most are impetuous and vicious creatures who delight in wreaking havoc. These goblins think nothing of slaughtering livestock, stealing infants, or burning down a building purely for momentary delight. They revel in playing malicious tricks on taller humanoids, whom they call \"longshanks.\" Goblins are superstitious, with an intense awe of magic and a fascination with fire; goblins who master magic or fire earn great respect from their kin. Most other humanoids find it difficult to understand goblins' outlook: they hate canines but eagerly share their lairs with so-called \"goblin dogs,\" they fearlessly attack larger creatures but are terrified of horses, and they despise vegetables yet consider pickles a delicacy. To a goblin, of course, these are all perfectly sensible life choices.",
+  
+  "sidebar_title": "GOBLIN TREASURE",
+  "sidebar_content": "Although goblin warrens are generally filthy dumps, they sometimes contain actual treasures stolen from longshanks or other goblin tribes. Typical treasures include small pieces of jewelry, shiny items such as hand mirrors, and gold teeth. As they rarely trust each other, many goblins keep their most cherished baubles on their persons; these, might include useful weapons or minor magic items.",
+  
+  "source_book": "Bestiary 1",
+  "page_reference": "180"
+}

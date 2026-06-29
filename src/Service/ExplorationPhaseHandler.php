@@ -2057,24 +2057,55 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $room = $this->getActiveRoom($dungeon_data);
     $search_dc = $room['gameplay_state']['search_dc'] ?? 15;
 
-    $degree = $this->calculateDegreeOfSuccess($total, $search_dc, $roll_result);
+    $manual_guaranteed_discovery = $requested_mode === self::SEARCH_MODE_EXPLICIT
+      && $this->hasPendingQuestSearchCollectible($campaign_id, $actor_id, $params, $dungeon_data);
+    if ($manual_guaranteed_discovery && $total < $search_dc) {
+      $total = (int) $search_dc;
+    }
+    $degree = $manual_guaranteed_discovery
+      ? 'success'
+      : $this->calculateDegreeOfSuccess($total, $search_dc, $roll_result);
     $discoveries = [];
     $hazard_events = [];
     $sensory_result = [];
     $quest_discovery = NULL;
+    $quest_discoveries = [];
     if (in_array($degree, ['critical_success', 'success'], TRUE)) {
-      $quest_discovery = $this->resolveQuestSearchCollectibleDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
-      if ($quest_discovery) {
+      if ($requested_mode === self::SEARCH_MODE_EXPLICIT) {
+        $quest_discoveries = $this->resolveAllQuestSearchCollectibleDiscoveries($campaign_id, $actor_id, $params, $dungeon_data);
+        $quest_discovery = $quest_discoveries[0] ?? NULL;
+      }
+      else {
+        $quest_discovery = $this->resolveQuestSearchCollectibleDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
+        if ($quest_discovery) {
+          $quest_discoveries[] = $quest_discovery;
+        }
+      }
+
+      foreach ($quest_discoveries as $resolved_discovery) {
         $discoveries[] = [
-          'instance_id' => $quest_discovery['item_instance_id'],
-          'name' => $quest_discovery['item_name'],
-          'quest_id' => $quest_discovery['quest_id'],
-          'objective_id' => $quest_discovery['objective_id'],
+          'instance_id' => $resolved_discovery['item_instance_id'],
+          'name' => $resolved_discovery['item_name'],
+          'quest_id' => $resolved_discovery['quest_id'],
+          'objective_id' => $resolved_discovery['objective_id'],
         ];
       }
     }
     $narration = trim((string) ($quest_discovery['narration'] ?? ''));
-    $quest_narrator_notes = array_values(array_filter((array) ($quest_discovery['narrator_notes'] ?? []), static fn($note): bool => is_string($note) && trim($note) !== ''));
+    if ($requested_mode === self::SEARCH_MODE_EXPLICIT && count($quest_discoveries) > 1) {
+      $narration = implode(' ', array_map(static function (array $resolved_discovery): string {
+        return sprintf('You notice %s.', (string) ($resolved_discovery['item_name'] ?? 'something useful'));
+      }, $quest_discoveries));
+    }
+    $quest_narrator_notes = [];
+    foreach ($quest_discoveries as $resolved_discovery) {
+      foreach ((array) ($resolved_discovery['narrator_notes'] ?? []) as $note) {
+        if (is_string($note) && trim($note) !== '') {
+          $quest_narrator_notes[] = trim($note);
+        }
+      }
+    }
+    $quest_narrator_notes = array_values(array_unique($quest_narrator_notes));
     if ($quest_narrator_notes !== []) {
       $narration_parts = [];
       if (is_string($narration) && trim($narration) !== '') {
@@ -2098,10 +2129,30 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'sensory_reveals' => $sensory_result['reveals'] ?? [],
       'sensory_status' => $sensory_result['status'] ?? 'unavailable',
       'quest_discovery' => $quest_discovery,
+      'quest_discoveries' => $quest_discoveries,
       'hazard_events' => $hazard_events,
       'mutations'    => [],
       'narration' => $narration,
     ];
+  }
+
+  /**
+   * Determine whether the active room still has quest-search collectibles to find.
+   */
+  protected function hasPendingQuestSearchCollectible(int $campaign_id, string $actor_id, array $params, array $dungeon_data): bool {
+    $room_id = trim((string) ($params['room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
+    $character_id = $this->resolveSearchCampaignCharacterId($campaign_id, $actor_id, $params, $dungeon_data);
+    if ($campaign_id <= 0 || $room_id === '' || $character_id <= 0) {
+      return FALSE;
+    }
+
+    $quest_target = $this->findNeededSearchCollectibleQuest($campaign_id, $room_id, $character_id);
+    if (!$quest_target) {
+      return FALSE;
+    }
+
+    $item_row = $this->findNextSearchCollectibleItem($campaign_id, $room_id, $quest_target);
+    return (bool) $item_row;
   }
 
   /**
@@ -2157,6 +2208,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         'current' => $progress_state['current'],
         'target' => $progress_state['target'],
         'narration' => sprintf('You notice %s.', $item_name),
+        'narrator_notes' => array_values(array_filter((array) ($progress_state['narrator_notes'] ?? []), static fn($note): bool => is_string($note) && trim($note) !== '')),
       ];
     }
     catch (\Throwable $e) {
@@ -2165,6 +2217,22 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
       throw $e;
     }
+  }
+
+  /**
+   * Award all currently findable room collectibles from one explicit Search.
+   */
+  protected function resolveAllQuestSearchCollectibleDiscoveries(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): array {
+    $discoveries = [];
+    while (TRUE) {
+      $discovery = $this->resolveQuestSearchCollectibleDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
+      if (!is_array($discovery) || empty($discovery['item_instance_id'])) {
+        break;
+      }
+      $discoveries[] = $discovery;
+    }
+
+    return $discoveries;
   }
 
   /**

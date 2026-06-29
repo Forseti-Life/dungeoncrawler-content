@@ -1,0 +1,292 @@
+# Example GitHub Actions Workflow for Testing
+# This is a DESIGN EXAMPLE - not for immediate use
+#
+# IMPORTANT: All phpunit commands must be run from the web/ directory
+# to ensure relative paths resolve correctly. This prevents "Failed to 
+# open settings.php" errors during functional tests.
+
+name: Dungeon Crawler Test Suite
+
+on:
+  pull_request:
+    paths:
+      - 'sites/dungeoncrawler/**'
+      - 'docs/dungeoncrawler/**'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'sites/dungeoncrawler/**'
+
+jobs:
+  phpunit:
+    name: PHPUnit Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_DATABASE: drupal_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: gd, mysql, pdo_mysql, zip
+          coverage: xdebug
+          tools: composer:v2
+      
+      - name: Get Composer Cache Directory
+        id: composer-cache
+        run: |
+          echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+      
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+      
+      - name: Install Composer Dependencies
+        run: |
+          cd sites/dungeoncrawler
+          composer install --no-interaction --prefer-dist --no-progress
+      
+      - name: Run Unit Tests
+        run: |
+          cd sites/dungeoncrawler/web
+          ../vendor/bin/phpunit \
+            --configuration modules/custom/dungeoncrawler_tester/phpunit.xml \
+            --testsuite=unit \
+            --coverage-clover coverage.xml \
+            --log-junit test-results.xml
+      
+      - name: Upload Coverage Report
+        uses: codecov/codecov-action@v3
+        with:
+          files: sites/dungeoncrawler/coverage.xml
+          flags: unit-tests
+          name: codecov-umbrella
+      
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: sites/dungeoncrawler/test-results.xml
+  
+  functional:
+    name: Functional Tests
+    runs-on: ubuntu-latest
+    needs: phpunit
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_DATABASE: drupal_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: gd, mysql, pdo_mysql, zip
+      
+      - name: Install Composer Dependencies
+        run: |
+          cd sites/dungeoncrawler
+          composer install --no-interaction --prefer-dist
+      
+      - name: Setup Drupal
+        run: |
+          cd sites/dungeoncrawler/web
+          # Create settings file
+          cp sites/default/default.settings.php sites/default/settings.php
+          chmod 644 sites/default/settings.php
+          
+          # Install Drupal
+          ../vendor/bin/drush site:install standard \
+            --db-url=mysql://root:${{ secrets.MYSQL_ROOT_PASSWORD }}@127.0.0.1:3306/drupal_test \
+            --site-name="Dungeon Crawler Test" \
+            --account-name=admin \
+            --account-pass=${{ secrets.DRUPAL_ADMIN_PASSWORD }} \
+            --yes
+          
+          # Enable custom modules
+          ../vendor/bin/drush en dungeoncrawler_content -y
+          ../vendor/bin/drush cache:rebuild
+      
+      - name: Run Functional Tests
+        run: |
+          cd sites/dungeoncrawler/web
+          ../vendor/bin/phpunit \
+            --configuration modules/custom/dungeoncrawler_tester/phpunit.xml \
+            --testsuite=functional \
+            --log-junit functional-results.xml
+      
+      - name: Upload Functional Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: functional-test-results
+          path: sites/dungeoncrawler/functional-results.xml
+  
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+      
+      - name: Install Dependencies
+        run: |
+          cd sites/dungeoncrawler
+          composer install --no-interaction --prefer-dist
+      
+      - name: PHP CodeSniffer
+        run: |
+          cd sites/dungeoncrawler
+          ./vendor/bin/phpcs \
+            --standard=Drupal,DrupalPractice \
+            --extensions=php,module,inc,install,test,profile,theme \
+            --report=checkstyle \
+            --report-file=phpcs-report.xml \
+            web/modules/custom/ || true
+      
+      - name: Upload PHPCS Report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: phpcs-report
+          path: sites/dungeoncrawler/phpcs-report.xml
+      
+      - name: PHPStan Analysis
+        run: |
+          cd sites/dungeoncrawler
+          ./vendor/bin/phpstan analyse \
+            --level=5 \
+            --error-format=json \
+            --no-progress \
+            web/modules/custom/ > phpstan-report.json || true
+      
+      - name: Upload PHPStan Report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: phpstan-report
+          path: sites/dungeoncrawler/phpstan-report.json
+  
+  pf2e-validation:
+    name: PF2e Rules Validation
+    runs-on: ubuntu-latest
+    needs: phpunit
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      
+      - name: Install Dependencies
+        run: |
+          cd sites/dungeoncrawler
+          composer install --no-interaction --prefer-dist
+      
+      - name: Run PF2e Rules Tests
+        run: |
+          cd sites/dungeoncrawler/web
+          ../vendor/bin/phpunit \
+            --configuration modules/custom/dungeoncrawler_tester/phpunit.xml \
+            --testsuite=unit \
+            --group=pf2e-rules \
+            --testdox
+  
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+      
+      - name: Security Checker
+        run: |
+          cd sites/dungeoncrawler
+          composer audit
+  
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [phpunit, functional, code-quality, pf2e-validation]
+    if: always()
+    
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v3
+      
+      - name: Generate Summary
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ PHPUnit Tests: Completed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Functional Tests: Completed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Code Quality: Completed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ PF2e Validation: Completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View detailed results in the Actions artifacts." >> $GITHUB_STEP_SUMMARY
+
+# Notes on this workflow:
+# 
+# 1. This is a DESIGN example showing the testing strategy structure
+# 2. Actual implementation should be adjusted for project specifics
+# 3. Consider adding:
+#    - Performance testing job
+#    - JavaScript testing (if needed)
+#    - Visual regression testing (future)
+# 4. Caching strategies improve CI speed significantly
+# 5. Artifacts preserve test results for review
+# 6. The workflow uses conditional execution (needs:) to optimize resource usage

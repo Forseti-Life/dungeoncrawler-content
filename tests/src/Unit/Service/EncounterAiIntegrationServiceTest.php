@@ -82,10 +82,43 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertSame('encounter', $context['action_contract']['phase']);
     $this->assertSame('npc-2', $context['action_contract']['actor_id']);
     $this->assertTrue(is_array($context['action_contract']['actions']));
+    $this->assertTrue(is_array($context['action_contract']['action_option_families'] ?? NULL));
+    $this->assertArrayHasKey('cast_spell', $context['action_contract']['action_option_families']);
     $this->assertTrue(isset($context['actions_available_to_me_this_turn']));
     $this->assertSame('npc-2', $context['actions_available_to_me_this_turn']['actor_instance_id']);
     $this->assertContains('end_turn', $context['actions_available_to_me_this_turn']['available_actions']);
     $this->assertSame('encounter', $context['actions_available_to_me_this_turn']['action_contract']['phase']);
+  }
+
+  /**
+   * @covers ::buildEncounterContext
+   */
+  public function testBuildEncounterContextProjectsParticipantStateIntoActionOptionFamilies(): void {
+    $encounter = [
+      'status' => 'active',
+      'current_round' => 1,
+      'turn_index' => 0,
+      'participants' => [
+        [
+          'entity_ref' => 'npc-7',
+          'team' => 'npc',
+          'state' => [
+            'spells' => [
+              'known' => [
+                ['id' => 'magic-missile', 'name' => 'Magic Missile', 'action_cost' => 2],
+              ],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $context = $this->service->buildEncounterContext(77, 502, $encounter);
+    $families = $context['action_contract']['action_option_families'] ?? [];
+
+    $this->assertSame(1, $families['cast_spell']['option_count'] ?? NULL);
+    $this->assertSame('magic-missile', $families['cast_spell']['options'][0]['id'] ?? NULL);
+    $this->assertContains('cast_spell', $context['allowed_actions']);
   }
 
   /**

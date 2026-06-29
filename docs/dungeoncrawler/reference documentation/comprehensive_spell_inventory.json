@@ -1,0 +1,5116 @@
+{
+  "extraction_date": "2026-02-19",
+  "sources": [
+    "Core Rulebook (4th Printing)",
+    "Secrets of Magic",
+    "Advanced Player's Guide"
+  ],
+  "stats": {
+    "total_raw": 2574,
+    "total_deduplicated": 252,
+    "by_source": {
+      "core_rulebook_4th_printing": 1550,
+      "secrets_of_magic": 738,
+      "advanced_players_guide": 286
+    },
+    "by_level": {
+      "0": 75,
+      "1": 513,
+      "2": 425,
+      "3": 327,
+      "4": 329,
+      "5": 317,
+      "6": 173,
+      "7": 143,
+      "8": 122,
+      "9": 87,
+      "10": 63
+    },
+    "by_school": {
+      "transmutation": 236,
+      "evocation": 177,
+      "necromancy": 169,
+      "abjuration": 139,
+      "conjuration": 99,
+      "enchantment": 99,
+      "divination": 94,
+      "illusion": 74
+    }
+  },
+  "spell_count": 252,
+  "spells": [
+    {
+      "name": "CANTRIP 1",
+      "spell_id": "cantrip_1",
+      "spell_level": 0,
+      "school": "necromancy",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49865,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP 1"
+        }
+      ]
+    },
+    {
+      "name": "CANTRIP 2",
+      "spell_id": "cantrip_2",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60390,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP 2"
+        }
+      ]
+    },
+    {
+      "name": "CANTRIP 3",
+      "spell_id": "cantrip_3",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60282,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP 3"
+        }
+      ]
+    },
+    {
+      "name": "CANTRIP 5",
+      "spell_id": "cantrip_5",
+      "spell_level": 0,
+      "school": "illusion",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60326,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP 5"
+        }
+      ]
+    },
+    {
+      "name": "CANTRIP 7",
+      "spell_id": "cantrip_7",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60227,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP 7"
+        }
+      ]
+    },
+    {
+      "name": "CANTRIP CASTING\b",
+      "spell_id": "cantrip_casting",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 26487,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP CASTING\b"
+        }
+      ]
+    },
+    {
+      "name": "CANTRIP COMPOSITION EMOTION ENCHANTMENT MENTAL",
+      "spell_id": "cantrip_composition_emotion_enchantment_mental",
+      "spell_level": 0,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60230,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP COMPOSITION EMOTION ENCHANTMENT MENTAL"
+        }
+      ]
+    },
+    {
+      "name": "CANTRIP COMPOSITION ILLUSION",
+      "spell_id": "cantrip_composition_illusion",
+      "spell_level": 0,
+      "school": "illusion",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60324,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP COMPOSITION ILLUSION"
+        }
+      ]
+    },
+    {
+      "name": "CANTRIP DECK \b",
+      "spell_id": "cantrip_deck",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 21624,
+          "method": "level_adjacent",
+          "evidence": "CANTRIP DECK \b"
+        }
+      ]
+    },
+    {
+      "name": "Cantrip Expansion",
+      "spell_id": "cantrip_expansion",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 31696,
+          "method": "level_adjacent",
+          "evidence": "Cantrip Expansion"
+        }
+      ]
+    },
+    {
+      "name": "Cantrip deck (5-pack)",
+      "spell_id": "cantrip_deck_5_pack",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 17899,
+          "method": "level_adjacent",
+          "evidence": "Cantrip deck (5-pack)"
+        }
+      ]
+    },
+    {
+      "name": "Cantrip deck (full pack)",
+      "spell_id": "cantrip_deck_full_pack",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 17902,
+          "method": "level_adjacent",
+          "evidence": "Cantrip deck (full pack)"
+        }
+      ]
+    },
+    {
+      "name": "Cantrip ghost sound",
+      "spell_id": "cantrip_ghost_sound",
+      "spell_level": 0,
+      "school": "illusion",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 95237,
+          "method": "level_adjacent",
+          "evidence": "Cantrip ghost sound"
+        }
+      ]
+    },
+    {
+      "name": "Cantrip: tanglefoot",
+      "spell_id": "cantrip_tanglefoot",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 19677,
+          "method": "level_adjacent",
+          "evidence": "Cantrip: tanglefoot"
+        }
+      ]
+    },
+    {
+      "name": "Prerequisites",
+      "spell_id": "prerequisites",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 26503,
+          "method": "level_adjacent",
+          "evidence": "Prerequisites Cantrip Casting"
+        }
+      ]
+    },
+    {
+      "name": "UNCOMMON BARD",
+      "spell_id": "uncommon_bard",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31906,
+          "method": "level_adjacent",
+          "evidence": "UNCOMMON BARD CANTRIP COMPOSITION"
+        }
+      ]
+    },
+    {
+      "name": "When casting a",
+      "spell_id": "when_casting_a",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 20250,
+          "method": "level_adjacent",
+          "evidence": "When casting a cantrip from a spellheart, you can use"
+        }
+      ]
+    },
+    {
+      "name": "You gain the inspire courage composition",
+      "spell_id": "you_gain_the_inspire_courage_composition",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 33239,
+          "method": "level_adjacent",
+          "evidence": "You gain the inspire courage composition cantrip."
+        }
+      ]
+    },
+    {
+      "name": "Ancestries &",
+      "spell_id": "ancestries",
+      "spell_level": 1,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52189,
+          "method": "level_adjacent",
+          "evidence": "Ancestries &"
+        }
+      ]
+    },
+    {
+      "name": "Area 10-foot emanation",
+      "spell_id": "area_10_foot_emanation",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 30984,
+          "method": "level_adjacent",
+          "evidence": "Area 10-foot emanation"
+        }
+      ]
+    },
+    {
+      "name": "Area 30-foot emanation",
+      "spell_id": "area_30_foot_emanation",
+      "spell_level": 1,
+      "school": "divination",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50710,
+          "method": "level_adjacent",
+          "evidence": "Area 30-foot emanation"
+        }
+      ]
+    },
+    {
+      "name": "Area 30-foot line",
+      "spell_id": "area_30_foot_line",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53010,
+          "method": "level_adjacent",
+          "evidence": "Area 30-foot line"
+        }
+      ]
+    },
+    {
+      "name": "Area 5-foot emanation",
+      "spell_id": "area_5_foot_emanation",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49409,
+          "method": "level_adjacent",
+          "evidence": "Area 5-foot emanation"
+        }
+      ]
+    },
+    {
+      "name": "Area 60-foot emanation",
+      "spell_id": "area_60_foot_emanation",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60378,
+          "method": "level_adjacent",
+          "evidence": "Area 60-foot emanation"
+        }
+      ]
+    },
+    {
+      "name": "Area 60-foot line",
+      "spell_id": "area_60_foot_line",
+      "spell_level": 1,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53052,
+          "method": "level_adjacent",
+          "evidence": "Area 60-foot line"
+        }
+      ]
+    },
+    {
+      "name": "Backgrounds",
+      "spell_id": "backgrounds",
+      "spell_level": 1,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52190,
+          "method": "level_adjacent",
+          "evidence": "Backgrounds"
+        }
+      ]
+    },
+    {
+      "name": "CALM EMOTIONS",
+      "spell_id": "calm_emotions",
+      "spell_level": 1,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49693,
+          "method": "level_adjacent",
+          "evidence": "CALM EMOTIONS"
+        }
+      ]
+    },
+    {
+      "name": "Cast [one-action] somatic",
+      "spell_id": "cast_one_action_somatic",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53862,
+          "method": "level_adjacent",
+          "evidence": "Cast [one-action] somatic"
+        }
+      ]
+    },
+    {
+      "name": "Cast [one-action] to [three-actions] (somatic, verbal)",
+      "spell_id": "cast_one_action_to_three_actions_somatic_verbal",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54158,
+          "method": "level_adjacent",
+          "evidence": "Cast [one-action] to [three-actions] (somatic, verbal)"
+        }
+      ]
+    },
+    {
+      "name": "Cast [one-action] to [three-actions] (verbal, somatic)",
+      "spell_id": "cast_one_action_to_three_actions_verbal_somatic",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "divine",
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 30964,
+          "method": "level_adjacent",
+          "evidence": "Cast [one-action] to [three-actions] (verbal, somatic)"
+        }
+      ]
+    },
+    {
+      "name": "Cast [one-action] verbal",
+      "spell_id": "cast_one_action_verbal",
+      "spell_level": 1,
+      "school": "divination",
+      "traditions": [
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53033,
+          "method": "level_adjacent",
+          "evidence": "Cast [one-action] verbal"
+        }
+      ]
+    },
+    {
+      "name": "Classes",
+      "spell_id": "classes",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54203,
+          "method": "level_adjacent",
+          "evidence": "Classes"
+        }
+      ]
+    },
+    {
+      "name": "Critical Success The creature is unaffected.",
+      "spell_id": "critical_success_the_creature_is_unaffected",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50174,
+          "method": "level_adjacent",
+          "evidence": "Critical Success The creature is unaffected."
+        }
+      ]
+    },
+    {
+      "name": "Duration 8 hours",
+      "spell_id": "duration_8_hours",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49114,
+          "method": "level_adjacent",
+          "evidence": "Duration 8 hours"
+        }
+      ]
+    },
+    {
+      "name": "Duration sustained",
+      "spell_id": "duration_sustained",
+      "spell_level": 1,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52739,
+          "method": "level_adjacent",
+          "evidence": "Duration sustained"
+        }
+      ]
+    },
+    {
+      "name": "Duration unlimited (see below)",
+      "spell_id": "duration_unlimited_see_below",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 57494,
+          "method": "level_adjacent",
+          "evidence": "Duration unlimited (see below)"
+        }
+      ]
+    },
+    {
+      "name": "Duration up to 1 minute",
+      "spell_id": "duration_up_to_1_minute",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14290,
+          "method": "level_adjacent",
+          "evidence": "Duration up to 1 minute"
+        }
+      ]
+    },
+    {
+      "name": "Duration up to 24 hours",
+      "spell_id": "duration_up_to_24_hours",
+      "spell_level": 1,
+      "school": "divination",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 15616,
+          "method": "level_adjacent",
+          "evidence": "Duration up to 24 hours"
+        }
+      ]
+    },
+    {
+      "name": "ENCHANTMENT MENTAL",
+      "spell_id": "enchantment_mental",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31910,
+          "method": "level_adjacent",
+          "evidence": "ENCHANTMENT MENTAL"
+        }
+      ]
+    },
+    {
+      "name": "Essentials",
+      "spell_id": "essentials",
+      "spell_level": 1,
+      "school": "evocation",
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12508,
+          "method": "level_adjacent",
+          "evidence": "Essentials"
+        }
+      ]
+    },
+    {
+      "name": "GRIM TENDRILS",
+      "spell_id": "grim_tendrils",
+      "spell_level": 1,
+      "school": "conjuration",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53001,
+          "method": "level_adjacent",
+          "evidence": "GRIM TENDRILS"
+        }
+      ]
+    },
+    {
+      "name": "Game",
+      "spell_id": "game",
+      "spell_level": 1,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58471,
+          "method": "level_adjacent",
+          "evidence": "Game"
+        }
+      ]
+    },
+    {
+      "name": "ILLUSION MENTAL NONLETHAL",
+      "spell_id": "illusion_mental_nonlethal",
+      "spell_level": 1,
+      "school": "illusion",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55457,
+          "method": "level_adjacent",
+          "evidence": "ILLUSION MENTAL NONLETHAL"
+        }
+      ]
+    },
+    {
+      "name": "Introduction",
+      "spell_id": "introduction",
+      "spell_level": 1,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52188,
+          "method": "level_adjacent",
+          "evidence": "Introduction"
+        }
+      ]
+    },
+    {
+      "name": "MIRROR IMAGE",
+      "spell_id": "mirror_image",
+      "spell_level": 1,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54664,
+          "method": "level_adjacent",
+          "evidence": "MIRROR IMAGE"
+        }
+      ]
+    },
+    {
+      "name": "Magic",
+      "spell_id": "magic",
+      "spell_level": 1,
+      "school": "abjuration",
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 16903,
+          "method": "level_adjacent",
+          "evidence": "Magic"
+        }
+      ]
+    },
+    {
+      "name": "RAISE DEAD",
+      "spell_id": "raise_dead",
+      "spell_level": 1,
+      "school": "necromancy",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56271,
+          "method": "level_adjacent",
+          "evidence": "RAISE DEAD"
+        }
+      ]
+    },
+    {
+      "name": "Range 100 feet; Targets your eidolon",
+      "spell_id": "range_100_feet_targets_your_eidolon",
+      "spell_level": 1,
+      "school": "evocation",
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 16723,
+          "method": "level_adjacent",
+          "evidence": "Range 100 feet; Targets your eidolon"
+        }
+      ]
+    },
+    {
+      "name": "Range 30 feet; Targets 1 creature",
+      "spell_id": "range_30_feet_targets_1_creature",
+      "spell_level": 1,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48772,
+          "method": "level_adjacent",
+          "evidence": "Range 30 feet; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "Range 30 feet; Targets 1 object",
+      "spell_id": "range_30_feet_targets_1_object",
+      "spell_level": 1,
+      "school": "divination",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56365,
+          "method": "level_adjacent",
+          "evidence": "Range 30 feet; Targets 1 object"
+        }
+      ]
+    },
+    {
+      "name": "Range 5 feet; Targets 1 creature",
+      "spell_id": "range_5_feet_targets_1_creature",
+      "spell_level": 1,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14266,
+          "method": "level_adjacent",
+          "evidence": "Range 5 feet; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "Range 60 feet; Targets 1 ally",
+      "spell_id": "range_60_feet_targets_1_ally",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60353,
+          "method": "level_adjacent",
+          "evidence": "Range 60 feet; Targets 1 ally"
+        }
+      ]
+    },
+    {
+      "name": "Range 60 feet; Targets 1 creature",
+      "spell_id": "range_60_feet_targets_1_creature",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50630,
+          "method": "level_adjacent",
+          "evidence": "Range 60 feet; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Area 20-foot burst",
+      "spell_id": "range_touch_area_20_foot_burst",
+      "spell_level": 1,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48917,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Area 20-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets 1 object",
+      "spell_id": "range_touch_targets_1_object",
+      "spell_level": 1,
+      "school": "divination",
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 30796,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets 1 object"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets 1 weapon",
+      "spell_id": "range_touch_targets_1_weapon",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 11476,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets 1 weapon"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets your companion",
+      "spell_id": "range_touch_targets_your_companion",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12980,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets your companion"
+        }
+      ]
+    },
+    {
+      "name": "Range varies; Targets 1 creature",
+      "spell_id": "range_varies_targets_1_creature",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12598,
+          "method": "level_adjacent",
+          "evidence": "Range varies; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 1",
+      "spell_id": "spell_1",
+      "spell_level": 1,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48848,
+          "method": "level_adjacent",
+          "evidence": "SPELL 1"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Fortitude; Duration 1 minute",
+      "spell_id": "saving_throw_fortitude_duration_1_minute",
+      "spell_level": 1,
+      "school": "necromancy",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56322,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Fortitude; Duration 1 minute"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will; Duration 1 minute",
+      "spell_id": "saving_throw_will_duration_1_minute",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49410,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will; Duration 1 minute"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will; Duration 2 rounds",
+      "spell_id": "saving_throw_will_duration_2_rounds",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 30359,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will; Duration 2 rounds"
+        }
+      ]
+    },
+    {
+      "name": "Secrets",
+      "spell_id": "secrets",
+      "spell_level": 1,
+      "school": "abjuration",
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 16901,
+          "method": "level_adjacent",
+          "evidence": "Secrets"
+        }
+      ]
+    },
+    {
+      "name": "Skills",
+      "spell_id": "skills",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54204,
+          "method": "level_adjacent",
+          "evidence": "Skills"
+        }
+      ]
+    },
+    {
+      "name": "TRUE NAME",
+      "spell_id": "true_name",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 29531,
+          "method": "level_adjacent",
+          "evidence": "TRUE NAME"
+        }
+      ]
+    },
+    {
+      "name": "Tradition arcane, divine, occult, primal",
+      "spell_id": "tradition_arcane_divine_occult_primal",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14286,
+          "method": "level_adjacent",
+          "evidence": "Tradition arcane, divine, occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, divine, occult, primal",
+      "spell_id": "traditions_arcane_divine_occult_primal",
+      "spell_level": 1,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48914,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, divine, occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, divine, primal",
+      "spell_id": "traditions_arcane_divine_primal",
+      "spell_level": 1,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48852,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, divine, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, occult, primal",
+      "spell_id": "traditions_arcane_occult_primal",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": [
+        "arcane",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49814,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions divine, primal",
+      "spell_id": "traditions_divine_primal",
+      "spell_level": 1,
+      "school": "divination",
+      "traditions": [
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50779,
+          "method": "level_adjacent",
+          "evidence": "Traditions divine, primal"
+        }
+      ]
+    },
+    {
+      "name": "UNSEEN SERVANT",
+      "spell_id": "unseen_servant",
+      "spell_level": 1,
+      "school": "conjuration",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59301,
+          "method": "level_adjacent",
+          "evidence": "UNSEEN SERVANT"
+        }
+      ]
+    },
+    {
+      "name": "Your shadow reservoir gains an additional",
+      "spell_id": "your_shadow_reservoir_gains_an_additional",
+      "spell_level": 1,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 27337,
+          "method": "level_adjacent",
+          "evidence": "Your shadow reservoir gains an additional spell 1 level"
+        }
+      ]
+    },
+    {
+      "name": "ALIGNMENT AURA",
+      "spell_id": "alignment_aura",
+      "spell_level": 2,
+      "school": "necromancy",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50729,
+          "method": "level_adjacent",
+          "evidence": "ALIGNMENT AURA"
+        }
+      ]
+    },
+    {
+      "name": "ANIMAL VISION",
+      "spell_id": "animal_vision",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49085,
+          "method": "level_adjacent",
+          "evidence": "ANIMAL VISION"
+        }
+      ]
+    },
+    {
+      "name": "Archetypes",
+      "spell_id": "archetypes",
+      "spell_level": 2,
+      "school": "necromancy",
+      "traditions": null,
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31161,
+          "method": "level_adjacent",
+          "evidence": "Archetypes"
+        }
+      ]
+    },
+    {
+      "name": "Area 30-foot cone",
+      "spell_id": "area_30_foot_cone",
+      "spell_level": 2,
+      "school": "necromancy",
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 11922,
+          "method": "level_adjacent",
+          "evidence": "Area 30-foot cone"
+        }
+      ]
+    },
+    {
+      "name": "Area line 60 feet or longer",
+      "spell_id": "area_line_60_feet_or_longer",
+      "spell_level": 2,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12866,
+          "method": "level_adjacent",
+          "evidence": "Area line 60 feet or longer"
+        }
+      ]
+    },
+    {
+      "name": "Bulk of 1 or less",
+      "spell_id": "bulk_of_1_or_less",
+      "spell_level": 2,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13154,
+          "method": "level_adjacent",
+          "evidence": "Bulk of 1 or less"
+        }
+      ]
+    },
+    {
+      "name": "CHAMPION’S SACRIFICE",
+      "spell_id": "champions_sacrifice",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60522,
+          "method": "level_adjacent",
+          "evidence": "CHAMPION’S SACRIFICE"
+        }
+      ]
+    },
+    {
+      "name": "Cast 1 hour (somatic, verbal)",
+      "spell_id": "cast_1_hour_somatic_verbal",
+      "spell_level": 2,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50385,
+          "method": "level_adjacent",
+          "evidence": "Cast 1 hour (somatic, verbal)"
+        }
+      ]
+    },
+    {
+      "name": "Cast 1 minute (somatic, verbal)",
+      "spell_id": "cast_1_minute_somatic_verbal",
+      "spell_level": 2,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54696,
+          "method": "level_adjacent",
+          "evidence": "Cast 1 minute (somatic, verbal)"
+        }
+      ]
+    },
+    {
+      "name": "Cast 10 minutes (somatic, verbal)",
+      "spell_id": "cast_10_minutes_somatic_verbal",
+      "spell_level": 2,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51878,
+          "method": "level_adjacent",
+          "evidence": "Cast 10 minutes (somatic, verbal)"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] material, verbal",
+      "spell_id": "cast_two_actions_material_verbal",
+      "spell_level": 2,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10268,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] material, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] to 2 rounds",
+      "spell_id": "cast_two_actions_to_2_rounds",
+      "spell_level": 2,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12865,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] to 2 rounds"
+        }
+      ]
+    },
+    {
+      "name": "Duration 3 rounds",
+      "spell_id": "duration_3_rounds",
+      "spell_level": 2,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 15941,
+          "method": "level_adjacent",
+          "evidence": "Duration 3 rounds"
+        }
+      ]
+    },
+    {
+      "name": "Duration sustained up to 10 minutes",
+      "spell_id": "duration_sustained_up_to_10_minutes",
+      "spell_level": 2,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13969,
+          "method": "level_adjacent",
+          "evidence": "Duration sustained up to 10 minutes"
+        }
+      ]
+    },
+    {
+      "name": "FEAT 16",
+      "spell_id": "feat_16",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 31971,
+          "method": "level_adjacent",
+          "evidence": "FEAT 16"
+        }
+      ]
+    },
+    {
+      "name": "FEAT 8",
+      "spell_id": "feat_8",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 31673,
+          "method": "level_adjacent",
+          "evidence": "FEAT 8"
+        }
+      ]
+    },
+    {
+      "name": "MANTLE OF THE FROZEN HEART",
+      "spell_id": "mantle_of_the_frozen_heart",
+      "spell_level": 2,
+      "school": "abjuration",
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13181,
+          "method": "level_adjacent",
+          "evidence": "MANTLE OF THE FROZEN HEART"
+        }
+      ]
+    },
+    {
+      "name": "MANTLE OF THE MAGMA HEART",
+      "spell_id": "mantle_of_the_magma_heart",
+      "spell_level": 2,
+      "school": "abjuration",
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13184,
+          "method": "level_adjacent",
+          "evidence": "MANTLE OF THE MAGMA HEART"
+        }
+      ]
+    },
+    {
+      "name": "OUTCAST’S CURSE",
+      "spell_id": "outcasts_curse",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55173,
+          "method": "level_adjacent",
+          "evidence": "OUTCAST’S CURSE"
+        }
+      ]
+    },
+    {
+      "name": "REPREPARE SPELL \b",
+      "spell_id": "reprepare_spell",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 31969,
+          "method": "level_adjacent",
+          "evidence": "REPREPARE SPELL \b"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet; Area 10-foot burst",
+      "spell_id": "range_120_feet_area_10_foot_burst",
+      "spell_level": 2,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52832,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet; Area 10-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet; Targets 1 creature",
+      "spell_id": "range_120_feet_targets_1_creature",
+      "spell_level": 2,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48744,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "Range 30 feet",
+      "spell_id": "range_30_feet",
+      "spell_level": 2,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50386,
+          "method": "level_adjacent",
+          "evidence": "Range 30 feet"
+        }
+      ]
+    },
+    {
+      "name": "Range 30 feet; Area 10-foot burst",
+      "spell_id": "range_30_feet_area_10_foot_burst",
+      "spell_level": 2,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60008,
+          "method": "level_adjacent",
+          "evidence": "Range 30 feet; Area 10-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets 1 corpse",
+      "spell_id": "range_touch_targets_1_corpse",
+      "spell_level": 2,
+      "school": "necromancy",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52714,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets 1 corpse"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets 1 willing creature",
+      "spell_id": "range_touch_targets_1_willing_creature",
+      "spell_level": 2,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51879,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets 1 willing creature"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets your eidolon",
+      "spell_id": "range_touch_targets_your_eidolon",
+      "spell_level": 2,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 15586,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets your eidolon"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 2",
+      "spell_id": "spell_2",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48738,
+          "method": "level_adjacent",
+          "evidence": "SPELL 2"
+        }
+      ]
+    },
+    {
+      "name": "Success The target is unaffected.",
+      "spell_id": "success_the_target_is_unaffected",
+      "spell_level": 2,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58985,
+          "method": "level_adjacent",
+          "evidence": "Success The target is unaffected."
+        }
+      ]
+    },
+    {
+      "name": "Tradition arcane, divine, occult",
+      "spell_id": "tradition_arcane_divine_occult",
+      "spell_level": 2,
+      "school": "divination",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13070,
+          "method": "level_adjacent",
+          "evidence": "Tradition arcane, divine, occult"
+        }
+      ]
+    },
+    {
+      "name": "Tradition arcane, occult",
+      "spell_id": "tradition_arcane_occult",
+      "spell_level": 2,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13917,
+          "method": "level_adjacent",
+          "evidence": "Tradition arcane, occult"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, primal",
+      "spell_id": "traditions_arcane_primal",
+      "spell_level": 2,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48742,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions primal",
+      "spell_id": "traditions_primal",
+      "spell_level": 2,
+      "school": "transmutation",
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48969,
+          "method": "level_adjacent",
+          "evidence": "Traditions primal"
+        }
+      ]
+    },
+    {
+      "name": "UNIVERSAL VERSATILITY\b",
+      "spell_id": "universal_versatility",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 31671,
+          "method": "level_adjacent",
+          "evidence": "UNIVERSAL VERSATILITY\b"
+        }
+      ]
+    },
+    {
+      "name": "WEAPON OF JUDGMENT",
+      "spell_id": "weapon_of_judgment",
+      "spell_level": 2,
+      "school": "transmutation",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59926,
+          "method": "level_adjacent",
+          "evidence": "WEAPON OF JUDGMENT"
+        }
+      ]
+    },
+    {
+      "name": "You gain darkvision.",
+      "spell_id": "you_gain_darkvision",
+      "spell_level": 2,
+      "school": "divination",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50591,
+          "method": "level_adjacent",
+          "evidence": "You gain darkvision."
+        }
+      ]
+    },
+    {
+      "name": "You have an eidolon.",
+      "spell_id": "you_have_an_eidolon",
+      "spell_level": 2,
+      "school": "necromancy",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 15560,
+          "method": "level_adjacent",
+          "evidence": "You have an eidolon."
+        }
+      ]
+    },
+    {
+      "name": "Area 120-foot line",
+      "spell_id": "area_120_foot_line",
+      "spell_level": 3,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53970,
+          "method": "level_adjacent",
+          "evidence": "Area 120-foot line"
+        }
+      ]
+    },
+    {
+      "name": "Area 30-foot burst centered on you",
+      "spell_id": "area_30_foot_burst_centered_on_you",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "divine"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56951,
+          "method": "level_adjacent",
+          "evidence": "Area 30-foot burst centered on you"
+        }
+      ]
+    },
+    {
+      "name": "Cast 1 minute",
+      "spell_id": "cast_1_minute",
+      "spell_level": 3,
+      "school": "transmutation",
+      "traditions": [
+        "occult",
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31590,
+          "method": "level_adjacent",
+          "evidence": "Cast 1 minute"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] somatic, material",
+      "spell_id": "cast_two_actions_somatic_material",
+      "spell_level": 3,
+      "school": "illusion",
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31315,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] somatic, material"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] verbal, somatic",
+      "spell_id": "cast_two_actions_verbal_somatic",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 29731,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] verbal, somatic"
+        }
+      ]
+    },
+    {
+      "name": "Duration 1 day",
+      "spell_id": "duration_1_day",
+      "spell_level": 3,
+      "school": "necromancy",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49514,
+          "method": "level_adjacent",
+          "evidence": "Duration 1 day"
+        }
+      ]
+    },
+    {
+      "name": "Duration 12 hours",
+      "spell_id": "duration_12_hours",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 30246,
+          "method": "level_adjacent",
+          "evidence": "Duration 12 hours"
+        }
+      ]
+    },
+    {
+      "name": "Duration 24 hours",
+      "spell_id": "duration_24_hours",
+      "spell_level": 3,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13004,
+          "method": "level_adjacent",
+          "evidence": "Duration 24 hours"
+        }
+      ]
+    },
+    {
+      "name": "Duration sustained up to 1 hour",
+      "spell_id": "duration_sustained_up_to_1_hour",
+      "spell_level": 3,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31894,
+          "method": "level_adjacent",
+          "evidence": "Duration sustained up to 1 hour"
+        }
+      ]
+    },
+    {
+      "name": "Duration unlimited",
+      "spell_id": "duration_unlimited",
+      "spell_level": 3,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52886,
+          "method": "level_adjacent",
+          "evidence": "Duration unlimited"
+        }
+      ]
+    },
+    {
+      "name": "Duration until your next daily preparations",
+      "spell_id": "duration_until_your_next_daily_preparations",
+      "spell_level": 3,
+      "school": "divination",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59840,
+          "method": "level_adjacent",
+          "evidence": "Duration until your next daily preparations"
+        }
+      ]
+    },
+    {
+      "name": "Equipment",
+      "spell_id": "equipment",
+      "spell_level": 3,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53238,
+          "method": "level_adjacent",
+          "evidence": "Equipment"
+        }
+      ]
+    },
+    {
+      "name": "Feats",
+      "spell_id": "feats",
+      "spell_level": 3,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53237,
+          "method": "level_adjacent",
+          "evidence": "Feats"
+        }
+      ]
+    },
+    {
+      "name": "INCAPACITATION NECROMANCY",
+      "spell_id": "incapacitation_necromancy",
+      "spell_level": 3,
+      "school": "necromancy",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49591,
+          "method": "level_adjacent",
+          "evidence": "INCAPACITATION NECROMANCY"
+        }
+      ]
+    },
+    {
+      "name": "Intimidation check.",
+      "spell_id": "intimidation_check",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14913,
+          "method": "level_adjacent",
+          "evidence": "Intimidation check."
+        }
+      ]
+    },
+    {
+      "name": "Lost OMENS",
+      "spell_id": "lost_omens",
+      "spell_level": 3,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53241,
+          "method": "level_adjacent",
+          "evidence": "Lost OMENS"
+        }
+      ]
+    },
+    {
+      "name": "MAGIC STONE",
+      "spell_id": "magic_stone",
+      "spell_level": 3,
+      "school": "conjuration",
+      "traditions": null,
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 30956,
+          "method": "level_adjacent",
+          "evidence": "MAGIC STONE"
+        }
+      ]
+    },
+    {
+      "name": "Playing the",
+      "spell_id": "playing_the",
+      "spell_level": 3,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53242,
+          "method": "level_adjacent",
+          "evidence": "Playing the"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet; Area 30-foot-radius burst",
+      "spell_id": "range_120_feet_area_30_foot_radius_burst",
+      "spell_level": 3,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12458,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet; Area 30-foot-radius burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet; Targets 1 animal",
+      "spell_id": "range_120_feet_targets_1_animal",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49094,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet; Targets 1 animal"
+        }
+      ]
+    },
+    {
+      "name": "Range 50 feet; Targets 1 creature",
+      "spell_id": "range_50_feet_targets_1_creature",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14013,
+          "method": "level_adjacent",
+          "evidence": "Range 50 feet; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "Range 500 feet; Area 20-foot burst",
+      "spell_id": "range_500_feet_area_20_foot_burst",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52417,
+          "method": "level_adjacent",
+          "evidence": "Range 500 feet; Area 20-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 60 feet",
+      "spell_id": "range_60_feet",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59747,
+          "method": "level_adjacent",
+          "evidence": "Range 60 feet"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Area 10-foot-wide, 10-foot-tall, 60-foot-long",
+      "spell_id": "range_touch_area_10_foot_wide_10_foot_tall_60_foot_long",
+      "spell_level": 3,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31265,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Area 10-foot-wide, 10-foot-tall, 60-foot-long"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets 1 living creature",
+      "spell_id": "range_touch_targets_1_living_creature",
+      "spell_level": 3,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13003,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets 1 living creature"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 3",
+      "spell_id": "spell_3",
+      "spell_level": 3,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49088,
+          "method": "level_adjacent",
+          "evidence": "SPELL 3"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will; Duration sustained",
+      "spell_id": "saving_throw_will_duration_sustained",
+      "spell_level": 3,
+      "school": "enchantment",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52017,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will; Duration sustained"
+        }
+      ]
+    },
+    {
+      "name": "The Age of",
+      "spell_id": "the_age_of",
+      "spell_level": 3,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53240,
+          "method": "level_adjacent",
+          "evidence": "The Age of"
+        }
+      ]
+    },
+    {
+      "name": "Tradition divine, occult",
+      "spell_id": "tradition_divine_occult",
+      "spell_level": 3,
+      "school": "divination",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59838,
+          "method": "level_adjacent",
+          "evidence": "Tradition divine, occult"
+        }
+      ]
+    },
+    {
+      "name": "Area 30-foot cone or 10-foot emanation",
+      "spell_id": "area_30_foot_cone_or_10_foot_emanation",
+      "spell_level": 4,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59981,
+          "method": "level_adjacent",
+          "evidence": "Area 30-foot cone or 10-foot emanation"
+        }
+      ]
+    },
+    {
+      "name": "Cast 1 minute (material, somatic, verbal)",
+      "spell_id": "cast_1_minute_material_somatic_verbal",
+      "spell_level": 4,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50420,
+          "method": "level_adjacent",
+          "evidence": "Cast 1 minute (material, somatic, verbal)"
+        }
+      ]
+    },
+    {
+      "name": "Cast [three-actions] somatic, verbal",
+      "spell_id": "cast_three_actions_somatic_verbal",
+      "spell_level": 4,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10956,
+          "method": "level_adjacent",
+          "evidence": "Cast [three-actions] somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] or [three-actions] somatic, verbal",
+      "spell_id": "cast_two_actions_or_three_actions_somatic_verbal",
+      "spell_level": 4,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10731,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] or [three-actions] somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] verbal",
+      "spell_id": "cast_two_actions_verbal",
+      "spell_level": 4,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 29548,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast  somatic, verbal",
+      "spell_id": "cast_somatic_verbal",
+      "spell_level": 4,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48797,
+          "method": "level_adjacent",
+          "evidence": "Cast  somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Duration 1 hour",
+      "spell_id": "duration_1_hour",
+      "spell_level": 4,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50422,
+          "method": "level_adjacent",
+          "evidence": "Duration 1 hour"
+        }
+      ]
+    },
+    {
+      "name": "Duration 1 minute",
+      "spell_id": "duration_1_minute",
+      "spell_level": 4,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48798,
+          "method": "level_adjacent",
+          "evidence": "Duration 1 minute"
+        }
+      ]
+    },
+    {
+      "name": "Duration 20 minutes",
+      "spell_id": "duration_20_minutes",
+      "spell_level": 4,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58215,
+          "method": "level_adjacent",
+          "evidence": "Duration 20 minutes"
+        }
+      ]
+    },
+    {
+      "name": "Duration 5 minutes",
+      "spell_id": "duration_5_minutes",
+      "spell_level": 4,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52571,
+          "method": "level_adjacent",
+          "evidence": "Duration 5 minutes"
+        }
+      ]
+    },
+    {
+      "name": "RESIST ENERGY",
+      "spell_id": "resist_energy",
+      "spell_level": 4,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56619,
+          "method": "level_adjacent",
+          "evidence": "RESIST ENERGY"
+        }
+      ]
+    },
+    {
+      "name": "Range 0 feet",
+      "spell_id": "range_0_feet",
+      "spell_level": 4,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50421,
+          "method": "level_adjacent",
+          "evidence": "Range 0 feet"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet; Area 5-foot burst",
+      "spell_id": "range_120_feet_area_5_foot_burst",
+      "spell_level": 4,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 30706,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet; Area 5-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 500 feet; Area 50-foot burst",
+      "spell_id": "range_500_feet_area_50_foot_burst",
+      "spell_level": 4,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53137,
+          "method": "level_adjacent",
+          "evidence": "Range 500 feet; Area 50-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 60 feet; Area 10-foot burst",
+      "spell_id": "range_60_feet_area_10_foot_burst",
+      "spell_level": 4,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13883,
+          "method": "level_adjacent",
+          "evidence": "Range 60 feet; Area 10-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 60 feet; Area 20-foot burst",
+      "spell_id": "range_60_feet_area_20_foot_burst",
+      "spell_level": 4,
+      "school": null,
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31440,
+          "method": "level_adjacent",
+          "evidence": "Range 60 feet; Area 20-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets 1 creature touched",
+      "spell_id": "range_touch_targets_1_creature_touched",
+      "spell_level": 4,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52625,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets 1 creature touched"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets 1 living humanoid",
+      "spell_id": "range_touch_targets_1_living_humanoid",
+      "spell_level": 4,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "occult",
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 29923,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets 1 living humanoid"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 4",
+      "spell_id": "spell_4",
+      "spell_level": 4,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48792,
+          "method": "level_adjacent",
+          "evidence": "SPELL 4"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Reflex; Duration 1 minute",
+      "spell_id": "saving_throw_reflex_duration_1_minute",
+      "spell_level": 4,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 11446,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Reflex; Duration 1 minute"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will",
+      "spell_id": "saving_throw_will",
+      "spell_level": 4,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55434,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will; Duration 1 day",
+      "spell_id": "saving_throw_will_duration_1_day",
+      "spell_level": 4,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55085,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will; Duration 1 day"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will; Duration 10 minutes",
+      "spell_id": "saving_throw_will_duration_10_minutes",
+      "spell_level": 4,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58645,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will; Duration 10 minutes"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will; Duration unlimited",
+      "spell_id": "saving_throw_will_duration_unlimited",
+      "spell_level": 4,
+      "school": null,
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54752,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will; Duration unlimited"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will; Duration varies",
+      "spell_id": "saving_throw_will_duration_varies",
+      "spell_level": 4,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50885,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will; Duration varies"
+        }
+      ]
+    },
+    {
+      "name": "Tradition primal",
+      "spell_id": "tradition_primal",
+      "spell_level": 4,
+      "school": "transmutation",
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31199,
+          "method": "level_adjacent",
+          "evidence": "Tradition primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions occult, primal",
+      "spell_id": "traditions_occult_primal",
+      "spell_level": 4,
+      "school": "transmutation",
+      "traditions": [
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 11947,
+          "method": "level_adjacent",
+          "evidence": "Traditions occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "WAIL OF THE BANSHEE",
+      "spell_id": "wail_of_the_banshee",
+      "spell_level": 4,
+      "school": "necromancy",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59588,
+          "method": "level_adjacent",
+          "evidence": "WAIL OF THE BANSHEE"
+        }
+      ]
+    },
+    {
+      "name": "Area 20-foot emanation centered on you",
+      "spell_id": "area_20_foot_emanation_centered_on_you",
+      "spell_level": 5,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12382,
+          "method": "level_adjacent",
+          "evidence": "Area 20-foot emanation centered on you"
+        }
+      ]
+    },
+    {
+      "name": "Area 60-foot cone",
+      "spell_id": "area_60_foot_cone",
+      "spell_level": 5,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50275,
+          "method": "level_adjacent",
+          "evidence": "Area 60-foot cone"
+        }
+      ]
+    },
+    {
+      "name": "Book of",
+      "spell_id": "book_of",
+      "spell_level": 5,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 15196,
+          "method": "level_adjacent",
+          "evidence": "Book of"
+        }
+      ]
+    },
+    {
+      "name": "Bulk or less",
+      "spell_id": "bulk_or_less",
+      "spell_level": 5,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31412,
+          "method": "level_adjacent",
+          "evidence": "Bulk or less"
+        }
+      ]
+    },
+    {
+      "name": "Cast 1 minute (somatic, verbal, material)",
+      "spell_id": "cast_1_minute_somatic_verbal_material",
+      "spell_level": 5,
+      "school": null,
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14071,
+          "method": "level_adjacent",
+          "evidence": "Cast 1 minute (somatic, verbal, material)"
+        }
+      ]
+    },
+    {
+      "name": "Cast 30 minutes (material, somatic, verbal)",
+      "spell_id": "cast_30_minutes_material_somatic_verbal",
+      "spell_level": 5,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10238,
+          "method": "level_adjacent",
+          "evidence": "Cast 30 minutes (material, somatic, verbal)"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] somatic, verbal",
+      "spell_id": "cast_two_actions_somatic_verbal",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48715,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Duration 1 month",
+      "spell_id": "duration_1_month",
+      "spell_level": 5,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10240,
+          "method": "level_adjacent",
+          "evidence": "Duration 1 month"
+        }
+      ]
+    },
+    {
+      "name": "Duration 10 minutes",
+      "spell_id": "duration_10_minutes",
+      "spell_level": 5,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49923,
+          "method": "level_adjacent",
+          "evidence": "Duration 10 minutes"
+        }
+      ]
+    },
+    {
+      "name": "ENCHANTMENT INCAPACITATION",
+      "spell_id": "enchantment_incapacitation",
+      "spell_level": 5,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58593,
+          "method": "level_adjacent",
+          "evidence": "ENCHANTMENT INCAPACITATION"
+        }
+      ]
+    },
+    {
+      "name": "Heightened As summon animal.",
+      "spell_id": "heightened_as_summon_animal",
+      "spell_level": 5,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58421,
+          "method": "level_adjacent",
+          "evidence": "Heightened As summon animal."
+        }
+      ]
+    },
+    {
+      "name": "MASK OF TERROR",
+      "spell_id": "mask_of_terror",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54307,
+          "method": "level_adjacent",
+          "evidence": "MASK OF TERROR"
+        }
+      ]
+    },
+    {
+      "name": "Magic Items",
+      "spell_id": "magic_items",
+      "spell_level": 5,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 15195,
+          "method": "level_adjacent",
+          "evidence": "Magic Items"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet",
+      "spell_id": "range_120_feet",
+      "spell_level": 5,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49922,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet; Area 20-foot burst",
+      "spell_id": "range_120_feet_area_20_foot_burst",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50131,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet; Area 20-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 20 feet",
+      "spell_id": "range_20_feet",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31730,
+          "method": "level_adjacent",
+          "evidence": "Range 20 feet"
+        }
+      ]
+    },
+    {
+      "name": "Range 30 feet; Targets varies",
+      "spell_id": "range_30_feet_targets_varies",
+      "spell_level": 5,
+      "school": "abjuration",
+      "traditions": [
+        "divine",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10382,
+          "method": "level_adjacent",
+          "evidence": "Range 30 feet; Targets varies"
+        }
+      ]
+    },
+    {
+      "name": "Range 500 feet; Area 30-foot burst",
+      "spell_id": "range_500_feet_area_30_foot_burst",
+      "spell_level": 5,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53620,
+          "method": "level_adjacent",
+          "evidence": "Range 500 feet; Area 30-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range touch",
+      "spell_id": "range_touch",
+      "spell_level": 5,
+      "school": "illusion",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60330,
+          "method": "level_adjacent",
+          "evidence": "Range touch"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Area 100-foot burst",
+      "spell_id": "range_touch_area_100_foot_burst",
+      "spell_level": 5,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52159,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Area 100-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Area 5-foot-wide, 10-foot-tall, 10-foot-deep",
+      "spell_id": "range_touch_area_5_foot_wide_10_foot_tall_10_foot_deep",
+      "spell_level": 5,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55337,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Area 5-foot-wide, 10-foot-tall, 10-foot-deep"
+        }
+      ]
+    },
+    {
+      "name": "Range touch; Targets 1 creature",
+      "spell_id": "range_touch_targets_1_creature",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48716,
+          "method": "level_adjacent",
+          "evidence": "Range touch; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "Range varies; Area varies",
+      "spell_id": "range_varies_area_varies",
+      "spell_level": 5,
+      "school": null,
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 57164,
+          "method": "level_adjacent",
+          "evidence": "Range varies; Area varies"
+        }
+      ]
+    },
+    {
+      "name": "SHAPE STONE",
+      "spell_id": "shape_stone",
+      "spell_level": 5,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 57239,
+          "method": "level_adjacent",
+          "evidence": "SHAPE STONE"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 5",
+      "spell_id": "spell_5",
+      "spell_level": 5,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48709,
+          "method": "level_adjacent",
+          "evidence": "SPELL 5"
+        }
+      ]
+    },
+    {
+      "name": "SUDDEN BLIGHT",
+      "spell_id": "sudden_blight",
+      "spell_level": 5,
+      "school": "illusion",
+      "traditions": null,
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31515,
+          "method": "level_adjacent",
+          "evidence": "SUDDEN BLIGHT"
+        }
+      ]
+    },
+    {
+      "name": "SYNAPTIC PULSE",
+      "spell_id": "synaptic_pulse",
+      "spell_level": 5,
+      "school": "conjuration",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58589,
+          "method": "level_adjacent",
+          "evidence": "SYNAPTIC PULSE"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Fortitude",
+      "spell_id": "saving_throw_fortitude",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48717,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Fortitude"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Reflex; Duration 1 round",
+      "spell_id": "saving_throw_reflex_duration_1_round",
+      "spell_level": 5,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12345,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Reflex; Duration 1 round"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Will; Duration 1 round",
+      "spell_id": "saving_throw_will_duration_1_round",
+      "spell_level": 5,
+      "school": "enchantment",
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58600,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Will; Duration 1 round"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw basic Reflex",
+      "spell_id": "saving_throw_basic_reflex",
+      "spell_level": 5,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50276,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw basic Reflex"
+        }
+      ]
+    },
+    {
+      "name": "Tradition occult",
+      "spell_id": "tradition_occult",
+      "spell_level": 5,
+      "school": null,
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14070,
+          "method": "level_adjacent",
+          "evidence": "Tradition occult"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, divine",
+      "spell_id": "traditions_arcane_divine",
+      "spell_level": 5,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "divine"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51612,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, divine"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, occult",
+      "spell_id": "traditions_arcane_occult",
+      "spell_level": 5,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49525,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, occult"
+        }
+      ]
+    },
+    {
+      "name": "Traditions divine, occult",
+      "spell_id": "traditions_divine_occult",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48714,
+          "method": "level_adjacent",
+          "evidence": "Traditions divine, occult"
+        }
+      ]
+    },
+    {
+      "name": "Traditions divine, occult, primal",
+      "spell_id": "traditions_divine_occult_primal",
+      "spell_level": 5,
+      "school": "abjuration",
+      "traditions": [
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50675,
+          "method": "level_adjacent",
+          "evidence": "Traditions divine, occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Unlimited",
+      "spell_id": "unlimited",
+      "spell_level": 5,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 15197,
+          "method": "level_adjacent",
+          "evidence": "Unlimited"
+        }
+      ]
+    },
+    {
+      "name": "Area 15-foot cone",
+      "spell_id": "area_15_foot_cone",
+      "spell_level": 6,
+      "school": "divination",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10700,
+          "method": "level_adjacent",
+          "evidence": "Area 15-foot cone"
+        }
+      ]
+    },
+    {
+      "name": "Area emanation up to 40 feet",
+      "spell_id": "area_emanation_up_to_40_feet",
+      "spell_level": 6,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56564,
+          "method": "level_adjacent",
+          "evidence": "Area emanation up to 40 feet"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two‑actions] somatic, verbal",
+      "spell_id": "cast_twoactions_somatic_verbal",
+      "spell_level": 6,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54715,
+          "method": "level_adjacent",
+          "evidence": "Cast [two‑actions] somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Critical Success The target is unaffected.",
+      "spell_id": "critical_success_the_target_is_unaffected",
+      "spell_level": 6,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49387,
+          "method": "level_adjacent",
+          "evidence": "Critical Success The target is unaffected."
+        }
+      ]
+    },
+    {
+      "name": "Range 30 feet; Area 20-foot burst",
+      "spell_id": "range_30_feet_area_20_foot_burst",
+      "spell_level": 6,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52291,
+          "method": "level_adjacent",
+          "evidence": "Range 30 feet; Area 20-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 500 feet; Area 40-foot burst",
+      "spell_id": "range_500_feet_area_40_foot_burst",
+      "spell_level": 6,
+      "school": null,
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58726,
+          "method": "level_adjacent",
+          "evidence": "Range 500 feet; Area 40-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range planetary; Targets 1 creature",
+      "spell_id": "range_planetary_targets_1_creature",
+      "spell_level": 6,
+      "school": "divination",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 57034,
+          "method": "level_adjacent",
+          "evidence": "Range planetary; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 6",
+      "spell_id": "spell_6",
+      "spell_level": 6,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49378,
+          "method": "level_adjacent",
+          "evidence": "SPELL 6"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Fortitude; Duration varies",
+      "spell_id": "saving_throw_fortitude_duration_varies",
+      "spell_level": 6,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49384,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Fortitude; Duration varies"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw Reflex",
+      "spell_id": "saving_throw_reflex",
+      "spell_level": 6,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49789,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw Reflex"
+        }
+      ]
+    },
+    {
+      "name": "TIME STOP",
+      "spell_id": "time_stop",
+      "spell_level": 6,
+      "school": "conjuration",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58933,
+          "method": "level_adjacent",
+          "evidence": "TIME STOP"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane",
+      "spell_id": "traditions_arcane",
+      "spell_level": 6,
+      "school": "evocation",
+      "traditions": [
+        "arcane"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51059,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane"
+        }
+      ]
+    },
+    {
+      "name": "Area line up to 120 feet",
+      "spell_id": "area_line_up_to_120_feet",
+      "spell_level": 7,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12292,
+          "method": "level_adjacent",
+          "evidence": "Area line up to 120 feet"
+        }
+      ]
+    },
+    {
+      "name": "CONTINUAL FLAME",
+      "spell_id": "continual_flame",
+      "spell_level": 7,
+      "school": "abjuration",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50347,
+          "method": "level_adjacent",
+          "evidence": "CONTINUAL FLAME"
+        }
+      ]
+    },
+    {
+      "name": "Cast [one‑action] verbal",
+      "spell_id": "cast_oneaction_verbal",
+      "spell_level": 7,
+      "school": "enchantment",
+      "traditions": [
+        "arcane"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55696,
+          "method": "level_adjacent",
+          "evidence": "Cast [one‑action] verbal"
+        }
+      ]
+    },
+    {
+      "name": "Duration varies",
+      "spell_id": "duration_varies",
+      "spell_level": 7,
+      "school": "enchantment",
+      "traditions": [
+        "arcane"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55698,
+          "method": "level_adjacent",
+          "evidence": "Duration varies"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet; Area 30-foot burst",
+      "spell_id": "range_120_feet_area_30_foot_burst",
+      "spell_level": 7,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14875,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet; Area 30-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 120 feet; Area 60-foot burst",
+      "spell_id": "range_120_feet_area_60_foot_burst",
+      "spell_level": 7,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50905,
+          "method": "level_adjacent",
+          "evidence": "Range 120 feet; Area 60-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "Range 30 feet; Targets 1 ally",
+      "spell_id": "range_30_feet_targets_1_ally",
+      "spell_level": 7,
+      "school": "enchantment",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60233,
+          "method": "level_adjacent",
+          "evidence": "Range 30 feet; Targets 1 ally"
+        }
+      ]
+    },
+    {
+      "name": "Range 40 feet; Area 40-foot emanation",
+      "spell_id": "range_40_feet_area_40_foot_emanation",
+      "spell_level": 7,
+      "school": "evocation",
+      "traditions": [
+        "divine"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51229,
+          "method": "level_adjacent",
+          "evidence": "Range 40 feet; Area 40-foot emanation"
+        }
+      ]
+    },
+    {
+      "name": "Range 60 feet; Targets 4 creatures",
+      "spell_id": "range_60_feet_targets_4_creatures",
+      "spell_level": 7,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59097,
+          "method": "level_adjacent",
+          "evidence": "Range 60 feet; Targets 4 creatures"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 7",
+      "spell_id": "spell_7",
+      "spell_level": 7,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50343,
+          "method": "level_adjacent",
+          "evidence": "SPELL 7"
+        }
+      ]
+    },
+    {
+      "name": "Area 10-foot emanation, which affects you",
+      "spell_id": "area_10_foot_emanation_which_affects_you",
+      "spell_level": 8,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49128,
+          "method": "level_adjacent",
+          "evidence": "Area 10-foot emanation, which affects you"
+        }
+      ]
+    },
+    {
+      "name": "Cast 10 minutes (material, somatic, verbal)",
+      "spell_id": "cast_10_minutes_material_somatic_verbal",
+      "spell_level": 8,
+      "school": "divination",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51041,
+          "method": "level_adjacent",
+          "evidence": "Cast 10 minutes (material, somatic, verbal)"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] material, somatic",
+      "spell_id": "cast_two_actions_material_somatic",
+      "spell_level": 8,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51004,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] material, somatic"
+        }
+      ]
+    },
+    {
+      "name": "Duration 1 round",
+      "spell_id": "duration_1_round",
+      "spell_level": 8,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51715,
+          "method": "level_adjacent",
+          "evidence": "Duration 1 round"
+        }
+      ]
+    },
+    {
+      "name": "Duration sustained up to 1 minute",
+      "spell_id": "duration_sustained_up_to_1_minute",
+      "spell_level": 8,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49129,
+          "method": "level_adjacent",
+          "evidence": "Duration sustained up to 1 minute"
+        }
+      ]
+    },
+    {
+      "name": "Range 100 feet",
+      "spell_id": "range_100_feet",
+      "spell_level": 8,
+      "school": null,
+      "traditions": [
+        "arcane"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 15146,
+          "method": "level_adjacent",
+          "evidence": "Range 100 feet"
+        }
+      ]
+    },
+    {
+      "name": "Range 30 feet; Targets your companion",
+      "spell_id": "range_30_feet_targets_your_companion",
+      "spell_level": 8,
+      "school": "conjuration",
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10900,
+          "method": "level_adjacent",
+          "evidence": "Range 30 feet; Targets your companion"
+        }
+      ]
+    },
+    {
+      "name": "Range 500 feet; Area 60-foot burst",
+      "spell_id": "range_500_feet_area_60_foot_burst",
+      "spell_level": 8,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51714,
+          "method": "level_adjacent",
+          "evidence": "Range 500 feet; Area 60-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 8",
+      "spell_id": "spell_8",
+      "spell_level": 8,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49122,
+          "method": "level_adjacent",
+          "evidence": "SPELL 8"
+        }
+      ]
+    },
+    {
+      "name": "Saving Throw basic Fortitude",
+      "spell_id": "saving_throw_basic_fortitude",
+      "spell_level": 8,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53353,
+          "method": "level_adjacent",
+          "evidence": "Saving Throw basic Fortitude"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, divine, occult",
+      "spell_id": "traditions_arcane_divine_occult",
+      "spell_level": 8,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49126,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, divine, occult"
+        }
+      ]
+    },
+    {
+      "name": "Area 40-foot emanation",
+      "spell_id": "area_40_foot_emanation",
+      "spell_level": 9,
+      "school": null,
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59600,
+          "method": "level_adjacent",
+          "evidence": "Area 40-foot emanation"
+        }
+      ]
+    },
+    {
+      "name": "FREEDOM OF MOVEMENT",
+      "spell_id": "freedom_of_movement",
+      "spell_level": 9,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 52617,
+          "method": "level_adjacent",
+          "evidence": "FREEDOM OF MOVEMENT"
+        }
+      ]
+    },
+    {
+      "name": "Range 10 feet",
+      "spell_id": "range_10_feet",
+      "spell_level": 9,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55903,
+          "method": "level_adjacent",
+          "evidence": "Range 10 feet"
+        }
+      ]
+    },
+    {
+      "name": "Range 100 feet; Targets 1 creature",
+      "spell_id": "range_100_feet_targets_1_creature",
+      "spell_level": 9,
+      "school": null,
+      "traditions": [
+        "divine"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59935,
+          "method": "level_adjacent",
+          "evidence": "Range 100 feet; Targets 1 creature"
+        }
+      ]
+    },
+    {
+      "name": "Range 500 feet",
+      "spell_id": "range_500_feet",
+      "spell_level": 9,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56646,
+          "method": "level_adjacent",
+          "evidence": "Range 500 feet"
+        }
+      ]
+    },
+    {
+      "name": "Range 800 feet; Area 360-foot burst",
+      "spell_id": "range_800_feet_area_360_foot_burst",
+      "spell_level": 9,
+      "school": "evocation",
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58258,
+          "method": "level_adjacent",
+          "evidence": "Range 800 feet; Area 360-foot burst"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 9",
+      "spell_id": "spell_9",
+      "spell_level": 9,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49471,
+          "method": "level_adjacent",
+          "evidence": "SPELL 9"
+        }
+      ]
+    },
+    {
+      "name": "Cast 1 hour (material, somatic, verbal)",
+      "spell_id": "cast_1_hour_material_somatic_verbal",
+      "spell_level": 10,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56477,
+          "method": "level_adjacent",
+          "evidence": "Cast 1 hour (material, somatic, verbal)"
+        }
+      ]
+    },
+    {
+      "name": "Cast [three-actions] material, somatic, verbal",
+      "spell_id": "cast_three_actions_material_somatic_verbal",
+      "spell_level": 10,
+      "school": "divination",
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48940,
+          "method": "level_adjacent",
+          "evidence": "Cast [three-actions] material, somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [three‑actions] material, somatic, verbal",
+      "spell_id": "cast_threeactions_material_somatic_verbal",
+      "spell_level": 10,
+      "school": "divination",
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55871,
+          "method": "level_adjacent",
+          "evidence": "Cast [three‑actions] material, somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "NATURE’S ENMITY",
+      "spell_id": "natures_enmity",
+      "spell_level": 10,
+      "school": "transmutation",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55007,
+          "method": "level_adjacent",
+          "evidence": "NATURE’S ENMITY"
+        }
+      ]
+    },
+    {
+      "name": "ROPE TRICK",
+      "spell_id": "rope_trick",
+      "spell_level": 10,
+      "school": "necromancy",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56910,
+          "method": "level_adjacent",
+          "evidence": "ROPE TRICK"
+        }
+      ]
+    },
+    {
+      "name": "Range 5 feet",
+      "spell_id": "range_5_feet",
+      "spell_level": 10,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 56478,
+          "method": "level_adjacent",
+          "evidence": "Range 5 feet"
+        }
+      ]
+    },
+    {
+      "name": "SPELL 10",
+      "spell_id": "spell_10",
+      "spell_level": 10,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48935,
+          "method": "level_adjacent",
+          "evidence": "SPELL 10"
+        }
+      ]
+    },
+    {
+      "name": "Traditions divine",
+      "spell_id": "traditions_divine",
+      "spell_level": 10,
+      "school": "transmutation",
+      "traditions": [
+        "divine"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49182,
+          "method": "level_adjacent",
+          "evidence": "Traditions divine"
+        }
+      ]
+    },
+    {
+      "name": "Traditions occult",
+      "spell_id": "traditions_occult",
+      "spell_level": 10,
+      "school": "divination",
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48939,
+          "method": "level_adjacent",
+          "evidence": "Traditions occult"
+        }
+      ]
+    }
+  ]
+}

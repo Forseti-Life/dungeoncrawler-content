@@ -126,6 +126,8 @@ class CampaignEntityController extends ControllerBase {
           'location_type' => $location_type,
           'location_ref' => $location_ref,
           'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+          'default_locations' => NULL,
+          'portrait' => NULL,
           'hp_current' => $hot_columns['hp_current'],
           'hp_max' => $hot_columns['hp_max'],
           'armor_class' => $hot_columns['armor_class'],

@@ -1,0 +1,18 @@
+- command: |
+    Groom feature dc-apg-class-witch for release entry (suggestion process flow).
+
+    Feature stub: features/dc-apg-class-witch/feature.md (status: planned/ready, P3)
+    Needs: 01-acceptance-criteria.md, then run pm-qa-handoff.sh
+
+    Context: Witch class (APG): patron, familiar, hex cantrips. Deps: character-class ✓, spellcasting (deferred), focus-spells (deferred)
+
+    ## Steps
+    1. Read features/dc-apg-class-witch/feature.md
+    2. Review https://dungeoncrawler.forseti.life/Roadmap for this section's Not Started reqs
+    3. Write features/dc-apg-class-witch/01-acceptance-criteria.md (use templates/01-acceptance-criteria.md)
+       Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+    4. Ensure features/dc-apg-class-witch/feature.md has ## Security acceptance criteria section
+       (or add: - Security AC exemption: <reason> if no security surface)
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-apg-class-witch
+    6. Write outbox confirming AC written and QA handoff dispatched
+- roi: 6

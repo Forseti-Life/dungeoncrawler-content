@@ -1,0 +1,11 @@
+[Unit]
+Description=Copilot Sessions HQ - Automated Site Audit Timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

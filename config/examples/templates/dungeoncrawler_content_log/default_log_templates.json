@@ -1,6 +1,7 @@
 {
   "rows": [
     {
+      "id": 1,
       "log_type": "narrative",
       "message": "Template narrative seed for campaign intro.",
       "context": {
@@ -10,12 +11,14 @@
       "room_id": "tpl_room_tavern_entrance"
     },
     {
+      "id": 2,
       "log_type": "info",
       "message": "Template party enters goblin territory.",
       "context": {"template": true, "phase": "exploration"},
       "room_id": "tpl_room_goblin_scout_post"
     },
     {
+      "id": 3,
       "log_type": "combat",
       "message": "Goblin scouts open with ranged attacks from cover.",
       "context": {"template": true, "encounter_template": "starter_goblin_raiders"},
@@ -23,18 +26,21 @@
       "room_id": "tpl_room_goblin_scout_post"
     },
     {
+      "id": 4,
       "log_type": "loot",
       "message": "Recovered a minor healing potion from the raider cache.",
       "context": {"template": true, "table_id": "goblin_raiders_cache"},
       "room_id": "tpl_room_goblin_scout_post"
     },
     {
+      "id": 5,
       "log_type": "warning",
       "message": "Pressure plate detected in trapped corridor.",
       "context": {"template": true, "hazard": "spear_launcher"},
       "room_id": "tpl_room_hall_spear_trap"
     },
     {
+      "id": 6,
       "log_type": "combat",
       "message": "Undead guardians animate as relic is disturbed.",
       "context": {"template": true, "encounter_template": "crypt_guardians_hall"},
@@ -42,12 +48,14 @@
       "room_id": "tpl_room_crypt_anteroom"
     },
     {
+      "id": 7,
       "log_type": "info",
       "message": "Alchemical runoff increases acid damage hazards.",
       "context": {"template": true, "hazard_modifier": "acidic_residue"},
       "room_id": "tpl_room_alchemy_lab"
     },
     {
+      "id": 8,
       "log_type": "combat",
       "message": "Construct patrol shifts to intercept intruders.",
       "context": {"template": true, "encounter_template": "foundry_construct_detail"},
@@ -55,12 +63,14 @@
       "room_id": "tpl_room_clockwork_foundry"
     },
     {
+      "id": 9,
       "log_type": "narrative",
       "message": "Ancestral voices echo through the frozen shrine.",
       "context": {"template": true, "tone": "ominous"},
       "room_id": "tpl_room_frozen_shrine"
     },
     {
+      "id": 10,
       "log_type": "combat",
       "message": "Storm Herald channels lightning across the summit dais.",
       "context": {"template": true, "encounter_template": "storm_summit_apex"},

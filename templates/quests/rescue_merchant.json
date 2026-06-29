@@ -116,6 +116,11 @@
   "prerequisites": {
     "level_min": 2
   },
+  "story_impact": {
+    "storyline_id": "torment-and-legacy",
+    "chapter_id": "onboarding",
+    "scene_id": "first-engagement"
+  },
   "time_limit_hours": 24,
   "estimated_duration_minutes": 45,
   "version": "1.0.0"

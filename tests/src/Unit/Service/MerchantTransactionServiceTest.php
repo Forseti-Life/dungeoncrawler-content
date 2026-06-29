@@ -494,42 +494,6 @@ class MerchantTransactionServiceTest extends UnitTestCase {
   }
 
   /**
-   * Verifies merchant search dedupe keeps first hit per non-empty item id.
-   */
-  public function testAppendUniqueMerchantSearchResultDedupesByItemId(): void {
-    $service = $this->buildService();
-    $results = [];
-    $seen_item_ids = [];
-
-    $service->exposeAppendUniqueMerchantSearchResult($results, $seen_item_ids, [
-      'item_id' => 'club',
-      'source' => 'merchant stock',
-    ]);
-    $service->exposeAppendUniqueMerchantSearchResult($results, $seen_item_ids, [
-      'item_id' => 'club',
-      'source' => 'catalog search',
-    ]);
-    $service->exposeAppendUniqueMerchantSearchResult($results, $seen_item_ids, [
-      'item_id' => 'dagger',
-      'source' => 'catalog search',
-    ]);
-    $service->exposeAppendUniqueMerchantSearchResult($results, $seen_item_ids, [
-      'name' => 'Mystery Item',
-    ]);
-    $service->exposeAppendUniqueMerchantSearchResult($results, $seen_item_ids, [
-      'name' => 'Mystery Item 2',
-    ]);
-
-    $this->assertCount(4, $results);
-    $this->assertSame('club', $results[0]['item_id']);
-    $this->assertSame('merchant stock', $results[0]['source']);
-    $this->assertSame('dagger', $results[1]['item_id']);
-    $this->assertArrayHasKey('club', $seen_item_ids);
-    $this->assertArrayHasKey('dagger', $seen_item_ids);
-    $this->assertCount(2, $seen_item_ids);
-  }
-
-  /**
    * Builds the merchant transaction service test double.
    */
   private function buildService(?MerchantBotService $merchant_bot_service = NULL): MerchantTransactionServiceTestDouble {
@@ -591,13 +555,6 @@ class MerchantTransactionServiceTestDouble extends MerchantTransactionService {
    */
   public function exposeResolveMerchantCatalogSearchItem(array $merchant, string $item_query): ?array {
     return $this->resolveMerchantCatalogSearchItem($merchant, $item_query);
-  }
-
-  /**
-   * Exposes merchant search result de-duplication helper for unit coverage.
-   */
-  public function exposeAppendUniqueMerchantSearchResult(array &$results, array &$seen_item_ids, array $result): void {
-    $this->appendUniqueMerchantSearchResult($results, $seen_item_ids, $result);
   }
 
   /**

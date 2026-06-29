@@ -388,7 +388,8 @@ class NarrationEngine {
     }
 
     $is_speech_event = in_array($event_type, self::IMMEDIATE_NARRATION_TYPES, TRUE);
-    $looks_like_npc_dialogue = $this->eventContentLooksLikeDialogue($content);
+    $looks_like_npc_dialogue = (bool) preg_match('/\b(says|asks|replies|shouts|whispers)\b/i', $content)
+      || str_contains($content, '"');
 
     if (strcasecmp($speaker, 'Narrator') === 0 && ($is_speech_event || $looks_like_npc_dialogue)) {
       $event['speaker'] = 'Game Master';
@@ -406,14 +407,6 @@ class NarrationEngine {
     }
 
     return $event;
-  }
-
-  /**
-   * Determine whether event content carries dialogue-style language.
-   */
-  protected function eventContentLooksLikeDialogue(string $content): bool {
-    return (bool) preg_match('/\b(says|asks|replies|shouts|whispers)\b/i', $content)
-      || str_contains($content, '"');
   }
 
   // =========================================================================

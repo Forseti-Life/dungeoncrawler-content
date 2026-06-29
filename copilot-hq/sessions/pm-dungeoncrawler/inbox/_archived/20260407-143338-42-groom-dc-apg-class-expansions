@@ -1,0 +1,18 @@
+- command: |
+    Groom feature dc-apg-class-expansions for release entry (suggestion process flow).
+
+    Feature stub: features/dc-apg-class-expansions/feature.md (status: planned/ready, P3)
+    Needs: 01-acceptance-criteria.md, then run pm-qa-handoff.sh
+
+    Context: APG class expansion options for all 12 core classes. Deps: all 12 core classes (all planned/in-progress)
+
+    ## Steps
+    1. Read features/dc-apg-class-expansions/feature.md
+    2. Review https://dungeoncrawler.forseti.life/Roadmap for this section's Not Started reqs
+    3. Write features/dc-apg-class-expansions/01-acceptance-criteria.md (use templates/01-acceptance-criteria.md)
+       Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+    4. Ensure features/dc-apg-class-expansions/feature.md has ## Security acceptance criteria section
+       (or add: - Security AC exemption: <reason> if no security surface)
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-apg-class-expansions
+    6. Write outbox confirming AC written and QA handoff dispatched
+- roi: 6

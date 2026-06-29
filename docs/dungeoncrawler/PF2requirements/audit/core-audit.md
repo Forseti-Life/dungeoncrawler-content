@@ -1,0 +1,1738 @@
+# AUDIT: PF2E Core Rulebook (4th Printing)
+
+**Source:** `PF2E Core Rulebook - Fourth Printing.txt`  
+**Total Lines:** 103,266  
+**Status:** 🔴 PENDING
+
+---
+
+## Legend
+- `[ ]` = Pending extraction
+- `[x]` = Requirements extracted
+- `[S]` = Skipped (pure lore/atmosphere, no mechanics)
+- `[!]` = Needs review
+
+---
+
+## [ ] Chapter 1: Introduction
+*Lines 1,952–5,282 (3,330 lines)*
+
+- [ ] **DC BASE** *(line 2,134)*
+- [ ] **CONSTITUTION** *(line 2,140)*
+- [ ] **INTELLIGENCE** *(line 2,144)*
+- [ ] **WISDOM** *(line 2,148)*
+- [ ] **FORTITUDE** *(line 2,150)*
+- [ ] **SCORE** *(line 2,152)*
+- [ ] **CHARISMA** *(line 2,158)*
+- [ ] **REFLEX** *(line 2,178)*
+- [ ] **W SPEC** *(line 2,200)*
+- [ ] **SPECIAL** *(line 2,214)*
+- [ ] **BACKGROUN** *(line 2,328)*
+- [ ] **ARCANA** *(line 2,355)*
+- [ ] **ARMOR** *(line 2,385)*
+- [ ] **CRAFTING** *(line 2,398)*
+- [ ] **DECEPTION** *(line 2,402)*
+- [ ] **DIPLOMACY** *(line 2,414)*
+- [ ] **INTIMIDATION** *(line 2,426)*
+- [ ] **LORE** *(line 2,438)*
+- [ ] **MEDICINE** *(line 2,462)*
+- [ ] **NATURE** *(line 2,474)*
+- [ ] **T WOR** *(line 2,488)*
+- [ ] **OCCULTISM** *(line 2,530)*
+- [ ] **PERFORMANCE** *(line 2,536)*
+- [ ] **RELIGION** *(line 2,548)*
+- [ ] **SOCIETY** *(line 2,560)*
+- [ ] **STEALTH** *(line 2,572)*
+- [ ] **INVEST** *(line 2,613)*
+- [ ] **ITEMS** *(line 2,622)*
+- [ ] **SURVIVAL** *(line 2,624)*
+- [ ] **ACROBATICS** *(line 2,634)*
+- [ ] **MARTIAL** *(line 2,640)*
+- [ ] **ATHLETICS** *(line 2,668)*
+- [ ] **CONDITIONS** *(line 2,676)*
+- [ ] **WILL** *(line 2,678)*
+- [ ] **RESISTANCES AND IMMUNITIES** *(line 2,687)*
+- [ ] **CURRENT HP** *(line 2,696)*
+- [ ] **SENSES** *(line 2,698)*
+- [ ] **MAX HP BT** *(line 2,714)*
+- [ ] **NOTES** *(line 2,716)*
+- [ ] **SIMPLE** *(line 2,720)*
+- [ ] **LIGHT** *(line 2,723)*
+- [ ] **MOVEMENT TYPES & NOTES** *(line 2,726)*
+- [ ] **TEMPORARY** *(line 2,735)*
+- [ ] **CURRENT** *(line 2,737)*
+- [ ] **MODIFIER** *(line 2,743)*
+- [ ] **HARDNESS** *(line 2,766)*
+- [ ] **UNARMORED** *(line 2,789)*
+- [ ] **DEXTERITY** *(line 2,792)*
+- [ ] **STRENGTH** *(line 2,819)*
+- [ ] **READIED** *(line 2,853)*
+- [ ] **OTHER ITEM** *(line 2,860)*
+- [ ] **BULK** *(line 2,866)*
+- [ ] **ENCUMBE** *(line 2,886)*
+- [ ] **MAXIMUM** *(line 2,897)*
+- [ ] **ALTERNATIVE METHOD: ROLLING ABILITY SCORES** *(line 3,027)*
+- [ ] **STEP 2: ASSIGN ABILITY BOOSTS AND** *(line 3,043)*
+- [ ] **STEP 3: RECORD SCORES AND MODIFIERS** *(line 3,057)*
+- [ ] **ANCESTRIES AND CLASSES** *(line 3,151)*
+- [ ] **CHARACTER SHEET** *(line 3,220)*
+- [ ] **GNOME** *(line 3,243)*
+- [ ] **GOBLIN** *(line 3,245)*
+- [ ] **HALFLING** *(line 3,247)*
+- [ ] **HUMAN** *(line 3,249)*
+- [ ] **ALCHEMIST** *(line 3,331)*
+- [ ] **BARBARIAN** *(line 3,333)*
+- [ ] **BARD** *(line 3,348)*
+- [ ] **CHAMPION** *(line 3,350)*
+- [ ] **CLERIC** *(line 3,389)*
+- [ ] **DRUID** *(line 3,391)*
+- [ ] **FIGHTER** *(line 3,393)*
+- [ ] **MONK** *(line 3,395)*
+- [ ] **RANGER** *(line 3,450)*
+- [ ] **ROGUE** *(line 3,452)*
+- [ ] **SORCERER** *(line 3,466)*
+- [ ] **WIZARD** *(line 3,468)*
+- [ ] **PROFICIENCY** *(line 3,524)*
+- [ ] **THIEVERY** *(line 4,158)*
+- [ ] **BACKGROUND** *(line 4,293)*
+- [ ] **READIED ITEMS** *(line 4,375)*
+- [ ] **OTHER ITEMS** *(line 4,379)*
+- [ ] **ENCUMBERED** *(line 4,391)*
+- [ ] **ALTERNATE** *(line 4,509)*
+- [ ] **OPTIONAL:** *(line 4,526)*
+- [ ] **SPELLS AND** *(line 4,646)*
+
+## [ ] Chapter 2: Ancestries & Backgrounds
+*Lines 5,283–9,666 (4,383 lines)*
+
+- [ ] **FEAT 1** *(line 5,682)*
+- [ ] **DWARF** *(line 5,684)*
+- [ ] **FEAT 5** *(line 5,785)*
+- [ ] **DWARVEN** *(line 5,805)*
+- [ ] **FEAT 9** *(line 5,852)*
+- [ ] **FEAT 13** *(line 5,907)*
+- [ ] **ELVEN ADVENTURERS** *(line 6,368)*
+- [ ] **GNOME** *(line 6,754)*
+- [ ] **GNOME ADVENTURERS** *(line 6,887)*
+- [ ] **GOBLIN** *(line 7,240)*
+- [ ] **JUNK TINKER** *(line 7,335)*
+- [ ] **ROUGH RIDER** *(line 7,353)*
+- [ ] **VERY SNEAKY** *(line 7,382)*
+- [ ] **GOBLIN ADVENTURERS** *(line 7,407)*
+- [ ] **HALFLING** *(line 7,787)*
+- [ ] **FORTUNE** *(line 7,809)*
+- [ ] **HALFLING ADVENTURERS** *(line 7,933)*
+- [ ] **OTHER HALVES** *(line 8,266)*
+- [ ] **HUMAN** *(line 8,392)*
+- [ ] **GENERAL TRAINING** *(line 8,403)*
+- [ ] **HAUGHTY OBSTINACY** *(line 8,417)*
+- [ ] **COOPERATIVE NATURE** *(line 8,436)*
+- [ ] **CLEVER IMPROVISER** *(line 8,483)*
+- [ ] **NATURAL AMBITION** *(line 8,516)*
+- [ ] **MULTITALENTED** *(line 8,574)*
+- [ ] **ELF ATAVISM** *(line 8,621)*
+- [ ] **HALF-ELF** *(line 8,625)*
+- [ ] **SUPERNATURAL CHARM** *(line 8,652)*
+- [ ] **HALF-ORC** *(line 8,694)*
+- [ ] **ORC SIGHT** *(line 8,720)*
+- [ ] **MONSTROUS PEACEMAKER** *(line 8,753)*
+- [ ] **ORC WEAPON FAMILIARITY** *(line 8,815)*
+- [ ] **ACOLYTE** *(line 8,892)*
+- [ ] **BACKGROUND** *(line 8,894)*
+- [ ] **ACROBAT** *(line 8,906)*
+- [ ] **ANIMAL WHISPERER** *(line 8,919)*
+- [ ] **ARTISAN** *(line 8,934)*
+- [ ] **ARTIST** *(line 8,950)*
+- [ ] **BARKEEP** *(line 8,962)*
+- [ ] **BARRISTER** *(line 8,974)*
+- [ ] **BOUNTY HUNTER** *(line 9,020)*
+- [ ] **CHARLATAN** *(line 9,034)*
+- [ ] **CRIMINAL** *(line 9,049)*
+- [ ] **DETECTIVE** *(line 9,063)*
+- [ ] **EMISSARY** *(line 9,084)*
+- [ ] **ENTERTAINER** *(line 9,097)*
+- [ ] **FARMHAND** *(line 9,122)*
+- [ ] **GAMBLER** *(line 9,167)*
+- [ ] **GLADIATOR** *(line 9,181)*
+- [ ] **GUARD** *(line 9,195)*
+- [ ] **HERBALIST** *(line 9,208)*
+- [ ] **HERMIT** *(line 9,221)*
+- [ ] **STREET URCHIN** *(line 9,429)*
+- [ ] **TINKER** *(line 9,444)*
+- [ ] **WARRIOR** *(line 9,458)*
+
+## [ ] Chapter 3: Classes
+*Lines 9,667–34,550 (24,883 lines)*
+
+- [ ] **CLASSES** *(line 9,928)*
+- [ ] **INTELLIGENCE** *(line 10,159)*
+- [ ] **INITIAL PROFICIENCIES** *(line 10,170)*
+- [ ] **PERCEPTION** *(line 10,181)*
+- [ ] **SAVING THROWS** *(line 10,208)*
+- [ ] **SKILLS** *(line 10,225)*
+- [ ] **ATTACKS** *(line 10,236)*
+- [ ] **DEFENSES** *(line 10,241)*
+- [ ] **CLASS DC** *(line 10,248)*
+- [ ] **MANIPULATE** *(line 10,402)*
+- [ ] **ALCHEMIST** *(line 10,464)*
+- [ ] **SAMPLE ALCHEMIST** *(line 10,549)*
+- [ ] **STARTING FEAT** *(line 10,623)*
+- [ ] **ABILITY SCORES** *(line 10,634)*
+- [ ] **RESEARCH FIELD** *(line 10,643)*
+- [ ] **HIGHER-LEVEL FEATS** *(line 10,645)*
+- [ ] **KEY TERMS** *(line 10,755)*
+- [ ] **ALCHEMIST FEATS** *(line 10,853)*
+- [ ] **FEAT 1** *(line 10,993)*
+- [ ] **FEAT 2** *(line 11,054)*
+- [ ] **ADDITIVE 1** *(line 11,058)*
+- [ ] **FEAT 4** *(line 11,124)*
+- [ ] **FEAT 6** *(line 11,173)*
+- [ ] **ADDITIVE 2 ALCHEMIST** *(line 11,175)*
+- [ ] **BOMBER** *(line 11,190)*
+- [ ] **FEAT 8** *(line 11,286)*
+- [ ] **FEAT 10** *(line 11,290)*
+- [ ] **EXTEND ELIXIR** *(line 11,360)*
+- [ ] **UNCANNY BOMBS** *(line 11,408)*
+- [ ] **INVINCIBLE MUTAGEN** *(line 11,422)*
+- [ ] **FEAT 12** *(line 11,424)*
+- [ ] **FEAT 14** *(line 11,465)*
+- [ ] **MUTAGENIST** *(line 11,503)*
+- [ ] **FEAT 16** *(line 11,532)*
+- [ ] **SAMPLE FORMULA BOOK** *(line 11,608)*
+- [ ] **FEAT 18** *(line 11,624)*
+- [ ] **FEAT 20** *(line 11,658)*
+- [ ] **ADDITIVE 3 ALCHEMIST** *(line 11,727)*
+- [ ] **PERFECT MUTAGEN** *(line 11,748)*
+- [ ] **HIT POINTS** *(line 11,802)*
+- [ ] **STRENGTH** *(line 11,804)*
+- [ ] **CONCENTRATE** *(line 12,048)*
+- [ ] **EMOTION** *(line 12,050)*
+- [ ] **MENTAL** *(line 12,052)*
+- [ ] **BARBARIAN FEATS** *(line 12,621)*
+- [ ] **BARBARIAN** *(line 12,761)*
+- [ ] **BARBARIAN CONCENTRATE RAGE** *(line 12,769)*
+- [ ] **FLOURISH** *(line 12,800)*
+- [ ] **OPEN** *(line 12,804)*
+- [ ] **RAGE** *(line 12,860)*
+- [ ] **BARBARIAN RAGE** *(line 12,882)*
+- [ ] **BARBARIAN FLOURISH** *(line 12,938)*
+- [ ] **SAMPLE BARBARIAN** *(line 12,955)*
+- [ ] **MORPH** *(line 12,970)*
+- [ ] **TRANSMUTATION** *(line 12,975)*
+- [ ] **ANIMAL RAGER** *(line 13,001)*
+- [ ] **INSTINCT** *(line 13,057)*
+- [ ] **ARCANE** *(line 13,061)*
+- [ ] **BARBARIAN POLYMORPH PRIMAL RAGE TRANSMUTATION** *(line 13,104)*
+- [ ] **DIVINE** *(line 13,115)*
+- [ ] **NECROMANCY RAGE** *(line 13,119)*
+- [ ] **VISUAL** *(line 13,196)*
+- [ ] **BARBARIAN MORPH PRIMAL RAGE TRANSMUTATION** *(line 13,314)*
+- [ ] **OPEN RAGE** *(line 13,343)*
+- [ ] **FURY** *(line 13,359)*
+- [ ] **CONCENTRATE RAGE** *(line 13,400)*
+- [ ] **BARBARIAN POLYMORPH TRANSMUTATION** *(line 13,404)*
+- [ ] **FLOURISH OPEN** *(line 13,485)*
+- [ ] **BARBARIAN CONCENTRATE FORTUNE RAGE** *(line 13,530)*
+- [ ] **RAGE VISUAL** *(line 13,563)*
+- [ ] **AUDITORY** *(line 13,589)*
+- [ ] **MANIPULATE RAGE** *(line 13,615)*
+- [ ] **CHARISMA** *(line 13,670)*
+- [ ] **SPELLS** *(line 13,771)*
+- [ ] **BARD** *(line 14,562)*
+- [ ] **BARD FEATS** *(line 14,605)*
+- [ ] **FORTUNE** *(line 14,743)*
+- [ ] **METAMAGIC** *(line 14,812)*
+- [ ] **TRIPLE TIME** *(line 14,828)*
+- [ ] **VERSATILE SIGNATURE** *(line 14,837)*
+- [ ] **SAMPLE BARD** *(line 14,916)*
+- [ ] **DANCER** *(line 14,966)*
+- [ ] **MUSE** *(line 14,996)*
+- [ ] **SPELL REPERTOIRE** *(line 15,026)*
+- [ ] **INSPIRATIONAL FOCUS** *(line 15,057)*
+- [ ] **SOOTHING BALLAD** *(line 15,078)*
+- [ ] **STUDIOUS CAPACITY** *(line 15,113)*
+- [ ] **ETERNAL COMPOSITION** *(line 15,142)*
+- [ ] **IMPOSSIBLE POLYMATH** *(line 15,161)*
+- [ ] **SYMPHONY OF THE MUSE** *(line 15,222)*
+- [ ] **STRENGTH OR DEXTERITY** *(line 15,278)*
+- [ ] **CHAMPION** *(line 15,628)*
+- [ ] **RANGED REPRISAL** *(line 15,952)*
+- [ ] **UNIMPEDED STEP** *(line 16,013)*
+- [ ] **CHAMPION FEATS** *(line 16,032)*
+- [ ] **OATH** *(line 16,172)*
+- [ ] **DIVINE HEALTH** *(line 16,266)*
+- [ ] **AURA OF COURAGE** *(line 16,298)*
+- [ ] **SAMPLE CHAMPION** *(line 16,353)*
+- [ ] **REDEEMER** *(line 16,403)*
+- [ ] **DEITY AND CAUSE** *(line 16,434)*
+- [ ] **RADIANT BLADE SPIRIT** *(line 16,561)*
+- [ ] **LITANY AGAINST SLOTH** *(line 16,637)*
+- [ ] **LIBERATOR** *(line 16,739)*
+- [ ] **SHIELD OF GRACE** *(line 16,875)*
+- [ ] **CELESTIAL FORM** *(line 16,877)*
+- [ ] **RADIANT BLADE MASTER** *(line 16,952)*
+- [ ] **SHIELD PARAGON** *(line 16,986)*
+- [ ] **KEY ABILITY** *(line 17,051)*
+- [ ] **WISDOM** *(line 17,055)*
+- [ ] **DOMAIN INITIATE** *(line 17,869)*
+- [ ] **CLERIC** *(line 17,873)*
+- [ ] **DEADLY SIMPLICITY** *(line 17,935)*
+- [ ] **CLERIC FEATS** *(line 17,975)*
+- [ ] **HEALING** *(line 18,100)*
+- [ ] **POSITIVE** *(line 18,104)*
+- [ ] **NECROMANCY** *(line 18,169)*
+- [ ] **CONTROLLING UNDEAD** *(line 18,269)*
+- [ ] **SAMPLE CLERIC** *(line 18,381)*
+- [ ] **EVOCATION** *(line 18,390)*
+- [ ] **GOZREN** *(line 18,429)*
+- [ ] **DEITY** *(line 18,453)*
+- [ ] **DOCTRINE** *(line 18,469)*
+- [ ] **PREPARED SPELLS** *(line 18,475)*
+- [ ] **SHARED REPLENISHMENT** *(line 18,594)*
+- [ ] **PHARASMIN** *(line 18,770)*
+- [ ] **DRUID** *(line 19,859)*
+- [ ] **SAMPLE DRUID** *(line 19,889)*
+- [ ] **WILD DRUID** *(line 19,943)*
+- [ ] **ORDER** *(line 19,972)*
+- [ ] **DRUID FEATS** *(line 20,105)*
+- [ ] **STORM DRUID** *(line 20,290)*
+- [ ] **FEATS** *(line 20,352)*
+- [ ] **INCREDIBLE COMPANION** *(line 20,396)*
+- [ ] **SOARING SHAPE** *(line 20,408)*
+- [ ] **WIND CALLER** *(line 20,423)*
+- [ ] **DRUID METAMAGIC** *(line 20,457)*
+- [ ] **LEAF DRUID** *(line 20,534)*
+- [ ] **PERFECT FORM CONTROL** *(line 20,689)*
+- [ ] **PRIMAL WELLSPRING** *(line 20,701)*
+- [ ] **INVOKE DISASTER** *(line 20,789)*
+- [ ] **FIGHTER FEATS** *(line 21,331)*
+- [ ] **FIGHTER** *(line 21,494)*
+- [ ] **PRESS** *(line 21,513)*
+- [ ] **STANCE** *(line 21,526)*
+- [ ] **POWERFUL SHOVE** *(line 21,781)*
+- [ ] **FEAR** *(line 21,801)*
+- [ ] **SHIELDED STRIDE** *(line 21,874)*
+- [ ] **SAMPLE FIGHTER** *(line 22,009)*
+- [ ] **BULLY** *(line 22,058)*
+- [ ] **SHIELD WARDEN** *(line 22,145)*
+- [ ] **TRIPLE SHOT** *(line 22,159)*
+- [ ] **DUELIST** *(line 22,375)*
+- [ ] **FEARSOME BRUTE** *(line 22,460)*
+- [ ] **IMPROVED KNOCKDOWN** *(line 22,490)*
+- [ ] **GUIDING RIPOSTE** *(line 22,776)*
+- [ ] **IMPROVED TWIN RIPOSTE** *(line 22,791)*
+- [ ] **IMPROVED REFLEXIVE SHIELD** *(line 22,859)*
+- [ ] **SAVAGE CRITICAL** *(line 22,923)*
+- [ ] **WEAPON SUPREMACY** *(line 22,967)*
+- [ ] **MONK** *(line 23,221)*
+- [ ] **MONK FEATS** *(line 23,499)*
+- [ ] **MONK UNARMED ATTACKS** *(line 23,736)*
+- [ ] **FLURRY OF MANEUVERS** *(line 23,966)*
+- [ ] **GUARDED MOVEMENT** *(line 23,992)*
+- [ ] **SAMPLE MONK** *(line 24,163)*
+- [ ] **KI MONK** *(line 24,195)*
+- [ ] **ARROW SNATCHING** *(line 24,247)*
+- [ ] **NEGATIVE** *(line 24,455)*
+- [ ] **CRANE MONK** *(line 24,536)*
+- [ ] **RANGER** *(line 25,123)*
+- [ ] **RANGER FEATS** *(line 25,337)*
+- [ ] **FLOURISH RANGER** *(line 25,578)*
+- [ ] **MONSTER WARDEN** *(line 25,704)*
+- [ ] **WILD EMPATHY** *(line 25,727)*
+- [ ] **FAR SHOT** *(line 25,770)*
+- [ ] **FAVORED ENEMY** *(line 25,781)*
+- [ ] **SNARE SPECIALIST** *(line 25,821)*
+- [ ] **QUICK SNARES** *(line 25,904)*
+- [ ] **SNAP SHOT** *(line 25,925)*
+- [ ] **SAMPLE RANGER** *(line 25,989)*
+- [ ] **ANIMAL RANGER** *(line 26,046)*
+- [ ] **MASTER MONSTER HUNTER** *(line 26,144)*
+- [ ] **DOUBLE PREY** *(line 26,171)*
+- [ ] **SIDE BY SIDE** *(line 26,236)*
+- [ ] **LIGHTNING SNARES** *(line 26,279)*
+- [ ] **ARCHER** *(line 26,379)*
+- [ ] **UBIQUITOUS SNARES** *(line 26,464)*
+- [ ] **MANIFOLD EDGE** *(line 26,511)*
+- [ ] **MASTERFUL COMPANION** *(line 26,523)*
+- [ ] **SHADOW HUNTER** *(line 26,569)*
+- [ ] **TRIPLE THREAT** *(line 26,599)*
+- [ ] **TO THE ENDS OF THE EARTH** *(line 26,606)*
+- [ ] **ULTIMATE SKIRMISHER** *(line 26,634)*
+- [ ] **DEXTERITY OR OTHER** *(line 26,702)*
+- [ ] **ROGUE** *(line 27,254)*
+- [ ] **ROGUE FEATS** *(line 27,280)*
+- [ ] **SAMPLE ROGUE** *(line 27,507)*
+- [ ] **MINOR MAGIC** *(line 27,509)*
+- [ ] **MOBILITY** *(line 27,521)*
+- [ ] **SECRET** *(line 27,564)*
+- [ ] **DREAD STRIKER** *(line 27,589)*
+- [ ] **SCOUNDREL** *(line 27,591)*
+- [ ] **MAGICAL TRICKSTER** *(line 27,656)*
+- [ ] **INCAPACITATION ROGUE** *(line 27,708)*
+- [ ] **LIGHT STEP** *(line 27,761)*
+- [ ] **THIEF** *(line 27,791)*
+- [ ] **IMPROVED POISON WEAPON** *(line 27,873)*
+- [ ] **NIMBLE ROLL** *(line 27,886)*
+- [ ] **SLY STRIKER** *(line 27,929)*
+- [ ] **SNEAK SAVANT** *(line 27,971)*
+- [ ] **TACTICAL DEBILITATIONS** *(line 27,986)*
+- [ ] **VICIOUS DEBILITATIONS** *(line 28,009)*
+- [ ] **LEAVE AN OPENING** *(line 28,154)*
+- [ ] **CLOUD STEP** *(line 28,197)*
+- [ ] **MOVE** *(line 28,296)*
+- [ ] **IMPOSSIBLE STRIKER** *(line 28,319)*
+- [ ] **POWERFUL SNEAK** *(line 28,329)*
+- [ ] **THE BLESSED AND THE DAMNED** *(line 29,162)*
+- [ ] **SAMPLE SORCERER** *(line 29,389)*
+- [ ] **FEY-TOUCHED** *(line 29,420)*
+- [ ] **BLOODLINE** *(line 29,476)*
+- [ ] **SORCERER** *(line 29,607)*
+- [ ] **SORCERER FEATS** *(line 29,805)*
+- [ ] **DEMONBLOOD** *(line 29,982)*
+- [ ] **DETECTION** *(line 30,203)*
+- [ ] **WIZARD** *(line 30,864)*
+- [ ] **SAMPLE SPELLBOOK** *(line 30,942)*
+- [ ] **SAMPLE WIZARD** *(line 31,233)*
+- [ ] **CONJURER** *(line 31,264)*
+- [ ] **SPECIALIZATION** *(line 31,278)*
+- [ ] **THESIS** *(line 31,281)*
+- [ ] **FAMILIAR** *(line 31,411)*
+- [ ] **HAND OF THE APPRENTICE** *(line 31,420)*
+- [ ] **ENHANCED FAMILIAR** *(line 31,529)*
+- [ ] **KEY TERM** *(line 31,531)*
+- [ ] **LINKED FOCUS** *(line 31,560)*
+- [ ] **WIZARD FEATS** *(line 31,627)*
+- [ ] **ILLUSIONIST** *(line 31,849)*
+- [ ] **SUPERIOR BOND** *(line 31,955)*
+- [ ] **DEDICATION** *(line 32,920)*
+- [ ] **MULTICLASS** *(line 32,924)*
+- [ ] **BASIC CONCOCTION** *(line 32,940)*
+- [ ] **ARCHETYPE** *(line 32,959)*
+- [ ] **QUICK ALCHEMY** *(line 32,964)*
+- [ ] **ADVANCED CONCOCTION** *(line 32,973)*
+- [ ] **EXPERT ALCHEMY** *(line 32,986)*
+- [ ] **MASTER ALCHEMY** *(line 32,996)*
+- [ ] **BASIC FURY** *(line 33,023)*
+- [ ] **ADVANCED FURY** *(line 33,034)*
+- [ ] **BARBARIAN DEDICATION** *(line 33,042)*
+- [ ] **BARBARIAN RESILIENCY** *(line 33,062)*
+- [ ] **BASIC CLERIC SPELLCASTING** *(line 33,480)*
+- [ ] **BASIC DOGMA** *(line 33,491)*
+- [ ] **CLERIC DEDICATION** *(line 33,504)*
+- [ ] **ADVANCED DOGMA** *(line 33,511)*
+- [ ] **DIVINE BREADTH** *(line 33,526)*
+- [ ] **EXPERT CLERIC SPELLCASTING** *(line 33,537)*
+- [ ] **MASTER CLERIC SPELLCASTING** *(line 33,546)*
+- [ ] **DRUID DEDICATION** *(line 33,584)*
+- [ ] **BASIC DRUID SPELLCASTING** *(line 33,610)*
+
+## [ ] Chapter 4: Skills
+*Lines 34,551–37,693 (3,142 lines)*
+
+- [ ] **IMPROVING SKILLS** *(line 34,599)*
+- [ ] **SKILL INCREASES** *(line 34,607)*
+- [ ] **SKILL FEATS** *(line 34,644)*
+- [ ] **DECIPHER WRITING** *(line 34,797)*
+- [ ] **SECRET** *(line 34,802)*
+- [ ] **ENDING OR INTERRUPTING TASKS** *(line 35,015)*
+- [ ] **EXTRA PREPARATION** *(line 35,042)*
+- [ ] **EARN INCOME** *(line 35,063)*
+- [ ] **INCOME EXAMPLES** *(line 35,292)*
+- [ ] **HARSK MAKES TEA** *(line 35,304)*
+- [ ] **LEM PERFORMS** *(line 35,351)*
+- [ ] **IDENTIFY MAGIC** *(line 35,412)*
+- [ ] **LEARN A SPELL** *(line 35,463)*
+- [ ] **SUBSIST** *(line 35,658)*
+- [ ] **MOVE** *(line 35,697)*
+- [ ] **SQUEEZE** *(line 35,808)*
+- [ ] **BORROW AN ARCANE SPELL** *(line 35,879)*
+- [ ] **FALLING** *(line 36,088)*
+- [ ] **ATTACK** *(line 36,130)*
+- [ ] **REPAIR** *(line 36,191)*
+- [ ] **MANIPULATE** *(line 36,199)*
+- [ ] **CRAFT** *(line 36,242)*
+- [ ] **CRAFTING EXAMPLE** *(line 36,330)*
+- [ ] **IMPERSONATE** *(line 36,365)*
+- [ ] **CONCENTRATE** *(line 36,367)*
+- [ ] **IDENTIFY ALCHEMY** *(line 36,423)*
+- [ ] **MENTAL** *(line 36,427)*
+- [ ] **LINGUISTIC** *(line 36,487)*
+- [ ] **GATHER INFORMATION** *(line 36,538)*
+- [ ] **MAKE AN IMPRESSION** *(line 36,564)*
+- [ ] **COERCE** *(line 36,659)*
+- [ ] **EMOTION** *(line 36,707)*
+- [ ] **FEAR** *(line 36,709)*
+- [ ] **COMMON LORE SUBCATEGORIES** *(line 36,783)*
+- [ ] **TREAT WOUNDS** *(line 36,932)*
+- [ ] **HEALING** *(line 36,935)*
+- [ ] **COMMANDED ANIMALS** *(line 36,987)*
+- [ ] **CREATE FORGERY** *(line 37,217)*
+- [ ] **BEING STEALTHY** *(line 37,220)*
+- [ ] **OBSERVED** *(line 37,285)*
+- [ ] **HIDDEN** *(line 37,331)*
+- [ ] **UNDETECTED** *(line 37,341)*
+- [ ] **SENSE DIRECTION** *(line 37,393)*
+- [ ] **TRACK** *(line 37,495)*
+
+## [ ] Chapter 5: Feats
+*Lines 37,694–40,554 (2,860 lines)*
+
+- [ ] **FEATS** *(line 38,130)*
+- [ ] **ADDITIONAL LORE** *(line 38,366)*
+- [ ] **FEAT 1** *(line 38,369)*
+- [ ] **SKILL** *(line 38,371)*
+- [ ] **ADOPTED ANCESTRY** *(line 38,382)*
+- [ ] **GENERAL** *(line 38,386)*
+- [ ] **ALCHEMICAL CRAFTING** *(line 38,396)*
+- [ ] **ANCESTRAL PARAGON** *(line 38,411)*
+- [ ] **FEAT 3** *(line 38,413)*
+- [ ] **ARCANE SENSE** *(line 38,420)*
+- [ ] **ARMOR PROFICIENCY** *(line 38,433)*
+- [ ] **ASSURANCE** *(line 38,445)*
+- [ ] **AUTOMATIC KNOWLEDGE** *(line 38,462)*
+- [ ] **FEAT 2** *(line 38,465)*
+- [ ] **BARGAIN HUNTER** *(line 38,481)*
+- [ ] **BATTLE CRY** *(line 38,499)*
+- [ ] **FEAT 7** *(line 38,504)*
+- [ ] **HEALING** *(line 38,517)*
+- [ ] **MANIPULATE** *(line 38,519)*
+- [ ] **BIZARRE MAGIC** *(line 38,534)*
+- [ ] **BONDED ANIMAL** *(line 38,580)*
+- [ ] **BREATH CONTROL** *(line 38,601)*
+- [ ] **CANNY ACUMEN** *(line 38,614)*
+- [ ] **CAT FALL** *(line 38,626)*
+- [ ] **CHARMING LIAR** *(line 38,644)*
+- [ ] **CLOUD JUMP** *(line 38,674)*
+- [ ] **FEAT 15** *(line 38,677)*
+- [ ] **COMBAT CLIMBER** *(line 38,691)*
+- [ ] **CONFABULATOR** *(line 38,703)*
+- [ ] **CONNECTIONS** *(line 38,720)*
+- [ ] **CONTINUAL RECOVERY** *(line 38,738)*
+- [ ] **COURTLY GRACES** *(line 38,752)*
+- [ ] **CRAFT ANYTHING** *(line 38,769)*
+- [ ] **DIEHARD** *(line 38,788)*
+- [ ] **DIVINE GUIDANCE** *(line 38,797)*
+- [ ] **DUBIOUS KNOWLEDGE** *(line 38,816)*
+- [ ] **EXPEDITIOUS SEARCH** *(line 38,832)*
+- [ ] **EXPERIENCED PROFESSIONAL** *(line 38,862)*
+- [ ] **EXPERIENCED SMUGGLER** *(line 38,876)*
+- [ ] **EXPERIENCED TRACKER** *(line 38,897)*
+- [ ] **FASCINATING PERFORMANCE** *(line 38,904)*
+- [ ] **FAST RECOVERY** *(line 38,923)*
+- [ ] **FEATHER STEP** *(line 38,925)*
+- [ ] **FLEET** *(line 38,942)*
+- [ ] **FOIL SENSES** *(line 38,958)*
+- [ ] **FORAGER** *(line 38,972)*
+- [ ] **GLAD-HAND** *(line 39,016)*
+- [ ] **GROUP COERCION** *(line 39,058)*
+- [ ] **GROUP IMPRESSION** *(line 39,068)*
+- [ ] **HEFTY HAULER** *(line 39,082)*
+- [ ] **HOBNOBBER** *(line 39,093)*
+- [ ] **IMPECCABLE CRAFTING** *(line 39,117)*
+- [ ] **IMPRESSIVE PERFORMANCE** *(line 39,129)*
+- [ ] **INCREDIBLE INITIATIVE** *(line 39,140)*
+- [ ] **INCREDIBLE INVESTITURE** *(line 39,149)*
+- [ ] **FEAT 11** *(line 39,154)*
+- [ ] **INTIMIDATING GLARE** *(line 39,159)*
+- [ ] **INTIMIDATING PROWESS** *(line 39,171)*
+- [ ] **INVENTOR** *(line 39,185)*
+- [ ] **LASTING COERCION** *(line 39,216)*
+- [ ] **LEGENDARY CODEBREAKER** *(line 39,228)*
+- [ ] **LEGENDARY LINGUIST** *(line 39,258)*
+- [ ] **LEGENDARY SNEAK** *(line 39,265)*
+- [ ] **LEGENDARY MEDIC** *(line 39,294)*
+- [ ] **LEGENDARY SURVIVALIST** *(line 39,296)*
+- [ ] **LEGENDARY PERFORMER** *(line 39,332)*
+- [ ] **LEGENDARY PROFESSIONAL** *(line 39,353)*
+- [ ] **LEGENDARY THIEF** *(line 39,383)*
+- [ ] **LENGTHY DIVERSION** *(line 39,407)*
+- [ ] **LIE TO ME** *(line 39,433)*
+- [ ] **MAGICAL CRAFTING** *(line 39,447)*
+- [ ] **SECRET** *(line 39,729)*
+- [ ] **RIDE** *(line 39,847)*
+- [ ] **ROBUST RECOVERY** *(line 39,856)*
+- [ ] **FEAR** *(line 39,882)*
+- [ ] **INCAPACITATION** *(line 39,888)*
+- [ ] **SHAMELESS REQUEST** *(line 39,907)*
+- [ ] **SIGN LANGUAGE** *(line 39,938)*
+- [ ] **SKILL TRAINING** *(line 39,956)*
+- [ ] **SLIPPERY SECRETS** *(line 39,970)*
+- [ ] **SNARE CRAFTING** *(line 39,984)*
+- [ ] **SPECIALTY CRAFTING** *(line 39,996)*
+- [ ] **STEADY BALANCE** *(line 40,054)*
+- [ ] **STREETWISE** *(line 40,069)*
+- [ ] **STUDENT OF THE CANON** *(line 40,088)*
+- [ ] **SUBTLE THEFT** *(line 40,104)*
+- [ ] **SURVEY WILDLIFE** *(line 40,125)*
+- [ ] **SWIFT SNEAK** *(line 40,130)*
+- [ ] **TERRAIN EXPERTISE** *(line 40,141)*
+- [ ] **TERRAIN STALKER** *(line 40,195)*
+- [ ] **TERRIFIED RETREAT** *(line 40,226)*
+- [ ] **TITAN WRESTLER** *(line 40,233)*
+- [ ] **TOUGHNESS** *(line 40,245)*
+- [ ] **UNDERWATER MARAUDER** *(line 40,261)*
+- [ ] **TRAIN ANIMAL** *(line 40,277)*
+- [ ] **UNIFIED THEORY** *(line 40,279)*
+- [ ] **UNMISTAKABLE LORE** *(line 40,360)*
+- [ ] **VIRTUOSIC PERFORMER** *(line 40,388)*
+- [ ] **WALL JUMP** *(line 40,448)*
+- [ ] **WARD MEDIC** *(line 40,451)*
+- [ ] **WARY DISARMAMENT** *(line 40,480)*
+- [ ] **WEAPON PROFICIENCY** *(line 40,510)*
+
+## [ ] Chapter 6: Equipment
+*Lines 40,555–45,207 (4,652 lines)*
+
+- [ ] **EQUIPMENT** *(line 40,858)*
+- [ ] **MATERIALS** *(line 41,299)*
+- [ ] **DAMAGING ARMOR** *(line 41,412)*
+- [ ] **SELECTING WEAPONS** *(line 41,796)*
+
+## [ ] Chapter 7: Spells
+*Lines 45,208–65,985 (20,777 lines)*
+
+- [ ] **SPELLBOOKS** *(line 45,241)*
+- [ ] **SPELL ATTACK ROLL AND SPELL DC** *(line 45,317)*
+- [ ] **DISBELIEVING ILLUSIONS** *(line 45,349)*
+- [ ] **SPELLS** *(line 45,441)*
+- [ ] **MAGICAL TRADITIONS** *(line 45,445)*
+- [ ] **THE FOUR ESSENCES** *(line 45,633)*
+- [ ] **REFOCUS** *(line 45,776)*
+- [ ] **OTHER SPELL TRAITS** *(line 45,811)*
+- [ ] **FOCUS POINTS FROM MULTIPLE SOURCES** *(line 45,956)*
+- [ ] **CAST A SPELL** *(line 46,054)*
+- [ ] **COMPONENT SUBSTITUTIONS** *(line 46,139)*
+- [ ] **METAMAGIC** *(line 46,219)*
+- [ ] **CONCENTRATE** *(line 46,400)*
+- [ ] **SPELL 5** *(line 48,709)*
+- [ ] **NECROMANCY** *(line 48,712)*
+- [ ] **ACID ARROW** *(line 48,733)*
+- [ ] **ATTACK** *(line 48,736)*
+- [ ] **SPELL 2** *(line 48,738)*
+- [ ] **EVOCATION** *(line 48,740)*
+- [ ] **DISEASE** *(line 48,756)*
+- [ ] **AERIAL FORM** *(line 48,758)*
+- [ ] **ACID SPLASH** *(line 48,760)*
+- [ ] **CANTRIP** *(line 48,765)*
+- [ ] **CANTRIP 1** *(line 48,767)*
+- [ ] **POLYMORPH** *(line 48,790)*
+- [ ] **SPELL 4** *(line 48,792)*
+- [ ] **TRANSMUTATION** *(line 48,794)*
+- [ ] **AIR BUBBLE** *(line 48,843)*
+- [ ] **SPELL 1** *(line 48,848)*
+- [ ] **CONJURATION** *(line 48,850)*
+- [ ] **ALARM** *(line 48,897)*
+- [ ] **ANIMAL FORM** *(line 48,899)*
+- [ ] **AIR WALK** *(line 48,901)*
+- [ ] **ABJURATION** *(line 48,910)*
+- [ ] **ALTER REALITY** *(line 48,933)*
+- [ ] **SPELL 10** *(line 48,935)*
+- [ ] **DIVINATION** *(line 48,937)*
+- [ ] **ANATHEMATIC REPRISAL** *(line 48,952)*
+- [ ] **MENTAL** *(line 48,957)*
+- [ ] **ANIMAL MESSENGER** *(line 49,060)*
+- [ ] **ANIMAL VISION** *(line 49,085)*
+- [ ] **SPELL 3** *(line 49,088)*
+- [ ] **ANT HAUL** *(line 49,105)*
+- [ ] **ANTIMAGIC FIELD** *(line 49,119)*
+- [ ] **SPELL 8** *(line 49,122)*
+- [ ] **AUGURY** *(line 49,150)*
+- [ ] **PREDICTION** *(line 49,157)*
+- [ ] **AVATAR** *(line 49,176)*
+- [ ] **BALEFUL POLYMORPH** *(line 49,373)*
+- [ ] **SPELL 6** *(line 49,378)*
+- [ ] **BANE** *(line 49,399)*
+- [ ] **ENCHANTMENT** *(line 49,403)*
+- [ ] **BANISHMENT** *(line 49,419)*
+- [ ] **INCAPACITATION** *(line 49,424)*
+- [ ] **BARKSKIN** *(line 49,446)*
+- [ ] **BIND SOUL** *(line 49,466)*
+- [ ] **EVIL** *(line 49,469)*
+- [ ] **SPELL 9** *(line 49,471)*
+- [ ] **BIND UNDEAD** *(line 49,504)*
+- [ ] **BLACK TENTACLES** *(line 49,519)*
+- [ ] **BLADE BARRIER** *(line 49,543)*
+- [ ] **FORCE** *(line 49,548)*
+- [ ] **BLESS** *(line 49,568)*
+- [ ] **BLINDNESS** *(line 49,587)*
+- [ ] **INCAPACITATION NECROMANCY** *(line 49,591)*
+- [ ] **BLINK** *(line 49,605)*
+- [ ] **TELEPORTATION** *(line 49,633)*
+- [ ] **BLUR** *(line 49,646)*
+- [ ] **BREATH OF LIFE** *(line 49,671)*
+- [ ] **BURNING HANDS** *(line 49,686)*
+- [ ] **FIRE** *(line 49,691)*
+- [ ] **CALM EMOTIONS** *(line 49,693)*
+- [ ] **CATACLYSM** *(line 49,719)*
+- [ ] **COLD** *(line 49,724)*
+- [ ] **CHAIN LIGHTNING** *(line 49,737)*
+- [ ] **ELECTRICITY** *(line 49,757)*
+- [ ] **WATER** *(line 49,763)*
+- [ ] **CHARM** *(line 49,802)*
+- [ ] **CHILL TOUCH** *(line 49,860)*
+- [ ] **CHILLING DARKNESS** *(line 49,887)*
+- [ ] **COLD DARKNESS** *(line 49,890)*
+- [ ] **CHROMATIC WALL** *(line 49,914)*
+- [ ] **MAGIC AND MORALITY** *(line 49,929)*
+- [ ] **CIRCLE OF PROTECTION** *(line 50,038)*
+- [ ] **CLAIRAUDIENCE** *(line 50,066)*
+- [ ] **SCRYING** *(line 50,071)*
+- [ ] **CLAIRVOYANCE** *(line 50,082)*
+- [ ] **CLOAK OF COLORS** *(line 50,099)*
+- [ ] **VISUAL** *(line 50,104)*
+- [ ] **CLOUDKILL** *(line 50,120)*
+- [ ] **POISON** *(line 50,127)*
+- [ ] **COLLECTIVE TRANSPOSITION** *(line 50,139)*
+- [ ] **COLOR SPRAY** *(line 50,161)*
+- [ ] **COMMAND** *(line 50,213)*
+- [ ] **COMPREHEND LANGUAGE** *(line 50,239)*
+- [ ] **CONE OF COLD** *(line 50,259)*
+- [ ] **CONFUSION** *(line 50,281)*
+- [ ] **CONTINGENCY** *(line 50,316)*
+- [ ] **SPELL 7** *(line 50,343)*
+- [ ] **CONTINUAL FLAME** *(line 50,347)*
+- [ ] **LIGHT** *(line 50,352)*
+- [ ] **CONTROL WATER** *(line 50,364)*
+- [ ] **CREATE FOOD** *(line 50,378)*
+- [ ] **CREATE WATER** *(line 50,399)*
+- [ ] **CREATION** *(line 50,413)*
+- [ ] **CRISIS OF FAITH** *(line 50,433)*
+- [ ] **CRUSADE** *(line 50,470)*
+- [ ] **LINGUISTIC** *(line 50,476)*
+- [ ] **DARKNESS** *(line 50,480)*
+- [ ] **CRUSHING DESPAIR** *(line 50,511)*
+- [ ] **DANCING LIGHTS** *(line 50,534)*
+- [ ] **DARKVISION** *(line 50,581)*
+- [ ] **DAZE** *(line 50,598)*
+- [ ] **NONLETHAL** *(line 50,626)*
+- [ ] **DEAFNESS** *(line 50,638)*
+- [ ] **DEATH KNELL** *(line 50,666)*
+- [ ] **DEATH WARD** *(line 50,669)*
+- [ ] **DETECT ALIGNMENT** *(line 50,684)*
+- [ ] **DETECTION** *(line 50,687)*
+- [ ] **DETECT MAGIC** *(line 50,689)*
+- [ ] **ALIGNMENT AURA** *(line 50,729)*
+- [ ] **DETECT POISON** *(line 50,756)*
+- [ ] **DETECT SCRYING** *(line 50,789)*
+- [ ] **DIMENSION DOOR** *(line 50,810)*
+- [ ] **DIMENSIONAL ANCHOR** *(line 50,876)*
+- [ ] **DIMENSIONAL LOCK** *(line 50,896)*
+- [ ] **DINOSAUR FORM** *(line 50,916)*
+- [ ] **DISAPPEARANCE** *(line 50,997)*
+- [ ] **ILLUSION** *(line 51,001)*
+- [ ] **DISCERN LIES** *(line 51,015)*
+- [ ] **REVELATION** *(line 51,023)*
+- [ ] **DISCERN LOCATION** *(line 51,032)*
+- [ ] **DISINTEGRATE** *(line 51,052)*
+- [ ] **DISJUNCTION** *(line 51,075)*
+- [ ] **DISPEL MAGIC** *(line 51,092)*
+- [ ] **DISRUPT UNDEAD** *(line 51,123)*
+- [ ] **DIVINE AURA** *(line 51,163)*
+- [ ] **DIVINE INSPIRATION** *(line 51,165)*
+- [ ] **POSITIVE** *(line 51,171)*
+- [ ] **DISRUPTING WEAPONS** *(line 51,183)*
+- [ ] **AURA** *(line 51,194)*
+- [ ] **DIVINE DECREE** *(line 51,221)*
+- [ ] **DIVINE LANCE** *(line 51,246)*
+- [ ] **DIVINE VESSEL** *(line 51,288)*
+- [ ] **DIVINE WRATH** *(line 51,337)*
+- [ ] **DOMINATE** *(line 51,367)*
+- [ ] **DRAGON FORM** *(line 51,397)*
+- [ ] **DREAM COUNCIL** *(line 51,522)*
+- [ ] **DREAM MESSAGE** *(line 51,542)*
+- [ ] **DREAMING POTENTIAL** *(line 51,564)*
+- [ ] **DROP DEAD** *(line 51,604)*
+- [ ] **DUPLICATE FOE** *(line 51,641)*
+- [ ] **EARTHBIND** *(line 51,683)*
+- [ ] **EARTHQUAKE** *(line 51,705)*
+- [ ] **ECLIPSE BURST** *(line 51,747)*
+- [ ] **NEGATIVE** *(line 51,757)*
+- [ ] **ELECTRIC ARC** *(line 51,795)*
+- [ ] **ELEMENTAL FORM** *(line 51,812)*
+- [ ] **ENDURE ELEMENTS** *(line 51,871)*
+- [ ] **ENERGY AEGIS** *(line 51,889)*
+- [ ] **ENHANCE VICTUALS** *(line 51,926)*
+- [ ] **ENLARGE** *(line 51,960)*
+- [ ] **ENTANGLE** *(line 51,979)*
+- [ ] **ENTHRALL** *(line 52,006)*
+- [ ] **EMOTION** *(line 52,009)*
+- [ ] **ETHEREAL JAUNT** *(line 52,043)*
+- [ ] **FABRICATED TRUTH** *(line 52,070)*
+- [ ] **FAERIE FIRE** *(line 52,119)*
+- [ ] **FALSE LIFE** *(line 52,136)*
+- [ ] **FALSE VISION** *(line 52,150)*
+- [ ] **FEAR** *(line 52,171)*
+- [ ] **FEEBLEMIND** *(line 52,215)*
+- [ ] **FEET TO FINS** *(line 52,224)*
+- [ ] **FIELD OF LIFE** *(line 52,241)*
+- [ ] **FEATHER FALL** *(line 52,256)*
+- [ ] **FIERY BODY** *(line 52,300)*
+- [ ] **FINGER OF DEATH** *(line 52,338)*
+- [ ] **FIRE SEEDS** *(line 52,351)*
+- [ ] **FIRE SHIELD** *(line 52,390)*
+- [ ] **FIREBALL** *(line 52,409)*
+- [ ] **FLAME STRIKE** *(line 52,423)*
+- [ ] **FLAMING SPHERE** *(line 52,442)*
+- [ ] **FLEET STEP** *(line 52,467)*
+- [ ] **FLESH TO STONE** *(line 52,512)*
+- [ ] **FLOATING DISK** *(line 52,537)*
+- [ ] **FORBIDDING WARD** *(line 52,576)*
+- [ ] **FORESIGHT** *(line 52,605)*
+- [ ] **GATE** *(line 52,607)*
+- [ ] **FREEDOM OF MOVEMENT** *(line 52,617)*
+- [ ] **GASEOUS FORM** *(line 52,635)*
+- [ ] **GENTLE REPOSE** *(line 52,706)*
+- [ ] **GHOST SOUND** *(line 52,726)*
+- [ ] **GHOSTLY WEAPON** *(line 52,748)*
+- [ ] **GHOULISH CRAVINGS** *(line 52,780)*
+- [ ] **GLIBNESS** *(line 52,807)*
+- [ ] **GLITTERDUST** *(line 52,824)*
+- [ ] **GLOBE OF INVULNERABILITY** *(line 52,847)*
+- [ ] **GLYPH OF WARDING** *(line 52,877)*
+- [ ] **GOBLIN POX** *(line 52,909)*
+- [ ] **GREASE** *(line 52,963)*
+- [ ] **GRIM TENDRILS** *(line 53,001)*
+- [ ] **GUIDANCE** *(line 53,025)*
+- [ ] **GUST OF WIND** *(line 53,043)*
+- [ ] **HALLUCINATION** *(line 53,068)*
+- [ ] **HALLUCINATORY TERRAIN** *(line 53,128)*
+- [ ] **HARM** *(line 53,147)*
+- [ ] **HASTE** *(line 53,175)*
+- [ ] **HEAL** *(line 53,224)*
+- [ ] **HEROISM** *(line 53,231)*
+- [ ] **HIDEOUS LAUGHTER** *(line 53,265)*
+- [ ] **HOLY CASCADE** *(line 53,297)*
+- [ ] **GOOD** *(line 53,300)*
+- [ ] **HORRID WILTING** *(line 53,338)*
+- [ ] **HYDRAULIC TORRENT** *(line 53,340)*
+- [ ] **HYDRAULIC PUSH** *(line 53,365)*
+- [ ] **HUMANOID FORM** *(line 53,367)*
+- [ ] **HYPERCOGNITION** *(line 53,418)*
+- [ ] **HYPNOTIC PATTERN** *(line 53,434)*
+- [ ] **ILLUSORY CREATURE** *(line 53,472)*
+- [ ] **OLFACTORY** *(line 53,479)*
+- [ ] **ILLUSORY DISGUISE** *(line 53,528)*
+- [ ] **ILLUSORY OBJECT** *(line 53,561)*
+- [ ] **ILLUSORY SCENE** *(line 53,586)*
+- [ ] **IMPLOSION** *(line 53,672)*
+- [ ] **INSECT FORM** *(line 53,692)*
+- [ ] **INVISIBILITY** *(line 53,765)*
+- [ ] **INVISIBILITY SPHERE** *(line 53,783)*
+- [ ] **ITEM FACADE** *(line 53,807)*
+- [ ] **JUMP** *(line 53,839)*
+- [ ] **KNOCK** *(line 53,872)*
+- [ ] **KNOW DIRECTION** *(line 53,900)*
+- [ ] **LEVITATE** *(line 53,913)*
+- [ ] **LIGHTNING BOLT** *(line 53,961)*
+- [ ] **LOCATE** *(line 53,976)*
+- [ ] **LOCK** *(line 54,002)*
+- [ ] **LONGSTRIDER** *(line 54,028)*
+- [ ] **MAGE ARMOR** *(line 54,043)*
+- [ ] **MAGE HAND** *(line 54,078)*
+- [ ] **MAGIC AURA** *(line 54,102)*
+- [ ] **MAGIC FANG** *(line 54,128)*
+- [ ] **MAGIC MISSILE** *(line 54,144)*
+- [ ] **MAGIC MOUTH** *(line 54,175)*
+- [ ] **AUDITORY** *(line 54,180)*
+- [ ] **MAGIC WEAPON** *(line 54,197)*
+- [ ] **MAGNIFICENT MANSION** *(line 54,230)*
+- [ ] **EXTRADIMENSIONAL** *(line 54,237)*
+- [ ] **MASK OF TERROR** *(line 54,307)*
+- [ ] **MASSACRE** *(line 54,340)*
+- [ ] **MAZE** *(line 54,370)*
+- [ ] **MELD INTO STONE** *(line 54,403)*
+- [ ] **MENDING** *(line 54,440)*
+- [ ] **MESSAGE** *(line 54,458)*
+- [ ] **METEOR SWARM** *(line 54,485)*
+- [ ] **MIND BLANK** *(line 54,508)*
+- [ ] **MIND PROBE** *(line 54,534)*
+- [ ] **MIND READING** *(line 54,564)*
+- [ ] **MINDLINK** *(line 54,623)*
+- [ ] **MIRACLE** *(line 54,633)*
+- [ ] **MIRROR IMAGE** *(line 54,664)*
+- [ ] **MISDIRECTION** *(line 54,689)*
+- [ ] **MISLEAD** *(line 54,708)*
+- [ ] **MODIFY MEMORY** *(line 54,739)*
+- [ ] **MOMENT OF RENEWAL** *(line 54,790)*
+- [ ] **MONSTROSITY FORM** *(line 54,809)*
+- [ ] **MOON FRENZY** *(line 54,876)*
+- [ ] **NATURE INCARNATE** *(line 54,948)*
+- [ ] **NEGATE AROMA** *(line 55,039)*
+- [ ] **NEUTRALIZE POISON** *(line 55,059)*
+- [ ] **NIGHTMARE** *(line 55,075)*
+- [ ] **NONDETECTION** *(line 55,138)*
+- [ ] **OBSCURING MIST** *(line 55,157)*
+- [ ] **MISFORTUNE** *(line 55,185)*
+- [ ] **OVERWHELMING PRESENCE** *(line 55,216)*
+- [ ] **PARALYZE** *(line 55,248)*
+- [ ] **PARANOIA** *(line 55,278)*
+- [ ] **PASS WITHOUT TRACE** *(line 55,308)*
+- [ ] **PASSWALL** *(line 55,327)*
+- [ ] **EARTH** *(line 55,333)*
+- [ ] **PEST FORM** *(line 55,354)*
+- [ ] **PHANTASMAL CALAMITY** *(line 55,398)*
+- [ ] **PHANTASMAL KILLER** *(line 55,418)*
+- [ ] **PHANTOM PAIN** *(line 55,453)*
+- [ ] **ILLUSION MENTAL NONLETHAL** *(line 55,457)*
+- [ ] **PHANTOM STEED** *(line 55,477)*
+- [ ] **PLANE SHIFT** *(line 55,501)*
+- [ ] **PLANT FORM** *(line 55,563)*
+- [ ] **POLAR RAY** *(line 55,568)*
+- [ ] **POSSESSION** *(line 55,573)*
+- [ ] **POWER WORD BLIND** *(line 55,682)*
+- [ ] **POWER WORD KILL** *(line 55,709)*
+- [ ] **POWER WORD STUN** *(line 55,753)*
+- [ ] **PRESTIDIGITATION** *(line 55,777)*
+- [ ] **PRIMAL HERD** *(line 55,805)*
+- [ ] **PRIMAL PHENOMENON** *(line 55,843)*
+- [ ] **PRISMATIC SPHERE** *(line 55,887)*
+- [ ] **PRISMATIC SPRAY** *(line 55,923)*
+- [ ] **PRIVATE SANCTUM** *(line 55,938)*
+- [ ] **PRISMATIC WALL** *(line 55,999)*
+- [ ] **PRODUCE FLAME** *(line 56,055)*
+- [ ] **PROJECT IMAGE** *(line 56,082)*
+- [ ] **PROTECTION** *(line 56,140)*
+- [ ] **PRYING EYE** *(line 56,163)*
+- [ ] **PUNISHING WINDS** *(line 56,192)*
+- [ ] **PURIFY FOOD AND DRINK** *(line 56,229)*
+- [ ] **PURPLE WORM STING** *(line 56,239)*
+- [ ] **RAISE DEAD** *(line 56,271)*
+- [ ] **HEALING** *(line 56,274)*
+- [ ] **RAY OF ENFEEBLEMENT** *(line 56,312)*
+- [ ] **RAY OF FROST** *(line 56,333)*
+- [ ] **READ AURA** *(line 56,355)*
+- [ ] **REGENERATE** *(line 56,424)*
+- [ ] **REMOVE DISEASE** *(line 56,426)*
+- [ ] **READ OMENS** *(line 56,428)*
+- [ ] **REMAKE** *(line 56,469)*
+- [ ] **REMOVE CURSE** *(line 56,471)*
+- [ ] **REMOVE FEAR** *(line 56,504)*
+- [ ] **REMOVE PARALYSIS** *(line 56,520)*
+- [ ] **REPULSION** *(line 56,554)*
+- [ ] **RESILIENT SPHERE** *(line 56,592)*
+- [ ] **RESIST ENERGY** *(line 56,619)*
+- [ ] **RESPLENDENT MANSION** *(line 56,638)*
+- [ ] **RESTORATION** *(line 56,669)*
+- [ ] **RESTORE SENSES** *(line 56,702)*
+- [ ] **RETROCOGNITION** *(line 56,759)*
+- [ ] **REVERSE GRAVITY** *(line 56,792)*
+- [ ] **REVIVAL** *(line 56,833)*
+- [ ] **RIGHTEOUS MIGHT** *(line 56,855)*
+- [ ] **ROPE TRICK** *(line 56,910)*
+- [ ] **SANCTIFIED GROUND** *(line 56,942)*
+- [ ] **CONSECRATION** *(line 56,947)*
+- [ ] **SANCTUARY** *(line 56,959)*
+- [ ] **SCINTILLATING PATTERN** *(line 56,998)*
+- [ ] **SEARING LIGHT** *(line 57,056)*
+- [ ] **SECRET PAGE** *(line 57,086)*
+- [ ] **SEE INVISIBILITY** *(line 57,106)*
+- [ ] **SENDING** *(line 57,120)*
+- [ ] **SHADOW BLAST** *(line 57,155)*
+- [ ] **SHADOW** *(line 57,160)*
+- [ ] **SHADOW SIPHON** *(line 57,184)*
+- [ ] **SHADOW WALK** *(line 57,198)*
+- [ ] **SHAPE STONE** *(line 57,239)*
+- [ ] **SHAPE WOOD** *(line 57,259)*
+- [ ] **SHAPECHANGE** *(line 57,277)*
+- [ ] **SHIELD** *(line 57,313)*
+- [ ] **SHIELD ACTIONS** *(line 57,351)*
+- [ ] **SHRINK** *(line 57,353)*
+- [ ] **SHIELD OTHER** *(line 57,368)*
+- [ ] **SHRINK ITEM** *(line 57,395)*
+- [ ] **PLANT** *(line 57,421)*
+- [ ] **SHOCKING GRASP** *(line 57,453)*
+- [ ] **SIGIL** *(line 57,458)*
+- [ ] **SHILLELAGH** *(line 57,484)*
+- [ ] **SILENCE** *(line 57,507)*
+- [ ] **SLEEP** *(line 57,555)*
+- [ ] **SLOW** *(line 57,592)*
+- [ ] **SOLID FOG** *(line 57,609)*
+- [ ] **SOOTHE** *(line 57,623)*
+- [ ] **SOUND BURST** *(line 57,643)*
+- [ ] **SONIC** *(line 57,648)*
+- [ ] **SPEAK WITH ANIMALS** *(line 57,663)*
+- [ ] **SPEAK WITH PLANTS** *(line 57,679)*
+- [ ] **SPECTRAL HAND** *(line 57,698)*
+- [ ] **SPELL IMMUNITY** *(line 57,733)*
+- [ ] **SPELL TURNING** *(line 57,751)*
+- [ ] **SPELLWRACK** *(line 57,773)*
+- [ ] **CURSE** *(line 57,776)*
+- [ ] **SPIDER CLIMB** *(line 57,821)*
+- [ ] **SPIDER STING** *(line 57,824)*
+- [ ] **SPIRIT BLAST** *(line 57,847)*
+- [ ] **SPIRIT LINK** *(line 57,883)*
+- [ ] **SPIRIT SONG** *(line 57,928)*
+- [ ] **SPIRITUAL EPIDEMIC** *(line 57,953)*
+- [ ] **SPIRITUAL GUARDIAN** *(line 57,991)*
+- [ ] **SPIRITUAL WEAPON** *(line 58,042)*
+- [ ] **STABILIZE** *(line 58,078)*
+- [ ] **STATUS** *(line 58,095)*
+- [ ] **STINKING CLOUD** *(line 58,112)*
+- [ ] **STONE TELL** *(line 58,166)*
+- [ ] **STONE TO FLESH** *(line 58,181)*
+- [ ] **SUBCONSCIOUS SUGGESTION** *(line 58,183)*
+- [ ] **STONESKIN** *(line 58,205)*
+- [ ] **STORM OF VENGEANCE** *(line 58,247)*
+- [ ] **SUGGESTION** *(line 58,302)*
+- [ ] **SUMMON ANIMAL** *(line 58,350)*
+- [ ] **SUMMON CELESTIAL** *(line 58,374)*
+- [ ] **SUMMON CONSTRUCT** *(line 58,393)*
+- [ ] **SUMMON DRAGON** *(line 58,408)*
+- [ ] **SUMMON ELEMENTAL** *(line 58,444)*
+- [ ] **SUMMON ENTITY** *(line 58,447)*
+- [ ] **SUMMON FEY** *(line 58,462)*
+- [ ] **SUMMON FIEND** *(line 58,492)*
+- [ ] **SUMMON GIANT** *(line 58,523)*
+- [ ] **SUMMON PLANT OR FUNGUS** *(line 58,525)*
+- [ ] **SUNBURST** *(line 58,541)*
+- [ ] **SYNESTHESIA** *(line 58,544)*
+- [ ] **SYNAPTIC PULSE** *(line 58,589)*
+- [ ] **ENCHANTMENT INCAPACITATION** *(line 58,593)*
+- [ ] **TALKING CORPSE** *(line 58,635)*
+- [ ] **TANGLEFOOT** *(line 58,688)*
+- [ ] **TANGLING CREEPERS** *(line 58,717)*
+- [ ] **TELEKINETIC HAUL** *(line 58,740)*
+- [ ] **TELEKINETIC MANEUVER** *(line 58,755)*
+- [ ] **TELEKINETIC PROJECTILE** *(line 58,760)*
+- [ ] **TELEPATHIC BOND** *(line 58,799)*
+- [ ] **TELEPATHIC DEMAND** *(line 58,815)*
+- [ ] **TELEPATHY** *(line 58,840)*
+- [ ] **TELEPORT** *(line 58,891)*
+- [ ] **TIME STOP** *(line 58,933)*
+- [ ] **TONGUES** *(line 58,955)*
+- [ ] **TOUCH OF IDIOCY** *(line 58,973)*
+- [ ] **TREE SHAPE** *(line 58,989)*
+- [ ] **TREE STRIDE** *(line 59,011)*
+- [ ] **TRUE SEEING** *(line 59,038)*
+- [ ] **TRUE STRIKE** *(line 59,071)*
+- [ ] **FORTUNE** *(line 59,076)*
+- [ ] **TRUE TARGET** *(line 59,087)*
+- [ ] **UNCONTROLLABLE DANCE** *(line 59,108)*
+- [ ] **UNFATHOMABLE SONG** *(line 59,122)*
+- [ ] **UNFETTERED PACK** *(line 59,165)*
+- [ ] **UNDETECTABLE ALIGNMENT** *(line 59,209)*
+- [ ] **UNRELENTING OBSERVATION** *(line 59,233)*
+- [ ] **UNSEEN SERVANT** *(line 59,281)*
+- [ ] **MINDLESS** *(line 59,309)*
+- [ ] **VAMPIRIC EXSANGUINATION** *(line 59,328)*
+- [ ] **VAMPIRIC TOUCH** *(line 59,350)*
+- [ ] **VEIL** *(line 59,371)*
+- [ ] **VENTRILOQUISM** *(line 59,438)*
+- [ ] **VIBRANT PATTERN** *(line 59,459)*
+- [ ] **VISIONS OF DANGER** *(line 59,486)*
+- [ ] **VITAL BEACON** *(line 59,527)*
+- [ ] **VOLCANIC ERUPTION** *(line 59,548)*
+- [ ] **WAIL OF THE BANSHEE** *(line 59,588)*
+- [ ] **DEATH** *(line 59,591)*
+- [ ] **WALL OF FIRE** *(line 59,612)*
+- [ ] **WALL OF FORCE** *(line 59,634)*
+- [ ] **WALL OF ICE** *(line 59,661)*
+- [ ] **WALL OF STONE** *(line 59,712)*
+- [ ] **WALL OF THORNS** *(line 59,738)*
+- [ ] **WALL OF WIND** *(line 59,772)*
+- [ ] **WARP MIND** *(line 59,850)*
+- [ ] **WATER BREATHING** *(line 59,889)*
+- [ ] **WATER WALK** *(line 59,900)*
+- [ ] **WEAPON OF JUDGMENT** *(line 59,926)*
+- [ ] **WEAPON STORM** *(line 59,973)*
+- [ ] **WEIRD** *(line 60,052)*
+- [ ] **WIND WALK** *(line 60,082)*
+- [ ] **WISH** *(line 60,102)*
+- [ ] **ZEALOUS CONVICTION** *(line 60,132)*
+- [ ] **ZONE OF TRUTH** *(line 60,161)*
+- [ ] **CANTRIP 7** *(line 60,227)*
+- [ ] **CANTRIP COMPOSITION EMOTION ENCHANTMENT MENTAL** *(line 60,230)*
+- [ ] **COUNTER PERFORMANCE** *(line 60,239)*
+- [ ] **BARD** *(line 60,242)*
+- [ ] **COMPOSITION** *(line 60,244)*
+- [ ] **FOCUS 1** *(line 60,246)*
+- [ ] **HOUSE OF IMAGINARY WALLS** *(line 60,268)*
+- [ ] **DIRGE OF DOOM** *(line 60,273)*
+- [ ] **CANTRIP 3** *(line 60,282)*
+- [ ] **FATAL ARIA** *(line 60,297)*
+- [ ] **FOCUS 10** *(line 60,300)*
+- [ ] **BARD COMPOSITION** *(line 60,302)*
+- [ ] **EMOTION ENCHANTMENT MENTAL** *(line 60,306)*
+- [ ] **CANTRIP COMPOSITION ILLUSION** *(line 60,324)*
+- [ ] **CANTRIP 5** *(line 60,326)*
+- [ ] **INSPIRE COMPETENCE** *(line 60,343)*
+- [ ] **INSPIRE COURAGE** *(line 60,366)*
+- [ ] **INSPIRE DEFENSE** *(line 60,385)*
+- [ ] **CANTRIP 2** *(line 60,390)*
+- [ ] **INSPIRE HEROICS** *(line 60,418)*
+- [ ] **FOCUS 4** *(line 60,423)*
+- [ ] **LINGERING COMPOSITION** *(line 60,447)*
+- [ ] **SOOTHING BALLAD** *(line 60,488)*
+- [ ] **FOCUS 7** *(line 60,491)*
+- [ ] **BARD COMPOSITION EMOTION ENCHANTMENT HEALING MENTAL** *(line 60,493)*
+- [ ] **TRIPLE TIME** *(line 60,508)*
+- [ ] **FOCUS 6** *(line 60,528)*
+- [ ] **CHAMPION** *(line 60,533)*
+- [ ] **NECROMANCY POSITIVE** *(line 60,585)*
+- [ ] **LAY ON HANDS** *(line 60,598)*
+- [ ] **LITANY AGAINST SLOTH** *(line 60,639)*
+- [ ] **FOCUS 5** *(line 60,646)*
+- [ ] **LITANY** *(line 60,649)*
+- [ ] **LITANY AGAINST WRATH** *(line 60,665)*
+- [ ] **FOCUS 3** *(line 60,672)*
+- [ ] **LITANY OF RIGHTEOUSNESS** *(line 60,698)*
+- [ ] **ATHLETIC RUSH** *(line 60,734)*
+- [ ] **AGILE FEET** *(line 60,739)*
+- [ ] **CLERIC** *(line 60,742)*
+- [ ] **APPEARANCE OF WEALTH** *(line 60,756)*
+- [ ] **ARTISTIC FLOURISH** *(line 60,784)*
+- [ ] **BIT OF LUCK** *(line 60,834)*
+- [ ] **BLIND AMBITION** *(line 60,857)*
+- [ ] **CAPTIVATING ADORATION** *(line 60,888)*
+- [ ] **CHARMING TOUCH** *(line 60,953)*
+- [ ] **CLOAK OF SHADOW** *(line 60,998)*
+- [ ] **COMMANDING LASH** *(line 61,032)*
+- [ ] **COMPETITIVE EDGE** *(line 61,056)*
+- [ ] **CRY OF DESTRUCTION** *(line 61,080)*
+- [ ] **DARKENED EYES** *(line 61,102)*
+- [ ] **DAZZLING FLASH** *(line 61,142)*
+- [ ] **DELUSIONAL PRIDE** *(line 61,178)*
+- [ ] **DESTRUCTIVE AURA** *(line 61,211)*
+- [ ] **DISPERSE INTO AIR** *(line 61,229)*
+- [ ] **DOWNPOUR** *(line 61,250)*
+- [ ] **ENDURING MIGHT** *(line 61,353)*
+- [ ] **FIRE RAY** *(line 61,376)*
+- [ ] **FACE IN THE CROWD** *(line 61,409)*
+- [ ] **FLAME BARRIER** *(line 61,411)*
+- [ ] **ERADICATE UNDEATH** *(line 61,413)*
+- [ ] **FORCED QUIET** *(line 61,467)*
+- [ ] **GLIMPSE THE TRUTH** *(line 61,494)*
+- [ ] **DIVINATION REVELATION** *(line 61,501)*
+- [ ] **HURTLING STONE** *(line 61,503)*
+- [ ] **KNOW THE ENEMY** *(line 61,533)*
+- [ ] **LOCALIZED QUAKE** *(line 61,553)*
+- [ ] **LUCKY BREAK** *(line 61,580)*
+- [ ] **MALIGNANT SUSTENANCE** *(line 61,687)*
+- [ ] **MOONBEAM** *(line 61,705)*
+- [ ] **MYSTIC BEACON** *(line 61,738)*
+- [ ] **CLERIC EVOCATION** *(line 61,743)*
+- [ ] **OVERSTUFF** *(line 61,778)*
+- [ ] **PERFECTED FORM** *(line 61,800)*
+- [ ] **PERFECTED MIND** *(line 61,813)*
+- [ ] **POSITIVE LUMINANCE** *(line 61,831)*
+- [ ] **PRECIOUS METALS** *(line 61,885)*
+- [ ] **PULSE OF THE CITY** *(line 61,958)*
+- [ ] **PUSHING GUST** *(line 62,006)*
+- [ ] **READ FATE** *(line 62,049)*
+- [ ] **REBUKE DEATH** *(line 62,086)*
+- [ ] **RETRIBUTIVE PAIN** *(line 62,106)*
+- [ ] **SAFEGUARD SECRET** *(line 62,132)*
+- [ ] **SAVOR THE STING** *(line 62,159)*
+- [ ] **SCHOLARLY RECOLLECTION** *(line 62,191)*
+- [ ] **SHARED NIGHTMARE** *(line 62,211)*
+- [ ] **SOOTHING WORDS** *(line 62,240)*
+- [ ] **SPLASH OF ART** *(line 62,278)*
+- [ ] **SUDDEN SHIFT** *(line 62,309)*
+- [ ] **SWEET DREAM** *(line 62,330)*
+- [ ] **UNCOMMON AUDITORY** *(line 62,334)*
+- [ ] **ENCHANTMENT LINGUISTIC MENTAL** *(line 62,338)*
+- [ ] **TAKE ITS COURSE** *(line 62,360)*
+- [ ] **TEMPT FATE** *(line 62,399)*
+- [ ] **TIDAL SURGE** *(line 62,423)*
+- [ ] **TOUCH OF OBEDIENCE** *(line 62,480)*
+- [ ] **TOUCH OF THE MOON** *(line 62,499)*
+- [ ] **TOUCH OF UNDEATH** *(line 62,534)*
+- [ ] **UNIMPEDED STRIDE** *(line 62,610)*
+- [ ] **UNITY** *(line 62,629)*
+- [ ] **VEIL OF CONFIDENCE** *(line 62,647)*
+- [ ] **VIBRANT THORNS** *(line 62,683)*
+- [ ] **MORPH** *(line 62,688)*
+- [ ] **WAKING NIGHTMARE** *(line 62,707)*
+- [ ] **WEAPON SURGE** *(line 62,737)*
+- [ ] **WORD OF FREEDOM** *(line 62,744)*
+- [ ] **WORD OF TRUTH** *(line 62,751)*
+- [ ] **ZEAL FOR BATTLE** *(line 62,758)*
+- [ ] **GOODBERRY** *(line 62,853)*
+- [ ] **DRUID** *(line 62,856)*
+- [ ] **HEAL ANIMAL** *(line 62,875)*
+- [ ] **IMPALING BRIARS** *(line 62,911)*
+- [ ] **FOCUS 8** *(line 62,914)*
+- [ ] **PRIMAL SUMMONS** *(line 62,952)*
+- [ ] **STORM LORD** *(line 62,977)*
+- [ ] **FOCUS 9** *(line 62,982)*
+- [ ] **STORMWIND FLIGHT** *(line 63,013)*
+- [ ] **TEMPEST SURGE** *(line 63,035)*
+- [ ] **WILD MORPH** *(line 63,058)*
+- [ ] **EMPTY BODY** *(line 63,124)*
+- [ ] **WILD SHAPE** *(line 63,129)*
+- [ ] **KI RUSH** *(line 63,131)*
+- [ ] **MONK TELEPORTATION** *(line 63,148)*
+- [ ] **KI BLAST** *(line 63,155)*
+- [ ] **QUIVERING PALM** *(line 63,193)*
+- [ ] **ABUNDANT STEP** *(line 63,197)*
+- [ ] **KI STRIKE** *(line 63,241)*
+- [ ] **MONK** *(line 63,246)*
+- [ ] **WHOLENESS OF BODY** *(line 63,308)*
+- [ ] **WILD WINDS STANCE** *(line 63,326)*
+- [ ] **FOCUS 2** *(line 63,333)*
+- [ ] **STANCE** *(line 63,344)*
+- [ ] **WIND JUMP** *(line 63,357)*
+- [ ] **ABERRANT WHISPERS** *(line 63,379)*
+- [ ] **SORCERER** *(line 63,391)*
+- [ ] **ABYSSAL WRATH** *(line 63,407)*
+- [ ] **ANCESTRAL MEMORIES** *(line 63,454)*
+- [ ] **ANGELIC HALO** *(line 63,474)*
+- [ ] **ANGELIC WINGS** *(line 63,510)*
+- [ ] **UNCOMMON EVOCATION** *(line 63,514)*
+- [ ] **ARCANE COUNTERMEASURE** *(line 63,528)*
+- [ ] **CELESTIAL BRAND** *(line 63,547)*
+- [ ] **UNCOMMON CURSE NECROMANCY** *(line 63,551)*
+- [ ] **DIABOLIC EDICT** *(line 63,565)*
+- [ ] **UNCOMMON ENCHANTMENT** *(line 63,569)*
+- [ ] **DRAGON BREATH** *(line 63,583)*
+- [ ] **DRAGON CLAWS** *(line 63,620)*
+- [ ] **DRAGON WINGS** *(line 63,639)*
+- [ ] **DRAIN LIFE** *(line 63,686)*
+- [ ] **ELEMENTAL BLAST** *(line 63,720)*
+- [ ] **ELEMENTAL MOTION** *(line 63,733)*
+- [ ] **ELEMENTAL TOSS** *(line 63,755)*
+- [ ] **EMBRACE THE PIT** *(line 63,784)*
+- [ ] **FAERIE DUST** *(line 63,802)*
+- [ ] **FEY DISAPPEARANCE** *(line 63,827)*
+- [ ] **FEY GLAMOUR** *(line 63,843)*
+- [ ] **EXTEND SPELL** *(line 63,879)*
+- [ ] **GRASPING GRAVE** *(line 63,881)*
+- [ ] **HELLFIRE PLUME** *(line 63,944)*
+- [ ] **HORRIFIC VISAGE** *(line 63,965)*
+- [ ] **JEALOUS HEX** *(line 63,995)*
+- [ ] **SWAMP OF SLOTH** *(line 64,022)*
+- [ ] **TENTACULAR LIMBS** *(line 64,055)*
+- [ ] **UNUSUAL ANATOMY** *(line 64,126)*
+- [ ] **DIMENSIONAL STEPS** *(line 64,166)*
+- [ ] **UNCOMMON CONJURATION TELEPORTATION WIZARD** *(line 64,170)*
+- [ ] **UNCOMMON EMOTION ENCHANTMENT** *(line 64,172)*
+- [ ] **CHARMING WORDS** *(line 64,197)*
+- [ ] **AUGMENT SUMMONING** *(line 64,218)*
+- [ ] **WIZARD** *(line 64,225)*
+- [ ] **CALL OF THE GRAVE** *(line 64,227)*
+- [ ] **FORTUNE WIZARD** *(line 64,273)*
+- [ ] **DREAD AURA** *(line 64,287)*
+- [ ] **EMOTION FEAR MENTAL** *(line 64,308)*
+- [ ] **ELEMENTAL TEMPEST** *(line 64,318)*
+- [ ] **METAMAGIC WIZARD** *(line 64,325)*
+- [ ] **ENERGY ABSORPTION** *(line 64,356)*
+- [ ] **PROTECTIVE WARD** *(line 64,364)*
+- [ ] **FORCE BOLT** *(line 64,389)*
+- [ ] **SHIFTING FORM** *(line 64,391)*
+- [ ] **HAND OF THE APPRENTICE** *(line 64,417)*
+- [ ] **INVISIBILITY CLOAK** *(line 64,439)*
+- [ ] **ILLUSION WIZARD** *(line 64,444)*
+- [ ] **LIFE SIPHON** *(line 64,452)*
+- [ ] **PHYSICAL BOOST** *(line 64,465)*
+- [ ] **TRANSMUTATION WIZARD** *(line 64,470)*
+- [ ] **VIGILANT EYE** *(line 64,507)*
+- [ ] **WARPED TERRAIN** *(line 64,530)*
+- [ ] **ANIMATE OBJECT** *(line 64,764)*
+- [ ] **RITUAL 2** *(line 64,766)*
+- [ ] **UNCOMMON TRANSMUTATION** *(line 64,768)*
+- [ ] **ATONE** *(line 64,793)*
+- [ ] **RITUAL 4** *(line 64,795)*
+- [ ] **UNCOMMON ABJURATION** *(line 64,797)*
+- [ ] **AWAKEN ANIMAL** *(line 64,880)*
+- [ ] **RITUAL 6** *(line 64,907)*
+- [ ] **COMMUNE** *(line 64,944)*
+- [ ] **CALL SPIRIT** *(line 64,996)*
+- [ ] **COMMUNE WITH NATURE** *(line 64,998)*
+- [ ] **BLIGHT** *(line 65,000)*
+- [ ] **RITUAL 5** *(line 65,021)*
+- [ ] **CONSECRATE** *(line 65,063)*
+- [ ] **CONTROL WEATHER** *(line 65,119)*
+- [ ] **RITUAL 8** *(line 65,122)*
+- [ ] **CREATE UNDEAD** *(line 65,154)*
+- [ ] **FREEDOM** *(line 65,198)*
+- [ ] **GEAS** *(line 65,268)*
+- [ ] **RITUAL 3** *(line 65,325)*
+- [ ] **IMPRISONMENT** *(line 65,331)*
+- [ ] **INVEIGLE** *(line 65,437)*
+- [ ] **LEGEND LORE** *(line 65,479)*
+- [ ] **RITUAL 7** *(line 65,482)*
+- [ ] **PLANAR ALLY** *(line 65,515)*
+- [ ] **UNCOMMON CONJURATION** *(line 65,541)*
+- [ ] **PLANAR BINDING** *(line 65,594)*
+- [ ] **UNCOMMON ABJURATION CONJURATION** *(line 65,598)*
+- [ ] **PLANT GROWTH** *(line 65,669)*
+- [ ] **PRIMAL CALL** *(line 65,699)*
+- [ ] **RESURRECT** *(line 65,718)*
+- [ ] **BROKEN** *(line 65,847)*
+- [ ] **EYE OF** *(line 65,850)*
+- [ ] **HIGH** *(line 65,876)*
+- [ ] **SHINING** *(line 65,886)*
+- [ ] **OLD CHELIAX** *(line 65,894)*
+- [ ] **ABSALOM** *(line 65,918)*
+- [ ] **GOLDEN ROAD** *(line 65,923)*
+- [ ] **MWANGI** *(line 65,947)*
+- [ ] **IMPOSSIBLE** *(line 65,959)*
+
+## [S] Chapter 8: The Age of Lost Omens (LORE) *(LORE — skip)*
+*Lines 65,986–68,672 (2,686 lines)*
+
+- [S] **THE AGE OF LOST OMENS** *(line 66,165)*
+- [S] **TIME** *(line 66,169)*
+- [S] **MONTHS AND DAYS** *(line 66,237)*
+- [S] **GARUNDI** *(line 67,093)*
+- [S] **KELLID** *(line 67,126)*
+- [S] **NIDALESE** *(line 67,151)*
+- [S] **TIAN** *(line 67,232)*
+- [S] **ULFEN** *(line 67,254)*
+- [S] **VARISIAN** *(line 67,256)*
+- [S] **VUDRANI** *(line 67,269)*
+- [S] **DWARF** *(line 67,296)*
+- [S] **GNOME** *(line 67,313)*
+- [S] **GOBLIN** *(line 67,329)*
+- [S] **HALF-ELF** *(line 67,344)*
+- [S] **HALF-ORC** *(line 67,346)*
+
+## [ ] Chapter 9: Playing the Game
+*Lines 68,673–73,974 (5,301 lines)*
+
+- [ ] **GAME CONVENTIONS** *(line 68,808)*
+- [ ] **PLAYING THE GAME** *(line 68,949)*
+- [ ] **CALCULATING CHECK RESULTS** *(line 69,076)*
+- [ ] **STRIDING AND STRIKING** *(line 69,310)*
+- [ ] **FORTUNE AND MISFORTUNE EFFECTS** *(line 69,538)*
+- [ ] **DAMAGE TYPES** *(line 69,904)*
+- [ ] **CONDITIONS** *(line 70,183)*
+- [ ] **AREAS** *(line 70,387)*
+- [ ] **BURST** *(line 70,392)*
+- [ ] **EMANATION** *(line 70,394)*
+- [ ] **CONE** *(line 70,434)*
+- [ ] **LINE** *(line 70,453)*
+- [ ] **AFFLICTION EXAMPLE** *(line 70,641)*
+- [ ] **FAST HEALING AND REGENERATION** *(line 71,061)*
+- [ ] **ACTION ICON KEY** *(line 71,091)*
+- [ ] **IN-DEPTH ACTION RULES** *(line 71,187)*
+- [ ] **DETECTING WITH OTHER SENSES** *(line 71,609)*
+- [ ] **TRACKING INITIATIVE** *(line 72,167)*
+- [ ] **MOVE** *(line 72,291)*
+- [ ] **MANIPULATE** *(line 72,373)*
+- [ ] **SECRET** *(line 72,410)*
+- [ ] **SPEAKING** *(line 72,465)*
+- [ ] **ATTACK** *(line 72,524)*
+- [ ] **AUDITORY** *(line 72,645)*
+- [ ] **VISUAL** *(line 72,649)*
+- [ ] **THREE-DIMENSIONAL COMBAT** *(line 73,353)*
+- [ ] **AVOID NOTICE** *(line 73,599)*
+- [ ] **DEFEND** *(line 73,624)*
+- [ ] **DETECT MAGIC** *(line 73,631)*
+- [ ] **FOLLOW THE EXPERT** *(line 73,640)*
+- [ ] **SKILL EXPLORATION ACTIVITIES** *(line 73,669)*
+- [ ] **HUSTLE** *(line 73,707)*
+- [ ] **INVESTIGATE** *(line 73,718)*
+- [ ] **REPEAT A SPELL** *(line 73,730)*
+- [ ] **SCOUT** *(line 73,747)*
+- [ ] **SEARCH** *(line 73,756)*
+- [ ] **SKILL DOWNTIME ACTIVITIES** *(line 73,879)*
+
+## [ ] Chapter 10: Game Mastering
+*Lines 73,975–80,760 (6,785 lines)*
+
+- [ ] **CAMPAIGN LENGTH** *(line 74,028)*
+- [ ] **COLLABORATION DURING PLAY** *(line 74,034)*
+- [ ] **THEMES** *(line 74,163)*
+- [ ] **GAME MASTERING** *(line 74,182)*
+- [ ] **A WELCOMING ENVIRONMENT** *(line 74,218)*
+- [ ] **TOOLS FOR RESPONSIBLE PLAY** *(line 74,241)*
+- [ ] **CHARACTER CREATION** *(line 74,413)*
+- [ ] **PUBLISHED ADVENTURES** *(line 74,444)*
+- [ ] **CREATING ADVENTURES** *(line 74,484)*
+- [ ] **CHARACTERS WITH DISABILITIES** *(line 74,523)*
+- [ ] **USING RARITY AND ACCESS** *(line 74,613)*
+- [ ] **BUILDING ENCOUNTERS** *(line 74,699)*
+- [ ] **PLANNING A SESSION** *(line 74,873)*
+- [ ] **STARTING A SESSION** *(line 74,912)*
+- [ ] **RUNNING A SESSION** *(line 74,914)*
+- [ ] **OFF-SESSION GAMING** *(line 74,989)*
+- [ ] **ADJUDICATING THE RULES** *(line 75,034)*
+- [ ] **SHARING RESPONSIBILITY** *(line 75,135)*
+- [ ] **SPECIAL CIRCUMSTANCES** *(line 75,195)*
+- [ ] **INCORPORATING ADDITIONAL OPTIONS** *(line 75,215)*
+- [ ] **BYPASSED ENCOUNTERS** *(line 75,370)*
+- [ ] **PLAYING WITHOUT A GRID** *(line 75,406)*
+- [ ] **ENDING ENCOUNTERS** *(line 75,429)*
+- [ ] **SOCIAL ENCOUNTERS** *(line 75,487)*
+- [ ] **EXPLORATION ACTIVITIES** *(line 75,694)*
+- [ ] **SETTING A PARTY ORDER** *(line 75,787)*
+- [ ] **ADVERSE TERRAIN AND WEATHER** *(line 75,831)*
+- [ ] **HAZARDS** *(line 75,910)*
+- [ ] **ROLLING INITIATIVE** *(line 75,921)*
+- [ ] **MONITORING SPELL DURATIONS** *(line 76,002)*
+- [ ] **RESTING** *(line 76,029)*
+- [ ] **DAILY PREPARATIONS** *(line 76,158)*
+- [ ] **STARVATION AND THIRST** *(line 76,186)*
+- [ ] **PLAYING OUT A DOWNTIME DAY** *(line 76,226)*
+- [ ] **LONGER PERIODS OF DOWNTIME** *(line 76,307)*
+- [ ] **COST OF LIVING** *(line 76,382)*
+- [ ] **BUYING AND SELLING** *(line 76,394)*
+- [ ] **LONG-TERM REST** *(line 76,415)*
+- [ ] **RETRAINING** *(line 76,430)*
+- [ ] **CRAFT** *(line 76,811)*
+- [ ] **GROUP ATTEMPTS** *(line 76,813)*
+- [ ] **EARN INCOME** *(line 76,848)*
+- [ ] **GATHER INFORMATION** *(line 76,899)*
+- [ ] **IDENTIFY MAGIC OR LEARN A SPELL** *(line 76,914)*
+- [ ] **RECALL KNOWLEDGE** *(line 76,927)*
+- [ ] **DETERMINING THE SCOPE OF LORE** *(line 76,957)*
+- [ ] **SENSE DIRECTION** *(line 77,004)*
+- [ ] **SOCIAL SKILLS** *(line 77,011)*
+- [ ] **SUBSIST** *(line 77,072)*
+- [ ] **TRACK** *(line 77,079)*
+- [ ] **TRAIN AN ANIMAL** *(line 77,088)*
+- [ ] **XP AWARDS** *(line 77,166)*
+- [ ] **ADVANCEMENT SPEEDS** *(line 77,414)*
+- [ ] **ADJUSTING TREASURE** *(line 77,648)*
+- [ ] **TREASURE FOR NEW CHARACTERS** *(line 77,749)*
+- [ ] **TERRAIN RULES** *(line 78,289)*
+- [ ] **DOORS, GATES, AND WALLS** *(line 78,426)*
+- [ ] **DUNGEONS** *(line 78,762)*
+- [ ] **MONSTERS AND HAZARDS** *(line 79,218)*
+- [ ] **HAZARDS BY NAME** *(line 79,448)*
+- [ ] **HAZARD NAME** *(line 79,605)*
+- [ ] **HAZARD 0** *(line 79,647)*
+- [ ] **MECHANICAL TRAP** *(line 79,649)*
+- [ ] **HAZARD 1** *(line 79,681)*
+- [ ] **TRAP** *(line 79,683)*
+- [ ] **HAZARD 3** *(line 79,717)*
+- [ ] **EVOCATION** *(line 79,742)*
+- [ ] **MAGICAL** *(line 79,744)*
+- [ ] **SCYTHE BLADES** *(line 79,759)*
+- [ ] **HAZARD 4** *(line 79,762)*
+- [ ] **HAZARD 2** *(line 79,800)*
+- [ ] **FIREBALL RUNE** *(line 79,830)*
+- [ ] **HAZARD 5** *(line 79,833)*
+- [ ] **HALLUCINATION POWDER TRAP** *(line 79,849)*
+- [ ] **HAZARD 6** *(line 79,852)*
+- [ ] **FIRE** *(line 79,876)*
+- [ ] **HAZARD 7** *(line 79,881)*
+- [ ] **YELLOW MOLD** *(line 79,899)*
+- [ ] **HAZARD 8** *(line 79,902)*
+- [ ] **FUNGUS** *(line 79,904)*
+- [ ] **BOTTOMLESS PIT** *(line 79,925)*
+- [ ] **MECHANICAL** *(line 79,928)*
+- [ ] **HAZARD 9** *(line 79,930)*
+- [ ] **BLOODTHIRSTY URGE** *(line 79,956)*
+- [ ] **HAZARD 10** *(line 79,960)*
+- [ ] **HAUNT** *(line 79,962)*
+- [ ] **HAMMER OF FORBIDDANCE** *(line 80,000)*
+- [ ] **HAZARD 11** *(line 80,005)*
+- [ ] **POLYMORPH TRAP** *(line 80,030)*
+- [ ] **HAZARD 12** *(line 80,033)*
+- [ ] **PLANAR RIFT** *(line 80,048)*
+- [ ] **HAZARD 13** *(line 80,051)*
+- [ ] **FROZEN MOMENT** *(line 80,067)*
+- [ ] **HAZARD 17** *(line 80,074)*
+- [ ] **VORPAL EXECUTIONER** *(line 80,096)*
+- [ ] **HAZARD 19** *(line 80,099)*
+- [ ] **SECOND CHANCE** *(line 80,126)*
+- [ ] **HAZARD 21** *(line 80,151)*
+- [ ] **UPGRADED SUMMONING RUNES** *(line 80,176)*
+- [ ] **HAZARD 23** *(line 80,201)*
+- [ ] **COMPLEX** *(line 80,241)*
+- [ ] **ENVIRONMENTAL** *(line 80,307)*
+- [ ] **POISONED DART GALLERY** *(line 80,471)*
+- [ ] **TELEKINETIC SWARM TRAP** *(line 80,555)*
+- [ ] **DARKSIDE MIRROR** *(line 80,602)*
+- [ ] **HAZARD 14** *(line 80,611)*
+- [ ] **HAZARD 18** *(line 80,669)*
+
+## [ ] Chapter 11: Crafting & Treasure
+*Lines 80,761–103,265 (22,504 lines)*
+
+- [ ] **INVEST AN ITEM** *(line 80,868)*
+- [ ] **DISRUPTING ACTIVATIONS** *(line 80,902)*
+- [ ] **ACTIVATE AN ITEM** *(line 80,930)*
+- [ ] **ITEM CATEGORIES** *(line 81,030)*
+- [ ] **ITEM RARITY** *(line 81,119)*
+- [ ] **ITEM NAME** *(line 81,162)*
+- [ ] **CONCENTRATE** *(line 81,210)*
+- [ ] **NOTABLE ITEM TRAITS** *(line 81,316)*
+- [ ] **ACID FLASK** *(line 85,674)*
+- [ ] **ALCHEMICAL** *(line 85,677)*
+- [ ] **CONSUMABLE** *(line 85,682)*
+- [ ] **SPLASH** *(line 85,684)*
+- [ ] **BOMB** *(line 85,722)*
+- [ ] **FIRE** *(line 85,728)*
+- [ ] **ELECTRICITY** *(line 85,763)*
+- [ ] **SONIC SPLASH** *(line 85,904)*
+- [ ] **ALCHEMICAL CONSUMABLE ELIXIR** *(line 85,970)*
+- [ ] **HEALING** *(line 85,972)*
+- [ ] **MUTAGEN** *(line 86,029)*
+- [ ] **POLYMORPH** *(line 86,031)*
+- [ ] **MENTAL** *(line 86,101)*
+- [ ] **ITEM 2** *(line 86,121)*
+- [ ] **ELIXIR** *(line 86,196)*
+- [ ] **ITEM 20** *(line 86,331)*
+- [ ] **ILLUSION** *(line 86,483)*
+- [ ] **VISUAL** *(line 86,485)*
+- [ ] **SILVERTONGUE MUTAGEN** *(line 86,637)*
+- [ ] **STONE FIST ELIXIR** *(line 86,669)*
+- [ ] **ITEM 4** *(line 86,672)*
+- [ ] **MORPH** *(line 86,678)*
+- [ ] **WINTER WOLF ELIXIR** *(line 86,692)*
+- [ ] **ARSENIC** *(line 86,773)*
+- [ ] **ITEM 1** *(line 86,778)*
+- [ ] **INGESTED** *(line 86,781)*
+- [ ] **POISON** *(line 86,783)*
+- [ ] **BELLADONNA** *(line 86,811)*
+- [ ] **ITEM 3** *(line 86,826)*
+- [ ] **BLACK ADDER VENOM** *(line 86,851)*
+- [ ] **DEATHCAP POWDER** *(line 86,853)*
+- [ ] **BLACK LOTUS EXTRACT** *(line 86,872)*
+- [ ] **ITEM 19** *(line 86,875)*
+- [ ] **VIRULENT** *(line 86,880)*
+- [ ] **BLIGHTBURN RESIN** *(line 86,891)*
+- [ ] **ITEM 11** *(line 86,896)*
+- [ ] **BRIMSTONE FUMES** *(line 86,911)*
+- [ ] **ITEM 16** *(line 86,916)*
+- [ ] **INHALED** *(line 86,919)*
+- [ ] **CYTILLESH OIL** *(line 86,935)*
+- [ ] **INJURY** *(line 86,948)*
+- [ ] **ITEM 13** *(line 86,952)*
+- [ ] **DRAGON BILE** *(line 86,967)*
+- [ ] **ITEM 15** *(line 86,972)*
+- [ ] **GIANT CENTIPEDE VENOM** *(line 87,003)*
+- [ ] **GIANT SCORPION VENOM** *(line 87,022)*
+- [ ] **ITEM 6** *(line 87,029)*
+- [ ] **GIANT WASP VENOM** *(line 87,054)*
+- [ ] **ITEM 7** *(line 87,057)*
+- [ ] **GRAVEROOT** *(line 87,071)*
+- [ ] **HEMLOCK** *(line 87,097)*
+- [ ] **ITEM 17** *(line 87,100)*
+- [ ] **ITEM 18** *(line 87,110)*
+- [ ] **INCAPACITATION INJURY POISON** *(line 87,139)*
+- [ ] **SLEEP** *(line 87,141)*
+- [ ] **ITEM 9** *(line 87,161)*
+- [ ] **HUNTING SPIDER VENOM** *(line 87,184)*
+- [ ] **ITEM 5** *(line 87,194)*
+- [ ] **ITEM 8** *(line 87,278)*
+- [ ] **CONTACT** *(line 87,280)*
+- [ ] **ITEM 10** *(line 87,375)*
+- [ ] **NEGATIVE** *(line 87,378)*
+- [ ] **SHADOW ESSENCE** *(line 87,425)*
+- [ ] **ITEM 12** *(line 87,446)*
+- [ ] **ALCHEMICAL CONSUMABLE** *(line 87,557)*
+- [ ] **LIGHT** *(line 87,624)*
+- [ ] **ARMOR ALTERNATIVES** *(line 87,831)*
+- [ ] **MAGICAL** *(line 87,928)*
+- [ ] **INVESTED** *(line 87,996)*
+- [ ] **GOOD** *(line 88,028)*
+- [ ] **DIVINE** *(line 88,057)*
+- [ ] **EVIL** *(line 88,059)*
+- [ ] **NECROMANCY** *(line 88,070)*
+- [ ] **TRANSMUTATION** *(line 88,163)*
+- [ ] **ABJURATION** *(line 88,219)*
+- [ ] **EVOCATION** *(line 88,379)*
+- [ ] **ITEM 14** *(line 88,503)*
+- [ ] **ENCHANTMENT** *(line 88,588)*
+- [ ] **CONJURATION** *(line 88,735)*
+- [ ] **PRIMAL** *(line 89,069)*
+- [ ] **POSITIVE** *(line 89,153)*
+- [ ] **POTION** *(line 89,155)*
+- [ ] **DIVINATION** *(line 89,337)*
+- [ ] **SCROLL** *(line 89,670)*
+- [ ] **AFFIX A TALISMAN** *(line 89,706)*
+- [ ] **MANIPULATE** *(line 89,709)*
+- [ ] **TALISMAN** *(line 89,827)*
+- [ ] **CONSUMABLE MAGICAL TRANSMUTATION TALISMAN** *(line 89,864)*
+- [ ] **FORTUNE** *(line 89,930)*
+- [ ] **FEAR** *(line 89,969)*
+- [ ] **CONSUMABLE MAGICAL TALISMAN TRANSMUTATION** *(line 90,007)*
+- [ ] **EXTRADIMENSIONAL** *(line 91,063)*
+- [ ] **SCRYING** *(line 91,153)*
+- [ ] **WATER** *(line 91,209)*
+- [ ] **SONIC** *(line 91,309)*
+- [ ] **CHAOTIC** *(line 91,537)*
+- [ ] **CONJURATION MAGICAL** *(line 91,773)*
+- [ ] **COLD IRON** *(line 92,097)*
+- [ ] **PRECIOUS** *(line 92,101)*
+- [ ] **DARKWOOD** *(line 92,204)*
+- [ ] **ADAMANTINE** *(line 92,246)*
+- [ ] **DRAGONHIDE** *(line 92,325)*
+- [ ] **MITHRAL** *(line 92,358)*
+- [ ] **ORICHALCUM** *(line 92,428)*
+- [ ] **SILVER** *(line 92,479)*
+- [ ] **SPECIFIC ARMOR AND WEAPONS** *(line 92,757)*
+- [ ] **ARMOR POTENCY** *(line 92,759)*
+- [ ] **RESILIENT** *(line 92,786)*
+- [ ] **RUNE TRANSFER EXAMPLES** *(line 92,840)*
+- [ ] **WEAPON POTENCY** *(line 92,881)*
+- [ ] **UPGRADING ARMOR AND WEAPON RUNES** *(line 92,921)*
+- [ ] **ETHEREAL** *(line 92,999)*
+- [ ] **ANTIMAGIC** *(line 93,001)*
+- [ ] **RUNE 15** *(line 93,006)*
+- [ ] **ENERGY-RESISTANT** *(line 93,019)*
+- [ ] **RUNE 17** *(line 93,034)*
+- [ ] **FORTIFICATION** *(line 93,048)*
+- [ ] **GLAMERED** *(line 93,081)*
+- [ ] **RUNE 5** *(line 93,084)*
+- [ ] **INVISIBILITY** *(line 93,097)*
+- [ ] **AXIOMATIC** *(line 93,124)*
+- [ ] **LAWFUL** *(line 93,127)*
+- [ ] **RUNE 11** *(line 93,129)*
+- [ ] **CORROSIVE** *(line 93,131)*
+- [ ] **SLICK** *(line 93,145)*
+- [ ] **DANCING** *(line 93,147)*
+- [ ] **SHADOW** *(line 93,212)*
+- [ ] **ACID** *(line 93,230)*
+- [ ] **RUNE 13** *(line 93,241)*
+- [ ] **DISRUPTING** *(line 93,282)*
+- [ ] **FLAMING** *(line 93,300)*
+- [ ] **FROST** *(line 93,326)*
+- [ ] **GHOST TOUCH** *(line 93,344)*
+- [ ] **RUNE 4** *(line 93,347)*
+- [ ] **GRIEVOUS** *(line 93,360)*
+- [ ] **RUNE 9** *(line 93,362)*
+- [ ] **HOLY** *(line 93,392)*
+- [ ] **KEEN** *(line 93,414)*
+- [ ] **RETURNING** *(line 93,431)*
+- [ ] **RUNE 3** *(line 93,434)*
+- [ ] **SHIFTING** *(line 93,460)*
+- [ ] **RUNE 6** *(line 93,463)*
+- [ ] **SHOCK** *(line 93,477)*
+- [ ] **SPEED** *(line 93,497)*
+- [ ] **RUNE 16** *(line 93,500)*
+- [ ] **SPELL-STORING** *(line 93,512)*
+- [ ] **THUNDERING** *(line 93,544)*
+- [ ] **UNHOLY** *(line 93,563)*
+- [ ] **VORPAL** *(line 93,584)*
+- [ ] **WOUNDING** *(line 93,629)*
+- [ ] **RUNE 7** *(line 93,632)*
+- [ ] **ADAMANTINE SHIELD** *(line 93,665)*
+- [ ] **COLD IRON SHIELD** *(line 93,692)*
+- [ ] **DARKWOOD SHIELD** *(line 93,718)*
+- [ ] **DRAGONHIDE SHIELD** *(line 93,748)*
+- [ ] **MITHRAL SHIELD** *(line 93,770)*
+- [ ] **ORICHALCUM SHIELD** *(line 93,812)*
+- [ ] **SILVER SHIELD** *(line 93,830)*
+- [ ] **ARROW-CATCHING SHIELD** *(line 93,863)*
+- [ ] **FLOATING SHIELD** *(line 93,901)*
+- [ ] **FORCE SHIELD** *(line 93,941)*
+- [ ] **AUDITORY** *(line 94,209)*
+- [ ] **SNARE** *(line 94,228)*
+- [ ] **MECHANICAL** *(line 94,233)*
+- [ ] **SNARE 4** *(line 94,235)*
+- [ ] **SNARE 12** *(line 94,243)*
+- [ ] **TRAP** *(line 94,260)*
+- [ ] **SNARE 1** *(line 94,311)*
+- [ ] **SNARE 8** *(line 94,323)*
+- [ ] **SNARE 20** *(line 94,382)*
+- [ ] **SNARE 16** *(line 94,437)*
+- [ ] **STRIKING SNARE** *(line 94,554)*
+- [ ] **SCYTHING BLADE SNARE** *(line 94,573)*
+- [ ] **STUNNING SNARE** *(line 94,575)*
+- [ ] **SIGNALING SNARE** *(line 94,596)*
+- [ ] **SPIKE SNARE** *(line 94,617)*
+- [ ] **STALKER BANE SNARE** *(line 94,634)*
+- [ ] **TRIP SNARE** *(line 94,685)*
+- [ ] **WARNING SNARE** *(line 94,709)*
+- [ ] **ANIMAL STAFF** *(line 94,866)*
+- [ ] **STAFF** *(line 94,907)*
+- [ ] **STAFF OF ABJURATION** *(line 94,943)*
+- [ ] **STAFF OF CONJURATION** *(line 94,971)*
+- [ ] **STAFF OF DIVINATION** *(line 95,007)*
+- [ ] **STAFF OF ENCHANTMENT** *(line 95,039)*
+- [ ] **INSTANT FORTRESS** *(line 95,502)*
+- [ ] **THE STRUCTURE TRAIT** *(line 95,504)*
+- [ ] **STRUCTURE** *(line 95,536)*
+- [ ] **POCKET STAGE** *(line 95,572)*
+- [ ] **EXAMPLE MAGIC WAND** *(line 95,618)*
+- [ ] **WAND** *(line 95,670)*
+- [ ] **FORCE** *(line 95,827)*
+- [ ] **APEX** *(line 96,730)*
+- [ ] **BARDING OF THE ZEPHYR** *(line 96,888)*
+- [ ] **COLLAR OF EMPATHY** *(line 96,911)*
+- [ ] **COLLAR OF INCONSPICUOUSNESS ITEM 8** *(line 96,941)*
+- [ ] **PRIMAL TRANSMUTATION** *(line 96,946)*
+- [ ] **HORSESHOES OF SPEED** *(line 96,961)*
+- [ ] **FOCUSED** *(line 97,414)*
+- [ ] **EMOTION** *(line 97,893)*
+- [ ] **UNCOMMON CONJURATION EXTRADIMENSIONAL** *(line 98,279)*
+- [ ] **HEALING INVESTED MAGICAL** *(line 98,281)*
+- [ ] **OCCULT** *(line 98,468)*
+- [ ] **ARCANE** *(line 98,803)*
+- [ ] **APPENDIX** *(line 99,367)*
+- [ ] **GROUPS OF CONDITIONS** *(line 99,371)*
+- [ ] **DEATH AND DYING RULES** *(line 99,397)*
+- [ ] **PERSISTENT DAMAGE RULES** *(line 99,701)*
+- [ ] **GAINING AND LOSING ACTIONS** *(line 99,803)*
+- [ ] **REDUNDANT CONDITIONS** *(line 99,994)*
+- [ ] **STRENGTH** *(line 100,105)*
+- [ ] **DEXTERITY** *(line 100,109)*
+- [ ] **CONSTITUTION** *(line 100,113)*
+- [ ] **INTELLIGENCE** *(line 100,117)*
+- [ ] **WISDOM** *(line 100,121)*
+- [ ] **DC BASE** *(line 100,127)*
+- [ ] **CURRENT** *(line 100,131)*
+- [ ] **TEMPORARY** *(line 100,133)*
+- [ ] **REFLEX** *(line 100,160)*
+- [ ] **W SPEC** *(line 100,194)*
+- [ ] **ACROBATICS** *(line 100,274)*
+- [ ] **ARCANA** *(line 100,280)*
+- [ ] **ATHLETICS** *(line 100,292)*
+- [ ] **CRAFTING** *(line 100,304)*
+- [ ] **DECEPTION** *(line 100,316)*
+- [ ] **DIPLOMACY** *(line 100,328)*
+- [ ] **INTIMIDATION** *(line 100,340)*
+- [ ] **LORE** *(line 100,352)*
+- [ ] **MEDICINE** *(line 100,376)*
+- [ ] **NATURE** *(line 100,390)*
+- [ ] **OCCULTISM** *(line 100,402)*
+- [ ] **PERFORMANCE** *(line 100,416)*
+- [ ] **RELIGION** *(line 100,428)*
+- [ ] **SOCIETY** *(line 100,440)*
+- [ ] **STEALTH** *(line 100,452)*
+- [ ] **SURVIVAL** *(line 100,464)*
+- [ ] **THIEVERY** *(line 100,476)*
+- [ ] **SPECIAL** *(line 100,501)*
+- [ ] **CONDITIONS** *(line 100,539)*
+- [ ] **RESISTANCES AND IMMUNITIES** *(line 100,549)*
+- [ ] **SENSES** *(line 100,551)*
+- [ ] **CURRENT HP** *(line 100,558)*
+- [ ] **WILL** *(line 100,560)*
+- [ ] **MOVEMENT TYPES & NOTES** *(line 100,562)*
+- [ ] **MAX HP BT** *(line 100,568)*
+- [ ] **NOTES** *(line 100,570)*
+- [ ] **SCORE** *(line 100,580)*
+- [ ] **SIMPLE** *(line 100,584)*
+- [ ] **CHARISMA** *(line 100,593)*
+- [ ] **MODIFIER** *(line 100,595)*
+- [ ] **HARDNESS** *(line 100,602)*
+- [ ] **UNARMORED** *(line 100,616)*
+- [ ] **ARMOR** *(line 100,678)*
+- [ ] **INVEST** *(line 100,809)*
+- [ ] **BULK** *(line 100,812)*
+- [ ] **READIED ITEMS** *(line 100,814)*
+- [ ] **OTHER ITEMS** *(line 100,820)*
+- [ ] **ENCUMBERED** *(line 100,824)*
+- [ ] **MAXIMUM** *(line 100,830)*
+- [ ] **ETHNICITY** *(line 100,856)*
+- [ ] **NATIONALITY** *(line 100,858)*
+- [ ] **BIRTHPLACE** *(line 100,860)*
+- [ ] **GENDER & PRONOUNS** *(line 100,864)*
+- [ ] **APPEARANCE** *(line 100,870)*
+- [ ] **ATTITUDE** *(line 100,874)*
+- [ ] **BELIEFS** *(line 100,876)*
+- [ ] **LIKES** *(line 100,878)*
+- [ ] **DISLIKES** *(line 100,880)*
+- [ ] **CATCHPHRASES** *(line 100,882)*
+- [ ] **ENEMIES** *(line 100,889)*
+- [ ] **ORGANIZATIONS** *(line 100,891)*
+- [ ] **PAGE** *(line 100,906)*
+- [ ] **DESCRIPTION** *(line 100,908)*
+- [ ] **NAME** *(line 100,910)*
+- [ ] **FREE ACTION TRAITS** *(line 100,928)*
+- [ ] **CANTRIP** *(line 101,020)*
+- [ ] **SPONTANEOUS SPELL SLOTS REMAINING** *(line 101,054)*
+- [ ] **M S V** *(line 101,072)*
+- [ ] **PREP** *(line 101,085)*
+- [ ] **SPONTANEOUS** *(line 101,095)*
+- [ ] **FOCUS POINTS** *(line 101,289)*
+- [ ] **PAIZO INC.** *(line 103,105)*
+
+---
+
+**Total auditable sections: 1686**

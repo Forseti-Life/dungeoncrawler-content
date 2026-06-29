@@ -1,0 +1,2980 @@
+{
+  "extraction_date": "2026-02-18",
+  "sources": [
+    "Bestiary 1",
+    "Bestiary 2",
+    "Bestiary 3"
+  ],
+  "stats": {
+    "by_source": {
+      "bestiary_1": 575,
+      "bestiary_2": 466,
+      "bestiary_3": 445
+    },
+    "total_raw": 1486,
+    "total_deduplicated": 185
+  },
+  "creature_count": 185,
+  "creatures": [
+    {
+      "name": "A-C",
+      "creature_id": "a_c",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 5111,
+          "method": "title_case_with_level",
+          "evidence": "A-C"
+        }
+      ]
+    },
+    {
+      "name": "AASIMAR",
+      "creature_id": "aasimar",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 28367,
+          "method": "title_case_with_level",
+          "evidence": "AASIMAR"
+        }
+      ]
+    },
+    {
+      "name": "ABERRATION",
+      "creature_id": "aberration",
+      "level": 7,
+      "creature_type": "aberration",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2087,
+          "method": "title_case_with_level",
+          "evidence": "ABERRATION"
+        }
+      ]
+    },
+    {
+      "name": "ACID",
+      "creature_id": "acid",
+      "level": 7,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 11573,
+          "method": "title_case_with_level",
+          "evidence": "ACID"
+        }
+      ]
+    },
+    {
+      "name": "AGATHION",
+      "creature_id": "agathion",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 1417,
+          "method": "title_case_with_level",
+          "evidence": "AGATHION"
+        }
+      ]
+    },
+    {
+      "name": "AHUIZOTL",
+      "creature_id": "ahuizotl",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 1718,
+          "method": "title_case_with_level",
+          "evidence": "AHUIZOTL"
+        }
+      ]
+    },
+    {
+      "name": "AIR",
+      "creature_id": "air",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 15891,
+          "method": "title_case_with_level",
+          "evidence": "AIR"
+        }
+      ]
+    },
+    {
+      "name": "AMPHIBIOUS",
+      "creature_id": "amphibious",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 5218,
+          "method": "title_case_with_level",
+          "evidence": "AMPHIBIOUS"
+        }
+      ]
+    },
+    {
+      "name": "ANDROID",
+      "creature_id": "android",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 2006,
+          "method": "title_case_with_level",
+          "evidence": "ANDROID"
+        }
+      ]
+    },
+    {
+      "name": "ANGEL",
+      "creature_id": "angel",
+      "level": 14,
+      "creature_type": "celestial",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2578,
+          "method": "title_case_with_level",
+          "evidence": "ANGEL"
+        }
+      ]
+    },
+    {
+      "name": "ANIMAL",
+      "creature_id": "animal",
+      "level": 1,
+      "creature_type": "animal",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 4657,
+          "method": "title_case_with_level",
+          "evidence": "ANIMAL"
+        }
+      ]
+    },
+    {
+      "name": "ANKHRAV",
+      "creature_id": "ankhrav",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2919,
+          "method": "title_case_with_level",
+          "evidence": "ANKHRAV"
+        }
+      ]
+    },
+    {
+      "name": "AOLAZ\b",
+      "creature_id": "aolaz",
+      "level": 18,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 2627,
+          "method": "title_case_with_level",
+          "evidence": "AOLAZ\b"
+        }
+      ]
+    },
+    {
+      "name": "AQUATIC",
+      "creature_id": "aquatic",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 16809,
+          "method": "title_case_with_level",
+          "evidence": "AQUATIC"
+        }
+      ]
+    },
+    {
+      "name": "ARCHON",
+      "creature_id": "archon",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 3371,
+          "method": "title_case_with_level",
+          "evidence": "ARCHON"
+        }
+      ]
+    },
+    {
+      "name": "ARMY ANT SWARM",
+      "creature_id": "army_ant_swarm",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 2560,
+          "method": "title_case_with_level",
+          "evidence": "ARMY ANT SWARM"
+        }
+      ]
+    },
+    {
+      "name": "ASSASSIN VINE",
+      "creature_id": "assassin_vine",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 3170,
+          "method": "title_case_with_level",
+          "evidence": "ASSASSIN VINE"
+        }
+      ]
+    },
+    {
+      "name": "ASURA",
+      "creature_id": "asura",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 2628,
+          "method": "title_case_with_level",
+          "evidence": "ASURA"
+        }
+      ]
+    },
+    {
+      "name": "Appendix",
+      "creature_id": "appendix",
+      "level": 8,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 1611,
+          "method": "title_case_with_level",
+          "evidence": "Appendix"
+        }
+      ]
+    },
+    {
+      "name": "Astral",
+      "creature_id": "astral",
+      "level": 12,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37619,
+          "method": "title_case_with_level",
+          "evidence": "Astral"
+        }
+      ]
+    },
+    {
+      "name": "BANSHEE",
+      "creature_id": "banshee",
+      "level": 17,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 4126,
+          "method": "title_case_with_level",
+          "evidence": "BANSHEE"
+        }
+      ]
+    },
+    {
+      "name": "BEAST",
+      "creature_id": "beast",
+      "level": 9,
+      "creature_type": "beast",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 22391,
+          "method": "title_case_with_level",
+          "evidence": "BEAST"
+        }
+      ]
+    },
+    {
+      "name": "BODAK\b",
+      "creature_id": "bodak",
+      "level": 8,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 4800,
+          "method": "title_case_with_level",
+          "evidence": "BODAK\b"
+        }
+      ]
+    },
+    {
+      "name": "BOGGARD",
+      "creature_id": "boggard",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 5323,
+          "method": "title_case_with_level",
+          "evidence": "BOGGARD"
+        }
+      ]
+    },
+    {
+      "name": "BRIMORAK\b",
+      "creature_id": "brimorak",
+      "level": 5,
+      "creature_type": "fiend",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 6806,
+          "method": "title_case_with_level",
+          "evidence": "BRIMORAK\b"
+        }
+      ]
+    },
+    {
+      "name": "BYTHOS\b",
+      "creature_id": "bythos",
+      "level": 16,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 1600,
+          "method": "title_case_with_level",
+          "evidence": "BYTHOS\b"
+        }
+      ]
+    },
+    {
+      "name": "Bestiary 2",
+      "creature_id": "bestiary_2",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33263,
+          "method": "title_case_with_level",
+          "evidence": "Bestiary 2"
+        }
+      ]
+    },
+    {
+      "name": "Bestiary 3",
+      "creature_id": "bestiary_3",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 33315,
+          "method": "title_case_with_level",
+          "evidence": "Bestiary 3"
+        }
+      ]
+    },
+    {
+      "name": "CACODAEMON",
+      "creature_id": "cacodaemon",
+      "level": 1,
+      "creature_type": "fiend",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 7979,
+          "method": "title_case_with_level",
+          "evidence": "CACODAEMON"
+        }
+      ]
+    },
+    {
+      "name": "CALIGNI",
+      "creature_id": "caligni",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 5886,
+          "method": "title_case_with_level",
+          "evidence": "CALIGNI"
+        }
+      ]
+    },
+    {
+      "name": "CALIKANG\b",
+      "creature_id": "calikang",
+      "level": 12,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 4715,
+          "method": "title_case_with_level",
+          "evidence": "CALIKANG\b"
+        }
+      ]
+    },
+    {
+      "name": "CATFOLK",
+      "creature_id": "catfolk",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 6379,
+          "method": "title_case_with_level",
+          "evidence": "CATFOLK"
+        }
+      ]
+    },
+    {
+      "name": "CAULBORN\b",
+      "creature_id": "caulborn",
+      "level": 7,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 10324,
+          "method": "title_case_with_level",
+          "evidence": "CAULBORN\b"
+        }
+      ]
+    },
+    {
+      "name": "CHANGELING",
+      "creature_id": "changeling",
+      "level": 3,
+      "creature_type": "celestial",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 7139,
+          "method": "title_case_with_level",
+          "evidence": "CHANGELING"
+        }
+      ]
+    },
+    {
+      "name": "CHERNOBUE\b",
+      "creature_id": "chernobue",
+      "level": 12,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 22911,
+          "method": "title_case_with_level",
+          "evidence": "CHERNOBUE\b"
+        }
+      ]
+    },
+    {
+      "name": "CHIMERA\b",
+      "creature_id": "chimera",
+      "level": 8,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 7184,
+          "method": "title_case_with_level",
+          "evidence": "CHIMERA\b"
+        }
+      ]
+    },
+    {
+      "name": "CHUUL",
+      "creature_id": "chuul",
+      "level": 7,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 7325,
+          "method": "title_case_with_level",
+          "evidence": "CHUUL"
+        }
+      ]
+    },
+    {
+      "name": "COCKROACH SWARM\b",
+      "creature_id": "cockroach_swarm",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 5986,
+          "method": "creature_level_marker",
+          "evidence": "COCKROACH SWARM\b CREATURE 2"
+        }
+      ]
+    },
+    {
+      "name": "COLD",
+      "creature_id": "cold",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 12585,
+          "method": "title_case_with_level",
+          "evidence": "COLD"
+        }
+      ]
+    },
+    {
+      "name": "CONSTRUCT",
+      "creature_id": "construct",
+      "level": 2,
+      "creature_type": "construct",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2738,
+          "method": "title_case_with_level",
+          "evidence": "CONSTRUCT"
+        }
+      ]
+    },
+    {
+      "name": "CREATING A RAVENER",
+      "creature_id": "creating_a_ravener",
+      "level": 13,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 23702,
+          "method": "title_case_with_level",
+          "evidence": "CREATING A RAVENER"
+        }
+      ]
+    },
+    {
+      "name": "CROSSROADS GUARDIAN\b",
+      "creature_id": "crossroads_guardian",
+      "level": 7,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 6547,
+          "method": "creature_level_marker",
+          "evidence": "CROSSROADS GUARDIAN\b CREATURE 7"
+        }
+      ]
+    },
+    {
+      "name": "CYTHNIGOT",
+      "creature_id": "cythnigot",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 22642,
+          "method": "title_case_with_level",
+          "evidence": "CYTHNIGOT"
+        }
+      ]
+    },
+    {
+      "name": "Celestial",
+      "creature_id": "celestial",
+      "level": 1,
+      "creature_type": "celestial",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37630,
+          "method": "title_case_with_level",
+          "evidence": "Celestial"
+        }
+      ]
+    },
+    {
+      "name": "Consume Soul [free-action] DC 44",
+      "creature_id": "consume_soul_free_action_dc_44",
+      "level": 10,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 23982,
+          "method": "title_case_with_level",
+          "evidence": "Consume Soul [free-action] DC 44"
+        }
+      ]
+    },
+    {
+      "name": "Creating Graveknights",
+      "creature_id": "creating_graveknights",
+      "level": 5,
+      "creature_type": "undead",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 20823,
+          "method": "title_case_with_level",
+          "evidence": "Creating Graveknights"
+        }
+      ]
+    },
+    {
+      "name": "DAEMON",
+      "creature_id": "daemon",
+      "level": 6,
+      "creature_type": "fiend",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 8064,
+          "method": "title_case_with_level",
+          "evidence": "DAEMON"
+        }
+      ]
+    },
+    {
+      "name": "DANDASUKA",
+      "creature_id": "dandasuka",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 29529,
+          "method": "title_case_with_level",
+          "evidence": "DANDASUKA"
+        }
+      ]
+    },
+    {
+      "name": "DEMON",
+      "creature_id": "demon",
+      "level": 14,
+      "creature_type": "fiend",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 7473,
+          "method": "title_case_with_level",
+          "evidence": "DEMON"
+        }
+      ]
+    },
+    {
+      "name": "DERO",
+      "creature_id": "dero",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 9431,
+          "method": "title_case_with_level",
+          "evidence": "DERO"
+        }
+      ]
+    },
+    {
+      "name": "DEVIL",
+      "creature_id": "devil",
+      "level": 10,
+      "creature_type": "fiend",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 10023,
+          "method": "title_case_with_level",
+          "evidence": "DEVIL"
+        }
+      ]
+    },
+    {
+      "name": "DEVOURER",
+      "creature_id": "devourer",
+      "level": 11,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 8471,
+          "method": "title_case_with_level",
+          "evidence": "DEVOURER"
+        }
+      ]
+    },
+    {
+      "name": "DHAMPIR",
+      "creature_id": "dhampir",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 10566,
+          "method": "title_case_with_level",
+          "evidence": "DHAMPIR"
+        }
+      ]
+    },
+    {
+      "name": "DJINNI",
+      "creature_id": "djinni",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 17933,
+          "method": "title_case_with_level",
+          "evidence": "DJINNI"
+        }
+      ]
+    },
+    {
+      "name": "DRACOLISK",
+      "creature_id": "dracolisk",
+      "level": 9,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 4057,
+          "method": "title_case_with_level",
+          "evidence": "DRACOLISK"
+        }
+      ]
+    },
+    {
+      "name": "DRAGON",
+      "creature_id": "dragon",
+      "level": 9,
+      "creature_type": "dragon",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 11816,
+          "method": "title_case_with_level",
+          "evidence": "DRAGON"
+        }
+      ]
+    },
+    {
+      "name": "DRETCH",
+      "creature_id": "dretch",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 6632,
+          "method": "title_case_with_level",
+          "evidence": "DRETCH"
+        }
+      ]
+    },
+    {
+      "name": "DROW",
+      "creature_id": "drow",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 15040,
+          "method": "title_case_with_level",
+          "evidence": "DROW"
+        }
+      ]
+    },
+    {
+      "name": "DUERGAR",
+      "creature_id": "duergar",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 15307,
+          "method": "title_case_with_level",
+          "evidence": "DUERGAR"
+        }
+      ]
+    },
+    {
+      "name": "DULLAHAN",
+      "creature_id": "dullahan",
+      "level": 7,
+      "creature_type": "undead",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 15442,
+          "method": "title_case_with_level",
+          "evidence": "DULLAHAN"
+        }
+      ]
+    },
+    {
+      "name": "DWARF",
+      "creature_id": "dwarf",
+      "level": 1,
+      "creature_type": "humanoid",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 15309,
+          "method": "title_case_with_level",
+          "evidence": "DWARF"
+        }
+      ]
+    },
+    {
+      "name": "DYBBUK\b",
+      "creature_id": "dybbuk",
+      "level": 15,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 9701,
+          "method": "title_case_with_level",
+          "evidence": "DYBBUK\b"
+        }
+      ]
+    },
+    {
+      "name": "Dragon tavern after him.",
+      "creature_id": "dragon_tavern_after_him",
+      "level": 9,
+      "creature_type": "dragon",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 13186,
+          "method": "title_case_with_level",
+          "evidence": "Dragon tavern after him."
+        }
+      ]
+    },
+    {
+      "name": "Dream",
+      "creature_id": "dream",
+      "level": 8,
+      "creature_type": "dragon",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33278,
+          "method": "title_case_with_level",
+          "evidence": "Dream"
+        }
+      ]
+    },
+    {
+      "name": "E-G",
+      "creature_id": "e_g",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 5566,
+          "method": "title_case_with_level",
+          "evidence": "E-G"
+        }
+      ]
+    },
+    {
+      "name": "EARTH",
+      "creature_id": "earth",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 16130,
+          "method": "title_case_with_level",
+          "evidence": "EARTH"
+        }
+      ]
+    },
+    {
+      "name": "ELEMENTAL",
+      "creature_id": "elemental",
+      "level": 5,
+      "creature_type": "elemental",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 16352,
+          "method": "title_case_with_level",
+          "evidence": "ELEMENTAL"
+        }
+      ]
+    },
+    {
+      "name": "Ethereal",
+      "creature_id": "ethereal",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33329,
+          "method": "title_case_with_level",
+          "evidence": "Ethereal"
+        }
+      ]
+    },
+    {
+      "name": "FEY",
+      "creature_id": "fey",
+      "level": 1,
+      "creature_type": "fey",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 33134,
+          "method": "title_case_with_level",
+          "evidence": "FEY"
+        }
+      ]
+    },
+    {
+      "name": "FIEND",
+      "creature_id": "fiend",
+      "level": 10,
+      "creature_type": "fiend",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 29601,
+          "method": "title_case_with_level",
+          "evidence": "FIEND"
+        }
+      ]
+    },
+    {
+      "name": "FIRE",
+      "creature_id": "fire",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 32045,
+          "method": "title_case_with_level",
+          "evidence": "FIRE"
+        }
+      ]
+    },
+    {
+      "name": "FROST TROLL\b",
+      "creature_id": "frost_troll",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 28086,
+          "method": "title_case_with_level",
+          "evidence": "FROST TROLL\b"
+        }
+      ]
+    },
+    {
+      "name": "FUNGUS",
+      "creature_id": "fungus",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 23892,
+          "method": "title_case_with_level",
+          "evidence": "FUNGUS"
+        }
+      ]
+    },
+    {
+      "name": "Failure Sonic waves fling the",
+      "creature_id": "failure_sonic_waves_fling_the",
+      "level": 15,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 14319,
+          "method": "creature_level_marker",
+          "evidence": "Failure Sonic waves fling the creature 15 feet"
+        }
+      ]
+    },
+    {
+      "name": "GARGANTUAN",
+      "creature_id": "gargantuan",
+      "level": 8,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 3070,
+          "method": "title_case_with_level",
+          "evidence": "GARGANTUAN"
+        }
+      ]
+    },
+    {
+      "name": "GATHLAIN WANDERER\b",
+      "creature_id": "gathlain_wanderer",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 11522,
+          "method": "creature_level_marker",
+          "evidence": "GATHLAIN WANDERER\b CREATURE 1"
+        }
+      ]
+    },
+    {
+      "name": "GHORAN",
+      "creature_id": "ghoran",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 11592,
+          "method": "title_case_with_level",
+          "evidence": "GHORAN"
+        }
+      ]
+    },
+    {
+      "name": "GHOST",
+      "creature_id": "ghost",
+      "level": 10,
+      "creature_type": "undead",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 18419,
+          "method": "title_case_with_level",
+          "evidence": "GHOST"
+        }
+      ]
+    },
+    {
+      "name": "GIANT",
+      "creature_id": "giant",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 27285,
+          "method": "title_case_with_level",
+          "evidence": "GIANT"
+        }
+      ]
+    },
+    {
+      "name": "GIGANTOPITHECUS",
+      "creature_id": "gigantopithecus",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 3018,
+          "method": "title_case_with_level",
+          "evidence": "GIGANTOPITHECUS"
+        }
+      ]
+    },
+    {
+      "name": "GNOLL",
+      "creature_id": "gnoll",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 19619,
+          "method": "title_case_with_level",
+          "evidence": "GNOLL"
+        }
+      ]
+    },
+    {
+      "name": "GNOME",
+      "creature_id": "gnome",
+      "level": 1,
+      "creature_type": "humanoid",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 8415,
+          "method": "title_case_with_level",
+          "evidence": "GNOME"
+        }
+      ]
+    },
+    {
+      "name": "GOBLIN",
+      "creature_id": "goblin",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 5621,
+          "method": "title_case_with_level",
+          "evidence": "GOBLIN"
+        }
+      ]
+    },
+    {
+      "name": "GOSREG\b",
+      "creature_id": "gosreg",
+      "level": 11,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 14446,
+          "method": "title_case_with_level",
+          "evidence": "GOSREG\b"
+        }
+      ]
+    },
+    {
+      "name": "GUECUBU\b",
+      "creature_id": "guecubu",
+      "level": 8,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 13661,
+          "method": "title_case_with_level",
+          "evidence": "GUECUBU\b"
+        }
+      ]
+    },
+    {
+      "name": "Gamemastery Guide.",
+      "creature_id": "gamemastery_guide",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 6110,
+          "method": "title_case_with_level",
+          "evidence": "Gamemastery Guide."
+        }
+      ]
+    },
+    {
+      "name": "H-K",
+      "creature_id": "h_k",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 5567,
+          "method": "title_case_with_level",
+          "evidence": "H-K"
+        }
+      ]
+    },
+    {
+      "name": "HAG",
+      "creature_id": "hag",
+      "level": 8,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 14086,
+          "method": "title_case_with_level",
+          "evidence": "HAG"
+        }
+      ]
+    },
+    {
+      "name": "HEREXEN\b",
+      "creature_id": "herexen",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 14524,
+          "method": "title_case_with_level",
+          "evidence": "HEREXEN\b"
+        }
+      ]
+    },
+    {
+      "name": "HODAG\b",
+      "creature_id": "hodag",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 15685,
+          "method": "title_case_with_level",
+          "evidence": "HODAG\b"
+        }
+      ]
+    },
+    {
+      "name": "HUGE",
+      "creature_id": "huge",
+      "level": 7,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2085,
+          "method": "title_case_with_level",
+          "evidence": "HUGE"
+        }
+      ]
+    },
+    {
+      "name": "HUGE GIANT",
+      "creature_id": "huge_giant",
+      "level": 15,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 28374,
+          "method": "title_case_with_level",
+          "evidence": "HUGE GIANT"
+        }
+      ]
+    },
+    {
+      "name": "HUMAN",
+      "creature_id": "human",
+      "level": 3,
+      "creature_type": "humanoid",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 28226,
+          "method": "title_case_with_level",
+          "evidence": "HUMAN"
+        }
+      ]
+    },
+    {
+      "name": "HUMANOID",
+      "creature_id": "humanoid",
+      "level": 1,
+      "creature_type": "humanoid",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 23212,
+          "method": "title_case_with_level",
+          "evidence": "HUMANOID"
+        }
+      ]
+    },
+    {
+      "name": "Horseman of Pestilence Apollyon,",
+      "creature_id": "horseman_of_pestilence_apollyon",
+      "level": 14,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 12112,
+          "method": "title_case_with_level",
+          "evidence": "Horseman of Pestilence Apollyon,"
+        }
+      ]
+    },
+    {
+      "name": "ICE MEPHIT\b",
+      "creature_id": "ice_mephit",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 12248,
+          "method": "title_case_with_level",
+          "evidence": "ICE MEPHIT\b"
+        }
+      ]
+    },
+    {
+      "name": "IMP",
+      "creature_id": "imp",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 9684,
+          "method": "title_case_with_level",
+          "evidence": "IMP"
+        }
+      ]
+    },
+    {
+      "name": "INCORPOREAL",
+      "creature_id": "incorporeal",
+      "level": 9,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 31598,
+          "method": "title_case_with_level",
+          "evidence": "INCORPOREAL"
+        }
+      ]
+    },
+    {
+      "name": "INCUTILIS",
+      "creature_id": "incutilis",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 15097,
+          "method": "title_case_with_level",
+          "evidence": "INCUTILIS"
+        }
+      ]
+    },
+    {
+      "name": "IOTON\b",
+      "creature_id": "ioton",
+      "level": 0,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 10158,
+          "method": "title_case_with_level",
+          "evidence": "IOTON\b"
+        }
+      ]
+    },
+    {
+      "name": "ISQULUG\b",
+      "creature_id": "isqulug",
+      "level": 11,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 16107,
+          "method": "title_case_with_level",
+          "evidence": "ISQULUG\b"
+        }
+      ]
+    },
+    {
+      "name": "Introduction",
+      "creature_id": "introduction",
+      "level": 9,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37652,
+          "method": "title_case_with_level",
+          "evidence": "Introduction"
+        }
+      ]
+    },
+    {
+      "name": "JANNI",
+      "creature_id": "janni",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 17867,
+          "method": "title_case_with_level",
+          "evidence": "JANNI"
+        }
+      ]
+    },
+    {
+      "name": "KAMI",
+      "creature_id": "kami",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 15344,
+          "method": "title_case_with_level",
+          "evidence": "KAMI"
+        }
+      ]
+    },
+    {
+      "name": "KORRED",
+      "creature_id": "korred",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 16740,
+          "method": "title_case_with_level",
+          "evidence": "KORRED"
+        }
+      ]
+    },
+    {
+      "name": "KRAKEN",
+      "creature_id": "kraken",
+      "level": 18,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 23346,
+          "method": "title_case_with_level",
+          "evidence": "KRAKEN"
+        }
+      ]
+    },
+    {
+      "name": "L-N",
+      "creature_id": "l_n",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 8474,
+          "method": "title_case_with_level",
+          "evidence": "L-N"
+        }
+      ]
+    },
+    {
+      "name": "LARGE",
+      "creature_id": "large",
+      "level": 20,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 1726,
+          "method": "title_case_with_level",
+          "evidence": "LARGE"
+        }
+      ]
+    },
+    {
+      "name": "LEMURE",
+      "creature_id": "lemure",
+      "level": 0,
+      "creature_type": "fiend",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 9594,
+          "method": "title_case_with_level",
+          "evidence": "LEMURE"
+        }
+      ]
+    },
+    {
+      "name": "LESHY",
+      "creature_id": "leshy",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 23817,
+          "method": "title_case_with_level",
+          "evidence": "LESHY"
+        }
+      ]
+    },
+    {
+      "name": "LEYDROTH",
+      "creature_id": "leydroth",
+      "level": 17,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 17560,
+          "method": "title_case_with_level",
+          "evidence": "LEYDROTH"
+        }
+      ]
+    },
+    {
+      "name": "LICH\b",
+      "creature_id": "lich",
+      "level": 12,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 24080,
+          "method": "title_case_with_level",
+          "evidence": "LICH\b"
+        }
+      ]
+    },
+    {
+      "name": "LION",
+      "creature_id": "lion",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 6152,
+          "method": "title_case_with_level",
+          "evidence": "LION"
+        }
+      ]
+    },
+    {
+      "name": "Level 12 shining child",
+      "creature_id": "level_12_shining_child",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37620,
+          "method": "title_case_with_level",
+          "evidence": "Level 12 shining child"
+        }
+      ]
+    },
+    {
+      "name": "Level 20 draconal",
+      "creature_id": "level_20_draconal",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 33300,
+          "method": "title_case_with_level",
+          "evidence": "Level 20 draconal"
+        }
+      ]
+    },
+    {
+      "name": "Level 20 pleroma",
+      "creature_id": "level_20_pleroma",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37741,
+          "method": "title_case_with_level",
+          "evidence": "Level 20 pleroma"
+        }
+      ]
+    },
+    {
+      "name": "Level 5 ether spider",
+      "creature_id": "level_5_ether_spider",
+      "level": 0,
+      "creature_type": "plant",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37749,
+          "method": "title_case_with_level",
+          "evidence": "Level 5 ether spider"
+        }
+      ]
+    },
+    {
+      "name": "Level 6 xillU",
+      "creature_id": "level_6_xillu",
+      "level": 1,
+      "creature_type": "plant",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33333,
+          "method": "title_case_with_level",
+          "evidence": "Level 6 xillU"
+        }
+      ]
+    },
+    {
+      "name": "Level 7 black pudding",
+      "creature_id": "level_7_black_pudding",
+      "level": 5,
+      "creature_type": "ooze",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37745,
+          "method": "title_case_with_level",
+          "evidence": "Level 7 black pudding"
+        }
+      ]
+    },
+    {
+      "name": "Level 7 hound of TindalosR",
+      "creature_id": "level_7_hound_of_tindalosr",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33378,
+          "method": "title_case_with_level",
+          "evidence": "Level 7 hound of TindalosR"
+        }
+      ]
+    },
+    {
+      "name": "Level 7 sceaduinarR",
+      "creature_id": "level_7_sceaduinarr",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33320,
+          "method": "title_case_with_level",
+          "evidence": "Level 7 sceaduinarR"
+        }
+      ]
+    },
+    {
+      "name": "Level 7 tendriculos",
+      "creature_id": "level_7_tendriculos",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33367,
+          "method": "title_case_with_level",
+          "evidence": "Level 7 tendriculos"
+        }
+      ]
+    },
+    {
+      "name": "Level 9 jyoti",
+      "creature_id": "level_9_jyoti",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33352,
+          "method": "title_case_with_level",
+          "evidence": "Level 9 jyoti"
+        }
+      ]
+    },
+    {
+      "name": "MARUT",
+      "creature_id": "marut",
+      "level": 15,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 1512,
+          "method": "title_case_with_level",
+          "evidence": "MARUT"
+        }
+      ]
+    },
+    {
+      "name": "MEDIUM",
+      "creature_id": "medium",
+      "level": 12,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 1668,
+          "method": "title_case_with_level",
+          "evidence": "MEDIUM"
+        }
+      ]
+    },
+    {
+      "name": "MEDIUM INCORPOREAL",
+      "creature_id": "medium_incorporeal",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 28444,
+          "method": "title_case_with_level",
+          "evidence": "MEDIUM INCORPOREAL"
+        }
+      ]
+    },
+    {
+      "name": "MI-GO\b",
+      "creature_id": "mi_go",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 17942,
+          "method": "title_case_with_level",
+          "evidence": "MI-GO\b"
+        }
+      ]
+    },
+    {
+      "name": "MINDLESS",
+      "creature_id": "mindless",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 17646,
+          "method": "title_case_with_level",
+          "evidence": "MINDLESS"
+        }
+      ]
+    },
+    {
+      "name": "MUMMY",
+      "creature_id": "mummy",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 26033,
+          "method": "title_case_with_level",
+          "evidence": "MUMMY"
+        }
+      ]
+    },
+    {
+      "name": "Monitor",
+      "creature_id": "monitor",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37738,
+          "method": "title_case_with_level",
+          "evidence": "Monitor"
+        }
+      ]
+    },
+    {
+      "name": "NEGATIVE",
+      "creature_id": "negative",
+      "level": 16,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 33339,
+          "method": "title_case_with_level",
+          "evidence": "NEGATIVE"
+        }
+      ]
+    },
+    {
+      "name": "NEOTHELID",
+      "creature_id": "neothelid",
+      "level": 15,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 19421,
+          "method": "title_case_with_level",
+          "evidence": "NEOTHELID"
+        }
+      ]
+    },
+    {
+      "name": "NIGHTGAUNT",
+      "creature_id": "nightgaunt",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 19736,
+          "method": "title_case_with_level",
+          "evidence": "NIGHTGAUNT"
+        }
+      ]
+    },
+    {
+      "name": "NORN",
+      "creature_id": "norn",
+      "level": 20,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 19791,
+          "method": "title_case_with_level",
+          "evidence": "NORN"
+        }
+      ]
+    },
+    {
+      "name": "O-R",
+      "creature_id": "o_r",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 18595,
+          "method": "title_case_with_level",
+          "evidence": "O-R"
+        }
+      ]
+    },
+    {
+      "name": "OGRE WARRIOR",
+      "creature_id": "ogre_warrior",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 27225,
+          "method": "title_case_with_level",
+          "evidence": "OGRE WARRIOR"
+        }
+      ]
+    },
+    {
+      "name": "OMOX",
+      "creature_id": "omox",
+      "level": 12,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 6900,
+          "method": "title_case_with_level",
+          "evidence": "OMOX"
+        }
+      ]
+    },
+    {
+      "name": "ORCA",
+      "creature_id": "orca",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 9148,
+          "method": "title_case_with_level",
+          "evidence": "ORCA"
+        }
+      ]
+    },
+    {
+      "name": "Ooze",
+      "creature_id": "ooze",
+      "level": 1,
+      "creature_type": "ooze",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37743,
+          "method": "title_case_with_level",
+          "evidence": "Ooze"
+        }
+      ]
+    },
+    {
+      "name": "Others—such as relictner dwarves,",
+      "creature_id": "otherssuch_as_relictner_dwarves",
+      "level": 10,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 18851,
+          "method": "title_case_with_level",
+          "evidence": "Others—such as relictner dwarves,"
+        }
+      ]
+    },
+    {
+      "name": "Petitioner",
+      "creature_id": "petitioner",
+      "level": 1,
+      "creature_type": "ooze",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33326,
+          "method": "title_case_with_level",
+          "evidence": "Petitioner"
+        }
+      ]
+    },
+    {
+      "name": "Plant",
+      "creature_id": "plant",
+      "level": 5,
+      "creature_type": "plant",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 37747,
+          "method": "title_case_with_level",
+          "evidence": "Plant"
+        }
+      ]
+    },
+    {
+      "name": "Positive",
+      "creature_id": "positive",
+      "level": 9,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33351,
+          "method": "title_case_with_level",
+          "evidence": "Positive"
+        }
+      ]
+    },
+    {
+      "name": "QUICKLING",
+      "creature_id": "quickling",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 23268,
+          "method": "title_case_with_level",
+          "evidence": "QUICKLING"
+        }
+      ]
+    },
+    {
+      "name": "RARE",
+      "creature_id": "rare",
+      "level": 12,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 24081,
+          "method": "title_case_with_level",
+          "evidence": "RARE"
+        }
+      ]
+    },
+    {
+      "name": "ROPER",
+      "creature_id": "roper",
+      "level": 10,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 30318,
+          "method": "title_case_with_level",
+          "evidence": "ROPER"
+        }
+      ]
+    },
+    {
+      "name": "Rituals DC 36; infernal pact",
+      "creature_id": "rituals_dc_36_infernal_pact",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 8412,
+          "method": "title_case_with_level",
+          "evidence": "Rituals DC 36; infernal pact"
+        }
+      ]
+    },
+    {
+      "name": "S-T",
+      "creature_id": "s_t",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2000,
+          "method": "title_case_with_level",
+          "evidence": "S-T"
+        }
+      ]
+    },
+    {
+      "name": "SARD",
+      "creature_id": "sard",
+      "level": 19,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 24622,
+          "method": "title_case_with_level",
+          "evidence": "SARD"
+        }
+      ]
+    },
+    {
+      "name": "SHAODW",
+      "creature_id": "shaodw",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 33403,
+          "method": "title_case_with_level",
+          "evidence": "SHAODW"
+        }
+      ]
+    },
+    {
+      "name": "SHOGGTI",
+      "creature_id": "shoggti",
+      "level": 7,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 22728,
+          "method": "title_case_with_level",
+          "evidence": "SHOGGTI"
+        }
+      ]
+    },
+    {
+      "name": "SIKTEMPORA",
+      "creature_id": "siktempora",
+      "level": 12,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 24571,
+          "method": "title_case_with_level",
+          "evidence": "SIKTEMPORA"
+        }
+      ]
+    },
+    {
+      "name": "SKELETON",
+      "creature_id": "skeleton",
+      "level": 2,
+      "creature_type": "undead",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 32062,
+          "method": "title_case_with_level",
+          "evidence": "SKELETON"
+        }
+      ]
+    },
+    {
+      "name": "SKINSTITCH\b",
+      "creature_id": "skinstitch",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 25610,
+          "method": "title_case_with_level",
+          "evidence": "SKINSTITCH\b"
+        }
+      ]
+    },
+    {
+      "name": "SMALL",
+      "creature_id": "small",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2370,
+          "method": "title_case_with_level",
+          "evidence": "SMALL"
+        }
+      ]
+    },
+    {
+      "name": "SPIRIT",
+      "creature_id": "spirit",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 33407,
+          "method": "title_case_with_level",
+          "evidence": "SPIRIT"
+        }
+      ]
+    },
+    {
+      "name": "STINGRAY",
+      "creature_id": "stingray",
+      "level": 0,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 24118,
+          "method": "title_case_with_level",
+          "evidence": "STINGRAY"
+        }
+      ]
+    },
+    {
+      "name": "SWARM",
+      "creature_id": "swarm",
+      "level": 10,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 25844,
+          "method": "title_case_with_level",
+          "evidence": "SWARM"
+        }
+      ]
+    },
+    {
+      "name": "Samsaran (rare)",
+      "creature_id": "samsaran_rare",
+      "level": 0,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 33245,
+          "method": "title_case_with_level",
+          "evidence": "Samsaran (rare)"
+        }
+      ]
+    },
+    {
+      "name": "Sasquatch (rare)",
+      "creature_id": "sasquatch_rare",
+      "level": 0,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 33246,
+          "method": "title_case_with_level",
+          "evidence": "Sasquatch (rare)"
+        }
+      ]
+    },
+    {
+      "name": "Shadow",
+      "creature_id": "shadow",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33372,
+          "method": "title_case_with_level",
+          "evidence": "Shadow"
+        }
+      ]
+    },
+    {
+      "name": "Shae (rare)",
+      "creature_id": "shae_rare",
+      "level": 0,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 33247,
+          "method": "title_case_with_level",
+          "evidence": "Shae (rare)"
+        }
+      ]
+    },
+    {
+      "name": "Strike. Effect The devil moves the",
+      "creature_id": "strike_effect_the_devil_moves_the",
+      "level": 5,
+      "creature_type": "fiend",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 9847,
+          "method": "creature_level_marker",
+          "evidence": "Strike. Effect The devil moves the creature 5 feet in any"
+        }
+      ]
+    },
+    {
+      "name": "Strike; Effect The devil pulls the",
+      "creature_id": "strike_effect_the_devil_pulls_the",
+      "level": 5,
+      "creature_type": "fiend",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 8415,
+          "method": "creature_level_marker",
+          "evidence": "Strike; Effect The devil pulls the creature 5 feet"
+        }
+      ]
+    },
+    {
+      "name": "THULGANT",
+      "creature_id": "thulgant",
+      "level": 18,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 23155,
+          "method": "title_case_with_level",
+          "evidence": "THULGANT"
+        }
+      ]
+    },
+    {
+      "name": "TINY",
+      "creature_id": "tiny",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 1519,
+          "method": "title_case_with_level",
+          "evidence": "TINY"
+        }
+      ]
+    },
+    {
+      "name": "Time",
+      "creature_id": "time",
+      "level": 7,
+      "creature_type": "dragon",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 33377,
+          "method": "title_case_with_level",
+          "evidence": "Time"
+        }
+      ]
+    },
+    {
+      "name": "U-Z",
+      "creature_id": "u_z",
+      "level": 4,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2001,
+          "method": "title_case_with_level",
+          "evidence": "U-Z"
+        }
+      ]
+    },
+    {
+      "name": "UNCOMMON",
+      "creature_id": "uncommon",
+      "level": 8,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 2958,
+          "method": "title_case_with_level",
+          "evidence": "UNCOMMON"
+        }
+      ]
+    },
+    {
+      "name": "UNCOMMON CE",
+      "creature_id": "uncommon_ce",
+      "level": 17,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 4127,
+          "method": "title_case_with_level",
+          "evidence": "UNCOMMON CE"
+        }
+      ]
+    },
+    {
+      "name": "UNDEAD",
+      "creature_id": "undead",
+      "level": 4,
+      "creature_type": "undead",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 34343,
+          "method": "title_case_with_level",
+          "evidence": "UNDEAD"
+        }
+      ]
+    },
+    {
+      "name": "UNIQUE",
+      "creature_id": "unique",
+      "level": 25,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 33535,
+          "method": "title_case_with_level",
+          "evidence": "UNIQUE"
+        }
+      ]
+    },
+    {
+      "name": "Undercommon to a destrachan than",
+      "creature_id": "undercommon_to_a_destrachan_than",
+      "level": 8,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 7782,
+          "method": "title_case_with_level",
+          "evidence": "Undercommon to a destrachan than"
+        }
+      ]
+    },
+    {
+      "name": "Urgathoa, or some other deity",
+      "creature_id": "urgathoa_or_some_other_deity",
+      "level": 14,
+      "creature_type": "creature",
+      "source_book": "bestiary_3",
+      "source_display": "Bestiary 3",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 3.txt",
+          "line": 12113,
+          "method": "title_case_with_level",
+          "evidence": "Urgathoa, or some other deity"
+        }
+      ]
+    },
+    {
+      "name": "VAMPIRIC MIST\b",
+      "creature_id": "vampiric_mist",
+      "level": 3,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 29541,
+          "method": "creature_level_marker",
+          "evidence": "VAMPIRIC MIST\b CREATURE 3"
+        }
+      ]
+    },
+    {
+      "name": "VARIES",
+      "creature_id": "varies",
+      "level": 1,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 21224,
+          "method": "title_case_with_level",
+          "evidence": "VARIES"
+        }
+      ]
+    },
+    {
+      "name": "VROLIKAI\b",
+      "creature_id": "vrolikai",
+      "level": 19,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 7550,
+          "method": "title_case_with_level",
+          "evidence": "VROLIKAI\b"
+        }
+      ]
+    },
+    {
+      "name": "WARG",
+      "creature_id": "warg",
+      "level": 2,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 34551,
+          "method": "title_case_with_level",
+          "evidence": "WARG"
+        }
+      ]
+    },
+    {
+      "name": "WENDIGO",
+      "creature_id": "wendigo",
+      "level": 17,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 35063,
+          "method": "title_case_with_level",
+          "evidence": "WENDIGO"
+        }
+      ]
+    },
+    {
+      "name": "WOOLLY RHINOCEROS",
+      "creature_id": "woolly_rhinoceros",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 24367,
+          "method": "creature_level_marker",
+          "evidence": "WOOLLY RHINOCEROS CREATURE 6"
+        }
+      ]
+    },
+    {
+      "name": "XILL\b",
+      "creature_id": "xill",
+      "level": 6,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 31689,
+          "method": "title_case_with_level",
+          "evidence": "XILL\b"
+        }
+      ]
+    },
+    {
+      "name": "XORN",
+      "creature_id": "xorn",
+      "level": 7,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 16159,
+          "method": "title_case_with_level",
+          "evidence": "XORN"
+        }
+      ]
+    },
+    {
+      "name": "YAMARAJ\b",
+      "creature_id": "yamaraj",
+      "level": 20,
+      "creature_type": "creature",
+      "source_book": "bestiary_2",
+      "source_display": "Bestiary 2",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 2.txt",
+          "line": 22518,
+          "method": "title_case_with_level",
+          "evidence": "YAMARAJ\b"
+        }
+      ]
+    },
+    {
+      "name": "YETI",
+      "creature_id": "yeti",
+      "level": 5,
+      "creature_type": "creature",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 36249,
+          "method": "title_case_with_level",
+          "evidence": "YETI"
+        }
+      ]
+    },
+    {
+      "name": "YOUNG COPPER DRAGON\b",
+      "creature_id": "young_copper_dragon",
+      "level": 8,
+      "creature_type": "dragon",
+      "source_book": "bestiary_1",
+      "source_display": "Bestiary 1",
+      "references": [
+        {
+          "source_file": "PF2E Bestiary 1.txt",
+          "line": 13441,
+          "method": "creature_level_marker",
+          "evidence": "YOUNG COPPER DRAGON\b CREATURE 8"
+        }
+      ]
+    }
+  ]
+}

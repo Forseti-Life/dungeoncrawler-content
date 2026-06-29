@@ -30,7 +30,7 @@ class HexMapControllerTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
     $this->assertSession()->pageTextContains('Map');
     $this->assertSession()->pageTextContains('Chat');
-    $this->assertSession()->pageTextContains('Character');
+    $this->assertSession()->pageTextContains('Party');
     $this->assertSession()->pageTextContains('Enter Fullscreen');
   }
 

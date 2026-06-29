@@ -1,0 +1,58 @@
+# Reroute: Infrastructure Operations Analysis Items
+
+- Status: pending
+- Topic: reroute-from-architect
+- Owner: dev-infra
+- ROI: 25
+- Rationale: Role boundary correction — architect-copilot was over-assigned infrastructure diagnostics tasks that belong in dev-infra/qa-infra domain
+
+## Context
+
+Architect-copilot received 15+ infrastructure operations analysis items under the parent "analyze-ceo-ops-once" task:
+
+- analyze-certbot-renewal
+- analyze-e2scrub
+- analyze-forseti-cron
+- analyze-hq-automation-watchdog
+- analyze-hq-health-heartbeat
+- analyze-job-hunter-genai
+- analyze-job-hunter-posting
+- analyze-job-hunter-tailoring
+- analyze-logrotate
+- analyze-notify-pending
+- analyze-orchestrator-reboot
+- analyze-orchestrator-watchdog
+- analyze-php-session-cleanup
+- analyze-sysstat
+- analyze-system-utilities
+
+## Issue
+
+These are **infrastructure operations diagnostics**, not architectural design research. They belong to:
+- **dev-infra** for orchestration/automation analysis
+- **qa-infra** for infrastructure validation tasks
+
+**Architect role should focus on system design, not ops analysis.**
+
+## Action Required
+
+1. Review the 15 items in sessions/architect-copilot/inbox/ (above list)
+2. Triage each one:
+   - **ops/automation/cron/watchdog** → dev-infra
+   - **infrastructure validation/testing** → qa-infra
+   - **design questions** → keep in architect (if any)
+3. Move or copy items to appropriate inbox (dev-infra or qa-infra)
+4. Archive from architect-copilot inbox
+5. Update this item with status and routing summary
+
+## Acceptance Criteria
+
+- [ ] All 15 items reviewed and triaged
+- [ ] Each routed to correct owner (dev-infra, qa-infra, or architect decision to keep)
+- [ ] Architect inbox cleared of ops analysis items
+- [ ] dev-infra/qa-infra have received their routed items with clear scope
+- [ ] Blocked "analyze-ceo-ops-once" parent item archived with reference to this dispatch
+
+---
+- Created: 2026-04-21T13:58:00+00:00
+- Rerouted from: architect-copilot

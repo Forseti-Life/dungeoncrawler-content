@@ -1,0 +1,975 @@
+{
+  "extraction_date": "2026-02-19",
+  "sources": [
+    "Core Rulebook (4th Printing)",
+    "Secrets of Magic",
+    "Advanced Player's Guide"
+  ],
+  "stats": {
+    "total_raw": 2574,
+    "total_deduplicated": 252,
+    "by_source": {
+      "core_rulebook_4th_printing": 1550,
+      "secrets_of_magic": 738,
+      "advanced_players_guide": 286
+    },
+    "by_level": {
+      "0": 1,
+      "1": 8,
+      "2": 12,
+      "3": 5,
+      "4": 5,
+      "5": 6,
+      "6": 2,
+      "7": 1,
+      "8": 2,
+      "10": 3
+    },
+    "by_school": {
+      "null": 14,
+      "transmutation": 7,
+      "divination": 6,
+      "abjuration": 3,
+      "conjuration": 4,
+      "enchantment": 2,
+      "evocation": 2,
+      "necromancy": 3,
+      "illusion": 4
+    },
+    "filtered_out": 207,
+    "final_count": 45
+  },
+  "spell_count": 45,
+  "spells": [
+    {
+      "name": "Cantrip: tanglefoot",
+      "spell_id": "cantrip:_tanglefoot",
+      "spell_level": 0,
+      "school": null,
+      "traditions": null,
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 19677,
+          "method": "level_adjacent",
+          "evidence": "Cantrip: tanglefoot"
+        }
+      ]
+    },
+    {
+      "name": "Cast [one-action] somatic",
+      "spell_id": "cast_[one-action]_somatic",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53862,
+          "method": "level_adjacent",
+          "evidence": "Cast [one-action] somatic"
+        }
+      ]
+    },
+    {
+      "name": "Cast [one-action] verbal",
+      "spell_id": "cast_[one-action]_verbal",
+      "spell_level": 1,
+      "school": "divination",
+      "traditions": [
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 53033,
+          "method": "level_adjacent",
+          "evidence": "Cast [one-action] verbal"
+        }
+      ]
+    },
+    {
+      "name": "Critical Success The creature is unaffected.",
+      "spell_id": "critical_success_the_creature_is_unaffected.",
+      "spell_level": 1,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50174,
+          "method": "level_adjacent",
+          "evidence": "Critical Success The creature is unaffected."
+        }
+      ]
+    },
+    {
+      "name": "Tradition arcane, divine, occult, primal",
+      "spell_id": "tradition_arcane,_divine,_occult,_primal",
+      "spell_level": 1,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14286,
+          "method": "level_adjacent",
+          "evidence": "Tradition arcane, divine, occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, divine, occult, primal",
+      "spell_id": "traditions_arcane,_divine,_occult,_primal",
+      "spell_level": 1,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48914,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, divine, occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, divine, primal",
+      "spell_id": "traditions_arcane,_divine,_primal",
+      "spell_level": 1,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48852,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, divine, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, occult, primal",
+      "spell_id": "traditions_arcane,_occult,_primal",
+      "spell_level": 1,
+      "school": "enchantment",
+      "traditions": [
+        "arcane",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49814,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions divine, primal",
+      "spell_id": "traditions_divine,_primal",
+      "spell_level": 1,
+      "school": "divination",
+      "traditions": [
+        "divine",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50779,
+          "method": "level_adjacent",
+          "evidence": "Traditions divine, primal"
+        }
+      ]
+    },
+    {
+      "name": "Bulk of 1 or less",
+      "spell_id": "bulk_of_1_or_less",
+      "spell_level": 2,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13154,
+          "method": "level_adjacent",
+          "evidence": "Bulk of 1 or less"
+        }
+      ]
+    },
+    {
+      "name": "CHAMPION’S",
+      "spell_id": "champion’s",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 60522,
+          "method": "level_adjacent",
+          "evidence": "CHAMPION’S SACRIFICE"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] material, verbal",
+      "spell_id": "cast_[two-actions]_material,_verbal",
+      "spell_level": 2,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10268,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] material, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] to 2 rounds",
+      "spell_id": "cast_[two-actions]_to_2_rounds",
+      "spell_level": 2,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 12865,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] to 2 rounds"
+        }
+      ]
+    },
+    {
+      "name": "FEAT 16",
+      "spell_id": "feat_16",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 31971,
+          "method": "level_adjacent",
+          "evidence": "FEAT 16"
+        }
+      ]
+    },
+    {
+      "name": "FEAT 8",
+      "spell_id": "feat_8",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 31673,
+          "method": "level_adjacent",
+          "evidence": "FEAT 8"
+        }
+      ]
+    },
+    {
+      "name": "OUTCAST’S",
+      "spell_id": "outcast’s",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55173,
+          "method": "level_adjacent",
+          "evidence": "OUTCAST’S CURSE"
+        }
+      ]
+    },
+    {
+      "name": "Success The target is unaffected.",
+      "spell_id": "success_the_target_is_unaffected.",
+      "spell_level": 2,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58985,
+          "method": "level_adjacent",
+          "evidence": "Success The target is unaffected."
+        }
+      ]
+    },
+    {
+      "name": "Tradition arcane, divine, occult",
+      "spell_id": "tradition_arcane,_divine,_occult",
+      "spell_level": 2,
+      "school": "divination",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13070,
+          "method": "level_adjacent",
+          "evidence": "Tradition arcane, divine, occult"
+        }
+      ]
+    },
+    {
+      "name": "Tradition arcane, occult",
+      "spell_id": "tradition_arcane,_occult",
+      "spell_level": 2,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 13917,
+          "method": "level_adjacent",
+          "evidence": "Tradition arcane, occult"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, primal",
+      "spell_id": "traditions_arcane,_primal",
+      "spell_level": 2,
+      "school": "evocation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48742,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, primal"
+        }
+      ]
+    },
+    {
+      "name": "UNIVERSAL VERSATILITY\b",
+      "spell_id": "universal_versatility\b",
+      "spell_level": 2,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 31671,
+          "method": "level_adjacent",
+          "evidence": "UNIVERSAL VERSATILITY\b"
+        }
+      ]
+    },
+    {
+      "name": "Cast 1 minute",
+      "spell_id": "cast_1_minute",
+      "spell_level": 3,
+      "school": "transmutation",
+      "traditions": [
+        "occult",
+        "primal"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31590,
+          "method": "level_adjacent",
+          "evidence": "Cast 1 minute"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] somatic, material",
+      "spell_id": "cast_[two-actions]_somatic,_material",
+      "spell_level": 3,
+      "school": "illusion",
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 31315,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] somatic, material"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] verbal, somatic",
+      "spell_id": "cast_[two-actions]_verbal,_somatic",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "advanced_players_guide",
+      "source_display": "Advanced Player's Guide",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Advanced Players Guide.txt",
+          "line": 29731,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] verbal, somatic"
+        }
+      ]
+    },
+    {
+      "name": "Intimidation check.",
+      "spell_id": "intimidation_check.",
+      "spell_level": 3,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 14913,
+          "method": "level_adjacent",
+          "evidence": "Intimidation check."
+        }
+      ]
+    },
+    {
+      "name": "Tradition divine, occult",
+      "spell_id": "tradition_divine,_occult",
+      "spell_level": 3,
+      "school": "divination",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 59838,
+          "method": "level_adjacent",
+          "evidence": "Tradition divine, occult"
+        }
+      ]
+    },
+    {
+      "name": "Cast [three-actions] somatic, verbal",
+      "spell_id": "cast_[three-actions]_somatic,_verbal",
+      "spell_level": 4,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10956,
+          "method": "level_adjacent",
+          "evidence": "Cast [three-actions] somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] or [three-actions] somatic, verbal",
+      "spell_id": "cast_[two-actions]_or_[three-actions]_somatic,_verbal",
+      "spell_level": 4,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 10731,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] or [three-actions] somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] verbal",
+      "spell_id": "cast_[two-actions]_verbal",
+      "spell_level": 4,
+      "school": null,
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 29548,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast  somatic, verbal",
+      "spell_id": "cast__somatic,_verbal",
+      "spell_level": 4,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48797,
+          "method": "level_adjacent",
+          "evidence": "Cast  somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Traditions occult, primal",
+      "spell_id": "traditions_occult,_primal",
+      "spell_level": 4,
+      "school": "transmutation",
+      "traditions": [
+        "occult",
+        "primal"
+      ],
+      "source_book": "secrets_of_magic",
+      "source_display": "Secrets of Magic",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Secrets of Magic.txt",
+          "line": 11947,
+          "method": "level_adjacent",
+          "evidence": "Traditions occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] somatic, verbal",
+      "spell_id": "cast_[two-actions]_somatic,_verbal",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48715,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Heightened As summon animal.",
+      "spell_id": "heightened_as_summon_animal.",
+      "spell_level": 5,
+      "school": null,
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 58421,
+          "method": "level_adjacent",
+          "evidence": "Heightened As summon animal."
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, divine",
+      "spell_id": "traditions_arcane,_divine",
+      "spell_level": 5,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "divine"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51612,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, divine"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, occult",
+      "spell_id": "traditions_arcane,_occult",
+      "spell_level": 5,
+      "school": "conjuration",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49525,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, occult"
+        }
+      ]
+    },
+    {
+      "name": "Traditions divine, occult",
+      "spell_id": "traditions_divine,_occult",
+      "spell_level": 5,
+      "school": "necromancy",
+      "traditions": [
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48714,
+          "method": "level_adjacent",
+          "evidence": "Traditions divine, occult"
+        }
+      ]
+    },
+    {
+      "name": "Traditions divine, occult, primal",
+      "spell_id": "traditions_divine,_occult,_primal",
+      "spell_level": 5,
+      "school": "abjuration",
+      "traditions": [
+        "divine",
+        "occult",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 50675,
+          "method": "level_adjacent",
+          "evidence": "Traditions divine, occult, primal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two‑actions] somatic, verbal",
+      "spell_id": "cast_[two‑actions]_somatic,_verbal",
+      "spell_level": 6,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 54715,
+          "method": "level_adjacent",
+          "evidence": "Cast [two‑actions] somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Critical Success The target is unaffected.",
+      "spell_id": "critical_success_the_target_is_unaffected.",
+      "spell_level": 6,
+      "school": "transmutation",
+      "traditions": [
+        "arcane",
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49387,
+          "method": "level_adjacent",
+          "evidence": "Critical Success The target is unaffected."
+        }
+      ]
+    },
+    {
+      "name": "Cast [one‑action] verbal",
+      "spell_id": "cast_[one‑action]_verbal",
+      "spell_level": 7,
+      "school": "enchantment",
+      "traditions": [
+        "arcane"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55696,
+          "method": "level_adjacent",
+          "evidence": "Cast [one‑action] verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [two-actions] material, somatic",
+      "spell_id": "cast_[two-actions]_material,_somatic",
+      "spell_level": 8,
+      "school": "illusion",
+      "traditions": [
+        "arcane",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 51004,
+          "method": "level_adjacent",
+          "evidence": "Cast [two-actions] material, somatic"
+        }
+      ]
+    },
+    {
+      "name": "Traditions arcane, divine, occult",
+      "spell_id": "traditions_arcane,_divine,_occult",
+      "spell_level": 8,
+      "school": "abjuration",
+      "traditions": [
+        "arcane",
+        "divine",
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 49126,
+          "method": "level_adjacent",
+          "evidence": "Traditions arcane, divine, occult"
+        }
+      ]
+    },
+    {
+      "name": "Cast [three-actions] material, somatic, verbal",
+      "spell_id": "cast_[three-actions]_material,_somatic,_verbal",
+      "spell_level": 10,
+      "school": "divination",
+      "traditions": [
+        "occult"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 48940,
+          "method": "level_adjacent",
+          "evidence": "Cast [three-actions] material, somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "Cast [three‑actions] material, somatic, verbal",
+      "spell_id": "cast_[three‑actions]_material,_somatic,_verbal",
+      "spell_level": 10,
+      "school": "divination",
+      "traditions": [
+        "primal"
+      ],
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55871,
+          "method": "level_adjacent",
+          "evidence": "Cast [three‑actions] material, somatic, verbal"
+        }
+      ]
+    },
+    {
+      "name": "NATURE’S",
+      "spell_id": "nature’s",
+      "spell_level": 10,
+      "school": "transmutation",
+      "traditions": null,
+      "source_book": "core_rulebook_4th_printing",
+      "source_display": "Core Rulebook (4th Printing)",
+      "traits": "",
+      "references": [
+        {
+          "source_file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 55007,
+          "method": "level_adjacent",
+          "evidence": "NATURE’S ENMITY"
+        }
+      ]
+    }
+  ]
+}

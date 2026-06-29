@@ -10374,6 +10374,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
         'position_r' => 0,
         'last_room_id' => '',
         'character_data' => json_encode($character_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+        'default_locations' => NULL,
+        'portrait' => NULL,
         'lifecycle_state' => 'ready_library',
         'status' => 1,
         'created' => $now,
@@ -11460,7 +11462,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    */
   public static function getSelectedCantripIds(array $character_data): array {
     $spells = is_array($character_data['spells'] ?? NULL) ? $character_data['spells'] : [];
-    return self::normalizeSelectedSpellIds($spells['cantrips'] ?? NULL);
+    $cantrips = is_array($spells['cantrips'] ?? NULL) ? $spells['cantrips'] : [];
+    return array_values(array_filter($cantrips, static fn($value): bool => is_string($value) && trim($value) !== ''));
   }
 
   /**
@@ -11471,7 +11474,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    */
   public static function getSelectedFirstLevelSpellIds(array $character_data): array {
     $spells = is_array($character_data['spells'] ?? NULL) ? $character_data['spells'] : [];
-    return self::normalizeSelectedSpellIds($spells['first_level'] ?? NULL);
+    $first_level = is_array($spells['first_level'] ?? NULL) ? $spells['first_level'] : [];
+    return array_values(array_filter($first_level, static fn($value): bool => is_string($value) && trim($value) !== ''));
   }
 
   /**
@@ -11481,7 +11485,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    *   Selected cantrip IDs.
    */
   private static function getLegacySelectedCantripIds(array $character_data): array {
-    return self::normalizeSelectedSpellIds($character_data['cantrips'] ?? NULL);
+    $cantrips = is_array($character_data['cantrips'] ?? NULL) ? $character_data['cantrips'] : [];
+    return array_values(array_filter($cantrips, static fn($value): bool => is_string($value) && trim($value) !== ''));
   }
 
   /**
@@ -11491,21 +11496,8 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    *   Selected first-rank spell IDs.
    */
   private static function getLegacySelectedFirstLevelSpellIds(array $character_data): array {
-    return self::normalizeSelectedSpellIds($character_data['spells_first'] ?? NULL);
-  }
-
-  /**
-   * Normalize selected spell ID lists from canonical or legacy payload shapes.
-   *
-   * @return array<int, string>
-   *   Selected spell IDs with empty values removed.
-   */
-  private static function normalizeSelectedSpellIds(mixed $value): array {
-    if (!is_array($value)) {
-      return [];
-    }
-
-    return array_values(array_filter($value, static fn($entry): bool => is_string($entry) && trim($entry) !== ''));
+    $first_level = is_array($character_data['spells_first'] ?? NULL) ? $character_data['spells_first'] : [];
+    return array_values(array_filter($first_level, static fn($value): bool => is_string($value) && trim($value) !== ''));
   }
 
   /**
@@ -11519,9 +11511,13 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
     $features = is_array($character_data['features'] ?? NULL) ? $character_data['features'] : [];
     $features['ancestryFeatures'] = is_array($features['ancestryFeatures'] ?? NULL) ? $features['ancestryFeatures'] : [];
     $features['classFeatures'] = is_array($features['classFeatures'] ?? NULL) ? $features['classFeatures'] : [];
-    $raw_feat_selections = is_array($features['featSelections'] ?? NULL)
-      ? $features['featSelections']
-      : (is_array($character_data['feat_selections'] ?? NULL) ? $character_data['feat_selections'] : []);
+    $raw_feat_selections = [];
+    if (array_key_exists('feat_selections', $character_data) && is_array($character_data['feat_selections'])) {
+      $raw_feat_selections = $character_data['feat_selections'];
+    }
+    elseif (is_array($features['featSelections'] ?? NULL)) {
+      $raw_feat_selections = $features['featSelections'];
+    }
     $features['featSelections'] = self::normalizeFeatSelectionsForMirror($raw_feat_selections);
 
     $raw_feature_feats = (!empty($features['feats']) && is_array($features['feats']))
@@ -12857,9 +12853,13 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
       $class_features = $this->normalizeFeatureEntries(self::CLASS_ADVANCEMENT[strtolower($class_name)][$level]['auto_features']);
     }
 
-    $feat_selections = is_array($existing['featSelections'] ?? NULL)
-      ? $existing['featSelections']
-      : (is_array($data['feat_selections'] ?? NULL) ? $data['feat_selections'] : []);
+    $feat_selections = [];
+    if (array_key_exists('feat_selections', $data) && is_array($data['feat_selections'])) {
+      $feat_selections = $data['feat_selections'];
+    }
+    elseif (is_array($existing['featSelections'] ?? NULL)) {
+      $feat_selections = $existing['featSelections'];
+    }
 
     $feats = $this->normalizeFeatureEntries($existing['feats'] ?? $data['feats'] ?? []);
     $selected_feat_fields = [

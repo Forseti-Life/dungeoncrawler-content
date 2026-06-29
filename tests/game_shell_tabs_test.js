@@ -29,7 +29,7 @@ class FakeClassList {
 }
 
 function createShell(activeTab = 'map') {
-  const tabs = ['map', 'chat', 'view', 'character'].map((tabId) => ({
+  const tabs = ['map', 'chat', 'view', 'party'].map((tabId) => ({
     dataset: { gameTab: tabId },
     classList: new FakeClassList(tabId === activeTab ? ['game-shell__tab--active'] : []),
     attributes: {},
@@ -38,7 +38,7 @@ function createShell(activeTab = 'map') {
     },
   }));
 
-  const panels = ['map', 'chat', 'view', 'character'].map((tabId) => ({
+  const panels = ['map', 'chat', 'view', 'party'].map((tabId) => ({
     id: `game-panel-${tabId}`,
     hidden: tabId !== activeTab,
     classList: new FakeClassList(tabId === activeTab ? ['game-shell__panel--active'] : []),
@@ -101,8 +101,8 @@ const storageWithLegacyState = {
   setItem() {},
 };
 assert(
-  runtime.resolveInitialGameShellTab(createShell(), storageWithLegacyState) === 'character',
-  'Legacy sidebar state should migrate to the character surface.',
+  runtime.resolveInitialGameShellTab(createShell(), storageWithLegacyState) === 'party',
+  'Legacy sidebar state should migrate to the party surface.',
 );
 
 const writes = [];

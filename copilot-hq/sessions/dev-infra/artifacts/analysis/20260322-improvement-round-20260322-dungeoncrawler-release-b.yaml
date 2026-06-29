@@ -1,0 +1,96 @@
+improvement_round: 20260322-dungeoncrawler-release-b
+generated: "2026-03-22"
+agent: dev-infra
+scope: infrastructure (scripts/, org-chart/agents/instructions/dev-infra.instructions.md)
+
+gaps:
+  - id: GAP-A
+    title: High-ROI inbox age stagnation invisible to monitoring (testgen queue 2+ days stale)
+    severity: high
+    description: >
+      During dungeoncrawler-release-b, 20 qa-dungeoncrawler testgen items queued 2026-03-20
+      remained unprocessed for 2+ days with no monitoring alert. The EXECUTOR-FAIL flag only
+      surfaces executor validation failures, not inbox throughput stagnation for successfully
+      dispatched items. This left the testgen backlog invisible to the CEO/PM-infra until
+      the pm-dungeoncrawler groom explicitly enumerated it.
+    root_cause: >
+      release-kpi-monitor.py EXECUTOR-FAIL flag is failure-based, not age-based.
+      Items dispatched successfully but with low throughput were undetectable.
+    fix_applied:
+      description: >
+        Added check_stale_inbox_items() to release-kpi-monitor.py. Emits
+        STALE-INBOX: <agent>/<item> (roi=N, age=Xh) for items with roi.txt >= 10,
+        no outbox counterpart, and folder mtime > 24h. JSON output includes
+        stale_inbox_items list and stagnation_detected flag.
+      commit: 9aca70277
+      files_changed:
+        - scripts/release-kpi-monitor.py
+        - scripts/tests/test_stale_inbox_detection.py
+    acceptance_criteria:
+      - python3 -m pytest scripts/tests/test_stale_inbox_detection.py passes 7 tests
+      - STALE-INBOX lines appear in kpi-monitor output for matching items
+      - stagnation_detected = true in JSON output when stale items exist
+    follow_through_owner: dev-infra (done)
+    roi: 10
+
+  - id: GAP-B
+    title: STALE-INBOX output from kpi-monitor not handled in ceo-health-loop.sh
+    severity: medium
+    description: >
+      scripts/release-kpi-monitor.py now emits STALE-INBOX lines (GAP-A fix), but
+      scripts/ceo-health-loop.sh parsed kpi_monitor_out only for 'HANDOFF-GAP' and
+      'EXECUTOR-FAIL' patterns. STALE-INBOX lines were printed to the health log
+      but triggered no alert section, no auto-remediation, and no operator callout.
+      The health loop is the only automated consumer of kpi-monitor output.
+    root_cause: >
+      STALE-INBOX handler not added alongside the implementation of the detection
+      feature. The two changes were committed in separate cycles without a cross-check.
+    fix_applied:
+      description: >
+        Added STALE-INBOX handler block to ceo-health-loop.sh after the HANDOFF-GAP
+        handler. If any STALE-INBOX lines exist in kpi_monitor_out, emits a
+        STALE-INBOX-ALERT header and lists each line with indentation.
+      commit: pending
+      files_changed:
+        - scripts/ceo-health-loop.sh
+    acceptance_criteria:
+      - bash -n scripts/ceo-health-loop.sh exits 0
+      - bash scripts/lint-scripts.sh exits 0
+      - Grep output: when kpi_monitor_out contains STALE-INBOX lines, STALE-INBOX-ALERT block appears
+    follow_through_owner: dev-infra (done this cycle)
+    roi: 8
+
+  - id: GAP-C
+    title: workspace-merge-safe.sh implemented but not called by orchestration loop
+    severity: medium
+    description: >
+      scripts/workspace-merge-safe.sh was implemented and documented in
+      runbooks/orchestration.md after 3 workspace merge events caused artifact loss.
+      However, the agent-exec-loop.sh and ceo-ops-loop.sh scripts do NOT call
+      workspace-merge-safe.sh before any git merge operation. The script exists
+      but has zero integration points — it requires manual operator invocation.
+      The next workspace merge triggered from the CEO automation will still risk
+      silent sessions/ deletion.
+    root_cause: >
+      The script was implemented as a preventive tool without a wiring step to
+      replace the raw git merge calls in the automation loops.
+    fix_applied: None (out of dev-infra automation scope; requires CEO/orchestration owner decision).
+    recommendation: >
+      CEO: update agent-exec-loop.sh and ceo-ops-loop.sh: replace any raw
+      `git merge <ref>` calls with `./scripts/workspace-merge-safe.sh <ref>`.
+      If exit code 2 (deletions detected), abort and alert rather than proceeding.
+      AC: zero raw `git merge` calls remain in orchestration loops; all merge
+      operations route through workspace-merge-safe.sh.
+    follow_through_owner: ceo-copilot (orchestration policy owner)
+    roi: 25
+
+follow_through_items_created:
+  - type: code_fix
+    file: scripts/ceo-health-loop.sh
+    description: Added STALE-INBOX handler block
+    commit: pending
+
+notes: >
+  GAP-A and GAP-B are fully addressed this cycle.
+  GAP-C recommendation escalated to CEO in outbox; no new inbox items created
+  per idle-restriction policy (recommendation only).

@@ -1,0 +1,18 @@
+- command: |
+    Groom feature dc-cr-skills-lore-earn-income for release entry (suggestion process flow).
+
+    Feature stub: features/dc-cr-skills-lore-earn-income/feature.md (status: planned/ready, P2)
+    Needs: 01-acceptance-criteria.md, then run pm-qa-handoff.sh
+
+    Context: Lore skill: Earn Income downtime activity and Recall Knowledge. Deps: skill-system ✓, economy (planned), dc-rarity-spell-adjustment (planned)
+
+    ## Steps
+    1. Read features/dc-cr-skills-lore-earn-income/feature.md
+    2. Review https://dungeoncrawler.forseti.life/Roadmap for this section's Not Started reqs
+    3. Write features/dc-cr-skills-lore-earn-income/01-acceptance-criteria.md (use templates/01-acceptance-criteria.md)
+       Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+    4. Ensure features/dc-cr-skills-lore-earn-income/feature.md has ## Security acceptance criteria section
+       (or add: - Security AC exemption: <reason> if no security surface)
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-cr-skills-lore-earn-income
+    6. Write outbox confirming AC written and QA handoff dispatched
+- roi: 7

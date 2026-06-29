@@ -98,12 +98,28 @@ class StorylineGenerationService {
     $request = $this->normalizeBootstrapRequest($request);
     $this->assertValidBootstrapRequest($request);
     $package = $this->generateStorylineBootstrapPackage($campaign_id, $request);
-    $saved_templates = $this->persistQuestTemplates($package['quest_templates'] ?? []);
-    $storyline = $this->storylineManager->createCampaignStoryline(
-      $campaign_id,
-      $package['storyline_definition'] ?? [],
-      $request + ['status' => 'bootstrapping']
-    );
+
+    // GATE: validate the full generation bundle before any persistence.
+    $this->assertValidGenerationBundle($package);
+
+    $txn = $this->database->startTransaction();
+    try {
+      $saved_templates = $this->persistQuestTemplates($package['quest_templates'] ?? []);
+      $storyline = $this->storylineManager->createCampaignStoryline(
+        $campaign_id,
+        $package['storyline_definition'] ?? [],
+        $request + ['status' => 'bootstrapping']
+      );
+    }
+    catch (\Throwable $e) {
+      unset($txn);
+      throw new \RuntimeException(
+        'Storyline bootstrap bundle persist failed for campaign ' . $campaign_id . ': ' . $e->getMessage(),
+        0,
+        $e
+      );
+    }
+    unset($txn);
     $initial_quest = $this->materializeBootstrapQuest($campaign_id, $storyline, $request);
     ['storyline' => $storyline, 'initial_quest' => $initial_quest] = $this->activateBootstrapHandoff(
       $campaign_id,
@@ -227,16 +243,28 @@ class StorylineGenerationService {
         $storyline_id = trim((string) ($payload['storyline_id'] ?? $job->storyline_id ?? ''));
         $request = is_array($payload['request'] ?? NULL) ? $payload['request'] : [];
         $package = $this->generateStorylinePackage($campaign_id, $request);
-        $this->persistQuestTemplates($package['quest_templates'] ?? []);
-        $storyline = $this->storylineManager->replaceCampaignStorylineDefinition(
-          $campaign_id,
-          $storyline_id,
-          $package['storyline_definition'] ?? [],
-          ['status' => (string) ($request['status'] ?? 'available')]
-        );
-        if ($storyline === NULL) {
-          throw new \RuntimeException('Storyline not found for queued expansion.');
+
+        // GATE: validate the full generation bundle before any persistence.
+        $this->assertValidGenerationBundle($package);
+
+        $txn = $this->database->startTransaction();
+        try {
+          $this->persistQuestTemplates($package['quest_templates'] ?? []);
+          $storyline = $this->storylineManager->replaceCampaignStorylineDefinition(
+            $campaign_id,
+            $storyline_id,
+            $package['storyline_definition'] ?? [],
+            ['status' => (string) ($request['status'] ?? 'available')]
+          );
+          if ($storyline === NULL) {
+            throw new \RuntimeException('Storyline not found for queued expansion.');
+          }
         }
+        catch (\Throwable $e) {
+          unset($txn);
+          throw $e;
+        }
+        unset($txn);
 
         if ($this->relationshipManager !== NULL) {
           $this->relationshipManager->seedLibraryRelationships($campaign_id);
@@ -447,6 +475,377 @@ class StorylineGenerationService {
   }
 
   /**
+   * Gate: validate the full generation bundle across all contract layers before
+   * any persistence. Hard-fails with aggregated diagnostics on any violation.
+   *
+   * Stages checked:
+   *   1–5 : storyline end-to-end contract (schema, cross-refs, questline,
+   *          navigation, objective control chain) via StorylineManagerService.
+   *   6   : task contract — objective children require objective_id, description,
+   *          completion_criteria, and next_step for player-interaction types.
+   *   7   : entity linkage — all actor/location/item refs in objectives and tasks
+   *          must resolve against the bundle entity registry.
+   *
+   * @throws \InvalidArgumentException
+   *   When any contract layer produces errors.
+   */
+  protected function assertValidGenerationBundle(array $bundle): void {
+    $errors = [];
+    $storyline = is_array($bundle['storyline_definition'] ?? NULL) ? $bundle['storyline_definition'] : [];
+    $quest_templates = is_array($bundle['quest_templates'] ?? NULL) ? $bundle['quest_templates'] : [];
+
+    // Stages 1–5: storyline end-to-end contract.
+    $result = $this->storylineManager->validateStorylineEndToEndContract($storyline, 'definition');
+    foreach ($result['stages'] ?? [] as $stage_name => $stage) {
+      foreach ((array) ($stage['errors'] ?? []) as $error) {
+        $errors[] = '[storyline.' . $stage_name . '] ' . $error;
+      }
+    }
+
+    // Quest template objective phase contract (existing).
+    foreach ($quest_templates as $template) {
+      if (!is_array($template)) {
+        continue;
+      }
+      $template_id = trim((string) ($template['template_id'] ?? 'unknown'));
+      try {
+        $this->assertQuestTemplateConformsToObjectiveContract($template);
+      }
+      catch (\InvalidArgumentException $e) {
+        $errors[] = '[quest.' . $template_id . '.objectives] ' . $e->getMessage();
+      }
+    }
+
+    // Stage 6: task contract.
+    foreach ($this->validateTaskContractForBundle($quest_templates) as $error) {
+      $errors[] = '[task_contract] ' . $error;
+    }
+
+    // Stage 7: entity linkage.
+    $registry = $this->buildBundleEntityRegistry($storyline);
+    foreach ($this->validateEntityLinkageForBundle($quest_templates, $registry) as $error) {
+      $errors[] = '[entity_linkage] ' . $error;
+    }
+
+    if ($errors !== []) {
+      throw new \InvalidArgumentException(
+        'Storyline generation bundle failed contract validation (' . count($errors) . ' error(s)): ' . implode('; ', $errors),
+        400
+      );
+    }
+  }
+
+  /**
+   * Stage 6 — task contract validation.
+   *
+   * For each objective that carries children (tasks), enforces:
+   * - Objective type must support children (composite, escort).
+   * - Objective completion_criteria.kind must be all_children.
+   * - Each child: objective_id required and unique within the quest.
+   * - Each child: description required.
+   * - Each child: completion_criteria valid shape (kind, metric, description).
+   * - Each child: next_step required when type is a player-interaction type.
+   *
+   * @return array<int, string>
+   */
+  protected function validateTaskContractForBundle(array $quest_templates): array {
+    $errors = [];
+    $player_interaction_types = ['interact', 'collect', 'explore', 'escort', 'investigate', 'kill'];
+    $supports_children_types = ['composite', 'escort'];
+
+    foreach ($quest_templates as $template) {
+      if (!is_array($template)) {
+        continue;
+      }
+      $template_id = trim((string) ($template['template_id'] ?? 'unknown'));
+      $task_ids_seen = [];
+
+      foreach ((array) ($template['objectives_schema'] ?? []) as $phase_index => $phase) {
+        if (!is_array($phase)) {
+          continue;
+        }
+        foreach ((array) ($phase['objectives'] ?? []) as $obj_index => $objective) {
+          if (!is_array($objective)) {
+            continue;
+          }
+          $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+          if ($children === []) {
+            continue;
+          }
+
+          $obj_type = strtolower(trim((string) ($objective['type'] ?? '')));
+          $obj_path = "quest.{$template_id}.phase[{$phase_index}].objective[{$obj_index}]";
+
+          if (!in_array($obj_type, $supports_children_types, TRUE)) {
+            $errors[] = "{$obj_path}: type '{$obj_type}' does not support children; use composite or escort";
+            continue;
+          }
+
+          $criteria_kind = strtolower(trim((string) ($objective['completion_criteria']['kind'] ?? '')));
+          if ($criteria_kind !== 'all_children') {
+            $errors[] = "{$obj_path}: objective with children must use completion_criteria.kind=all_children";
+          }
+
+          foreach ($children as $task_index => $task) {
+            if (!is_array($task)) {
+              $errors[] = "{$obj_path}.children[{$task_index}]: task must be an object";
+              continue;
+            }
+            $task_path = "{$obj_path}.children[{$task_index}]";
+            $task_id = trim((string) ($task['objective_id'] ?? ''));
+            if ($task_id === '') {
+              $errors[] = "{$task_path}: objective_id (task_id) is required";
+            }
+            else {
+              $dedup_key = $template_id . '::' . $task_id;
+              if (isset($task_ids_seen[$dedup_key])) {
+                $errors[] = "{$task_path}: duplicate objective_id '{$task_id}' in quest '{$template_id}'";
+              }
+              $task_ids_seen[$dedup_key] = TRUE;
+            }
+
+            if (trim((string) ($task['description'] ?? '')) === '') {
+              $errors[] = "{$task_path}: description is required";
+            }
+
+            $task_criteria = $task['completion_criteria'] ?? NULL;
+            if (!is_array($task_criteria)) {
+              $errors[] = "{$task_path}: completion_criteria is required";
+            }
+            else {
+              $kind = strtolower(trim((string) ($task_criteria['kind'] ?? '')));
+              if (!in_array($kind, ['count', 'flag', 'all_children'], TRUE)) {
+                $errors[] = "{$task_path}: completion_criteria.kind must be count, flag, or all_children";
+              }
+              if (trim((string) ($task_criteria['metric'] ?? '')) === '') {
+                $errors[] = "{$task_path}: completion_criteria.metric is required";
+              }
+              if (trim((string) ($task_criteria['description'] ?? '')) === '') {
+                $errors[] = "{$task_path}: completion_criteria.description is required";
+              }
+            }
+
+            $task_type = strtolower(trim((string) ($task['type'] ?? '')));
+            if (in_array($task_type, $player_interaction_types, TRUE)) {
+              if (trim((string) ($task['next_step'] ?? '')) === '') {
+                $errors[] = "{$task_path}: next_step (HOW trigger) is required for player-interaction task type '{$task_type}'";
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Build the entity registry for the generation bundle from the storyline definition.
+   *
+   * Returns:
+   *   actors    — contacts[].entity_id + asset_references[npc] + outline boss/NPC ids
+   *   locations — scene_ids + asset_references[room|location] (canonical index added at validation time)
+   *   items     — asset_references[item]
+   *
+   * @return array{actors: array<string,bool>, locations: array<string,bool>, items: array<string,bool>}
+   */
+  protected function buildBundleEntityRegistry(array $storyline): array {
+    $actors = [];
+    $locations = [];
+    $items = [];
+
+    // Contacts.
+    foreach ((array) ($storyline['contacts'] ?? []) as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_id !== '') {
+        $actors[$entity_id] = TRUE;
+      }
+      foreach ((array) ($contact['introduces_to'] ?? []) as $introduction) {
+        $intro_id = trim((string) ($introduction['entity_id'] ?? ''));
+        if ($intro_id !== '') {
+          $actors[$intro_id] = TRUE;
+        }
+      }
+    }
+
+    // Asset references.
+    foreach ((array) ($storyline['asset_references'] ?? []) as $ref) {
+      if (!is_array($ref)) {
+        continue;
+      }
+      $asset_id = trim((string) ($ref['asset_id'] ?? ''));
+      if ($asset_id === '') {
+        continue;
+      }
+      $asset_type = strtolower(trim((string) ($ref['asset_type'] ?? '')));
+      if ($asset_type === 'npc') {
+        $actors[$asset_id] = TRUE;
+      }
+      elseif (in_array($asset_type, ['room', 'location'], TRUE)) {
+        $locations[$asset_id] = TRUE;
+      }
+      elseif ($asset_type === 'item') {
+        $items[$asset_id] = TRUE;
+      }
+    }
+
+    // Outline boss/NPC ids.
+    $outline = is_array($storyline['metadata']['generated_outline'] ?? NULL) ? $storyline['metadata']['generated_outline'] : [];
+    $big_boss_id = trim((string) ($outline['big_boss']['boss_id'] ?? ''));
+    if ($big_boss_id !== '') {
+      $actors[$big_boss_id] = TRUE;
+    }
+    foreach ((array) ($outline['sub_bosses'] ?? []) as $boss) {
+      $boss_id = trim((string) ($boss['boss_id'] ?? ''));
+      if ($boss_id !== '') {
+        $actors[$boss_id] = TRUE;
+      }
+    }
+    foreach ((array) ($outline['dungeons'] ?? []) as $dungeon) {
+      foreach ((array) ($dungeon['rooms'] ?? []) as $room) {
+        foreach ((array) ($room['npc_ids'] ?? []) as $npc_id) {
+          $npc_id = trim((string) $npc_id);
+          if ($npc_id !== '') {
+            $actors[$npc_id] = TRUE;
+          }
+        }
+      }
+    }
+
+    // Scene ids are valid location targets.
+    foreach ((array) ($storyline['chapters'] ?? []) as $chapter) {
+      if (!is_array($chapter)) {
+        continue;
+      }
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      if ($chapter_id !== '') {
+        $locations[$chapter_id] = TRUE;
+      }
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+        if (!is_array($scene)) {
+          continue;
+        }
+        $scene_id = trim((string) ($scene['scene_id'] ?? ''));
+        if ($scene_id !== '') {
+          $locations[$scene_id] = TRUE;
+        }
+      }
+    }
+
+    return [
+      'actors' => $actors,
+      'locations' => $locations,
+      'items' => $items,
+    ];
+  }
+
+  /**
+   * Stage 7 — entity linkage validation.
+   *
+   * For each objective and task child across all quest templates, verifies that
+   * every actor/location/item reference resolves in the bundle entity registry.
+   *
+   * Entity ref fields checked per objective/task:
+   *   target / target_id → actors
+   *   location / location_id → locations
+   *   destination / destination_id → locations
+   *   item → items
+   *
+   * @return array<int, string>
+   */
+  protected function validateEntityLinkageForBundle(array $quest_templates, array $entity_registry): array {
+    $errors = [];
+    $actors = is_array($entity_registry['actors'] ?? NULL) ? $entity_registry['actors'] : [];
+    $locations = is_array($entity_registry['locations'] ?? NULL) ? $entity_registry['locations'] : [];
+    $items = is_array($entity_registry['items'] ?? NULL) ? $entity_registry['items'] : [];
+
+    // Types where 'target' is an actor reference.
+    $actor_target_types = ['kill', 'interact', 'investigate', 'escort'];
+
+    foreach ($quest_templates as $template) {
+      if (!is_array($template)) {
+        continue;
+      }
+      $template_id = trim((string) ($template['template_id'] ?? 'unknown'));
+
+      foreach ((array) ($template['objectives_schema'] ?? []) as $phase_index => $phase) {
+        if (!is_array($phase)) {
+          continue;
+        }
+        foreach ((array) ($phase['objectives'] ?? []) as $obj_index => $objective) {
+          if (!is_array($objective)) {
+            continue;
+          }
+          $obj_path = "quest.{$template_id}.phase[{$phase_index}].objective[{$obj_index}]";
+          $errors = array_merge($errors, $this->validateEntityRefsForObjectiveNode($objective, $obj_path, $actor_target_types, $actors, $locations, $items));
+
+          foreach ((array) ($objective['children'] ?? []) as $task_index => $task) {
+            if (!is_array($task)) {
+              continue;
+            }
+            $task_path = "{$obj_path}.children[{$task_index}]";
+            $errors = array_merge($errors, $this->validateEntityRefsForObjectiveNode($task, $task_path, $actor_target_types, $actors, $locations, $items));
+          }
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate entity references within a single objective or task node.
+   *
+   * @return array<int, string>
+   */
+  protected function validateEntityRefsForObjectiveNode(
+    array $node,
+    string $path,
+    array $actor_target_types,
+    array $actors,
+    array $locations,
+    array $items
+  ): array {
+    $errors = [];
+    $node_type = strtolower(trim((string) ($node['type'] ?? '')));
+
+    // target → actor (for actor-target objective types).
+    $target = trim((string) ($node['target'] ?? ''));
+    if ($target !== '' && in_array($node_type, $actor_target_types, TRUE)) {
+      if (!isset($actors[$target])) {
+        $errors[] = "{$path}: target '{$target}' is not declared in the bundle entity registry (contacts or asset_references[npc])";
+      }
+    }
+
+    // location / location_id → locations.
+    foreach (['location', 'location_id'] as $field) {
+      $ref = trim((string) ($node[$field] ?? ''));
+      if ($ref !== '' && !isset($locations[$ref])) {
+        $errors[] = "{$path}: {$field} '{$ref}' is not declared in the bundle entity registry (asset_references[room|location] or scene_ids)";
+      }
+    }
+
+    // destination / destination_id → locations.
+    foreach (['destination', 'destination_id'] as $field) {
+      $ref = trim((string) ($node[$field] ?? ''));
+      if ($ref !== '' && !isset($locations[$ref])) {
+        $errors[] = "{$path}: {$field} '{$ref}' is not declared in the bundle entity registry (asset_references[room|location] or scene_ids)";
+      }
+    }
+
+    // item → items.
+    $item_ref = trim((string) ($node['item'] ?? ''));
+    if ($item_ref !== '' && !isset($items[$item_ref])) {
+      $errors[] = "{$path}: item '{$item_ref}' is not declared in the bundle entity registry (asset_references[item])";
+    }
+
+    return $errors;
+  }
+
+  /**
    * Build the queue payload used to hand off deferred expansion safely.
    */
   protected function buildExpansionJobPayload(int $campaign_id, string $storyline_id, array $request): array {
@@ -547,9 +946,18 @@ class StorylineGenerationService {
     $prompt .= "- One quest template per room, so fifteen quest templates total.\n";
     $prompt .= "- Every quest id referenced by storyline chapters/scenes must exist in quest_templates[].template_id.\n";
     $prompt .= "- Storyline metadata must include a generated campaign outline with generation_phase = expanded covering the goal, boss hierarchy, dungeon styles, room contents, encounter plans, treasure plans, and progression connectors.\n";
+    $prompt .= "- metadata.generated_outline must include an entry_point object with: primary_quest_giver_id, primary_quest_giver_name, primary_dungeon_id, primary_chapter_id, primary_scene_id, primary_location_id, introduction_path (direct or brokered), detail_summary.\n";
     $prompt .= "- Keep all styles aligned: goal -> big boss -> sub-bosses -> dungeons -> rooms -> NPCs/items/encounters/treasure.\n";
     $prompt .= "- The progression chain must be explicit: quest giver points to dungeon entrance 1, sub-boss 1 points to dungeon entrance 2, sub-boss 2 points to dungeon entrance 3, and the final boss anchors the goal.\n";
     $prompt .= "- If template_id, entry_dungeon_id, entry_room_id, first_quest_id, or questgiver speaker fields are provided, reuse them exactly for the first handoff.\n";
+    $prompt .= "- Each quest template's objectives_schema must be an array of phase objects: [{\"phase\": 1, \"objectives\": [...]}].\n";
+    $prompt .= "- Each objective must have: objective_id (unique in quest), type (collect|kill|investigate|explore|escort|interact|composite), description, completion_criteria (kind, metric, description), and next_step for player-action types (kill/interact/investigate/explore/escort/collect).\n";
+    $prompt .= "- Boss and lieutenant objectives must use type=composite with a children array of two task objects: one investigate task (locate/engage) and one kill task (defeat).\n";
+    $prompt .= "- Each composite objective must have completion_criteria.kind=all_children.\n";
+    $prompt .= "- Each child task must have: objective_id (unique in quest), type, description, completion_criteria, and next_step.\n";
+    $prompt .= "- Every NPC target referenced in objective/task 'target' fields must be declared in storyline contacts[] or asset_references[{\"asset_type\":\"npc\"}].\n";
+    $prompt .= "- Every location/destination referenced in objective/task must be declared in asset_references[{\"asset_type\":\"room\"}] or asset_references[{\"asset_type\":\"location\"}].\n";
+    $prompt .= "- Every item referenced in objective/task 'item' fields must be declared in asset_references[{\"asset_type\":\"item\"}].\n";
 
     $result = $this->aiApiService->invokeModelDirect(
       $prompt,
@@ -622,6 +1030,11 @@ class StorylineGenerationService {
     $prompt .= "- This is the synchronous bootstrap phase only.\n";
     $prompt .= "- Generate exactly one goal, one entry dungeon stub, one entrance room, one first quest template, and one immediate questgiver handoff.\n";
     $prompt .= "- Do not generate bosses, downstream dungeons, or a full room graph yet.\n";
+    $prompt .= "- metadata.generated_outline must include entry_point with: primary_quest_giver_id, primary_quest_giver_name, primary_dungeon_id, primary_chapter_id, primary_scene_id, primary_location_id, introduction_path (direct or brokered), detail_summary.\n";
+    $prompt .= "- The first quest template's objectives_schema must have phase objects: [{\"phase\": 1, \"objectives\": [...]}].\n";
+    $prompt .= "- Each objective must have: objective_id (unique in quest), type (explore|interact|composite), description, completion_criteria (kind, metric, description), and next_step for player-action types.\n";
+    $prompt .= "- Every NPC referenced in objective/task 'target' fields must be declared in storyline contacts[] or asset_references[{\"asset_type\":\"npc\"}].\n";
+    $prompt .= "- Every location referenced in objective/task must be declared in asset_references[{\"asset_type\":\"room\"}] or asset_references[{\"asset_type\":\"location\"}].\n";
 
     $result = $this->aiApiService->invokeModelDirect(
       $prompt,
@@ -736,6 +1149,16 @@ class StorylineGenerationService {
     $outline = [
       'generation_phase' => 'expanded',
       'goal' => $goal,
+      'entry_point' => [
+        'primary_quest_giver_id' => $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : ($base_slug . '-patron'),
+        'primary_quest_giver_name' => $request['speaker_name'] !== '' ? $request['speaker_name'] : 'Keeper Althea',
+        'primary_dungeon_id' => (string) ($dungeons[0]['dungeon_id'] ?? ($base_slug . '-vault-of-ashes')),
+        'primary_chapter_id' => (string) ($dungeons[0]['dungeon_id'] ?? ($base_slug . '-vault-of-ashes')),
+        'primary_scene_id' => (string) ($dungeons[0]['entrance_room_id'] ?? ($base_slug . '-vault-of-ashes-room-1')),
+        'primary_location_id' => (string) ($dungeons[0]['entrance_room_id'] ?? ($base_slug . '-vault-of-ashes-room-1')),
+        'introduction_path' => 'direct',
+        'detail_summary' => 'The questgiver briefs the party on the goal "' . $goal . '" and directs them to the first dungeon entrance.',
+      ],
       'big_boss' => [
         'boss_id' => $big_boss['boss_id'],
         'name' => $big_boss['name'],
@@ -847,6 +1270,16 @@ class StorylineGenerationService {
     $outline = [
       'generation_phase' => 'bootstrap',
       'goal' => $goal,
+      'entry_point' => [
+        'primary_quest_giver_id' => $speaker_id,
+        'primary_quest_giver_name' => $speaker_name,
+        'primary_dungeon_id' => $entry_dungeon_id,
+        'primary_chapter_id' => $entry_dungeon_id,
+        'primary_scene_id' => $entrance_room_id,
+        'primary_location_id' => $entrance_room_id,
+        'introduction_path' => 'direct',
+        'detail_summary' => $speaker_name . ' briefs the party on the goal "' . $goal . '" and directs them to ' . $entry_dungeon_name . '.',
+      ],
       'entry_dungeon' => [
         'dungeon_id' => $entry_dungeon_id,
         'name' => $entry_dungeon_name,
@@ -1000,6 +1433,7 @@ class StorylineGenerationService {
       $context
     );
     $storyline = $this->synchronizeStorylineToQuestTemplates($storyline, $quest_templates, $context);
+    $quest_templates = $this->synchronizeQuestTemplateStoryImpact($quest_templates, $storyline);
 
     $normalized_storyline = $this->storylineManager->normalizeStorylineDefinition($storyline);
 
@@ -1129,6 +1563,7 @@ class StorylineGenerationService {
       $context
     );
     $storyline = $this->synchronizeStorylineToQuestTemplates($storyline, $quest_templates, $context);
+    $quest_templates = $this->synchronizeQuestTemplateStoryImpact($quest_templates, $storyline);
 
     $normalized_storyline = $this->storylineManager->normalizeStorylineDefinition($storyline);
 
@@ -1652,6 +2087,73 @@ class StorylineGenerationService {
   }
 
   /**
+   * Attach storyline/chapter/scene anchors to generated quest template impact.
+   */
+  protected function synchronizeQuestTemplateStoryImpact(array $quest_templates, array $storyline): array {
+    $storyline_id = $this->sanitizeIdentifier((string) ($storyline['template_id'] ?? $storyline['storyline_id'] ?? ''));
+    if ($storyline_id === '') {
+      return $quest_templates;
+    }
+
+    $default_chapter_id = '';
+    $default_scene_id = '';
+    $quest_anchor_map = [];
+    foreach ((array) ($storyline['chapters'] ?? []) as $chapter) {
+      if (!is_array($chapter)) {
+        continue;
+      }
+      $chapter_id = $this->sanitizeIdentifier((string) ($chapter['chapter_id'] ?? ''));
+      if ($default_chapter_id === '' && $chapter_id !== '') {
+        $default_chapter_id = $chapter_id;
+      }
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+        if (!is_array($scene)) {
+          continue;
+        }
+        $scene_id = $this->sanitizeIdentifier((string) ($scene['scene_id'] ?? ''));
+        if ($default_scene_id === '' && $scene_id !== '') {
+          $default_scene_id = $scene_id;
+        }
+        foreach ((array) ($scene['quest_ids'] ?? []) as $quest_id_raw) {
+          $quest_id = $this->sanitizeIdentifier((string) $quest_id_raw);
+          if ($quest_id === '' || isset($quest_anchor_map[$quest_id])) {
+            continue;
+          }
+          $quest_anchor_map[$quest_id] = [
+            'chapter_id' => $chapter_id,
+            'scene_id' => $scene_id,
+          ];
+        }
+      }
+    }
+
+    foreach ($quest_templates as $index => $template) {
+      if (!is_array($template)) {
+        continue;
+      }
+      $template_id = $this->sanitizeIdentifier((string) ($template['template_id'] ?? ''));
+      if ($template_id === '') {
+        continue;
+      }
+
+      $impact = is_array($template['story_impact'] ?? NULL) ? $template['story_impact'] : [];
+      $impact['storyline_id'] = $storyline_id;
+      $chapter_id = $this->sanitizeIdentifier((string) ($quest_anchor_map[$template_id]['chapter_id'] ?? $default_chapter_id));
+      $scene_id = $this->sanitizeIdentifier((string) ($quest_anchor_map[$template_id]['scene_id'] ?? $default_scene_id));
+      if ($chapter_id !== '') {
+        $impact['chapter_id'] = $chapter_id;
+      }
+      if ($scene_id !== '') {
+        $impact['scene_id'] = $scene_id;
+      }
+
+      $quest_templates[$index]['story_impact'] = $impact;
+    }
+
+    return $quest_templates;
+  }
+
+  /**
    * Build a quest template aligned to a generated room.
    */
   protected function buildQuestTemplate(
@@ -1684,6 +2186,7 @@ class StorylineGenerationService {
               'type' => 'explore',
               'location' => $room_id,
               'description' => 'Reach ' . $room_id . ' and establish a foothold.',
+              'next_step' => 'Move to the dungeon entrance location and survey the threshold.',
               'completion_criteria' => [
                 'kind' => 'flag',
                 'metric' => 'discovered',
@@ -1701,9 +2204,10 @@ class StorylineGenerationService {
             [
               'objective_id' => 'investigate_' . $this->sanitizeIdentifier($room_id),
               'type' => 'investigate',
-              'target' => $room_id,
+              'target' => (string) ($boss['boss_id'] ?? $room_id),
               'target_count' => 1,
               'description' => 'Investigate the sanctum and recover the clue hidden there.',
+              'next_step' => 'Search the sanctum thoroughly and interact with any clues or relics found.',
               'completion_criteria' => [
                 'kind' => 'count',
                 'metric' => 'current',
@@ -1720,15 +2224,43 @@ class StorylineGenerationService {
           'objectives' => [
             [
               'objective_id' => 'defeat_' . $this->sanitizeIdentifier($boss['boss_id'] ?? $room_id),
-              'type' => 'kill',
-              'target' => (string) ($boss['boss_id'] ?? $room_id),
-              'target_count' => 1,
-              'description' => 'Defeat ' . $boss['name'] . ' and break this layer of the campaign threat.',
+              'type' => 'composite',
+              'description' => 'Locate and defeat ' . $boss['name'] . ' to break this layer of the campaign threat.',
               'completion_criteria' => [
-                'kind' => 'count',
-                'metric' => 'current',
-                'target_count' => 1,
-                'description' => 'Reach the required progress count.',
+                'kind' => 'all_children',
+                'metric' => 'children_completed',
+                'required_value' => TRUE,
+                'description' => 'Complete all encounter tasks.',
+              ],
+              'children' => [
+                [
+                  'objective_id' => 'engage_' . $this->sanitizeIdentifier($boss['boss_id'] ?? $room_id),
+                  'type' => 'investigate',
+                  'target' => (string) ($boss['boss_id'] ?? $room_id),
+                  'target_count' => 1,
+                  'description' => 'Locate and engage ' . $boss['name'] . ' inside the dungeon.',
+                  'next_step' => 'Move through the chamber until you make contact with ' . $boss['name'] . '.',
+                  'completion_criteria' => [
+                    'kind' => 'count',
+                    'metric' => 'current',
+                    'target_count' => 1,
+                    'description' => 'Make contact with the target.',
+                  ],
+                ],
+                [
+                  'objective_id' => 'kill_' . $this->sanitizeIdentifier($boss['boss_id'] ?? $room_id),
+                  'type' => 'kill',
+                  'target' => (string) ($boss['boss_id'] ?? $room_id),
+                  'target_count' => 1,
+                  'description' => 'Defeat ' . $boss['name'] . ' in combat.',
+                  'next_step' => 'Reduce ' . $boss['name'] . ' to 0 HP or force a surrender.',
+                  'completion_criteria' => [
+                    'kind' => 'count',
+                    'metric' => 'current',
+                    'target_count' => 1,
+                    'description' => 'Defeat the target.',
+                  ],
+                ],
               ],
             ],
           ],
@@ -1741,8 +2273,9 @@ class StorylineGenerationService {
             [
               'objective_id' => 'interact_' . $this->sanitizeIdentifier($room_id),
               'type' => 'interact',
-              'target' => $room_id,
+              'target' => (string) ($boss['boss_id'] ?? $room_id),
               'description' => 'Clear the room and secure its strategic objective.',
+              'next_step' => 'Engage any obstacles in the room and claim the strategic position.',
               'completion_criteria' => [
                 'kind' => 'flag',
                 'metric' => 'completed',

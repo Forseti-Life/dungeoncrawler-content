@@ -1,0 +1,39 @@
+{
+  "feature_id": "dc-cr-dice-system",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "suites": [
+    {
+      "id": "dc-cr-dice-system-unit",
+      "feature_id": "dc-cr-dice-system",
+      "label": "Dice engine: NdX notation, modifier stacking, bounded output, and natural 1/20 flags",
+      "type": "unit",
+      "command": "cd sites/dungeoncrawler && php vendor/bin/phpunit web/modules/custom/dungeoncrawler_content/tests/src/Unit/Service/ --filter DiceRoller --no-coverage",
+      "artifacts": [],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/Service/",
+      "env_requirements": [
+        "PHP with Composer dependencies installed",
+        "PHPUnit 10+"
+      ],
+      "release_checkpoint": "pre-merge",
+      "suite_context": "phpunit/encounter",
+      "status": "pending_implementation",
+      "checks": [
+        "roll('1d20') returns integer in range [1, 20]",
+        "roll('4d6') returns integer in range [4, 24] with breakdown of 4 individual dice",
+        "roll('1d20+5') applies flat modifier and returns total",
+        "roll('d%') returns integer in range [1, 100]",
+        "roll('2d8-1') applies negative modifier",
+        "Natural 20 result is flagged as nat20=true in roll metadata",
+        "Natural 1 result is flagged as nat1=true in roll metadata",
+        "roll expression with N=0 (e.g. '0d6+3') returns flat modifier only",
+        "Invalid expression raises DiceFormatException or equivalent",
+        "Roll log entry includes timestamp, character_id, roll_type, expression, individual_results, total",
+        "Seeded/deterministic mode produces consistent output for replay tests"
+      ]
+    }
+  ]
+}

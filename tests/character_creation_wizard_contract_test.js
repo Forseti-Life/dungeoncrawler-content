@@ -29,6 +29,10 @@ const controllerSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Controller/CharacterCreationStepController.php'),
   'utf8'
 );
+const hardeningServiceSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/CharacterWizardHardeningService.php'),
+  'utf8'
+);
 
 console.log('\n=== Character creation wizard contract ===');
 
@@ -46,11 +50,11 @@ assert(
 );
 
 assert(
-  formSource.includes('$wizard = [];') &&
-  formSource.includes("if ($key === 'wizard')") &&
-  controllerSource.includes('$wizard = [];') &&
-  controllerSource.includes("if ($key === 'wizard')"),
-  'Wizard mirrors are rebuilt from canonical payload data instead of merging stale nested state'
+  hardeningServiceSource.includes('$wizard = [];') &&
+  hardeningServiceSource.includes("if ($key === 'wizard')") &&
+  formSource.includes('return $this->wizardHardening->syncWizardDraftFromCharacterData($character_data);') &&
+  controllerSource.includes('return $this->wizardHardening->syncWizardDraftFromCharacterData($character_data);'),
+  'Wizard mirrors are rebuilt in shared hardening service and delegated consistently by form/controller save paths'
 );
 
 assert(
@@ -75,10 +79,10 @@ assert(
 
 assert(
   formSource.includes("if ((int) ($character_data['step'] ?? 0) >= 8) {") &&
-  formSource.includes("$character_data['wizard_complete'] = TRUE;") &&
+  formSource.includes("$character_data['wizard_complete'] = $pending_completion_grants === [];") &&
   controllerSource.includes("if ((int) ($character_data['step'] ?? 0) >= 8) {") &&
-  controllerSource.includes("$character_data['wizard_complete'] = TRUE;"),
-  'Both save paths mark step-8 characters as wizard_complete before persistence'
+  controllerSource.includes("$character_data['wizard_complete'] = $pending_completion_grants === [];"),
+  'Both save paths compute step-8 wizard_complete from pending completion grants before persistence'
 );
 
 assert(

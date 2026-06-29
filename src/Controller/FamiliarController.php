@@ -4,7 +4,9 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
+use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\FamiliarService;
+use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -25,16 +27,22 @@ use Symfony\Component\HttpFoundation\Request;
 class FamiliarController extends ControllerBase {
 
   protected FamiliarService $familiarService;
+  protected CharacterManager $characterManager;
+  protected FollowerSubsystemService $followerSubsystem;
   protected Connection $database;
 
-  public function __construct(FamiliarService $familiar_service, Connection $database) {
+  public function __construct(FamiliarService $familiar_service, CharacterManager $character_manager, FollowerSubsystemService $follower_subsystem, Connection $database) {
     $this->familiarService = $familiar_service;
+    $this->characterManager = $character_manager;
+    $this->followerSubsystem = $follower_subsystem;
     $this->database        = $database;
   }
 
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('dungeoncrawler_content.familiar'),
+      $container->get('dungeoncrawler_content.character_manager'),
+      $container->get('dungeoncrawler_content.follower_subsystem'),
       $container->get('database'),
     );
   }
@@ -74,7 +82,11 @@ class FamiliarController extends ControllerBase {
     }
     try {
       $params = json_decode($request->getContent(), TRUE) ?? [];
-      return new JsonResponse($this->familiarService->createFamiliar($character_id, $params));
+      $result = $this->familiarService->createFamiliar($character_id, $params);
+      if (!empty($result['success'])) {
+        $result['actor_record'] = $this->syncFamiliarActorRecord($character_id);
+      }
+      return new JsonResponse($result);
     }
     catch (\InvalidArgumentException $e) {
       return $this->errorResponse($e);
@@ -125,6 +137,9 @@ class FamiliarController extends ControllerBase {
 
     try {
       $result = $this->familiarService->selectDailyAbilities($character_id, $ability_ids);
+      if (!empty($result['success'])) {
+        $result['actor_record'] = $this->syncFamiliarActorRecord($character_id);
+      }
       $code   = $result['code'] ?? 200;
       return new JsonResponse($result, $result['success'] ? 200 : $code);
     }
@@ -159,6 +174,9 @@ class FamiliarController extends ControllerBase {
 
     try {
       $result = $this->familiarService->applyDamage($character_id, $damage);
+      if (!empty($result['success'])) {
+        $result['actor_record'] = $this->syncFamiliarActorRecord($character_id);
+      }
       $code   = $result['code'] ?? 200;
       return new JsonResponse($result, $result['success'] ? 200 : $code);
     }
@@ -183,6 +201,9 @@ class FamiliarController extends ControllerBase {
     }
     try {
       $result = $this->familiarService->startReplacementRitual($character_id);
+      if (!empty($result['success']) && !empty($result['replaced'])) {
+        $result['actor_record'] = $this->syncFamiliarActorRecord($character_id);
+      }
       $code   = $result['code'] ?? 200;
       return new JsonResponse($result, $result['success'] ? 200 : $code);
     }
@@ -253,6 +274,9 @@ class FamiliarController extends ControllerBase {
 
     try {
       $result = $this->familiarService->storeWitchSpells($character_id, $spells);
+      if (!empty($result['success'])) {
+        $result['actor_record'] = $this->syncFamiliarActorRecord($character_id);
+      }
       $code   = $result['code'] ?? 200;
       return new JsonResponse($result, $result['success'] ? 200 : $code);
     }
@@ -284,6 +308,36 @@ class FamiliarController extends ControllerBase {
     $code      = $e->getCode();
     $http_code = ($code >= 400 && $code < 500) ? $code : 400;
     return new JsonResponse(['success' => FALSE, 'error' => $e->getMessage()], $http_code);
+  }
+
+  /**
+   * Recompute and persist canonical familiar actor record as authoritative state.
+   */
+  private function syncFamiliarActorRecord(string $character_id): array {
+    $record = $this->characterManager->loadCharacter((int) $character_id);
+    if (!$record) {
+      throw new \RuntimeException('Character not found while syncing familiar actor record.');
+    }
+    $decoded = $this->characterManager->getCharacterData($record);
+    $canonical = $this->characterManager->canonicalizeCharacterData($decoded);
+    $canonical['character_id'] = (int) $character_id;
+    $actor_record = $this->followerSubsystem->resolveFollowerActorRecord(
+      $canonical,
+      (string) $character_id,
+      FollowerSubsystemService::FOLLOWER_KIND_FAMILIAR
+    );
+    $persistable = $this->followerSubsystem->persistActorRecordOnCharacterData(
+      $decoded,
+      FollowerSubsystemService::FOLLOWER_KIND_FAMILIAR,
+      $actor_record
+    );
+    $saved = $this->characterManager->updateCharacter((int) $character_id, [
+      'character_data' => json_encode($persistable, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+    ]);
+    if (!$saved) {
+      throw new \RuntimeException('Failed to persist familiar actor record.');
+    }
+    return $actor_record;
   }
 
 }

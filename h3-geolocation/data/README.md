@@ -1,0 +1,1 @@
+# Data Directory\n\nContains raw CSV files for crime data processing.\n\n- **20 CSV files** with 3.4M+ Philadelphia crime incidents\n- **Total size:** 673MB+\n- **Time range:** 2015-2025\n- **Format:** incidents_part1_part2 (1).csv to (20).csv

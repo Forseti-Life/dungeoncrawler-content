@@ -997,7 +997,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     ], 'Marta the Scholar');
 
     $this->assertSame(
-      '"Marta the Scholar says, You are already on Collect Lost spellbooks. Start with: Find and collect spellbooks"',
+      'You are already on Collect Lost spellbooks. Start with: Find and collect spellbooks',
       $line
     );
   }
@@ -1014,7 +1014,25 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     ], 'Eldric');
 
     $this->assertSame(
-      '"Eldric says, I have work for you: Collect Wine Bottles. Collect wine bottle from around the tavern"',
+      'I have work for you: Collect Wine Bottles. Collect wine bottle from around the tavern',
+      $line
+    );
+  }
+
+  /**
+   * @covers ::buildQuestgiverQuestDialogueLine
+   * @covers ::sanitizeQuestgiverObjectiveHintForSpeaker
+   */
+  public function testBuildQuestgiverQuestDialogueLineStripsSelfReferentialObjectivePrefix(): void {
+    $line = $this->roomChatService->publicBuildQuestgiverQuestDialogueLine((object) [
+      'quest_name' => 'Gather Storyline Leads in the Tavern',
+      'status' => 'active',
+      'quest_description' => 'Gather storyline leads from the tavern regulars.',
+      'generated_objectives' => '[{"phase":1,"objectives":[{"description":"Speak to Eldric and gather his storyline lead"}]}]',
+    ], 'Eldric');
+
+    $this->assertSame(
+      'You are already on Gather Storyline Leads in the Tavern. Start with: Gather his storyline lead',
       $line
     );
   }
@@ -1532,6 +1550,50 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::classifyRoomTurnIntent
    */
+  public function testClassifyRoomTurnIntentRecognizesExpectedOccupantsQuestion(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      "Shouldn't there be kobolds here to meet me?"
+    );
+
+    $this->assertSame('room_roster_query', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesExplicitExitQuestion(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'What exits do I have here?'
+    );
+
+    $this->assertSame('navigation_query', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesFlexibleExpectedOccupantsQuestion(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'Where are the people who were supposed to meet us in this chamber?'
+    );
+
+    $this->assertSame('room_roster_query', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentRecognizesFlexibleExitQuestion(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'Which way can we go from here?'
+    );
+
+    $this->assertSame('navigation_query', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
   public function testClassifyRoomTurnIntentRecognizesExplicitGmAdjudicationQuery(): void {
     $intent = $this->roomChatService->publicClassifyRoomTurnIntent('GM, have I heard that phrase before?');
 
@@ -1982,6 +2044,70 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertStringContainsString('From what is grounded in the current scene', $response['narrative']);
     $this->assertStringContainsString('In Kobold Burrow, the only clearly visible named occupant is Tikka the Trapmaster is present.', $response['narrative']);
     $this->assertStringNotContainsString("I'm", $response['narrative']);
+  }
+
+  /**
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testBuildDeterministicGmResponseCallsOutMissingExpectedOccupants(): void {
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      22,
+      'gm_adjudication_query',
+      [],
+      NULL,
+      "Shouldn't there be kobolds here to meet me?",
+      [
+        'name' => 'Vault Entry Chamber',
+        'description' => 'A circular stone chamber with three empty pedestals.',
+        'characters' => [
+          ['name' => 'Burasco'],
+        ],
+      ],
+      'ltba-vault-entry',
+      [],
+      FALSE,
+      [
+        'basicInfo' => [
+          'name' => 'Burasco',
+        ],
+      ]
+    );
+
+    $this->assertNotNull($response);
+    $this->assertStringContainsString('expected meetup NPCs are currently missing', $response['narrative']);
+    $this->assertStringNotContainsString("I'm", $response['narrative']);
+  }
+
+  /**
+   * @covers ::buildDeterministicGmResponse
+   */
+  public function testBuildDeterministicGmResponseBackstopsUnmatchedQuestionWithGroundedAnalysis(): void {
+    $response = $this->roomChatService->publicBuildDeterministicGmResponse(
+      22,
+      'gm_narration',
+      [],
+      NULL,
+      'Could you clarify where the people who were supposed to meet us are?',
+      [
+        'name' => 'Vault Entry Chamber',
+        'description' => 'A circular stone chamber with three empty pedestals.',
+        'characters' => [
+          ['name' => 'Burasco'],
+        ],
+      ],
+      'ltba-vault-entry',
+      [],
+      FALSE,
+      [
+        'basicInfo' => [
+          'name' => 'Burasco',
+        ],
+      ]
+    );
+
+    $this->assertNotNull($response);
+    $this->assertStringContainsString('expected meetup NPCs are currently missing', $response['narrative']);
+    $this->assertTrue($response['suppress_npc_interjections']);
   }
 
   /**

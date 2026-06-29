@@ -15,7 +15,21 @@
         "source": "Paizo Free RPG Day",
         "metadata": {
           "recommended_party_size": "4-5",
-          "campaign_role": "side_arc"
+          "campaign_role": "side_arc",
+          "generated_outline": {
+            "entry_point": {
+              "primary_quest_giver_id": "ltba-hookclaw-vault-guide",
+              "primary_quest_giver_name": "Zikza Hookclaw",
+              "primary_dungeon_id": "ltba-tomb-site",
+              "primary_chapter_id": "the-tomb",
+              "primary_scene_id": "vault-entry",
+              "primary_location_id": "ltba-vault-entry",
+              "introduction_path": "direct",
+              "how_to_trigger": "Meet Zikza Hookclaw at the vault entry and agree to start the delve.",
+              "progression_gate": "Quest ltba-enter-the-vault is activated.",
+              "detail_summary": "The Hookclaw team briefs the party at the vault entrance and launches the opening objective."
+            }
+          }
         },
         "asset_references": [
           {
@@ -39,10 +53,28 @@
             "scene_id": "vault-entry"
           },
           {
+            "asset_type": "npc",
+            "asset_id": "ltba-hookclaw-vault-guide",
+            "asset_role": "scene-ally",
+            "scene_id": "vault-entry"
+          },
+          {
+            "asset_type": "npc",
+            "asset_id": "ltba-hookclaw-lookout",
+            "asset_role": "scene-ally",
+            "scene_id": "vault-entry"
+          },
+          {
             "asset_type": "room",
             "asset_id": "ltba-tomb-hazard-room",
             "asset_role": "hazard-room",
             "chapter_id": "the-tomb",
+            "scene_id": "tomb-hazards"
+          },
+          {
+            "asset_type": "npc",
+            "asset_id": "ltba-hookclaw-hazard-scout",
+            "asset_role": "scene-ally",
             "scene_id": "tomb-hazards"
           },
           {
@@ -90,6 +122,11 @@
             "display_name": "Eldric",
             "attitude": "friendly",
             "notes": "Eldric knows the grandmother at Grandma's House who needs help recovering a magical hedge trimmer.",
+            "how_to_trigger": "Talk to Eldric and ask for a local lead needing help.",
+            "progression_gate": "Eldric introduces the party to Grandmother.",
+            "relationship_state": {
+              "scene_id": "grandmothers-request"
+            },
             "introduces_to": [
               {
                 "entity_type": "npc_template",
@@ -107,7 +144,54 @@
             "role": "quest_giver",
             "display_name": "The Kind Old Lady",
             "attitude": "friendly",
-            "notes": "She asks the kobolds to recover her magical hedge trimmer."
+            "notes": "She asks the kobolds to recover her magical hedge trimmer.",
+            "how_to_trigger": "Speak with Grandmother and agree to take the hedge trimmer job.",
+            "progression_gate": "Quest ltba-accept-the-task is activated.",
+            "relationship_state": {
+              "scene_id": "grandmothers-request"
+            }
+          },
+          {
+            "contact_id": "ltba-hookclaw-vault-guide-contact",
+            "entity_type": "npc_template",
+            "entity_id": "ltba-hookclaw-vault-guide",
+            "role": "quest_giver",
+            "display_name": "Zikza Hookclaw",
+            "attitude": "friendly",
+            "notes": "Coordinates the Hookclaw team at the vault entry and briefs the party on next steps.",
+            "how_to_trigger": "Talk to Zikza and confirm you are ready to enter the vault.",
+            "progression_gate": "Quest ltba-enter-the-vault is in progress.",
+            "relationship_state": {
+              "scene_id": "vault-entry"
+            }
+          },
+          {
+            "contact_id": "ltba-hookclaw-lookout-contact",
+            "entity_type": "npc_template",
+            "entity_id": "ltba-hookclaw-lookout",
+            "role": "scene_ally",
+            "display_name": "Skritch Hookclaw",
+            "attitude": "friendly",
+            "notes": "Keeps watch over the entrance while the party enters the tomb.",
+            "how_to_trigger": "Check in with Skritch before moving deeper into the vault.",
+            "progression_gate": "Vault entry conditions are confirmed and secure.",
+            "relationship_state": {
+              "scene_id": "vault-entry"
+            }
+          },
+          {
+            "contact_id": "ltba-hookclaw-hazard-scout-contact",
+            "entity_type": "npc_template",
+            "entity_id": "ltba-hookclaw-hazard-scout",
+            "role": "scene_ally",
+            "display_name": "Pikkik Hookclaw",
+            "attitude": "friendly",
+            "notes": "Identifies trap triggers and supports hazard bypass in the tomb chamber.",
+            "how_to_trigger": "Coordinate with Pikkik while interacting with hazard controls in the chamber.",
+            "progression_gate": "Hazard room controls are identified and ready for disarm/bypass actions.",
+            "relationship_state": {
+              "scene_id": "tomb-hazards"
+            }
           }
         ],
         "chapters": [
@@ -120,12 +204,16 @@
                 "scene_id": "vault-entry",
                 "name": "Vault Entry",
                 "summary": "Enter the discovered vault and establish the kobold party's goal.",
+                "how_to_trigger": "Travel to ltba-vault-entry and confirm entry with the Hookclaw guide.",
+                "progression_gate": "Complete quest ltba-enter-the-vault (enter_vault).",
                 "quest_ids": ["ltba-enter-the-vault"]
               },
               {
                 "scene_id": "tomb-hazards",
                 "name": "Tomb Hazards",
                 "summary": "Overcome traps, hazards, and defenses protecting the treasure site.",
+                "how_to_trigger": "Enter ltba-tomb-hazard-room and execute disarm or bypass actions.",
+                "progression_gate": "Complete quest ltba-clear-the-tomb (clear_tomb_hazards).",
                 "quest_ids": ["ltba-clear-the-tomb"]
               }
             ]
@@ -139,12 +227,16 @@
                 "scene_id": "grandmothers-request",
                 "name": "Grandmother's Request",
                 "summary": "Accept the follow-up objective and pivot the storyline into social/exploration play.",
+                "how_to_trigger": "Speak with Grandmother in her parlor and accept the recovery job.",
+                "progression_gate": "Complete quest ltba-accept-the-task (accept_request).",
                 "quest_ids": ["ltba-accept-the-task"]
               },
               {
                 "scene_id": "recover-the-trimmer",
                 "name": "Recover the Trimmer",
                 "summary": "Retrieve the magical hedge trimmer and resolve the kobolds' mission.",
+                "how_to_trigger": "Search the upstairs/garden area and collect the magical hedge trimmer.",
+                "progression_gate": "Complete quest ltba-retrieve-hedge-trimmer (retrieve_trimmer).",
                 "quest_ids": ["ltba-retrieve-hedge-trimmer"]
               }
             ]
@@ -167,7 +259,22 @@
         "source": "Paizo Free RPG Day",
         "metadata": {
           "recommended_party_size": "4-5",
-          "campaign_role": "primary_arc"
+          "campaign_role": "primary_arc",
+          "generated_outline": {
+            "entry_point": {
+              "primary_quest_giver_id": "tok-campus-mentor",
+              "primary_quest_giver_name": "Okoro of the Open Palm",
+              "primary_dungeon_id": "magaambya-campus",
+              "primary_chapter_id": "magaambya-campus",
+              "primary_scene_id": "missing-teacher",
+              "primary_location_id": "tok-missing-teacher",
+              "introduction_path": "brokered",
+              "how_to_trigger": "Speak with Eldric, accept his introduction, then accept Okoro's briefing at the Magaambya.",
+              "progression_gate": "Accept Okoro's request to investigate the missing teacher.",
+              "broker_id": "npc_tavern_keeper",
+              "detail_summary": "Okoro briefs the party on the missing teacher at the Magaambya, with Eldric brokering the introduction."
+            }
+          }
         },
         "asset_references": [
           {
@@ -182,6 +289,19 @@
             "chapter_id": "nantambu-investigation"
           },
           {
+            "asset_type": "dungeon",
+            "asset_id": "magaambya-campus",
+            "asset_role": "entry-dungeon",
+            "chapter_id": "magaambya-campus"
+          },
+          {
+            "asset_type": "room",
+            "asset_id": "tok-missing-teacher",
+            "asset_role": "entry-room",
+            "chapter_id": "magaambya-campus",
+            "scene_id": "missing-teacher"
+          },
+          {
             "asset_type": "npc",
             "asset_id": "tok-campus-mentor",
             "asset_role": "quest-giver",
@@ -194,6 +314,12 @@
             "asset_role": "primary-mystery-target",
             "chapter_id": "magaambya-campus",
             "scene_id": "missing-teacher"
+          },
+          {
+            "asset_type": "hazard",
+            "asset_id": "tok-underlying-threat",
+            "asset_role": "resolution-threat",
+            "scene_id": "threat-revealed"
           }
         ],
         "contacts": [
@@ -205,6 +331,11 @@
             "display_name": "Eldric",
             "attitude": "friendly",
             "notes": "Eldric knows a Magaambya mentor who is looking for discreet help from capable adventurers.",
+            "how_to_trigger": "Talk to Eldric and choose dialogue requesting an introduction to a Magaambya mentor.",
+            "progression_gate": "Eldric introduces the party to Okoro of the Open Palm.",
+            "relationship_state": {
+              "scene_id": "missing-teacher"
+            },
             "introduces_to": [
               {
                 "entity_type": "npc_template",
@@ -222,7 +353,12 @@
             "role": "quest_giver",
             "display_name": "Okoro of the Open Palm",
             "attitude": "friendly",
-            "notes": "Okoro briefs the party on the missing teacher and opens the Magaambya investigation."
+            "notes": "Okoro briefs the party on the missing teacher and opens the Magaambya investigation.",
+            "how_to_trigger": "Speak with Okoro and accept the missing-teacher assignment.",
+            "progression_gate": "Quest tok-find-the-missing-teacher is activated.",
+            "relationship_state": {
+              "scene_id": "missing-teacher"
+            }
           },
           {
             "contact_id": "tok-missing-teacher-contact",
@@ -231,7 +367,12 @@
             "role": "mystery_target",
             "display_name": "Missing Magaambya Teacher",
             "attitude": "indifferent",
-            "notes": "The missing teacher is the person the party is trying to find."
+            "notes": "The missing teacher is the person the party is trying to find.",
+            "how_to_trigger": "Investigate clues tied to the missing teacher during campus and Nantambu follow-up scenes.",
+            "progression_gate": "At least one verified lead tied to the missing teacher is recorded.",
+            "relationship_state": {
+              "scene_id": "campus-clues"
+            }
           }
         ],
         "chapters": [
@@ -244,12 +385,16 @@
                 "scene_id": "missing-teacher",
                 "name": "The Missing Teacher",
                 "summary": "Discover the inciting mystery and gather the first leads.",
+                "how_to_trigger": "Talk to Okoro in the entry room and inspect the last known teacher location.",
+                "progression_gate": "Complete quest tok-find-the-missing-teacher (identify_last_known_location).",
                 "quest_ids": ["tok-find-the-missing-teacher"]
               },
               {
                 "scene_id": "campus-clues",
                 "name": "Campus Clues",
                 "summary": "Interview allies and inspect academy spaces for evidence.",
+                "how_to_trigger": "Use dialogue and investigation interactions across campus clue points.",
+                "progression_gate": "Complete quest tok-gather-campus-clues (collect_magaambya_clues).",
                 "quest_ids": ["tok-gather-campus-clues"]
               }
             ]
@@ -263,12 +408,16 @@
                 "scene_id": "city-follow-up",
                 "name": "Follow the Leads",
                 "summary": "Move through nearby Nantambu to pursue the mystery.",
+                "how_to_trigger": "Travel to Nantambu and investigate the strongest lead unlocked from campus evidence.",
+                "progression_gate": "Complete quest tok-follow-city-leads (trace_nantambu_leads).",
                 "quest_ids": ["tok-follow-city-leads"]
               },
               {
                 "scene_id": "threat-revealed",
                 "name": "Threat Revealed",
                 "summary": "Resolve the underlying danger threatening the Magaambya.",
+                "how_to_trigger": "Confront and resolve the revealed threat in the climax scene.",
+                "progression_gate": "Complete quest tok-resolve-the-threat (stop_the_underlying_threat).",
                 "quest_ids": ["tok-resolve-the-threat"]
               }
             ]
@@ -300,13 +449,25 @@
             "asset_role": "player_party"
           },
           {
+            "asset_type": "dungeon",
+            "asset_id": "onboarding",
+            "asset_role": "entry-dungeon",
+            "chapter_id": "onboarding"
+          },
+          {
+            "asset_type": "room",
+            "asset_id": "tal-briefing-room",
+            "asset_role": "entry-room",
+            "chapter_id": "onboarding",
+            "scene_id": "briefing"
+          },
+          {
             "asset_type": "encounter",
             "asset_id": "tal-opening-encounter",
             "asset_role": "tutorial-combat",
             "chapter_id": "onboarding",
             "scene_id": "first-engagement"
-          }
-          ,
+          },
           {
             "asset_type": "npc",
             "asset_id": "tal-mission-handler",

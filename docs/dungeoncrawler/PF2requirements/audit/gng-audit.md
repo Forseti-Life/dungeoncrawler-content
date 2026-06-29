@@ -1,0 +1,766 @@
+# AUDIT: PF2E Guns and Gears
+
+**Source:** `PF2E Guns and Gears.txt`  
+**Total Lines:** 26,304  
+**Status:** 🔴 PENDING
+
+---
+
+## Legend
+- `[ ]` = Pending extraction
+- `[x]` = Requirements extracted
+- `[S]` = Skipped (pure lore/atmosphere, no mechanics)
+- `[!]` = Needs review
+
+---
+
+## [ ] Introduction
+*Lines 1–1,000 (999 lines)*
+
+- [ ] **RULEBOOK** *(line 4)*
+- [ ] **AUTHORS** *(line 26)*
+- [ ] **LOGB** *(line 178)*
+- [ ] **INTRODUCTION** *(line 186)*
+- [ ] **ACCESS ENTRIES** *(line 237)*
+- [ ] **FUNCTIONALITY AND BALANCE** *(line 319)*
+- [ ] **ANCESTRIES** *(line 352)*
+- [ ] **CLASSES** *(line 355)*
+- [ ] **GUNSLINGER** *(line 358)*
+- [ ] **ABILITY BOOSTS** *(line 378)*
+- [ ] **ABILITY FLAW** *(line 384)*
+- [ ] **SECONDARY ABILITY SCORES** *(line 394)*
+- [ ] **ARMOR AND PERSISTENT TECHNOLOGY** *(line 412)*
+- [ ] **MODULARITY** *(line 514)*
+- [ ] **BORDERS AND CHANGE** *(line 588)*
+- [ ] **GEARS CHARACTERS** *(line 718)*
+- [ ] **CLOCKWORK** *(line 785)*
+- [ ] **INVENTOR** *(line 796)*
+- [ ] **PAGE 15** *(line 798)*
+- [ ] **DROVEN** *(line 809)*
+- [ ] **MAGITECHNOLOGY** *(line 839)*
+- [ ] **CHAPTER MAP** *(line 856)*
+- [ ] **STASIAN TECHNOLOGY** *(line 907)*
+- [ ] **LANDS BEYOND** *(line 923)*
+- [ ] **KEY ABILITY** *(line 949)*
+- [ ] **HIT POINTS** *(line 951)*
+- [ ] **INTELLIGENCE** *(line 953)*
+- [ ] **DURING COMBAT ENCOUNTERS...** *(line 964)*
+- [ ] **PERCEPTION** *(line 979)*
+- [ ] **SAVING THROWS** *(line 982)*
+- [ ] **IN DOWNTIME...** *(line 998)*
+
+## [ ] Chapter 1: Gears Characters (Inventor, Automaton, Archetypes)
+*Lines 1,001–8,000 (6,999 lines)*
+
+- [ ] **YOU MIGHT...** *(line 1,005)*
+- [ ] **DURING SOCIAL ENCOUNTERS...** *(line 1,020)*
+- [ ] **WHILE EXPLORING...** *(line 1,022)*
+- [ ] **SKILLS** *(line 1,036)*
+- [ ] **ATTACKS** *(line 1,042)*
+- [ ] **DEFENSES** *(line 1,047)*
+- [ ] **CLASS DC** *(line 1,052)*
+- [ ] **OTHERS PROBABLY...** *(line 1,055)*
+- [ ] **OVERDRIVE** *(line 1,065)*
+- [ ] **ANCESTRY AND BACKGROUND** *(line 1,139)*
+- [ ] **INITIAL PROFICIENCIES** *(line 1,144)*
+- [ ] **MANIPULATE** *(line 1,152)*
+- [ ] **INNOVATION** *(line 1,178)*
+- [ ] **KEY TERMS** *(line 1,289)*
+- [ ] **EQUIPMENT TRAITS** *(line 1,337)*
+- [ ] **INVENTOR** *(line 1,529)*
+- [ ] **UNSTABLE** *(line 1,533)*
+- [ ] **EXPLODE** *(line 1,561)*
+- [ ] **PEERLESS INVENTOR** *(line 1,585)*
+- [ ] **SHIELD BLOCK** *(line 1,593)*
+- [ ] **INVENTOR FEATS** *(line 1,606)*
+- [ ] **FEAT 1** *(line 2,244)*
+- [ ] **MODIFICATION** *(line 2,246)*
+- [ ] **MOVE** *(line 2,263)*
+- [ ] **AUDITORY CONCENTRATE INVENTOR** *(line 2,297)*
+- [ ] **PROTOTYPE COMPANION** *(line 2,310)*
+- [ ] **VARIABLE CORE** *(line 2,346)*
+- [ ] **FEAT 2** *(line 2,368)*
+- [ ] **MANIPULATE MODIFICATION** *(line 2,370)*
+- [ ] **REVERSE ENGINEER** *(line 2,425)*
+- [ ] **SAMPLE INVENTOR** *(line 2,439)*
+- [ ] **HEALING** *(line 2,468)*
+- [ ] **FEAT 4** *(line 2,490)*
+- [ ] **FEAT 6** *(line 2,590)*
+- [ ] **MANIPULATE UNSTABLE** *(line 2,592)*
+- [ ] **CONSTRUCT SHELL** *(line 2,609)*
+- [ ] **VISUAL FIDELITY** *(line 2,650)*
+- [ ] **FEAT 8** *(line 2,686)*
+- [ ] **INCREDIBLE CONSTRUCT COMPANION** *(line 2,705)*
+- [ ] **MANIFOLD MODIFICATIONS** *(line 2,717)*
+- [ ] **UBIQUITOUS GADGETS** *(line 2,750)*
+- [ ] **FEAT 10** *(line 2,768)*
+- [ ] **FEAT 12** *(line 2,857)*
+- [ ] **CONTINGENCY GADGETS** *(line 2,872)*
+- [ ] **FEAT 14** *(line 2,996)*
+- [ ] **FEAT 16** *(line 3,079)*
+- [ ] **FEAT 18** *(line 3,083)*
+- [ ] **PERSISTENT BOOST** *(line 3,119)*
+- [ ] **PROTOTYPE CONSTRUCT COMPANIONS** *(line 3,206)*
+- [ ] **UBIQUITOUS OVERDRIVE** *(line 3,232)*
+- [ ] **FEAT 20** *(line 3,234)*
+- [ ] **RIDING CONSTRUCT COMPANIONS** *(line 3,264)*
+- [ ] **PARAGON CONSTRUCT COMPANIONS** *(line 3,364)*
+- [ ] **ADVANCED CONSTRUCT COMPANIONS** *(line 3,395)*
+- [ ] **INCREDIBLE CONSTRUCT COMPANIONS** *(line 3,421)*
+- [ ] **GEARS CHARACTER OPTIONS** *(line 3,426)*
+- [ ] **VARIATIONS ON A THEME** *(line 3,505)*
+- [ ] **AUTOMATON** *(line 3,556)*
+- [ ] **PHYSICAL DESCRIPTION** *(line 3,638)*
+- [ ] **SOCIETY** *(line 3,681)*
+- [ ] **HIT POINTS** *(line 3,688)*
+- [ ] **SIZE** *(line 3,691)*
+- [ ] **SPEED** *(line 3,694)*
+- [ ] **ABILITY BOOSTS** *(line 3,697)*
+- [ ] **LANGUAGES** *(line 3,701)*
+- [ ] **AUTOMATON CORE** *(line 3,737)*
+- [ ] **CONSTRUCTED BODY** *(line 3,760)*
+- [ ] **LOW-LIGHT VISION** *(line 3,778)*
+- [ ] **ALIGNMENT AND RELIGION** *(line 3,803)*
+- [ ] **NAMES** *(line 3,818)*
+- [ ] **HUNTER AUTOMATON** *(line 3,843)*
+- [ ] **ENHANCEMENTS** *(line 3,845)*
+- [ ] **MAGE AUTOMATON** *(line 3,873)*
+- [ ] **SHARPSHOOTER AUTOMATON** *(line 3,887)*
+- [ ] **WARRIOR AUTOMATON** *(line 3,909)*
+- [ ] **ARCANE COMMUNICATION** *(line 3,946)*
+- [ ] **ARCANE EYE** *(line 3,960)*
+- [ ] **AUTOMATON LORE** *(line 3,973)*
+- [ ] **ENERGY BEAM** *(line 3,991)*
+- [ ] **REINFORCED CHASSIS** *(line 4,008)*
+- [ ] **AUTOMATON ADVENTURERS** *(line 4,033)*
+- [ ] **FEAT 5** *(line 4,038)*
+- [ ] **INTEGRATED ARMAMENT** *(line 4,073)*
+- [ ] **ARCANE CAMOUFLAGE** *(line 4,075)*
+- [ ] **MAGICAL RESISTANCE** *(line 4,081)*
+- [ ] **FEAT 9** *(line 4,083)*
+- [ ] **TRANSMUTATION** *(line 4,160)*
+- [ ] **AUTOMATON ORIGINS** *(line 4,192)*
+- [ ] **CORE ATTUNEMENT** *(line 4,238)*
+- [ ] **LESSER AUGMENTATION** *(line 4,258)*
+- [ ] **FEAT 13** *(line 4,303)*
+- [ ] **ASTRAL BLINK** *(line 4,317)*
+- [ ] **ENLARGED CHASSIS** *(line 4,362)*
+- [ ] **FEAT 17** *(line 4,380)*
+- [ ] **CONCENTRATE POLYMORPH TRANSMUTATION** *(line 4,395)*
+- [ ] **VERSATILE HERITAGES** *(line 4,401)*
+- [ ] **GREATER AUGMENTATION** *(line 4,447)*
+- [ ] **COMMON BACKGROUNDS** *(line 4,479)*
+- [ ] **ANTI-TECH ACTIVIST** *(line 4,490)*
+- [ ] **BACKGROUND** *(line 4,492)*
+- [ ] **CLOCKFIGHTER** *(line 4,508)*
+- [ ] **CLOCKWORK RESEARCHER** *(line 4,521)*
+- [ ] **CODEBREAKER** *(line 4,538)*
+- [ ] **DISCIPLE OF THE GEAR** *(line 4,560)*
+- [ ] **DRIVER** *(line 4,578)*
+- [ ] **HOUNDED THIEF** *(line 4,591)*
+- [ ] **JUNKER** *(line 4,607)*
+- [ ] **MECHANIC** *(line 4,621)*
+- [ ] **MEDICINAL CLOCKSMITH** *(line 4,637)*
+- [ ] **PRINTER** *(line 4,655)*
+- [ ] **SABOTEUR** *(line 4,669)*
+- [ ] **TOYMAKER** *(line 4,701)*
+- [ ] **RARE BACKGROUNDS** *(line 4,719)*
+- [ ] **DISCARDED DUPLICATE** *(line 4,737)*
+- [ ] **MECHANICAL SYMBIOSIS** *(line 4,761)*
+- [ ] **SAVED BY CLOCKWORK** *(line 4,809)*
+- [ ] **TECH-RELIANT** *(line 4,823)*
+- [ ] **GEARS ARCHETYPES** *(line 4,907)*
+- [ ] **MULTICLASS INVENTOR CHARACTERS** *(line 5,028)*
+- [ ] **INVENTOR DEDICATION** *(line 5,040)*
+- [ ] **ARCHETYPE** *(line 5,043)*
+- [ ] **DEDICATION** *(line 5,045)*
+- [ ] **BASIC MODIFICATION** *(line 5,066)*
+- [ ] **ADVANCED BREAKTHROUGH** *(line 5,115)*
+- [ ] **EXPLOSION** *(line 5,128)*
+- [ ] **SPYGLASS MODIFICATION** *(line 5,191)*
+- [ ] **TOPPLE GIANTS** *(line 5,236)*
+- [ ] **WIDE OVERWATCH** *(line 5,255)*
+- [ ] **MASTER SPOTTER** *(line 5,291)*
+- [ ] **CONTROL TOWER** *(line 5,302)*
+- [ ] **OVERWATCH TRAINING** *(line 5,313)*
+- [ ] **MODULAR DYNAMO** *(line 5,519)*
+- [ ] **PROSTHETICS IN GOLARION** *(line 5,589)*
+- [ ] **GOLEM DYNAMO** *(line 5,629)*
+- [ ] **SOARING DYNAMO** *(line 5,661)*
+- [ ] **GEAR GNASH** *(line 5,679)*
+- [ ] **TRAPSMITH DEDICATION** *(line 5,704)*
+- [ ] **PROPELLER ATTACHMENT** *(line 5,706)*
+- [ ] **SKILL** *(line 5,734)*
+- [ ] **FEAT 7** *(line 5,736)*
+- [ ] **RECYCLED COGWHEELS** *(line 5,748)*
+- [ ] **REPURPOSED PARTS** *(line 5,762)*
+- [ ] **FINESSED FEATURES** *(line 5,777)*
+- [ ] **USING VEHICLES** *(line 5,799)*
+- [ ] **TRICK DRIVER DEDICATION** *(line 5,809)*
+- [ ] **EXPRESS DRIVER** *(line 5,829)*
+- [ ] **FLOURISH** *(line 5,857)*
+- [ ] **RECKLESS** *(line 5,872)*
+- [ ] **PUSH IT** *(line 5,903)*
+- [ ] **ROADKILL** *(line 5,932)*
+- [ ] **VEHICLE MECHANIC DEDICATION** *(line 5,999)*
+- [ ] **ENGINE BAY** *(line 6,025)*
+- [ ] **PATCH JOB** *(line 6,041)*
+- [ ] **SUPERIOR PROPULSION** *(line 6,057)*
+- [ ] **EFFICIENT CONTROLS** *(line 6,102)*
+- [ ] **IMPERVIOUS VEHICLE** *(line 6,119)*
+- [ ] **UNIONS** *(line 6,126)*
+- [ ] **MIRACULOUS FLIGHT** *(line 6,185)*
+- [ ] **MAGICAL** *(line 6,190)*
+- [ ] **GEARS EQUIPMENT** *(line 6,209)*
+- [ ] **CLOCKWORK TECHNOLOGY** *(line 6,224)*
+- [ ] **STASIAN TECHNOLOGY** *(line 6,240)*
+- [ ] **STEAM-POWERED TECHNOLOGY** *(line 6,268)*
+- [ ] **COMBAT GEAR** *(line 6,298)*
+- [ ] **CHAPTER MAP** *(line 6,305)*
+- [ ] **GADGETS** *(line 6,323)*
+- [ ] **SIEGE WEAPONS** *(line 6,329)*
+- [ ] **SNARES AND HAZARDS** *(line 6,336)*
+- [ ] **UTILITY GEAR** *(line 6,366)*
+- [ ] **VEHICLES AND MOBILITY DEVICES** *(line 6,376)*
+- [ ] **NEW WEAPON TRAITS** *(line 6,408)*
+- [ ] **WEAPON DESCRIPTIONS** *(line 6,410)*
+- [ ] **ITEM 1** *(line 6,427)*
+- [ ] **ITEM 0** *(line 6,628)*
+- [ ] **RARE CLOCKWORK** *(line 6,868)*
+- [ ] **CONSUMABLE GADGET** *(line 6,937)*
+- [ ] **CLOCKWORK** *(line 7,104)*
+- [ ] **COLD** *(line 7,135)*
+- [ ] **ITEM 5** *(line 7,188)*
+- [ ] **ITEM 2** *(line 7,449)*
+- [ ] **AURA CONSUMABLE** *(line 7,484)*
+- [ ] **AIMING** *(line 7,639)*
+- [ ] **MOVING A MOUNTED SIEGE WEAPON** *(line 7,672)*
+- [ ] **LAUNCHING** *(line 7,711)*
+- [ ] **LOADING** *(line 7,715)*
+- [ ] **ACTING IN CONCERT** *(line 7,758)*
+- [ ] **STRIKING** *(line 7,773)*
+- [ ] **SIEGE WEAPONS VS. NORMAL WEAPONS** *(line 7,779)*
+- [ ] **BULK** *(line 7,800)*
+- [ ] **MOUNTED OR PORTABLE** *(line 7,824)*
+- [ ] **MOUNTED** *(line 7,880)*
+- [ ] **LARGE** *(line 7,901)*
+- [ ] **PORTABLE** *(line 7,905)*
+- [ ] **ITEM 7** *(line 7,935)*
+- [ ] **SMALL** *(line 7,961)*
+- [ ] **BUILDING SIEGE WEAPONS** *(line 7,983)*
+- [ ] **DISASSEMBLING AND REASSEMBLING** *(line 7,999)*
+
+## [ ] Chapter 2: Gears Equipment
+*Lines 8,001–14,000 (5,999 lines)*
+
+- [ ] **HUGE** *(line 8,011)*
+- [ ] **ITEM 8** *(line 8,029)*
+- [ ] **MOUNTED** *(line 8,031)*
+- [ ] **ITEM 7** *(line 8,058)*
+- [ ] **GARGANTUAN** *(line 8,080)*
+- [ ] **ITEM 10** *(line 8,082)*
+- [ ] **SIEGE TOWERS** *(line 8,107)*
+- [ ] **VEHICLE 16** *(line 8,118)*
+- [ ] **DISABLING SIEGE WEAPONS** *(line 8,162)*
+- [ ] **VEHICLE 4** *(line 8,198)*
+- [ ] **SNARES AND HAZARDS** *(line 8,222)*
+- [ ] **ACID CLOCKWORK** *(line 8,238)*
+- [ ] **SNARE 4** *(line 8,240)*
+- [ ] **BINDING SNARE** *(line 8,251)*
+- [ ] **ACID SPITTER** *(line 8,256)*
+- [ ] **SNARE 10** *(line 8,265)*
+- [ ] **CONSUMABLE MECHANICAL SNARE TRAP** *(line 8,267)*
+- [ ] **CLOCKWORK CHIRPER** *(line 8,282)*
+- [ ] **SNARE 3** *(line 8,284)*
+- [ ] **CLOCKWORK MONKEY** *(line 8,305)*
+- [ ] **SNARE 2** *(line 8,307)*
+- [ ] **DEATH COIL** *(line 8,323)*
+- [ ] **CONSUMABLE ELECTRICITY MECHANICAL SNARE TRAP** *(line 8,326)*
+- [ ] **SNARE 20** *(line 8,328)*
+- [ ] **DANGEROUS TOYS** *(line 8,330)*
+- [ ] **DETONATING GEARS SNARE** *(line 8,370)*
+- [ ] **STRANGE NEW METHODS** *(line 8,435)*
+- [ ] **NOISEMAKER SNARE** *(line 8,477)*
+- [ ] **CONSUMABLE** *(line 8,485)*
+- [ ] **FIRE MECHANICAL SNARE TRAP** *(line 8,487)*
+- [ ] **FROST WORM SNARE** *(line 8,497)*
+- [ ] **CLOCKWORK** *(line 8,500)*
+- [ ] **COLD** *(line 8,502)*
+- [ ] **SNARE 9** *(line 8,504)*
+- [ ] **PUFF DRAGON** *(line 8,532)*
+- [ ] **SHRAPNEL SNARE** *(line 8,552)*
+- [ ] **FIRE BOX** *(line 8,555)*
+- [ ] **SNARE 14** *(line 8,559)*
+- [ ] **SPIRIT SNARE** *(line 8,578)*
+- [ ] **SNARE 8** *(line 8,581)*
+- [ ] **TIN COBRA** *(line 8,598)*
+- [ ] **SNARE 5** *(line 8,601)*
+- [ ] **CONSUMABLE MECHANICAL POISON SNARE TRAP** *(line 8,604)*
+- [ ] **TINY SNARE, BIG EXPLOSION** *(line 8,616)*
+- [ ] **STEAM VENTS** *(line 8,641)*
+- [ ] **HAZARD 4** *(line 8,644)*
+- [ ] **MECHANICAL STEAM TRAP** *(line 8,646)*
+- [ ] **INSISTENT PRIVACY FENCE** *(line 8,663)*
+- [ ] **HAZARD 8** *(line 8,665)*
+- [ ] **RARE ELECTRICITY MECHANICAL TRAP** *(line 8,667)*
+- [ ] **MALEVOLENT MANNEQUINS** *(line 8,686)*
+- [ ] **COMPLEX** *(line 8,691)*
+- [ ] **HAZARD 14** *(line 8,693)*
+- [ ] **MECHANICAL** *(line 8,696)*
+- [ ] **STASIAN TECH** *(line 8,748)*
+- [ ] **GALVANIC MORTAL COIL** *(line 8,766)*
+- [ ] **NECROMANCY** *(line 8,771)*
+- [ ] **GALVASPHERE** *(line 8,797)*
+- [ ] **ITEM 4** *(line 8,804)*
+- [ ] **UTILITY GEAR** *(line 8,941)*
+- [ ] **AQUARIUM LAMP** *(line 8,957)*
+- [ ] **ELECTRICITY LIGHT** *(line 8,962)*
+- [ ] **CLOCKWORK BOOKSHELF** *(line 9,016)*
+- [ ] **ITEM 1** *(line 9,019)*
+- [ ] **CLOCKWORK BOX PACKER** *(line 9,040)*
+- [ ] **ITEM 3** *(line 9,043)*
+- [ ] **CLOCKWORK DISGUISE** *(line 9,070)*
+- [ ] **ITEM 6** *(line 9,073)*
+- [ ] **CLOCKWORK DIVING SUIT** *(line 9,143)*
+- [ ] **WATER** *(line 9,152)*
+- [ ] **CLOCKWORK MEGAPHONE** *(line 9,204)*
+- [ ] **DAY GOGGLES** *(line 9,230)*
+- [ ] **ITEM 2** *(line 9,232)*
+- [ ] **ELECTROCABLE** *(line 9,253)*
+- [ ] **ELECTRICITY** *(line 9,256)*
+- [ ] **EXTENDABLE PINCER** *(line 9,272)*
+- [ ] **ITEM 0** *(line 9,279)*
+- [ ] **HEATED CLOAK** *(line 9,289)*
+- [ ] **ITEM 5** *(line 9,291)*
+- [ ] **HOLY STEAM BALL** *(line 9,305)*
+- [ ] **DIVINE** *(line 9,308)*
+- [ ] **ENCHANTMENT MENTAL GOOD** *(line 9,326)*
+- [ ] **IGNITOR** *(line 9,381)*
+- [ ] **PAPER SHREDDER** *(line 9,495)*
+- [ ] **PRINTING PRESS** *(line 9,537)*
+- [ ] **ITEM 9** *(line 9,540)*
+- [ ] **STEAMFLIGHT PACK** *(line 9,562)*
+- [ ] **STEAM** *(line 9,567)*
+- [ ] **ITEM 15** *(line 9,573)*
+- [ ] **STEAM WINCH** *(line 9,594)*
+- [ ] **TIMEPIECE** *(line 9,617)*
+- [ ] **MOBILITY DEVICES** *(line 9,663)*
+- [ ] **WHEELCHAIR TYPES** *(line 9,731)*
+- [ ] **BASIC CHAIR** *(line 9,735)*
+- [ ] **FROG CHAIR** *(line 9,768)*
+- [ ] **MAGICAL** *(line 9,775)*
+- [ ] **SPIDER CHAIR** *(line 9,794)*
+- [ ] **ITEM 12** *(line 9,797)*
+- [ ] **STORM CHAIR** *(line 9,816)*
+- [ ] **ITEM 14** *(line 9,840)*
+- [ ] **VEHICLES** *(line 9,866)*
+- [ ] **AUTOMATED CYCLE** *(line 9,881)*
+- [ ] **VEHICLE 1** *(line 9,884)*
+- [ ] **LARGE** *(line 9,886)*
+- [ ] **ADAPTABLE PADDLEBOAT** *(line 9,912)*
+- [ ] **VEHICLE 2** *(line 9,915)*
+- [ ] **CLUNKERJUNKER** *(line 9,943)*
+- [ ] **PROPULSION** *(line 9,979)*
+- [ ] **CLOCKWORK PROPULSION** *(line 9,984)*
+- [ ] **ELECTRICAL PROPULSION** *(line 10,038)*
+- [ ] **STEAM CART** *(line 10,055)*
+- [ ] **CLOCKWORK WAGON** *(line 10,080)*
+- [ ] **VEHICLE 3** *(line 10,083)*
+- [ ] **SAND DIVER** *(line 10,106)*
+- [ ] **STEAM TROLLEY** *(line 10,145)*
+- [ ] **ARMORED CARRIAGE** *(line 10,164)*
+- [ ] **VEHICLE 5** *(line 10,167)*
+- [ ] **FIREFLY** *(line 10,190)*
+- [ ] **CLOCKWORK HOPPER** *(line 10,249)*
+- [ ] **VEHICLE 6** *(line 10,252)*
+- [ ] **CLOCKWORK BORER** *(line 10,308)*
+- [ ] **VEHICLE 9** *(line 10,311)*
+- [ ] **APPARATUS OF THE OCTOPUS** *(line 10,446)*
+- [ ] **VEHICLE 11** *(line 10,449)*
+- [ ] **VEHICLE 15** *(line 10,518)*
+- [ ] **VEHICLE 17** *(line 10,619)*
+- [ ] **CLOCKWORK CASTLE** *(line 10,720)*
+- [ ] **GUNS CHARACTERS** *(line 10,750)*
+- [ ] **GUNSLINGER** *(line 10,771)*
+- [ ] **PAGE 105** *(line 10,773)*
+- [ ] **NHALMIKA IRONSIGHT** *(line 10,784)*
+- [ ] **CHAPTER MAP** *(line 10,832)*
+- [ ] **KEY ABILITY** *(line 10,929)*
+- [ ] **HIT POINTS** *(line 10,931)*
+- [ ] **DEXTERITY** *(line 10,933)*
+- [ ] **DURING COMBAT ENCOUNTERS...** *(line 10,944)*
+- [ ] **DURING SOCIAL ENCOUNTERS...** *(line 10,952)*
+- [ ] **WHILE EXPLORING...** *(line 10,957)*
+- [ ] **IN DOWNTIME...** *(line 10,961)*
+- [ ] **YOU MIGHT...** *(line 10,968)*
+- [ ] **OTHERS PROBABLY...** *(line 10,976)*
+- [ ] **INITIAL PROFICIENCIES** *(line 10,986)*
+- [ ] **PERCEPTION** *(line 10,994)*
+- [ ] **SAVING THROWS** *(line 11,012)*
+- [ ] **SKILLS** *(line 11,020)*
+- [ ] **ATTACKS** *(line 11,027)*
+- [ ] **DEFENSES** *(line 11,038)*
+- [ ] **CLASS DC** *(line 11,043)*
+- [ ] **ANCESTRY AND BACKGROUND** *(line 11,110)*
+- [ ] **GUNSLINGER FEATS** *(line 11,141)*
+- [ ] **SINGULAR EXPERTISE** *(line 11,145)*
+- [ ] **SKILL FEATS** *(line 11,161)*
+- [ ] **GENERAL FEATS** *(line 11,169)*
+- [ ] **SKILL INCREASES** *(line 11,176)*
+- [ ] **STUBBORN** *(line 11,190)*
+- [ ] **ABILITY BOOSTS** *(line 11,205)*
+- [ ] **ANCESTRY FEATS** *(line 11,215)*
+- [ ] **GUNSLINGER WEAPON MASTERY** *(line 11,222)*
+- [ ] **VIGILANT SENSES** *(line 11,234)*
+- [ ] **WEAPON SPECIALIZATION** *(line 11,242)*
+- [ ] **ADVANCED DEED** *(line 11,252)*
+- [ ] **GUNSLINGER EXPERTISE** *(line 11,260)*
+- [ ] **EVASION** *(line 11,268)*
+- [ ] **GUNSLINGING LEGEND** *(line 11,277)*
+- [ ] **KEY TERMS** *(line 11,284)*
+- [ ] **MEDIUM ARMOR EXPERTISE** *(line 11,332)*
+- [ ] **GREATER DEED** *(line 11,340)*
+- [ ] **GREATER WEAPON SPECIALIZATION** *(line 11,348)*
+- [ ] **JUGGERNAUT** *(line 11,356)*
+- [ ] **INCREDIBLE SENSES** *(line 11,378)*
+- [ ] **MEDIUM ARMOR MASTERY** *(line 11,385)*
+- [ ] **WAY OF THE DRIFTER** *(line 11,402)*
+- [ ] **INTERACTING TO RELOAD** *(line 11,468)*
+- [ ] **WAY OF THE PISTOLERO** *(line 11,492)*
+- [ ] **EMOTION** *(line 11,543)*
+- [ ] **FEAR** *(line 11,545)*
+- [ ] **MENTAL** *(line 11,549)*
+- [ ] **LINGUISTIC** *(line 11,551)*
+- [ ] **WAY OF THE SNIPER** *(line 11,586)*
+- [ ] **WAY OF THE VANGUARD** *(line 11,652)*
+- [ ] **FEAT 1** *(line 11,747)*
+- [ ] **CROSSBOW CRACK SHOT** *(line 11,785)*
+- [ ] **MUNITIONS CRAFTER** *(line 11,830)*
+- [ ] **SWORD AND PISTOL** *(line 11,853)*
+- [ ] **FEAT 2** *(line 11,893)*
+- [ ] **VISUAL** *(line 11,912)*
+- [ ] **FEAT 4** *(line 11,948)*
+- [ ] **FLOURISH** *(line 12,002)*
+- [ ] **FEAT 6** *(line 12,079)*
+- [ ] **MUNITIONS MACHINIST** *(line 12,123)*
+- [ ] **SAMPLE GUNSLINGER** *(line 12,149)*
+- [ ] **LINGUISTIC MENTAL** *(line 12,178)*
+- [ ] **FEAT 8** *(line 12,231)*
+- [ ] **LEAP AND FIRE** *(line 12,260)*
+- [ ] **FEAT 10** *(line 12,312)*
+- [ ] **PRECIOUS MUNITIONS** *(line 12,384)*
+- [ ] **FEAT 12** *(line 12,499)*
+- [ ] **UNSHAKABLE GRIT** *(line 12,590)*
+- [ ] **FEAT 14** *(line 12,603)*
+- [ ] **DISRUPTIVE BLUR** *(line 12,696)*
+- [ ] **SHOWSTOPPER** *(line 12,725)*
+- [ ] **FEATS** *(line 12,731)*
+- [ ] **FEAT 16** *(line 12,756)*
+- [ ] **HAIR TRIGGER** *(line 12,767)*
+- [ ] **RICOCHET MASTER** *(line 12,807)*
+- [ ] **FEAT 18** *(line 12,824)*
+- [ ] **UNERRING SHOT** *(line 12,847)*
+- [ ] **REACH FOR THE STARS** *(line 12,849)*
+- [ ] **PIERCING CRITICAL** *(line 12,898)*
+- [ ] **FEAT 20** *(line 12,910)*
+- [ ] **RICOCHET LEGEND** *(line 12,919)*
+- [ ] **CHARACTER OPTIONS** *(line 12,952)*
+- [ ] **COMMON BACKGROUNDS** *(line 13,051)*
+- [ ] **BACK-ALLEY DOCTOR** *(line 13,065)*
+- [ ] **BACKGROUND** *(line 13,067)*
+- [ ] **CANNONEER** *(line 13,083)*
+- [ ] **FIREWORKS PERFORMER** *(line 13,113)*
+- [ ] **GUNSMITH** *(line 13,115)*
+- [ ] **HIRED KILLER** *(line 13,166)*
+- [ ] **FARMSTEADER** *(line 13,188)*
+- [ ] **JUNK COLLECTOR** *(line 13,206)*
+- [ ] **SALOON ENTERTAINER** *(line 13,225)*
+- [ ] **SPOTTER** *(line 13,240)*
+- [ ] **UNDERTAKER** *(line 13,261)*
+- [ ] **WANDERING PREACHER** *(line 13,280)*
+- [ ] **WASTE WALKER** *(line 13,312)*
+- [ ] **UNCOMMON BACKGROUNDS** *(line 13,332)*
+- [ ] **ALKENSTAR OUTLAW** *(line 13,347)*
+- [ ] **GOLDHAND ARMS DEALER** *(line 13,365)*
+- [ ] **PRESS-GANGED** *(line 13,387)*
+- [ ] **CIRCUIT JUDGE** *(line 13,422)*
+- [ ] **SHERIFF** *(line 13,424)*
+- [ ] **RARE BACKGROUNDS** *(line 13,467)*
+- [ ] **OTHERWORLDLY MISSION** *(line 13,481)*
+- [ ] **REVENANT** *(line 13,523)*
+- [ ] **TALL TALE** *(line 13,557)*
+- [ ] **ARCHETYPES** *(line 13,569)*
+- [ ] **EAGLE EYE** *(line 13,684)*
+- [ ] **MULTICLASS GUNSLINGER CHARACTERS** *(line 13,689)*
+- [ ] **GUNSLINGER DEDICATION** *(line 13,698)*
+- [ ] **DEDICATION** *(line 13,701)*
+- [ ] **MULTICLASS** *(line 13,704)*
+- [ ] **BASIC SHOOTING** *(line 13,724)*
+- [ ] **ARCHETYPE** *(line 13,728)*
+- [ ] **FIREARM EXPERT** *(line 13,734)*
+- [ ] **ADVANCED SHOOTING** *(line 13,769)*
+- [ ] **PRACTICED RELOADS** *(line 13,792)*
+- [ ] **ARTILLERIST DEDICATION** *(line 13,837)*
+- [ ] **NAMED ARTILLERY** *(line 13,860)*
+- [ ] **SKILL** *(line 13,865)*
+- [ ] **SHORTHANDED** *(line 13,894)*
+- [ ] **CANNON CORNER SHOT** *(line 13,915)*
+- [ ] **LIVE AMMUNITION** *(line 13,943)*
+- [ ] **LEADING WITH A CANNON** *(line 13,967)*
+
+## [ ] Chapter 3: Guns Characters (Gunslinger, Archetypes)
+*Lines 14,001–21,000 (6,999 lines)*
+
+- [ ] **MASTER SIEGE ENGINEER** *(line 14,015)*
+- [ ] **FEAT 16** *(line 14,033)*
+- [ ] **ARCHETYPE** *(line 14,035)*
+- [ ] **BEAST GUNNER DEDICATION** *(line 14,100)*
+- [ ] **DEDICATION** *(line 14,103)*
+- [ ] **FEAT 6** *(line 14,109)*
+- [ ] **BASIC BEAST GUNNER SPELLCASTING** *(line 14,157)*
+- [ ] **FEAT 8** *(line 14,159)*
+- [ ] **MAGICAL** *(line 14,175)*
+- [ ] **FEAT 10** *(line 14,177)*
+- [ ] **NECROMANCY** *(line 14,179)*
+- [ ] **CHOOSING YOUR BEAST GUN** *(line 14,194)*
+- [ ] **FEAT 12** *(line 14,220)*
+- [ ] **EXPERT BEAST GUNNER SPELLCASTING** *(line 14,238)*
+- [ ] **EVOCATION MAGICAL** *(line 14,245)*
+- [ ] **MASTER BEAST GUNNER SPELLCASTING** *(line 14,271)*
+- [ ] **FEAT 18** *(line 14,273)*
+- [ ] **BULLET DANCER DEDICATION** *(line 14,303)*
+- [ ] **FEAT 2** *(line 14,309)*
+- [ ] **FLOURISH** *(line 14,394)*
+- [ ] **FEAT 14** *(line 14,412)*
+- [ ] **DEMOLITIONIST DEDICATION** *(line 14,440)*
+- [ ] **SAFETY MEASURES** *(line 14,482)*
+- [ ] **FEAT 4** *(line 14,484)*
+- [ ] **FEAT 7** *(line 14,499)*
+- [ ] **CONTROLLED BLAST** *(line 14,516)*
+- [ ] **FIREWORK TECHNICIAN DEDICATION** *(line 14,610)*
+- [ ] **COUGHING DRAGON DISPLAY** *(line 14,691)*
+- [ ] **EXPERT FIREWORKS CRAFTER** *(line 14,718)*
+- [ ] **JUMPING JENNY DISPLAY** *(line 14,731)*
+- [ ] **GOBLIN JUBILEE DISPLAY** *(line 14,753)*
+- [ ] **DESCRIBING YOUR FIREWORKS DISPLAY** *(line 14,755)*
+- [ ] **BANSHEE CRY DISPLAY** *(line 14,804)*
+- [ ] **PISTOL PHENOM DEDICATION** *(line 14,876)*
+- [ ] **AUDITORY** *(line 14,989)*
+- [ ] **VISUAL** *(line 14,993)*
+- [ ] **SNIPING DUO DEDICATION** *(line 15,099)*
+- [ ] **TRIANGULATE** *(line 15,129)*
+- [ ] **CONCENTRATE** *(line 15,187)*
+- [ ] **VANTAGE SHOT** *(line 15,200)*
+- [ ] **CHOOSING A SPOTTER** *(line 15,224)*
+- [ ] **CONCENTRATED ASSAULT** *(line 15,240)*
+- [ ] **EAGLE EYES** *(line 15,291)*
+- [ ] **SPELLSHOT** *(line 15,384)*
+- [ ] **TELEPORTATION** *(line 15,407)*
+- [ ] **CLASS DEDICATION** *(line 15,442)*
+- [ ] **EVOCATION** *(line 15,461)*
+- [ ] **CALL GUN** *(line 15,475)*
+- [ ] **CONJURATION** *(line 15,499)*
+- [ ] **SAMPLE GUNSLINGER** *(line 15,501)*
+- [ ] **UNEXPECTED SHARPSHOOTER DEDICATION** *(line 15,602)*
+- [ ] **MISFORTUNE** *(line 15,634)*
+- [ ] **NO HARD FEELINGS FEAT 6** *(line 15,652)*
+- [ ] **SKILL** *(line 15,672)*
+- [ ] **UNBELIEVABLE LUCK** *(line 15,693)*
+- [ ] **UNBELIEVABLE ESCAPE** *(line 15,706)*
+- [ ] **GUNS EQUIPMENT** *(line 15,830)*
+- [ ] **THE BIRTH OF GUNS** *(line 15,903)*
+- [ ] **ADVENT OF BLACK POWDER** *(line 15,954)*
+- [ ] **CHAPTER MAP** *(line 15,968)*
+- [ ] **DONGUN HOLD AND THE FORMATION OF INDUSTRY** *(line 16,031)*
+- [ ] **FIREARMS AND ACCESS** *(line 16,046)*
+- [ ] **FIREARMS ON MODERN GOLARION** *(line 16,126)*
+- [ ] **CLASSIC FIREARMS** *(line 16,292)*
+- [ ] **AMMUNITION** *(line 16,309)*
+- [ ] **WEAPON TRAITS** *(line 16,325)*
+- [ ] **MISFIRES** *(line 16,723)*
+- [ ] **FIREARMS CRITICAL SPECIALIZATION** *(line 16,756)*
+- [ ] **WEAPON DESCRIPTIONS** *(line 16,762)*
+- [ ] **FANTASY FIREARMS** *(line 16,970)*
+- [ ] **BREATH BLASTER** *(line 16,982)*
+- [ ] **ADDITIONAL TRAITS** *(line 17,340)*
+- [ ] **COMBINATION WEAPON DESCRIPTIONS** *(line 17,704)*
+- [ ] **CURSED FIREARMS** *(line 17,897)*
+- [ ] **CURSED** *(line 17,901)*
+- [ ] **IMMOLATION CLAN PISTOL** *(line 17,905)*
+- [ ] **TRANSMUTATION** *(line 17,908)*
+- [ ] **FIRE** *(line 17,940)*
+- [ ] **ITEM 10** *(line 17,942)*
+- [ ] **PACT-BOUND PISTOL** *(line 17,983)*
+- [ ] **ENCHANTMENT** *(line 17,988)*
+- [ ] **INTEGRATED FIREARMS** *(line 18,114)*
+- [ ] **BOASTFUL HUNTER** *(line 18,180)*
+- [ ] **ITEM 3** *(line 18,187)*
+- [ ] **INTELLIGENT** *(line 18,189)*
+- [ ] **PRIMAL** *(line 18,191)*
+- [ ] **DUCHY DEFENDER** *(line 18,229)*
+- [ ] **ITEM 13** *(line 18,236)*
+- [ ] **OCCULT** *(line 18,239)*
+- [ ] **ARCANE** *(line 18,318)*
+- [ ] **ITEM 8** *(line 18,320)*
+- [ ] **OTHER RARE AND UNIQUE MAGICAL FIREARMS** *(line 18,394)*
+- [ ] **ITEM 15** *(line 18,400)*
+- [ ] **POISON** *(line 18,405)*
+- [ ] **IRIS OF THE SKY** *(line 18,442)*
+- [ ] **ITEM 6** *(line 18,447)*
+- [ ] **EVIL** *(line 18,521)*
+- [ ] **ITEM 11** *(line 18,541)*
+- [ ] **ROWAN RIFLE** *(line 18,620)*
+- [ ] **ITEM 16** *(line 18,625)*
+- [ ] **ILLUSION** *(line 18,663)*
+- [ ] **PISTOL OF WONDER** *(line 18,697)*
+- [ ] **CHAOTIC** *(line 18,700)*
+- [ ] **AROMATIC AMMUNITION** *(line 18,881)*
+- [ ] **ITEM 2** *(line 18,884)*
+- [ ] **CONSUMABLE** *(line 18,886)*
+- [ ] **AWAKENED METAL SHOT** *(line 18,905)*
+- [ ] **DREAMING ROUND** *(line 18,977)*
+- [ ] **ITEM 14** *(line 18,979)*
+- [ ] **EXSANGUINATING AMMUNITION** *(line 19,075)*
+- [ ] **FAIRY BULLET** *(line 19,102)*
+- [ ] **ITEM 7** *(line 19,105)*
+- [ ] **CONJURATION CONSUMABLE** *(line 19,107)*
+- [ ] **GLUE BULLET** *(line 19,126)*
+- [ ] **ALCHEMICAL** *(line 19,129)*
+- [ ] **ITEM 4** *(line 19,131)*
+- [ ] **METEOR SHOT** *(line 19,145)*
+- [ ] **SPLASH** *(line 19,158)*
+- [ ] **FEATHER TOKEN AMMUNITION** *(line 19,199)*
+- [ ] **DIVINATION** *(line 19,234)*
+- [ ] **BLACK POWDER SIEGE WEAPONS** *(line 19,299)*
+- [ ] **SIEGE WEAPON MISFIRE** *(line 19,330)*
+- [ ] **SIEGE WEAPON STATISTICS** *(line 19,366)*
+- [ ] **ALCHEMICAL SPRINGALD** *(line 19,373)*
+- [ ] **HUGE** *(line 19,378)*
+- [ ] **BLASTING RAM** *(line 19,402)*
+- [ ] **LARGE** *(line 19,407)*
+- [ ] **HISTORY OF BLACK POWDER** *(line 19,415)*
+- [ ] **BOMBARD** *(line 19,452)*
+- [ ] **ITEM 5** *(line 19,471)*
+- [ ] **CANNON** *(line 19,499)*
+- [ ] **MORTAR** *(line 19,722)*
+- [ ] **ALKENSTAR CANNON** *(line 19,724)*
+- [ ] **BATTERY TOWER** *(line 19,783)*
+- [ ] **VEHICLE 16** *(line 19,786)*
+- [ ] **GARGANTUAN** *(line 19,788)*
+- [ ] **CHAIN SHOT** *(line 19,820)*
+- [ ] **SAMBUCA** *(line 19,868)*
+- [ ] **TOOLS AND ACCESSORIES** *(line 19,899)*
+- [ ] **ATTACHED CUSTOMIZATION OPTIONS** *(line 20,048)*
+- [ ] **HOLSTERS** *(line 20,107)*
+- [ ] **CONJURATION INVESTED** *(line 20,119)*
+- [ ] **IMMACULATE HOLSTERS** *(line 20,147)*
+- [ ] **SCOPES** *(line 20,199)*
+- [ ] **DARKVISION SCOPE** *(line 20,256)*
+- [ ] **MAGNETITE SCOPE** *(line 20,301)*
+- [ ] **MAGNIFYING SCOPE** *(line 20,328)*
+- [ ] **SCOPE OF LIMNING** *(line 20,357)*
+- [ ] **IMMOVABLE TRIPOD** *(line 20,411)*
+- [ ] **OTHER MODIFICATIONS** *(line 20,498)*
+- [ ] **BREECH EJECTORS** *(line 20,539)*
+- [ ] **UNDERWATER FIRING MECHANISM** *(line 20,636)*
+- [ ] **ITEM 9** *(line 20,639)*
+- [ ] **TALISMAN** *(line 20,650)*
+- [ ] **ENERGIZED CARTRIDGE** *(line 20,664)*
+- [ ] **ADAPTIVE COGWHEEL** *(line 20,709)*
+- [ ] **ADMONISHING BAND** *(line 20,736)*
+- [ ] **GHOSTSHOT WRAPPING** *(line 20,746)*
+- [ ] **GOBLIN-EYE ORB** *(line 20,767)*
+- [ ] **INDOMITABLE KEEPSAKE** *(line 20,790)*
+- [ ] **FORTUNE** *(line 20,795)*
+- [ ] **SHRIEKING SKULL** *(line 20,827)*
+- [ ] **ITEM 12** *(line 20,832)*
+- [ ] **SILVER TRIPOD** *(line 20,926)*
+- [ ] **ITEM 1** *(line 20,947)*
+- [ ] **FORCE** *(line 20,949)*
+
+## [ ] Chapter 4: Guns Equipment
+*Lines 21,001–26,000 (4,999 lines)*
+
+- [ ] **THE ROTATING GEAR** *(line 21,016)*
+- [ ] **SECTION SUMMARIES** *(line 21,039)*
+- [ ] **DONGUN HOLD AND ALKENSTAR** *(line 21,170)*
+- [ ] **DONGUN HOLD** *(line 21,192)*
+- [ ] **EXPERIMENTATION IN EXILE** *(line 21,242)*
+- [ ] **RETURN TO DONGUN HOLD** *(line 21,321)*
+- [ ] **BLACK POWDER INNOVATORS** *(line 21,576)*
+- [ ] **ALKENSTAR, THE CITY OF SMOG** *(line 21,711)*
+- [ ] **BRASS GUARDIANS** *(line 21,894)*
+- [ ] **A HELPING HAND** *(line 22,113)*
+- [ ] **FEAT 1** *(line 22,197)*
+- [ ] **DWARF** *(line 22,199)*
+- [ ] **CLAN PISTOL** *(line 22,209)*
+- [ ] **DONGUN EDUCATION** *(line 22,229)*
+- [ ] **EXPLOSIVE SAVANT** *(line 22,245)*
+- [ ] **FIRE SAVVY** *(line 22,258)*
+- [ ] **FEAT 5** *(line 22,277)*
+- [ ] **MANIPULATE** *(line 22,296)*
+- [ ] **FEAT 9** *(line 22,319)*
+- [ ] **SMOKE SIGHT** *(line 22,329)*
+- [ ] **FEAT 13** *(line 22,338)*
+- [ ] **FORTUNE** *(line 22,340)*
+- [ ] **EXPLOSIVE EXPERT** *(line 22,357)*
+- [ ] **DWARVEN IDIOMS OF DONGUN HOLD** *(line 22,390)*
+- [ ] **SCRUTINIZING GAZE** *(line 22,404)*
+- [ ] **DIVINE** *(line 22,450)*
+- [ ] **FEAT 17** *(line 22,452)*
+- [ ] **ABSALOM: GADGETS AND GIZMOS** *(line 22,470)*
+- [ ] **MECHANICAL ERRORS** *(line 22,577)*
+- [ ] **CLOCKWORK CATHEDRAL** *(line 22,646)*
+- [ ] **GALLERY OF INNOVATION** *(line 22,714)*
+- [ ] **GADGET MERCHANTS** *(line 22,762)*
+- [ ] **ARCADIA:** *(line 22,865)*
+- [ ] **BRIARBOUGH** *(line 23,037)*
+- [ ] **PRIMAL LEAGUE** *(line 23,048)*
+- [ ] **DEADSHOT LANDS** *(line 23,050)*
+- [ ] **LAND OF NORTHERN LAKES** *(line 23,065)*
+- [ ] **OLD RAZATLAN** *(line 23,072)*
+- [ ] **SALT STRETCH** *(line 23,074)*
+- [ ] **LANDS OF SECOND SOULS** *(line 23,079)*
+- [ ] **CROWNPEAKS** *(line 23,118)*
+- [ ] **HALANA THEOCRACY** *(line 23,164)*
+- [ ] **ILLANI PLAINS** *(line 23,224)*
+- [ ] **TAZUNI** *(line 23,262)*
+- [ ] **DEADSHOT LANDS TIMELINE** *(line 23,310)*
+- [ ] **THREE CRATERS** *(line 23,327)*
+- [ ] **JISTKA IMPERIUM:** *(line 23,434)*
+- [ ] **ELEMENTAL CONSTRUCTS** *(line 23,512)*
+- [ ] **FIEND CONSTRUCTS** *(line 23,605)*
+- [ ] **MORTAL CONSTRUCTS** *(line 23,695)*
+- [ ] **JISTKAN RUINS** *(line 23,752)*
+- [ ] **JISTKAN ADVENTURES** *(line 23,825)*
+- [ ] **THE SHACKLES:** *(line 23,956)*
+- [ ] **TIAN XIA AND VUDRA:** *(line 24,213)*
+- [ ] **FIREWORKS** *(line 24,272)*
+- [ ] **EXPLOSIVES** *(line 24,311)*
+- [ ] **THE SECRET OF BLACK POWDER** *(line 24,317)*
+- [ ] **FIRE ARROWS AND ROCKETS** *(line 24,411)*
+- [ ] **FIRE LANCES** *(line 24,435)*
+- [ ] **CANNONS** *(line 24,476)*
+- [ ] **GUNS AND RIFLES** *(line 24,506)*
+- [ ] **BLANKET BAN VERSUS CONTROLLED CONCESSION** *(line 24,640)*
+- [ ] **EXPLOSIVES AND CANNONS** *(line 24,687)*
+- [ ] **FIREARMS** *(line 24,724)*
+- [ ] **USTALAV: SPARK AND SHADOW** *(line 24,770)*
+- [ ] **SOURCING STASIAN COILS** *(line 24,799)*
+- [ ] **SPIRIT SONGS AND SPECTRAL AURAS** *(line 24,832)*
+- [ ] **THE SILVERLENS SNIPER** *(line 24,908)*
+- [ ] **THE GALVANIC HEARTS OF THE DEAD** *(line 24,939)*
+- [ ] **THE REAPER AND THE CURSE** *(line 25,038)*
+- [ ] **THE MASTER OF THE MOON** *(line 25,111)*
+- [ ] **THE GROBELARCH** *(line 25,160)*
+- [ ] **GLOSSARY AND INDEX** *(line 25,318)*
+
+## [S] Chapter 5: The Rotating Gear (Lore/Locations) *(LORE — skip)*
+*Lines 26,001–26,303 (302 lines)*
+
+- [S] **PAIZO INC.** *(line 26,096)*
+- [S] **RULEBOOK** *(line 26,284)*
+
+---
+
+**Total auditable sections: 729**

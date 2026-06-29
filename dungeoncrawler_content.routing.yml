@@ -343,6 +343,15 @@ dungeoncrawler_content.campaigns_archived:
   requirements:
     _permission: 'access dungeoncrawler characters'
 
+dungeoncrawler_content.storyline_explorer:
+  path: '/storylines/explorer'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\StorylineExplorerPageController::index'
+    _title: 'Storyline Explorer'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
 dungeoncrawler_content.campaign_delete:
   path: '/campaigns/{campaign_id}/delete'
   defaults:
@@ -566,6 +575,17 @@ dungeoncrawler_content.character_view_embed:
   requirements:
     _character_access: 'TRUE'
     character_id: '\d+'
+
+dungeoncrawler_content.character_follower_view:
+  path: '/characters/{character_id}/followers/{follower_kind}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewFollowerActor'
+    _title: 'Follower'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+    follower_kind: 'familiar|animal_companion|construct_companion|eidolon'
 
 # Character editing - requires ownership or admin
 dungeoncrawler_content.character_edit:
@@ -1123,6 +1143,18 @@ dungeoncrawler_content.api.character_state_update:
   options:
     _format: json
 
+dungeoncrawler_content.api.character_convert_library:
+  path: '/api/character/{character_id}/convert-library'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::convertToLibrary'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
 dungeoncrawler_content.api.character_cast_spell:
   path: '/api/character/{character_id}/cast-spell'
   defaults:
@@ -1483,17 +1515,6 @@ dungeoncrawler_content.api.combat_action:
   path: '/api/combat/action'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::action'
-  methods: [POST]
-  requirements:
-    _csrf_request_header_mode: TRUE
-    _permission: 'administer dungeoncrawler content'
-  options:
-    _format: json
-
-dungeoncrawler_content.api.combat_navigate:
-  path: '/api/combat/navigate'
-  defaults:
-    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::navigate'
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE

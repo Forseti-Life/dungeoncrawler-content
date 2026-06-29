@@ -1,0 +1,18 @@
+- command: |
+    Groom feature dc-apg-equipment for release entry (suggestion process flow).
+
+    Feature stub: features/dc-apg-equipment/feature.md (status: planned/ready, P2)
+    Needs: 01-acceptance-criteria.md, then run pm-qa-handoff.sh
+
+    Context: APG equipment additions. Deps: equipment-system (in-progress), magic-items (deferred), alchemical-items (deferred)
+
+    ## Steps
+    1. Read features/dc-apg-equipment/feature.md
+    2. Review https://dungeoncrawler.forseti.life/Roadmap for this section's Not Started reqs
+    3. Write features/dc-apg-equipment/01-acceptance-criteria.md (use templates/01-acceptance-criteria.md)
+       Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+    4. Ensure features/dc-apg-equipment/feature.md has ## Security acceptance criteria section
+       (or add: - Security AC exemption: <reason> if no security surface)
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-apg-equipment
+    6. Write outbox confirming AC written and QA handoff dispatched
+- roi: 7

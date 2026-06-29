@@ -1,0 +1,128 @@
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║  READY TO EXECUTE - Config Reconciliation Workflow          ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+Based on your answers, here's what will happen:
+
+
+PHASE 1: PRE-SYNC MODULE SETUP
+═══════════════════════════════
+
+Run this script:  
+  ./PRE_SYNC_SETUP.sh
+
+What it does:
+  ✓ Uninstalls unused modules (group, contact, forseti_safety_content)
+  ✓ Installs production modules (webform, social_auth, metatag, etc.)
+  ✓ Exports dev config with new modules
+  
+Expected duration: 2-5 minutes (composer takes time)
+
+⚠️  You may see warnings during uninstall - that's normal if modules 
+    already uninstalled or have dependencies.
+
+
+PHASE 2: CONFIG SYNC
+═════════════════════
+
+Run this script:
+  ./reconcile-config.sh ../../prod-config ../../sites/forseti/config/sync
+
+When prompted, choose:
+  1) use-prod
+
+What it does:
+  ✓ Backs up current dev config to /tmp/config-backup-*
+  ✓ Deletes 40 dev-only config files (group, contact, radix blocks)
+  ✓ Copies 103 production-only files to dev
+  ✓ Updates 317 modified files with production versions
+  ✓ Creates complete log in reconciliation-TIMESTAMP.log
+
+Expected duration: 30 seconds
+
+
+PHASE 3: VERIFY & TEST
+═══════════════════════
+
+Test dev environment:
+  cd ../../sites/forseti
+  drush cr
+  drush status
+  drush updatedb -y  (run any pending updates)
+
+Check for errors:
+  drush status   (should show "Connected" database status)
+  drush pm:list --status=enabled | grep -E "webform|social"
+  
+Visit dev site in browser:
+  - Check homepage loads
+  - Check admin interface works
+  - Look for "Sign in with Google" button (if visible on login)
+
+
+PHASE 4: COMMIT TO GIT
+═══════════════════════
+
+If everything works:
+  cd ../../
+  git status  (review changes)
+  git add sites/forseti/config/sync/
+  git commit -m "Reconcile dev config with production baseline
+  
+  - Synced 460 config differences
+  - Removed unused modules (group, contact)
+  - Installed production modules (webform, social_auth, metatag, etc.)
+  - Established production as source of truth
+  
+  Changes:
+  - 40 dev-only files deleted (OK - not used in prod)
+  - 103 prod files added (webform, social auth, SEO)
+  - 317 files updated to match production"
+  
+  git push
+
+
+═══════════════════════════════════════════════════════════════
+
+
+READY TO START?
+═══════════════
+
+Execute Phase 1:
+  ./PRE_SYNC_SETUP.sh
+
+Then review output and proceed to Phase 2.
+
+
+ROLLBACK IF NEEDED:
+═══════════════════
+
+If something breaks after sync, restore from backup:
+  cd /home/keithaumiller/forseti.life/sites/forseti/config/sync
+  rm -f *.yml
+  cp /tmp/config-backup-TIMESTAMP/* .
+  cd /home/keithaumiller/forseti.life/sites/forseti
+  drush config:import -y
+  drush cr
+
+
+QUESTIONS/ISSUES:
+═════════════════
+
+- If PRE_SYNC_SETUP.sh fails during composer install:
+  Check composer.json for version conflicts
+  Try: composer update --with-all-dependencies
+
+- If module uninstall fails:
+  Check for dependencies: drush pm:uninstall MODULE --dry-run
+  May need to uninstall dependent modules first
+
+- If drush commands fail:
+  Check you're in correct directory: sites/forseti
+  Check database connection: drush status
+
+- If config sync creates errors:
+  Check the reconciliation-TIMESTAMP.log file
+  Review /tmp/config-backup-TIMESTAMP for restoration

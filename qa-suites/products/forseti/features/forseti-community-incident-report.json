@@ -1,0 +1,112 @@
+{
+  "feature_id": "forseti-community-incident-report",
+  "product_id": "forseti",
+  "owner_seat": "qa-forseti",
+  "status": "ready",
+  "test_plan": "features/forseti-community-incident-report/03-test-plan.md",
+  "suites": [
+    {
+      "id": "forseti-community-incident-report-form-acl",
+      "feature_id": "forseti-community-incident-report",
+      "label": "Community incident report form blocks anonymous access",
+      "type": "security",
+      "command": "curl -s -o /dev/null -w \"%{http_code}\" https://forseti.life/community/report",
+      "artifacts": [
+        "sessions/qa-forseti/artifacts/community-incident-report/tc1-form-acl.log"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-forseti",
+      "source_path": "sites/forseti/web/modules/custom/community_incident_report/",
+      "env_requirements": [
+        "FORSETI_BASE_URL or public https://forseti.life reachability"
+      ],
+      "release_checkpoint": "final-pre-ship"
+    },
+    {
+      "id": "forseti-community-incident-report-form-authenticated",
+      "feature_id": "forseti-community-incident-report",
+      "label": "Community incident report form loads for authenticated user",
+      "type": "functional",
+      "command": "curl -s -b \"$FORSETI_COOKIE_AUTHENTICATED\" https://forseti.life/community/report | grep -Eq 'incident|description|location'",
+      "artifacts": [
+        "sessions/qa-forseti/artifacts/community-incident-report/tc2-form-authenticated.log"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-forseti",
+      "source_path": "sites/forseti/web/modules/custom/community_incident_report/",
+      "env_requirements": [
+        "FORSETI_COOKIE_AUTHENTICATED"
+      ],
+      "release_checkpoint": "final-pre-ship"
+    },
+    {
+      "id": "forseti-community-incident-report-submit-unpublished",
+      "feature_id": "forseti-community-incident-report",
+      "label": "Community incident submission creates unpublished node",
+      "type": "functional",
+      "command": "bash -c 'DRUSH=/var/www/html/forseti/vendor/bin/drush; $DRUSH --uri=https://forseti.life sql:query \"SELECT status FROM node_field_data WHERE type=\\\"community_incident\\\" ORDER BY nid DESC LIMIT 1\" 2>/dev/null'",
+      "artifacts": [
+        "sessions/qa-forseti/artifacts/community-incident-report/tc3-submit-unpublished.log"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-forseti",
+      "source_path": "sites/forseti/web/modules/custom/community_incident_report/",
+      "env_requirements": [
+        "Authenticated test user capable of submitting /community/report",
+        "Drush available at /var/www/html/forseti/vendor/bin/drush"
+      ],
+      "release_checkpoint": "final-pre-ship"
+    },
+    {
+      "id": "forseti-community-incident-report-public-listing",
+      "feature_id": "forseti-community-incident-report",
+      "label": "Community incident listing is public and renders published items",
+      "type": "functional",
+      "command": "curl -s https://forseti.life/community-reports | grep -Eq 'Community|Incident|Report'",
+      "artifacts": [
+        "sessions/qa-forseti/artifacts/community-incident-report/tc4-public-listing.log"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-forseti",
+      "source_path": "sites/forseti/web/modules/custom/community_incident_report/",
+      "env_requirements": [
+        "At least one published community_incident node"
+      ],
+      "release_checkpoint": "final-pre-ship"
+    },
+    {
+      "id": "forseti-community-incident-report-admin-moderation",
+      "feature_id": "forseti-community-incident-report",
+      "label": "Admin moderation view for community incidents is restricted and reachable",
+      "type": "acl",
+      "command": "curl -s -o /dev/null -w \"%{http_code}\" -b \"$FORSETI_COOKIE_ADMINISTRATOR\" https://forseti.life/admin/content/community-reports",
+      "artifacts": [
+        "sessions/qa-forseti/artifacts/community-incident-report/tc6-admin-moderation.log"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-forseti",
+      "source_path": "sites/forseti/web/modules/custom/community_incident_report/",
+      "env_requirements": [
+        "FORSETI_COOKIE_ADMINISTRATOR"
+      ],
+      "release_checkpoint": "final-pre-ship"
+    },
+    {
+      "id": "forseti-community-incident-report-amisafe-regression",
+      "feature_id": "forseti-community-incident-report",
+      "label": "AmISafe community layer path and baseline routes stay healthy",
+      "type": "regression",
+      "command": "bash -c 'test \"$(curl -s -o /dev/null -w \"%{http_code}\" https://forseti.life/amisafe)\" = \"200\" && test \"$(curl -s -o /dev/null -w \"%{http_code}\" https://forseti.life/safety-calculator)\" = \"200\" && curl -s -b \"$FORSETI_COOKIE_AUTHENTICATED\" https://forseti.life/amisafe/crime-map | grep -Eq \"Community Reports|crime-map|toggle\"'",
+      "artifacts": [
+        "sessions/qa-forseti/artifacts/community-incident-report/tc8-amisafe-regression.log"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-forseti",
+      "source_path": "sites/forseti/web/modules/custom/community_incident_report/",
+      "env_requirements": [
+        "FORSETI_COOKIE_AUTHENTICATED"
+      ],
+      "release_checkpoint": "final-pre-ship"
+    }
+  ]
+}

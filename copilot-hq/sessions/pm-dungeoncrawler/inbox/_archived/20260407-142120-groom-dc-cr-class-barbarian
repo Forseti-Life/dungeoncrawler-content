@@ -1,0 +1,39 @@
+- command: |
+    Groom feature dc-cr-class-barbarian for release entry.
+
+    This is the second feature queued from the live roadmap
+    (https://dungeoncrawler.forseti.life/Roadmap). The feature stub exists at
+    features/dc-cr-class-barbarian/feature.md (status: planned, P1) but has no
+    grooming artifacts — no acceptance criteria, no test plan.
+
+    Your task: write the acceptance criteria so this feature can enter the suggestion
+    process pipeline (same flow as community suggestions).
+
+    ## Steps
+
+    1. Read features/dc-cr-class-barbarian/feature.md
+
+    2. Review the live roadmap for all Not Started Barbarian requirements:
+       https://dungeoncrawler.forseti.life/Roadmap (core/ch03/Barbarian section)
+
+    3. Write features/dc-cr-class-barbarian/01-acceptance-criteria.md
+       Use templates/01-acceptance-criteria.md as the template.
+       - Tag each criterion [NEW], [EXTEND], or [TEST-ONLY]
+       - Happy path: Rage action (temp HP grant, damage bonus, AC penalty,
+         concentrate restriction), Instinct selection (Animal/Spirit), anathema
+         tracking, class feature unlocks per advancement table
+       - Edge cases: rage while fatigued, rage end conditions, anathema violation
+       - Failure modes: standard error handling
+
+    4. Add a Security acceptance criteria section to feature.md if not present.
+       (Barbarian is game mechanics — Security AC exemption is likely appropriate.)
+
+    5. Run: bash scripts/pm-qa-handoff.sh dungeoncrawler dc-cr-class-barbarian
+
+    6. Write outbox confirming AC written, handoff dispatched.
+
+    ## Notes
+    - Depends on: dc-cr-character-class ✓, dc-cr-character-creation ✓,
+      dc-cr-conditions (in_progress, Release B) — groom now, scope-activate after conditions ships.
+    - Priority P1 — higher priority than Alchemist (P2); fast-track grooming.
+- roi: 8

@@ -1,0 +1,39 @@
+{
+  "feature_id": "dc-cr-action-economy",
+  "product_id": "dungeoncrawler",
+  "owner_seat": "qa-dungeoncrawler",
+  "status": "ready",
+  "suites": [
+    {
+      "id": "dc-cr-action-economy-unit",
+      "feature_id": "dc-cr-action-economy",
+      "label": "Action economy: 3-action budget, reaction availability, per-turn reset, and free-action costs",
+      "type": "unit",
+      "command": "cd sites/dungeoncrawler && php vendor/bin/phpunit web/modules/custom/dungeoncrawler_content/tests/src/Unit/Service/ --filter ActionEconomy --no-coverage",
+      "artifacts": [],
+      "required_for_release": true,
+      "owner_seat": "qa-dungeoncrawler",
+      "source_path": "sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/Service/",
+      "env_requirements": [
+        "PHP with Composer dependencies installed",
+        "PHPUnit 10+"
+      ],
+      "release_checkpoint": "pre-merge",
+      "suite_context": "phpunit/encounter",
+      "status": "pending_implementation",
+      "checks": [
+        "Character starts turn with actions_remaining=3 and reaction_available=true",
+        "Single-action activity decrements actions_remaining by 1",
+        "Two-action activity decrements actions_remaining by 2",
+        "Three-action activity decrements actions_remaining by 3 and disallows further actions",
+        "Reaction consumes reaction_available; second reaction in same turn is rejected",
+        "Free action does not consume actions_remaining",
+        "Actions reset to 3 and reaction reset to true on new-turn event",
+        "Attempting action when actions_remaining=0 returns error",
+        "Quickened condition grants +1 action (actions_remaining starts at 4)",
+        "Slowed 1 reduces starting actions_remaining to 2",
+        "Stunned N removes N actions at turn start and decrements stun counter"
+      ]
+    }
+  ]
+}

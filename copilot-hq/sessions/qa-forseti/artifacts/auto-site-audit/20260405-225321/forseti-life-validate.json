@@ -1,0 +1,512 @@
+{
+  "base_url": "https://forseti.life",
+  "count": 84,
+  "generated_at": "2026-04-05T22:53:32+0000",
+  "input": "tmp/site-audit/forseti-life-20260405-225321/forseti-life-all-paths.txt",
+  "results": [
+    {
+      "error": null,
+      "final_url": "https://forseti.life/",
+      "status": 200,
+      "url": "https://forseti.life/"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/about",
+      "status": 200,
+      "url": "https://forseti.life/about"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/accessibility",
+      "status": 200,
+      "url": "https://forseti.life/accessibility"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/adaptive-learning",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/adaptive-learning"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/authority",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/authority"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/budget-authority",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/budget-authority"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/computational-resources",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/computational-resources"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/creativity-generation",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/creativity-generation"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/decision-making-scope",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/decision-making-scope"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/decision-quality",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/decision-quality"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/dependency-relationships",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/dependency-relationships"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/energy-resources",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/energy-resources"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/enforcement-power",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/enforcement-power"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/evaluations",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/evaluations"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/financial-capital",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/financial-capital"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/gatekeeping-power",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/gatekeeping-power"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/granularity",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/granularity"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/human-capital",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/human-capital"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/influence-reach",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/influence-reach"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/information-access",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/information-access"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/information-synthesis",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/information-synthesis"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/infrastructure-access",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/infrastructure-access"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/jurisdictional-reach",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/jurisdictional-reach"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/legal-authorization",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/legal-authorization"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/memory-architecture",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/memory-architecture"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/mobilization-capability",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/mobilization-capability"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/moral-authority",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/moral-authority"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/network-position",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/network-position"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/reputation-capital",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/reputation-capital"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/resource-control",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/resource-control"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/restriction",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/restriction"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/scope",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/scope"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/sources",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/sources"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/strategic-planning",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/strategic-planning"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/synthesis",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/synthesis"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/temporal",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/temporal"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/time-allocation",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/time-allocation"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/trust-network-depth",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/trust-network-depth"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/us-government",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/us-government"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/agent-power-framework/verification",
+      "status": 200,
+      "url": "https://forseti.life/agent-power-framework/verification"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/ai-terms",
+      "status": 200,
+      "url": "https://forseti.life/ai-terms"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/api-terms",
+      "status": 200,
+      "url": "https://forseti.life/api-terms"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/community-guidelines",
+      "status": 200,
+      "url": "https://forseti.life/community-guidelines"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/contact",
+      "status": 200,
+      "url": "https://forseti.life/contact"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/cookie-policy",
+      "status": 200,
+      "url": "https://forseti.life/cookie-policy"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/copyright",
+      "status": 200,
+      "url": "https://forseti.life/copyright"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/core/misc/favicon.ico",
+      "status": 200,
+      "url": "https://forseti.life/core/misc/favicon.ico"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/data-usage-policy",
+      "status": 200,
+      "url": "https://forseti.life/data-usage-policy"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/disclaimer",
+      "status": 200,
+      "url": "https://forseti.life/disclaimer"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/home",
+      "status": 200,
+      "url": "https://forseti.life/home"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/how-it-works",
+      "status": 200,
+      "url": "https://forseti.life/how-it-works"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/jobhunter",
+      "status": 403,
+      "url": "https://forseti.life/jobhunter"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/legal",
+      "status": 200,
+      "url": "https://forseti.life/legal"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/mobile-app-terms",
+      "status": 200,
+      "url": "https://forseti.life/mobile-app-terms"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/privacy",
+      "status": 200,
+      "url": "https://forseti.life/privacy"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/css/css_2GLO3dceKrv2erH-iybx85OVk5DU0mtf7KWQlpcAhDI.css",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/css/css_2GLO3dceKrv2erH-iybx85OVk5DU0mtf7KWQlpcAhDI.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/css/css_3A2IUjsPEXGrWNZm4MVPzXeh8AJQRwUpcFSMmsU_mjA.css",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/css/css_3A2IUjsPEXGrWNZm4MVPzXeh8AJQRwUpcFSMmsU_mjA.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/css/css_MRlVgyFixPCcycK7qp34whgdovxPgrOdHCHx2SjXP2c.css",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/css/css_MRlVgyFixPCcycK7qp34whgdovxPgrOdHCHx2SjXP2c.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/css/css_V7NByh9w7TUYLh6NiBmq-c_LsHtE3OG5xF3uSeyUGhs.css",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/css/css_V7NByh9w7TUYLh6NiBmq-c_LsHtE3OG5xF3uSeyUGhs.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/css/css_bht9XpLsrqhlj2V_Nrj_9jdnGSQfSqqsno6Q4i2Dbcc.css",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/css/css_bht9XpLsrqhlj2V_Nrj_9jdnGSQfSqqsno6Q4i2Dbcc.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/css/css_zXJTOZtn8Z5T6F3Nj_c4RdVReEXrAqxm286Q0PH0bPg.css",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/css/css_zXJTOZtn8Z5T6F3Nj_c4RdVReEXrAqxm286Q0PH0bPg.css"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/js/js_G9OZf4NgMpuIz4lyElC-SIagZUH5h_CBX9FcNlHVzjU.js",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/js/js_G9OZf4NgMpuIz4lyElC-SIagZUH5h_CBX9FcNlHVzjU.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/js/js_OnGtaLq-TwtHvHZfPOJXXJeIacZcA9eABOWOzRPDdYw.js",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/js/js_OnGtaLq-TwtHvHZfPOJXXJeIacZcA9eABOWOzRPDdYw.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/js/js_W2G4g_DX8btiURFHZ6194ZAg34M74WOVbRib018atH0.js",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/js/js_W2G4g_DX8btiURFHZ6194ZAg34M74WOVbRib018atH0.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/sites/default/files/js/js_cRM4K4nwbS5gjncZLeWjrzt_wiFqq_XxLYvEoUhlCVk.js",
+      "status": 200,
+      "url": "https://forseti.life/sites/default/files/js/js_cRM4K4nwbS5gjncZLeWjrzt_wiFqq_XxLYvEoUhlCVk.js"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/talk-with-forseti",
+      "status": 403,
+      "url": "https://forseti.life/talk-with-forseti"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/talk-with-forseti_content",
+      "status": 403,
+      "url": "https://forseti.life/talk-with-forseti_content"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/terms-of-service",
+      "status": 200,
+      "url": "https://forseti.life/terms-of-service"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/favicon.ico",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/favicon.ico"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/android-chrome-192x192.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/android-chrome-192x192.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/android-chrome-512x512.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/android-chrome-512x512.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/apple-touch-icon.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/apple-touch-icon.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/favicon-16x16.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/favicon-16x16.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/favicon-32x32.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/favicons/favicon-32x32.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/forseti_navbar.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/forseti_navbar.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/originals/forseti_capable.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/originals/forseti_capable.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/originals/forseti_free.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/originals/forseti_free.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/originals/forseti_safe.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/originals/forseti_safe.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/images/logos/originals/forseti_useful.png",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/images/logos/originals/forseti_useful.png"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/themes/custom/forseti/manifest.json",
+      "status": 200,
+      "url": "https://forseti.life/themes/custom/forseti/manifest.json"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/user/login",
+      "status": 200,
+      "url": "https://forseti.life/user/login"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/user/password",
+      "status": 200,
+      "url": "https://forseti.life/user/password"
+    },
+    {
+      "error": null,
+      "final_url": "https://forseti.life/user/register",
+      "status": 403,
+      "url": "https://forseti.life/user/register"
+    }
+  ]
+}

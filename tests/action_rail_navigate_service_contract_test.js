@@ -58,6 +58,13 @@ assert(
   'NavigationSystem owns only navigate execution; visited-location preloading stays in ActionRailPanel'
 );
 
+assert(
+  navigationSystemSource.includes("connectionId.startsWith('quest-synthetic-')")
+    && navigationSystemSource.includes('!roomExistsInCurrentDungeon || isQuestSyntheticDestination')
+    && navigationSystemSource.includes('await this.requestInSessionDestination(roomId || roomName, {'),
+  'Quest-synthetic navigate entries use in-session destination resolution instead of direct transition validation'
+);
+
 console.log('\n=============================================');
 console.log(`Passed: ${passed}`);
 console.log(`Failed: ${failed}`);

@@ -12,7 +12,9 @@ use Drupal\Core\Database\Connection;
  * Schema:
  *   familiar_id             string   — "{character_id}_familiar"
  *   character_id            string   — owning character
- *   familiar_type           string   — always 'standard' at creation
+ *   familiar_type           string   — selected familiar species/form id
+ *   familiar_species_name   string   — human-readable species label
+ *   description             string   — concise familiar descriptor
  *   hp                      int      — current HP
  *   max_hp                  int      — 5 × character_level (recalculated on level-up)
  *   speed                   int      — land speed ft (default 25)
@@ -27,6 +29,9 @@ use Drupal\Core\Database\Connection;
  * Security: daily ability selection count validated server-side against class-granted max.
  */
 class FamiliarService {
+
+  public const FAMILIAR_CLASS_ID = 'familiar';
+  public const FAMILIAR_CLASS_FEATURE_OPTION_PREFIX = 'familiar:';
 
   /** Base familiar ability count per day. */
   const BASE_ABILITY_COUNT = 2;
@@ -115,11 +120,23 @@ class FamiliarService {
     }
 
     $is_witch_required = $params['is_witch_required'] ?? ($class === 'witch');
+    $familiar_species_name = $familiar_type !== 'standard' && isset(self::FAMILIAR_TYPES[$familiar_type]['name'])
+      ? (string) self::FAMILIAR_TYPES[$familiar_type]['name']
+      : 'Familiar';
+    $familiar_description = !empty($is_witch_required)
+      ? sprintf('Class-bound %s familiar.', strtolower($familiar_species_name))
+      : sprintf('Bound %s familiar ally.', strtolower($familiar_species_name));
+    $bond_contract = FollowerSubsystemService::buildCreationBondContract(
+      FollowerSubsystemService::FOLLOWER_KIND_FAMILIAR,
+      (int) $character_id
+    );
 
     $familiar = [
       'familiar_id'          => $character_id . '_familiar',
       'character_id'         => $character_id,
       'familiar_type'        => $familiar_type,
+      'familiar_species_name'=> $familiar_species_name,
+      'description'          => $familiar_description,
       'hp'                   => self::HP_PER_LEVEL * $level,
       'max_hp'               => self::HP_PER_LEVEL * $level,
       'speed'                => $params['speed'] ?? self::DEFAULT_SPEED,
@@ -130,12 +147,20 @@ class FamiliarService {
       'spell_storage'        => 0,
       'stored_witch_spells'  => [],
       'downtime_replacement' => NULL,
+      'bond_contract'        => $bond_contract,
+      'loyalty_profile'      => (string) ($bond_contract['loyalty_profile'] ?? ''),
+      'motivation_profile'   => (string) ($bond_contract['motivation_profile'] ?? ''),
+      'psychology_defaults'  => is_array($bond_contract['psychology_defaults'] ?? NULL) ? $bond_contract['psychology_defaults'] : [],
     ];
 
     $char_data['familiar'] = $familiar;
     $this->persistCharacterData($character_id, $char_data);
 
-    return ['success' => TRUE, 'familiar' => $familiar];
+    return [
+      'success' => TRUE,
+      'familiar' => $familiar,
+      'class_feature_options' => $this->buildFamiliarClassFeatureOptions($familiar),
+    ];
   }
 
   /**
@@ -152,7 +177,11 @@ class FamiliarService {
       return ['success' => FALSE, 'error' => 'No familiar found for this character.', 'code' => 404];
     }
 
-    return ['success' => TRUE, 'familiar' => $char_data['familiar']];
+    return [
+      'success' => TRUE,
+      'familiar' => $char_data['familiar'],
+      'class_feature_options' => $this->buildFamiliarClassFeatureOptions($char_data['familiar']),
+    ];
   }
 
   /**
@@ -218,6 +247,10 @@ class FamiliarService {
     $blocked   = [];
 
     foreach (self::ABILITY_CATALOG as $ability_id => $ability) {
+      $ability = array_merge($ability, [
+        'class_id' => self::FAMILIAR_CLASS_ID,
+        'class_feature_option_id' => $this->buildFamiliarClassFeatureOptionId($ability_id),
+      ]);
       $prereq_met = $this->checkPrerequisites($ability['prerequisites'], $familiar);
       if ($prereq_met) {
         $available[] = $ability;
@@ -232,6 +265,7 @@ class FamiliarService {
       'blocked'         => $blocked,
       'max_daily_count' => $max_count,
       'current_count'   => count($familiar['abilities'] ?? []),
+      'class_id'        => self::FAMILIAR_CLASS_ID,
     ];
   }
 
@@ -295,9 +329,37 @@ class FamiliarService {
     return [
       'success'   => TRUE,
       'abilities' => $unique_ids,
+      'class_feature_options' => $this->buildFamiliarClassFeatureOptions($char_data['familiar']),
       'count'     => count($unique_ids),
       'max'       => $max_count,
     ];
+  }
+
+  /**
+   * Build selected familiar class-feature options from familiar abilities.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Canonical selected class-feature options for the familiar class.
+   */
+  public function buildFamiliarClassFeatureOptions(array $familiar): array {
+    $selected = [];
+    foreach ($this->normalizeSelectedAbilityIds($familiar) as $ability_id) {
+      $ability = $this->resolveAbilityCatalogEntry($ability_id);
+      $selected[] = [
+        'id' => $this->buildFamiliarClassFeatureOptionId($ability_id),
+        'option_id' => $ability_id,
+        'class_id' => self::FAMILIAR_CLASS_ID,
+        'feature_type' => 'class_feature_option',
+        'feat_type' => 'familiar_class_feature',
+        'source' => 'familiar_ability',
+        'selected' => TRUE,
+        'name' => (string) ($ability['name'] ?? ''),
+        'description' => (string) ($ability['description'] ?? ''),
+        'prerequisites' => $this->formatAbilityPrerequisites($ability['prerequisites'] ?? []),
+      ];
+    }
+
+    return $selected;
   }
 
   /**
@@ -567,6 +629,64 @@ class FamiliarService {
       }
     }
     return TRUE;
+  }
+
+  /**
+   * Normalize selected ability IDs to canonical lowercase unique IDs.
+   *
+   * @return array<int,string>
+   */
+  private function normalizeSelectedAbilityIds(array $familiar): array {
+    $abilities = is_array($familiar['abilities'] ?? NULL) ? $familiar['abilities'] : [];
+    $normalized = [];
+    foreach ($abilities as $ability_id) {
+      $id = strtolower(trim((string) $ability_id));
+      if ($id === '') {
+        continue;
+      }
+      $normalized[] = $id;
+    }
+
+    return array_values(array_unique($normalized));
+  }
+
+  /**
+   * Resolve a familiar ability entry from the canonical catalog.
+   */
+  private function resolveAbilityCatalogEntry(string $ability_id): array {
+    $entry = self::ABILITY_CATALOG[$ability_id] ?? NULL;
+    if (!is_array($entry)) {
+      throw new \RuntimeException(sprintf('Unknown familiar ability "%s" in familiar class feature projection.', $ability_id));
+    }
+    return $entry;
+  }
+
+  /**
+   * Build namespaced familiar class-feature option ID from ability ID.
+   */
+  private function buildFamiliarClassFeatureOptionId(string $ability_id): string {
+    return self::FAMILIAR_CLASS_FEATURE_OPTION_PREFIX . strtolower(trim($ability_id));
+  }
+
+  /**
+   * Format ability prerequisite map into readable requirement tokens.
+   *
+   * @param mixed $prerequisites
+   *   Prerequisite map from the ability catalog.
+   *
+   * @return array<int,string>
+   *   Requirement tokens.
+   */
+  private function formatAbilityPrerequisites(mixed $prerequisites): array {
+    if (!is_array($prerequisites)) {
+      return [];
+    }
+
+    $tokens = [];
+    foreach ($prerequisites as $key => $value) {
+      $tokens[] = sprintf('%s=%s', (string) $key, is_bool($value) ? ($value ? 'true' : 'false') : (string) $value);
+    }
+    return array_values(array_unique($tokens));
   }
 
   /**

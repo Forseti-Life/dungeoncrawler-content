@@ -18,6 +18,7 @@ use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
+use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
 use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\ImageGenerationIntegrationService;
@@ -963,6 +964,8 @@ class CharacterCreationStepFormTest extends UnitTestCase {
         'role' => 'player',
         'type' => 'pc',
         'status' => 0,
+        'portrait' => '/images/burasco.png',
+        'default_locations' => json_encode(['room' => 'starter-room'], JSON_UNESCAPED_UNICODE),
         'location_type' => 'global',
         'location_ref' => '',
         'character_data' => json_encode([
@@ -1060,6 +1063,11 @@ class CharacterCreationStepFormTest extends UnitTestCase {
         throw new \LogicException(sprintf('Unexpected table %s', $table));
       });
 
+    $time = $this->createMock(TimeInterface::class);
+    $time->method('getRequestTime')->willReturn(1700000000);
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('library-instance-uuid');
+
     $form = $this->buildFormObject(
       $character_manager,
       NULL,
@@ -1069,16 +1077,10 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       NULL,
       NULL,
       NULL,
-      $runtime_resolver
+      $runtime_resolver,
+      $time,
+      $uuid
     );
-
-    $container = \Drupal::getContainer();
-    $time = $this->createMock(TimeInterface::class);
-    $time->method('getRequestTime')->willReturn(1700000000);
-    $uuid = $this->createMock(UuidInterface::class);
-    $uuid->method('generate')->willReturn('library-instance-uuid');
-    $container->set('time', $time);
-    $container->set('uuid', $uuid);
 
     $method = new \ReflectionMethod($form, 'ensureCampaignCharacterHasCanonicalSource');
     $method->setAccessible(TRUE);
@@ -1087,13 +1089,15 @@ class CharacterCreationStepFormTest extends UnitTestCase {
     $this->assertSame('library-instance-uuid', $insert_builder->fields['uuid'] ?? NULL);
     $this->assertSame(0, $insert_builder->fields['campaign_id'] ?? NULL);
     $this->assertSame(NULL, $insert_builder->fields['source_character_id'] ?? 'missing');
+    $this->assertSame('/images/burasco.png', $insert_builder->fields['portrait'] ?? NULL);
+    $this->assertSame('{"room":"starter-room"}', $insert_builder->fields['default_locations'] ?? NULL);
     $this->assertSame(101, $character_update_builder->fields['character_id'] ?? NULL);
     $this->assertSame(101, $character_update_builder->fields['source_character_id'] ?? NULL);
     $this->assertSame('starter-room', $character_update_builder->fields['last_room_id'] ?? NULL);
     $this->assertSame(101, $campaign_update_builder->fields['active_character_id'] ?? NULL);
   }
 
-  private function buildFormObject(CharacterManager $character_manager, ?FeatLibraryService $feat_library = NULL, ?Connection $database = NULL, int $campaign_id = 70, ?CampaignSubjectRegistryService $campaign_subject_registry = NULL, ?InstitutionNormalizationService $institution_normalization = NULL, ?FactionGenerationService $faction_generation = NULL, ?InstitutionMembershipService $institution_membership = NULL, ?CampaignCharacterRuntimeResolverService $runtime_resolver = NULL): CharacterCreationStepForm {
+  private function buildFormObject(CharacterManager $character_manager, ?FeatLibraryService $feat_library = NULL, ?Connection $database = NULL, int $campaign_id = 70, ?CampaignSubjectRegistryService $campaign_subject_registry = NULL, ?InstitutionNormalizationService $institution_normalization = NULL, ?FactionGenerationService $faction_generation = NULL, ?InstitutionMembershipService $institution_membership = NULL, ?CampaignCharacterRuntimeResolverService $runtime_resolver = NULL, ?TimeInterface $time = NULL, ?UuidInterface $uuid = NULL): CharacterCreationStepForm {
     $database ??= $this->buildSubjectRegistryDatabaseMock(FALSE);
     $campaign_subject_registry ??= $this->createMock(CampaignSubjectRegistryService::class);
     $institution_normalization ??= new InstitutionNormalizationService();
@@ -1120,8 +1124,19 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       ],
       'sources' => [],
     ]);
-    $time = $this->createMock(TimeInterface::class);
+    $time ??= $this->createMock(TimeInterface::class);
     $time->method('getRequestTime')->willReturn(1700000000);
+    $uuid ??= $this->createMock(UuidInterface::class);
+    $current_user = $this->createMock(AccountProxyInterface::class);
+
+    $wizard_hardening = new CharacterWizardHardeningService(
+      $character_manager,
+      $database,
+      $runtime_resolver,
+      $time,
+      $uuid,
+      $current_user,
+    );
 
     $request_stack = new RequestStack();
     $request_stack->push(Request::create('/charactersetup', 'GET', ['campaign_id' => $campaign_id]));
@@ -1133,8 +1148,8 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       $character_manager,
       $this->createMock(SchemaLoader::class),
       $database,
-      $this->createMock(UuidInterface::class),
-      $this->createMock(AccountProxyInterface::class),
+      $uuid,
+      $current_user,
       $this->createMock(DateFormatterInterface::class),
       $time,
       $this->createMock(CharacterPortraitGenerationService::class),
@@ -1148,6 +1163,7 @@ class CharacterCreationStepFormTest extends UnitTestCase {
       $institution_normalization,
       $faction_generation,
       $runtime_resolver,
+      $wizard_hardening,
     );
 
     $form->setStringTranslation($this->getStringTranslationStub());

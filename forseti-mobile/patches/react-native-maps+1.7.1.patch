@@ -1,0 +1,12 @@
+diff --git a/node_modules/react-native-maps/android/build.gradle b/node_modules/react-native-maps/android/build.gradle
+index 88b8991..8904486 100644
+--- a/node_modules/react-native-maps/android/build.gradle
++++ b/node_modules/react-native-maps/android/build.gradle
+@@ -20,6 +20,7 @@ buildscript {
+ apply plugin: 'com.android.library'
+ 
+ android {
++  namespace 'com.rnmaps.maps'
+   compileSdkVersion safeExtGet('compileSdkVersion', 31)
+ 
+   defaultConfig {

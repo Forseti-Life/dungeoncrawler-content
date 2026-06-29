@@ -43,10 +43,6 @@ class NpcSheetGenerationServiceTest extends UnitTestCase {
       public function exposedNormalizeSeedData(int $campaign_id, string $content_id, array $seed_data): array {
         return $this->normalizeSeedData($campaign_id, $content_id, $seed_data);
       }
-
-      public function exposedResolveLegacyPsychologyField(array $sheet, array $seed_data, array $psychology, string $field): string {
-        return $this->resolveLegacyPsychologyField($sheet, $seed_data, $psychology, $field);
-      }
     };
   }
 
@@ -145,47 +141,6 @@ class NpcSheetGenerationServiceTest extends UnitTestCase {
 
     $this->assertSame('room_1_shopkeeper', $seed['content_id']);
     $this->assertSame('npc_instance_room_1_shopkeeper', $seed['instance_id']);
-  }
-
-  /**
-   * @covers ::resolveLegacyPsychologyField
-   */
-  public function testResolveLegacyPsychologyFieldUsesSheetSeedThenDerivedPrecedence(): void {
-    $psychology = [
-      'desire' => 'To secure the district.',
-      'need' => 'To trust trusted allies.',
-      'insecurity' => 'Being seen as weak.',
-      'trigger' => 'Public humiliation.',
-      'anchor' => 'The watch and the city gates.',
-    ];
-
-    $this->assertSame(
-      'Sheet motivation override.',
-      $this->service->exposedResolveLegacyPsychologyField(
-        ['motivations' => 'Sheet motivation override.'],
-        ['motivations' => 'Seed motivation fallback.'],
-        $psychology,
-        'motivations'
-      )
-    );
-    $this->assertSame(
-      'Seed fear fallback.',
-      $this->service->exposedResolveLegacyPsychologyField(
-        [],
-        ['fears' => 'Seed fear fallback.'],
-        $psychology,
-        'fears'
-      )
-    );
-    $this->assertSame(
-      'The watch and the city gates.',
-      $this->service->exposedResolveLegacyPsychologyField(
-        [],
-        [],
-        $psychology,
-        'bonds'
-      )
-    );
   }
 
 }

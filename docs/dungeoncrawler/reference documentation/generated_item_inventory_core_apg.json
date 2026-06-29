@@ -1,0 +1,1413 @@
+{
+  "generated_from": [
+    "PF2E Core Rulebook - Fourth Printing.txt",
+    "PF2E Advanced Players Guide.txt"
+  ],
+  "item_count": 114,
+  "items": [
+    {
+      "name": "Adventurer's pack",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43773,
+          "method": "price_table",
+          "evidence": "15 sp"
+        }
+      ]
+    },
+    {
+      "name": "Alchemist's lab",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43777,
+          "method": "price_table",
+          "evidence": "5 gp"
+        }
+      ]
+    },
+    {
+      "name": "Alchemist's tools",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43784,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Artisan's tools",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43788,
+          "method": "price_table",
+          "evidence": "4 gp"
+        }
+      ]
+    },
+    {
+      "name": "Backpack",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43794,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Bedroll",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43802,
+          "method": "price_table",
+          "evidence": "2 cp"
+        }
+      ]
+    },
+    {
+      "name": "Blowgun",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42780,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Breastplate",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41455,
+          "method": "price_table",
+          "evidence": "8 gp"
+        }
+      ]
+    },
+    {
+      "name": "Buckler",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41851,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Bull's-eye",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43934,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Caltrops",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43806,
+          "method": "price_table",
+          "evidence": "3 sp"
+        }
+      ]
+    },
+    {
+      "name": "Candle (10)",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43810,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Caravan",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 45089,
+          "method": "price_table",
+          "evidence": "3 cp"
+        }
+      ]
+    },
+    {
+      "name": "Carriage",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 45091,
+          "method": "price_table",
+          "evidence": "2 sp"
+        }
+      ]
+    },
+    {
+      "name": "Chain mail",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41448,
+          "method": "price_table",
+          "evidence": "6 gp"
+        }
+      ]
+    },
+    {
+      "name": "Chain shirt",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41425,
+          "method": "price_table",
+          "evidence": "5 gp"
+        }
+      ]
+    },
+    {
+      "name": "Chalk (10)",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43818,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Chest",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43822,
+          "method": "price_table",
+          "evidence": "6 sp"
+        }
+      ]
+    },
+    {
+      "name": "Claw blade",
+      "references": [
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35422,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Climbing kit",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43826,
+          "method": "price_table",
+          "evidence": "5 sp"
+        }
+      ]
+    },
+    {
+      "name": "Collar Of Inconspicuousness",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 97545,
+          "method": "inline_item",
+          "evidence": "COLLAR OF INCONSPICUOUSNESS ITEM 8"
+        }
+      ]
+    },
+    {
+      "name": "Compass",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43855,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Cookware",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43863,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Crossbow",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42791,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Crowbar",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43867,
+          "method": "price_table",
+          "evidence": "5 sp"
+        }
+      ]
+    },
+    {
+      "name": "Dart",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42803,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Disguise kit",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43875,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Dogslicer",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42601,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Dwarven waraxe",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42685,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Filcher's fork",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42613,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Fishing tackle",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43891,
+          "method": "price_table",
+          "evidence": "8 sp"
+        }
+      ]
+    },
+    {
+      "name": "Gnome flickmace",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42691,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Gnome hooked",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42620,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Grappling hook",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43906,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Hammer",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43910,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Hand crossbow",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42812,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Healer's tools",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43914,
+          "method": "price_table",
+          "evidence": "5 gp"
+        }
+      ]
+    },
+    {
+      "name": "Heavy crossbow",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42824,
+          "method": "price_table",
+          "evidence": "4 gp"
+        }
+      ]
+    },
+    {
+      "name": "Hide",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41434,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Horsechopper",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42627,
+          "method": "price_table",
+          "evidence": "9 sp"
+        }
+      ]
+    },
+    {
+      "name": "Hourglass",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43925,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Iron medallion",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83564,
+          "method": "price_table",
+          "evidence": "175 gp"
+        }
+      ]
+    },
+    {
+      "name": "Javelin",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42836,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Kama",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42633,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Katana",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42639,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Khakkara",
+      "references": [
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35428,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Kukri",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42645,
+          "method": "price_table",
+          "evidence": "6 sp"
+        }
+      ]
+    },
+    {
+      "name": "Ladder (10-foot)",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43929,
+          "method": "price_table",
+          "evidence": "3 cp"
+        }
+      ]
+    },
+    {
+      "name": "Leather",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41411,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Longbow",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42906,
+          "method": "price_table",
+          "evidence": "6 gp"
+        }
+      ]
+    },
+    {
+      "name": "Longsword",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42486,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Main-gauche",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42492,
+          "method": "price_table",
+          "evidence": "5 sp"
+        }
+      ]
+    },
+    {
+      "name": "Maul",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42498,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Merchant's scale",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43997,
+          "method": "price_table",
+          "evidence": "2 sp"
+        }
+      ]
+    },
+    {
+      "name": "Mirror",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44001,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Mug",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44005,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Nunchaku",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42651,
+          "method": "price_table",
+          "evidence": "2 sp"
+        }
+      ]
+    },
+    {
+      "name": "Oil",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83960,
+          "method": "price_table",
+          "evidence": "300 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35761,
+          "method": "price_table",
+          "evidence": "4 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35838,
+          "method": "price_table",
+          "evidence": "12 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35928,
+          "method": "price_table",
+          "evidence": "25 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35955,
+          "method": "price_table",
+          "evidence": "50 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36015,
+          "method": "price_table",
+          "evidence": "85 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36204,
+          "method": "price_table",
+          "evidence": "400 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36367,
+          "method": "price_table",
+          "evidence": "5,000 gp"
+        }
+      ]
+    },
+    {
+      "name": "Orc necksplitter",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42697,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Pack animal",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 45247,
+          "method": "price_table",
+          "evidence": "2 cp per day"
+        }
+      ]
+    },
+    {
+      "name": "Padded armor",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41404,
+          "method": "price_table",
+          "evidence": "2 sp"
+        }
+      ]
+    },
+    {
+      "name": "Pick",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42504,
+          "method": "price_table",
+          "evidence": "7 sp"
+        }
+      ]
+    },
+    {
+      "name": "Piton",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44031,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Ranseur",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42510,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Rapier",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42516,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Religious text",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44049,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Repair kit",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44053,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Replacement cosmetics",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 43879,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Replacement picks",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44126,
+          "method": "price_table",
+          "evidence": "3 sp"
+        }
+      ]
+    },
+    {
+      "name": "Riding horse",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 45241,
+          "method": "price_table",
+          "evidence": "1 sp per day"
+        }
+      ]
+    },
+    {
+      "name": "Riding pony",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 45251,
+          "method": "price_table",
+          "evidence": "8 cp per day"
+        }
+      ]
+    },
+    {
+      "name": "Sack (5)",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44065,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Saddlebags",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44069,
+          "method": "price_table",
+          "evidence": "2 sp"
+        }
+      ]
+    },
+    {
+      "name": "Sai",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42662,
+          "method": "price_table",
+          "evidence": "6 sp"
+        }
+      ]
+    },
+    {
+      "name": "Sailing ship",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 45095,
+          "method": "price_table",
+          "evidence": "6 cp"
+        }
+      ]
+    },
+    {
+      "name": "Sap",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42522,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Sawtooth saber",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42703,
+          "method": "price_table",
+          "evidence": "5 gp"
+        }
+      ]
+    },
+    {
+      "name": "Scale mail",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41441,
+          "method": "price_table",
+          "evidence": "4 gp"
+        }
+      ]
+    },
+    {
+      "name": "Scimitar",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42528,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Scythe",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42534,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Shield",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83379,
+          "method": "price_table",
+          "evidence": "500 gp"
+        },
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83409,
+          "method": "price_table",
+          "evidence": "440 gp"
+        },
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83415,
+          "method": "price_table",
+          "evidence": "400 gp"
+        },
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83421,
+          "method": "price_table",
+          "evidence": "440 gp"
+        },
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83427,
+          "method": "price_table",
+          "evidence": "560 gp"
+        },
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83433,
+          "method": "price_table",
+          "evidence": "400 gp"
+        },
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 83439,
+          "method": "price_table",
+          "evidence": "440 gp"
+        },
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 84858,
+          "method": "price_table",
+          "evidence": "6,500 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35816,
+          "method": "price_table",
+          "evidence": "35 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35945,
+          "method": "price_table",
+          "evidence": "25 gp"
+        }
+      ]
+    },
+    {
+      "name": "Shield boss",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42546,
+          "method": "price_table",
+          "evidence": "5 sp"
+        }
+      ]
+    },
+    {
+      "name": "Shield spikes",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42552,
+          "method": "price_table",
+          "evidence": "5 sp"
+        }
+      ]
+    },
+    {
+      "name": "Shortbow",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42917,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Shortsword",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42558,
+          "method": "price_table",
+          "evidence": "9 sp"
+        }
+      ]
+    },
+    {
+      "name": "Shuriken",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42943,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Signal whistle",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44073,
+          "method": "price_table",
+          "evidence": "8 cp"
+        }
+      ]
+    },
+    {
+      "name": "Snare",
+      "references": [
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35805,
+          "method": "price_table",
+          "evidence": "5 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35962,
+          "method": "price_table",
+          "evidence": "40 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36064,
+          "method": "price_table",
+          "evidence": "180 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36250,
+          "method": "price_table",
+          "evidence": "900 gp"
+        }
+      ]
+    },
+    {
+      "name": "Snare kit",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44077,
+          "method": "price_table",
+          "evidence": "5 gp"
+        }
+      ]
+    },
+    {
+      "name": "Soap",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44085,
+          "method": "price_table",
+          "evidence": "2 cp"
+        }
+      ]
+    },
+    {
+      "name": "Spellbook (blank)",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44089,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Spiked chain",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42668,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Spyglass",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44093,
+          "method": "price_table",
+          "evidence": "20 gp"
+        }
+      ]
+    },
+    {
+      "name": "Staff",
+      "references": [
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35974,
+          "method": "price_table",
+          "evidence": "230 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35977,
+          "method": "price_table",
+          "evidence": "230 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36139,
+          "method": "price_table",
+          "evidence": "900 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36142,
+          "method": "price_table",
+          "evidence": "900 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36220,
+          "method": "price_table",
+          "evidence": "1,800 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36255,
+          "method": "price_table",
+          "evidence": "4,000 gp"
+        },
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 36259,
+          "method": "price_table",
+          "evidence": "4,100 gp"
+        }
+      ]
+    },
+    {
+      "name": "Steel shield",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41865,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Studded leather",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41418,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Sword cane",
+      "references": [
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35415,
+          "method": "price_table",
+          "evidence": "5 gp"
+        }
+      ]
+    },
+    {
+      "name": "Tack",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44101,
+          "method": "price_table",
+          "evidence": "4 gp"
+        }
+      ]
+    },
+    {
+      "name": "Temple sword",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42674,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Ten-foot pole",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44105,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Thieves' tools",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44123,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Tindertwig (10)",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44730,
+          "method": "price_table",
+          "evidence": "3 gp"
+        }
+      ]
+    },
+    {
+      "name": "Torch",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44145,
+          "method": "price_table",
+          "evidence": "1 cp"
+        }
+      ]
+    },
+    {
+      "name": "Tower shield",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41872,
+          "method": "price_table",
+          "evidence": "10 gp"
+        }
+      ]
+    },
+    {
+      "name": "Trident",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42571,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Wakizashi",
+      "references": [
+        {
+          "file": "PF2E Advanced Players Guide.txt",
+          "line": 35440,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "War flail",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42577,
+          "method": "price_table",
+          "evidence": "2 gp"
+        }
+      ]
+    },
+    {
+      "name": "Warhammer",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42583,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Warhorse",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 45244,
+          "method": "price_table",
+          "evidence": "1 gp per day"
+        }
+      ]
+    },
+    {
+      "name": "Warpony",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 45254,
+          "method": "price_table",
+          "evidence": "8 sp per day"
+        }
+      ]
+    },
+    {
+      "name": "Waterskin",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44149,
+          "method": "price_table",
+          "evidence": "5 cp"
+        }
+      ]
+    },
+    {
+      "name": "Whip",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 42589,
+          "method": "price_table",
+          "evidence": "1 sp"
+        }
+      ]
+    },
+    {
+      "name": "Wooden shield",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 41858,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    },
+    {
+      "name": "Writing set",
+      "references": [
+        {
+          "file": "PF2E Core Rulebook - Fourth Printing.txt",
+          "line": 44153,
+          "method": "price_table",
+          "evidence": "1 gp"
+        }
+      ]
+    }
+  ]
+}

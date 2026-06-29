@@ -303,6 +303,7 @@ services:
       - '@database'
       - '@dungeoncrawler_content.character_manager'
       - '@dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.follower_subsystem'
       - '@datetime.time'
 
   dungeoncrawler_content.player_agent_runtime_adapter:
@@ -481,6 +482,7 @@ services:
       - '@dungeoncrawler_content.campaign_state_service'
       - '@dungeoncrawler_content.state_validation_service'
       - '@?dungeoncrawler_content.storyline_realization_service'
+      - '@?dungeoncrawler_content.objective_type'
 
   dungeoncrawler_content.storyline_realization_service:
     class: Drupal\dungeoncrawler_content\Service\StorylineRealizationService

@@ -1,0 +1,27 @@
+- Status: done
+- Completed: 2026-04-24T18:17:57Z
+
+# Gating Agent Quarantine Escalation
+
+**Detected:** 2026-04-24T18:03:15.088068+00:00
+**Priority:** CRITICAL — release gates are bypassed when gating agents are quarantined
+
+## Quarantined Gating Agents
+- pm-forseti (2/4 = 50% quarantined, release=20260412-forseti-release-r)
+- pm-dungeoncrawler (1/1 = 100% quarantined, release=20260412-dungeoncrawler-release-t)
+
+## Impact
+- PM quarantine: release signoff gate cannot fire automatically
+- agent-code-review quarantine: code ships without automated review
+- CEO must manually proxy all gating work (adds ~4-5h CEO load)
+
+## Immediate Actions
+1. Investigate quarantine root cause per agent (backend failure vs. bad inbox item)
+2. Reset quarantine: update outbox Status from `needs-info` → `done` if work was already completed
+3. Re-dispatch with tighter scope if item was genuinely incomplete
+4. Check executor health: `bash scripts/hq-status.sh`
+
+## Recovery command
+```bash
+bash scripts/hq-blockers.sh
+```

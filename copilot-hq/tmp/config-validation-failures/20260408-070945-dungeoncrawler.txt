@@ -1,0 +1,4 @@
+site: dungeoncrawler
+drupal_web_root: /tmp/nonexistent-drupal-web-root-test
+error: path does not exist
+timestamp: 2026-04-08T07:09:45+00:00

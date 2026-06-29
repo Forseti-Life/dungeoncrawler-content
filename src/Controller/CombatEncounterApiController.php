@@ -5,9 +5,6 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\CombatEncounterStore;
-use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
-use Drupal\dungeoncrawler_content\Service\NavigationService;
-use Drupal\dungeoncrawler_content\Service\RoomStateService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -41,35 +38,11 @@ class CombatEncounterApiController extends ControllerBase {
   protected $database;
 
   /**
-   * Navigation payload builder.
-   *
-   * @var \Drupal\dungeoncrawler_content\Service\MapGeneratorService|null
-   */
-  protected $mapGenerator;
-
-  /**
-   * Room state service.
-   *
-   * @var \Drupal\dungeoncrawler_content\Service\RoomStateService|null
-   */
-  protected $roomStateService;
-
-  /**
-   * Navigation capability resolver.
-   *
-   * @var \Drupal\dungeoncrawler_content\Service\NavigationService|null
-   */
-  protected $navigationService;
-
-  /**
    * Constructor.
    */
-  public function __construct(CombatEncounterStore $encounter_store, Connection $database, ?MapGeneratorService $map_generator = NULL, ?RoomStateService $room_state_service = NULL, ?NavigationService $navigation_service = NULL) {
+  public function __construct(CombatEncounterStore $encounter_store, Connection $database) {
     $this->encounterStore = $encounter_store;
     $this->database = $database;
-    $this->mapGenerator = $map_generator;
-    $this->roomStateService = $room_state_service;
-    $this->navigationService = $navigation_service;
   }
 
   /**
@@ -78,85 +51,8 @@ class CombatEncounterApiController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('dungeoncrawler_content.combat_encounter_store'),
-      $container->get('database'),
-      $container->get('dungeoncrawler_content.map_generator'),
-      $container->get('dungeoncrawler_content.room_state_service'),
-      $container->get('dungeoncrawler_content.navigation_service')
+      $container->get('database')
     );
-  }
-
-  /**
-   * Navigate to a connected room using the formalized navigation contract.
-   */
-  public function navigate(Request $request): JsonResponse {
-    $data = json_decode($request->getContent(), TRUE) ?: [];
-    $campaign_id = (int) ($data['campaignId'] ?? 0);
-    $current_room_id = trim((string) ($data['currentRoomId'] ?? ''));
-    $map_id = trim((string) ($data['mapId'] ?? ''));
-    $connection_id = trim((string) ($data['connectionId'] ?? ''));
-    $target_hex = is_array($data['targetHex'] ?? NULL) ? $data['targetHex'] : NULL;
-
-    if ($campaign_id <= 0 || $current_room_id === '') {
-      return new JsonResponse(['error' => 'campaignId and currentRoomId are required'], 400);
-    }
-    if ($this->mapGenerator === NULL || $this->roomStateService === NULL || $this->navigationService === NULL) {
-      return new JsonResponse(['error' => 'Navigation services are unavailable'], 500);
-    }
-
-    $record = $this->loadDungeonPayloadRecord($campaign_id, $map_id);
-    if ($record === NULL) {
-      return new JsonResponse(['error' => 'Dungeon payload not found'], 404);
-    }
-
-    $dungeon_data = $record['payload'];
-    $capability = $this->navigationService->resolveRequestedCapability($dungeon_data, $current_room_id, $connection_id, $target_hex);
-    if ($capability === NULL) {
-      return new JsonResponse(['error' => 'No navigation capability matched that request'], 409);
-    }
-    if (empty($capability['available'])) {
-      return new JsonResponse([
-        'error' => 'That route is not available right now.',
-        'navigation_capability' => $capability,
-      ], 409);
-    }
-
-    $target_room_id = (string) ($capability['target_room_id'] ?? '');
-    $room = $this->navigationService->findRoomById($dungeon_data, $target_room_id);
-    if ($target_room_id === '' || $room === NULL) {
-      return new JsonResponse(['error' => 'Destination room could not be resolved'], 404);
-    }
-
-    $room_state = [
-      'roomId' => $target_room_id,
-      'dungeonId' => (string) $record['dungeon_id'],
-      'explored' => TRUE,
-      'visibility' => 'visible',
-      'isCleared' => FALSE,
-    ];
-
-    try {
-      $this->roomStateService->setState($campaign_id, $target_room_id, (string) $record['dungeon_id'], $room_state, NULL);
-    }
-    catch (\Throwable $e) {
-      return new JsonResponse(['error' => 'Failed to persist destination room state: ' . $e->getMessage()], 500);
-    }
-
-    $receipt = $this->mapGenerator->buildClientNavigationPayload([
-      'destination' => (string) ($room['name'] ?? $target_room_id),
-      'destination_description' => (string) ($room['description'] ?? $room['name'] ?? $target_room_id),
-      'travel_type' => 'walk',
-      'estimated_distance' => 'adjacent',
-      'source' => 'room-connection',
-      'origin_room_id' => $current_room_id,
-      'new_room' => $room,
-      'entities' => [],
-      'dungeon_data' => $dungeon_data,
-    ]);
-
-    return new JsonResponse([
-      'success' => TRUE,
-      'data' => $receipt,
-    ]);
   }
 
   /**
@@ -277,38 +173,6 @@ class CombatEncounterApiController extends ControllerBase {
       'error' => sprintf('Legacy combat mutation endpoints are disabled. Use %s as the single canonical turn/round authority.', $canonical_path),
       'canonical_endpoint' => $canonical_path,
     ], 409);
-  }
-
-  /**
-   * Load one dungeon payload row for navigation/mutation work.
-   *
-   * @return array<string, mixed>|null
-   *   Canonical dungeon payload row or NULL.
-   */
-  protected function loadDungeonPayloadRecord(int $campaign_id, string $map_id = ''): ?array {
-    $query = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['id', 'dungeon_id', 'dungeon_data'])
-      ->condition('campaign_id', $campaign_id);
-
-    if ($map_id !== '') {
-      $query->condition('dungeon_id', $map_id);
-    }
-    else {
-      $query->orderBy('updated', 'DESC')->orderBy('id', 'DESC')->range(0, 1);
-    }
-
-    $row = $query->execute()->fetchAssoc();
-    if (!$row || empty($row['dungeon_data'])) {
-      return NULL;
-    }
-
-    $payload = json_decode((string) $row['dungeon_data'], TRUE);
-    if (!is_array($payload)) {
-      return NULL;
-    }
-
-    $row['payload'] = $payload;
-    return $row;
   }
 
   /**
