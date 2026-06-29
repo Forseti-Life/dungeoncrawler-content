@@ -45,6 +45,37 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
     $this->assertSame('pc-277-1033', $service->resolveActorIdForCharacterIdForTest(277, 1032));
   }
 
+  /**
+   * @covers ::resolveActionAvailabilityContext
+   */
+  public function testResolveActionAvailabilityContextBuildsEncounterContext(): void {
+    $service = $this->createTestService([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        ['room_id' => 'room-a', 'name' => 'Entry'],
+      ],
+    ]);
+
+    $context = $service->resolveActionAvailabilityContextForTest(277, 'pc-1');
+
+    $this->assertIsArray($context);
+    $this->assertSame('encounter', $context['game_state']['phase']);
+    $this->assertSame('room-a', $context['dungeon_data']['active_room_id']);
+    $this->assertInstanceOf(EncounterPhaseHandler::class, $context['handler']);
+  }
+
+  /**
+   * @covers ::emptyActionAvailabilityPayload
+   */
+  public function testEmptyActionAvailabilityPayloadShape(): void {
+    $service = $this->createTestService(['rooms' => []]);
+
+    $this->assertSame([
+      'available_actions' => [],
+      'action_contract' => NULL,
+    ], $service->emptyActionAvailabilityPayloadForTest());
+  }
+
   private function createTestService(array $dungeon_data): object {
     $database = $this->createMock(Connection::class);
     $runtime_sync = $this->createMock(CampaignCharacterRuntimeSyncService::class);
@@ -102,6 +133,14 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
 
       public function resolveActorIdForCharacterIdForTest(int $campaign_id, int $character_id): ?string {
         return parent::resolveActorIdForCharacterId($campaign_id, $character_id);
+      }
+
+      public function resolveActionAvailabilityContextForTest(int $campaign_id, ?string $actor_id = NULL): ?array {
+        return parent::resolveActionAvailabilityContext($campaign_id, $actor_id);
+      }
+
+      public function emptyActionAvailabilityPayloadForTest(): array {
+        return parent::emptyActionAvailabilityPayload();
       }
 
       protected function loadDungeonData(int $campaign_id, ?string $preferred_actor_id = NULL): ?array {

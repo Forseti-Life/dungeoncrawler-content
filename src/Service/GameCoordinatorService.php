@@ -459,16 +459,15 @@ class GameCoordinatorService {
    *   Legal actions for the current phase and actor.
    */
   public function getAvailableActionsForActor(int $campaign_id, ?string $actor_id = NULL): array {
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
-    if (!$dungeon_data) {
+    $context = $this->resolveActionAvailabilityContext($campaign_id, $actor_id);
+    if ($context === NULL || $context['handler'] === NULL) {
       return [];
     }
 
-    $game_state = $this->ensureGameState($dungeon_data);
-    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
-    $handler = $this->getPhaseHandler($phase);
+    /** @var \Drupal\dungeoncrawler_content\Service\PhaseHandlerInterface $handler */
+    $handler = $context['handler'];
 
-    return $handler ? $handler->getAvailableActions($game_state, $dungeon_data, $actor_id) : [];
+    return $handler->getAvailableActions($context['game_state'], $context['dungeon_data'], $actor_id);
   }
 
   /**
@@ -483,34 +482,19 @@ class GameCoordinatorService {
   public function getActionAvailabilityForActor(int $campaign_id, ?string $actor_id = NULL): array {
     $snapshot = $this->getFullState($campaign_id);
     if (empty($snapshot['success'])) {
-      return [
-        'available_actions' => [],
-        'action_contract' => NULL,
-      ];
+      return $this->emptyActionAvailabilityPayload();
     }
 
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
-    if (!$dungeon_data) {
-      return [
-        'available_actions' => [],
-        'action_contract' => NULL,
-      ];
+    $context = $this->resolveActionAvailabilityContext($campaign_id, $actor_id);
+    if ($context === NULL || $context['handler'] === NULL) {
+      return $this->emptyActionAvailabilityPayload();
     }
 
-    $game_state = $this->ensureGameState($dungeon_data);
-    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
-    $handler = $this->getPhaseHandler($phase);
-
-    if ($handler === NULL) {
-      return [
-        'available_actions' => [],
-        'action_contract' => NULL,
-      ];
-    }
-
+    /** @var \Drupal\dungeoncrawler_content\Service\PhaseHandlerInterface $handler */
+    $handler = $context['handler'];
     return [
-      'available_actions' => $handler->getAvailableActions($game_state, $dungeon_data, $actor_id),
-      'action_contract' => $this->buildActionContract($handler, $game_state, $dungeon_data, $actor_id),
+      'available_actions' => $handler->getAvailableActions($context['game_state'], $context['dungeon_data'], $actor_id),
+      'action_contract' => $this->buildActionContract($handler, $context['game_state'], $context['dungeon_data'], $actor_id),
     ];
   }
 
@@ -1185,6 +1169,42 @@ class GameCoordinatorService {
       'available_actions' => [],
       'action_contract' => NULL,
       'state_version' => $game_state['state_version'] ?? NULL,
+    ];
+  }
+
+  /**
+   * Resolve shared action-availability context for actor-scoped queries.
+   *
+   * @return array<string, mixed>|null
+   *   Context payload with dungeon_data, game_state, and phase handler; NULL
+   *   when dungeon data is unavailable.
+   */
+  protected function resolveActionAvailabilityContext(int $campaign_id, ?string $actor_id = NULL): ?array {
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
+    if (!$dungeon_data) {
+      return NULL;
+    }
+
+    $game_state = $this->ensureGameState($dungeon_data);
+    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
+
+    return [
+      'dungeon_data' => $dungeon_data,
+      'game_state' => $game_state,
+      'handler' => $this->getPhaseHandler($phase),
+    ];
+  }
+
+  /**
+   * Build an empty actor-scoped action-availability payload.
+   *
+   * @return array{available_actions: string[], action_contract: null}
+   *   Empty payload used when availability cannot be resolved.
+   */
+  protected function emptyActionAvailabilityPayload(): array {
+    return [
+      'available_actions' => [],
+      'action_contract' => NULL,
     ];
   }
 
