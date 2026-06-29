@@ -1742,11 +1742,11 @@ class QuestGeneratorService {
         }
         $phase_objective_ids[] = $objective_id;
 
-        $existing_dependencies = $this->normalizeObjectiveDependencies($objective['depends_on'] ?? [], $objective_id);
-        if ($existing_dependencies === [] && $previous_phase_objective_ids !== []) {
-          $existing_dependencies = array_values($previous_phase_objective_ids);
-        }
-        $objective['depends_on'] = $existing_dependencies;
+        $objective['depends_on'] = $this->resolveObjectiveDependencies(
+          $objective['depends_on'] ?? [],
+          $objective_id,
+          $previous_phase_objective_ids
+        );
         $this->applyChildObjectiveDependencies($objective);
       }
     unset($objective);
@@ -1779,22 +1779,36 @@ class QuestGeneratorService {
         continue;
       }
 
-      $existing_dependencies = $this->normalizeObjectiveDependencies($child['depends_on'] ?? [], $child_id);
-      if ($existing_dependencies === []) {
-        if ($previous_child_id !== '') {
-          $existing_dependencies = [$previous_child_id];
-        }
-        elseif ($objective_id !== '') {
-          $existing_dependencies = [$objective_id];
-        }
+      $fallback_dependencies = [];
+      if ($previous_child_id !== '') {
+        $fallback_dependencies = [$previous_child_id];
       }
-      $child['depends_on'] = $existing_dependencies;
+      elseif ($objective_id !== '') {
+        $fallback_dependencies = [$objective_id];
+      }
+      $child['depends_on'] = $this->resolveObjectiveDependencies(
+        $child['depends_on'] ?? [],
+        $child_id,
+        $fallback_dependencies
+      );
       $this->applyChildObjectiveDependencies($child);
       $previous_child_id = $child_id;
     }
     unset($child);
 
     $objective['children'] = $children;
+  }
+
+  /**
+   * Resolve normalized objective dependencies with optional fallback chain.
+   */
+  protected function resolveObjectiveDependencies(mixed $depends_on, string $self_objective_id, array $fallback_dependencies = []): array {
+    $normalized = $this->normalizeObjectiveDependencies($depends_on, $self_objective_id);
+    if ($normalized !== []) {
+      return $normalized;
+    }
+
+    return $this->normalizeObjectiveDependencies($fallback_dependencies, $self_objective_id);
   }
 
   /**
