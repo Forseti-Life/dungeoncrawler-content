@@ -1315,10 +1315,10 @@ class EquipmentCatalogService {
       return array_values(self::CATALOG);
     }
     return array_values(
-      array_filter(self::CATALOG, static function (array $item) use ($source_book): bool {
-        $book = $item['source_book'] ?? 'crb';
-        return $book === $source_book;
-      })
+      array_filter(
+        self::CATALOG,
+        fn(array $item): bool => $this->itemMatchesSourceBook($item, $source_book)
+      )
     );
   }
 
@@ -1338,12 +1338,20 @@ class EquipmentCatalogService {
     }
 
     if ($source_book !== NULL && $source_book !== 'all') {
-      $items = array_filter($items, static function (array $item) use ($source_book): bool {
-        return ($item['source_book'] ?? 'crb') === $source_book;
-      });
+      $items = array_filter(
+        $items,
+        fn(array $item): bool => $this->itemMatchesSourceBook($item, $source_book)
+      );
     }
 
     return array_values($items);
+  }
+
+  /**
+   * Determine whether an item belongs to a requested source book.
+   */
+  protected function itemMatchesSourceBook(array $item, string $source_book): bool {
+    return ($item['source_book'] ?? 'crb') === $source_book;
   }
 
   /**
