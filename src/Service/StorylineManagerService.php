@@ -1620,6 +1620,7 @@ class StorylineManagerService {
     $chapters = array_values(array_filter(is_array($definition['chapters'] ?? NULL) ? $definition['chapters'] : [], 'is_array'));
     $chapter_ids = [];
     $scene_ids = [];
+    $scene_chapter_map = [];
     foreach ($chapters as $chapter) {
       $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
       if ($chapter_id !== '') {
@@ -1629,8 +1630,48 @@ class StorylineManagerService {
         $scene_id = trim((string) ($scene['scene_id'] ?? ''));
         if ($scene_id !== '') {
           $scene_ids[$scene_id] = TRUE;
+          if (!isset($scene_chapter_map[$scene_id])) {
+            $scene_chapter_map[$scene_id] = $chapter_id;
+          }
         }
       }
+    }
+
+    $current_chapter_id = trim((string) ($definition['current_chapter_id'] ?? ''));
+    $current_scene_id = trim((string) ($definition['current_scene_id'] ?? ''));
+    if ($current_chapter_id !== '' && !isset($chapter_ids[$current_chapter_id])) {
+      $errors[] = "Current chapter '{$current_chapter_id}' is not defined by the storyline.";
+    }
+    if ($current_scene_id !== '' && !isset($scene_ids[$current_scene_id])) {
+      $errors[] = "Current scene '{$current_scene_id}' is not defined by the storyline.";
+    }
+    if (
+      $current_chapter_id !== ''
+      && $current_scene_id !== ''
+      && isset($scene_chapter_map[$current_scene_id])
+      && $scene_chapter_map[$current_scene_id] !== $current_chapter_id
+    ) {
+      $errors[] = "Current scene '{$current_scene_id}' does not belong to current chapter '{$current_chapter_id}'.";
+    }
+
+    $unlocked_chapter_ids = array_values(array_filter(array_map('strval', is_array($definition['unlocked_chapter_ids'] ?? NULL) ? $definition['unlocked_chapter_ids'] : []), static fn(string $id): bool => trim($id) !== ''));
+    foreach ($unlocked_chapter_ids as $chapter_id) {
+      if (!isset($chapter_ids[$chapter_id])) {
+        $errors[] = "Unlocked chapter '{$chapter_id}' is not defined by the storyline.";
+      }
+    }
+    if ($current_chapter_id !== '' && !in_array($current_chapter_id, $unlocked_chapter_ids, TRUE)) {
+      $errors[] = "Current chapter '{$current_chapter_id}' must be present in unlocked_chapter_ids.";
+    }
+
+    $unlocked_scene_ids = array_values(array_filter(array_map('strval', is_array($definition['unlocked_scene_ids'] ?? NULL) ? $definition['unlocked_scene_ids'] : []), static fn(string $id): bool => trim($id) !== ''));
+    foreach ($unlocked_scene_ids as $scene_id) {
+      if (!isset($scene_ids[$scene_id])) {
+        $errors[] = "Unlocked scene '{$scene_id}' is not defined by the storyline.";
+      }
+    }
+    if ($current_scene_id !== '' && !in_array($current_scene_id, $unlocked_scene_ids, TRUE)) {
+      $errors[] = "Current scene '{$current_scene_id}' must be present in unlocked_scene_ids.";
     }
 
     $contact_entity_ids = [];

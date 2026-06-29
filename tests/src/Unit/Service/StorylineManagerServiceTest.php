@@ -861,6 +861,105 @@ class StorylineManagerServiceTest extends UnitTestCase {
   /**
    * @covers ::validateStorylineEndToEndContract
    */
+  public function testValidateStorylineEndToEndContractRejectsUnknownCurrentScenePointer(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, [
+      'name' => 'Pointer Validation Story',
+      'source' => 'npc-storyline-bootstrap',
+      'chapters' => [[
+        'name' => 'Bootstrap Chapter',
+        'scenes' => [[
+          'name' => 'Bootstrap Scene',
+          'quest_ids' => ['bootstrap-quest'],
+        ]],
+      ]],
+    ]);
+
+    $runtime = [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => $normalized['metadata'],
+      'chapters' => $normalized['chapters'],
+      'linked_quests' => $normalized['linked_quests'],
+      'questline' => $normalized['questline'],
+      'asset_references' => $normalized['asset_references'],
+      'contacts' => $normalized['contacts'],
+      'unlocked_chapter_ids' => ['bootstrap-chapter'],
+      'unlocked_scene_ids' => ['bootstrap-scene'],
+      'current_chapter_id' => 'bootstrap-chapter',
+      'current_scene_id' => 'missing-scene',
+      'status' => 'active',
+      'variables' => [],
+    ];
+
+    $validation = $service->validateStorylineEndToEndContract($runtime, 'runtime');
+
+    $this->assertFalse($validation['valid']);
+    $this->assertFalse($validation['stages']['cross_references']['valid']);
+    $this->assertStringContainsString(
+      "Current scene 'missing-scene' is not defined by the storyline.",
+      implode('; ', $validation['stages']['cross_references']['errors'] ?? [])
+    );
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
+  public function testValidateStorylineEndToEndContractRequiresCurrentPointersToBeUnlocked(): void {
+    $service = $this->buildService();
+    $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
+    $normalize->setAccessible(TRUE);
+
+    $normalized = $normalize->invoke($service, [
+      'name' => 'Unlocked Pointer Story',
+      'source' => 'npc-storyline-bootstrap',
+      'chapters' => [[
+        'name' => 'Bootstrap Chapter',
+        'scenes' => [[
+          'name' => 'Bootstrap Scene',
+          'quest_ids' => ['bootstrap-quest'],
+        ]],
+      ]],
+    ]);
+
+    $runtime = [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => $normalized['metadata'],
+      'chapters' => $normalized['chapters'],
+      'linked_quests' => $normalized['linked_quests'],
+      'questline' => $normalized['questline'],
+      'asset_references' => $normalized['asset_references'],
+      'contacts' => $normalized['contacts'],
+      'unlocked_chapter_ids' => [],
+      'unlocked_scene_ids' => [],
+      'current_chapter_id' => 'bootstrap-chapter',
+      'current_scene_id' => 'bootstrap-scene',
+      'status' => 'active',
+      'variables' => [],
+    ];
+
+    $validation = $service->validateStorylineEndToEndContract($runtime, 'runtime');
+
+    $this->assertFalse($validation['valid']);
+    $this->assertFalse($validation['stages']['cross_references']['valid']);
+    $joined_errors = implode('; ', $validation['stages']['cross_references']['errors'] ?? []);
+    $this->assertStringContainsString(
+      "Current chapter 'bootstrap-chapter' must be present in unlocked_chapter_ids.",
+      $joined_errors
+    );
+    $this->assertStringContainsString(
+      "Current scene 'bootstrap-scene' must be present in unlocked_scene_ids.",
+      $joined_errors
+    );
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
   public function testValidateStorylineEndToEndContractRejectsUnreachableQuestNode(): void {
     $service = $this->buildService();
     $normalize = new \ReflectionMethod(StorylineManagerService::class, 'normalizeTemplateDefinition');
