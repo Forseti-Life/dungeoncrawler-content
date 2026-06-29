@@ -59,7 +59,7 @@ class ContentRegistry {
     $this->database = $database;
     $this->loggerFactory = $logger_factory;
     
-    // Path: sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/content/
+    // Path: <module-root>/content/
     $this->contentPath = \Drupal::service('extension.list.module')
       ->getPath('dungeoncrawler_content') . '/content';
   }
@@ -938,15 +938,11 @@ class ContentRegistry {
    */
   public function normalizeContentData(string $content_type, array $content_data): array {
     if ($content_type === 'spell') {
-      if (!empty($content_data['id']) && is_string($content_data['id'])) {
-        $content_data['id'] = $this->normalizeSpellContentId($content_data['id']);
-      }
-      if (!empty($content_data['spell_id']) && is_string($content_data['spell_id'])) {
-        $content_data['spell_id'] = $this->normalizeSpellContentId($content_data['spell_id']);
-      }
-      if (!empty($content_data['content_id']) && is_string($content_data['content_id'])) {
-        $content_data['content_id'] = $this->normalizeSpellContentId($content_data['content_id']);
-      }
+      $content_data = $this->normalizeContentIdAliases(
+        $content_data,
+        ['id', 'spell_id', 'content_id'],
+        [$this, 'normalizeSpellContentId']
+      );
       if (!empty($content_data['school']) && is_string($content_data['school'])) {
         $content_data['school'] = strtolower($content_data['school']);
       }
@@ -975,15 +971,11 @@ class ContentRegistry {
     }
 
     if ($content_type === 'feat') {
-      if (!empty($content_data['id']) && is_string($content_data['id'])) {
-        $content_data['id'] = $this->normalizeFeatContentId($content_data['id']);
-      }
-      if (!empty($content_data['feat_id']) && is_string($content_data['feat_id'])) {
-        $content_data['feat_id'] = $this->normalizeFeatContentId($content_data['feat_id']);
-      }
-      if (!empty($content_data['content_id']) && is_string($content_data['content_id'])) {
-        $content_data['content_id'] = $this->normalizeFeatContentId($content_data['content_id']);
-      }
+      $content_data = $this->normalizeContentIdAliases(
+        $content_data,
+        ['id', 'feat_id', 'content_id'],
+        [$this, 'normalizeFeatContentId']
+      );
       if (!empty($content_data['type']) && is_string($content_data['type'])) {
         $content_data['type'] = strtolower(trim($content_data['type']));
       }
@@ -1038,6 +1030,28 @@ class ContentRegistry {
       }
     }
 
+    return $content_data;
+  }
+
+  /**
+   * Normalize canonical content ID aliases using one ID normalizer.
+   *
+   * @param array<string, mixed> $content_data
+   *   Content payload to normalize.
+   * @param array<int, string> $fields
+   *   ID alias field names to normalize when present.
+   * @param callable $normalizer
+   *   Callback that maps one ID string to normalized form.
+   *
+   * @return array<string, mixed>
+   *   Payload with normalized ID aliases.
+   */
+  protected function normalizeContentIdAliases(array $content_data, array $fields, callable $normalizer): array {
+    foreach ($fields as $field) {
+      if (!empty($content_data[$field]) && is_string($content_data[$field])) {
+        $content_data[$field] = $normalizer($content_data[$field]);
+      }
+    }
     return $content_data;
   }
 

@@ -417,6 +417,54 @@ class ContentRegistryTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::normalizeContentIdAliases
+   */
+  public function testNormalizeContentIdAliasesNormalizesConfiguredFields(): void {
+    $registry = $this->buildRegistry();
+    $method = new \ReflectionMethod($registry, 'normalizeContentIdAliases');
+    $method->setAccessible(TRUE);
+
+    $normalized = $method->invoke(
+      $registry,
+      [
+        'id' => ' Acid_Arrow ',
+        'spell_id' => 'ACID_ARROW',
+        'content_id' => 'acid_arrow',
+      ],
+      ['id', 'spell_id', 'content_id'],
+      static fn(string $value): string => strtolower(str_replace('_', '-', trim($value)))
+    );
+
+    $this->assertSame('acid-arrow', $normalized['id']);
+    $this->assertSame('acid-arrow', $normalized['spell_id']);
+    $this->assertSame('acid-arrow', $normalized['content_id']);
+  }
+
+  /**
+   * @covers ::normalizeContentIdAliases
+   */
+  public function testNormalizeContentIdAliasesSkipsEmptyOrNonStringValues(): void {
+    $registry = $this->buildRegistry();
+    $method = new \ReflectionMethod($registry, 'normalizeContentIdAliases');
+    $method->setAccessible(TRUE);
+
+    $normalized = $method->invoke(
+      $registry,
+      [
+        'id' => '',
+        'spell_id' => 42,
+        'content_id' => "Dragon's Fury",
+      ],
+      ['id', 'spell_id', 'content_id'],
+      static fn(string $value): string => trim($value)
+    );
+
+    $this->assertSame('', $normalized['id']);
+    $this->assertSame(42, $normalized['spell_id']);
+    $this->assertSame("Dragon's Fury", $normalized['content_id']);
+  }
+
+  /**
    * Builds a lightweight registry instance for normalization tests.
    */
   private function buildRegistry(): ContentRegistry {
