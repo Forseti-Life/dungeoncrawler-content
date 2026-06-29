@@ -10912,43 +10912,16 @@ PROMPT;
     $sections = preg_split("/\n\s*\n/", $context) ?: [];
     $parts = [];
     foreach ($sections as $section) {
-      $section = trim($section);
-      if ($section === '') {
+      $compact_section = $this->compactSessionContextSection(
+        $section,
+        $max_recent,
+        $max_summary_chars,
+        $include_recent_messages
+      );
+      if ($compact_section === '') {
         continue;
       }
-
-      if (str_starts_with($section, 'PRIOR SESSION CONTEXT')) {
-        [$heading, $body] = array_pad(explode("\n", $section, 2), 2, '');
-        $body = trim($body);
-        if (strlen($body) > $max_summary_chars) {
-          $body = substr($body, 0, $max_summary_chars - 3) . '...';
-        }
-        if ($body !== '') {
-          $parts[] = $heading . "\n" . $body;
-        }
-        continue;
-      }
-
-      if (str_starts_with($section, 'RECENT CONVERSATION')) {
-        if (!$include_recent_messages) {
-          continue;
-        }
-        [$heading, $body] = array_pad(explode("\n", $section, 2), 2, '');
-        $lines = preg_split("/\r?\n/", trim($body)) ?: [];
-        $lines = array_slice(array_values(array_filter(array_map('trim', $lines))), -$max_recent);
-        foreach ($lines as &$line) {
-          if (strlen($line) > 180) {
-            $line = substr($line, 0, 177) . '...';
-          }
-        }
-        unset($line);
-        if ($lines !== []) {
-          $parts[] = $heading . "\n" . implode("\n", $lines);
-        }
-        continue;
-      }
-
-      $parts[] = $section;
+      $parts[] = $compact_section;
     }
 
     $compact = implode("\n\n", $parts);
@@ -10957,6 +10930,48 @@ PROMPT;
     }
 
     return $compact;
+  }
+
+  /**
+   * Compact one named session-context section for prompt-safe usage.
+   */
+  protected function compactSessionContextSection(
+    string $section,
+    int $max_recent,
+    int $max_summary_chars,
+    bool $include_recent_messages
+  ): string {
+    $section = trim($section);
+    if ($section === '') {
+      return '';
+    }
+
+    if (str_starts_with($section, 'PRIOR SESSION CONTEXT')) {
+      [$heading, $body] = array_pad(explode("\n", $section, 2), 2, '');
+      $body = trim($body);
+      if (strlen($body) > $max_summary_chars) {
+        $body = substr($body, 0, $max_summary_chars - 3) . '...';
+      }
+      return $body !== '' ? $heading . "\n" . $body : '';
+    }
+
+    if (str_starts_with($section, 'RECENT CONVERSATION')) {
+      if (!$include_recent_messages) {
+        return '';
+      }
+      [$heading, $body] = array_pad(explode("\n", $section, 2), 2, '');
+      $lines = preg_split("/\r?\n/", trim($body)) ?: [];
+      $lines = array_slice(array_values(array_filter(array_map('trim', $lines))), -$max_recent);
+      foreach ($lines as &$line) {
+        if (strlen($line) > 180) {
+          $line = substr($line, 0, 177) . '...';
+        }
+      }
+      unset($line);
+      return $lines !== [] ? $heading . "\n" . implode("\n", $lines) : '';
+    }
+
+    return $section;
   }
 
   /**

@@ -2761,6 +2761,39 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildCompactSessionContext
+   */
+  public function testBuildCompactSessionContextTruncatesSummaryAndRecentLines(): void {
+    $long_summary = str_repeat('Summary sentence. ', 30);
+    $long_recent_line = '[ASSISTANT]: ' . str_repeat('A', 220);
+
+    $session_manager = $this->createMock(AiSessionManager::class);
+    $session_manager->expects($this->once())
+      ->method('buildSessionContext')
+      ->with('campaign.31.room_chat.room-2', 31, 2)
+      ->willReturn(
+        "PRIOR SESSION CONTEXT (summary of earlier interactions):\n{$long_summary}\n\nRECENT CONVERSATION:\n[USER]: Old question\n{$long_recent_line}"
+      );
+
+    $this->roomChatService->setSessionManager($session_manager);
+
+    $context = $this->roomChatService->publicBuildCompactSessionContext(
+      'campaign.31.room_chat.room-2',
+      31,
+      2,
+      3000,
+      80,
+      TRUE
+    );
+
+    $this->assertStringContainsString('PRIOR SESSION CONTEXT', $context);
+    $this->assertStringContainsString(substr($long_summary, 0, 77) . '...', $context);
+    $this->assertStringNotContainsString($long_summary, $context);
+    $this->assertStringContainsString(substr($long_recent_line, 0, 177) . '...', $context);
+    $this->assertStringNotContainsString($long_recent_line, $context);
+  }
+
+  /**
    * @covers ::sanitizePlayerVisibleNarrative
    */
   public function testSanitizePlayerVisibleNarrativeRemovesPromptLeakageHeadings(): void {
