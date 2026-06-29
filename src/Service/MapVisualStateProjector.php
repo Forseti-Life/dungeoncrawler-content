@@ -504,43 +504,31 @@ class MapVisualStateProjector {
       $from = is_array($connection['from'] ?? NULL) ? $connection['from'] : [];
       $to = is_array($connection['to'] ?? NULL) ? $connection['to'] : [];
 
-      $exit_from = [
-        'connection_id' => $connection_id,
-        'type' => $type,
-        'target_room_id' => $to_room_id,
-        'origin_hex' => [
-          'hex_id' => (string) ($from['hex_id'] ?? $connection['from_hex_id'] ?? ''),
-          'q' => (int) ($from['q'] ?? 0),
-          'r' => (int) ($from['r'] ?? 0),
-        ],
-        'target_hex' => [
-          'hex_id' => (string) ($to['hex_id'] ?? $connection['to_hex_id'] ?? ''),
-          'q' => (int) ($to['q'] ?? 0),
-          'r' => (int) ($to['r'] ?? 0),
-        ],
-        'is_passable' => $is_passable,
-        'is_discovered' => $is_discovered,
-        'visibility_state' => $visibility_state,
-      ];
+      $exit_from = $this->buildProjectedRoomExit(
+        $connection_id,
+        $type,
+        $to_room_id,
+        $from,
+        $to,
+        (string) ($connection['from_hex_id'] ?? ''),
+        (string) ($connection['to_hex_id'] ?? ''),
+        $is_passable,
+        $is_discovered,
+        $visibility_state
+      );
 
-      $exit_to = [
-        'connection_id' => $connection_id,
-        'type' => $type,
-        'target_room_id' => $from_room_id,
-        'origin_hex' => [
-          'hex_id' => (string) ($to['hex_id'] ?? $connection['to_hex_id'] ?? ''),
-          'q' => (int) ($to['q'] ?? 0),
-          'r' => (int) ($to['r'] ?? 0),
-        ],
-        'target_hex' => [
-          'hex_id' => (string) ($from['hex_id'] ?? $connection['from_hex_id'] ?? ''),
-          'q' => (int) ($from['q'] ?? 0),
-          'r' => (int) ($from['r'] ?? 0),
-        ],
-        'is_passable' => $is_passable,
-        'is_discovered' => $is_discovered,
-        'visibility_state' => $visibility_state,
-      ];
+      $exit_to = $this->buildProjectedRoomExit(
+        $connection_id,
+        $type,
+        $from_room_id,
+        $to,
+        $from,
+        (string) ($connection['to_hex_id'] ?? ''),
+        (string) ($connection['from_hex_id'] ?? ''),
+        $is_passable,
+        $is_discovered,
+        $visibility_state
+      );
 
       if (isset($rooms[$from_room_id]) && is_array($rooms[$from_room_id])) {
         $rooms[$from_room_id]['exits'][] = $exit_from;
@@ -565,6 +553,44 @@ class MapVisualStateProjector {
     unset($room);
 
     return $rooms;
+  }
+
+  /**
+   * Build one canonical projected room-exit payload.
+   */
+  protected function buildProjectedRoomExit(
+    string $connection_id,
+    string $type,
+    string $target_room_id,
+    array $origin,
+    array $target,
+    string $origin_hex_fallback,
+    string $target_hex_fallback,
+    bool $is_passable,
+    bool $is_discovered,
+    string $visibility_state
+  ): array {
+    return [
+      'connection_id' => $connection_id,
+      'type' => $type,
+      'target_room_id' => $target_room_id,
+      'origin_hex' => $this->buildExitHexPayload($origin, $origin_hex_fallback),
+      'target_hex' => $this->buildExitHexPayload($target, $target_hex_fallback),
+      'is_passable' => $is_passable,
+      'is_discovered' => $is_discovered,
+      'visibility_state' => $visibility_state,
+    ];
+  }
+
+  /**
+   * Build canonical origin/target hex payload for an exit endpoint.
+   */
+  protected function buildExitHexPayload(array $hex, string $hex_id_fallback): array {
+    return [
+      'hex_id' => (string) ($hex['hex_id'] ?? $hex_id_fallback),
+      'q' => (int) ($hex['q'] ?? 0),
+      'r' => (int) ($hex['r'] ?? 0),
+    ];
   }
 
   /**

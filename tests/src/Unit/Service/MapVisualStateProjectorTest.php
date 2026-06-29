@@ -206,6 +206,10 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertSame('room-a:0:0', $result['topology']['rooms']['room-a']['exits'][0]['origin_hex']['hex_id']);
     $this->assertSame('room-b:1:0', $result['topology']['rooms']['room-a']['exits'][0]['target_hex']['hex_id']);
     $this->assertSame('room-a', $result['topology']['rooms']['room-b']['exits'][0]['target_room_id']);
+    $this->assertSame('room-b:1:0', $result['topology']['rooms']['room-b']['exits'][0]['origin_hex']['hex_id']);
+    $this->assertSame('room-a:0:0', $result['topology']['rooms']['room-b']['exits'][0]['target_hex']['hex_id']);
+    $this->assertSame('door-1', $result['topology']['rooms']['room-b']['exits'][0]['connection_id']);
+    $this->assertTrue($result['topology']['rooms']['room-b']['exits'][0]['is_passable']);
     $this->assertSame('pc-1', $result['occupants']['party'][0]['occupant_id']);
     $this->assertSame(365, $result['occupants']['party'][0]['character_id']);
     $this->assertSame('room-a:0:0', $result['occupants']['party'][0]['hex_id']);
