@@ -1455,50 +1455,82 @@ PROMPT;
 
     // Validate NPCs.
     $used_npc_ids = [];
-    $setting['npcs'] = array_map(function($npc) use (&$used_npc_ids) {
-      $name = isset($npc['name']) && is_scalar($npc['name']) ? trim((string) $npc['name']) : '';
-      $content_id = isset($npc['content_id']) && is_scalar($npc['content_id']) ? trim((string) $npc['content_id']) : '';
-      $content_id = $this->buildStableMachineId($content_id !== '' ? $content_id : $name, 'npc', $used_npc_ids);
-      return [
-        'name' => $name !== '' ? $name : 'Unknown NPC',
-        'content_id' => $content_id,
-        'ancestry' => $npc['ancestry'] ?? 'Human',
-        'class' => $npc['class'] ?? 'Commoner',
-        'role' => $npc['role'] ?? 'neutral',
-        'team' => $npc['team'] ?? 'neutral',
-        'occupation' => $npc['occupation'] ?? '',
-        'description' => $npc['description'] ?? '',
-        'backstory' => $npc['backstory'] ?? '',
-        'attitude' => $npc['attitude'] ?? 'indifferent',
-        'stats' => [
-          'maxHp' => $npc['stats']['maxHp'] ?? 10,
-          'currentHp' => $npc['stats']['currentHp'] ?? $npc['stats']['maxHp'] ?? 10,
-          'ac' => $npc['stats']['ac'] ?? 12,
-          'speed' => $npc['stats']['speed'] ?? 25,
-          'perception' => $npc['stats']['perception'] ?? 3,
-          'initiative_bonus' => $npc['stats']['initiative_bonus'] ?? $npc['stats']['perception'] ?? 3,
-        ],
-        'equipment' => $npc['equipment'] ?? [],
-      ];
-    }, $setting['npcs'] ?? []);
+    $setting['npcs'] = array_map(
+      function (array $npc) use (&$used_npc_ids): array {
+        return $this->normalizeGeneratedNpcContract($npc, $used_npc_ids);
+      },
+      $setting['npcs'] ?? []
+    );
 
     // Validate objects.
     $used_object_ids = [];
-    $setting['objects'] = array_map(function($obj) use (&$used_object_ids) {
-      $label = isset($obj['label']) && is_scalar($obj['label']) ? trim((string) $obj['label']) : '';
-      $object_id = isset($obj['object_id']) && is_scalar($obj['object_id']) ? trim((string) $obj['object_id']) : '';
-      $object_id = $this->buildStableMachineId($object_id !== '' ? $object_id : $label, 'object', $used_object_ids);
-      return [
-        'object_id' => $object_id,
-        'label' => $label !== '' ? $label : 'Object',
-        'category' => $obj['category'] ?? 'custom',
-        'description' => $obj['description'] ?? '',
-        'passable' => $obj['passable'] ?? TRUE,
-        'interactable' => $obj['interactable'] ?? FALSE,
-      ];
-    }, $setting['objects'] ?? []);
+    $setting['objects'] = array_map(
+      function (array $obj) use (&$used_object_ids): array {
+        return $this->normalizeGeneratedObjectContract($obj, $used_object_ids);
+      },
+      $setting['objects'] ?? []
+    );
 
     return $setting;
+  }
+
+  /**
+   * Normalize one generated NPC contract payload with canonical defaults.
+   *
+   * @param array<string, mixed> $npc
+   * @param array<string, bool> $used_npc_ids
+   *
+   * @return array<string, mixed>
+   */
+  protected function normalizeGeneratedNpcContract(array $npc, array &$used_npc_ids): array {
+    $name = isset($npc['name']) && is_scalar($npc['name']) ? trim((string) $npc['name']) : '';
+    $content_id = isset($npc['content_id']) && is_scalar($npc['content_id']) ? trim((string) $npc['content_id']) : '';
+    $content_id = $this->buildStableMachineId($content_id !== '' ? $content_id : $name, 'npc', $used_npc_ids);
+
+    return [
+      'name' => $name !== '' ? $name : 'Unknown NPC',
+      'content_id' => $content_id,
+      'ancestry' => $npc['ancestry'] ?? 'Human',
+      'class' => $npc['class'] ?? 'Commoner',
+      'role' => $npc['role'] ?? 'neutral',
+      'team' => $npc['team'] ?? 'neutral',
+      'occupation' => $npc['occupation'] ?? '',
+      'description' => $npc['description'] ?? '',
+      'backstory' => $npc['backstory'] ?? '',
+      'attitude' => $npc['attitude'] ?? 'indifferent',
+      'stats' => [
+        'maxHp' => $npc['stats']['maxHp'] ?? 10,
+        'currentHp' => $npc['stats']['currentHp'] ?? $npc['stats']['maxHp'] ?? 10,
+        'ac' => $npc['stats']['ac'] ?? 12,
+        'speed' => $npc['stats']['speed'] ?? 25,
+        'perception' => $npc['stats']['perception'] ?? 3,
+        'initiative_bonus' => $npc['stats']['initiative_bonus'] ?? $npc['stats']['perception'] ?? 3,
+      ],
+      'equipment' => $npc['equipment'] ?? [],
+    ];
+  }
+
+  /**
+   * Normalize one generated object contract payload with canonical defaults.
+   *
+   * @param array<string, mixed> $object
+   * @param array<string, bool> $used_object_ids
+   *
+   * @return array<string, mixed>
+   */
+  protected function normalizeGeneratedObjectContract(array $object, array &$used_object_ids): array {
+    $label = isset($object['label']) && is_scalar($object['label']) ? trim((string) $object['label']) : '';
+    $object_id = isset($object['object_id']) && is_scalar($object['object_id']) ? trim((string) $object['object_id']) : '';
+    $object_id = $this->buildStableMachineId($object_id !== '' ? $object_id : $label, 'object', $used_object_ids);
+
+    return [
+      'object_id' => $object_id,
+      'label' => $label !== '' ? $label : 'Object',
+      'category' => $object['category'] ?? 'custom',
+      'description' => $object['description'] ?? '',
+      'passable' => $object['passable'] ?? TRUE,
+      'interactable' => $object['interactable'] ?? FALSE,
+    ];
   }
 
   /**

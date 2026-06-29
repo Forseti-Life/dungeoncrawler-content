@@ -46,6 +46,14 @@ class MapGeneratorServiceDeterminismTest extends UnitTestCase {
       public function callBuildGeneratedItemContentId(string $label): string {
         return $this->buildGeneratedItemContentId($label);
       }
+
+      public function callNormalizeGeneratedNpcContract(array $npc, array &$used_npc_ids): array {
+        return $this->normalizeGeneratedNpcContract($npc, $used_npc_ids);
+      }
+
+      public function callNormalizeGeneratedObjectContract(array $object, array &$used_object_ids): array {
+        return $this->normalizeGeneratedObjectContract($object, $used_object_ids);
+      }
     };
   }
 
@@ -226,6 +234,53 @@ class MapGeneratorServiceDeterminismTest extends UnitTestCase {
 
     $this->assertLessThanOrEqual(100, strlen($instance_id));
     $this->assertStringStartsWith('npc_instance_', $instance_id);
+  }
+
+  /**
+   * @covers ::normalizeGeneratedNpcContract
+   */
+  public function testNormalizeGeneratedNpcContractAppliesCanonicalDefaults(): void {
+    $service = $this->createService();
+    $used = [];
+
+    $first = $service->callNormalizeGeneratedNpcContract([
+      'name' => 'Town Guard',
+      'stats' => ['maxHp' => 22],
+    ], $used);
+    $second = $service->callNormalizeGeneratedNpcContract([
+      'name' => 'Town Guard',
+    ], $used);
+
+    $this->assertSame('town_guard', $first['content_id']);
+    $this->assertSame('town_guard_2', $second['content_id']);
+    $this->assertSame(22, $first['stats']['maxHp']);
+    $this->assertSame(22, $first['stats']['currentHp']);
+    $this->assertSame(3, $first['stats']['initiative_bonus']);
+    $this->assertSame([], $first['equipment']);
+    $this->assertSame('Unknown NPC', $service->callNormalizeGeneratedNpcContract([], $used)['name']);
+  }
+
+  /**
+   * @covers ::normalizeGeneratedObjectContract
+   */
+  public function testNormalizeGeneratedObjectContractAppliesCanonicalDefaults(): void {
+    $service = $this->createService();
+    $used = [];
+
+    $first = $service->callNormalizeGeneratedObjectContract([
+      'label' => 'Wooden Crate',
+      'interactable' => TRUE,
+    ], $used);
+    $second = $service->callNormalizeGeneratedObjectContract([
+      'label' => 'Wooden Crate',
+    ], $used);
+
+    $this->assertSame('wooden_crate', $first['object_id']);
+    $this->assertSame('wooden_crate_2', $second['object_id']);
+    $this->assertSame('Object', $service->callNormalizeGeneratedObjectContract([], $used)['label']);
+    $this->assertTrue($first['passable']);
+    $this->assertTrue($first['interactable']);
+    $this->assertFalse($second['interactable']);
   }
 
 }
