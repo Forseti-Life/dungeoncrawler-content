@@ -3773,18 +3773,10 @@ class CharacterCreationStepForm extends FormBase {
 
     // Character setup edits the record that already exists; new records always
     // start in the canonical library and are attached to campaigns separately.
-    $resolved_campaign_id = 0;
-    $instance_id = '';
-    if ($character_id) {
-      $existing_record = $this->characterManager->loadCharacter((int) $character_id);
-      $resolved_campaign_id = ($existing_record && !empty($existing_record->campaign_id))
-        ? (int) $existing_record->campaign_id
-        : (int) ($campaign_id ?? 0);
-      $instance_id = $existing_record ? trim((string) ($existing_record->instance_id ?? '')) : '';
-    }
-    else {
-      $resolved_campaign_id = (int) ($campaign_id ?? 0);
-    }
+    $save_context = $this->resolveSaveCharacterContext($character_id, $campaign_id);
+    $existing_record = $save_context['existing_record'];
+    $resolved_campaign_id = $save_context['resolved_campaign_id'];
+    $instance_id = $save_context['instance_id'];
 
     $transaction = $this->database->startTransaction();
 
@@ -3880,6 +3872,30 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     return $character_id;
+  }
+
+  /**
+   * Resolve save-time campaign and instance context for character persistence.
+   *
+   * @return array{existing_record:?object, resolved_campaign_id:int, instance_id:string}
+   *   Canonical save context values.
+   */
+  private function resolveSaveCharacterContext(int|string|null $character_id, int|string|null $campaign_id): array {
+    $existing_record = NULL;
+    $resolved_campaign_id = (int) ($campaign_id ?? 0);
+    $instance_id = '';
+
+    if ($character_id) {
+      $existing_record = $this->characterManager->loadCharacter((int) $character_id);
+      $resolved_campaign_id = $this->resolveEffectiveCampaignId($existing_record, $campaign_id);
+      $instance_id = $existing_record ? trim((string) ($existing_record->instance_id ?? '')) : '';
+    }
+
+    return [
+      'existing_record' => $existing_record,
+      'resolved_campaign_id' => $resolved_campaign_id,
+      'instance_id' => $instance_id,
+    ];
   }
 
   /**

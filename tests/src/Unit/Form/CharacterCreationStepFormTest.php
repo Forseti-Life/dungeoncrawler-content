@@ -779,6 +779,49 @@ class CharacterCreationStepFormTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::resolveSaveCharacterContext
+   */
+  public function testResolveSaveCharacterContextPrefersStoredCampaignBinding(): void {
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->expects($this->once())
+      ->method('loadCharacter')
+      ->with(77)
+      ->willReturn((object) [
+        'campaign_id' => 70,
+        'instance_id' => 'pc-meris-77',
+      ]);
+
+    $form = $this->buildFormObject($character_manager, NULL, NULL, 12);
+    $method = new \ReflectionMethod($form, 'resolveSaveCharacterContext');
+    $method->setAccessible(TRUE);
+
+    $context = $method->invoke($form, 77, 12);
+
+    $this->assertSame(70, $context['resolved_campaign_id']);
+    $this->assertSame('pc-meris-77', $context['instance_id']);
+    $this->assertNotNull($context['existing_record']);
+  }
+
+  /**
+   * @covers ::resolveSaveCharacterContext
+   */
+  public function testResolveSaveCharacterContextUsesRequestedCampaignForNewRecord(): void {
+    $character_manager = $this->createMock(CharacterManager::class);
+    $character_manager->expects($this->never())
+      ->method('loadCharacter');
+
+    $form = $this->buildFormObject($character_manager, NULL, NULL, 12);
+    $method = new \ReflectionMethod($form, 'resolveSaveCharacterContext');
+    $method->setAccessible(TRUE);
+
+    $context = $method->invoke($form, NULL, 12);
+
+    $this->assertSame(12, $context['resolved_campaign_id']);
+    $this->assertSame('', $context['instance_id']);
+    $this->assertNull($context['existing_record']);
+  }
+
+  /**
    * @covers ::resolveEffectiveCampaignId
    */
   public function testResolveEffectiveCampaignIdPrefersStoredBinding(): void {
