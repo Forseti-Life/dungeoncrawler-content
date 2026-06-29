@@ -285,6 +285,51 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildCharacterInstitutionInputs
+   */
+  public function testBuildCharacterInstitutionInputsReturnsCanonicalSeedMetadata(): void {
+    $service = $this->createServiceForInputBuilders();
+
+    $inputs = $service->buildCharacterInstitutionInputs([
+      'ancestry' => 'elf',
+      'class' => 'fighter',
+    ], 'seeded_character');
+
+    $this->assertCount(2, $inputs);
+    $this->assertSame('ancestry', $inputs[0]['domain'] ?? '');
+    $this->assertSame('Elf', $inputs[0]['display_name'] ?? '');
+    $this->assertSame('seeded_character', $inputs[0]['metadata']['seed_source'] ?? '');
+    $this->assertSame('ancestry', $inputs[0]['metadata']['source_field'] ?? '');
+    $this->assertSame('profession', $inputs[1]['domain'] ?? '');
+    $this->assertSame('Fighter', $inputs[1]['display_name'] ?? '');
+    $this->assertSame('seeded_character', $inputs[1]['metadata']['seed_source'] ?? '');
+    $this->assertSame('class', $inputs[1]['metadata']['source_field'] ?? '');
+  }
+
+  /**
+   * @covers ::buildNpcInstitutionInputs
+   */
+  public function testBuildNpcInstitutionInputsPrefersOccupationSourceField(): void {
+    $service = $this->createServiceForInputBuilders();
+
+    $occupation_inputs = $service->buildNpcInstitutionInputs([
+      'occupation' => 'dock worker',
+      'class' => 'wizard',
+    ], 'seeded_npc');
+    $class_inputs = $service->buildNpcInstitutionInputs([
+      'class' => 'wizard',
+    ], 'seeded_npc');
+
+    $this->assertSame('profession', $occupation_inputs[0]['domain'] ?? '');
+    $this->assertSame('Dock Worker', $occupation_inputs[0]['display_name'] ?? '');
+    $this->assertSame('occupation', $occupation_inputs[0]['metadata']['source_field'] ?? '');
+    $this->assertSame('seeded_npc', $occupation_inputs[0]['metadata']['seed_source'] ?? '');
+    $this->assertSame('profession', $class_inputs[0]['domain'] ?? '');
+    $this->assertSame('Wizard', $class_inputs[0]['display_name'] ?? '');
+    $this->assertSame('class', $class_inputs[0]['metadata']['source_field'] ?? '');
+  }
+
+  /**
    * @covers ::syncCampaignCharacterMemberships
    */
   public function testSyncCampaignCharacterMembershipsSeedsAncestryAndClass(): void {
@@ -1150,6 +1195,15 @@ class InstitutionMembershipServiceTest extends UnitTestCase {
         return 1;
       }
     };
+  }
+
+  private function createServiceForInputBuilders(): InstitutionMembershipService {
+    return new InstitutionMembershipService(
+      $this->createMock(Connection::class),
+      $this->createMock(CampaignSubjectRegistryService::class),
+      new InstitutionNormalizationService(),
+      $this->createMock(RelationshipManagerService::class)
+    );
   }
 
 }

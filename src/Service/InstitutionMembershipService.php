@@ -97,28 +97,19 @@ class InstitutionMembershipService {
   public function buildCharacterInstitutionInputs(array $character_data, string $seed_source = 'character_creation'): array {
     $inputs = [];
 
-    $ancestry = $this->extractNonEmptyString($character_data, ['ancestry', 'species']);
-    if ($ancestry !== '') {
-      $inputs[] = [
-        'domain' => 'ancestry',
-        'display_name' => CharacterManager::resolveAncestryCanonicalName($ancestry),
-        'metadata' => [
-          'seed_source' => $seed_source,
-          'source_field' => 'ancestry',
-        ],
-      ];
+    $ancestry_input = $this->buildAncestryInstitutionInput($character_data, $seed_source);
+    if ($ancestry_input !== NULL) {
+      $inputs[] = $ancestry_input;
     }
 
     $class = $this->extractNonEmptyString($character_data, ['class']);
     if ($class !== '') {
-      $inputs[] = [
-        'domain' => 'profession',
-        'display_name' => $this->humanizeValue($class),
-        'metadata' => [
-          'seed_source' => $seed_source,
-          'source_field' => 'class',
-        ],
-      ];
+      $inputs[] = $this->buildSeededInstitutionInput(
+        'profession',
+        $this->humanizeValue($class),
+        $seed_source,
+        'class'
+      );
     }
 
     foreach ($this->buildExplicitStructuredAffiliationInputs($character_data, $seed_source) as $input) {
@@ -136,28 +127,19 @@ class InstitutionMembershipService {
   public function buildNpcInstitutionInputs(array $npc_data, string $seed_source = 'npc_creation'): array {
     $inputs = [];
 
-    $ancestry = $this->extractNonEmptyString($npc_data, ['ancestry', 'species']);
-    if ($ancestry !== '') {
-      $inputs[] = [
-        'domain' => 'ancestry',
-        'display_name' => CharacterManager::resolveAncestryCanonicalName($ancestry),
-        'metadata' => [
-          'seed_source' => $seed_source,
-          'source_field' => 'ancestry',
-        ],
-      ];
+    $ancestry_input = $this->buildAncestryInstitutionInput($npc_data, $seed_source);
+    if ($ancestry_input !== NULL) {
+      $inputs[] = $ancestry_input;
     }
 
     $profession = $this->resolveNpcProfessionValue($npc_data);
     if ($profession !== '') {
-      $inputs[] = [
-        'domain' => 'profession',
-        'display_name' => $this->humanizeValue($profession),
-        'metadata' => [
-          'seed_source' => $seed_source,
-          'source_field' => $this->extractNonEmptyString($npc_data, ['occupation']) !== '' ? 'occupation' : 'class',
-        ],
-      ];
+      $inputs[] = $this->buildSeededInstitutionInput(
+        'profession',
+        $this->humanizeValue($profession),
+        $seed_source,
+        $this->extractNonEmptyString($npc_data, ['occupation']) !== '' ? 'occupation' : 'class'
+      );
     }
 
     foreach ($this->buildExplicitStructuredAffiliationInputs($npc_data, $seed_source) as $input) {
@@ -1128,6 +1110,39 @@ class InstitutionMembershipService {
 
     $decoded = json_decode($value, TRUE);
     return is_array($decoded) ? $decoded : [];
+  }
+
+  /**
+   * Builds an ancestry institution input from actor payload fields.
+   */
+  protected function buildAncestryInstitutionInput(array $actor_data, string $seed_source): ?array {
+    $ancestry = $this->extractNonEmptyString($actor_data, ['ancestry', 'species']);
+    if ($ancestry === '') {
+      return NULL;
+    }
+
+    return $this->buildSeededInstitutionInput(
+      'ancestry',
+      CharacterManager::resolveAncestryCanonicalName($ancestry),
+      $seed_source,
+      'ancestry'
+    );
+  }
+
+  /**
+   * Builds a deterministic seed input payload with canonical metadata fields.
+   *
+   * @return array<string, mixed>
+   */
+  protected function buildSeededInstitutionInput(string $domain, string $display_name, string $seed_source, string $source_field): array {
+    return [
+      'domain' => $domain,
+      'display_name' => $display_name,
+      'metadata' => [
+        'seed_source' => $seed_source,
+        'source_field' => $source_field,
+      ],
+    ];
   }
 
   /**
