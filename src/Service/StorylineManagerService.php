@@ -795,21 +795,33 @@ class StorylineManagerService {
         && is_array($outline['entry_dungeon'] ?? NULL)
         && is_array($outline['bootstrap_handoff'] ?? NULL)
       ) {
-        $outline['progression_connectors'] = [[
-          'connector_id' => trim((string) (($outline['entry_dungeon']['dungeon_id'] ?? 'generated-entry-dungeon') . '-bootstrap-handoff')),
-          'source_type' => 'npc',
-          'source_id' => (string) ($outline['bootstrap_handoff']['speaker_npc_id'] ?? 'npc_tavern_keeper'),
-          'mechanism' => 'npc_direction',
-          'from_location_id' => $lead_location_id,
-          'target_dungeon_id' => (string) ($outline['entry_dungeon']['dungeon_id'] ?? 'generated-entry-dungeon'),
-          'target_room_id' => (string) ($outline['entry_dungeon']['entrance_room_id'] ?? 'generated-entry-room'),
-          'narrative' => (string) ($outline['bootstrap_handoff']['lead_text'] ?? 'The questgiver points the party toward the first lead.'),
-        ]];
+        $outline['progression_connectors'] = $this->buildDefaultBootstrapProgressionConnectors($outline, $lead_location_id);
       }
     }
 
     $metadata['generated_outline'] = $outline;
     return $metadata;
+  }
+
+  /**
+   * Build fallback bootstrap progression connectors for first-lead handoff flow.
+   */
+  protected function buildDefaultBootstrapProgressionConnectors(array $outline, string $lead_location_id): array {
+    $target_dungeon_id = (string) ($outline['entry_dungeon']['dungeon_id'] ?? 'generated-entry-dungeon');
+    $target_room_id = (string) ($outline['entry_dungeon']['entrance_room_id'] ?? 'generated-entry-room');
+    $source_id = (string) ($outline['bootstrap_handoff']['speaker_npc_id'] ?? 'npc_tavern_keeper');
+    $narrative = (string) ($outline['bootstrap_handoff']['lead_text'] ?? 'The questgiver points the party toward the first lead.');
+
+    return [[
+      'connector_id' => trim((string) ($target_dungeon_id . '-bootstrap-handoff')),
+      'source_type' => 'npc',
+      'source_id' => $source_id,
+      'mechanism' => 'npc_direction',
+      'from_location_id' => $lead_location_id,
+      'target_dungeon_id' => $target_dungeon_id,
+      'target_room_id' => $target_room_id,
+      'narrative' => $narrative,
+    ]];
   }
 
   /**

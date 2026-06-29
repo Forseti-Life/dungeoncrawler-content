@@ -200,6 +200,10 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertSame('old-library-stairs', $normalized['metadata']['generated_outline']['entry_dungeon']['entrance_room_id']);
     $this->assertSame('npc_tavern_keeper', $normalized['metadata']['generated_outline']['bootstrap_handoff']['speaker_npc_id']);
     $this->assertSame('Eldric', $normalized['metadata']['generated_outline']['bootstrap_handoff']['speaker_name']);
+    $this->assertSame('threshold-of-lore-bootstrap-handoff', $normalized['metadata']['generated_outline']['progression_connectors'][0]['connector_id']);
+    $this->assertSame('npc_direction', $normalized['metadata']['generated_outline']['progression_connectors'][0]['mechanism']);
+    $this->assertSame('tavern_entrance', $normalized['metadata']['generated_outline']['progression_connectors'][0]['from_location_id']);
+    $this->assertSame('old-library-stairs', $normalized['metadata']['generated_outline']['progression_connectors'][0]['target_room_id']);
     $this->assertSame('threshold-of-lore', $normalized['contacts'][0]['relationship_state']['chapter_id']);
     $this->assertSame('old-library-stairs', $normalized['contacts'][0]['relationship_state']['scene_id']);
     $this->assertTrue(
