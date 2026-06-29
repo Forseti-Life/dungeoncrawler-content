@@ -1251,19 +1251,31 @@ class CharacterStateService {
       if (!is_string($text) || trim($text) === '') {
         continue;
       }
-      if (preg_match_all('/removes? (?:the )?([a-z][a-z _-]+?) condition/i', $text, $matches)) {
-        foreach ($matches[1] as $match) {
-          $names[] = strtolower(trim($match));
-        }
-      }
-      if (preg_match_all('/cures? (?:the )?([a-z][a-z _-]+?)(?: condition|\\b)/i', $text, $matches)) {
-        foreach ($matches[1] as $match) {
-          $names[] = strtolower(trim($match));
-        }
-      }
+      $names = array_merge($names, $this->parseConditionNamesFromConsumableText($text));
     }
 
     return array_values(array_unique(array_filter($names)));
+  }
+
+  /**
+   * Parse removable condition names from consumable effect text.
+   *
+   * @return array<int, string>
+   *   Lowercased condition names parsed from freeform text.
+   */
+  private function parseConditionNamesFromConsumableText(string $text): array {
+    $names = [];
+    if (preg_match_all('/removes? (?:the )?([a-z][a-z _-]+?) condition/i', $text, $matches)) {
+      foreach ($matches[1] as $match) {
+        $names[] = strtolower(trim($match));
+      }
+    }
+    if (preg_match_all('/cures? (?:the )?([a-z][a-z _-]+?)(?: condition|\\b)/i', $text, $matches)) {
+      foreach ($matches[1] as $match) {
+        $names[] = strtolower(trim($match));
+      }
+    }
+    return $names;
   }
 
   /**

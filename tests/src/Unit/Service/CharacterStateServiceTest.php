@@ -509,6 +509,64 @@ class CharacterStateServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies consumable text parsing extracts removable/cured condition names.
+   *
+   * @covers ::parseConditionNamesFromConsumableText
+   */
+  public function testParseConditionNamesFromConsumableTextExtractsConditionTargets(): void {
+    $service = new CharacterStateService(
+      $this->createMock(Connection::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(FeatEffectManager::class),
+      $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(NumberGenerationService::class),
+      $this->createMock(ImpactContractService::class),
+      $this->createMock(ActiveEffectStoreService::class),
+    );
+
+    $method = new \ReflectionMethod($service, 'parseConditionNamesFromConsumableText');
+    $method->setAccessible(TRUE);
+
+    $parsed = $method->invoke(
+      $service,
+      'This tonic removes the Frightened condition and cures Sickened after a minute.'
+    );
+
+    $this->assertSame(['frightened', 'sickened'], $parsed);
+  }
+
+  /**
+   * Verifies condition extraction merges explicit fields and parsed text cues.
+   *
+   * @covers ::extractConsumableConditionNames
+   */
+  public function testExtractConsumableConditionNamesMergesExplicitAndTextSources(): void {
+    $service = new CharacterStateService(
+      $this->createMock(Connection::class),
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(FeatEffectManager::class),
+      $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(NumberGenerationService::class),
+      $this->createMock(ImpactContractService::class),
+      $this->createMock(ActiveEffectStoreService::class),
+    );
+
+    $method = new \ReflectionMethod($service, 'extractConsumableConditionNames');
+    $method->setAccessible(TRUE);
+
+    $names = $method->invoke(
+      $service,
+      [
+        'remove_condition' => 'Sickened',
+        'description' => 'Also removes the Frightened condition.',
+      ],
+      TRUE
+    );
+
+    $this->assertSame(['sickened', 'frightened'], $names);
+  }
+
+  /**
    * Build the initial library-row select query mock.
    */
   private function buildLibrarySelectQueryMock(?object $record): object {
