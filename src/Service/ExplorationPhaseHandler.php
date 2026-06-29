@@ -3809,18 +3809,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * Gets the currently active room from dungeon_data.
    */
   protected function getActiveRoom(array $dungeon_data): ?array {
-    $active_id = $dungeon_data['active_room_id'] ?? NULL;
-    if (!$active_id || empty($dungeon_data['rooms'])) {
+    $room_index = $this->getActiveRoomIndex($dungeon_data);
+    if ($room_index === NULL) {
       return NULL;
     }
 
-    foreach ($dungeon_data['rooms'] as $room) {
-      if (($room['room_id'] ?? '') === $active_id) {
-        return $room;
-      }
-    }
-
-    return NULL;
+    $room = $dungeon_data['rooms'][$room_index] ?? NULL;
+    return is_array($room) ? $room : NULL;
   }
 
   /**
@@ -3828,12 +3823,23 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    */
   protected function getActiveRoomIndex(array $dungeon_data): ?int {
     $active_id = $dungeon_data['active_room_id'] ?? NULL;
-    if (!$active_id || empty($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
+    if (!is_string($active_id) || $active_id === '') {
+      return NULL;
+    }
+
+    return $this->findRoomIndexById($active_id, $dungeon_data);
+  }
+
+  /**
+   * Find a room index by room_id in dungeon_data.
+   */
+  protected function findRoomIndexById(string $room_id, array $dungeon_data): ?int {
+    if (empty($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
       return NULL;
     }
 
     foreach ($dungeon_data['rooms'] as $index => $room) {
-      if (($room['room_id'] ?? '') === $active_id) {
+      if (($room['room_id'] ?? '') === $room_id) {
         return $index;
       }
     }
@@ -4532,13 +4538,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       return NULL;
     }
 
-    foreach ($dungeon_data['rooms'] ?? [] as $room) {
-      if (($room['room_id'] ?? NULL) === $room_id) {
-        return $room;
-      }
+    $room_index = $this->findRoomIndexById($room_id, $dungeon_data);
+    if ($room_index === NULL) {
+      return NULL;
     }
 
-    return NULL;
+    $room = $dungeon_data['rooms'][$room_index] ?? NULL;
+    return is_array($room) ? $room : NULL;
   }
 
   /**
