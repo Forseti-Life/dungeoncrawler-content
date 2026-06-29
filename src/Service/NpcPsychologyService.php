@@ -1169,7 +1169,7 @@ class NpcPsychologyService {
       'neutral' => ['Mind own business', 'Survive and prosper', 'Gather information', 'Avoid conflict'],
     ];
 
-    $pool = $motivations[$role] ?? $motivations['neutral'];
+    $pool = $this->resolveRolePsychologyPool($motivations, $role);
     shuffle($pool);
     return implode('; ', array_slice($pool, 0, 2));
   }
@@ -1187,9 +1187,27 @@ class NpcPsychologyService {
       'neutral' => ['Getting caught in conflict', 'Starvation', 'The unknown'],
     ];
 
-    $pool = $fears[$role] ?? $fears['neutral'];
+    $pool = $this->resolveRolePsychologyPool($fears, $role);
     shuffle($pool);
-    return array_shift($pool);
+    return (string) array_shift($pool);
+  }
+
+  /**
+   * Resolve a role-keyed psychology text pool with normalized fallback behavior.
+   *
+   * @param array<string, array<int, string>> $role_pools
+   *
+   * @return array<int, string>
+   */
+  protected function resolveRolePsychologyPool(array $role_pools, string $role): array {
+    $role_key = strtolower(trim($role));
+    if (isset($role_pools[$role_key]) && is_array($role_pools[$role_key])) {
+      return array_values($role_pools[$role_key]);
+    }
+    if (isset($role_pools['neutral']) && is_array($role_pools['neutral'])) {
+      return array_values($role_pools['neutral']);
+    }
+    return [];
   }
 
   /**
