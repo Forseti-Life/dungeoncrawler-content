@@ -274,6 +274,24 @@ class CharacterManagerCanonicalizationTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::normalizeSelectedSpellIds
+   */
+  public function testNormalizeSelectedSpellIdsFiltersNonStringAndEmptyEntries(): void {
+    $method = new \ReflectionMethod(CharacterManager::class, 'normalizeSelectedSpellIds');
+    $method->setAccessible(TRUE);
+
+    $this->assertSame(['detect-magic', 'shield'], $method->invoke(NULL, [
+      'detect-magic',
+      '',
+      '  ',
+      'shield',
+      7,
+      NULL,
+    ]));
+    $this->assertSame([], $method->invoke(NULL, 'detect-magic'));
+  }
+
+  /**
    * @covers ::normalizePersistentCharacterPayload
    * @covers ::synchronizeCompatibilityMirrors
    */

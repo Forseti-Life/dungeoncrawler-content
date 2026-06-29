@@ -11460,8 +11460,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    */
   public static function getSelectedCantripIds(array $character_data): array {
     $spells = is_array($character_data['spells'] ?? NULL) ? $character_data['spells'] : [];
-    $cantrips = is_array($spells['cantrips'] ?? NULL) ? $spells['cantrips'] : [];
-    return array_values(array_filter($cantrips, static fn($value): bool => is_string($value) && trim($value) !== ''));
+    return self::normalizeSelectedSpellIds($spells['cantrips'] ?? NULL);
   }
 
   /**
@@ -11472,8 +11471,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    */
   public static function getSelectedFirstLevelSpellIds(array $character_data): array {
     $spells = is_array($character_data['spells'] ?? NULL) ? $character_data['spells'] : [];
-    $first_level = is_array($spells['first_level'] ?? NULL) ? $spells['first_level'] : [];
-    return array_values(array_filter($first_level, static fn($value): bool => is_string($value) && trim($value) !== ''));
+    return self::normalizeSelectedSpellIds($spells['first_level'] ?? NULL);
   }
 
   /**
@@ -11483,8 +11481,7 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    *   Selected cantrip IDs.
    */
   private static function getLegacySelectedCantripIds(array $character_data): array {
-    $cantrips = is_array($character_data['cantrips'] ?? NULL) ? $character_data['cantrips'] : [];
-    return array_values(array_filter($cantrips, static fn($value): bool => is_string($value) && trim($value) !== ''));
+    return self::normalizeSelectedSpellIds($character_data['cantrips'] ?? NULL);
   }
 
   /**
@@ -11494,8 +11491,21 @@ the triggering spell. You then attempt to counteract the triggering spell.'],
    *   Selected first-rank spell IDs.
    */
   private static function getLegacySelectedFirstLevelSpellIds(array $character_data): array {
-    $first_level = is_array($character_data['spells_first'] ?? NULL) ? $character_data['spells_first'] : [];
-    return array_values(array_filter($first_level, static fn($value): bool => is_string($value) && trim($value) !== ''));
+    return self::normalizeSelectedSpellIds($character_data['spells_first'] ?? NULL);
+  }
+
+  /**
+   * Normalize selected spell ID lists from canonical or legacy payload shapes.
+   *
+   * @return array<int, string>
+   *   Selected spell IDs with empty values removed.
+   */
+  private static function normalizeSelectedSpellIds(mixed $value): array {
+    if (!is_array($value)) {
+      return [];
+    }
+
+    return array_values(array_filter($value, static fn($entry): bool => is_string($entry) && trim($entry) !== ''));
   }
 
   /**
