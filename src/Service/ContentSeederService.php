@@ -141,8 +141,8 @@ class ContentSeederService {
         'setting_type' => $data['setting_type'] ?? 'default',
         'size' => $data['size'] ?? 'medium',
         'lighting' => $data['lighting'] ?? 'normal_light',
-        'setting_data' => is_array($data['setting_data'] ?? NULL) ? json_encode($data['setting_data']) : ($data['setting_data'] ?? '{}'),
-        'search_tags' => is_array($data['search_tags'] ?? NULL) ? json_encode($data['search_tags']) : ($data['search_tags'] ?? '[]'),
+        'setting_data' => $this->encodeJsonField($data['setting_data'] ?? NULL, '{}'),
+        'search_tags' => $this->encodeJsonField($data['search_tags'] ?? NULL, '[]'),
         'level_min' => (int) ($data['level_min'] ?? 1),
         'level_max' => (int) ($data['level_max'] ?? 20),
         'usage_count' => (int) ($data['usage_count'] ?? 0),
@@ -219,10 +219,10 @@ class ContentSeederService {
         'terrain_type' => $data['terrain_type'] ?? 'stone',
         'lighting' => $data['lighting'] ?? 'normal_light',
         'hex_count' => (int) ($data['hex_count'] ?? 0),
-        'layout_data' => is_array($data['layout_data'] ?? NULL) ? json_encode($data['layout_data']) : ($data['layout_data'] ?? '{}'),
-        'contents_data' => is_array($data['contents_data'] ?? NULL) ? json_encode($data['contents_data']) : ($data['contents_data'] ?? '{}'),
-        'environment_tags' => is_array($data['environment_tags'] ?? NULL) ? json_encode($data['environment_tags']) : ($data['environment_tags'] ?? '[]'),
-        'search_tags' => is_array($data['search_tags'] ?? NULL) ? json_encode($data['search_tags']) : ($data['search_tags'] ?? '[]'),
+        'layout_data' => $this->encodeJsonField($data['layout_data'] ?? NULL, '{}'),
+        'contents_data' => $this->encodeJsonField($data['contents_data'] ?? NULL, '{}'),
+        'environment_tags' => $this->encodeJsonField($data['environment_tags'] ?? NULL, '[]'),
+        'search_tags' => $this->encodeJsonField($data['search_tags'] ?? NULL, '[]'),
         'level_min' => (int) ($data['level_min'] ?? 1),
         'level_max' => (int) ($data['level_max'] ?? 20),
         'difficulty' => $data['difficulty'] ?? 'moderate',
@@ -299,7 +299,7 @@ class ContentSeederService {
         'name' => $row['name'] ?? '',
         'description' => $row['description'] ?? '',
         'level_range' => $row['level_range'] ?? '',
-        'entries' => is_array($row['entries'] ?? NULL) ? json_encode($row['entries']) : ($row['entries'] ?? '[]'),
+        'entries' => $this->encodeJsonField($row['entries'] ?? NULL, '[]'),
         'created' => (int) ($row['created'] ?? time()),
       ];
 
@@ -366,8 +366,8 @@ class ContentSeederService {
         'level' => (int) ($row['level'] ?? 1),
         'xp_budget' => (int) ($row['xp_budget'] ?? 0),
         'threat_level' => $row['threat_level'] ?? 'moderate',
-        'creature_slots' => is_array($row['creature_slots'] ?? NULL) ? json_encode($row['creature_slots']) : ($row['creature_slots'] ?? '[]'),
-        'environment_tags' => is_array($row['environment_tags'] ?? NULL) ? json_encode($row['environment_tags']) : ($row['environment_tags'] ?? ''),
+        'creature_slots' => $this->encodeJsonField($row['creature_slots'] ?? NULL, '[]'),
+        'environment_tags' => $this->encodeJsonField($row['environment_tags'] ?? NULL, ''),
       ];
 
       try {
@@ -435,11 +435,11 @@ class ContentSeederService {
         'quest_type' => $row['quest_type'] ?? 'main',
         'level_min' => (int) ($row['level_min'] ?? 1),
         'level_max' => (int) ($row['level_max'] ?? 20),
-        'tags' => is_array($row['tags'] ?? NULL) ? json_encode($row['tags']) : ($row['tags'] ?? ''),
-        'objectives_schema' => is_array($row['objectives_schema'] ?? NULL) ? json_encode($row['objectives_schema']) : ($row['objectives_schema'] ?? ''),
-        'rewards_schema' => is_array($row['rewards_schema'] ?? NULL) ? json_encode($row['rewards_schema']) : ($row['rewards_schema'] ?? ''),
-        'prerequisites' => is_array($row['prerequisites'] ?? NULL) ? json_encode($row['prerequisites']) : ($row['prerequisites'] ?? ''),
-        'story_impact' => is_array($row['story_impact'] ?? NULL) ? json_encode($row['story_impact']) : ($row['story_impact'] ?? ''),
+        'tags' => $this->encodeJsonField($row['tags'] ?? NULL, ''),
+        'objectives_schema' => $this->encodeJsonField($row['objectives_schema'] ?? NULL, ''),
+        'rewards_schema' => $this->encodeJsonField($row['rewards_schema'] ?? NULL, ''),
+        'prerequisites' => $this->encodeJsonField($row['prerequisites'] ?? NULL, ''),
+        'story_impact' => $this->encodeJsonField($row['story_impact'] ?? NULL, ''),
         'estimated_duration_minutes' => (int) ($row['estimated_duration_minutes'] ?? 60),
         'created' => (int) ($row['created'] ?? $now),
         'updated' => (int) ($row['updated'] ?? $now),
@@ -524,7 +524,7 @@ class ContentSeederService {
         'sha256' => $image['sha256'] ?? '',
         'prompt_text' => $image['prompt_text'] ?? '',
         'negative_prompt' => $image['negative_prompt'] ?? '',
-        'generation_params' => is_array($image['generation_params'] ?? NULL) ? json_encode($image['generation_params']) : ($image['generation_params'] ?? '{}'),
+        'generation_params' => $this->encodeJsonField($image['generation_params'] ?? NULL, '{}'),
         'safety_metadata' => $image['safety_metadata'] ?? NULL,
         'created' => (int) ($image['created'] ?? time()),
         'updated' => (int) ($image['updated'] ?? time()),
@@ -771,6 +771,13 @@ class ContentSeederService {
     }
 
     return $data;
+  }
+
+  /**
+   * JSON-encode array payloads, otherwise preserve scalar values/default.
+   */
+  protected function encodeJsonField(mixed $value, mixed $default): mixed {
+    return is_array($value) ? json_encode($value) : ($value ?? $default);
   }
 
   /**
