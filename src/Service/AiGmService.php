@@ -253,8 +253,12 @@ class AiGmService {
 
     $system = $this->buildSystemPrompt('npc_attitude_shift');
     $session_key = $this->sessionManager->npcSessionKey($campaign_id, $entity_ref);
-    $session_ctx = $this->sessionManager->buildSessionContext($session_key, $campaign_id, 6);
-    $prompt = ($session_ctx !== '' ? $session_ctx . "\n\n---\nCURRENT REQUEST:\n" : '') . $this->buildPrompt($context);
+    $prompt = $this->buildPromptWithSessionContext(
+      $this->buildPrompt($context),
+      $session_key,
+      $campaign_id,
+      6
+    );
 
     if ($this->aiApiService === NULL) {
       return $this->fallbackNpcAttitudeShift($npc_data['name'] ?? $entity_ref, $old_attitude, $new_attitude);
@@ -683,10 +687,7 @@ class AiGmService {
     // Thread session context into the prompt for campaign continuity.
     if ($campaign_id > 0) {
       $session_key = $this->sessionManager->gmSessionKey($campaign_id);
-      $session_context = $this->sessionManager->buildSessionContext($session_key, $campaign_id, 8);
-      if ($session_context !== '') {
-        $prompt = $session_context . "\n\n---\nCURRENT REQUEST:\n" . $prompt;
-      }
+      $prompt = $this->buildPromptWithSessionContext($prompt, $session_key, $campaign_id, 8);
     }
 
     $max_tokens = $this->getMaxTokens();
@@ -1089,6 +1090,20 @@ class AiGmService {
       }
     }
     return $counts;
+  }
+
+  /**
+   * Prefix a narration prompt with campaign session context when available.
+   */
+  protected function buildPromptWithSessionContext(string $prompt, string $session_key, int $campaign_id, int $message_limit): string {
+    if ($campaign_id <= 0) {
+      return $prompt;
+    }
+    $session_context = $this->sessionManager->buildSessionContext($session_key, $campaign_id, $message_limit);
+    if ($session_context === '') {
+      return $prompt;
+    }
+    return $session_context . "\n\n---\nCURRENT REQUEST:\n" . $prompt;
   }
 
   /**
