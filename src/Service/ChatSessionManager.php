@@ -793,13 +793,7 @@ class ChatSessionManager {
 
     $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
 
-    return array_map(function ($row) {
-      $row['metadata'] = json_decode($row['metadata'] ?: '{}', TRUE) ?: [];
-      $row['feed_targets'] = json_decode($row['feed_targets'] ?: '[]', TRUE) ?: [];
-      $row['id'] = (int) $row['id'];
-      $row['session_id'] = (int) $row['session_id'];
-      return $row;
-    }, $rows);
+    return array_map([$this, 'normalizeMessageRow'], $rows);
   }
 
   /**
@@ -818,13 +812,18 @@ class ChatSessionManager {
 
     $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
 
-    return array_map(function ($row) {
-      $row['metadata'] = json_decode($row['metadata'] ?: '{}', TRUE) ?: [];
-      $row['feed_targets'] = json_decode($row['feed_targets'] ?: '[]', TRUE) ?: [];
-      $row['id'] = (int) $row['id'];
-      $row['session_id'] = (int) $row['session_id'];
-      return $row;
-    }, $rows);
+    return array_map([$this, 'normalizeMessageRow'], $rows);
+  }
+
+  /**
+   * Normalize a chat message row loaded from storage.
+   */
+  protected function normalizeMessageRow(array $row): array {
+    $row['metadata'] = json_decode($row['metadata'] ?: '{}', TRUE) ?: [];
+    $row['feed_targets'] = json_decode($row['feed_targets'] ?: '[]', TRUE) ?: [];
+    $row['id'] = (int) ($row['id'] ?? 0);
+    $row['session_id'] = (int) ($row['session_id'] ?? 0);
+    return $row;
   }
 
   /**
