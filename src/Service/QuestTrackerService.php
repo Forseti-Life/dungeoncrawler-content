@@ -2534,12 +2534,19 @@ class QuestTrackerService {
         continue;
       }
       $phase_number = max(1, (int) ($phase['phase'] ?? 1));
-      $phase['objectives'] = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
-      $this->setObjectiveCollectionRevealed($phase['objectives'], $phase_number === 1);
-      $this->refreshObjectiveCollection($phase['objectives']);
-      $this->normalizeObjectiveCollectionVisibility($phase['objectives'], $phase_number === 1);
+      $this->preparePhaseObjectiveCollection($phase, $phase_number === 1);
     }
     return $objectives;
+  }
+
+  /**
+   * Normalize and refresh one phase objective collection for journal visibility.
+   */
+  protected function preparePhaseObjectiveCollection(array &$phase_row, bool $allow_hidden_reveal): void {
+    $phase_row['objectives'] = is_array($phase_row['objectives'] ?? NULL) ? $phase_row['objectives'] : [];
+    $this->setObjectiveCollectionRevealed($phase_row['objectives'], $allow_hidden_reveal);
+    $this->refreshObjectiveCollection($phase_row['objectives']);
+    $this->normalizeObjectiveCollectionVisibility($phase_row['objectives'], $allow_hidden_reveal);
   }
 
   /**
@@ -2602,10 +2609,7 @@ class QuestTrackerService {
         if ((int) ($phase_row['phase'] ?? 0) !== $new_phase) {
           continue;
         }
-        $phase_row['objectives'] = is_array($phase_row['objectives'] ?? NULL) ? $phase_row['objectives'] : [];
-        $this->setObjectiveCollectionRevealed($phase_row['objectives'], TRUE);
-        $this->refreshObjectiveCollection($phase_row['objectives']);
-        $this->normalizeObjectiveCollectionVisibility($phase_row['objectives'], TRUE);
+        $this->preparePhaseObjectiveCollection($phase_row, TRUE);
       }
       unset($phase_row);
 

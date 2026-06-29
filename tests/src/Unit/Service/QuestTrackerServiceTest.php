@@ -136,6 +136,49 @@ class QuestTrackerServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies phase objective preparation normalizes objective shape and reveal flags.
+   */
+  public function testPreparePhaseObjectiveCollectionNormalizesObjectiveShape(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public function preparePhase(array &$phase, bool $allow_hidden_reveal): void {
+        $this->preparePhaseObjectiveCollection($phase, $allow_hidden_reveal);
+      }
+    };
+
+    $invalid_phase = [
+      'phase' => 2,
+      'objectives' => 'not-an-array',
+    ];
+    $service->preparePhase($invalid_phase, TRUE);
+    $this->assertSame([], $invalid_phase['objectives']);
+
+    $hidden_phase = [
+      'phase' => 2,
+      'objectives' => [[
+        'objective_id' => 'meet_the_contact',
+        'type' => 'interact',
+        'description' => 'Meet the contact in the market.',
+        'hidden' => TRUE,
+        'completed' => FALSE,
+      ]],
+    ];
+
+    $service->preparePhase($hidden_phase, FALSE);
+    $this->assertFalse($hidden_phase['objectives'][0]['revealed']);
+
+    $service->preparePhase($hidden_phase, TRUE);
+    $this->assertTrue($hidden_phase['objectives'][0]['revealed']);
+  }
+
+  /**
    * Verifies prompt formatting avoids leaking raw opaque identifiers.
    */
   public function testFormatObjectiveForPromptHumanizesOpaqueTargets(): void {
