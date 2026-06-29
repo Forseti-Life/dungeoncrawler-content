@@ -16,6 +16,12 @@ class NavigationService {
   /**
    * Build formalized navigation capabilities for one active room.
    *
+   * @deprecated
+   *   Direct-only capability projection is a legacy compatibility layer.
+   *   Runtime callers must use buildNavigationCapabilitiesWithRoadNetwork()
+   *   so all transition legality + distance semantics remain on the canonical
+   *   road-network-aware contract path.
+   *
    * @return array<int, array<string, mixed>>
    *   Navigation capabilities.
    */
@@ -246,12 +252,71 @@ class NavigationService {
    *   Connection records.
    */
   protected function extractConnections(array $dungeon_data): array {
-    $connections = $dungeon_data['hex_map']['connections'] ?? ($dungeon_data['connections'] ?? []);
-    if (!is_array($connections)) {
+    $sources = [];
+    if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
+      $sources[] = $dungeon_data['hex_map']['connections'];
+    }
+    if (is_array($dungeon_data['connections'] ?? NULL)) {
+      $sources[] = $dungeon_data['connections'];
+    }
+    if ($sources === []) {
       return [];
     }
 
-    return array_values(array_filter($connections, 'is_array'));
+    $connections = [];
+    $seen = [];
+    foreach ($sources as $bucket) {
+      foreach ($bucket as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $identity = $this->buildConnectionIdentityKey($connection);
+        if (isset($seen[$identity])) {
+          continue;
+        }
+        $seen[$identity] = TRUE;
+        $connections[] = $connection;
+      }
+    }
+
+    return $connections;
+  }
+
+  /**
+   * Build a stable identity key used for raw connection deduplication.
+   */
+  protected function buildConnectionIdentityKey(array $connection): string {
+    $explicit = trim((string) ($connection['connection_id'] ?? $connection['id'] ?? ''));
+    if ($explicit !== '') {
+      return 'id:' . $explicit;
+    }
+
+    $from_room = trim((string) (
+      $connection['from_room']
+      ?? $connection['from_room_id']
+      ?? ($connection['from']['room_id'] ?? $connection['from']['room'] ?? '')
+    ));
+    $to_room = trim((string) (
+      $connection['to_room']
+      ?? $connection['to_room_id']
+      ?? ($connection['to']['room_id'] ?? $connection['to']['room'] ?? '')
+    ));
+    $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
+    $from_hex = $this->normalizeHex($connection['from_hex'] ?? ($connection['from'] ?? NULL));
+    $to_hex = $this->normalizeHex($connection['to_hex'] ?? ($connection['to'] ?? NULL));
+
+    return 'sig:' . sha1(json_encode([
+      'from_room' => $from_room,
+      'to_room' => $to_room,
+      'type' => $type,
+      'from_q' => $from_hex['q'] ?? NULL,
+      'from_r' => $from_hex['r'] ?? NULL,
+      'to_q' => $to_hex['q'] ?? NULL,
+      'to_r' => $to_hex['r'] ?? NULL,
+      'destination_type' => trim((string) ($connection['destination_type'] ?? $connection['to_type'] ?? '')),
+      'destination_id' => trim((string) ($connection['destination_id'] ?? $connection['road_node_id'] ?? $connection['road_id'] ?? '')),
+      'distance' => $connection['distance'] ?? $connection['travel_distance'] ?? $connection['distance_units'] ?? NULL,
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
   }
 
   /**
@@ -263,11 +328,25 @@ class NavigationService {
       return $explicit;
     }
 
-    $from_room = trim((string) ($connection['from_room'] ?? 'unknown'));
-    $to_room = trim((string) ($connection['to_room'] ?? 'unknown'));
+    $from_room = trim((string) (
+      $connection['from_room']
+      ?? $connection['from_room_id']
+      ?? ($connection['from']['room_id'] ?? $connection['from']['room'] ?? 'unknown')
+    ));
+    if ($from_room === '') {
+      $from_room = 'unknown';
+    }
+    $to_room = trim((string) (
+      $connection['to_room']
+      ?? $connection['to_room_id']
+      ?? ($connection['to']['room_id'] ?? $connection['to']['room'] ?? 'unknown')
+    ));
+    if ($to_room === '') {
+      $to_room = 'unknown';
+    }
     $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
-    $from_hex = $this->normalizeHex($connection['from_hex'] ?? NULL);
-    $to_hex = $this->normalizeHex($connection['to_hex'] ?? NULL);
+    $from_hex = $this->normalizeHex($connection['from_hex'] ?? ($connection['from'] ?? NULL));
+    $to_hex = $this->normalizeHex($connection['to_hex'] ?? ($connection['to'] ?? NULL));
     $scope_suffix = 'unscoped';
     if ($from_hex !== NULL && $to_hex !== NULL) {
       $scope_suffix = $from_hex['q'] . ':' . $from_hex['r'] . '__' . $to_hex['q'] . ':' . $to_hex['r'];
@@ -442,71 +521,7 @@ class NavigationService {
     string $room_id,
     ?array $active_quests = NULL
   ): array {
-    $capabilities = $this->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id);
-
-    if (empty($active_quests) || !is_array($active_quests)) {
-      return $capabilities;
-    }
-
-    // Collect all quest destinations
-    $quest_destinations = $this->extractQuestDestinations($active_quests);
-
-    // For each quest destination, ensure it's in capabilities
-    foreach ($quest_destinations as $quest_ref) {
-      $destination_identifier = $quest_ref['destination'];
-      $quest_id = $quest_ref['quest_id'];
-
-      // Resolve destination to room_id
-      $target_room = $this->findRoomByIdOrName($dungeon_data, $destination_identifier);
-      if (!$target_room) {
-        continue; // Destination doesn't exist, skip
-      }
-
-      $target_room_id = (string) ($target_room['room_id'] ?? '');
-      if ($target_room_id === '') {
-        continue;
-      }
-
-      // Check if this room is already in capabilities
-      $already_present = FALSE;
-      foreach ($capabilities as $cap) {
-        if ((string) ($cap['target_room_id'] ?? '') === $target_room_id) {
-          $already_present = TRUE;
-          // Mark as quest-referenced
-          $cap['quest_reference'] = TRUE;
-          if (!isset($cap['quest_ids'])) {
-            $cap['quest_ids'] = [];
-          }
-          if (!in_array($quest_id, $cap['quest_ids'], TRUE)) {
-            $cap['quest_ids'][] = $quest_id;
-          }
-          break;
-        }
-      }
-
-      // If not present, add as synthetic capability
-      if (!$already_present) {
-        $capabilities[] = [
-          'connection_id' => "quest-synthetic-{$target_room_id}",
-          'origin_room_id' => $room_id,
-          'target_room_id' => $target_room_id,
-          'destination_type' => 'room',
-          'destination_id' => $target_room_id,
-          'distance' => 0,
-          'type' => 'synthetic',
-          'available' => TRUE,
-          'blocked_reason' => NULL,
-          'is_discovered' => TRUE,
-          'is_passable' => TRUE,
-          'bidirectional' => FALSE,
-          'requires_interaction' => FALSE,
-          'quest_reference' => TRUE,
-          'quest_ids' => [$quest_id],
-        ];
-      }
-    }
-
-    return $capabilities;
+    return $this->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id, $active_quests);
   }
 
   /**
@@ -520,27 +535,273 @@ class NavigationService {
    */
   protected function extractQuestDestinations(array $active_quests): array {
     $destinations = [];
+    $seen = [];
 
     foreach ($active_quests as $quest) {
-      $quest_id = (string) ($quest['quest_id'] ?? '');
-      if ($quest_id === '') {
+      if (!is_array($quest)) {
         continue;
       }
 
-      $objectives = (array) ($quest['objectives'] ?? []);
-      foreach ($objectives as $objective) {
-        $destination = trim((string) ($objective['destination'] ?? 
-                                      $objective['destination_id'] ?? ''));
-        if ($destination !== '') {
-          $destinations[] = [
-            'destination' => $destination,
-            'quest_id' => $quest_id,
-          ];
+      $objective_sets = [];
+      if (is_array($quest['objectives'] ?? NULL)) {
+        $objective_sets[] = (array) $quest['objectives'];
+      }
+      if (is_array($quest['objective_states'] ?? NULL)) {
+        $objective_sets[] = $this->extractObjectiveRefsFromPhases((array) $quest['objective_states']);
+      }
+      if (is_array($quest['generated_objectives'] ?? NULL)) {
+        $objective_sets[] = $this->extractObjectiveRefsFromPhases((array) $quest['generated_objectives']);
+      }
+
+      $quest_id = (string) ($quest['quest_id'] ?? '');
+      if ($quest_id === '') {
+        if ($this->objectiveSetsContainDestinationReferences($objective_sets)) {
+          throw new \InvalidArgumentException('Quest destination contract violation: quest_id is required when objective destination metadata is present.');
+        }
+        continue;
+      }
+
+      foreach ($objective_sets as $objectives) {
+        foreach ($objectives as $objective) {
+          if (!is_array($objective)) {
+            continue;
+          }
+          foreach (['destination', 'destination_id', 'location_id', 'location'] as $field) {
+            $destination = trim((string) ($objective[$field] ?? ''));
+            if ($destination === '') {
+              continue;
+            }
+            $key = $quest_id . '::' . strtolower($destination);
+            if (isset($seen[$key])) {
+              continue;
+            }
+            $seen[$key] = TRUE;
+            $destinations[] = [
+              'destination' => $destination,
+              'quest_id' => $quest_id,
+            ];
+          }
         }
       }
     }
 
     return $destinations;
+  }
+
+  /**
+   * Determine whether any objective set includes destination metadata.
+   *
+   * @param array<int, array<int, mixed>> $objective_sets
+   *   Grouped objective collections.
+   */
+  protected function objectiveSetsContainDestinationReferences(array $objective_sets): bool {
+    foreach ($objective_sets as $objectives) {
+      foreach ($objectives as $objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+        foreach (['destination', 'destination_id', 'location_id', 'location'] as $field) {
+          if (trim((string) ($objective[$field] ?? '')) !== '') {
+            return TRUE;
+          }
+        }
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Flatten objective nodes out of phased objective payloads.
+   *
+   * @param array<int, mixed> $phases
+   *   Objective phases payload.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Flattened objective nodes.
+   */
+  protected function extractObjectiveRefsFromPhases(array $phases): array {
+    $flattened = [];
+    foreach ($phases as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+        $flattened[] = $objective;
+        foreach ($this->extractObjectiveChildren($objective) as $child) {
+          $flattened[] = $child;
+        }
+      }
+    }
+
+    return $flattened;
+  }
+
+  /**
+   * Recursively flatten child objective nodes.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective node.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Child objectives.
+   */
+  protected function extractObjectiveChildren(array $objective): array {
+    $children = [];
+    foreach ((array) ($objective['children'] ?? []) as $child) {
+      if (!is_array($child)) {
+        continue;
+      }
+      $children[] = $child;
+      foreach ($this->extractObjectiveChildren($child) as $nested) {
+        $children[] = $nested;
+      }
+    }
+
+    return $children;
+  }
+
+  /**
+   * Collect quest entries embedded in dungeon payload context.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Quest entries from quest summary or active quest context.
+   */
+  protected function collectQuestEntriesFromDungeonData(array $dungeon_data): array {
+    $entries = [];
+    $quest_summary = is_array($dungeon_data['quest_summary'] ?? NULL) ? $dungeon_data['quest_summary'] : [];
+
+    foreach (['active', 'offers', 'leads'] as $bucket) {
+      if (!is_array($quest_summary[$bucket] ?? NULL)) {
+        continue;
+      }
+      foreach ($quest_summary[$bucket] as $quest_entry) {
+        if (is_array($quest_entry)) {
+          $entries[] = $quest_entry;
+        }
+      }
+    }
+
+    if ($entries === [] && is_array($dungeon_data['active_quests'] ?? NULL)) {
+      foreach ((array) $dungeon_data['active_quests'] as $quest_entry) {
+        if (is_array($quest_entry)) {
+          $entries[] = $quest_entry;
+        }
+      }
+    }
+
+    return $entries;
+  }
+
+  /**
+   * Add quest destination capabilities to a baseline capability list.
+   *
+   * @param array<int, array<string, mixed>> $capabilities
+   *   Existing capabilities.
+   * @param array<int, array<string, mixed>>|null $quest_entries
+   *   Quest entries to inspect.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Capabilities with quest destination entries merged in.
+   */
+  protected function appendQuestDestinationCapabilities(
+    array $capabilities,
+    array $dungeon_data,
+    string $room_id,
+    ?array $quest_entries = NULL
+  ): array {
+    $resolved_entries = is_array($quest_entries) ? $quest_entries : $this->collectQuestEntriesFromDungeonData($dungeon_data);
+    if ($resolved_entries === []) {
+      return $capabilities;
+    }
+
+    $quest_destinations = $this->extractQuestDestinations($resolved_entries);
+    foreach ($quest_destinations as $quest_ref) {
+      $destination_identifier = (string) ($quest_ref['destination'] ?? '');
+      $quest_id = (string) ($quest_ref['quest_id'] ?? '');
+      if ($destination_identifier === '' || $quest_id === '') {
+        continue;
+      }
+
+      $target_room = $this->findRoomByIdOrName($dungeon_data, $destination_identifier);
+      if (!$target_room) {
+        throw new \InvalidArgumentException(sprintf(
+          'Quest destination contract violation: quest "%s" references "%s", but no matching room_id/name exists in dungeon_data.rooms.',
+          $quest_id,
+          $destination_identifier
+        ));
+      }
+
+      $target_room_id = (string) ($target_room['room_id'] ?? '');
+      if ($target_room_id === '' || $target_room_id === $room_id) {
+        continue;
+      }
+
+      $already_present = FALSE;
+      foreach ($capabilities as &$capability) {
+        if ((string) ($capability['target_room_id'] ?? '') !== $target_room_id) {
+          continue;
+        }
+        $already_present = TRUE;
+        $capability['quest_reference'] = TRUE;
+        $existing_ids = is_array($capability['quest_ids'] ?? NULL) ? $capability['quest_ids'] : [];
+        if (!in_array($quest_id, $existing_ids, TRUE)) {
+          $existing_ids[] = $quest_id;
+        }
+        $capability['quest_ids'] = array_values(array_unique(array_map('strval', $existing_ids)));
+      }
+      unset($capability);
+
+      if ($already_present) {
+        continue;
+      }
+
+      $capabilities[] = [
+        'connection_id' => "quest-synthetic-{$target_room_id}",
+        'origin_room_id' => $room_id,
+        'target_room_id' => $target_room_id,
+        'destination_type' => 'room',
+        'destination_id' => $target_room_id,
+        'distance' => 0,
+        'type' => 'synthetic',
+        'available' => TRUE,
+        'blocked_reason' => NULL,
+        'is_discovered' => TRUE,
+        'is_passable' => TRUE,
+        'bidirectional' => FALSE,
+        'requires_interaction' => FALSE,
+        'quest_reference' => TRUE,
+        'quest_ids' => [$quest_id],
+      ];
+    }
+
+    return $capabilities;
+  }
+
+  /**
+   * Sort capabilities into canonical order.
+   *
+   * @param array<int, array<string, mixed>> $capabilities
+   *   Capabilities to sort.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Sorted capabilities.
+   */
+  protected function sortCapabilities(array $capabilities): array {
+    usort($capabilities, static function (array $left, array $right): int {
+      $left_available = !empty($left['available']) ? 0 : 1;
+      $right_available = !empty($right['available']) ? 0 : 1;
+      if ($left_available !== $right_available) {
+        return $left_available <=> $right_available;
+      }
+
+      return strcmp((string) ($left['target_room_id'] ?? ''), (string) ($right['target_room_id'] ?? ''));
+    });
+
+    return $capabilities;
   }
 
   /**
@@ -596,51 +857,40 @@ class NavigationService {
    */
   public function buildNavigationCapabilitiesWithRoadNetwork(
     array $dungeon_data,
-    string $room_id
+    string $room_id,
+    ?array $quest_entries = NULL
   ): array {
     // Start with normal capabilities
     $capabilities = $this->buildNavigationCapabilities($dungeon_data, $room_id);
 
     // Check if current room has any road connection
     $current_room_has_road = $this->hasRoadConnection($dungeon_data, $room_id);
-    if (!$current_room_has_road) {
-      return $capabilities; // No road access, limited to direct connections
-    }
+    if ($current_room_has_road) {
+      // Current room has road access — add all other road-connected rooms.
+      $road_network_rooms = $this->extractRoadNetworkRooms($dungeon_data, $room_id);
 
-    // Current room has road access — add all other road-connected rooms
-    $road_network_rooms = $this->extractRoadNetworkRooms($dungeon_data, $room_id);
+      foreach ($road_network_rooms as $target_room_id) {
+        // Check if already in capabilities (direct connection).
+        $already_present = FALSE;
+        foreach ($capabilities as $cap) {
+          if ((string) ($cap['target_room_id'] ?? '') === $target_room_id) {
+            $already_present = TRUE;
+            break;
+          }
+        }
 
-    foreach ($road_network_rooms as $target_room_id) {
-      // Check if already in capabilities (direct connection)
-      $already_present = FALSE;
-      foreach ($capabilities as $cap) {
-        if ((string) ($cap['target_room_id'] ?? '') === $target_room_id) {
-          $already_present = TRUE;
-          break;
+        if (!$already_present) {
+          // Add synthetic road network capability.
+          $capability = $this->synthesizeRoadCapability($dungeon_data, $room_id, $target_room_id);
+          if ($capability !== NULL) {
+            $capabilities[] = $capability;
+          }
         }
       }
-
-      if (!$already_present) {
-        // Add synthetic road network capability
-        $capability = $this->synthesizeRoadCapability($dungeon_data, $room_id, $target_room_id);
-        if ($capability !== NULL) {
-          $capabilities[] = $capability;
-        }
-      }
     }
 
-    // Re-sort after adding road network destinations
-    usort($capabilities, static function (array $left, array $right): int {
-      $left_available = !empty($left['available']) ? 0 : 1;
-      $right_available = !empty($right['available']) ? 0 : 1;
-      if ($left_available !== $right_available) {
-        return $left_available <=> $right_available;
-      }
-
-      return strcmp((string) ($left['target_room_id'] ?? ''), (string) ($right['target_room_id'] ?? ''));
-    });
-
-    return $capabilities;
+    $capabilities = $this->appendQuestDestinationCapabilities($capabilities, $dungeon_data, $room_id, $quest_entries);
+    return $this->sortCapabilities($capabilities);
   }
 
   /**

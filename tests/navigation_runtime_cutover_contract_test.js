@@ -35,6 +35,22 @@ const navigationServiceSource = fs.readFileSync(
   'utf8'
 );
 
+function listPhpFiles(dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listPhpFiles(fullPath));
+      continue;
+    }
+    if (entry.isFile() && fullPath.endsWith('.php')) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
 console.log('\n=== Navigation runtime cutover contract ===');
 
 assert(
@@ -57,6 +73,31 @@ assert(
   'NavigationService entry points route through road-network-aware capability builder'
 );
 
+assert(
+  navigationServiceSource.includes('Direct-only capability projection is a legacy compatibility layer.')
+    && navigationServiceSource.includes('Runtime callers must use buildNavigationCapabilitiesWithRoadNetwork()'),
+  'NavigationService documents deprecation of direct-only capability projection'
+);
+
+assert(
+  encounterPhaseHandlerSource.includes('Transitional fallback kept only for isolated EncounterPhaseHandler tests')
+    && encounterPhaseHandlerSource.includes('must stay on NavigationService::buildNavigationCapabilitiesWithRoadNetwork()'),
+  'EncounterPhaseHandler documents fallback capability path as temporary/deprecated'
+);
+
+const phpServiceRoot = path.resolve(__dirname, '../src/Service');
+const directOnlyCallsites = listPhpFiles(phpServiceRoot)
+  .filter((filePath) => !filePath.endsWith(path.normalize('/NavigationService.php')))
+  .filter((filePath) => {
+    const source = fs.readFileSync(filePath, 'utf8');
+    return source.includes('->buildNavigationCapabilities(');
+  });
+
+assert(
+  directOnlyCallsites.length === 0,
+  'Runtime services contain no direct-only buildNavigationCapabilities() callsites'
+);
+
 console.log('\n===========================================');
 console.log(`Passed: ${passed}`);
 console.log(`Failed: ${failed}`);
@@ -65,4 +106,3 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log('ALL TESTS PASSED');
-

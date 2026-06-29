@@ -8438,6 +8438,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
   /**
    * Fallback navigation capability builder for isolated tests.
+   *
+   * @deprecated
+   *   Transitional fallback kept only for isolated EncounterPhaseHandler tests
+   *   that run without injected NavigationService wiring. Primary runtime paths
+   *   must stay on NavigationService::buildNavigationCapabilitiesWithRoadNetwork().
    */
   protected function buildFallbackNavigationCapabilities(array $dungeon_data, string $room_id): array {
     // Fallback now delegates to the canonical navigation service implementation
