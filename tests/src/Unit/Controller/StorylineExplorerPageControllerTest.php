@@ -305,4 +305,35 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
     $this->assertSame(0, (int) ($rows[0]['error_count'] ?? 0));
   }
 
+  /**
+   * @covers ::buildEntityTypeVerificationRows
+   */
+  public function testBuildEntityTypeVerificationRowsMarksUnsupportedTypeUnknown(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('getSupportedEntityTypeContractTypes')
+      ->willReturn(['npc', 'hazard']);
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeBuildEntityTypeVerificationRows(array $template_data, array $stages): array {
+        return $this->buildEntityTypeVerificationRows($template_data, $stages);
+      }
+    };
+
+    $rows = $controller->exposeBuildEntityTypeVerificationRows([
+      'asset_references' => [
+        ['asset_type' => 'quest', 'asset_id' => 'quest-a'],
+      ],
+      'contacts' => [],
+    ], [
+      'entity_type_contracts' => [
+        'valid' => TRUE,
+        'errors' => [],
+      ],
+    ]);
+
+    $this->assertSame('UNKNOWN', (string) ($rows[0]['status'] ?? ''));
+    $this->assertSame(0, (int) ($rows[0]['error_count'] ?? 0));
+  }
+
 }

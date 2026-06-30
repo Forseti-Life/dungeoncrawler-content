@@ -1336,6 +1336,9 @@ class StorylineExplorerPageController extends ControllerBase {
     ksort($reference_counts);
     $entity_stage = is_array($stages['entity_type_contracts'] ?? NULL) ? $stages['entity_type_contracts'] : ['valid' => FALSE, 'errors' => []];
     $stage_is_valid = !empty($entity_stage['valid']);
+    $supported_entity_types = $this->storylineManager instanceof StorylineManagerService
+      ? array_fill_keys(array_map('strval', $this->storylineManager->getSupportedEntityTypeContractTypes()), TRUE)
+      : [];
     $stage_errors = array_values(array_filter(array_map('strval', is_array($entity_stage['errors'] ?? NULL) ? $entity_stage['errors'] : []), static fn(string $error): bool => trim($error) !== ''));
     $errors_by_type = [];
     $typed_error_total = 0;
@@ -1354,7 +1357,11 @@ class StorylineExplorerPageController extends ControllerBase {
     $rows = [];
     foreach ($reference_counts as $entity_type => $count) {
       $error_count = (int) ($errors_by_type[$entity_type] ?? 0);
-      if ($stage_missing) {
+      $type_supported = $supported_entity_types === [] || isset($supported_entity_types[$entity_type]);
+      if (!$type_supported) {
+        $status = 'UNKNOWN';
+      }
+      elseif ($stage_missing) {
         $status = 'UNKNOWN';
       }
       elseif ($error_count > 0) {

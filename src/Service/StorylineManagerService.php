@@ -506,6 +506,30 @@ class StorylineManagerService {
     }
 
     /**
+     * Return entity types currently covered by entity_type_contracts validators.
+     *
+     * @return array<int, string>
+     *   Normalized supported entity types.
+     */
+    public function getSupportedEntityTypeContractTypes(): array {
+      return [
+        'npc',
+        'npc_template',
+        'campaign_npc',
+        'character',
+        'character_group',
+        'creature',
+        'hazard',
+        'item',
+        'room',
+        'location',
+        'dungeon',
+        'faction',
+        'institution',
+      ];
+    }
+
+    /**
      * Validate npc-like entity contracts.
      *
      * @param array<string, mixed> $context
