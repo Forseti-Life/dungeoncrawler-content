@@ -3059,29 +3059,9 @@ class StorylineManagerService {
     }
 
     $outline = is_array($definition['metadata']['generated_outline'] ?? NULL) ? $definition['metadata']['generated_outline'] : [];
-    $outline_declared_dungeons = [];
-    $outline_declared_rooms = [];
-    foreach (array_values(array_filter(is_array($outline['dungeons'] ?? NULL) ? $outline['dungeons'] : [], 'is_array')) as $dungeon) {
-      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
-      if ($dungeon_id !== '') {
-        $outline_declared_dungeons[$dungeon_id] = TRUE;
-      }
-      foreach (array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array')) as $room) {
-        $room_id = trim((string) ($room['room_id'] ?? ''));
-        if ($room_id !== '') {
-          $outline_declared_rooms[$room_id] = TRUE;
-        }
-      }
-    }
-    $outline_entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
-    $outline_entry_dungeon_id = trim((string) ($outline_entry_dungeon['dungeon_id'] ?? ''));
-    if ($outline_entry_dungeon_id !== '') {
-      $outline_declared_dungeons[$outline_entry_dungeon_id] = TRUE;
-    }
-    $outline_entry_room_id = trim((string) ($outline_entry_dungeon['entrance_room_id'] ?? ''));
-    if ($outline_entry_room_id !== '') {
-      $outline_declared_rooms[$outline_entry_room_id] = TRUE;
-    }
+    $outline_location_index = $this->collectOutlineLocationAnchors($outline);
+    $outline_declared_dungeons = $outline_location_index['dungeons'];
+    $outline_declared_rooms = $outline_location_index['rooms'];
 
     $entry_point = is_array($outline['entry_point'] ?? NULL) ? $outline['entry_point'] : [];
     if ($entry_point === []) {
@@ -3105,7 +3085,7 @@ class StorylineManagerService {
         $errors[] = 'Storyline entry_point.primary_quest_giver_name is required.';
       }
       if ($primary_dungeon_id === '') {
-        $errors[] = 'Storyline entry_point.primary_dungeon_id is required and must reference a canonical dungeon.';
+        $errors[] = 'Storyline entry_point.primary_dungeon_id is required and must reference a storyline or canonical dungeon anchor.';
       }
       if ($primary_chapter_id === '') {
         $errors[] = 'Storyline entry_point.primary_chapter_id is required.';
@@ -3114,7 +3094,7 @@ class StorylineManagerService {
         $errors[] = 'Storyline entry_point.primary_scene_id is required.';
       }
       if ($primary_location_id === '') {
-        $errors[] = 'Storyline entry_point.primary_location_id is required and must reference a room/location anchor.';
+        $errors[] = 'Storyline entry_point.primary_location_id is required and must reference a storyline or canonical room/location anchor.';
       }
       if ($detail_summary === '') {
         $errors[] = 'Storyline entry_point.detail_summary is required.';
@@ -3235,8 +3215,8 @@ class StorylineManagerService {
       }
     }
 
-    $outline_dungeons = [];
-    $outline_rooms = [];
+    $outline_dungeons = $outline_declared_dungeons;
+    $outline_rooms = $outline_declared_rooms;
     $outline_npcs = $contact_entity_ids + $declared_asset_npc_ids;
     foreach (array_values(array_filter(is_array($outline['sub_bosses'] ?? NULL) ? $outline['sub_bosses'] : [], 'is_array')) as $boss) {
       $boss_id = trim((string) ($boss['boss_id'] ?? ''));
@@ -3254,7 +3234,6 @@ class StorylineManagerService {
       if ($dungeon_id === '') {
         continue;
       }
-      $outline_dungeons[$dungeon_id] = TRUE;
       $rooms = array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array'));
       $room_ids = [];
       foreach ($rooms as $room) {
@@ -3262,7 +3241,6 @@ class StorylineManagerService {
         if ($room_id === '') {
           continue;
         }
-        $outline_rooms[$room_id] = TRUE;
         $room_ids[$room_id] = TRUE;
         foreach (array_values(array_filter(array_map('strval', is_array($room['npc_ids'] ?? NULL) ? $room['npc_ids'] : []))) as $npc_id) {
           if (!isset($outline_npcs[$npc_id])) {
@@ -3311,6 +3289,45 @@ class StorylineManagerService {
     }
 
     return array_values(array_unique($errors));
+  }
+
+  /**
+   * Collect outline-declared dungeon and room anchors.
+   *
+   * @return array{dungeons: array<string, bool>, rooms: array<string, bool>}
+   *   Dedupe maps keyed by declared dungeon and room ids.
+   */
+  protected function collectOutlineLocationAnchors(array $outline): array {
+    $dungeons = [];
+    $rooms = [];
+
+    foreach (array_values(array_filter(is_array($outline['dungeons'] ?? NULL) ? $outline['dungeons'] : [], 'is_array')) as $dungeon) {
+      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      if ($dungeon_id !== '') {
+        $dungeons[$dungeon_id] = TRUE;
+      }
+      foreach (array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array')) as $room) {
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id !== '') {
+          $rooms[$room_id] = TRUE;
+        }
+      }
+    }
+
+    $entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+    $entry_dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? ''));
+    if ($entry_dungeon_id !== '') {
+      $dungeons[$entry_dungeon_id] = TRUE;
+    }
+    $entry_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? ''));
+    if ($entry_room_id !== '') {
+      $rooms[$entry_room_id] = TRUE;
+    }
+
+    return [
+      'dungeons' => $dungeons,
+      'rooms' => $rooms,
+    ];
   }
 
   /**
