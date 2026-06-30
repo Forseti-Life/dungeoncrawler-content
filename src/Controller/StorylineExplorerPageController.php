@@ -1087,6 +1087,17 @@ class StorylineExplorerPageController extends ControllerBase {
     foreach ($diagnostics['graph_errors'] as $error) {
       $graph_rows[] = [(string) $error];
     }
+    $entity_type_rows = [];
+    foreach (($diagnostics['entity_type_verification'] ?? []) as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $entity_type_rows[] = [
+        (string) ($row['entity_type'] ?? ''),
+        (string) ((int) ($row['reference_count'] ?? 0)),
+        (string) ($row['stage_status'] ?? ''),
+      ];
+    }
 
     $validator_status = $diagnostics['validator_status'];
     $status_badge = $validator_status === 'pass'
@@ -1153,6 +1164,18 @@ class StorylineExplorerPageController extends ControllerBase {
           '#rows' => $graph_rows,
           '#empty' => $this->t('No graph contract errors.'),
         ],
+        'entity_type_verification_title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h3',
+          '#attributes' => ['class' => ['h6', 'mt-3', 'mb-2']],
+          '#value' => (string) $this->t('Entity-type contract verification'),
+        ],
+        'entity_type_verification' => [
+          '#type' => 'table',
+          '#header' => ['Entity type', 'Referenced entities', 'Contract stage status'],
+          '#rows' => $entity_type_rows,
+          '#empty' => $this->t('No entity-type references detected in this storyline template.'),
+        ],
       ],
     ];
   }
@@ -1166,7 +1189,8 @@ class StorylineExplorerPageController extends ControllerBase {
    *   validator_status: string,
    *   validator_errors: array<int, string>,
    *   stages: array<string, array{valid: bool, errors: array<int, string>}>,
-   *   graph_errors: array<int, string>
+   *   graph_errors: array<int, string>,
+   *   entity_type_verification: array<int, array{entity_type: string, reference_count: int, stage_status: string}>
    * }
    */
   protected function collectValidationDiagnostics(array $template_data, array $graph): array {
@@ -1264,7 +1288,64 @@ class StorylineExplorerPageController extends ControllerBase {
       'validator_errors' => array_values(array_unique($validator_errors)),
       'stages' => $stages,
       'graph_errors' => array_values(array_unique($graph_errors)),
+      'entity_type_verification' => $this->buildEntityTypeVerificationRows($template_data, $stages),
     ];
+  }
+
+  /**
+   * Build explorer-facing verification rows for entity-type contract coverage.
+   *
+   * @param array<string, mixed> $template_data
+   *   Normalized storyline template definition.
+   * @param array<string, array{valid: bool, errors: array<int, string>}> $stages
+   *   Validator stage payloads keyed by stage name.
+   *
+   * @return array<int, array{entity_type: string, reference_count: int, stage_status: string}>
+   *   Entity-type verification rows for the diagnostics card.
+   */
+  protected function buildEntityTypeVerificationRows(array $template_data, array $stages): array {
+    $reference_counts = [];
+
+    foreach ((array) ($template_data['asset_references'] ?? []) as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? '')));
+      if ($asset_type === '') {
+        continue;
+      }
+      $reference_counts[$asset_type] = ($reference_counts[$asset_type] ?? 0) + 1;
+    }
+
+    foreach ((array) ($template_data['contacts'] ?? []) as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($contact['entity_type'] ?? '')));
+      if ($entity_type === '') {
+        continue;
+      }
+      $reference_counts[$entity_type] = ($reference_counts[$entity_type] ?? 0) + 1;
+    }
+
+    if ($reference_counts === []) {
+      return [];
+    }
+
+    ksort($reference_counts);
+    $entity_stage = $stages['entity_type_contracts'] ?? ['valid' => FALSE];
+    $stage_status = !empty($entity_stage['valid']) ? 'PASS (scaffold/no-op)' : 'FAIL';
+
+    $rows = [];
+    foreach ($reference_counts as $entity_type => $count) {
+      $rows[] = [
+        'entity_type' => (string) $entity_type,
+        'reference_count' => (int) $count,
+        'stage_status' => $stage_status,
+      ];
+    }
+
+    return $rows;
   }
 
   /**
