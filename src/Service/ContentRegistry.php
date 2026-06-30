@@ -46,6 +46,7 @@ class ContentRegistry {
    * @var string
    */
   protected $contentPath;
+  protected ?StateValidationService $stateValidationService;
 
   /**
    * Constructs a ContentRegistry object.
@@ -55,9 +56,14 @@ class ContentRegistry {
    * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
    *   The logger factory.
    */
-  public function __construct(Connection $database, LoggerChannelFactoryInterface $logger_factory) {
+  public function __construct(
+    Connection $database,
+    LoggerChannelFactoryInterface $logger_factory,
+    ?StateValidationService $state_validation_service = NULL
+  ) {
     $this->database = $database;
     $this->loggerFactory = $logger_factory;
+    $this->stateValidationService = $state_validation_service;
     
     // Path: <module-root>/content/
     $this->contentPath = \Drupal::service('extension.list.module')
@@ -503,7 +509,13 @@ class ContentRegistry {
         break;
         
       case 'item':
-        $errors = array_merge($errors, $this->validateItem($content_data));
+        if ($this->stateValidationService === NULL) {
+          $errors[] = 'Item contract validator service is not available';
+        }
+        else {
+          $validation = $this->stateValidationService->validateItemDefinition($content_data);
+          $errors = array_merge($errors, array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))));
+        }
         break;
         
       case 'trap':
