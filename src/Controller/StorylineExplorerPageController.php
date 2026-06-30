@@ -136,41 +136,33 @@ class StorylineExplorerPageController extends ControllerBase {
   }
 
   /**
-   * Load storyline templates safely.
+   * Load storyline templates from DB-authoritative storage.
    *
    * @return array<int, array<string, mixed>>
    *   Template rows.
    */
   protected function loadStorylineTemplates(): array {
-    $templates_dir = dirname(__DIR__, 2) . '/config/examples/templates/dungeoncrawler_content_storylines';
-    if (!is_dir($templates_dir)) {
-      return [];
+    if (!($this->storylineManager instanceof StorylineManagerService)) {
+      throw new \RuntimeException(
+        'Storyline explorer requires StorylineManagerService to load canonical storyline templates from DB storage.'
+      );
     }
 
+    $canonical_templates = $this->storylineManager->listTemplates();
     $templates = [];
-    foreach (glob($templates_dir . '/*.json') ?: [] as $path) {
-      $raw = file_get_contents($path);
-      if (!is_string($raw) || trim($raw) === '') {
+    foreach ($canonical_templates as $row) {
+      if (!is_array($row)) {
         continue;
       }
-      $decoded = json_decode($raw, TRUE);
-      if (!is_array($decoded) || !is_array($decoded['rows'] ?? NULL)) {
+      $template_id = trim((string) ($row['template_id'] ?? ''));
+      if ($template_id === '') {
         continue;
       }
-      foreach ($decoded['rows'] as $row) {
-        if (!is_array($row)) {
-          continue;
-        }
-        $template_id = trim((string) ($row['template_id'] ?? ''));
-        if ($template_id === '') {
-          continue;
-        }
-        $templates[] = [
-          'template_id' => $template_id,
-          'name' => (string) ($row['name'] ?? $template_id),
-          'template_data' => is_array($row['template_data'] ?? NULL) ? $row['template_data'] : [],
-        ];
-      }
+      $templates[] = [
+        'template_id' => $template_id,
+        'name' => (string) ($row['name'] ?? $template_id),
+        'template_data' => is_array($row['template_data'] ?? NULL) ? $row['template_data'] : [],
+      ];
     }
 
     usort($templates, static fn(array $a, array $b): int => strcasecmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? '')));

@@ -12,6 +12,58 @@ use Drupal\Tests\UnitTestCase;
 class StorylineExplorerPageControllerTest extends UnitTestCase {
 
   /**
+   * @covers ::loadStorylineTemplates
+   */
+  public function testLoadStorylineTemplatesUsesCanonicalDbRowsFromStorylineManager(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('listTemplates')
+      ->willReturn([
+        [
+          'template_id' => 'beta-template',
+          'name' => 'Beta Story',
+          'template_data' => ['template_id' => 'beta-template'],
+        ],
+        [
+          'template_id' => 'alpha-template',
+          'name' => 'Alpha Story',
+          'template_data' => ['template_id' => 'alpha-template'],
+        ],
+        [
+          'template_id' => '',
+          'name' => 'Invalid',
+          'template_data' => [],
+        ],
+      ]);
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeLoadStorylineTemplates(): array {
+        return $this->loadStorylineTemplates();
+      }
+    };
+
+    $templates = $controller->exposeLoadStorylineTemplates();
+    $this->assertCount(2, $templates);
+    $this->assertSame('alpha-template', (string) ($templates[0]['template_id'] ?? ''));
+    $this->assertSame('beta-template', (string) ($templates[1]['template_id'] ?? ''));
+  }
+
+  /**
+   * @covers ::loadStorylineTemplates
+   */
+  public function testLoadStorylineTemplatesFailsWithoutStorylineManager(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeLoadStorylineTemplates(): array {
+        return $this->loadStorylineTemplates();
+      }
+    };
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('Storyline explorer requires StorylineManagerService');
+    $controller->exposeLoadStorylineTemplates();
+  }
+
+  /**
    * @covers ::collectTaskContractDiagnostics
    */
   public function testCollectTaskContractDiagnosticsFlagsCompositeWithoutChildrenAndDuplicateTaskIds(): void {
