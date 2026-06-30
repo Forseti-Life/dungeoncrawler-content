@@ -304,7 +304,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::buildNpcTurnPlan
    */
-  public function testBuildNpcTurnPlanDoesNotCarryActiveConversationTangentsForward(): void {
+  public function testBuildNpcTurnPlanCarriesActiveConversationFocusForward(): void {
     $roomNpcs = [
       [
         'entity_ref' => 'gribbles_rindsworth',
@@ -345,15 +345,15 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       'tavern-room'
     );
 
-    $this->assertNull($plan['directly_addressed_npc']);
-    $this->assertNull($plan['active_conversation_npc']);
+    $this->assertSame('gribbles_rindsworth', $plan['directly_addressed_npc']['entity_ref']);
+    $this->assertSame('gribbles_rindsworth', $plan['active_conversation_npc']['entity_ref']);
     $this->assertContains('gribbles_rindsworth', $plan['speaking_npc_refs']);
   }
 
   /**
    * @covers ::buildNpcTurnPlan
    */
-  public function testBuildNpcTurnPlanIgnoresPersistedConversationStateTangents(): void {
+  public function testBuildNpcTurnPlanUsesPersistedConversationStateFocus(): void {
     $roomNpcs = [
       [
         'entity_ref' => 'eldric',
@@ -394,8 +394,8 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       'tavern-room'
     );
 
-    $this->assertNull($plan['directly_addressed_npc']);
-    $this->assertNull($plan['active_conversation_npc']);
+    $this->assertSame('eldric', $plan['directly_addressed_npc']['entity_ref']);
+    $this->assertSame('eldric', $plan['active_conversation_npc']['entity_ref']);
     $this->assertNotEmpty($plan['speaking_npc_refs']);
   }
 
@@ -478,7 +478,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::buildNpcTurnPlan
    */
-  public function testBuildNpcTurnPlanFiltersAmbientSideChatterByCharismaAndIntelligence(): void {
+  public function testBuildNpcTurnPlanFiltersAmbientSideChatterByCharismaGate(): void {
     $roomNpcs = [
       [
         'entity_ref' => 'quiet_guard',
@@ -521,6 +521,89 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $orderedRefs = array_map(static fn(array $npc): string => $npc['entity_ref'], $plan['ordered_npcs']);
     $this->assertSame(['chatty_scholar'], $orderedRefs);
+  }
+
+  /**
+   * @covers ::resolveAmbientNpcInterjectionPercent
+   */
+  public function testResolveAmbientNpcInterjectionPercentUsesFourTimesCharisma(): void {
+    $this->assertSame(72, $this->roomChatService->publicResolveAmbientNpcInterjectionPercent([
+      'entity' => ['state' => ['abilities' => ['charisma' => 18, 'intelligence' => 1]]],
+    ]));
+    $this->assertSame(100, $this->roomChatService->publicResolveAmbientNpcInterjectionPercent([
+      'entity' => ['state' => ['abilities' => ['charisma' => 30, 'intelligence' => 0]]],
+    ]));
+  }
+
+  /**
+   * @covers ::resolveAmbientNpcInterjectionPercent
+   */
+  public function testResolveAmbientNpcInterjectionPercentDefaultsToCharismaTenWhenMissing(): void {
+    $this->assertSame(40, $this->roomChatService->publicResolveAmbientNpcInterjectionPercent([
+      'entity_ref' => 'unknown_npc',
+      'profile' => ['display_name' => 'Unknown NPC'],
+    ]));
+  }
+
+  /**
+   * @covers ::resolveAmbientNpcInterjectionPercent
+   */
+  public function testResolveAmbientNpcInterjectionPercentReadsPf2eCharismaAlias(): void {
+    $this->assertSame(56, $this->roomChatService->publicResolveAmbientNpcInterjectionPercent([
+      'entity' => [
+        'state' => [
+          'pf2e_stats' => [
+            'ability_scores' => [
+              'cha' => ['score' => 14],
+            ],
+          ],
+        ],
+      ],
+    ]));
+  }
+
+  /**
+   * @covers ::resolveAmbientNpcInterjectionPercent
+   */
+  public function testResolveAmbientNpcInterjectionPercentClampsNegativeCharismaToMinimumThree(): void {
+    $this->assertSame(12, $this->roomChatService->publicResolveAmbientNpcInterjectionPercent([
+      'entity' => ['state' => ['abilities' => ['charisma' => -4]]],
+    ]));
+  }
+
+  /**
+   * @covers ::resolveNpcCharismaScore
+   */
+  public function testResolveNpcCharismaScoreReadsCanonicalAbilityShapes(): void {
+    $cases = [
+      [
+        'npc' => ['entity' => ['state' => ['abilities' => ['charisma' => 12]]]],
+        'expected' => 12,
+      ],
+      [
+        'npc' => ['entity' => ['state' => ['pf2e_stats' => ['ability_scores' => ['charisma' => ['score' => 15]]]]]],
+        'expected' => 15,
+      ],
+      [
+        'npc' => ['ability_scores' => ['cha' => ['score' => 17]]],
+        'expected' => 17,
+      ],
+      [
+        'npc' => ['profile' => ['ability_scores' => ['charisma' => ['value' => 13]]]],
+        'expected' => 13,
+      ],
+      [
+        'npc' => ['profile' => ['display_name' => 'Fallback NPC']],
+        'expected' => 10,
+      ],
+    ];
+
+    foreach ($cases as $case) {
+      $this->assertSame(
+        $case['expected'],
+        $this->roomChatService->publicResolveNpcCharismaScore($case['npc'])
+      );
+    }
   }
 
   /**
@@ -1426,6 +1509,17 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::extractNavigationDestination
    */
+  public function testExtractNavigationDestinationIgnoresNonNavigationUseQuestion(): void {
+    $destination = $this->roomChatService->publicExtractNavigationDestination(
+      'Why do people use you as a job board?'
+    );
+
+    $this->assertNull($destination);
+  }
+
+  /**
+   * @covers ::extractNavigationDestination
+   */
   public function testExtractNavigationDestinationHandlesLetsHadToTypoAndTalkSuffix(): void {
     $destination = $this->roomChatService->publicExtractNavigationDestination(
       'Lets had to the tavern entrance to talk to Venture-Captain Celia Arvanxi.'
@@ -1514,6 +1608,20 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertSame('navigation_travel', $intent);
+  }
+
+  /**
+   * @covers ::classifyRoomTurnIntent
+   */
+  public function testClassifyRoomTurnIntentKeepsNonNavigationUseQuestionInDialogueThread(): void {
+    $intent = $this->roomChatService->publicClassifyRoomTurnIntent(
+      'Why do people use you as a job board?',
+      [],
+      NULL,
+      ['entity_ref' => 'npc_tavern_keeper']
+    );
+
+    $this->assertSame('direct_npc_dialogue', $intent);
   }
 
   /**
@@ -1659,7 +1767,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $this->assertNotNull($active_npc);
     $this->assertSame('scholar_npc', $active_npc['entity_ref']);
-    $this->assertSame('gm_narration', $intent);
+    $this->assertSame('direct_npc_dialogue', $intent);
   }
 
   /**
@@ -1693,7 +1801,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNotNull($active_npc);
-    $this->assertSame('quest_query', $intent);
+    $this->assertSame('direct_npc_dialogue', $intent);
   }
 
   /**
@@ -1727,14 +1835,14 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNotNull($active_npc);
-    $this->assertSame('gm_narration', $intent);
+    $this->assertSame('direct_npc_dialogue', $intent);
   }
 
   /**
    * @covers ::resolveActiveDirectConversationNpc
    * @covers ::classifyRoomTurnIntent
    */
-  public function testClassifyRoomTurnIntentDoesNotTrapGenericActionUnderActiveNpcThread(): void {
+  public function testClassifyRoomTurnIntentKeepsGenericActionOnActiveNpcThread(): void {
     $room_npcs = [
       [
         'entity_ref' => 'gribbles_rindsworth',
@@ -1761,7 +1869,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNotNull($active_npc);
-    $this->assertSame('gm_narration', $intent);
+    $this->assertSame('direct_npc_dialogue', $intent);
   }
 
   /**
@@ -1797,7 +1905,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     );
 
     $this->assertNotNull($active_npc);
-    $this->assertSame('merchant_inquiry', $intent);
+    $this->assertSame('direct_npc_transaction', $intent);
   }
 
   /**
@@ -1820,13 +1928,13 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       $active_npc
     );
 
-    $this->assertSame('merchant_inquiry', $intent);
+    $this->assertSame('direct_npc_transaction', $intent);
   }
 
   /**
    * @covers ::classifyRoomTurnIntent
    */
-  public function testClassifyRoomTurnIntentLetsClearSceneActionBreakActiveNpcThread(): void {
+  public function testClassifyRoomTurnIntentKeepsSceneActionOnActiveNpcThread(): void {
     $active_npc = [
       'entity_ref' => 'marta_the_scholar',
       'profile' => [
@@ -1841,7 +1949,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       $active_npc
     );
 
-    $this->assertSame('gm_narration', $intent);
+    $this->assertSame('direct_npc_dialogue', $intent);
   }
 
   /**
@@ -1950,10 +2058,9 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
-   * @covers ::looksLikeActiveRoomConversationPivot
    * @covers ::classifyRoomTurnIntent
    */
-  public function testClassifyRoomTurnIntentDoesNotRouteWaitPhraseBackToNpc(): void {
+  public function testClassifyRoomTurnIntentKeepsWaitPhraseOnActiveNpcThread(): void {
     $intent = $this->roomChatService->publicClassifyRoomTurnIntentWithActiveConversation(
       "I'll wait for you Eldric",
       [[
@@ -1967,7 +2074,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       ]
     );
 
-    $this->assertSame('gm_narration', $intent);
+    $this->assertSame('direct_npc_dialogue', $intent);
   }
 
   /**
@@ -3084,6 +3191,14 @@ class TestableRoomChatService extends RoomChatService {
     string $turn_seed = ''
   ): array {
     return $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_seed);
+  }
+
+  public function publicResolveAmbientNpcInterjectionPercent(array $npc): int {
+    return $this->resolveAmbientNpcInterjectionPercent($npc);
+  }
+
+  public function publicResolveNpcCharismaScore(array $npc): int {
+    return $this->resolveNpcCharismaScore($npc);
   }
 
   public function publicBuildDeterministicNpcDialogue(
