@@ -56,6 +56,84 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
   /**
    * @covers ::processIntent
    */
+  public function testExplicitSearchRevealsAllQuestRelatedRoomItemsWithoutActiveObjective(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturn(4);
+
+    $update = $this->createMock(Update::class);
+    $update->method('fields')->willReturnSelf();
+    $update->method('condition')->willReturnSelf();
+    $update->method('execute')->willReturn(1);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('update')->willReturn($update);
+
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $handler = new class(
+      $database,
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(DungeonStateService::class),
+      $this->createMock(CharacterStateService::class),
+      $roller,
+      $this->createMock(AiGmService::class)
+    ) extends ExplorationPhaseHandler {
+      protected function hasPendingQuestSearchDiscovery(int $campaign_id, string $actor_id, array $params, array $dungeon_data): bool {
+        return TRUE;
+      }
+
+      protected function resolveAllQuestSearchCollectibleDiscoveries(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): array {
+        return [
+          [
+            'item_instance_id' => 'item-amulet',
+            'item_id' => 'quest_amulet',
+            'item_name' => 'Quest Amulet',
+            'quest_id' => 'storyline_lead_a',
+            'objective_id' => '',
+            'current' => 0,
+            'target' => 1,
+            'narration' => 'You notice Quest Amulet.',
+            'narrator_notes' => [],
+          ],
+          [
+            'item_instance_id' => 'item-key',
+            'item_id' => 'quest_key',
+            'item_name' => 'Quest Key',
+            'quest_id' => 'storyline_lead_b',
+            'objective_id' => '',
+            'current' => 0,
+            'target' => 1,
+            'narration' => 'You notice Quest Key.',
+            'narrator_notes' => [],
+          ],
+        ];
+      }
+    };
+
+    $game_state = $this->minimalGameState();
+    $dungeon_data = $this->buildDungeonData();
+
+    $response = $handler->processIntent([
+      'type' => 'search',
+      'actor' => 'pc-1',
+      'params' => [
+        'search_mode' => 'explicit',
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertStringContainsString('You notice Quest Amulet.', (string) $response['narration']);
+    $this->assertStringContainsString('You notice Quest Key.', (string) $response['narration']);
+  }
+
+  /**
+   * @covers ::processIntent
+   */
   public function testExplicitSearchActionUsesPlusOneBonus(): void {
     $roller = $this->createMock(NumberGenerationService::class);
     $roller->expects($this->once())
@@ -242,18 +320,20 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       $roller,
       $this->createMock(AiGmService::class)
     ) extends ExplorationPhaseHandler {
-      protected function resolveQuestSearchCollectibleDiscovery(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): ?array {
+      protected function resolveAllQuestSearchCollectibleDiscoveries(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): array {
         return [
-          'item_instance_id' => 'item-1',
-          'item_id' => 'crystal_bound_codex',
-          'item_name' => 'Crystal-Bound Codex',
-          'quest_id' => 'tavern_storyline_leads',
-          'objective_id' => 'collect_codex',
-          'current' => 1,
-          'target' => 1,
-          'narration' => 'You notice Crystal-Bound Codex.',
-          'narrator_notes' => [
-            'Quest completed: Gather Storyline Leads in the Tavern. All goals accomplished.',
+          [
+            'item_instance_id' => 'item-1',
+            'item_id' => 'crystal_bound_codex',
+            'item_name' => 'Crystal-Bound Codex',
+            'quest_id' => 'tavern_storyline_leads',
+            'objective_id' => 'collect_codex',
+            'current' => 1,
+            'target' => 1,
+            'narration' => 'You notice Crystal-Bound Codex.',
+            'narrator_notes' => [
+              'Quest completed: Gather Storyline Leads in the Tavern. All goals accomplished.',
+            ],
           ],
         ];
       }
@@ -275,6 +355,86 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
     $this->assertTrue($response['success']);
     $this->assertStringContainsString('You notice Crystal-Bound Codex.', (string) $response['narration']);
     $this->assertStringContainsString('Quest completed: Gather Storyline Leads in the Tavern. All goals accomplished.', (string) $response['narration']);
+  }
+
+  /**
+   * @covers ::processIntent
+   */
+  public function testSearchNarrationSeparatesQuestDiscoveriesAndCompletionNotesByLine(): void {
+    $roller = $this->createMock(NumberGenerationService::class);
+    $roller->expects($this->once())
+      ->method('rollPathfinderDie')
+      ->with(20)
+      ->willReturn(19);
+
+    $update = $this->createMock(Update::class);
+    $update->method('fields')->willReturnSelf();
+    $update->method('condition')->willReturnSelf();
+    $update->method('execute')->willReturn(1);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('update')->willReturn($update);
+
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $handler = new class(
+      $database,
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(DungeonStateService::class),
+      $this->createMock(CharacterStateService::class),
+      $roller,
+      $this->createMock(AiGmService::class)
+    ) extends ExplorationPhaseHandler {
+      protected function resolveAllQuestSearchCollectibleDiscoveries(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): array {
+        return [
+          [
+            'item_instance_id' => 'item-wine',
+            'item_id' => 'wine_bottle',
+            'item_name' => 'Wine Bottle',
+            'quest_id' => 'collect_wine_bottles',
+            'objective_id' => 'collect_wine',
+            'current' => 1,
+            'target' => 1,
+            'narrator_notes' => [
+              'Objective completed for Collect Wine Bottles from the Tavern: Collect Wine Bottles from around the tavern. Next step: Return the wine to the tavern keeper.',
+            ],
+          ],
+          [
+            'item_instance_id' => 'item-torch',
+            'item_id' => 'torch_rod',
+            'item_name' => 'Torch Rod',
+            'quest_id' => 'gather_torch_materials',
+            'objective_id' => 'collect_torch',
+            'current' => 1,
+            'target' => 1,
+            'narrator_notes' => [
+              'Objective completed for Gather Torch Materials for the Tavern: Gather Torch Materials scattered around the tavern. Next step: Bring the torch components to the tavern keeper.',
+            ],
+          ],
+        ];
+      }
+    };
+
+    $game_state = $this->minimalGameState();
+    $dungeon_data = $this->buildDungeonData();
+    $dungeon_data['rooms'][0]['gameplay_state']['search_dc'] = 15;
+    unset($dungeon_data['rooms'][0]['gameplay_state']['sensory_details']);
+
+    $response = $handler->processIntent([
+      'type' => 'search',
+      'actor' => 'pc-1',
+      'params' => [
+        'search_mode' => 'explicit',
+      ],
+    ], $game_state, $dungeon_data, 42);
+
+    $this->assertTrue($response['success']);
+    $this->assertStringContainsString("You notice Wine Bottle.\nYou notice Torch Rod.", (string) $response['narration']);
+    $this->assertStringContainsString("\n\nObjective completed for Collect Wine Bottles from the Tavern", (string) $response['narration']);
+    $this->assertStringContainsString("\n\nObjective completed for Gather Torch Materials for the Tavern", (string) $response['narration']);
+    $this->assertStringNotContainsString('You notice Wine Bottle. You notice Torch Rod.', (string) $response['narration']);
   }
 
   /**

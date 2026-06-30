@@ -2058,7 +2058,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $search_dc = $room['gameplay_state']['search_dc'] ?? 15;
 
     $manual_guaranteed_discovery = $requested_mode === self::SEARCH_MODE_EXPLICIT
-      && $this->hasPendingQuestSearchCollectible($campaign_id, $actor_id, $params, $dungeon_data);
+      && $this->hasPendingQuestSearchDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
     if ($manual_guaranteed_discovery && $total < $search_dc) {
       $total = (int) $search_dc;
     }
@@ -2093,7 +2093,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
     $narration = trim((string) ($quest_discovery['narration'] ?? ''));
     if ($requested_mode === self::SEARCH_MODE_EXPLICIT && count($quest_discoveries) > 1) {
-      $narration = implode(' ', array_map(static function (array $resolved_discovery): string {
+      $narration = implode("\n", array_map(static function (array $resolved_discovery): string {
         return sprintf('You notice %s.', (string) ($resolved_discovery['item_name'] ?? 'something useful'));
       }, $quest_discoveries));
     }
@@ -2112,10 +2112,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $narration_parts[] = trim($narration);
       }
       $narration_parts = array_merge($narration_parts, $quest_narrator_notes);
-      $narration = implode(' ', $narration_parts);
+      $narration = implode("\n\n", $narration_parts);
     }
     if ($requested_mode === self::SEARCH_MODE_EXPLICIT && (!is_string($narration) || trim($narration) === '')) {
       $narration = 'You search the area carefully but do not uncover anything new.';
+    }
+    if (is_string($narration) && trim($narration) !== '') {
+      $narration = $this->normalizeSearchNarrationLayout($narration);
     }
 
     return [
@@ -2137,9 +2140,34 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Ensure search narrator output preserves readable quest/discovery spacing.
+   */
+  protected function normalizeSearchNarrationLayout(string $narration): string {
+    $normalized = str_replace(["\r\n", "\r"], "\n", trim($narration));
+    if ($normalized === '') {
+      return '';
+    }
+
+    $normalized = preg_replace('/\.\s+You notice\s+/u', ".\nYou notice ", $normalized) ?? $normalized;
+    $normalized = preg_replace('/\s+Objective completed for\s+/u', "\n\nObjective completed for ", $normalized) ?? $normalized;
+    $normalized = preg_replace('/\s+Quest completed:\s+/u', "\n\nQuest completed: ", $normalized) ?? $normalized;
+    $normalized = preg_replace('/\s+Next step:\s+/u', "\nNext step: ", $normalized) ?? $normalized;
+    $normalized = preg_replace("/\n{3,}/", "\n\n", $normalized) ?? $normalized;
+
+    return trim($normalized);
+  }
+
+  /**
    * Determine whether the active room still has quest-search collectibles to find.
    */
   protected function hasPendingQuestSearchCollectible(int $campaign_id, string $actor_id, array $params, array $dungeon_data): bool {
+    return $this->hasPendingQuestSearchDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
+  }
+
+  /**
+   * Determine whether the active room still has quest-linked items to find.
+   */
+  protected function hasPendingQuestSearchDiscovery(int $campaign_id, string $actor_id, array $params, array $dungeon_data): bool {
     $room_id = trim((string) ($params['room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
     $character_id = $this->resolveSearchCampaignCharacterId($campaign_id, $actor_id, $params, $dungeon_data);
     if ($campaign_id <= 0 || $room_id === '' || $character_id <= 0) {
@@ -2148,11 +2176,11 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     $quest_target = $this->findNeededSearchCollectibleQuest($campaign_id, $room_id, $character_id);
     if (!$quest_target) {
-      return FALSE;
+      return (bool) $this->findNextQuestRelatedSearchItem($campaign_id, $room_id);
     }
 
     $item_row = $this->findNextSearchCollectibleItem($campaign_id, $room_id, $quest_target);
-    return (bool) $item_row;
+    return (bool) $item_row || (bool) $this->findNextQuestRelatedSearchItem($campaign_id, $room_id);
   }
 
   /**
@@ -2175,48 +2203,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       return NULL;
     }
 
-    $state = json_decode((string) ($item_row['state_data'] ?? '{}'), TRUE);
-    $state = is_array($state) ? $state : [];
-    $item_name = trim((string) ($state['name'] ?? $item_row['item_id'] ?? 'quest item'));
-    $item_instance_id = (string) $item_row['item_instance_id'];
-
-    $transaction = $this->database->startTransaction();
-    try {
-      $updated = $this->database->update('dc_campaign_item_instances')
-        ->fields([
-          'location_type' => 'carried',
-          'location_ref' => (string) $character_id,
-          'updated' => time(),
-        ])
-        ->condition('id', (int) $item_row['id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('location_type', 'room')
-        ->condition('location_ref', (string) ($item_row['location_ref'] ?? $room_id))
-        ->execute();
-      if ((int) $updated !== 1) {
-        throw new \RuntimeException("Search collectible transfer failed for {$item_instance_id}.");
-      }
-
-      $progress_state = $this->recordSearchCollectibleProgress($campaign_id, $character_id, $quest_target);
-
-      return [
-        'item_instance_id' => $item_instance_id,
-        'item_id' => (string) ($item_row['item_id'] ?? ''),
-        'item_name' => $item_name,
-        'quest_id' => $quest_target['quest_id'],
-        'objective_id' => $quest_target['objective_id'],
-        'current' => $progress_state['current'],
-        'target' => $progress_state['target'],
-        'narration' => sprintf('You notice %s.', $item_name),
-        'narrator_notes' => array_values(array_filter((array) ($progress_state['narrator_notes'] ?? []), static fn($note): bool => is_string($note) && trim($note) !== '')),
-      ];
-    }
-    catch (\Throwable $e) {
-      if (isset($transaction)) {
-        $transaction->rollBack();
-      }
-      throw $e;
-    }
+    return $this->transferQuestSearchCollectible($campaign_id, $character_id, $item_row, $quest_target);
   }
 
   /**
@@ -2225,7 +2212,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected function resolveAllQuestSearchCollectibleDiscoveries(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): array {
     $discoveries = [];
     while (TRUE) {
-      $discovery = $this->resolveQuestSearchCollectibleDiscovery($campaign_id, $actor_id, $params, $dungeon_data);
+      $discovery = $this->resolveNextQuestSearchDiscovery($campaign_id, $actor_id, $params, $dungeon_data, TRUE);
       if (!is_array($discovery) || empty($discovery['item_instance_id'])) {
         break;
       }
@@ -2516,6 +2503,138 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve the next quest-linked room item discoverable by Search.
+   */
+  protected function resolveNextQuestSearchDiscovery(int $campaign_id, string $actor_id, array $params, array &$dungeon_data, bool $allow_quest_item_fallback = FALSE): ?array {
+    $room_id = trim((string) ($params['room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
+    $character_id = $this->resolveSearchCampaignCharacterId($campaign_id, $actor_id, $params, $dungeon_data);
+    if ($campaign_id <= 0 || $room_id === '' || $character_id <= 0) {
+      return NULL;
+    }
+
+    $quest_target = $this->findNeededSearchCollectibleQuest($campaign_id, $room_id, $character_id);
+    if ($quest_target) {
+      $item_row = $this->findNextSearchCollectibleItem($campaign_id, $room_id, $quest_target);
+      if ($item_row) {
+        return $this->transferQuestSearchCollectible($campaign_id, $character_id, $item_row, $quest_target);
+      }
+    }
+
+    if (!$allow_quest_item_fallback) {
+      return NULL;
+    }
+
+    $quest_item_row = $this->findNextQuestRelatedSearchItem($campaign_id, $room_id);
+    if (!$quest_item_row) {
+      return NULL;
+    }
+
+    return $this->transferQuestSearchCollectible($campaign_id, $character_id, $quest_item_row, NULL);
+  }
+
+  /**
+   * Find the first quest-linked room item in the active room.
+   */
+  protected function findNextQuestRelatedSearchItem(int $campaign_id, string $room_id): ?array {
+    $room_ids = $this->resolveSearchObjectiveRoomIds($campaign_id, $room_id);
+    $rows = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_type', 'room')
+      ->condition('location_ref', $room_ids, 'IN')
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    foreach ($rows as $row) {
+      $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+      $state = is_array($state) ? $state : [];
+      if ($this->isQuestRelatedSearchItem($state)) {
+        return $row;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Determine whether a room item is quest-linked.
+   */
+  protected function isQuestRelatedSearchItem(array $item_state): bool {
+    $quest_association = trim((string) ($item_state['quest_association'] ?? $item_state['_spawn']['quest_association'] ?? ''));
+    if ($quest_association !== '') {
+      return TRUE;
+    }
+
+    $objective_id = trim((string) ($item_state['objective_id'] ?? $item_state['_spawn']['objective_id'] ?? ''));
+    if ($objective_id !== '') {
+      return TRUE;
+    }
+
+    $tags = array_map('strtolower', array_map('trim', (array) ($item_state['tags'] ?? [])));
+    return array_intersect($tags, ['quest_item', 'collectible']) !== [];
+  }
+
+  /**
+   * Transfer one quest-linked room item to the actor's carried inventory.
+   */
+  protected function transferQuestSearchCollectible(int $campaign_id, int $character_id, array $item_row, ?array $quest_target = NULL): array {
+    $state = json_decode((string) ($item_row['state_data'] ?? '{}'), TRUE);
+    $state = is_array($state) ? $state : [];
+    $item_name = trim((string) ($state['name'] ?? $item_row['item_id'] ?? 'quest item'));
+    $item_instance_id = (string) $item_row['item_instance_id'];
+    $quest_source = trim((string) ($quest_target['source_template_id'] ?? $state['quest_association'] ?? $state['_spawn']['quest_association'] ?? $state['source_template_id'] ?? ''));
+    $quest_id = trim((string) ($quest_target['quest_id'] ?? $state['_spawn']['quest_id'] ?? $state['quest_id'] ?? $quest_source));
+    $objective_id = trim((string) ($quest_target['objective_id'] ?? $state['objective_id'] ?? $state['_spawn']['objective_id'] ?? ''));
+
+    $transaction = $this->database->startTransaction();
+    try {
+      $updated = $this->database->update('dc_campaign_item_instances')
+        ->fields([
+          'location_type' => 'carried',
+          'location_ref' => (string) $character_id,
+          'updated' => time(),
+        ])
+        ->condition('id', (int) $item_row['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('location_type', 'room')
+        ->condition('location_ref', (string) ($item_row['location_ref'] ?? ''))
+        ->execute();
+      if ((int) $updated !== 1) {
+        throw new \RuntimeException("Search collectible transfer failed for {$item_instance_id}.");
+      }
+
+      $current = 0;
+      $target = 1;
+      $narrator_notes = [];
+      if ($quest_target) {
+        $progress_state = $this->recordSearchCollectibleProgress($campaign_id, $character_id, $quest_target);
+        $current = (int) ($progress_state['current'] ?? 0);
+        $target = (int) ($progress_state['target'] ?? 1);
+        $narrator_notes = array_values(array_filter((array) ($progress_state['narrator_notes'] ?? []), static fn($note): bool => is_string($note) && trim($note) !== ''));
+      }
+
+      return [
+        'item_instance_id' => $item_instance_id,
+        'item_id' => (string) ($item_row['item_id'] ?? ''),
+        'item_name' => $item_name,
+        'quest_id' => $quest_id,
+        'objective_id' => $objective_id,
+        'current' => $current,
+        'target' => $target,
+        'narration' => sprintf('You notice %s.', $item_name),
+        'narrator_notes' => $narrator_notes,
+      ];
+    }
+    catch (\Throwable $e) {
+      if (isset($transaction)) {
+        $transaction->rollBack();
+      }
+      throw $e;
+    }
   }
 
   /**
