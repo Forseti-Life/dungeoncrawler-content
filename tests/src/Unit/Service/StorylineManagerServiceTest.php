@@ -959,6 +959,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertTrue($validation['stages']['questline_progression']['valid']);
     $this->assertTrue($validation['stages']['navigation_progression']['valid']);
     $this->assertTrue($validation['stages']['objective_control_chain']['valid']);
+    $this->assertTrue($validation['stages']['entity_type_contracts']['valid']);
   }
 
   /**

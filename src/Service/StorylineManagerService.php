@@ -410,6 +410,12 @@ class StorylineManagerService {
       'errors' => $objective_control_chain_errors,
     ];
 
+    $entity_type_contract_errors = $this->validateReferencedEntityTypeContractsStage($storyline_data, $normalized_payload_type);
+    $stages['entity_type_contracts'] = [
+      'valid' => $entity_type_contract_errors === [],
+      'errors' => $entity_type_contract_errors,
+    ];
+
     $errors = [];
     foreach ($stages as $stage) {
       $errors = array_merge($errors, $stage['errors']);
@@ -422,6 +428,160 @@ class StorylineManagerService {
       'payload_type' => $normalized_payload_type,
     ];
   }
+
+  /**
+   * Stage scaffold: validate referenced entities against per-type contracts.
+   *
+   * This stage intentionally starts as a no-op contract scaffold so we can
+   * incrementally add deep validators per entity type without changing calling
+   * code or stage wiring.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateReferencedEntityTypeContractsStage(array $storyline_data, string $payload_type): array {
+      $errors = [];
+      $asset_references = array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array'));
+      foreach ($asset_references as $index => $reference) {
+        $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? '')));
+        $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+        if ($asset_type === '' || $asset_id === '') {
+          continue;
+        }
+        $errors = array_merge($errors, $this->validateReferencedEntityByTypeStub(
+          $asset_type,
+          $asset_id,
+          [
+            'payload_type' => $payload_type,
+            'path' => "asset_references[{$index}]",
+            'source' => 'asset_reference',
+            'reference' => $reference,
+          ]
+        ));
+      }
+
+      $contacts = array_values(array_filter(is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : [], 'is_array'));
+      foreach ($contacts as $index => $contact) {
+        $entity_type = strtolower(trim((string) ($contact['entity_type'] ?? '')));
+        $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+        if ($entity_type === '' || $entity_id === '') {
+          continue;
+        }
+        $errors = array_merge($errors, $this->validateReferencedEntityByTypeStub(
+          $entity_type,
+          $entity_id,
+          [
+            'payload_type' => $payload_type,
+            'path' => "contacts[{$index}]",
+            'source' => 'contact',
+            'reference' => $contact,
+          ]
+        ));
+      }
+
+      return array_values(array_unique($errors));
+    }
+
+    /**
+     * Dispatch per-entity-type contract validators.
+     *
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     *
+     * @return array<int, string>
+     *   Validation errors.
+     */
+    protected function validateReferencedEntityByTypeStub(string $entity_type, string $entity_id, array $context): array {
+      return match ($entity_type) {
+        'npc', 'npc_template', 'campaign_npc', 'character', 'character_group', 'creature'
+          => $this->validateReferencedNpcLikeEntityContractStub($entity_type, $entity_id, $context),
+        'hazard' => $this->validateReferencedHazardEntityContractStub($entity_type, $entity_id, $context),
+        'item' => $this->validateReferencedItemEntityContractStub($entity_type, $entity_id, $context),
+        'room', 'location' => $this->validateReferencedLocationEntityContractStub($entity_type, $entity_id, $context),
+        'dungeon' => $this->validateReferencedDungeonEntityContractStub($entity_type, $entity_id, $context),
+        'faction', 'institution'
+          => $this->validateReferencedFactionEntityContractStub($entity_type, $entity_id, $context),
+        default => [],
+      };
+    }
+
+    /**
+     * Stub hook for npc-like entity contract validation.
+     *
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     *
+     * @return array<int, string>
+     *   Validation errors.
+     */
+    protected function validateReferencedNpcLikeEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      return [];
+    }
+
+    /**
+     * Stub hook for hazard entity contract validation.
+     *
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     *
+     * @return array<int, string>
+     *   Validation errors.
+     */
+    protected function validateReferencedHazardEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      return [];
+    }
+
+    /**
+     * Stub hook for item entity contract validation.
+     *
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     *
+     * @return array<int, string>
+     *   Validation errors.
+     */
+    protected function validateReferencedItemEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      return [];
+    }
+
+    /**
+     * Stub hook for room/location entity contract validation.
+     *
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     *
+     * @return array<int, string>
+     *   Validation errors.
+     */
+    protected function validateReferencedLocationEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      return [];
+    }
+
+    /**
+     * Stub hook for dungeon entity contract validation.
+     *
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     *
+     * @return array<int, string>
+     *   Validation errors.
+     */
+    protected function validateReferencedDungeonEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      return [];
+    }
+
+    /**
+     * Stub hook for faction/institution entity contract validation.
+     *
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     *
+     * @return array<int, string>
+     *   Validation errors.
+     */
+    protected function validateReferencedFactionEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      return [];
+    }
 
   /**
    * Ensures each bundled storyline template exists as a campaign storyline.
