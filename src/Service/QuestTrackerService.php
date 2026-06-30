@@ -2058,7 +2058,7 @@ class QuestTrackerService {
       }
     }
 
-    foreach ($destinations as $destination) {
+    foreach (array_keys($destinations) as $destination) {
       if (isset($valid_identifiers[$destination])) {
         continue;
       }

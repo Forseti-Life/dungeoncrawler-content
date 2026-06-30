@@ -126,11 +126,13 @@ class StorylineRealizationService {
         ];
       }
 
-      $dungeon_data = [
+      $canonical_dungeon_data = $this->buildCanonicalDungeonTemplateData($storyline_id, $dungeon, $rooms, $now);
+      $campaign_dungeon_data = [
         'schema_version' => '1.0.0',
         'storyline_id' => $storyline_id,
         'goal_alignment' => (string) ($dungeon['goal_alignment'] ?? ''),
-        'level_id' => (string) ($dungeon['entrance_room_id'] ?? ''),
+        'entry_room' => (string) ($canonical_dungeon_data['entry_room'] ?? ''),
+        'level_id' => (string) ($canonical_dungeon_data['entry_room'] ?? ''),
         'hex_map' => [
           'map_id' => $dungeon_id,
           'connections' => $connections,
@@ -170,7 +172,7 @@ class StorylineRealizationService {
           'name' => (string) ($dungeon['name'] ?? $dungeon_id),
           'description' => (string) ($dungeon['goal_alignment'] ?? ''),
           'theme' => (string) ($dungeon['style'] ?? ''),
-          'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'dungeon_data' => json_encode($canonical_dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
           'source_dungeon_id' => $storyline_id !== '' ? $storyline_id : NULL,
           'updated' => $now,
         ])
@@ -186,7 +188,7 @@ class StorylineRealizationService {
           'name' => (string) ($dungeon['name'] ?? $dungeon_id),
           'description' => (string) ($dungeon['goal_alignment'] ?? ''),
           'theme' => (string) ($dungeon['style'] ?? ''),
-          'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'dungeon_data' => json_encode($campaign_dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
           'source_dungeon_id' => $dungeon_id,
           'updated' => $now,
         ])
@@ -369,6 +371,68 @@ class StorylineRealizationService {
     }
 
     return $summary;
+  }
+
+  /**
+   * Build canonical dungeon template contract for dungeoncrawler_content_dungeons.
+   *
+   * Canonical template storage must use the validated storyline contract shape:
+   * dungeon_data.entry_room + dungeon_data.rooms[string-room-id].
+   *
+   * @throws \InvalidArgumentException
+   *   When required dungeon contract fields are missing or inconsistent.
+   */
+  protected function buildCanonicalDungeonTemplateData(string $storyline_id, array $dungeon, array $rooms, int $generated_at): array {
+    $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+    if ($dungeon_id === '') {
+      throw new \InvalidArgumentException('Canonical dungeon contract requires dungeon_id.');
+    }
+
+    $entry_room_id = trim((string) ($dungeon['entrance_room_id'] ?? ''));
+    if ($entry_room_id === '') {
+      throw new \InvalidArgumentException(sprintf(
+        "Canonical dungeon '%s' contract requires entrance_room_id from storyline outline.",
+        $dungeon_id
+      ));
+    }
+
+    $room_ids = [];
+    foreach (array_values($rooms) as $index => $room) {
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        throw new \InvalidArgumentException(sprintf(
+          "Canonical dungeon '%s' room[%d] is missing required room_id.",
+          $dungeon_id,
+          $index
+        ));
+      }
+      $room_ids[$room_id] = TRUE;
+    }
+    if ($room_ids === []) {
+      throw new \InvalidArgumentException(sprintf(
+        "Canonical dungeon '%s' contract requires at least one room id in rooms[].",
+        $dungeon_id
+      ));
+    }
+    if (!isset($room_ids[$entry_room_id])) {
+      throw new \InvalidArgumentException(sprintf(
+        "Canonical dungeon '%s' contract requires entry room '%s' to exist in rooms[].",
+        $dungeon_id,
+        $entry_room_id
+      ));
+    }
+
+    return [
+      'schema_version' => '1.0.0',
+      'storyline_id' => $storyline_id,
+      'goal_alignment' => (string) ($dungeon['goal_alignment'] ?? ''),
+      'entry_room' => $entry_room_id,
+      'rooms' => array_values(array_keys($room_ids)),
+      'generation_context' => [
+        'source' => 'storyline_generation',
+        'generated_at' => date('c', $generated_at),
+      ],
+    ];
   }
 
   /**

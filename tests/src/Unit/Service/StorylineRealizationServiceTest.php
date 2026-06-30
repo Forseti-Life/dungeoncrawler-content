@@ -44,4 +44,58 @@ class StorylineRealizationServiceTest extends UnitTestCase {
     $this->assertSame(['storyline', 'generated', 'boss'], $item['traits']);
   }
 
+  /**
+   * Verifies canonical dungeon template payload uses strict entry_room + rooms[] ids contract.
+   */
+  public function testBuildCanonicalDungeonTemplateDataReturnsStrictContractShape(): void {
+    $service = new class($this->createMock(Connection::class)) extends StorylineRealizationService {
+      public function exposeBuildCanonicalDungeonTemplateData(string $storyline_id, array $dungeon, array $rooms, int $generated_at): array {
+        return $this->buildCanonicalDungeonTemplateData($storyline_id, $dungeon, $rooms, $generated_at);
+      }
+    };
+
+    $payload = $service->exposeBuildCanonicalDungeonTemplateData(
+      'storyline-onboarding',
+      [
+        'dungeon_id' => 'onboarding',
+        'entrance_room_id' => 'briefing-room',
+        'goal_alignment' => 'Tutorial onboarding',
+      ],
+      [
+        ['room_id' => 'briefing-room'],
+        ['room_id' => 'hallway'],
+      ],
+      1719763200
+    );
+
+    $this->assertSame('briefing-room', $payload['entry_room']);
+    $this->assertSame(['briefing-room', 'hallway'], $payload['rooms']);
+    $this->assertArrayNotHasKey('entrance_room_id', $payload);
+  }
+
+  /**
+   * Verifies canonical dungeon template payload hard-fails when entry room is not in rooms[].
+   */
+  public function testBuildCanonicalDungeonTemplateDataRejectsMismatchedEntryRoom(): void {
+    $service = new class($this->createMock(Connection::class)) extends StorylineRealizationService {
+      public function exposeBuildCanonicalDungeonTemplateData(string $storyline_id, array $dungeon, array $rooms, int $generated_at): array {
+        return $this->buildCanonicalDungeonTemplateData($storyline_id, $dungeon, $rooms, $generated_at);
+      }
+    };
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage("requires entry room 'briefing-room' to exist in rooms[]");
+    $service->exposeBuildCanonicalDungeonTemplateData(
+      'storyline-onboarding',
+      [
+        'dungeon_id' => 'onboarding',
+        'entrance_room_id' => 'briefing-room',
+      ],
+      [
+        ['room_id' => 'hallway'],
+      ],
+      1719763200
+    );
+  }
+
 }

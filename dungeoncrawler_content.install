@@ -33,6 +33,7 @@
  * - 10083: Canonical actor cutover for psychology/NPC payload
  * - 10084: Canonical actor history cutover (dc_npc_history → dc_actor_history)
  * - 10085: Retire legacy dc_npc table after canonical validation
+ * - 10087: Canonicalize dungeon template contracts (entry_room + room-id list)
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -9501,6 +9502,108 @@ function dungeoncrawler_content_update_10086() {
       '@inserted' => (int) ($summary['table_rows_inserted'] ?? 0),
       '@updated' => (int) ($summary['table_rows_updated'] ?? 0),
       '@skipped' => (int) ($summary['table_rows_skipped'] ?? 0),
+    ]
+  );
+}
+
+/**
+ * Canonicalize dungeon template rows to strict entry_room + room-id contract.
+ */
+function dungeoncrawler_content_update_10087() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  if (!$schema->tableExists('dungeoncrawler_content_dungeons')) {
+    return t('Skipped dungeon canonicalization: dungeoncrawler_content_dungeons table does not exist.');
+  }
+
+  $rows = $database->select('dungeoncrawler_content_dungeons', 'd')
+    ->fields('d', ['dungeon_id', 'dungeon_data'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+
+  $updated_rows = 0;
+  $already_canonical = 0;
+  foreach ($rows as $row) {
+    $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
+    if ($dungeon_id === '') {
+      throw new \Drupal\Core\Utility\UpdateException('Dungeon canonicalization failed: encountered row without dungeon_id.');
+    }
+
+    $dungeon_data = json_decode((string) ($row['dungeon_data'] ?? ''), TRUE);
+    if (!is_array($dungeon_data)) {
+      throw new \Drupal\Core\Utility\UpdateException(sprintf(
+        "Dungeon canonicalization failed for '%s': dungeon_data is not valid JSON object.",
+        $dungeon_id
+      ));
+    }
+
+    $room_ids = [];
+    foreach (array_values(is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []) as $room) {
+      if (is_array($room)) {
+        $room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+      }
+      else {
+        $room_id = trim((string) $room);
+      }
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+
+    $entry_room = trim((string) ($dungeon_data['entry_room'] ?? ''));
+    if ($entry_room === '') {
+      $entry_room = trim((string) ($dungeon_data['entrance_room_id'] ?? ''));
+    }
+    if ($entry_room === '') {
+      $entry_room = trim((string) ($dungeon_data['level_id'] ?? ''));
+    }
+    if ($entry_room === '' && $room_ids !== []) {
+      $entry_room = (string) array_key_first($room_ids);
+    }
+    if ($entry_room === '') {
+      throw new \Drupal\Core\Utility\UpdateException(sprintf(
+        "Dungeon canonicalization failed for '%s': missing required entry_room/entrance_room_id/level_id and no room_id fallback.",
+        $dungeon_id
+      ));
+    }
+
+    if ($room_ids === []) {
+      // Canonical minimal contract: at least include the entry room id.
+      $room_ids[$entry_room] = TRUE;
+    }
+    if (!isset($room_ids[$entry_room])) {
+      $room_ids[$entry_room] = TRUE;
+    }
+
+    $canonical_room_ids = array_values(array_keys($room_ids));
+    $is_already_canonical = !array_key_exists('entrance_room_id', $dungeon_data)
+      && trim((string) ($dungeon_data['entry_room'] ?? '')) === $entry_room
+      && (is_array($dungeon_data['rooms'] ?? NULL) ? array_values($dungeon_data['rooms']) : []) === $canonical_room_ids;
+
+    if ($is_already_canonical) {
+      $already_canonical++;
+      continue;
+    }
+
+    $dungeon_data['entry_room'] = $entry_room;
+    $dungeon_data['rooms'] = $canonical_room_ids;
+    unset($dungeon_data['entrance_room_id']);
+
+    $database->update('dungeoncrawler_content_dungeons')
+      ->fields([
+        'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => \Drupal::time()->getRequestTime(),
+      ])
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute();
+    $updated_rows++;
+  }
+
+  return t(
+    'Dungeon canonicalization complete. Updated @updated rows; @canonical already canonical.',
+    [
+      '@updated' => $updated_rows,
+      '@canonical' => $already_canonical,
     ]
   );
 }

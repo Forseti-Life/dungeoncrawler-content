@@ -315,6 +315,66 @@ class QuestTrackerServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies destination contract validation checks destination identifiers, not boolean set values.
+   */
+  public function testQuestActivationDestinationValidationUsesDestinationKeys(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $statement = $this->getMockBuilder(\stdClass::class)
+      ->addMethods(['fetchAllAssoc'])
+      ->getMock();
+    $statement->method('fetchAllAssoc')
+      ->with('room_id')
+      ->willReturn([
+        'tavern_entrance' => [
+          'room_id' => 'tavern_entrance',
+          'name' => 'The Gilded Tankard',
+          'source_room_id' => 'tavern_entrance',
+        ],
+      ]);
+
+    $select = $this->getMockBuilder(\stdClass::class)
+      ->addMethods(['fields', 'condition', 'execute'])
+      ->getMock();
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->willReturnSelf();
+    $select->method('execute')->willReturn($statement);
+
+    $database = $this->createMock(Connection::class);
+    $database->expects($this->once())
+      ->method('select')
+      ->with('dc_campaign_rooms', 'r')
+      ->willReturn($select);
+
+    $service = new class(
+      $database,
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public function assertDestinationContractsForTest(int $campaign_id, array $quest, array $objective_phases): void {
+        $this->assertQuestActivationDestinationContracts($campaign_id, $quest, $objective_phases);
+      }
+    };
+
+    $service->assertDestinationContractsForTest(
+      300,
+      ['quest_id' => 'tavern_storyline_leads_300'],
+      [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'speak_to_eldric',
+          'type' => 'interact',
+          'location_id' => 'tavern_entrance',
+        ]],
+      ]]
+    );
+
+    $this->addToAssertionCount(1);
+  }
+
+  /**
    * Verifies hidden escort runtime steps reveal sequentially and sync metadata.
    */
   public function testEscortRuntimeStepsRevealSequentially(): void {
