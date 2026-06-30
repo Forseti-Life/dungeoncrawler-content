@@ -170,6 +170,13 @@ class QuestTrackerService {
 
       // Initialize objective states.
       $objectives = json_decode($quest['generated_objectives'], TRUE);
+      if (!is_array($objectives)) {
+        throw new \RuntimeException(sprintf(
+          'Quest activation contract violation: quest "%s" has invalid generated_objectives JSON.',
+          $quest_id
+        ));
+      }
+      $this->assertQuestActivationDestinationContracts($campaign_id, $quest, $objectives);
       $objective_states = $this->initializeObjectiveStates($objectives);
 
       $this->ensureProgressRecord(
@@ -639,7 +646,7 @@ class QuestTrackerService {
       : sprintf('Objective completed for %s.', $quest_name);
     $next_step = trim($next_step);
     if ($next_step !== '') {
-      $message .= ' Next step: ' . $this->normalizeQuestNarratorSentence($next_step);
+      $message .= "\nNext step: " . $this->normalizeQuestNarratorSentence($next_step);
     }
 
     $this->postQuestNarratorNote($campaign_id, $quest, $message, [
@@ -1992,6 +1999,99 @@ class QuestTrackerService {
       ->fetchAssoc();
 
     return $result ?: NULL;
+  }
+
+  /**
+   * Enforce quest destination contracts before activating a quest.
+   *
+   * Active quests may only reference destination identifiers that resolve to
+   * campaign room records. This prevents runtime navigation contract violations
+   * that would otherwise fail later during map rendering.
+   *
+   * @param int $campaign_id
+   *   Campaign identifier.
+   * @param array<string, mixed> $quest
+   *   Quest row payload.
+   * @param array<int, mixed> $objective_phases
+   *   Generated objective phases payload.
+   */
+  protected function assertQuestActivationDestinationContracts(
+    int $campaign_id,
+    array $quest,
+    array $objective_phases
+  ): void {
+    $destinations = [];
+    foreach ($objective_phases as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+        if (is_array($objective)) {
+          $this->collectObjectiveDestinationReferences($objective, $destinations);
+        }
+      }
+    }
+    if ($destinations === []) {
+      return;
+    }
+
+    $room_rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'name', 'source_room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAllAssoc('room_id');
+    if (!is_array($room_rows) || $room_rows === []) {
+      throw new \RuntimeException(sprintf(
+        'Quest activation contract violation: campaign %d has no room records for destination validation.',
+        $campaign_id
+      ));
+    }
+
+    $valid_identifiers = [];
+    foreach ($room_rows as $row) {
+      $room = is_array($row) ? $row : (array) $row;
+      foreach (['room_id', 'name', 'source_room_id'] as $field) {
+        $value = trim((string) ($room[$field] ?? ''));
+        if ($value !== '') {
+          $valid_identifiers[$value] = TRUE;
+        }
+      }
+    }
+
+    foreach ($destinations as $destination) {
+      if (isset($valid_identifiers[$destination])) {
+        continue;
+      }
+      throw new \InvalidArgumentException(sprintf(
+        'Quest activation contract violation: quest "%s" references destination "%s", but it is not present in campaign %d room registry.',
+        (string) ($quest['quest_id'] ?? 'unknown'),
+        $destination,
+        $campaign_id
+      ));
+    }
+  }
+
+  /**
+   * Recursively collect destination references from one objective tree node.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective node.
+   * @param array<string, bool> $destinations
+   *   Destination set (mutated).
+   */
+  protected function collectObjectiveDestinationReferences(array $objective, array &$destinations): void {
+    foreach (['destination_id', 'destination', 'location_id', 'location'] as $field) {
+      $value = trim((string) ($objective[$field] ?? ''));
+      if ($value !== '') {
+        $destinations[$value] = TRUE;
+      }
+    }
+
+    foreach ((array) ($objective['children'] ?? []) as $child) {
+      if (is_array($child)) {
+        $this->collectObjectiveDestinationReferences($child, $destinations);
+      }
+    }
   }
 
   /**

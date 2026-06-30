@@ -1616,4 +1616,110 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $this->assertSame('current', $objectives[1]['access']['sort_bucket']);
   }
 
+  /**
+   * Verifies destination validation uses the dungeon row matching context location.
+   */
+  public function testGetDungeonDataForContextUsesLocationScopedDungeonRow(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
+    ) extends QuestGeneratorService {
+      public function exposedGetDungeonDataForContext(int $campaign_id, array $context): array {
+        return $this->getDungeonDataForContext($campaign_id, $context);
+      }
+
+      protected function loadCampaignDungeonRows(int $campaign_id, ?string $dungeon_id = NULL): array {
+        $rows = [
+          [
+            'dungeon_id' => 'onboarding',
+            'dungeon_data' => json_encode([
+              'rooms' => [
+                ['room_id' => 'briefing', 'name' => 'Adventure Briefing'],
+              ],
+            ]),
+            'updated' => 100,
+          ],
+          [
+            'dungeon_id' => 'starter-map',
+            'dungeon_data' => json_encode([
+              'rooms' => [
+                ['room_id' => 'tavern_entrance', 'name' => 'The Gilded Tankard'],
+              ],
+            ]),
+            'updated' => 90,
+          ],
+        ];
+
+        if ($dungeon_id !== NULL && trim($dungeon_id) !== '') {
+          return array_values(array_filter($rows, static fn(array $row): bool => (string) ($row['dungeon_id'] ?? '') === trim($dungeon_id)));
+        }
+
+        return $rows;
+      }
+    };
+
+    $dungeon_data = $service->exposedGetDungeonDataForContext(298, [
+      'location' => 'tavern_entrance',
+    ]);
+
+    $this->assertSame('tavern_entrance', $dungeon_data['rooms'][0]['room_id']);
+  }
+
+  /**
+   * Verifies location-scoped destination validation fails when no dungeon matches.
+   */
+  public function testGetDungeonDataForContextFailsWhenLocationMissingFromCampaignDungeons(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
+    ) extends QuestGeneratorService {
+      public function exposedGetDungeonDataForContext(int $campaign_id, array $context): array {
+        return $this->getDungeonDataForContext($campaign_id, $context);
+      }
+
+      protected function loadCampaignDungeonRows(int $campaign_id, ?string $dungeon_id = NULL): array {
+        return [[
+          'dungeon_id' => 'starter-map',
+          'dungeon_data' => json_encode([
+            'rooms' => [
+              ['room_id' => 'tavern_entrance', 'name' => 'The Gilded Tankard'],
+            ],
+          ]),
+          'updated' => 90,
+        ]];
+      }
+    };
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('location "ltba-vault-entry"');
+
+    $service->exposedGetDungeonDataForContext(298, [
+      'location' => 'ltba-vault-entry',
+    ]);
+  }
+
 }

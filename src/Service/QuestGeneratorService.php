@@ -111,8 +111,11 @@ class QuestGeneratorService {
    *   - difficulty: Difficulty setting
    *
    * @return array
-   *   Generated quest data ready for insertion into dc_campaign_quests, or
-   *   empty array if generation fails.
+   *   Generated quest data ready for insertion into dc_campaign_quests.
+   *
+   * @throws \Throwable
+   *   Throws when quest generation fails, including destination contract
+   *   violations.
    */
   public function generateQuestFromTemplate(
     string $template_id,
@@ -120,6 +123,8 @@ class QuestGeneratorService {
     array $context
   ): array {
     try {
+      $context['campaign_id'] = $campaign_id;
+
       // Load template
       $template = $this->loadTemplate($template_id);
       if (empty($template)) {
@@ -156,7 +161,7 @@ class QuestGeneratorService {
         try {
           $this->questDestinationValidator->validateQuestObjectives(
             ['quest_id' => $template_id, 'objectives' => $generated_objectives],
-            $this->getDungeonDataForContext($context)
+            $this->getDungeonDataForContext($campaign_id, $context)
           );
         } catch (\InvalidArgumentException $e) {
           $this->logger->error('Quest destination validation failed: @error', ['@error' => $e->getMessage()]);
@@ -203,9 +208,9 @@ class QuestGeneratorService {
 
       return $quest_data;
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       $this->logger->error('Quest generation failed: @error', ['@error' => $e->getMessage()]);
-      return [];
+      throw $e;
     }
   }
 
@@ -3683,37 +3688,176 @@ class QuestGeneratorService {
   /**
    * Retrieves dungeon data for validation context.
    *
+   * @param int $campaign_id
+   *   The campaign ID owning the quest generation context.
    * @param array $context
-   *   The generation context (may include campaign_id, location, dungeon_data).
+   *   The generation context (may include dungeon_data).
    *
    * @return array
    *   The dungeon data array with 'rooms' definition.
    */
-  protected function getDungeonDataForContext(array $context): array {
-    // If dungeon_data is already in context, use it
-    if (!empty($context['dungeon_data']) && is_array($context['dungeon_data'])) {
-      return $context['dungeon_data'];
+  protected function getDungeonDataForContext(int $campaign_id, array $context): array {
+    $inline_dungeon_data = $context['dungeon_data'] ?? NULL;
+    if (is_array($inline_dungeon_data)) {
+      return $this->decodeAndValidateDungeonPayload(
+        $campaign_id,
+        (string) ($context['map_id'] ?? $context['dungeon_id'] ?? 'inline'),
+        json_encode($inline_dungeon_data)
+      );
     }
 
-    // Otherwise, try to load from campaign if available
-    if (!empty($context['campaign_id'])) {
-      $campaign_id = (int) $context['campaign_id'];
-      // Load dungeon data from campaign context
-      try {
-        $campaign_service = \Drupal::service('dungeoncrawler_content.campaign_service');
-        if ($campaign_service && method_exists($campaign_service, 'getCampaignDungeonData')) {
-          return $campaign_service->getCampaignDungeonData($campaign_id);
+    if ($campaign_id <= 0) {
+      throw new \InvalidArgumentException('Quest destination validation requires a valid campaign_id.');
+    }
+
+    $context_map_id = trim((string) ($context['map_id'] ?? $context['dungeon_id'] ?? ''));
+    if ($context_map_id !== '') {
+      $rows = $this->loadCampaignDungeonRows($campaign_id, $context_map_id);
+      if ($rows === []) {
+        throw new \InvalidArgumentException(sprintf(
+          'Quest destination validation requires campaign %d map_id "%s", but no matching campaign dungeon row was found.',
+          $campaign_id,
+          $context_map_id
+        ));
+      }
+      $row = $rows[0];
+      return $this->decodeAndValidateDungeonPayload(
+        $campaign_id,
+        (string) ($row['dungeon_id'] ?? $context_map_id),
+        (string) ($row['dungeon_data'] ?? '')
+      );
+    }
+
+    $rows = $this->loadCampaignDungeonRows($campaign_id);
+    if ($rows === []) {
+      throw new \InvalidArgumentException(sprintf('Quest destination validation requires dungeon data for campaign %d, but no campaign dungeon rows were found.', $campaign_id));
+    }
+
+    $location_id = trim((string) ($context['location'] ?? $context['location_id'] ?? ''));
+    if ($location_id !== '') {
+      $matching_payload = NULL;
+      $matching_dungeon_id = '';
+      foreach ($rows as $row) {
+        $decoded = $this->decodeAndValidateDungeonPayload(
+          $campaign_id,
+          (string) ($row['dungeon_id'] ?? ''),
+          (string) ($row['dungeon_data'] ?? '')
+        );
+        if ($this->dungeonPayloadContainsLocation($decoded, $location_id)) {
+          if ($matching_payload !== NULL) {
+            throw new \InvalidArgumentException(sprintf(
+              'Quest destination validation context is ambiguous for campaign %d: location "%s" appears in multiple campaign dungeons.',
+              $campaign_id,
+              $location_id
+            ));
+          }
+          $matching_payload = $decoded;
+          $matching_dungeon_id = (string) ($row['dungeon_id'] ?? '');
         }
-      } catch (\Exception $e) {
-        $this->logger->warning('Could not load dungeon data for campaign @campaign: @error', [
-          '@campaign' => $campaign_id,
-          '@error' => $e->getMessage(),
-        ]);
+      }
+
+      if ($matching_payload === NULL) {
+        throw new \InvalidArgumentException(sprintf(
+          'Quest destination validation requires location "%s" to exist in campaign %d dungeon_data.rooms, but no campaign dungeon contains it.',
+          $location_id,
+          $campaign_id
+        ));
+      }
+
+      if ($matching_dungeon_id !== '') {
+        return $matching_payload;
       }
     }
 
-    // Return empty dungeon structure as fallback
-    return ['rooms' => []];
+    if (count($rows) > 1) {
+      throw new \InvalidArgumentException(sprintf(
+        'Quest destination validation for campaign %d requires map_id/dungeon_id or location context when multiple campaign dungeons exist.',
+        $campaign_id
+      ));
+    }
+
+    $row = $rows[0];
+    return $this->decodeAndValidateDungeonPayload(
+      $campaign_id,
+      (string) ($row['dungeon_id'] ?? ''),
+      (string) ($row['dungeon_data'] ?? '')
+    );
+  }
+
+  /**
+   * Load campaign dungeon rows, optionally scoped to one dungeon_id.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Campaign dungeon rows ordered by most recently updated.
+   */
+  protected function loadCampaignDungeonRows(int $campaign_id, ?string $dungeon_id = NULL): array {
+    $query = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_id', 'dungeon_data', 'updated'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC');
+
+    if ($dungeon_id !== NULL && trim($dungeon_id) !== '') {
+      $query->condition('dungeon_id', trim($dungeon_id));
+    }
+
+    $rows = $query->execute()->fetchAll();
+    if (!is_array($rows) || $rows === []) {
+      return [];
+    }
+
+    return array_values(array_map(static fn($row): array => is_array($row) ? $row : (array) $row, $rows));
+  }
+
+  /**
+   * Decode and validate one dungeon payload for quest destination checks.
+   */
+  protected function decodeAndValidateDungeonPayload(int $campaign_id, string $dungeon_id, mixed $raw_payload): array {
+    $decoded = is_array($raw_payload)
+      ? $raw_payload
+      : json_decode((string) $raw_payload, TRUE);
+    if (!is_array($decoded)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Campaign %d dungeon_data is invalid JSON for dungeon "%s".',
+        $campaign_id,
+        $dungeon_id !== '' ? $dungeon_id : 'unknown'
+      ));
+    }
+
+    $rooms = $decoded['rooms'] ?? NULL;
+    if (!is_array($rooms) || $rooms === []) {
+      throw new \InvalidArgumentException(sprintf(
+        'Campaign %d dungeon "%s" is missing required non-empty rooms array.',
+        $campaign_id,
+        $dungeon_id !== '' ? $dungeon_id : 'unknown'
+      ));
+    }
+
+    return $decoded;
+  }
+
+  /**
+   * Determine if a dungeon payload contains one location identifier.
+   */
+  protected function dungeonPayloadContainsLocation(array $dungeon_data, string $location_id): bool {
+    $location_id = trim($location_id);
+    if ($location_id === '') {
+      return FALSE;
+    }
+
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      $source_room_id = trim((string) ($room['source_room_id'] ?? ''));
+      $room_name = trim((string) ($room['name'] ?? ''));
+      if ($room_id === $location_id || $source_room_id === $location_id || $room_name === $location_id) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
 }
