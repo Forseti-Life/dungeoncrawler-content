@@ -9477,6 +9477,35 @@ function dungeoncrawler_content_update_10085() {
 }
 
 /**
+ * Re-import Torment and Legacy canonical templates after contract fixes.
+ */
+function dungeoncrawler_content_update_10086() {
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $summary = $importer->importTemplateFiles([
+    'dungeoncrawler_content_storylines' => ['default_storyline_templates.json'],
+    'dungeoncrawler_content_quest_templates' => ['torment_and_legacy_quest_templates.json'],
+    'dungeoncrawler_content_characters' => ['torment_and_legacy_character_templates.json'],
+  ]);
+
+  if (!empty($summary['errors'])) {
+    throw new \Drupal\Core\Utility\UpdateException(
+      'Torment and Legacy template refresh failed: ' . implode('; ', array_map('strval', $summary['errors']))
+    );
+  }
+
+  return t(
+    'Torment and Legacy template refresh complete. Processed: @processed, inserted: @inserted, updated: @updated, skipped: @skipped.',
+    [
+      '@processed' => (int) ($summary['table_rows_processed'] ?? 0),
+      '@inserted' => (int) ($summary['table_rows_inserted'] ?? 0),
+      '@updated' => (int) ($summary['table_rows_updated'] ?? 0),
+      '@skipped' => (int) ($summary['table_rows_skipped'] ?? 0),
+    ]
+  );
+}
+
+/**
  * Resolve a canonical actor row for a legacy entity reference.
  */
 function dungeoncrawler_content_resolve_actor_for_legacy_entity(\Drupal\Core\Database\Connection $database, int $campaign_id, string $entity_ref, string $display_name): ?array {
