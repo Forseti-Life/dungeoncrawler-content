@@ -1561,6 +1561,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
       $this->createMock(CampaignStateService::class),
       NULL,
       NULL,
+      NULL,
       new ObjectiveTypeService()
     );
   }

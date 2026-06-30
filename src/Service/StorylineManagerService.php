@@ -20,6 +20,7 @@ class StorylineManagerService {
   protected UuidInterface $uuid;
   protected CampaignStateService $campaignStateService;
   protected ?StateValidationService $stateValidationService;
+  protected ?ContentRegistry $contentRegistry;
   protected ?StorylineRealizationService $storylineRealizationService;
   protected ?ObjectiveTypeService $objectiveTypeService;
   protected ?array $canonicalLocationTemplateIndex = NULL;
@@ -30,6 +31,7 @@ class StorylineManagerService {
     UuidInterface $uuid,
     CampaignStateService $campaign_state_service,
     ?StateValidationService $state_validation_service = NULL,
+    ?ContentRegistry $content_registry = NULL,
     ?StorylineRealizationService $storyline_realization_service = NULL,
     ?ObjectiveTypeService $objective_type_service = NULL
   ) {
@@ -38,6 +40,7 @@ class StorylineManagerService {
     $this->uuid = $uuid;
     $this->campaignStateService = $campaign_state_service;
     $this->stateValidationService = $state_validation_service;
+    $this->contentRegistry = $content_registry;
     $this->storylineRealizationService = $storyline_realization_service;
     $this->objectiveTypeService = $objective_type_service;
   }
@@ -574,6 +577,15 @@ class StorylineManagerService {
           if ($registry_name === '') {
             $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'registry NPC contract requires name.');
           }
+          if ((string) ($registry_row['content_type'] ?? '') === 'creature') {
+            $errors = array_merge($errors, $this->validateRegistryContractWithExistingValidator(
+              'creature',
+              $schema_data,
+              $entity_type,
+              $entity_id,
+              $context
+            ));
+          }
         }
       }
 
@@ -614,12 +626,13 @@ class StorylineManagerService {
         return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'hazard schema_data contract is required.')];
       }
 
-      $name = trim((string) ($schema_data['name'] ?? $row['name'] ?? ''));
-      if ($name === '') {
-        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'hazard contract requires name.')];
-      }
-
-      return [];
+      return $this->validateRegistryContractWithExistingValidator(
+        'hazard',
+        $schema_data,
+        $entity_type,
+        $entity_id,
+        $context
+      );
     }
 
     /**
@@ -642,19 +655,24 @@ class StorylineManagerService {
         return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'item schema_data contract is required.')];
       }
 
-      $name = trim((string) ($schema_data['name'] ?? $row['name'] ?? ''));
-      $item_type = trim((string) ($schema_data['item_type'] ?? ''));
-      $item_id = trim((string) ($schema_data['item_id'] ?? ''));
       $errors = [];
-      if ($name === '') {
-        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'item contract requires name.');
+      if ($this->stateValidationService !== NULL) {
+        $validation = $this->stateValidationService->validateItemDefinition($schema_data);
+        if (empty($validation['valid'])) {
+          foreach (array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))) as $error) {
+            $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $error);
+          }
+        }
       }
-      if ($item_type === '') {
-        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'item contract requires item_type.');
-      }
-      if ($item_id === '') {
-        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'item contract requires item_id.');
-      }
+
+      $errors = array_merge($errors, $this->validateRegistryContractWithExistingValidator(
+        'item',
+        $schema_data,
+        $entity_type,
+        $entity_id,
+        $context
+      ));
+
       return $errors;
     }
 
@@ -867,6 +885,40 @@ class StorylineManagerService {
     protected function formatEntityTypeContractError(string $entity_type, string $entity_id, array $context, string $message): string {
       $path = trim((string) ($context['path'] ?? 'entity_reference'));
       return "[entity_type_contracts:{$entity_type}] {$path} ({$entity_id}): {$message}";
+    }
+
+    /**
+     * Validate registry schema_data with existing content validators when available.
+     *
+     * @param array<string, mixed> $schema_data
+     *   Canonical registry schema_data payload.
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     *
+     * @return array<int, string>
+     *   Validation errors.
+     */
+    protected function validateRegistryContractWithExistingValidator(
+      string $content_type,
+      array $schema_data,
+      string $entity_type,
+      string $entity_id,
+      array $context
+    ): array {
+      if ($this->contentRegistry === NULL) {
+        return [];
+      }
+
+      $validation = $this->contentRegistry->validateContent($content_type, $schema_data);
+      if (!empty($validation['valid'])) {
+        return [];
+      }
+
+      $errors = [];
+      foreach (array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))) as $error) {
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $error);
+      }
+      return $errors;
     }
 
   /**
