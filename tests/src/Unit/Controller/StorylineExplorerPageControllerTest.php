@@ -243,4 +243,45 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
     $this->assertSame([], $errors);
   }
 
+  /**
+   * @covers ::buildEntityTypeVerificationRows
+   */
+  public function testBuildEntityTypeVerificationRowsTracksPerTypeFailures(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeBuildEntityTypeVerificationRows(array $template_data, array $stages): array {
+        return $this->buildEntityTypeVerificationRows($template_data, $stages);
+      }
+    };
+
+    $rows = $controller->exposeBuildEntityTypeVerificationRows([
+      'asset_references' => [
+        ['asset_type' => 'npc', 'asset_id' => 'npc-a'],
+        ['asset_type' => 'hazard', 'asset_id' => 'hazard-a'],
+      ],
+      'contacts' => [
+        ['entity_type' => 'campaign_npc', 'entity_id' => 'npc_tavern_keeper'],
+      ],
+    ], [
+      'entity_type_contracts' => [
+        'valid' => FALSE,
+        'errors' => [
+          "[entity_type_contracts:npc] asset_references[0] (npc-a): missing contract",
+          "[entity_type_contracts:npc] contacts[0] (npc_tavern_keeper): missing contract",
+        ],
+      ],
+    ]);
+
+    $by_type = [];
+    foreach ($rows as $row) {
+      $by_type[(string) ($row['entity_type'] ?? '')] = $row;
+    }
+
+    $this->assertSame('FAIL', (string) ($by_type['npc']['status'] ?? ''));
+    $this->assertSame(2, (int) ($by_type['npc']['error_count'] ?? 0));
+    $this->assertSame('PASS', (string) ($by_type['hazard']['status'] ?? ''));
+    $this->assertSame(0, (int) ($by_type['hazard']['error_count'] ?? 0));
+    $this->assertSame('PASS', (string) ($by_type['campaign_npc']['status'] ?? ''));
+    $this->assertSame(0, (int) ($by_type['campaign_npc']['error_count'] ?? 0));
+  }
+
 }

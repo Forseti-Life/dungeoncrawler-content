@@ -1095,7 +1095,8 @@ class StorylineExplorerPageController extends ControllerBase {
       $entity_type_rows[] = [
         (string) ($row['entity_type'] ?? ''),
         (string) ((int) ($row['reference_count'] ?? 0)),
-        (string) ($row['stage_status'] ?? ''),
+        (string) ($row['status'] ?? ''),
+        (string) ((int) ($row['error_count'] ?? 0)),
       ];
     }
 
@@ -1172,7 +1173,7 @@ class StorylineExplorerPageController extends ControllerBase {
         ],
         'entity_type_verification' => [
           '#type' => 'table',
-          '#header' => ['Entity type', 'Referenced entities', 'Contract stage status'],
+          '#header' => ['Entity type', 'Referenced entities', 'Verification status', 'Errors'],
           '#rows' => $entity_type_rows,
           '#empty' => $this->t('No entity-type references detected in this storyline template.'),
         ],
@@ -1300,7 +1301,7 @@ class StorylineExplorerPageController extends ControllerBase {
    * @param array<string, array{valid: bool, errors: array<int, string>}> $stages
    *   Validator stage payloads keyed by stage name.
    *
-   * @return array<int, array{entity_type: string, reference_count: int, stage_status: string}>
+   * @return array<int, array{entity_type: string, reference_count: int, status: string, error_count: int}>
    *   Entity-type verification rows for the diagnostics card.
    */
   protected function buildEntityTypeVerificationRows(array $template_data, array $stages): array {
@@ -1333,15 +1334,27 @@ class StorylineExplorerPageController extends ControllerBase {
     }
 
     ksort($reference_counts);
-    $entity_stage = $stages['entity_type_contracts'] ?? ['valid' => FALSE];
-    $stage_status = !empty($entity_stage['valid']) ? 'PASS (scaffold/no-op)' : 'FAIL';
+    $entity_stage = is_array($stages['entity_type_contracts'] ?? NULL) ? $stages['entity_type_contracts'] : ['valid' => FALSE, 'errors' => []];
+    $stage_errors = array_values(array_filter(array_map('strval', is_array($entity_stage['errors'] ?? NULL) ? $entity_stage['errors'] : []), static fn(string $error): bool => trim($error) !== ''));
+    $errors_by_type = [];
+    foreach ($stage_errors as $error) {
+      if (preg_match('/^\[entity_type_contracts:([a-z0-9_:-]+)\]\s/i', $error, $matches) === 1) {
+        $type_key = strtolower(trim((string) ($matches[1] ?? '')));
+        if ($type_key !== '') {
+          $errors_by_type[$type_key] = ($errors_by_type[$type_key] ?? 0) + 1;
+        }
+      }
+    }
 
     $rows = [];
     foreach ($reference_counts as $entity_type => $count) {
+      $error_count = (int) ($errors_by_type[$entity_type] ?? 0);
+      $status = $error_count === 0 ? 'PASS' : 'FAIL';
       $rows[] = [
         'entity_type' => (string) $entity_type,
         'reference_count' => (int) $count,
-        'stage_status' => $stage_status,
+        'status' => $status,
+        'error_count' => $error_count,
       ];
     }
 

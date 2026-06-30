@@ -506,7 +506,7 @@ class StorylineManagerService {
     }
 
     /**
-     * Stub hook for npc-like entity contract validation.
+     * Validate npc-like entity contracts.
      *
      * @param array<string, mixed> $context
      *   Validation context metadata.
@@ -515,11 +515,48 @@ class StorylineManagerService {
      *   Validation errors.
      */
     protected function validateReferencedNpcLikeEntityContractStub(string $entity_type, string $entity_id, array $context): array {
-      return [];
+      $errors = [];
+      $character_row = $this->loadCanonicalCharacterEntityByInstanceId($entity_id);
+      $registry_row = $this->loadCanonicalRegistryEntity('npc', $entity_id);
+
+      if ($character_row === NULL && $registry_row === NULL) {
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced NPC-like entity was not found in canonical character templates or registry.');
+        return $errors;
+      }
+
+      if ($character_row !== NULL) {
+        $state_data = $this->decodeJsonArrayValue($character_row['state_data'] ?? NULL);
+        $name = trim((string) ($state_data['name'] ?? ''));
+        $class = trim((string) ($state_data['class'] ?? ''));
+        if ($name === '') {
+          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'character template state_data.name is required.');
+        }
+        if ($class === '') {
+          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'character template state_data.class is required.');
+        }
+        if (!is_numeric($state_data['level'] ?? NULL) || (int) ($state_data['level'] ?? 0) < 1) {
+          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'character template state_data.level must be >= 1.');
+        }
+      }
+
+      if ($registry_row !== NULL) {
+        $schema_data = $this->decodeJsonArrayValue($registry_row['schema_data'] ?? NULL);
+        if ($schema_data === []) {
+          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'registry schema_data is required for npc contract validation.');
+        }
+        else {
+          $registry_name = trim((string) ($schema_data['name'] ?? $registry_row['name'] ?? ''));
+          if ($registry_name === '') {
+            $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'registry NPC contract requires name.');
+          }
+        }
+      }
+
+      return $errors;
     }
 
     /**
-     * Stub hook for hazard entity contract validation.
+     * Validate hazard entity contracts.
      *
      * @param array<string, mixed> $context
      *   Validation context metadata.
@@ -528,11 +565,26 @@ class StorylineManagerService {
      *   Validation errors.
      */
     protected function validateReferencedHazardEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      $row = $this->loadCanonicalRegistryEntity('hazard', $entity_id);
+      if ($row === NULL) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced hazard is missing from canonical registry.')];
+      }
+
+      $schema_data = $this->decodeJsonArrayValue($row['schema_data'] ?? NULL);
+      if ($schema_data === []) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'hazard schema_data contract is required.')];
+      }
+
+      $name = trim((string) ($schema_data['name'] ?? $row['name'] ?? ''));
+      if ($name === '') {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'hazard contract requires name.')];
+      }
+
       return [];
     }
 
     /**
-     * Stub hook for item entity contract validation.
+     * Validate item entity contracts.
      *
      * @param array<string, mixed> $context
      *   Validation context metadata.
@@ -541,11 +593,34 @@ class StorylineManagerService {
      *   Validation errors.
      */
     protected function validateReferencedItemEntityContractStub(string $entity_type, string $entity_id, array $context): array {
-      return [];
+      $row = $this->loadCanonicalRegistryEntity('item', $entity_id);
+      if ($row === NULL) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced item is missing from canonical registry.')];
+      }
+
+      $schema_data = $this->decodeJsonArrayValue($row['schema_data'] ?? NULL);
+      if ($schema_data === []) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'item schema_data contract is required.')];
+      }
+
+      $name = trim((string) ($schema_data['name'] ?? $row['name'] ?? ''));
+      $item_type = trim((string) ($schema_data['item_type'] ?? ''));
+      $item_id = trim((string) ($schema_data['item_id'] ?? ''));
+      $errors = [];
+      if ($name === '') {
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'item contract requires name.');
+      }
+      if ($item_type === '') {
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'item contract requires item_type.');
+      }
+      if ($item_id === '') {
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'item contract requires item_id.');
+      }
+      return $errors;
     }
 
     /**
-     * Stub hook for room/location entity contract validation.
+     * Validate room/location entity contracts.
      *
      * @param array<string, mixed> $context
      *   Validation context metadata.
@@ -554,11 +629,37 @@ class StorylineManagerService {
      *   Validation errors.
      */
     protected function validateReferencedLocationEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      if ($entity_type === 'room') {
+        $row = $this->loadCanonicalRoomEntity($entity_id);
+        if ($row === NULL) {
+          return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced room is missing from canonical room templates.')];
+        }
+        $layout_data = $this->decodeJsonArrayValue($row['layout_data'] ?? NULL);
+        $contents_data = $this->decodeJsonArrayValue($row['contents_data'] ?? NULL);
+        $errors = [];
+        if ($layout_data === []) {
+          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'room layout_data contract is required.');
+        }
+        if ($contents_data === []) {
+          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'room contents_data contract is required.');
+        }
+        return $errors;
+      }
+
+      $row = $this->loadCanonicalRegistryEntity('location', $entity_id);
+      if ($row === NULL) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced location is missing from canonical registry.')];
+      }
+      $schema_data = $this->decodeJsonArrayValue($row['schema_data'] ?? NULL);
+      $name = trim((string) ($schema_data['name'] ?? $row['name'] ?? ''));
+      if ($name === '') {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'location contract requires name.')];
+      }
       return [];
     }
 
     /**
-     * Stub hook for dungeon entity contract validation.
+     * Validate dungeon entity contracts.
      *
      * @param array<string, mixed> $context
      *   Validation context metadata.
@@ -567,11 +668,34 @@ class StorylineManagerService {
      *   Validation errors.
      */
     protected function validateReferencedDungeonEntityContractStub(string $entity_type, string $entity_id, array $context): array {
-      return [];
+      $row = $this->loadCanonicalDungeonEntity($entity_id);
+      if ($row === NULL) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced dungeon is missing from canonical dungeon templates.')];
+      }
+
+      $dungeon_data = $this->decodeJsonArrayValue($row['dungeon_data'] ?? NULL);
+      if ($dungeon_data === []) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'dungeon_data contract is required.')];
+      }
+
+      $rooms = array_values(array_filter(array_map('strval', is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []), static fn(string $id): bool => trim($id) !== ''));
+      $entry_room = trim((string) ($dungeon_data['entry_room'] ?? ''));
+      $errors = [];
+      if ($rooms === []) {
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'dungeon_data.rooms must define at least one room.');
+      }
+      if ($entry_room === '') {
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'dungeon_data.entry_room is required.');
+      }
+      elseif ($rooms !== [] && !in_array($entry_room, $rooms, TRUE)) {
+        $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, "dungeon_data.entry_room '{$entry_room}' must be listed in dungeon_data.rooms.");
+      }
+
+      return $errors;
     }
 
     /**
-     * Stub hook for faction/institution entity contract validation.
+     * Validate faction/institution entity contracts.
      *
      * @param array<string, mixed> $context
      *   Validation context metadata.
@@ -580,7 +704,109 @@ class StorylineManagerService {
      *   Validation errors.
      */
     protected function validateReferencedFactionEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+      $registry_type = $entity_type === 'institution' ? 'institution' : 'faction';
+      $row = $this->loadCanonicalRegistryEntity($registry_type, $entity_id);
+      if ($row === NULL && $registry_type === 'institution') {
+        $row = $this->loadCanonicalRegistryEntity('faction', $entity_id);
+      }
+      if ($row === NULL) {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced faction/institution is missing from canonical registry.')];
+      }
+
+      $schema_data = $this->decodeJsonArrayValue($row['schema_data'] ?? NULL);
+      $name = trim((string) ($schema_data['name'] ?? $row['name'] ?? ''));
+      if ($name === '') {
+        return [$this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'faction/institution contract requires name.')];
+      }
       return [];
+    }
+
+    /**
+     * Load one canonical registry entity row by content type/id.
+     */
+    protected function loadCanonicalRegistryEntity(string $content_type, string $content_id): ?array {
+      $schema = $this->database->schema();
+      if (!$schema->tableExists('dungeoncrawler_content_registry')) {
+        return NULL;
+      }
+
+      $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+        ->fields('r', ['content_id', 'content_type', 'name', 'schema_data'])
+        ->condition('content_type', $content_type)
+        ->condition('content_id', $content_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+
+      return is_array($row) ? $row : NULL;
+    }
+
+    /**
+     * Load one canonical character template row by instance id.
+     */
+    protected function loadCanonicalCharacterEntityByInstanceId(string $instance_id): ?array {
+      $schema = $this->database->schema();
+      if (!$schema->tableExists('dungeoncrawler_content_characters')) {
+        return NULL;
+      }
+
+      $row = $this->database->select('dungeoncrawler_content_characters', 'c')
+        ->fields('c', ['instance_id', 'type', 'role', 'state_data'])
+        ->condition('instance_id', $instance_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+
+      return is_array($row) ? $row : NULL;
+    }
+
+    /**
+     * Load one canonical room template row by room id.
+     */
+    protected function loadCanonicalRoomEntity(string $room_id): ?array {
+      $schema = $this->database->schema();
+      if (!$schema->tableExists('dungeoncrawler_content_rooms')) {
+        return NULL;
+      }
+
+      $row = $this->database->select('dungeoncrawler_content_rooms', 'r')
+        ->fields('r', ['room_id', 'name', 'layout_data', 'contents_data'])
+        ->condition('room_id', $room_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+
+      return is_array($row) ? $row : NULL;
+    }
+
+    /**
+     * Load one canonical dungeon template row by dungeon id.
+     */
+    protected function loadCanonicalDungeonEntity(string $dungeon_id): ?array {
+      $schema = $this->database->schema();
+      if (!$schema->tableExists('dungeoncrawler_content_dungeons')) {
+        return NULL;
+      }
+
+      $row = $this->database->select('dungeoncrawler_content_dungeons', 'd')
+        ->fields('d', ['dungeon_id', 'name', 'dungeon_data'])
+        ->condition('dungeon_id', $dungeon_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+
+      return is_array($row) ? $row : NULL;
+    }
+
+    /**
+     * Format a stable entity-type-contract validator error string.
+     *
+     * @param array<string, mixed> $context
+     *   Validation context metadata.
+     */
+    protected function formatEntityTypeContractError(string $entity_type, string $entity_id, array $context, string $message): string {
+      $path = trim((string) ($context['path'] ?? 'entity_reference'));
+      return "[entity_type_contracts:{$entity_type}] {$path} ({$entity_id}): {$message}";
     }
 
   /**
