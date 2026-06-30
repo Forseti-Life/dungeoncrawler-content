@@ -23,10 +23,10 @@ class NavigationRoadGraphService {
       return NULL;
     }
 
-    $from_access = (int) ($from_anchor['access_distance'] ?? 0);
-    $to_access = (int) ($to_anchor['access_distance'] ?? 0);
-    $from_node_id = trim((string) ($from_anchor['road_node_id'] ?? ''));
-    $to_node_id = trim((string) ($to_anchor['road_node_id'] ?? ''));
+    $from_access = $this->normalizeNonNegativeDistance($from_anchor['access_distance'] ?? 0);
+    $to_access = $this->normalizeNonNegativeDistance($to_anchor['access_distance'] ?? 0);
+    $from_node_id = $this->normalizeRoadNodeId($from_anchor['road_node_id'] ?? '');
+    $to_node_id = $this->normalizeRoadNodeId($to_anchor['road_node_id'] ?? '');
     if ($from_node_id === '' || $to_node_id === '') {
       return NULL;
     }
@@ -36,7 +36,7 @@ class NavigationRoadGraphService {
       return NULL;
     }
 
-    return max(0, $from_access) + $path_distance + max(0, $to_access);
+    return $from_access + $path_distance + $to_access;
   }
 
   /**
@@ -47,8 +47,8 @@ class NavigationRoadGraphService {
     string $from_node_id,
     string $to_node_id
   ): ?int {
-    $from_node_id = trim($from_node_id);
-    $to_node_id = trim($to_node_id);
+    $from_node_id = $this->normalizeRoadNodeId($from_node_id);
+    $to_node_id = $this->normalizeRoadNodeId($to_node_id);
     if ($from_node_id === '' || $to_node_id === '') {
       return NULL;
     }
@@ -65,17 +65,7 @@ class NavigationRoadGraphService {
     $visited = [];
 
     while (TRUE) {
-      $current_node = NULL;
-      $current_distance = NULL;
-      foreach ($distances as $node_id => $distance) {
-        if (isset($visited[$node_id])) {
-          continue;
-        }
-        if ($current_node === NULL || $distance < $current_distance) {
-          $current_node = $node_id;
-          $current_distance = $distance;
-        }
-      }
+      [$current_node, $current_distance] = $this->resolveClosestUnvisitedNode($distances, $visited);
       if ($current_node === NULL) {
         break;
       }
@@ -85,12 +75,12 @@ class NavigationRoadGraphService {
 
       $visited[$current_node] = TRUE;
       foreach ($adjacency[$current_node] ?? [] as $edge) {
-        $neighbor = (string) ($edge['to'] ?? '');
-        $weight = (int) ($edge['distance'] ?? 0);
+        $neighbor = $this->normalizeRoadNodeId($edge['to'] ?? '');
+        $weight = $this->normalizeNonNegativeDistance($edge['distance'] ?? 0);
         if ($neighbor === '' || isset($visited[$neighbor])) {
           continue;
         }
-        $candidate = (int) $current_distance + max(0, $weight);
+        $candidate = (int) $current_distance + $weight;
         if (!isset($distances[$neighbor]) || $candidate < $distances[$neighbor]) {
           $distances[$neighbor] = $candidate;
         }
@@ -118,19 +108,14 @@ class NavigationRoadGraphService {
       if (!is_array($edge)) {
         continue;
       }
-      $from = trim((string) ($edge['from_node_id'] ?? $edge['from'] ?? ''));
-      $to = trim((string) ($edge['to_node_id'] ?? $edge['to'] ?? ''));
+      $from = $this->normalizeRoadNodeId($edge['from_node_id'] ?? $edge['from'] ?? '');
+      $to = $this->normalizeRoadNodeId($edge['to_node_id'] ?? $edge['to'] ?? '');
       if ($from === '' || $to === '') {
         continue;
       }
-      $distance = max(0, (int) ($edge['distance'] ?? $edge['weight'] ?? 0));
+      $distance = $this->normalizeNonNegativeDistance($edge['distance'] ?? $edge['weight'] ?? 0);
       $bidirectional = array_key_exists('bidirectional', $edge) ? !empty($edge['bidirectional']) : TRUE;
-
-      $adjacency[$from][] = ['to' => $to, 'distance' => $distance];
-      $adjacency[$to] = $adjacency[$to] ?? [];
-      if ($bidirectional) {
-        $adjacency[$to][] = ['to' => $from, 'distance' => $distance];
-      }
+      $this->appendAdjacencyEdge($adjacency, $from, $to, $distance, $bidirectional);
     }
 
     return $adjacency;
@@ -159,12 +144,81 @@ class NavigationRoadGraphService {
       }
       return [
         'room_id' => $room_id,
-        'road_node_id' => trim((string) ($anchor['road_node_id'] ?? '')),
-        'access_distance' => max(0, (int) ($anchor['access_distance'] ?? 0)),
+        'road_node_id' => $this->normalizeRoadNodeId($anchor['road_node_id'] ?? ''),
+        'access_distance' => $this->normalizeNonNegativeDistance($anchor['access_distance'] ?? 0),
       ];
     }
 
     return NULL;
+  }
+
+  /**
+   * Normalize a road node identifier into canonical string form.
+   */
+  protected function normalizeRoadNodeId(mixed $node_id): string {
+    return trim((string) $node_id);
+  }
+
+  /**
+   * Normalize numeric distance fields to non-negative integers.
+   */
+  protected function normalizeNonNegativeDistance(mixed $distance): int {
+    return max(0, (int) $distance);
+  }
+
+  /**
+   * Append one canonical edge (and optional reverse edge) to adjacency payload.
+   *
+   * @param array<string, array<int, array<string, int|string>>> $adjacency
+   *   Adjacency list keyed by node id.
+   * @param string $from
+   *   Source node id.
+   * @param string $to
+   *   Target node id.
+   * @param int $distance
+   *   Non-negative edge distance.
+   * @param bool $bidirectional
+   *   Whether reverse edge should be emitted.
+   */
+  protected function appendAdjacencyEdge(
+    array &$adjacency,
+    string $from,
+    string $to,
+    int $distance,
+    bool $bidirectional
+  ): void {
+    $adjacency[$from][] = ['to' => $to, 'distance' => $distance];
+    $adjacency[$to] = $adjacency[$to] ?? [];
+    if ($bidirectional) {
+      $adjacency[$to][] = ['to' => $from, 'distance' => $distance];
+    }
+  }
+
+  /**
+   * Resolve the next unvisited node with the smallest tentative distance.
+   *
+   * @param array<string, int> $distances
+   *   Tentative distances keyed by node id.
+   * @param array<string, bool> $visited
+   *   Visited marker map keyed by node id.
+   *
+   * @return array{0: string|null, 1: int|null}
+   *   Tuple of [node id, tentative distance].
+   */
+  protected function resolveClosestUnvisitedNode(array $distances, array $visited): array {
+    $current_node = NULL;
+    $current_distance = NULL;
+    foreach ($distances as $node_id => $distance) {
+      if (isset($visited[$node_id])) {
+        continue;
+      }
+      if ($current_node === NULL || $distance < $current_distance) {
+        $current_node = $node_id;
+        $current_distance = $distance;
+      }
+    }
+
+    return [$current_node, $current_distance];
   }
 
 }

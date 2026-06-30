@@ -62,7 +62,10 @@ assert(
 );
 
 assert(
-  source.includes('const key = connectionId ? `${mapId}:${roomId}:${connectionId}` : `${mapId}:${roomId}`;'),
+  source.includes('const key = buildNavigateRouteKey(mapId, roomId, connectionId);')
+    && source.includes('function buildNavigateRouteKey(mapId, roomId, connectionId = \'\')')
+    && source.includes('? `${normalizedMapId}:${normalizedRoomId}:${normalizedConnectionId}`')
+    && source.includes(': `${normalizedMapId}:${normalizedRoomId}`;'),
   'navigate dedupe key prefers connection identity to avoid collapsing distinct exits'
 );
 

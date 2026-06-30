@@ -40,17 +40,7 @@ class NavigationService {
     }
     $capabilities = $this->enforceDuplicateExitContractConflicts($capabilities);
 
-    usort($capabilities, static function (array $left, array $right): int {
-      $left_available = !empty($left['available']) ? 0 : 1;
-      $right_available = !empty($right['available']) ? 0 : 1;
-      if ($left_available !== $right_available) {
-        return $left_available <=> $right_available;
-      }
-
-      return strcmp((string) ($left['target_room_id'] ?? ''), (string) ($right['target_room_id'] ?? ''));
-    });
-
-    return $capabilities;
+    return $this->sortCapabilities($capabilities);
   }
 
   /**
@@ -101,6 +91,28 @@ class NavigationService {
     }
 
     return $capabilities;
+  }
+
+  /**
+   * Build a set of target room IDs present in capability payloads.
+   *
+   * @param array<int, array<string, mixed>> $capabilities
+   *   Navigation capabilities.
+   *
+   * @return array<string, bool>
+   *   Keyed set of target room IDs.
+   */
+  protected function collectCapabilityTargetRoomIds(array $capabilities): array {
+    $target_room_ids = [];
+    foreach ($capabilities as $capability) {
+      $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+      if ($target_room_id === '') {
+        continue;
+      }
+      $target_room_ids[$target_room_id] = TRUE;
+    }
+
+    return $target_room_ids;
   }
 
   /**
@@ -891,28 +903,22 @@ class NavigationService {
   ): array {
     // Start with normal capabilities
     $capabilities = $this->buildNavigationCapabilities($dungeon_data, $room_id);
+    $target_room_ids = $this->collectCapabilityTargetRoomIds($capabilities);
+    $road_source_rooms = $this->collectRoadConnectedSourceRooms($dungeon_data);
 
     // Check if current room has any road connection
-    $current_room_has_road = $this->hasRoadConnection($dungeon_data, $room_id);
+    $current_room_has_road = $this->hasRoadConnection($dungeon_data, $room_id, $road_source_rooms);
     if ($current_room_has_road) {
       // Current room has road access — add all other road-connected rooms.
-      $road_network_rooms = $this->extractRoadNetworkRooms($dungeon_data, $room_id);
+      $road_network_rooms = $this->extractRoadNetworkRooms($dungeon_data, $room_id, $road_source_rooms);
 
       foreach ($road_network_rooms as $target_room_id) {
-        // Check if already in capabilities (direct connection).
-        $already_present = FALSE;
-        foreach ($capabilities as $cap) {
-          if ((string) ($cap['target_room_id'] ?? '') === $target_room_id) {
-            $already_present = TRUE;
-            break;
-          }
-        }
-
-        if (!$already_present) {
+        if (!isset($target_room_ids[$target_room_id])) {
           // Add synthetic road network capability.
           $capability = $this->synthesizeRoadCapability($dungeon_data, $room_id, $target_room_id);
           if ($capability !== NULL) {
             $capabilities[] = $capability;
+            $target_room_ids[$target_room_id] = TRUE;
           }
         }
       }
@@ -929,29 +935,26 @@ class NavigationService {
    *   The dungeon data.
    * @param string $room_id
    *   The room ID to check.
+   * @param array<string, bool>|null $road_source_rooms
+   *   Optional precomputed source-room set.
    *
    * @return bool
    *   TRUE if room has a road connection, FALSE otherwise.
    */
-  protected function hasRoadConnection(array $dungeon_data, string $room_id): bool {
+  protected function hasRoadConnection(
+    array $dungeon_data,
+    string $room_id,
+    ?array $road_source_rooms = NULL
+  ): bool {
     $room_id = trim($room_id);
     if ($room_id === '') {
       return FALSE;
     }
 
-    foreach ($this->extractConnections($dungeon_data) as $connection) {
-      $from = trim((string) ($connection['from_room'] ?? ''));
-      if ($from !== $room_id) {
-        continue;
-      }
-
-      $destination_type = $this->resolveDestinationType($connection);
-      if ($destination_type === 'road') {
-        return TRUE;
-      }
+    if ($road_source_rooms === NULL) {
+      $road_source_rooms = $this->collectRoadConnectedSourceRooms($dungeon_data);
     }
-
-    return FALSE;
+    return isset($road_source_rooms[$room_id]);
   }
 
   /**
@@ -964,38 +967,48 @@ class NavigationService {
    *   The dungeon data.
    * @param string $room_id
    *   The current room ID (excluded from results).
+   * @param array<string, bool>|null $road_source_rooms
+   *   Optional precomputed source-room set.
    *
    * @return array<int, string>
    *   Array of room IDs that are part of the road network.
    */
   protected function extractRoadNetworkRooms(
     array $dungeon_data,
-    string $room_id
+    string $room_id,
+    ?array $road_source_rooms = NULL
   ): array {
     $room_id = trim($room_id);
-    $road_rooms = [];
+    if ($road_source_rooms === NULL) {
+      $road_source_rooms = $this->collectRoadConnectedSourceRooms($dungeon_data);
+    }
+    unset($road_source_rooms[$room_id]);
+    return array_keys($road_source_rooms);
+  }
 
+  /**
+   * Collect source room IDs that have at least one road destination edge.
+   *
+   * @param array $dungeon_data
+   *   The dungeon data.
+   *
+   * @return array<string, bool>
+   *   Keyed set of source room IDs.
+   */
+  protected function collectRoadConnectedSourceRooms(array $dungeon_data): array {
+    $road_source_rooms = [];
     foreach ($this->extractConnections($dungeon_data) as $connection) {
       $from = trim((string) ($connection['from_room'] ?? ''));
       if ($from === '') {
         continue;
       }
-
-      // Skip current room (already accessible)
-      if ($from === $room_id) {
+      if ($this->resolveDestinationType($connection) !== 'road') {
         continue;
       }
-
-      $destination_type = $this->resolveDestinationType($connection);
-      if ($destination_type === 'road') {
-        // This room has a road connection
-        if (!in_array($from, $road_rooms, TRUE)) {
-          $road_rooms[] = $from;
-        }
-      }
+      $road_source_rooms[$from] = TRUE;
     }
 
-    return $road_rooms;
+    return $road_source_rooms;
   }
 
   /**

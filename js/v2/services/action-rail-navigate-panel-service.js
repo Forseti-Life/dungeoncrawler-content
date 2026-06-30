@@ -93,7 +93,7 @@ function dedupeNavigateGroups(groups) {
         }
         const connectionId = String(location?.connectionId || '').trim();
         const mapId = String(location?.mapId || group?.mapId || '').trim();
-        const key = connectionId ? `${mapId}:${roomId}:${connectionId}` : `${mapId}:${roomId}`;
+        const key = buildNavigateRouteKey(mapId, roomId, connectionId);
         if (seen.has(key)) {
           return false;
         }
@@ -224,7 +224,7 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
       const roomId = String(location?.roomId || '').trim();
       if (roomId) {
         const routeMapId = String(location?.mapId || currentMapId || '').trim();
-        directRouteKeys.add(`${routeMapId}:${roomId}`);
+        directRouteKeys.add(buildNavigateRouteKey(routeMapId, roomId));
       }
     });
   });
@@ -233,6 +233,7 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
     .map((group) => {
       const mapId = String(group?.mapId || group?.dungeonId || '').trim();
       const dungeonLevelId = String(group?.dungeonLevelId || '').trim();
+      const groupLabel = resolveNavigateGroupLabel(group, panel, context);
       const locations = (Array.isArray(group?.locations) ? group.locations : [])
         .map((location) => ({
           ...location,
@@ -260,19 +261,31 @@ function collectVisitedNavigateLocationGroups(panel, context, campaignId, exitGr
           if (sameMap && activeRoomId && location.roomId === activeRoomId) {
             return false;
           }
-          return !directRouteKeys.has(`${mapId || currentMapId}:${location.roomId}`);
+          return !directRouteKeys.has(buildNavigateRouteKey(mapId || currentMapId, location.roomId));
         });
 
       return {
         ...group,
-        title: `Known destinations — ${resolveNavigateGroupLabel(group, panel, context)}`,
-        dungeonName: resolveNavigateGroupLabel(group, panel, context),
+        title: `Known destinations — ${groupLabel}`,
+        dungeonName: groupLabel,
         mapId,
         dungeonLevelId,
         locations,
       };
     })
     .filter((group) => Array.isArray(group.locations) && group.locations.length > 0);
+}
+
+function buildNavigateRouteKey(mapId, roomId, connectionId = '') {
+  const normalizedMapId = String(mapId || '').trim();
+  const normalizedRoomId = String(roomId || '').trim();
+  const normalizedConnectionId = String(connectionId || '').trim();
+  if (!normalizedRoomId) {
+    return '';
+  }
+  return normalizedConnectionId
+    ? `${normalizedMapId}:${normalizedRoomId}:${normalizedConnectionId}`
+    : `${normalizedMapId}:${normalizedRoomId}`;
 }
 
 function resolveNavigateKnownLocationStatusLabel(location) {
@@ -351,17 +364,14 @@ function formatDistanceValue(distance, destinationType = 'room', connectionType 
 
 function formatBlockedReason(reason) {
   const normalized = String(reason || '').trim().toLowerCase();
-  if (normalized === 'missing_road_path') {
-    return 'no connected road path';
-  }
-  if (normalized === 'missing_road_anchor') {
-    return 'missing road anchor';
-  }
-  if (normalized === 'invalid_distance_contract') {
-    return 'invalid distance contract';
-  }
-  if (normalized === 'unresolved_destination') {
-    return 'unresolved destination';
+  const labels = {
+    missing_road_path: 'no connected road path',
+    missing_road_anchor: 'missing road anchor',
+    invalid_distance_contract: 'invalid distance contract',
+    unresolved_destination: 'unresolved destination',
+  };
+  if (labels[normalized]) {
+    return labels[normalized];
   }
   return normalized ? normalized.replace(/_/g, ' ') : 'unavailable';
 }
