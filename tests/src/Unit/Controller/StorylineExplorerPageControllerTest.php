@@ -160,9 +160,87 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
 
     $error_text = implode('; ', $errors);
     $this->assertStringContainsString('Canonical location index unavailable in test fixture.', $error_text);
-    $this->assertStringContainsString("target_id 'npc-missing' not in entity registry", $error_text);
+    $this->assertStringContainsString("target_id 'npc-missing' not in actor registry", $error_text);
     $this->assertStringNotContainsString("location_id 'canonical-room-1' not in entity registry", $error_text);
   }
 
-}
+  /**
+   * @covers ::collectEntityLinkageDiagnostics
+   */
+  public function testCollectEntityLinkageDiagnosticsAllowsAnchoredInvestigateAndInteractTargets(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('getCanonicalLocationTemplateIndex')
+      ->willReturn([
+        'dungeon_ids' => [],
+        'room_ids' => ['canonical-room-1' => TRUE],
+        'dungeon_room_ids' => [],
+        'errors' => [],
+      ]);
+    $storyline_manager->expects($this->once())
+      ->method('getCanonicalQuestTemplateObjectivePhases')
+      ->with('quest-gamma')
+      ->willReturn([
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'inspect-hazard',
+              'type' => 'interact',
+              'target_id' => 'hazard-threat',
+              'location_id' => 'canonical-room-1',
+              'description' => 'Inspect the hazard anchor.',
+              'completion_criteria' => [
+                'kind' => 'flag',
+                'metric' => 'completed',
+                'required_value' => TRUE,
+                'description' => 'Inspect hazard.',
+              ],
+            ],
+            [
+              'objective_id' => 'investigate-faction',
+              'type' => 'investigate',
+              'target' => 'faction-anchor',
+              'location' => 'scene-1',
+              'description' => 'Investigate the faction anchor.',
+              'completion_criteria' => [
+                'kind' => 'count',
+                'metric' => 'current',
+                'target_count' => 1,
+                'description' => 'Investigate once.',
+              ],
+            ],
+          ],
+        ],
+      ]);
 
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectEntityLinkageDiagnostics(array $template_data): array {
+        return $this->collectEntityLinkageDiagnostics($template_data);
+      }
+    };
+
+    $errors = $controller->exposeCollectEntityLinkageDiagnostics([
+      'contacts' => [],
+      'asset_references' => [
+        ['asset_type' => 'hazard', 'asset_id' => 'hazard-threat'],
+        ['asset_type' => 'faction', 'asset_id' => 'faction-anchor'],
+      ],
+      'metadata' => [],
+      'chapters' => [
+        [
+          'chapter_id' => 'chapter-1',
+          'scenes' => [
+            [
+              'scene_id' => 'scene-1',
+              'quest_ids' => ['quest-gamma'],
+            ],
+          ],
+        ],
+      ],
+    ]);
+
+    $this->assertSame([], $errors);
+  }
+
+}

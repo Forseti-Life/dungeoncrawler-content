@@ -71,7 +71,7 @@
               "objective_id": "collect_magaambya_clues",
               "type": "investigate",
               "description": "Collect enough evidence on campus to follow the mystery into Nantambu.",
-              "target": "magaambya",
+              "target": "tok-missing-teacher",
               "npc_id": "tok-campus-mentor",
               "location": "campus-clues",
               "target_count": 1,

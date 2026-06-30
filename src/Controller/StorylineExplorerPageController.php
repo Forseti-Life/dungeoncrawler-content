@@ -1395,11 +1395,13 @@ class StorylineExplorerPageController extends ControllerBase {
     $actors = [];
     $locations = [];
     $items = [];
+    $target_registry = [];
 
     foreach ((array) ($template_data['contacts'] ?? []) as $contact) {
       $entity_id = trim((string) ($contact['entity_id'] ?? ''));
       if ($entity_id !== '') {
         $actors[$entity_id] = TRUE;
+        $target_registry[$entity_id] = TRUE;
       }
     }
     foreach ((array) ($template_data['asset_references'] ?? []) as $ref) {
@@ -1407,6 +1409,7 @@ class StorylineExplorerPageController extends ControllerBase {
       if ($asset_id === '') {
         continue;
       }
+      $target_registry[$asset_id] = TRUE;
       $asset_type = strtolower(trim((string) ($ref['asset_type'] ?? '')));
       if ($asset_type === 'npc') {
         $actors[$asset_id] = TRUE;
@@ -1422,22 +1425,26 @@ class StorylineExplorerPageController extends ControllerBase {
     $big_boss_id = trim((string) ($outline['big_boss']['boss_id'] ?? ''));
     if ($big_boss_id !== '') {
       $actors[$big_boss_id] = TRUE;
+      $target_registry[$big_boss_id] = TRUE;
     }
     foreach ((array) ($outline['sub_bosses'] ?? []) as $boss) {
       $boss_id = trim((string) ($boss['boss_id'] ?? ''));
       if ($boss_id !== '') {
         $actors[$boss_id] = TRUE;
+        $target_registry[$boss_id] = TRUE;
       }
     }
     foreach ((array) ($template_data['chapters'] ?? []) as $chapter) {
       $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
       if ($chapter_id !== '') {
         $locations[$chapter_id] = TRUE;
+        $target_registry[$chapter_id] = TRUE;
       }
       foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
         $scene_id = trim((string) ($scene['scene_id'] ?? ''));
         if ($scene_id !== '') {
           $locations[$scene_id] = TRUE;
+          $target_registry[$scene_id] = TRUE;
         }
       }
     }
@@ -1447,12 +1454,15 @@ class StorylineExplorerPageController extends ControllerBase {
     }
     foreach (array_keys((array) ($canonical_index['room_ids'] ?? [])) as $room_id) {
       $locations[(string) $room_id] = TRUE;
+      $target_registry[(string) $room_id] = TRUE;
     }
     foreach (array_keys((array) ($canonical_index['dungeon_ids'] ?? [])) as $dungeon_id) {
       $locations[(string) $dungeon_id] = TRUE;
+      $target_registry[(string) $dungeon_id] = TRUE;
     }
 
-    $actor_target_types = ['kill', 'interact', 'investigate', 'escort'];
+    $strict_actor_target_types = ['kill', 'escort'];
+    $anchored_target_types = ['interact', 'investigate'];
 
     foreach ((array) ($template_data['chapters'] ?? []) as $chapter) {
       foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
@@ -1482,8 +1492,14 @@ class StorylineExplorerPageController extends ControllerBase {
               $obj_type = strtolower(trim((string) ($objective['type'] ?? '')));
               foreach (['target', 'target_id'] as $field) {
                 $target = trim((string) ($objective[$field] ?? ''));
-                if ($target !== '' && in_array($obj_type, $actor_target_types, TRUE) && !isset($actors[$target])) {
-                  $errors[] = "{$obj_path}: {$field} '{$target}' not in entity registry";
+                if ($target === '') {
+                  continue;
+                }
+                if (in_array($obj_type, $strict_actor_target_types, TRUE) && !isset($actors[$target])) {
+                  $errors[] = "{$obj_path}: {$field} '{$target}' not in actor registry";
+                }
+                elseif (in_array($obj_type, $anchored_target_types, TRUE) && !isset($target_registry[$target])) {
+                  $errors[] = "{$obj_path}: {$field} '{$target}' not in anchored entity registry";
                 }
               }
               foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
@@ -1504,8 +1520,14 @@ class StorylineExplorerPageController extends ControllerBase {
                 $task_type = strtolower(trim((string) ($task['type'] ?? '')));
                 foreach (['target', 'target_id'] as $field) {
                   $task_target = trim((string) ($task[$field] ?? ''));
-                  if ($task_target !== '' && in_array($task_type, $actor_target_types, TRUE) && !isset($actors[$task_target])) {
-                    $errors[] = "{$task_path}: {$field} '{$task_target}' not in entity registry";
+                  if ($task_target === '') {
+                    continue;
+                  }
+                  if (in_array($task_type, $strict_actor_target_types, TRUE) && !isset($actors[$task_target])) {
+                    $errors[] = "{$task_path}: {$field} '{$task_target}' not in actor registry";
+                  }
+                  elseif (in_array($task_type, $anchored_target_types, TRUE) && !isset($target_registry[$task_target])) {
+                    $errors[] = "{$task_path}: {$field} '{$task_target}' not in anchored entity registry";
                   }
                 }
                 foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
