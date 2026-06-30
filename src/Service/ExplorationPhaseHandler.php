@@ -2174,13 +2174,14 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       return FALSE;
     }
 
+    $quest_template_keys = $this->loadSearchQuestTemplateKeys($campaign_id);
     $quest_target = $this->findNeededSearchCollectibleQuest($campaign_id, $room_id, $character_id);
     if (!$quest_target) {
-      return (bool) $this->findNextQuestRelatedSearchItem($campaign_id, $room_id);
+      return (bool) $this->findNextQuestRelatedSearchItem($campaign_id, $room_id, $quest_template_keys);
     }
 
     $item_row = $this->findNextSearchCollectibleItem($campaign_id, $room_id, $quest_target);
-    return (bool) $item_row || (bool) $this->findNextQuestRelatedSearchItem($campaign_id, $room_id);
+    return (bool) $item_row || (bool) $this->findNextQuestRelatedSearchItem($campaign_id, $room_id, $quest_template_keys);
   }
 
   /**
@@ -2515,6 +2516,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       return NULL;
     }
 
+    $quest_template_keys = $this->loadSearchQuestTemplateKeys($campaign_id);
     $quest_target = $this->findNeededSearchCollectibleQuest($campaign_id, $room_id, $character_id);
     if ($quest_target) {
       $item_row = $this->findNextSearchCollectibleItem($campaign_id, $room_id, $quest_target);
@@ -2527,7 +2529,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       return NULL;
     }
 
-    $quest_item_row = $this->findNextQuestRelatedSearchItem($campaign_id, $room_id);
+    $quest_item_row = $this->findNextQuestRelatedSearchItem($campaign_id, $room_id, $quest_template_keys);
     if (!$quest_item_row) {
       return NULL;
     }
@@ -2538,7 +2540,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Find the first quest-linked room item in the active room.
    */
-  protected function findNextQuestRelatedSearchItem(int $campaign_id, string $room_id): ?array {
+  protected function findNextQuestRelatedSearchItem(int $campaign_id, string $room_id, array $quest_template_keys): ?array {
     $room_ids = $this->resolveSearchObjectiveRoomIds($campaign_id, $room_id);
     $rows = $this->database->select('dc_campaign_item_instances', 'i')
       ->fields('i')
@@ -2552,7 +2554,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     foreach ($rows as $row) {
       $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
       $state = is_array($state) ? $state : [];
-      if ($this->isQuestRelatedSearchItem($state)) {
+      if ($this->isQuestRelatedSearchItem($state, $quest_template_keys)) {
         return $row;
       }
     }
@@ -2563,19 +2565,65 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Determine whether a room item is quest-linked.
    */
-  protected function isQuestRelatedSearchItem(array $item_state): bool {
-    $quest_association = trim((string) ($item_state['quest_association'] ?? $item_state['_spawn']['quest_association'] ?? ''));
-    if ($quest_association !== '') {
-      return TRUE;
+  protected function isQuestRelatedSearchItem(array $item_state, array $quest_template_keys): bool {
+    $normalized_keys = array_values(array_unique(array_filter(array_map(
+      static fn($value): string => strtolower(trim((string) $value)),
+      $quest_template_keys
+    ))));
+
+    $candidates = [
+      (string) ($item_state['quest_association'] ?? ''),
+      (string) ($item_state['_spawn']['quest_association'] ?? ''),
+      (string) ($item_state['_spawn']['quest_source'] ?? ''),
+      (string) ($item_state['source_template_id'] ?? ''),
+      (string) ($item_state['_spawn']['quest_id'] ?? ''),
+      (string) ($item_state['quest_id'] ?? ''),
+    ];
+    foreach ($candidates as $candidate) {
+      $normalized = strtolower(trim((string) $candidate));
+      if ($normalized !== '' && in_array($normalized, $normalized_keys, TRUE)) {
+        return TRUE;
+      }
     }
 
-    $objective_id = trim((string) ($item_state['objective_id'] ?? $item_state['_spawn']['objective_id'] ?? ''));
-    if ($objective_id !== '') {
+    $tags = array_values(array_unique(array_filter(array_map(
+      static fn($value): string => strtolower(trim((string) $value)),
+      (array) ($item_state['tags'] ?? [])
+    ))));
+    if (in_array('quest_item', $tags, TRUE)) {
       return TRUE;
     }
+    return array_intersect($tags, $normalized_keys) !== [];
+  }
 
-    $tags = array_map('strtolower', array_map('trim', (array) ($item_state['tags'] ?? [])));
-    return array_intersect($tags, ['quest_item', 'collectible']) !== [];
+  /**
+   * Resolve canonical quest template keys for search classification.
+   */
+  protected function loadSearchQuestTemplateKeys(int $campaign_id): array {
+    if ($campaign_id <= 0) {
+      return [];
+    }
+
+    $rows = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_id', 'source_template_id'])
+      ->condition('q.campaign_id', $campaign_id)
+      ->condition('q.status', ['lead', 'offered', 'active', 'completed'], 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $keys = [];
+    foreach ($rows as $row) {
+      $source_template = strtolower(trim((string) ($row['source_template_id'] ?? '')));
+      $quest_id = strtolower(trim((string) ($row['quest_id'] ?? '')));
+      if ($source_template !== '') {
+        $keys[] = $source_template;
+      }
+      if ($quest_id !== '') {
+        $keys[] = $quest_id;
+      }
+    }
+
+    return array_values(array_unique($keys));
   }
 
   /**

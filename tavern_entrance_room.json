@@ -387,7 +387,8 @@
         "type": "collectible_item",
         "position": {"q": 1, "r": 1},
         "description": "A mystical tome written in an unusual script",
-        "tags": ["collectible", "knowledge"]
+        "tags": ["collect_spellbooks", "collectible", "knowledge"],
+        "quest_association": "collect_spellbooks"
       },
       {
         "content_id": "spellbook_3",
@@ -395,7 +396,8 @@
         "type": "collectible_item",
         "position": {"q": 2, "r": -1},
         "description": "A faded journal filled with spell notes",
-        "tags": ["collectible", "knowledge"]
+        "tags": ["collect_spellbooks", "collectible", "knowledge"],
+        "quest_association": "collect_spellbooks"
       },
       {
         "content_id": "spellbook_4",
@@ -403,7 +405,8 @@
         "type": "collectible_item",
         "position": {"q": 0, "r": -1},
         "description": "A codex with a crystal clasping its cover",
-        "tags": ["collectible", "knowledge"]
+        "tags": ["collect_spellbooks", "collectible", "knowledge"],
+        "quest_association": "collect_spellbooks"
       },
       {
         "content_id": "torch_component_1",

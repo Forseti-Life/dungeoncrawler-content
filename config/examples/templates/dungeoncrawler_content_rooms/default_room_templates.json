@@ -1433,9 +1433,11 @@
             },
             "description": "A mystical tome written in an unusual script",
             "tags": [
+              "collect_spellbooks",
               "collectible",
               "knowledge"
-            ]
+            ],
+            "quest_association": "collect_spellbooks"
           },
           {
             "content_id": "spellbook_3",
@@ -1447,9 +1449,11 @@
             },
             "description": "Marta's personal journal filled with spell notes and research annotations",
             "tags": [
+              "collect_spellbooks",
               "collectible",
               "knowledge"
-            ]
+            ],
+            "quest_association": "collect_spellbooks"
           },
           {
             "content_id": "spellbook_4",
@@ -1461,9 +1465,11 @@
             },
             "description": "A codex with a crystal clasping its cover",
             "tags": [
+              "collect_spellbooks",
               "collectible",
               "knowledge"
-            ]
+            ],
+            "quest_association": "collect_spellbooks"
           },
           {
             "content_id": "torch_component_1",

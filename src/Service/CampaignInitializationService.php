@@ -504,10 +504,27 @@ class CampaignInitializationService {
 
     // Create content objects
     foreach ($contents_data['items'] as $item) {
+      $item_type = strtolower(trim((string) ($item['type'] ?? '')));
+      $quest_association = trim((string) ($item['quest_association'] ?? ''));
+      $item_tags = array_values(array_unique(array_filter(array_map(
+        static fn($tag): string => trim((string) $tag),
+        (array) ($item['tags'] ?? [])
+      ))));
+      if ($item_tags === []) {
+        $item_tags = ['collectible', 'tavern'];
+      }
+
+      if ($item_type === 'collectible_item' && $quest_association === '') {
+        throw new \RuntimeException(sprintf(
+          'Starter room collectible item "%s" is missing required quest_association.',
+          (string) ($item['content_id'] ?? 'unknown')
+        ));
+      }
+
       $schema_data = [
         'position' => $item['position'] ?? [],
         'description' => $item['name'] ?? '',
-        'quest_association' => $item['quest_association'] ?? NULL,
+        'quest_association' => $quest_association !== '' ? $quest_association : NULL,
       ];
 
       $this->database->insert('dc_campaign_content_registry')
@@ -517,7 +534,7 @@ class CampaignInitializationService {
           'content_id' => $item['content_id'],
           'name' => $item['name'] ?? 'Unknown',
           'rarity' => 'common',
-          'tags' => json_encode(['collectible', 'tavern']),
+          'tags' => json_encode($item_tags, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
           'schema_data' => json_encode($schema_data),
           'created' => $now,
           'updated' => $now,
@@ -531,8 +548,8 @@ class CampaignInitializationService {
         'type' => 'collectible_item',
         'description' => $item['description'] ?? ($item['name'] ?? ''),
         'position' => $item['position'] ?? [],
-        'quest_association' => $item['quest_association'] ?? NULL,
-        'tags' => ['collectible', 'tavern'],
+        'quest_association' => $quest_association !== '' ? $quest_association : NULL,
+        'tags' => $item_tags,
         '_spawn' => [
           'source' => 'campaign_initialization',
           'room_id' => $runtime_room_id,
