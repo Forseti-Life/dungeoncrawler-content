@@ -3059,6 +3059,30 @@ class StorylineManagerService {
     }
 
     $outline = is_array($definition['metadata']['generated_outline'] ?? NULL) ? $definition['metadata']['generated_outline'] : [];
+    $outline_declared_dungeons = [];
+    $outline_declared_rooms = [];
+    foreach (array_values(array_filter(is_array($outline['dungeons'] ?? NULL) ? $outline['dungeons'] : [], 'is_array')) as $dungeon) {
+      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      if ($dungeon_id !== '') {
+        $outline_declared_dungeons[$dungeon_id] = TRUE;
+      }
+      foreach (array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array')) as $room) {
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id !== '') {
+          $outline_declared_rooms[$room_id] = TRUE;
+        }
+      }
+    }
+    $outline_entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+    $outline_entry_dungeon_id = trim((string) ($outline_entry_dungeon['dungeon_id'] ?? ''));
+    if ($outline_entry_dungeon_id !== '') {
+      $outline_declared_dungeons[$outline_entry_dungeon_id] = TRUE;
+    }
+    $outline_entry_room_id = trim((string) ($outline_entry_dungeon['entrance_room_id'] ?? ''));
+    if ($outline_entry_room_id !== '') {
+      $outline_declared_rooms[$outline_entry_room_id] = TRUE;
+    }
+
     $entry_point = is_array($outline['entry_point'] ?? NULL) ? $outline['entry_point'] : [];
     if ($entry_point === []) {
       $errors[] = 'Storyline entry_point is required under metadata.generated_outline and must declare a primary quest giver.';
@@ -3151,10 +3175,25 @@ class StorylineManagerService {
       foreach ($canonical_index['errors'] as $canonical_error) {
         $errors[] = $canonical_error;
       }
-      if ($primary_dungeon_id !== '' && !isset($canonical_index['dungeon_ids'][$primary_dungeon_id])) {
+      $primary_dungeon_is_storyline_declared = $primary_dungeon_id !== '' && (
+        isset($outline_declared_dungeons[$primary_dungeon_id]) || isset($chapter_ids[$primary_dungeon_id])
+      );
+      $primary_location_is_storyline_declared = $primary_location_id !== '' && (
+        isset($outline_declared_rooms[$primary_location_id]) || isset($scene_ids[$primary_location_id]) || isset($location_asset_anchors[$primary_location_id])
+      );
+
+      if (
+        $primary_dungeon_id !== ''
+        && !isset($canonical_index['dungeon_ids'][$primary_dungeon_id])
+        && !$primary_dungeon_is_storyline_declared
+      ) {
         $errors[] = "Storyline entry_point primary dungeon '{$primary_dungeon_id}' is not defined in canonical dungeon templates.";
       }
-      if ($primary_location_id !== '' && !isset($canonical_index['room_ids'][$primary_location_id])) {
+      if (
+        $primary_location_id !== ''
+        && !isset($canonical_index['room_ids'][$primary_location_id])
+        && !$primary_location_is_storyline_declared
+      ) {
         $errors[] = "Storyline entry_point primary location '{$primary_location_id}' is not defined in canonical room templates.";
       }
       if (

@@ -168,7 +168,15 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       []
     );
 
-    $this->assertSame('gate-king', $template['objectives_schema'][0]['objectives'][0]['target'] ?? NULL);
+    $children = $template['objectives_schema'][0]['objectives'][0]['children'] ?? [];
+    $kill_target = NULL;
+    foreach ($children as $child) {
+      if (is_array($child) && (string) ($child['type'] ?? '') === 'kill') {
+        $kill_target = $child['target'] ?? NULL;
+        break;
+      }
+    }
+    $this->assertSame('gate-king', $kill_target);
   }
 
   /**
