@@ -1301,6 +1301,7 @@ class StorylineExplorerPageController extends ControllerBase {
           if ($phases === NULL || $phases === []) {
             continue;
           }
+          $task_ids_seen = [];
 
           foreach ($phases as $phase_index => $phase) {
             if (!is_array($phase)) {
@@ -1311,13 +1312,16 @@ class StorylineExplorerPageController extends ControllerBase {
                 continue;
               }
               $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
-              if ($children === []) {
-                continue;
-              }
               $obj_type = strtolower(trim((string) ($objective['type'] ?? '')));
               $obj_path = "quest.{$quest_id}.phase[{$phase_index}].objective[{$obj_index}]";
+              if ($children === []) {
+                if ($obj_type === 'composite') {
+                  $errors[] = "{$obj_path}: composite objectives must include children tasks";
+                }
+                continue;
+              }
               if (!in_array($obj_type, $supports_children_types, TRUE)) {
-                $errors[] = "{$obj_path}: type '{$obj_type}' does not support children";
+                $errors[] = "{$obj_path}: type '{$obj_type}' does not support children; use composite or escort";
                 continue;
               }
               $criteria_kind = strtolower(trim((string) ($objective['completion_criteria']['kind'] ?? '')));
@@ -1326,17 +1330,39 @@ class StorylineExplorerPageController extends ControllerBase {
               }
               foreach ($children as $task_index => $task) {
                 if (!is_array($task)) {
+                  $errors[] = "{$obj_path}.children[{$task_index}]: task must be an object";
                   continue;
                 }
                 $task_path = "{$obj_path}.children[{$task_index}]";
-                if (trim((string) ($task['objective_id'] ?? '')) === '') {
+                $task_id = trim((string) ($task['objective_id'] ?? ''));
+                if ($task_id === '') {
                   $errors[] = "{$task_path}: objective_id (task_id) is required";
+                }
+                else {
+                  $dedup_key = $quest_id . '::' . $task_id;
+                  if (isset($task_ids_seen[$dedup_key])) {
+                    $errors[] = "{$task_path}: duplicate objective_id '{$task_id}' in quest '{$quest_id}'";
+                  }
+                  $task_ids_seen[$dedup_key] = TRUE;
                 }
                 if (trim((string) ($task['description'] ?? '')) === '') {
                   $errors[] = "{$task_path}: description is required";
                 }
-                if (!is_array($task['completion_criteria'] ?? NULL)) {
+                $task_criteria = $task['completion_criteria'] ?? NULL;
+                if (!is_array($task_criteria)) {
                   $errors[] = "{$task_path}: completion_criteria is required";
+                }
+                else {
+                  $kind = strtolower(trim((string) ($task_criteria['kind'] ?? '')));
+                  if (!in_array($kind, ['count', 'flag', 'all_children'], TRUE)) {
+                    $errors[] = "{$task_path}: completion_criteria.kind must be count, flag, or all_children";
+                  }
+                  if (trim((string) ($task_criteria['metric'] ?? '')) === '') {
+                    $errors[] = "{$task_path}: completion_criteria.metric is required";
+                  }
+                  if (trim((string) ($task_criteria['description'] ?? '')) === '') {
+                    $errors[] = "{$task_path}: completion_criteria.description is required";
+                  }
                 }
                 $task_type = strtolower(trim((string) ($task['type'] ?? '')));
                 if (in_array($task_type, $player_interaction_types, TRUE) && trim((string) ($task['next_step'] ?? '')) === '') {
@@ -1365,6 +1391,7 @@ class StorylineExplorerPageController extends ControllerBase {
     }
 
     // Build entity registry from storyline definition.
+    $errors = [];
     $actors = [];
     $locations = [];
     $items = [];
@@ -1414,9 +1441,18 @@ class StorylineExplorerPageController extends ControllerBase {
         }
       }
     }
+    $canonical_index = $this->storylineManager->getCanonicalLocationTemplateIndex();
+    foreach ((array) ($canonical_index['errors'] ?? []) as $canonical_error) {
+      $errors[] = (string) $canonical_error;
+    }
+    foreach (array_keys((array) ($canonical_index['room_ids'] ?? [])) as $room_id) {
+      $locations[(string) $room_id] = TRUE;
+    }
+    foreach (array_keys((array) ($canonical_index['dungeon_ids'] ?? [])) as $dungeon_id) {
+      $locations[(string) $dungeon_id] = TRUE;
+    }
 
     $actor_target_types = ['kill', 'interact', 'investigate', 'escort'];
-    $errors = [];
 
     foreach ((array) ($template_data['chapters'] ?? []) as $chapter) {
       foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
@@ -1444,9 +1480,11 @@ class StorylineExplorerPageController extends ControllerBase {
               }
               $obj_path = "quest.{$quest_id}.phase[{$phase_index}].objective[{$obj_index}]";
               $obj_type = strtolower(trim((string) ($objective['type'] ?? '')));
-              $target = trim((string) ($objective['target'] ?? ''));
-              if ($target !== '' && in_array($obj_type, $actor_target_types, TRUE) && !isset($actors[$target])) {
-                $errors[] = "{$obj_path}: target '{$target}' not in entity registry";
+              foreach (['target', 'target_id'] as $field) {
+                $target = trim((string) ($objective[$field] ?? ''));
+                if ($target !== '' && in_array($obj_type, $actor_target_types, TRUE) && !isset($actors[$target])) {
+                  $errors[] = "{$obj_path}: {$field} '{$target}' not in entity registry";
+                }
               }
               foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
                 $ref = trim((string) ($objective[$field] ?? ''));
@@ -1464,9 +1502,11 @@ class StorylineExplorerPageController extends ControllerBase {
                 }
                 $task_path = "{$obj_path}.children[{$task_index}]";
                 $task_type = strtolower(trim((string) ($task['type'] ?? '')));
-                $task_target = trim((string) ($task['target'] ?? ''));
-                if ($task_target !== '' && in_array($task_type, $actor_target_types, TRUE) && !isset($actors[$task_target])) {
-                  $errors[] = "{$task_path}: target '{$task_target}' not in entity registry";
+                foreach (['target', 'target_id'] as $field) {
+                  $task_target = trim((string) ($task[$field] ?? ''));
+                  if ($task_target !== '' && in_array($task_type, $actor_target_types, TRUE) && !isset($actors[$task_target])) {
+                    $errors[] = "{$task_path}: {$field} '{$task_target}' not in entity registry";
+                  }
                 }
                 foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
                   $ref = trim((string) ($task[$field] ?? ''));

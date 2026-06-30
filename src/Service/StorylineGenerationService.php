@@ -113,8 +113,20 @@ class StorylineGenerationService {
     }
     catch (\Throwable $e) {
       unset($txn);
+      $bundle_diagnostics = $this->summarizeBundleForDiagnostics($package);
+      $this->logger->error(
+        'Storyline bootstrap bundle persist failed for campaign {campaign_id} (storyline_template={storyline_template_id}, quest_templates={quest_template_ids}): {error}',
+        [
+          'campaign_id' => $campaign_id,
+          'storyline_template_id' => $bundle_diagnostics['storyline_template_id'],
+          'quest_template_ids' => $bundle_diagnostics['quest_template_ids'],
+          'error' => $e->getMessage(),
+        ]
+      );
       throw new \RuntimeException(
-        'Storyline bootstrap bundle persist failed for campaign ' . $campaign_id . ': ' . $e->getMessage(),
+        'Storyline bootstrap bundle persist failed for campaign ' . $campaign_id .
+        ' (storyline_template=' . $bundle_diagnostics['storyline_template_id'] .
+        ', quest_templates=' . $bundle_diagnostics['quest_template_ids'] . '): ' . $e->getMessage(),
         0,
         $e
       );
@@ -219,6 +231,10 @@ class StorylineGenerationService {
       ->fetchAllAssoc('id');
 
     foreach ($jobs as $job) {
+      $bundle_diagnostics = [
+        'storyline_template_id' => 'unknown',
+        'quest_template_ids' => 'none',
+      ];
       $claimed = $this->database->update('dc_storyline_expansion_jobs')
         ->fields([
           'status' => 'running',
@@ -243,6 +259,7 @@ class StorylineGenerationService {
         $storyline_id = trim((string) ($payload['storyline_id'] ?? $job->storyline_id ?? ''));
         $request = is_array($payload['request'] ?? NULL) ? $payload['request'] : [];
         $package = $this->generateStorylinePackage($campaign_id, $request);
+        $bundle_diagnostics = $this->summarizeBundleForDiagnostics($package);
 
         // GATE: validate the full generation bundle before any persistence.
         $this->assertValidGenerationBundle($package);
@@ -295,17 +312,60 @@ class StorylineGenerationService {
           ->condition('id', $job->id)
           ->execute();
 
-        $this->logger->warning('Storyline expansion failed for {campaign_id}/{storyline_id}: {error}', [
-          'campaign_id' => $job->campaign_id ?? 0,
-          'storyline_id' => $job->storyline_id ?? '',
-          'error' => $e->getMessage(),
-        ]);
+        $this->logger->warning(
+          'Storyline expansion failed for {campaign_id}/{storyline_id} (storyline_template={storyline_template_id}, quest_templates={quest_template_ids}): {error}',
+          [
+            'campaign_id' => $job->campaign_id ?? 0,
+            'storyline_id' => $job->storyline_id ?? '',
+            'storyline_template_id' => $bundle_diagnostics['storyline_template_id'],
+            'quest_template_ids' => $bundle_diagnostics['quest_template_ids'],
+            'error' => $e->getMessage(),
+          ]
+        );
 
         $summary['failed']++;
       }
     }
 
     return $summary;
+  }
+
+  /**
+   * Build compact bundle diagnostics for RCA-oriented persistence failure logs.
+   *
+   * @return array{storyline_template_id: string, quest_template_ids: string}
+   *   Storyline template id and comma-delimited quest template ids.
+   */
+  protected function summarizeBundleForDiagnostics(array $bundle): array {
+    $storyline = is_array($bundle['storyline_definition'] ?? NULL) ? $bundle['storyline_definition'] : [];
+    $storyline_template_id = trim((string) ($storyline['template_id'] ?? $storyline['storyline_id'] ?? ''));
+    if ($storyline_template_id === '') {
+      $storyline_template_id = 'unknown';
+    }
+
+    $quest_template_ids = [];
+    foreach ((array) ($bundle['quest_templates'] ?? []) as $template) {
+      if (!is_array($template)) {
+        continue;
+      }
+      $template_id = trim((string) ($template['template_id'] ?? ''));
+      if ($template_id !== '') {
+        $quest_template_ids[$template_id] = TRUE;
+      }
+    }
+
+    $quest_template_list = array_values(array_keys($quest_template_ids));
+    sort($quest_template_list);
+    $total = count($quest_template_list);
+    if ($total > 8) {
+      $quest_template_list = array_slice($quest_template_list, 0, 8);
+      $quest_template_list[] = '+' . ($total - 8) . ' more';
+    }
+
+    return [
+      'storyline_template_id' => $storyline_template_id,
+      'quest_template_ids' => $quest_template_list === [] ? 'none' : implode(',', $quest_template_list),
+    ];
   }
 
   /**
@@ -479,8 +539,10 @@ class StorylineGenerationService {
    * any persistence. Hard-fails with aggregated diagnostics on any violation.
    *
    * Stages checked:
-   *   1–5 : storyline end-to-end contract (schema, cross-refs, questline,
-   *          navigation, objective control chain) via StorylineManagerService.
+   *   1–4 : storyline end-to-end contract (schema, cross-refs, questline,
+   *          navigation) via StorylineManagerService.
+   *   5   : objective control chain validated against generated quest templates
+   *          (pre-persist; no DB template dependency).
    *   6   : task contract — objective children require objective_id, description,
    *          completion_criteria, and next_step for player-interaction types.
    *   7   : entity linkage — all actor/location/item refs in objectives and tasks
@@ -494,12 +556,20 @@ class StorylineGenerationService {
     $storyline = is_array($bundle['storyline_definition'] ?? NULL) ? $bundle['storyline_definition'] : [];
     $quest_templates = is_array($bundle['quest_templates'] ?? NULL) ? $bundle['quest_templates'] : [];
 
-    // Stages 1–5: storyline end-to-end contract.
+    // Stages 1–4: storyline end-to-end contract (skip manager stage 5 here).
     $result = $this->storylineManager->validateStorylineEndToEndContract($storyline, 'definition');
     foreach ($result['stages'] ?? [] as $stage_name => $stage) {
+      if ((string) $stage_name === 'objective_control_chain') {
+        continue;
+      }
       foreach ((array) ($stage['errors'] ?? []) as $error) {
         $errors[] = '[storyline.' . $stage_name . '] ' . $error;
       }
+    }
+
+    // Stage 5: objective control chain against generated quest templates.
+    foreach ($this->storylineManager->validateObjectiveControlChainForGeneratedTemplates($storyline, $quest_templates) as $error) {
+      $errors[] = '[storyline.objective_control_chain] ' . $error;
     }
 
     // Quest template objective phase contract (existing).
@@ -568,13 +638,15 @@ class StorylineGenerationService {
           if (!is_array($objective)) {
             continue;
           }
-          $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
-          if ($children === []) {
-            continue;
-          }
-
           $obj_type = strtolower(trim((string) ($objective['type'] ?? '')));
           $obj_path = "quest.{$template_id}.phase[{$phase_index}].objective[{$obj_index}]";
+          $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+          if ($children === []) {
+            if ($obj_type === 'composite') {
+              $errors[] = "{$obj_path}: composite objectives must include children tasks";
+            }
+            continue;
+          }
 
           if (!in_array($obj_type, $supports_children_types, TRUE)) {
             $errors[] = "{$obj_path}: type '{$obj_type}' does not support children; use composite or escort";
@@ -762,6 +834,19 @@ class StorylineGenerationService {
     $locations = is_array($entity_registry['locations'] ?? NULL) ? $entity_registry['locations'] : [];
     $items = is_array($entity_registry['items'] ?? NULL) ? $entity_registry['items'] : [];
 
+    // Merge canonical location ids so generated refs can validate against the
+    // authoritative dungeon/room index used by storyline validation.
+    $canonical_index = $this->storylineManager->getCanonicalLocationTemplateIndex();
+    foreach ((array) ($canonical_index['errors'] ?? []) as $canonical_error) {
+      $errors[] = (string) $canonical_error;
+    }
+    foreach (array_keys((array) ($canonical_index['room_ids'] ?? [])) as $room_id) {
+      $locations[(string) $room_id] = TRUE;
+    }
+    foreach (array_keys((array) ($canonical_index['dungeon_ids'] ?? [])) as $dungeon_id) {
+      $locations[(string) $dungeon_id] = TRUE;
+    }
+
     // Types where 'target' is an actor reference.
     $actor_target_types = ['kill', 'interact', 'investigate', 'escort'];
 
@@ -812,11 +897,16 @@ class StorylineGenerationService {
     $errors = [];
     $node_type = strtolower(trim((string) ($node['type'] ?? '')));
 
-    // target → actor (for actor-target objective types).
-    $target = trim((string) ($node['target'] ?? ''));
-    if ($target !== '' && in_array($node_type, $actor_target_types, TRUE)) {
-      if (!isset($actors[$target])) {
-        $errors[] = "{$path}: target '{$target}' is not declared in the bundle entity registry (contacts or asset_references[npc])";
+    // target / target_id → actor (for actor-target objective types).
+    if (in_array($node_type, $actor_target_types, TRUE)) {
+      foreach (['target', 'target_id'] as $field) {
+        $target = trim((string) ($node[$field] ?? ''));
+        if ($target === '') {
+          continue;
+        }
+        if (!isset($actors[$target])) {
+          $errors[] = "{$path}: {$field} '{$target}' is not declared in the bundle entity registry (contacts or asset_references[npc])";
+        }
       }
     }
 

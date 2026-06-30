@@ -302,6 +302,61 @@ class StorylineManagerService {
   }
 
   /**
+   * Loads canonical location template index used by storyline validators.
+   *
+   * @return array{
+   *   dungeon_ids: array<string, bool>,
+   *   room_ids: array<string, bool>,
+   *   dungeon_room_ids: array<string, array<string, bool>>,
+   *   errors: array<int, string>
+   * }
+   *   Canonical location index plus load-time diagnostics.
+   */
+  public function getCanonicalLocationTemplateIndex(): array {
+    return $this->loadCanonicalLocationTemplateIndex();
+  }
+
+  /**
+   * Validate objective control-chain contracts against in-memory quest templates.
+   *
+   * This is used by generation pre-persist gates so objective validation does not
+   * depend on DB canonical template rows that may not exist yet.
+   *
+   * @param array<string, mixed> $storyline_definition
+   *   Storyline definition payload used to derive reference anchors.
+   * @param array<int, mixed> $quest_templates
+   *   Generated quest template payloads containing objectives_schema.
+   *
+   * @return array<int, string>
+   *   Aggregated objective control-chain errors.
+   */
+  public function validateObjectiveControlChainForGeneratedTemplates(array $storyline_definition, array $quest_templates): array {
+    $anchors = $this->collectObjectiveReferenceAnchors($storyline_definition);
+    $errors = [];
+
+    foreach ($quest_templates as $index => $template) {
+      if (!is_array($template)) {
+        continue;
+      }
+      $template_id = trim((string) ($template['template_id'] ?? ''));
+      $template_label = $template_id !== '' ? $template_id : 'generated-template-' . $index;
+      $template_objectives = is_array($template['objectives_schema'] ?? NULL) ? $template['objectives_schema'] : [];
+      if ($template_objectives === []) {
+        $errors[] = "Quest template '{$template_label}' has an empty objectives_schema payload.";
+        continue;
+      }
+
+      $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
+        $template_objectives,
+        $anchors,
+        "quest template '{$template_label}' objectives_schema"
+      ));
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
    * Validate a storyline payload with explicit end-to-end stages.
    *
    * @param array $storyline_data

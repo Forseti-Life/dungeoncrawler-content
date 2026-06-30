@@ -1148,6 +1148,437 @@ class StorylineGenerationServiceTest extends UnitTestCase {
     $this->assertContains('vault-of-cinders-entrance-sentinel', $entity_refs);
   }
 
+  /**
+   * Verifies stage-6 task contract rejects composite objectives without children.
+   */
+  public function testValidateTaskContractRejectsCompositeWithoutChildren(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn(['current_room_id' => 'tavern_entrance']);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $this->buildStorylineManager($campaign_state),
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeValidateTaskContractForBundle(array $quest_templates): array {
+        return $this->validateTaskContractForBundle($quest_templates);
+      }
+    };
+
+    $errors = $service->exposeValidateTaskContractForBundle([
+      [
+        'template_id' => 'task-contract-test',
+        'objectives_schema' => [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'defeat-boss',
+            'type' => 'composite',
+            'description' => 'Defeat the boss.',
+            'completion_criteria' => [
+              'kind' => 'all_children',
+              'metric' => 'children_completed',
+              'required_value' => TRUE,
+              'description' => 'Complete all child objectives.',
+            ],
+          ]],
+        ]],
+      ],
+    ]);
+
+    $this->assertStringContainsString(
+      'composite objectives must include children tasks',
+      implode('; ', $errors)
+    );
+  }
+
+  /**
+   * Verifies stage-7 entity linkage honors canonical location index room ids.
+   */
+  public function testValidateEntityLinkageAcceptsCanonicalLocationIds(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn(['current_room_id' => 'tavern_entrance']);
+
+    $manager = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state
+    ) extends StorylineManagerService {
+      public function getCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => ['canonical-dungeon' => TRUE],
+          'room_ids' => ['canonical-room-entry' => TRUE],
+          'dungeon_room_ids' => ['canonical-dungeon' => ['canonical-room-entry' => TRUE]],
+          'errors' => [],
+        ];
+      }
+    };
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeValidateEntityLinkageForBundle(array $quest_templates, array $entity_registry): array {
+        return $this->validateEntityLinkageForBundle($quest_templates, $entity_registry);
+      }
+    };
+
+    $errors = $service->exposeValidateEntityLinkageForBundle(
+      [[
+        'template_id' => 'entity-linkage-test',
+        'objectives_schema' => [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'reach-canonical-room',
+            'type' => 'explore',
+            'location_id' => 'canonical-room-entry',
+            'description' => 'Reach the canonical room.',
+            'completion_criteria' => [
+              'kind' => 'flag',
+              'metric' => 'discovered',
+              'required_value' => TRUE,
+              'description' => 'Discover the room.',
+            ],
+          ]],
+        ]],
+      ]],
+      ['actors' => [], 'locations' => [], 'items' => []]
+    );
+
+    $this->assertSame([], $errors);
+  }
+
+  /**
+   * Verifies generation bundle objective-control validation uses generated templates.
+   */
+  public function testAssertValidGenerationBundleUsesGeneratedObjectiveControlChainValidation(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn(['current_room_id' => 'tavern_entrance']);
+
+    $manager = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state
+    ) extends StorylineManagerService {
+      public int $generatedValidationCalls = 0;
+
+      public function validateStorylineEndToEndContract(array $storyline_data, string $payload_type = 'runtime'): array {
+        return [
+          'valid' => FALSE,
+          'errors' => ['legacy objective control chain source'],
+          'stages' => [
+            'schema' => ['valid' => TRUE, 'errors' => []],
+            'cross_references' => ['valid' => TRUE, 'errors' => []],
+            'questline_progression' => ['valid' => TRUE, 'errors' => []],
+            'navigation_progression' => ['valid' => TRUE, 'errors' => []],
+            'objective_control_chain' => ['valid' => FALSE, 'errors' => ['legacy objective control chain source']],
+          ],
+          'payload_type' => 'definition',
+        ];
+      }
+
+      public function validateObjectiveControlChainForGeneratedTemplates(array $storyline_definition, array $quest_templates): array {
+        $this->generatedValidationCalls++;
+        return [];
+      }
+
+      public function getCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => [],
+          'room_ids' => [],
+          'dungeon_room_ids' => [],
+          'errors' => [],
+        ];
+      }
+    };
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeAssertValidGenerationBundle(array $bundle): void {
+        $this->assertValidGenerationBundle($bundle);
+      }
+    };
+
+    $service->exposeAssertValidGenerationBundle([
+      'storyline_definition' => [],
+      'quest_templates' => [],
+    ]);
+
+    $this->assertSame(1, $manager->generatedValidationCalls);
+  }
+
+  /**
+   * Verifies stage-7 entity linkage validates target_id actor references.
+   */
+  public function testValidateEntityLinkageRejectsUndeclaredTargetIdActorReference(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn(['current_room_id' => 'tavern_entrance']);
+
+    $manager = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state
+    ) extends StorylineManagerService {
+      public function getCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => [],
+          'room_ids' => [],
+          'dungeon_room_ids' => [],
+          'errors' => [],
+        ];
+      }
+    };
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeValidateEntityLinkageForBundle(array $quest_templates, array $entity_registry): array {
+        return $this->validateEntityLinkageForBundle($quest_templates, $entity_registry);
+      }
+    };
+
+    $errors = $service->exposeValidateEntityLinkageForBundle(
+      [[
+        'template_id' => 'target-id-test',
+        'objectives_schema' => [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'defeat-foe',
+            'type' => 'kill',
+            'target_id' => 'npc-missing',
+            'description' => 'Defeat the missing foe.',
+            'completion_criteria' => [
+              'kind' => 'count',
+              'metric' => 'current',
+              'target_count' => 1,
+              'description' => 'Defeat the target.',
+            ],
+          ]],
+        ]],
+      ]],
+      ['actors' => [], 'locations' => [], 'items' => []]
+    );
+
+    $this->assertStringContainsString(
+      "target_id 'npc-missing' is not declared in the bundle entity registry",
+      implode('; ', $errors)
+    );
+  }
+
+  /**
+   * Verifies stage-7 entity linkage propagates canonical index load errors.
+   */
+  public function testValidateEntityLinkageIncludesCanonicalIndexLoadErrors(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn(['current_room_id' => 'tavern_entrance']);
+
+    $manager = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $this->buildUuid(),
+      $campaign_state
+    ) extends StorylineManagerService {
+      public function getCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => [],
+          'room_ids' => [],
+          'dungeon_room_ids' => [],
+          'errors' => ['Canonical location index unavailable in test fixture.'],
+        ];
+      }
+    };
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeValidateEntityLinkageForBundle(array $quest_templates, array $entity_registry): array {
+        return $this->validateEntityLinkageForBundle($quest_templates, $entity_registry);
+      }
+    };
+
+    $errors = $service->exposeValidateEntityLinkageForBundle(
+      [[
+        'template_id' => 'canonical-error-test',
+        'objectives_schema' => [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'explore-room',
+            'type' => 'explore',
+            'location_id' => 'tavern_entrance',
+            'description' => 'Explore the room.',
+            'completion_criteria' => [
+              'kind' => 'flag',
+              'metric' => 'discovered',
+              'required_value' => TRUE,
+              'description' => 'Discover the room.',
+            ],
+          ]],
+        ]],
+      ]],
+      ['actors' => [], 'locations' => ['tavern_entrance' => TRUE], 'items' => []]
+    );
+
+    $this->assertStringContainsString(
+      'Canonical location index unavailable in test fixture.',
+      implode('; ', $errors)
+    );
+  }
+
+  /**
+   * Verifies rollback diagnostics summarize storyline and quest template context.
+   */
+  public function testSummarizeBundleForDiagnosticsBuildsStableCompactIdentifiers(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn(['current_room_id' => 'tavern_entrance']);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $this->buildStorylineManager($campaign_state),
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid()
+    ) extends StorylineGenerationService {
+      public function exposeSummarizeBundleForDiagnostics(array $bundle): array {
+        return $this->summarizeBundleForDiagnostics($bundle);
+      }
+    };
+
+    $summary = $service->exposeSummarizeBundleForDiagnostics([
+      'storyline_definition' => ['template_id' => 'storyline-alpha'],
+      'quest_templates' => [
+        ['template_id' => 'q-3'],
+        ['template_id' => 'q-1'],
+        ['template_id' => 'q-2'],
+      ],
+    ]);
+
+    $this->assertSame('storyline-alpha', $summary['storyline_template_id']);
+    $this->assertSame('q-1,q-2,q-3', $summary['quest_template_ids']);
+  }
+
+  /**
+   * Verifies bootstrap persistence failures include bundle diagnostics in error text.
+   */
+  public function testBootstrapCampaignStorylinePersistFailureIncludesBundleDiagnostics(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 2]],
+    ]);
+
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $bundle = [
+      'storyline_definition' => [
+        'name' => 'Relic Thief Pursuit',
+        'template_id' => 'relic-thief-pursuit',
+        'level_range' => '2-3',
+      ],
+      'quest_templates' => [
+        ['template_id' => 'quest-alpha'],
+        ['template_id' => 'quest-beta'],
+      ],
+      'campaign_outline' => [],
+      'generation_source' => 'fallback',
+    ];
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      NULL,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid(),
+      NULL,
+      NULL,
+      $this->buildStateValidationService(),
+      NULL,
+      NULL,
+      NULL,
+      $bundle
+    ) extends StorylineGenerationService {
+      public function __construct(
+        Connection $database,
+        LoggerChannelFactoryInterface $logger_factory,
+        ?AIApiService $ai_api_service,
+        StorylineManagerService $storyline_manager,
+        CampaignStateService $campaign_state_service,
+        TreasureByLevelService $treasure_by_level_service,
+        UuidInterface $uuid,
+        ?\Drupal\dungeoncrawler_content\Service\RelationshipManagerService $relationship_manager,
+        ?\Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator,
+        ?StateValidationService $state_validation_service,
+        ?\Drupal\dungeoncrawler_content\Service\NpcSheetGenerationService $npc_sheet_generation_service,
+        ?StorylineRealizationService $storyline_realization_service,
+        ?QuestTrackerService $quest_tracker,
+        private array $bundle
+      ) {
+        parent::__construct(
+          $database,
+          $logger_factory,
+          $ai_api_service,
+          $storyline_manager,
+          $campaign_state_service,
+          $treasure_by_level_service,
+          $uuid,
+          $relationship_manager,
+          $quest_generator,
+          $state_validation_service,
+          $npc_sheet_generation_service,
+          $storyline_realization_service,
+          $quest_tracker
+        );
+      }
+
+      public function generateStorylineBootstrapPackage(int $campaign_id, array $request): array {
+        return $this->bundle;
+      }
+
+      public function persistQuestTemplates(array $templates): array {
+        throw new \RuntimeException('Simulated persistence failure.');
+      }
+    };
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('storyline_template=relic-thief-pursuit');
+    $this->expectExceptionMessage('quest_templates=quest-alpha,quest-beta');
+    $service->bootstrapCampaignStoryline(65, [
+      'prompt' => 'Hunt the relic thieves.',
+    ]);
+  }
+
   private function buildLoggerFactory(): LoggerChannelFactoryInterface {
     $logger = $this->createMock(LoggerChannelInterface::class);
     $factory = $this->createMock(LoggerChannelFactoryInterface::class);

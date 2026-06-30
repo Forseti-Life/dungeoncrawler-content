@@ -1445,6 +1445,93 @@ class StorylineManagerServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::validateObjectiveControlChainForGeneratedTemplates
+   */
+  public function testValidateObjectiveControlChainForGeneratedTemplatesRejectsEmptyObjectiveSchemas(): void {
+    $service = $this->buildServiceWithObjectiveType();
+
+    $errors = $service->validateObjectiveControlChainForGeneratedTemplates(
+      [
+        'contacts' => [],
+        'asset_references' => [],
+        'chapters' => [],
+      ],
+      [
+        [
+          'template_id' => 'empty-template',
+          'objectives_schema' => [],
+        ],
+      ]
+    );
+
+    $this->assertNotEmpty($errors);
+    $this->assertStringContainsString(
+      "Quest template 'empty-template' has an empty objectives_schema payload.",
+      implode('; ', $errors)
+    );
+  }
+
+  /**
+   * @covers ::validateObjectiveControlChainForGeneratedTemplates
+   */
+  public function testValidateObjectiveControlChainForGeneratedTemplatesAcceptsValidGeneratedTemplatePayload(): void {
+    $service = $this->buildServiceWithObjectiveType();
+
+    $errors = $service->validateObjectiveControlChainForGeneratedTemplates(
+      [
+        'contacts' => [
+          [
+            'entity_id' => 'npc-guide',
+          ],
+        ],
+        'asset_references' => [
+          [
+            'asset_type' => 'room',
+            'asset_id' => 'vault-entry-room',
+          ],
+        ],
+        'chapters' => [
+          [
+            'chapter_id' => 'vault-chapter',
+            'scenes' => [
+              [
+                'scene_id' => 'vault-entry-room',
+              ],
+            ],
+          ],
+        ],
+      ],
+      [
+        [
+          'template_id' => 'generated-valid-template',
+          'objectives_schema' => [
+            [
+              'phase' => 1,
+              'objectives' => [
+                [
+                  'objective_id' => 'speak-with-guide',
+                  'type' => 'interact',
+                  'description' => 'Speak with the guide.',
+                  'target' => 'npc-guide',
+                  'next_step' => 'Talk to the guide in the entry chamber.',
+                  'completion_criteria' => [
+                    'kind' => 'flag',
+                    'metric' => 'completed',
+                    'required_value' => TRUE,
+                    'description' => 'Complete after speaking with the guide.',
+                  ],
+                ],
+              ],
+            ],
+          ],
+        ],
+      ]
+    );
+
+    $this->assertSame([], $errors);
+  }
+
+  /**
    * Builds a lightweight service instance.
    */
   private function buildService(): StorylineManagerService {
