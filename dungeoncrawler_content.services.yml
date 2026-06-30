@@ -481,9 +481,9 @@ services:
       - '@uuid'
       - '@dungeoncrawler_content.campaign_state_service'
       - '@dungeoncrawler_content.state_validation_service'
-      - '@?dungeoncrawler_content.content_registry'
       - '@?dungeoncrawler_content.storyline_realization_service'
       - '@?dungeoncrawler_content.objective_type'
+      - '@?dungeoncrawler_content.content_registry'
 
   dungeoncrawler_content.storyline_realization_service:
     class: Drupal\dungeoncrawler_content\Service\StorylineRealizationService

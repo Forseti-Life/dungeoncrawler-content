@@ -31,18 +31,18 @@ class StorylineManagerService {
     UuidInterface $uuid,
     CampaignStateService $campaign_state_service,
     ?StateValidationService $state_validation_service = NULL,
-    ?ContentRegistry $content_registry = NULL,
     ?StorylineRealizationService $storyline_realization_service = NULL,
-    ?ObjectiveTypeService $objective_type_service = NULL
+    ?ObjectiveTypeService $objective_type_service = NULL,
+    ?ContentRegistry $content_registry = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->uuid = $uuid;
     $this->campaignStateService = $campaign_state_service;
     $this->stateValidationService = $state_validation_service;
-    $this->contentRegistry = $content_registry;
     $this->storylineRealizationService = $storyline_realization_service;
     $this->objectiveTypeService = $objective_type_service;
+    $this->contentRegistry = $content_registry;
   }
 
   /**
