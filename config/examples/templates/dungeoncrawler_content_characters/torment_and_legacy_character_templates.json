@@ -36,6 +36,24 @@
       },
       "location_type": "global",
       "location_ref": ""
+    },
+    {
+      "character_id": 4303,
+      "instance_id": "tal-opening-threat",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Nethys-Warped Marauder",
+        "class": "raider",
+        "level": 1,
+        "hp_current": 16,
+        "conditions": [],
+        "source_module": "torment-and-legacy",
+        "description": "A hostile raider that serves as the opening combat target for the Torment and Legacy tutorial encounter."
+      },
+      "location_type": "global",
+      "location_ref": ""
     }
   ]
 }

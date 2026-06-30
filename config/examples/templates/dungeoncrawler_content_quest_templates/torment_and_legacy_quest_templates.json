@@ -68,14 +68,14 @@
               "objective_id": "complete_opening_encounter",
               "type": "kill",
               "description": "Defeat or resolve the opening encounter.",
-              "target": "tal-opening-encounter",
+              "target": "tal-opening-threat",
               "target_count": 1,
-              "next_step": "Start the opening encounter and defeat, negotiate with, or otherwise resolve the opposing threat.",
+              "next_step": "Start the opening encounter and defeat the opening threat to secure the briefing room.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
                 "target_count": 1,
-                "description": "Complete when the opening encounter is resolved."
+                "description": "Complete when the opening threat has been defeated."
               }
             }
           ]

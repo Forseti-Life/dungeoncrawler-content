@@ -470,6 +470,13 @@
           },
           {
             "asset_type": "npc",
+            "asset_id": "tal-opening-threat",
+            "asset_role": "opening-threat",
+            "chapter_id": "onboarding",
+            "scene_id": "first-engagement"
+          },
+          {
+            "asset_type": "npc",
             "asset_id": "tal-mission-handler",
             "asset_role": "quest-giver",
             "chapter_id": "onboarding",
