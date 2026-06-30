@@ -284,4 +284,25 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
     $this->assertSame(0, (int) ($by_type['campaign_npc']['error_count'] ?? 0));
   }
 
+  /**
+   * @covers ::buildEntityTypeVerificationRows
+   */
+  public function testBuildEntityTypeVerificationRowsMarksUnknownWhenStageUnavailable(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeBuildEntityTypeVerificationRows(array $template_data, array $stages): array {
+        return $this->buildEntityTypeVerificationRows($template_data, $stages);
+      }
+    };
+
+    $rows = $controller->exposeBuildEntityTypeVerificationRows([
+      'asset_references' => [
+        ['asset_type' => 'hazard', 'asset_id' => 'hazard-a'],
+      ],
+      'contacts' => [],
+    ], []);
+
+    $this->assertSame('UNKNOWN', (string) ($rows[0]['status'] ?? ''));
+    $this->assertSame(0, (int) ($rows[0]['error_count'] ?? 0));
+  }
+
 }

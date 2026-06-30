@@ -1335,21 +1335,37 @@ class StorylineExplorerPageController extends ControllerBase {
 
     ksort($reference_counts);
     $entity_stage = is_array($stages['entity_type_contracts'] ?? NULL) ? $stages['entity_type_contracts'] : ['valid' => FALSE, 'errors' => []];
+    $stage_is_valid = !empty($entity_stage['valid']);
     $stage_errors = array_values(array_filter(array_map('strval', is_array($entity_stage['errors'] ?? NULL) ? $entity_stage['errors'] : []), static fn(string $error): bool => trim($error) !== ''));
     $errors_by_type = [];
+    $typed_error_total = 0;
     foreach ($stage_errors as $error) {
       if (preg_match('/^\[entity_type_contracts:([a-z0-9_:-]+)\]\s/i', $error, $matches) === 1) {
         $type_key = strtolower(trim((string) ($matches[1] ?? '')));
         if ($type_key !== '') {
           $errors_by_type[$type_key] = ($errors_by_type[$type_key] ?? 0) + 1;
+          $typed_error_total++;
         }
       }
     }
+    $has_untyped_stage_errors = !$stage_is_valid && count($stage_errors) > $typed_error_total;
+    $stage_missing = !array_key_exists('entity_type_contracts', $stages);
 
     $rows = [];
     foreach ($reference_counts as $entity_type => $count) {
       $error_count = (int) ($errors_by_type[$entity_type] ?? 0);
-      $status = $error_count === 0 ? 'PASS' : 'FAIL';
+      if ($stage_missing) {
+        $status = 'UNKNOWN';
+      }
+      elseif ($error_count > 0) {
+        $status = 'FAIL';
+      }
+      elseif ($has_untyped_stage_errors) {
+        $status = 'FAIL';
+      }
+      else {
+        $status = 'PASS';
+      }
       $rows[] = [
         'entity_type' => (string) $entity_type,
         'reference_count' => (int) $count,

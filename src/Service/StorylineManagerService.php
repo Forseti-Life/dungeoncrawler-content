@@ -517,7 +517,8 @@ class StorylineManagerService {
     protected function validateReferencedNpcLikeEntityContractStub(string $entity_type, string $entity_id, array $context): array {
       $errors = [];
       $character_row = $this->loadCanonicalCharacterEntityByInstanceId($entity_id);
-      $registry_row = $this->loadCanonicalRegistryEntity('npc', $entity_id);
+      $registry_types = $this->resolveNpcLikeRegistryTypes($entity_type);
+      $registry_row = $this->loadCanonicalRegistryEntityByTypes($registry_types, $entity_id);
 
       if ($character_row === NULL && $registry_row === NULL) {
         $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, 'referenced NPC-like entity was not found in canonical character templates or registry.');
@@ -553,6 +554,20 @@ class StorylineManagerService {
       }
 
       return $errors;
+    }
+
+    /**
+     * Resolve canonical registry content types for npc-like entity validation.
+     *
+     * @return array<int, string>
+     *   Ordered registry content types to probe.
+     */
+    protected function resolveNpcLikeRegistryTypes(string $entity_type): array {
+      return match ($entity_type) {
+        'creature' => ['creature', 'npc'],
+        'character', 'character_group', 'campaign_npc', 'npc_template', 'npc' => ['npc', 'creature'],
+        default => ['npc', 'creature'],
+      };
     }
 
     /**
@@ -739,6 +754,27 @@ class StorylineManagerService {
         ->fetchAssoc();
 
       return is_array($row) ? $row : NULL;
+    }
+
+    /**
+     * Load the first matching canonical registry entity row by candidate types.
+     *
+     * @param array<int, string> $content_types
+     *   Candidate content types in probe order.
+     */
+    protected function loadCanonicalRegistryEntityByTypes(array $content_types, string $content_id): ?array {
+      foreach ($content_types as $content_type) {
+        $content_type = trim((string) $content_type);
+        if ($content_type === '') {
+          continue;
+        }
+        $row = $this->loadCanonicalRegistryEntity($content_type, $content_id);
+        if ($row !== NULL) {
+          return $row;
+        }
+      }
+
+      return NULL;
     }
 
     /**
