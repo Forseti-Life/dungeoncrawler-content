@@ -246,3 +246,15 @@ dungeoncrawler_roadmap:
       css/roadmap.css: {}
   dependencies:
     - core/drupal
+
+dungeon-analysis:
+  css:
+    theme:
+      css/dungeon-analysis.css: {}
+  js:
+    https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js: { type: external, minified: true }
+    js/dungeon-analysis.js: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once

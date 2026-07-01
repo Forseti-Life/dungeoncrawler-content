@@ -1,0 +1,109 @@
+.dc-dungeon-analysis {
+  --analysis-surface: var(--dc-surface-primary, var(--bs-body-bg));
+  --analysis-surface-muted: var(--dc-surface-elevated, var(--bs-tertiary-bg));
+  --analysis-surface-deep: var(--dc-surface-abyss, var(--bs-secondary-bg));
+  --analysis-border: var(--bs-border-color);
+  --analysis-text: var(--dc-text-primary, var(--bs-body-color));
+  --analysis-text-muted: var(--dc-text-secondary, var(--bs-secondary-color));
+  --analysis-link: var(--dc-link-primary, var(--bs-link-color));
+
+  color: var(--analysis-text);
+  display: grid;
+  gap: 1rem;
+}
+
+.dc-dungeon-analysis__card {
+  background: var(--analysis-surface);
+  border: 1px solid var(--analysis-border);
+  border-radius: 10px;
+}
+
+.dc-dungeon-analysis__hero h2,
+.dc-dungeon-analysis__hero p,
+.dc-dungeon-analysis__status,
+.dc-dungeon-analysis__controls,
+.dc-dungeon-analysis__debug,
+.dc-dungeon-analysis__diagram {
+  color: var(--analysis-text);
+}
+
+.dc-dungeon-analysis__eyebrow {
+  color: var(--analysis-link);
+}
+
+.dc-dungeon-analysis__controls-help {
+  color: var(--analysis-text-muted);
+}
+
+.dc-dungeon-analysis__controls-slot {
+  min-height: 68px;
+}
+
+.dc-dungeon-analysis__controls {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 760px;
+}
+
+.dc-dungeon-analysis__select {
+  display: block !important;
+  width: 100% !important;
+  min-height: 44px;
+  border: 1px solid var(--analysis-border) !important;
+  background: var(--analysis-surface) !important;
+  color: var(--analysis-text) !important;
+}
+
+.dc-dungeon-analysis__status {
+  font-weight: 600;
+}
+
+.dc-dungeon-analysis__status--error {
+  color: #b42318;
+}
+
+.dc-dungeon-analysis__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dc-dungeon-analysis__debug {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  min-height: 88px;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--analysis-surface-muted);
+  border: 1px solid var(--analysis-border);
+  border-radius: 8px;
+  color: var(--analysis-text);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.dc-dungeon-analysis__diagram-shell {
+  border: 1px solid var(--analysis-border);
+  border-radius: 8px;
+  background: var(--analysis-surface-muted);
+  padding: 1rem;
+  overflow: auto;
+  min-height: 320px;
+}
+
+.dc-dungeon-analysis__diagram svg {
+  max-width: 100%;
+}
+
+.dc-dungeon-analysis__diagram svg text {
+  fill: var(--analysis-text) !important;
+  color: var(--analysis-text) !important;
+}
+
+.dc-dungeon-analysis__diagram svg .nodeLabel,
+.dc-dungeon-analysis__diagram svg .edgeLabel,
+.dc-dungeon-analysis__diagram svg .label text {
+  fill: var(--analysis-text) !important;
+  color: var(--analysis-text) !important;
+}
