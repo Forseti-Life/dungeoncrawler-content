@@ -267,11 +267,29 @@ class SpriteGenerationService {
         'is_primary' => 1,
       ]);
 
-      $url = $storage['url'] ?? NULL;
+      $stored = !empty($storage['stored']);
+      $url = isset($storage['url']) && is_string($storage['url']) ? trim($storage['url']) : NULL;
+      if (!$stored || $url === NULL || $url === '') {
+        $reason = trim((string) ($storage['reason'] ?? 'storage_failed'));
+        if ($reason === '') {
+          $reason = 'storage_failed';
+        }
+        $this->logger->error('Sprite persistence failed for @sprite_id: @reason', [
+          '@sprite_id' => $sprite_id,
+          '@reason' => $reason,
+        ]);
+
+        return [
+          'url' => NULL,
+          'generated' => FALSE,
+          'cached' => FALSE,
+          'error' => 'storage_failed: ' . $reason,
+        ];
+      }
 
       $this->logger->notice('Sprite generated for @sprite_id: stored=@stored', [
         '@sprite_id' => $sprite_id,
-        '@stored' => !empty($storage['stored']) ? 'yes' : 'no',
+        '@stored' => 'yes',
       ]);
 
       return ['url' => $url, 'generated' => TRUE, 'cached' => FALSE, 'error' => NULL];
