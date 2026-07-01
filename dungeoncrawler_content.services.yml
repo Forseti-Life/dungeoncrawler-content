@@ -635,6 +635,7 @@ services:
     class: Drupal\dungeoncrawler_content\Service\NavigationService
     arguments:
       - '@dungeoncrawler_content.navigation_road_graph_service'
+      - '@?dungeoncrawler_content.connector_definition_service'
 
   dungeoncrawler_content.connector_definition_service:
     class: Drupal\dungeoncrawler_content\Service\ConnectorDefinitionService

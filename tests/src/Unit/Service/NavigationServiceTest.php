@@ -157,6 +157,36 @@ class NavigationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies canonical connector-table fields are normalized for navigation.
+   */
+  public function testBuildNavigationCapabilitiesNormalizesCanonicalConnectorContract(): void {
+    $service = new NavigationService();
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'connections' => [
+        [
+          'connection_id' => 'tavern::market::door',
+          'from_room_id' => 'tavern_entrance',
+          'to_room_id' => 'market_square',
+          'kind' => 'door',
+          'direction' => 'one_way',
+          'default_state' => 'locked',
+          'is_discovered_default' => 1,
+        ],
+      ],
+    ], 'tavern_entrance');
+
+    $this->assertCount(1, $capabilities);
+    $this->assertSame('tavern::market::door', $capabilities[0]['connection_id']);
+    $this->assertSame('market_square', $capabilities[0]['target_room_id']);
+    $this->assertSame('door', $capabilities[0]['type']);
+    $this->assertFalse($capabilities[0]['available']);
+    $this->assertSame('blocked', $capabilities[0]['blocked_reason']);
+    $this->assertTrue($capabilities[0]['requires_interaction']);
+    $this->assertFalse($capabilities[0]['bidirectional']);
+  }
+
+  /**
    * Verifies direct room transitions enforce zero-distance contracts.
    */
   public function testBuildNavigationCapabilitiesRejectsNonZeroDirectRoomDistance(): void {

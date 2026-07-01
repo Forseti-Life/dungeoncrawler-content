@@ -8,9 +8,14 @@ namespace Drupal\dungeoncrawler_content\Service;
 class NavigationService {
 
   protected NavigationRoadGraphService $navigationRoadGraphService;
+  protected ?ConnectorDefinitionService $connectorDefinitionService;
 
-  public function __construct(?NavigationRoadGraphService $navigation_road_graph_service = NULL) {
+  public function __construct(
+    ?NavigationRoadGraphService $navigation_road_graph_service = NULL,
+    ?ConnectorDefinitionService $connector_definition_service = NULL
+  ) {
     $this->navigationRoadGraphService = $navigation_road_graph_service ?? new NavigationRoadGraphService();
+    $this->connectorDefinitionService = $connector_definition_service;
   }
 
   /**
@@ -265,11 +270,17 @@ class NavigationService {
    */
   protected function extractConnections(array $dungeon_data): array {
     $sources = [];
-    if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
-      $sources[] = $dungeon_data['hex_map']['connections'];
+    $table_connections = $this->loadConnectorTableConnections($dungeon_data);
+    if ($table_connections !== []) {
+      $sources[] = $table_connections;
     }
-    if (is_array($dungeon_data['connections'] ?? NULL)) {
-      $sources[] = $dungeon_data['connections'];
+    else {
+      if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
+        $sources[] = $dungeon_data['hex_map']['connections'];
+      }
+      if (is_array($dungeon_data['connections'] ?? NULL)) {
+        $sources[] = $dungeon_data['connections'];
+      }
     }
     if ($sources === []) {
       return [];
@@ -282,16 +293,151 @@ class NavigationService {
         if (!is_array($connection)) {
           continue;
         }
-        $identity = $this->buildConnectionIdentityKey($connection);
+        $normalized_connection = $this->normalizeConnectionRecord($connection);
+        $identity = $this->buildConnectionIdentityKey($normalized_connection);
         if (isset($seen[$identity])) {
           continue;
         }
         $seen[$identity] = TRUE;
-        $connections[] = $connection;
+        $connections[] = $normalized_connection;
       }
     }
 
     return $connections;
+  }
+
+  /**
+   * Load connector rows from canonical/campaign tables when available.
+   *
+   * Canonical connector tables are authoritative. When rows exist for the
+   * current dungeon context, payload JSON connection arrays are ignored.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Connector rows, or [] when table context is unavailable.
+   */
+  protected function loadConnectorTableConnections(array $dungeon_data): array {
+    if ($this->connectorDefinitionService === NULL) {
+      return [];
+    }
+
+    $dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['level_id']
+      ?? ''
+    ));
+    if ($dungeon_id === '') {
+      return [];
+    }
+
+    $campaign_id = $this->resolveOptionalCampaignId($dungeon_data);
+    if ($campaign_id > 0) {
+      return $this->connectorDefinitionService->loadCampaignConnectorsForDungeon($campaign_id, $dungeon_id);
+    }
+
+    return $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon($dungeon_id);
+  }
+
+  /**
+   * Resolve optional campaign id embedded in dungeon context payload.
+   */
+  protected function resolveOptionalCampaignId(array $dungeon_data): int {
+    foreach ([
+      $dungeon_data['campaign_id'] ?? NULL,
+      $dungeon_data['campaign']['campaign_id'] ?? NULL,
+      $dungeon_data['campaign']['id'] ?? NULL,
+    ] as $candidate) {
+      if (is_numeric($candidate) && (int) $candidate > 0) {
+        return (int) $candidate;
+      }
+    }
+
+    return 0;
+  }
+
+  /**
+   * Normalize mixed legacy/canonical connector fields to navigation contract.
+   *
+   * @param array<string, mixed> $connection
+   *   Raw connector payload.
+   *
+   * @return array<string, mixed>
+   *   Normalized connector payload.
+   */
+  protected function normalizeConnectionRecord(array $connection): array {
+    $normalized = $connection;
+
+    $from_room = trim((string) (
+      $connection['from_room']
+      ?? $connection['from_room_id']
+      ?? ($connection['from']['room_id'] ?? $connection['from']['room'] ?? '')
+    ));
+    $to_room = trim((string) (
+      $connection['to_room']
+      ?? $connection['to_room_id']
+      ?? ($connection['to']['room_id'] ?? $connection['to']['room'] ?? '')
+    ));
+
+    $type = trim((string) (
+      $connection['type']
+      ?? $connection['kind']
+      ?? $connection['connection_type']
+      ?? $connection['connector_type']
+      ?? 'passage'
+    ));
+    if ($type === '') {
+      $type = 'passage';
+    }
+    if ($type === 'hallway') {
+      $type = 'passage';
+    }
+
+    $direction = strtolower(trim((string) ($connection['direction'] ?? '')));
+    $state = strtolower(trim((string) ($connection['state'] ?? $connection['default_state'] ?? '')));
+
+    $normalized['from_room'] = $from_room;
+    $normalized['to_room'] = $to_room;
+    if (!isset($normalized['from_room_id']) && $from_room !== '') {
+      $normalized['from_room_id'] = $from_room;
+    }
+    if (!isset($normalized['to_room_id']) && $to_room !== '') {
+      $normalized['to_room_id'] = $to_room;
+    }
+    $normalized['type'] = $type;
+
+    if (!array_key_exists('bidirectional', $normalized)) {
+      $normalized['bidirectional'] = $direction !== 'one_way';
+    }
+    if (!array_key_exists('is_discovered', $normalized)) {
+      if (array_key_exists('is_discovered_default', $normalized)) {
+        $normalized['is_discovered'] = !empty($normalized['is_discovered_default']);
+      }
+      elseif (array_key_exists('is_hidden', $normalized)) {
+        $normalized['is_discovered'] = empty($normalized['is_hidden']);
+      }
+      else {
+        $normalized['is_discovered'] = TRUE;
+      }
+    }
+    if (!array_key_exists('is_passable', $normalized)) {
+      $normalized['is_passable'] = !in_array($state, ['locked', 'barred', 'collapsed', 'destroyed', 'trapped'], TRUE);
+    }
+
+    if (!isset($normalized['from_hex']) && is_array($connection['from'] ?? NULL)) {
+      $normalized['from_hex'] = $connection['from'];
+    }
+    if (!isset($normalized['to_hex']) && is_array($connection['to'] ?? NULL)) {
+      $normalized['to_hex'] = $connection['to'];
+    }
+
+    if (!isset($normalized['destination_type']) && isset($connection['to_type'])) {
+      $normalized['destination_type'] = $connection['to_type'];
+    }
+    if (!isset($normalized['distance']) && self::normalizeDestinationType($normalized) === 'road' && isset($connection['travel_cost']) && is_numeric($connection['travel_cost'])) {
+      $normalized['distance'] = max(0, (int) $connection['travel_cost']);
+    }
+
+    return $normalized;
   }
 
   /**

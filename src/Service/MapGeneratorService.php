@@ -441,7 +441,9 @@ class MapGeneratorService {
         if (!is_array($connection)) {
           continue;
         }
-        if (($connection['from_room'] ?? '') === $room_id || ($connection['to_room'] ?? '') === $room_id) {
+        $from_room_id = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
+        if ($from_room_id === $room_id || $to_room_id === $room_id) {
           $connections[] = $connection;
         }
       }
@@ -449,17 +451,22 @@ class MapGeneratorService {
 
     $entry_hex = ['q' => 0, 'r' => 0];
     foreach ($connections as $connection) {
-      if (($connection['to_room'] ?? '') === $room_id && isset($connection['to_hex'])) {
+      $from_room_id = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
+      $to_hex = $connection['to_hex'] ?? $connection['to'] ?? NULL;
+      $from_hex = $connection['from_hex'] ?? $connection['from'] ?? NULL;
+
+      if ($to_room_id === $room_id && is_array($to_hex)) {
         $entry_hex = [
-          'q' => (int) ($connection['to_hex']['q'] ?? 0),
-          'r' => (int) ($connection['to_hex']['r'] ?? 0),
+          'q' => (int) ($to_hex['q'] ?? 0),
+          'r' => (int) ($to_hex['r'] ?? 0),
         ];
         break;
       }
-      if (($connection['from_room'] ?? '') === $room_id && isset($connection['from_hex'])) {
+      if ($from_room_id === $room_id && is_array($from_hex)) {
         $entry_hex = [
-          'q' => (int) ($connection['from_hex']['q'] ?? 0),
-          'r' => (int) ($connection['from_hex']['r'] ?? 0),
+          'q' => (int) ($from_hex['q'] ?? 0),
+          'r' => (int) ($from_hex['r'] ?? 0),
         ];
         break;
       }
