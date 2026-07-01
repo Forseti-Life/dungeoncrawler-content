@@ -2,6 +2,7 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
+use Drupal\dungeoncrawler_content\Service\ConnectorDefinitionService;
 use Drupal\dungeoncrawler_content\Service\NavigationService;
 use Drupal\Tests\UnitTestCase;
 
@@ -184,6 +185,85 @@ class NavigationServiceTest extends UnitTestCase {
     $this->assertSame('blocked', $capabilities[0]['blocked_reason']);
     $this->assertTrue($capabilities[0]['requires_interaction']);
     $this->assertFalse($capabilities[0]['bidirectional']);
+  }
+
+  /**
+   * Verifies connector-table rows are authoritative over payload fallback arrays.
+   */
+  public function testBuildNavigationCapabilitiesPrefersConnectorTableRows(): void {
+    $connector_service = $this->getMockBuilder(ConnectorDefinitionService::class)
+      ->disableOriginalConstructor()
+      ->onlyMethods(['loadCanonicalConnectorsForDungeon'])
+      ->getMock();
+
+    $connector_service->expects($this->once())
+      ->method('loadCanonicalConnectorsForDungeon')
+      ->with('starter_dungeon')
+      ->willReturn([
+        [
+          'connection_id' => 'canonical_tavern_market',
+          'dungeon_id' => 'starter_dungeon',
+          'from_room_id' => 'tavern_entrance',
+          'to_room_id' => 'market_square',
+          'kind' => 'door',
+          'direction' => 'bidirectional',
+          'default_state' => 'open',
+          'is_discovered_default' => 1,
+        ],
+      ]);
+
+    $service = new NavigationService(NULL, $connector_service);
+
+    $capabilities = $service->buildNavigationCapabilities([
+      'dungeon_id' => 'starter_dungeon',
+      'connections' => [
+        [
+          'connection_id' => 'payload_tavern_wrong',
+          'from_room' => 'tavern_entrance',
+          'to_room' => 'wrong_room',
+          'type' => 'door',
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+        ],
+      ],
+    ], 'tavern_entrance');
+
+    $this->assertCount(1, $capabilities);
+    $this->assertSame('canonical_tavern_market', $capabilities[0]['connection_id']);
+    $this->assertSame('market_square', $capabilities[0]['target_room_id']);
+  }
+
+  /**
+   * Verifies malformed connector-table rows fail hard.
+   */
+  public function testBuildNavigationCapabilitiesRejectsInvalidCanonicalConnectorDirection(): void {
+    $connector_service = $this->getMockBuilder(ConnectorDefinitionService::class)
+      ->disableOriginalConstructor()
+      ->onlyMethods(['loadCanonicalConnectorsForDungeon'])
+      ->getMock();
+
+    $connector_service->expects($this->once())
+      ->method('loadCanonicalConnectorsForDungeon')
+      ->with('starter_dungeon')
+      ->willReturn([
+        [
+          'connection_id' => 'canonical_invalid_direction',
+          'dungeon_id' => 'starter_dungeon',
+          'from_room_id' => 'tavern_entrance',
+          'to_room_id' => 'market_square',
+          'kind' => 'door',
+          'direction' => 'sideways',
+          'default_state' => 'open',
+        ],
+      ]);
+
+    $service = new NavigationService(NULL, $connector_service);
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('invalid direction');
+
+    $service->buildNavigationCapabilities([
+      'dungeon_id' => 'starter_dungeon',
+    ], 'tavern_entrance');
   }
 
   /**

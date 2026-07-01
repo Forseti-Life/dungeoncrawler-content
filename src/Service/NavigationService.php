@@ -332,10 +332,16 @@ class NavigationService {
 
     $campaign_id = $this->resolveOptionalCampaignId($dungeon_data);
     if ($campaign_id > 0) {
-      return $this->connectorDefinitionService->loadCampaignConnectorsForDungeon($campaign_id, $dungeon_id);
+      return array_values(array_map(
+        static fn(array $row): array => $row + ['__connector_source' => 'campaign_table'],
+        $this->connectorDefinitionService->loadCampaignConnectorsForDungeon($campaign_id, $dungeon_id)
+      ));
     }
 
-    return $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon($dungeon_id);
+    return array_values(array_map(
+      static fn(array $row): array => $row + ['__connector_source' => 'canonical_table'],
+      $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon($dungeon_id)
+    ));
   }
 
   /**
@@ -366,6 +372,10 @@ class NavigationService {
    */
   protected function normalizeConnectionRecord(array $connection): array {
     $normalized = $connection;
+    $connector_source = trim((string) ($connection['__connector_source'] ?? ''));
+    if ($connector_source !== '') {
+      $this->assertConnectorTableRecordContract($connection, $connector_source);
+    }
 
     $from_room = trim((string) (
       $connection['from_room']
@@ -436,8 +446,53 @@ class NavigationService {
     if (!isset($normalized['distance']) && self::normalizeDestinationType($normalized) === 'road' && isset($connection['travel_cost']) && is_numeric($connection['travel_cost'])) {
       $normalized['distance'] = max(0, (int) $connection['travel_cost']);
     }
+    unset($normalized['__connector_source']);
 
     return $normalized;
+  }
+
+  /**
+   * Enforce connector-table contract completeness for runtime navigation.
+   *
+   * @throws \InvalidArgumentException
+   */
+  protected function assertConnectorTableRecordContract(array $connection, string $source): void {
+    foreach (['connection_id', 'dungeon_id', 'from_room_id', 'to_room_id'] as $required) {
+      if (trim((string) ($connection[$required] ?? '')) === '') {
+        throw new \InvalidArgumentException(sprintf(
+          'Navigation connector contract violation (%s): missing required field "%s".',
+          $source,
+          $required
+        ));
+      }
+    }
+
+    $kind = trim((string) ($connection['kind'] ?? ''));
+    if ($kind === '' || !in_array($kind, ConnectorDefinitionService::KINDS, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Navigation connector contract violation (%s): invalid kind "%s".',
+        $source,
+        $kind
+      ));
+    }
+
+    $direction = trim((string) ($connection['direction'] ?? ''));
+    if ($direction === '' || !in_array($direction, ConnectorDefinitionService::DIRECTIONS, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Navigation connector contract violation (%s): invalid direction "%s".',
+        $source,
+        $direction
+      ));
+    }
+
+    $state = trim((string) ($connection['state'] ?? $connection['default_state'] ?? ''));
+    if ($state === '' || !in_array($state, ConnectorDefinitionService::STATES, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Navigation connector contract violation (%s): invalid state "%s".',
+        $source,
+        $state
+      ));
+    }
   }
 
   /**
