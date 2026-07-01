@@ -64,6 +64,29 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildPlayerPartyMermaidDiagram
+   */
+  public function testBuildPlayerPartyMermaidDiagramAvoidsMarkdownListPrefix(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeBuildPlayerPartyMermaidDiagram(array $steps): string {
+        return $this->buildPlayerPartyMermaidDiagram($steps);
+      }
+    };
+
+    $diagram = $controller->exposeBuildPlayerPartyMermaidDiagram([
+      [
+        'title' => 'Talk to Eldric',
+        'detail' => 'Intro handoff.',
+        'touches' => ['npc.eldric'],
+      ],
+    ]);
+
+    $this->assertStringContainsString('graph LR', $diagram);
+    $this->assertStringContainsString('Step 1: Talk to Eldric', $diagram);
+    $this->assertStringNotContainsString('1. Talk to Eldric', $diagram);
+  }
+
+  /**
    * @covers ::collectTaskContractDiagnostics
    */
   public function testCollectTaskContractDiagnosticsFlagsCompositeWithoutChildrenAndDuplicateTaskIds(): void {
@@ -386,6 +409,387 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
 
     $this->assertSame('UNKNOWN', (string) ($rows[0]['status'] ?? ''));
     $this->assertSame(0, (int) ($rows[0]['error_count'] ?? 0));
+  }
+
+  /**
+   * @covers ::collectQuestTemplateDiagnostics
+   */
+  public function testCollectQuestTemplateDiagnosticsFlagsMissingAndEmptyCanonicalRows(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->exactly(2))
+      ->method('getCanonicalQuestTemplateObjectivePhases')
+      ->willReturnMap([
+        ['quest-empty', []],
+        ['quest-missing', NULL],
+      ]);
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectQuestTemplateDiagnostics(array $template_data): array {
+        return $this->collectQuestTemplateDiagnostics($template_data);
+      }
+    };
+
+    $rows = $controller->exposeCollectQuestTemplateDiagnostics([
+      'linked_quests' => [
+        ['quest_id' => 'quest-missing'],
+      ],
+      'chapters' => [
+        [
+          'scenes' => [
+            [
+              'quest_ids' => ['quest-empty'],
+            ],
+          ],
+        ],
+      ],
+    ]);
+
+    $by_quest = [];
+    foreach ($rows as $row) {
+      $by_quest[(string) ($row['quest_id'] ?? '')] = $row;
+    }
+
+    $this->assertSame('FAIL', (string) ($by_quest['quest-empty']['status'] ?? ''));
+    $this->assertSame('FAIL', (string) ($by_quest['quest-missing']['status'] ?? ''));
+    $this->assertContains('objectives_schema payload is empty.', (array) ($by_quest['quest-empty']['errors'] ?? []));
+    $this->assertContains('canonical quest template row not found in dungeoncrawler_content_quest_templates.', (array) ($by_quest['quest-missing']['errors'] ?? []));
+  }
+
+  /**
+   * @covers ::collectQuestTemplateDiagnostics
+   */
+  public function testCollectQuestTemplateDiagnosticsPassesValidTemplateAndFlagsMalformedObjectives(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->exactly(2))
+      ->method('getCanonicalQuestTemplateObjectivePhases')
+      ->willReturnMap([
+        [
+          'quest-invalid',
+          [
+            [
+              'phase' => 1,
+              'objectives' => [
+                [
+                  'description' => 'Missing required fields.',
+                ],
+              ],
+            ],
+          ],
+        ],
+        [
+          'quest-valid',
+          [
+            [
+              'phase' => 1,
+              'objectives' => [
+                [
+                  'objective_id' => 'objective-1',
+                  'type' => 'investigate',
+                  'completion_criteria' => [
+                    'kind' => 'count',
+                    'metric' => 'current',
+                    'target_count' => 1,
+                    'description' => 'Investigate once.',
+                  ],
+                ],
+              ],
+            ],
+          ],
+        ],
+      ]);
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectQuestTemplateDiagnostics(array $template_data): array {
+        return $this->collectQuestTemplateDiagnostics($template_data);
+      }
+    };
+
+    $rows = $controller->exposeCollectQuestTemplateDiagnostics([
+      'chapters' => [
+        [
+          'scenes' => [
+            [
+              'quest_ids' => ['quest-valid', 'quest-invalid'],
+            ],
+          ],
+        ],
+      ],
+    ]);
+
+    $by_quest = [];
+    foreach ($rows as $row) {
+      $by_quest[(string) ($row['quest_id'] ?? '')] = $row;
+    }
+
+    $this->assertSame('PASS', (string) ($by_quest['quest-valid']['status'] ?? ''));
+    $this->assertSame(1, (int) ($by_quest['quest-valid']['phase_count'] ?? 0));
+    $this->assertSame(1, (int) ($by_quest['quest-valid']['objective_count'] ?? 0));
+    $this->assertSame([], (array) ($by_quest['quest-valid']['errors'] ?? []));
+
+    $invalid_errors = (array) ($by_quest['quest-invalid']['errors'] ?? []);
+    $this->assertSame('FAIL', (string) ($by_quest['quest-invalid']['status'] ?? ''));
+    $this->assertContains('phase[0].objectives[0].objective_id is required.', $invalid_errors);
+    $this->assertContains('phase[0].objectives[0].type is required.', $invalid_errors);
+    $this->assertContains('phase[0].objectives[0].completion_criteria is required.', $invalid_errors);
+  }
+
+  /**
+   * @covers ::collectTemplateQuestIds
+   */
+  public function testCollectTemplateQuestIdsReturnsSortedUniqueQuestIdsFromLinkedAndScenes(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeCollectTemplateQuestIds(array $template_data): array {
+        return $this->collectTemplateQuestIds($template_data);
+      }
+    };
+
+    $quest_ids = $controller->exposeCollectTemplateQuestIds([
+      'linked_quests' => [
+        ['quest_id' => 'quest-zeta'],
+        'quest-alpha',
+      ],
+      'chapters' => [
+        [
+          'scenes' => [
+            ['quest_ids' => ['quest-gamma', 'quest-alpha']],
+          ],
+        ],
+      ],
+    ]);
+
+    $this->assertSame(['quest-alpha', 'quest-gamma', 'quest-zeta'], $quest_ids);
+  }
+
+  /**
+   * @covers ::collectQuestTemplateDiagnostics
+   */
+  public function testCollectQuestTemplateDiagnosticsCanScopeToSelectedQuest(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('getCanonicalQuestTemplateObjectivePhases')
+      ->with('quest-target')
+      ->willReturn([
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'objective-1',
+              'type' => 'investigate',
+              'completion_criteria' => [
+                'kind' => 'count',
+                'metric' => 'current',
+                'target_count' => 1,
+                'description' => 'Investigate once.',
+              ],
+            ],
+          ],
+        ],
+      ]);
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectQuestTemplateDiagnostics(array $template_data, string $selected_quest_id = ''): array {
+        return $this->collectQuestTemplateDiagnostics($template_data, $selected_quest_id);
+      }
+    };
+
+    $rows = $controller->exposeCollectQuestTemplateDiagnostics([
+      'chapters' => [
+        [
+          'scenes' => [
+            [
+              'quest_ids' => ['quest-target', 'quest-other'],
+            ],
+          ],
+        ],
+      ],
+    ], 'quest-target');
+
+    $this->assertCount(1, $rows);
+    $this->assertSame('quest-target', (string) ($rows[0]['quest_id'] ?? ''));
+    $this->assertSame('PASS', (string) ($rows[0]['status'] ?? ''));
+  }
+
+  /**
+   * @covers ::collectQuestTemplateDiagnostics
+   */
+  public function testCollectQuestTemplateDiagnosticsCanValidateSelectedUnlinkedQuest(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('getCanonicalQuestTemplateObjectivePhases')
+      ->with('quest-unlinked')
+      ->willReturn([
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'objective-1',
+              'type' => 'interact',
+              'completion_criteria' => [
+                'kind' => 'flag',
+                'metric' => 'completed',
+                'required_value' => TRUE,
+                'description' => 'Interact once.',
+              ],
+            ],
+          ],
+        ],
+      ]);
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectQuestTemplateDiagnostics(array $template_data, string $selected_quest_id = ''): array {
+        return $this->collectQuestTemplateDiagnostics($template_data, $selected_quest_id);
+      }
+    };
+
+    $rows = $controller->exposeCollectQuestTemplateDiagnostics([
+      'chapters' => [
+        [
+          'scenes' => [
+            [
+              'quest_ids' => ['quest-linked'],
+            ],
+          ],
+        ],
+      ],
+    ], 'quest-unlinked');
+
+    $this->assertCount(1, $rows);
+    $this->assertSame('quest-unlinked', (string) ($rows[0]['quest_id'] ?? ''));
+    $this->assertSame('PASS', (string) ($rows[0]['status'] ?? ''));
+  }
+
+  /**
+   * @covers ::collectTaskContractDiagnostics
+   */
+  public function testCollectTaskContractDiagnosticsSkipsWhenSelectedQuestIsNotLinked(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->never())
+      ->method('getCanonicalQuestTemplateObjectivePhases');
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectTaskContractDiagnostics(array $template_data, string $selected_quest_id = ''): array {
+        return $this->collectTaskContractDiagnostics($template_data, $selected_quest_id);
+      }
+    };
+
+    $errors = $controller->exposeCollectTaskContractDiagnostics([
+      'chapters' => [
+        [
+          'scenes' => [
+            [
+              'quest_ids' => ['quest-linked'],
+            ],
+          ],
+        ],
+      ],
+    ], 'quest-unlinked');
+
+    $this->assertSame([], $errors);
+  }
+
+  /**
+   * @covers ::collectEntityLinkageDiagnostics
+   */
+  public function testCollectEntityLinkageDiagnosticsSkipsWhenSelectedQuestIsNotLinked(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->never())
+      ->method('getCanonicalLocationTemplateIndex');
+    $storyline_manager->expects($this->never())
+      ->method('getCanonicalQuestTemplateObjectivePhases');
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectEntityLinkageDiagnostics(array $template_data, string $selected_quest_id = ''): array {
+        return $this->collectEntityLinkageDiagnostics($template_data, $selected_quest_id);
+      }
+    };
+
+    $errors = $controller->exposeCollectEntityLinkageDiagnostics([
+      'chapters' => [
+        [
+          'scenes' => [
+            [
+              'quest_ids' => ['quest-linked'],
+            ],
+          ],
+        ],
+      ],
+    ], 'quest-unlinked');
+
+    $this->assertSame([], $errors);
+  }
+
+  /**
+   * @covers ::buildTemplateSelectorOptions
+   */
+  public function testBuildTemplateSelectorOptionsUsesTemplateIdAndName(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeBuildTemplateSelectorOptions(array $templates): array {
+        return $this->buildTemplateSelectorOptions($templates);
+      }
+    };
+
+    $options = $controller->exposeBuildTemplateSelectorOptions([
+      ['template_id' => 'tok', 'name' => 'Threshold of Knowledge'],
+      ['template_id' => 'ltba', 'name' => 'Little Trouble in Big Absalom'],
+      ['template_id' => '', 'name' => 'Invalid'],
+    ]);
+
+    $this->assertSame([
+      'tok' => 'Threshold of Knowledge',
+      'ltba' => 'Little Trouble in Big Absalom',
+    ], $options);
+  }
+
+  /**
+   * @covers ::buildQuestSelectorOptions
+   */
+  public function testBuildQuestSelectorOptionsIncludesLinkedAndUnlinkedGroups(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function t($string, array $args = [], array $options = []) {
+        return (string) $string;
+      }
+      public function exposeBuildQuestSelectorOptions(array $linked, array $unlinked): array {
+        return $this->buildQuestSelectorOptions($linked, $unlinked);
+      }
+    };
+
+    $options = $controller->exposeBuildQuestSelectorOptions(
+      ['quest-b', 'quest-a'],
+      ['quest-z']
+    );
+
+    $this->assertSame('All linked quests', (string) ($options[''] ?? ''));
+    $this->assertArrayHasKey('Linked to selected storyline', $options);
+    $this->assertArrayHasKey('Unlinked canonical library quests', $options);
+    $this->assertSame([
+      'quest-a' => 'quest-a',
+      'quest-b' => 'quest-b',
+    ], $options['Linked to selected storyline']);
+    $this->assertSame([
+      'quest-z' => 'quest-z',
+    ], $options['Unlinked canonical library quests']);
+  }
+
+  /**
+   * @covers ::renderSelectOptionsMarkup
+   */
+  public function testRenderSelectOptionsMarkupRendersSelectedOptionAndOptgroup(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeRenderSelectOptionsMarkup(array $options, string $selected): string {
+        return $this->renderSelectOptionsMarkup($options, $selected);
+      }
+    };
+
+    $markup = $controller->exposeRenderSelectOptionsMarkup([
+      '' => 'All linked quests',
+      'Unlinked canonical library quests' => [
+        'quest-z' => 'quest-z',
+      ],
+    ], 'quest-z');
+
+    $this->assertStringContainsString('<option value="">All linked quests</option>', $markup);
+    $this->assertStringContainsString('<optgroup label="Unlinked canonical library quests">', $markup);
+    $this->assertStringContainsString('<option value="quest-z" selected>quest-z</option>', $markup);
   }
 
 }

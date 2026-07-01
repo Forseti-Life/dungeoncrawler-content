@@ -45,8 +45,24 @@ class StorylineExplorerPageController extends ControllerBase {
       $selected_template_id = (string) $templates[0]['template_id'];
     }
 
+    $all_canonical_quest_ids = $this->loadCanonicalQuestTemplateIds();
     $selected_template = $this->findTemplate($templates, $selected_template_id);
+    $selected_template_data = is_array($selected_template['template_data'] ?? NULL) ? $selected_template['template_data'] : [];
+    $linked_quest_template_ids = $this->collectTemplateQuestIds($selected_template_data);
+    $unlinked_quest_template_ids = array_values(array_diff($all_canonical_quest_ids, $linked_quest_template_ids));
+    sort($unlinked_quest_template_ids);
+    $selected_quest_id = trim((string) $request->query->get('quest_id', ''));
+    if ($selected_quest_id !== '' && !in_array($selected_quest_id, $all_canonical_quest_ids, TRUE)) {
+      $selected_quest_id = '';
+    }
+    $selected_quest_linked = $selected_quest_id === '' || in_array($selected_quest_id, $linked_quest_template_ids, TRUE);
+
     $graph = $this->buildTemplateGraph($selected_template['template_data'] ?? []);
+    $diagnostics = $this->collectValidationDiagnostics(
+      $selected_template['template_data'] ?? [],
+      $graph,
+      $selected_quest_id
+    );
     $diagram = $this->buildMermaidDiagram($graph['nodes'], $graph['edges']);
     $player_party_projection = $this->buildPlayerPartyHappyPath(
       $selected_template_id,
@@ -91,13 +107,27 @@ class StorylineExplorerPageController extends ControllerBase {
       ],
     ];
 
-    $build['filters'] = $this->buildFilterSection($templates, $selected_template_id);
+    $build['filters'] = $this->buildFilterSection(
+      $templates,
+      $selected_template_id,
+      $linked_quest_template_ids,
+      $unlinked_quest_template_ids,
+      $selected_quest_id
+    );
+    $build['validator_top_status'] = $this->buildTopLevelValidatorStatusCard($diagnostics);
 
     $build['canonical_storylines'] = $this->buildCanonicalStorylinesTable(
       $templates,
       $selected_template_id
     );
-    $build['validator'] = $this->buildValidationSummaryCard($selected_template_id, $selected_template['template_data'] ?? [], $graph);
+    $build['validator'] = $this->buildValidationSummaryCard(
+      $selected_template_id,
+      $selected_template['template_data'] ?? [],
+      $graph,
+      $selected_quest_id,
+      $selected_quest_linked,
+      $diagnostics
+    );
     $build['flow'] = $this->buildCanonicalProcessFlowTable($selected_template_id, $selected_template['template_data'] ?? []);
     $build['trace'] = $this->buildStorylineTraceAccordion($selected_template_id, $selected_template['template_data'] ?? []);
 
@@ -184,27 +214,23 @@ class StorylineExplorerPageController extends ControllerBase {
   /**
    * Build query-link filters for canonical template selection.
    */
-  protected function buildFilterSection(array $templates, string $selected_template_id): array {
+  protected function buildFilterSection(
+    array $templates,
+    string $selected_template_id,
+    array $linked_quest_template_ids = [],
+    array $unlinked_quest_template_ids = [],
+    string $selected_quest_id = ''
+  ): array {
     $build = [
       '#type' => 'container',
       '#attributes' => ['class' => ['row', 'g-3', 'mb-4']],
     ];
 
-    $template_items = [];
-    foreach ($templates as $template) {
-      $template_id = (string) ($template['template_id'] ?? '');
-      if ($template_id === '') {
-        continue;
-      }
-      $template_items[] = [
-        '#markup' => Markup::create(sprintf(
-          '<a class="btn btn-sm %s me-2 mb-2" href="%s">%s</a>',
-          $template_id === $selected_template_id ? 'btn-primary' : 'btn-outline-primary',
-          Html::escape($this->buildExplorerUrl($template_id)),
-          Html::escape((string) ($template['name'] ?? $template_id))
-        )),
-      ];
-    }
+    $template_options = $this->buildTemplateSelectorOptions($templates);
+    $quest_options = $this->buildQuestSelectorOptions($linked_quest_template_ids, $unlinked_quest_template_ids);
+    $form_action = Html::escape($this->buildExplorerUrl(''));
+    $template_options_markup = $this->renderSelectOptionsMarkup($template_options, $selected_template_id);
+    $quest_options_markup = $this->renderSelectOptionsMarkup($quest_options, $selected_quest_id);
 
     $build['templates'] = [
       '#type' => 'container',
@@ -221,7 +247,29 @@ class StorylineExplorerPageController extends ControllerBase {
             '#attributes' => ['class' => ['h6', 'mb-3']],
             '#value' => (string) $this->t('Template selector'),
           ],
-          'items' => $template_items,
+          'selectors' => [
+            '#markup' => Markup::create(
+              '<form method="get" action="' . $form_action . '">' .
+              '<div class="row g-3 align-items-end">' .
+              '<div class="col-md-6">' .
+              '<label for="storyline-template-selector" class="form-label">' . Html::escape((string) $this->t('Storyline template')) . '</label>' .
+              '<select id="storyline-template-selector" name="template_id" class="form-select">' .
+              $template_options_markup .
+              '</select>' .
+              '</div>' .
+              '<div class="col-md-6">' .
+              '<label for="storyline-quest-selector" class="form-label">' . Html::escape((string) $this->t('Quest template scope')) . '</label>' .
+              '<select id="storyline-quest-selector" name="quest_id" class="form-select">' .
+              $quest_options_markup .
+              '</select>' .
+              '</div>' .
+              '<div class="col-12">' .
+              '<button type="submit" class="btn btn-primary">' . Html::escape((string) $this->t('Apply selectors')) . '</button>' .
+              '</div>' .
+              '</div>' .
+              '</form>'
+            ),
+          ],
         ],
       ],
     ];
@@ -232,12 +280,111 @@ class StorylineExplorerPageController extends ControllerBase {
   /**
    * Build a URL to this explorer route with optional template selector.
    */
-  protected function buildExplorerUrl(string $template_id): string {
+  protected function buildExplorerUrl(string $template_id, string $quest_id = ''): string {
     $query = [];
     if ($template_id !== '') {
       $query['template_id'] = $template_id;
     }
+    if ($quest_id !== '') {
+      $query['quest_id'] = $quest_id;
+    }
     return Url::fromRoute('dungeoncrawler_content.storyline_explorer', [], ['query' => $query])->toString();
+  }
+
+  /**
+   * Build selector options for storyline templates.
+   *
+   * @return array<string, string>
+   *   Template id => label options.
+   */
+  protected function buildTemplateSelectorOptions(array $templates): array {
+    $options = [];
+    foreach ($templates as $template) {
+      if (!is_array($template)) {
+        continue;
+      }
+      $template_id = trim((string) ($template['template_id'] ?? ''));
+      if ($template_id === '') {
+        continue;
+      }
+      $options[$template_id] = trim((string) ($template['name'] ?? $template_id));
+    }
+    return $options;
+  }
+
+  /**
+   * Build grouped selector options for linked and unlinked canonical quests.
+   *
+   * @return array<string, string|array<string, string>>
+   *   Select options with optgroups.
+   */
+  protected function buildQuestSelectorOptions(array $linked_quest_template_ids, array $unlinked_quest_template_ids): array {
+    $linked_ids = array_values(array_filter(
+      array_map(static fn($value): string => trim((string) $value), $linked_quest_template_ids),
+      static fn(string $quest_id): bool => $quest_id !== ''
+    ));
+    sort($linked_ids);
+    $unlinked_ids = array_values(array_filter(
+      array_map(static fn($value): string => trim((string) $value), $unlinked_quest_template_ids),
+      static fn(string $quest_id): bool => $quest_id !== ''
+    ));
+    sort($unlinked_ids);
+
+    $options = [
+      '' => (string) $this->t('All linked quests'),
+    ];
+
+    if ($linked_ids !== []) {
+      $options[(string) $this->t('Linked to selected storyline')] = array_combine($linked_ids, $linked_ids) ?: [];
+    }
+    if ($unlinked_ids !== []) {
+      $options[(string) $this->t('Unlinked canonical library quests')] = array_combine($unlinked_ids, $unlinked_ids) ?: [];
+    }
+
+    return $options;
+  }
+
+  /**
+   * Render scalar/grouped <option> and <optgroup> markup for a select control.
+   */
+  protected function renderSelectOptionsMarkup(array $options, string $selected_value): string {
+    $selected_value = (string) $selected_value;
+    $markup = '';
+    foreach ($options as $value => $label) {
+      if (is_array($label)) {
+        $markup .= '<optgroup label="' . Html::escape((string) $value) . '">';
+        foreach ($label as $nested_value => $nested_label) {
+          $is_selected = (string) $nested_value === $selected_value ? ' selected' : '';
+          $markup .= '<option value="' . Html::escape((string) $nested_value) . '"' . $is_selected . '>'
+            . Html::escape((string) $nested_label)
+            . '</option>';
+        }
+        $markup .= '</optgroup>';
+        continue;
+      }
+
+      $is_selected = (string) $value === $selected_value ? ' selected' : '';
+      $markup .= '<option value="' . Html::escape((string) $value) . '"' . $is_selected . '>'
+        . Html::escape((string) $label)
+        . '</option>';
+    }
+    return $markup;
+  }
+
+  /**
+   * Load canonical quest template ids from DB-authoritative storage.
+   *
+   * @return array<int, string>
+   *   Sorted quest template ids.
+   */
+  protected function loadCanonicalQuestTemplateIds(): array {
+    if (!($this->storylineManager instanceof StorylineManagerService)) {
+      throw new \RuntimeException(
+        'Storyline explorer requires StorylineManagerService to load canonical quest template ids from DB storage.'
+      );
+    }
+
+    return $this->storylineManager->listCanonicalQuestTemplateIds();
   }
 
   /**
@@ -1005,7 +1152,7 @@ class StorylineExplorerPageController extends ControllerBase {
     foreach ($steps as $index => $step) {
       $alias = 'P' . ($index + 1);
       $label = trim((string) ($step['title'] ?? ('Step ' . ($index + 1))));
-      $label = str_replace(['"', "\n", "\r"], ['\"', ' ', ''], ($index + 1) . '. ' . $label);
+      $label = str_replace(['\\', '"', '|', '`', "\n", "\r"], ['\\\\', '\"', '/', '', ' ', ''], 'Step ' . ($index + 1) . ': ' . $label);
       $lines[] = sprintf('  %s["%s"]', $alias, $label);
       $lines[] = sprintf('  %s --> %s', $previous, $alias);
       $previous = $alias;
@@ -1069,8 +1216,17 @@ class StorylineExplorerPageController extends ControllerBase {
   /**
    * Build validation diagnostics for canonical storyline templates.
    */
-  protected function buildValidationSummaryCard(string $selected_template_id, array $template_data, array $graph): array {
-    $diagnostics = $this->collectValidationDiagnostics($template_data, $graph);
+  protected function buildValidationSummaryCard(
+    string $selected_template_id,
+    array $template_data,
+    array $graph,
+    string $selected_quest_id = '',
+    bool $selected_quest_linked = TRUE,
+    ?array $diagnostics = NULL
+  ): array {
+    $diagnostics = is_array($diagnostics)
+      ? $diagnostics
+      : $this->collectValidationDiagnostics($template_data, $graph, $selected_quest_id);
     $validator_rows = [];
     foreach ($diagnostics['validator_errors'] as $error) {
       $validator_rows[] = [(string) $error];
@@ -1091,6 +1247,26 @@ class StorylineExplorerPageController extends ControllerBase {
         (string) ((int) ($row['error_count'] ?? 0)),
       ];
     }
+    $quest_template_rows = [];
+    foreach (($diagnostics['quest_template_validation'] ?? []) as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $status = strtoupper(trim((string) ($row['status'] ?? 'UNKNOWN')));
+      $badge_class = $status === 'PASS' ? 'text-bg-success' : ($status === 'FAIL' ? 'text-bg-danger' : 'text-bg-secondary');
+      $errors = array_values(array_filter(
+        array_map('strval', is_array($row['errors'] ?? NULL) ? $row['errors'] : []),
+        static fn(string $error): bool => trim($error) !== ''
+      ));
+      $quest_template_rows[] = [
+        (string) ($row['quest_id'] ?? ''),
+        Markup::create('<span class="badge ' . $badge_class . '">' . Html::escape($status) . '</span>'),
+        (string) ((int) ($row['phase_count'] ?? 0)),
+        (string) ((int) ($row['objective_count'] ?? 0)),
+        (string) count($errors),
+        $errors === [] ? '-' : implode('; ', $errors),
+      ];
+    }
 
     $validator_status = $diagnostics['validator_status'];
     $status_badge = $validator_status === 'pass'
@@ -1101,11 +1277,16 @@ class StorylineExplorerPageController extends ControllerBase {
     // Per-stage summary rows.
     $summary_rows = [
       ['Template', $selected_template_id !== '' ? $selected_template_id : 'none'],
+      ['Quest scope', $selected_quest_id !== '' ? $selected_quest_id : 'all linked quests'],
+      ['Quest linkage', $selected_quest_id === '' ? 'all linked quests' : ($selected_quest_linked ? 'linked to selected storyline' : 'not linked to selected storyline')],
       ['Validator (all stages)', Markup::create('<span class="badge ' . $status_badge . '">' . Html::escape($validator_label) . '</span>')],
       ['Graph contracts', $diagnostics['graph_errors'] === [] ? 'PASS' : 'FAIL'],
       ['Node count', (string) count($graph['nodes'] ?? [])],
       ['Edge count', (string) count($graph['edges'] ?? [])],
     ];
+    if ($selected_quest_id !== '' && !$selected_quest_linked) {
+      $summary_rows[] = ['Storyline-scoped checks', 'SKIPPED (task/entity linkage require storyline attachment)'];
+    }
     foreach (($diagnostics['stages'] ?? []) as $stage_name => $stage) {
       $stage_pass = $stage['valid'] ?? FALSE;
       $badge_class = $stage_pass ? 'text-bg-success' : 'text-bg-danger';
@@ -1169,6 +1350,47 @@ class StorylineExplorerPageController extends ControllerBase {
           '#rows' => $entity_type_rows,
           '#empty' => $this->t('No entity-type references detected in this storyline template.'),
         ],
+        'quest_template_validation_title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h3',
+          '#attributes' => ['class' => ['h6', 'mt-3', 'mb-2']],
+          '#value' => (string) $this->t('Quest template validation'),
+        ],
+        'quest_template_validation' => [
+          '#type' => 'table',
+          '#header' => ['Quest template ID', 'Status', 'Objective phases', 'Objectives', 'Errors', 'Details'],
+          '#rows' => $quest_template_rows,
+          '#empty' => $this->t('No quest templates are linked to this storyline template.'),
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Build a top-level validator status summary under the selectors.
+   */
+  protected function buildTopLevelValidatorStatusCard(array $diagnostics): array {
+    $validator_status = strtolower(trim((string) ($diagnostics['validator_status'] ?? 'unavailable')));
+    $status_badge = $validator_status === 'pass'
+      ? 'text-bg-success'
+      : ($validator_status === 'fail' ? 'text-bg-danger' : 'text-bg-secondary');
+    $validator_label = strtoupper($validator_status);
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body', 'd-flex', 'justify-content-between', 'align-items-center', 'gap-3', 'flex-wrap']],
+        'label' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h6', 'mb-0']],
+          '#value' => (string) $this->t('Validator (all stages)'),
+        ],
+        'status' => [
+          '#markup' => Markup::create('<span class="badge ' . $status_badge . ' fs-6">' . Html::escape($validator_label) . '</span>'),
+        ],
       ],
     ];
   }
@@ -1176,36 +1398,54 @@ class StorylineExplorerPageController extends ControllerBase {
   /**
    * Collect validator and structural graph diagnostics.
    *
-   * Returns stage-by-stage results for all 7 validator stages plus graph checks.
+   * Returns stage-by-stage results for storyline/quest validator stages plus graph checks.
    *
    * @return array{
    *   validator_status: string,
    *   validator_errors: array<int, string>,
    *   stages: array<string, array{valid: bool, errors: array<int, string>}>,
    *   graph_errors: array<int, string>,
-   *   entity_type_verification: array<int, array{entity_type: string, reference_count: int, stage_status: string}>
+   *   entity_type_verification: array<int, array{entity_type: string, reference_count: int, stage_status: string}>,
+   *   quest_template_validation: array<int, array{quest_id: string, status: string, phase_count: int, objective_count: int, errors: array<int, string>}>,
+   *   raw_definition_error_count: int,
+   *   runtime_instance_count: int
    * }
    */
-  protected function collectValidationDiagnostics(array $template_data, array $graph): array {
+  protected function collectValidationDiagnostics(array $template_data, array $graph, string $selected_quest_id = ''): array {
     $validator_status = 'unavailable';
     $validator_errors = [];
     $stages = [];
+    $quest_template_validation = [];
+    $runtime_instance_count = 0;
+    $selected_quest_id = trim($selected_quest_id);
 
     if ($this->storylineManager instanceof StorylineManagerService) {
       $validator_status = 'pass';
       try {
-        $normalized = $this->storylineManager->normalizeStorylineDefinition($template_data);
-        $result = $this->storylineManager->validateNormalizedStorylineDefinition($normalized);
-        $stages = $result['stages'] ?? [];
-        if (!($result['valid'] ?? FALSE)) {
+        $raw_definition_result = $this->storylineManager->validateStorylineEndToEndContract($template_data, 'definition');
+        $raw_definition_errors = array_values(array_unique(array_filter(
+          array_map('strval', is_array($raw_definition_result['errors'] ?? NULL) ? $raw_definition_result['errors'] : []),
+          static fn(string $error): bool => trim($error) !== ''
+        )));
+        $stages['raw_definition_contract'] = [
+          'valid' => $raw_definition_errors === [],
+          'errors' => $raw_definition_errors,
+        ];
+        if ($raw_definition_errors !== []) {
           $validator_status = 'fail';
-          foreach (($result['errors'] ?? []) as $error) {
-            $validator_errors[] = (string) $error;
+          foreach ($raw_definition_errors as $error) {
+            $validator_errors[] = '[raw_definition_contract] ' . $error;
           }
         }
 
+        $stages = is_array($raw_definition_result['stages'] ?? NULL) ? $raw_definition_result['stages'] : [];
+        $stages['raw_definition_contract'] = $stages['raw_definition_contract'] ?? [
+          'valid' => $raw_definition_errors === [],
+          'errors' => $raw_definition_errors,
+        ];
+
         // Stage 6 — task contract (via StorylineGenerationService if available).
-        $task_errors = $this->collectTaskContractDiagnostics($normalized);
+        $task_errors = $this->collectTaskContractDiagnostics($template_data, $selected_quest_id);
         $stages['task_contract'] = [
           'valid' => $task_errors === [],
           'errors' => $task_errors,
@@ -1218,7 +1458,7 @@ class StorylineExplorerPageController extends ControllerBase {
         }
 
         // Stage 7 — entity linkage (via StorylineGenerationService if available).
-        $entity_errors = $this->collectEntityLinkageDiagnostics($normalized);
+        $entity_errors = $this->collectEntityLinkageDiagnostics($template_data, $selected_quest_id);
         $stages['entity_linkage'] = [
           'valid' => $entity_errors === [],
           'errors' => $entity_errors,
@@ -1227,6 +1467,64 @@ class StorylineExplorerPageController extends ControllerBase {
           $validator_status = 'fail';
           foreach ($entity_errors as $error) {
             $validator_errors[] = '[entity_linkage] ' . $error;
+          }
+        }
+
+        // Stage 8 — quest template contracts for each linked quest id.
+        $quest_template_validation = $this->collectQuestTemplateDiagnostics($template_data, $selected_quest_id);
+        $quest_template_errors = [];
+        foreach ($quest_template_validation as $quest_validation_row) {
+          if (!is_array($quest_validation_row)) {
+            continue;
+          }
+          $quest_id = trim((string) ($quest_validation_row['quest_id'] ?? ''));
+          foreach ((array) ($quest_validation_row['errors'] ?? []) as $error) {
+            $quest_template_errors[] = ($quest_id !== '' ? "quest.{$quest_id}: " : '') . (string) $error;
+          }
+        }
+        $quest_template_errors = array_values(array_unique($quest_template_errors));
+        $stages['quest_template_contracts'] = [
+          'valid' => $quest_template_errors === [],
+          'errors' => $quest_template_errors,
+        ];
+        if ($quest_template_errors !== []) {
+          $validator_status = 'fail';
+          foreach ($quest_template_errors as $error) {
+            $validator_errors[] = '[quest_template_contracts] ' . $error;
+          }
+        }
+
+        $runtime_diagnostics = $this->collectRuntimeInstanceDiagnostics($template_data);
+        $runtime_errors = is_array($runtime_diagnostics['errors'] ?? NULL) ? array_values($runtime_diagnostics['errors']) : [];
+        $runtime_instance_count = (int) ($runtime_diagnostics['instance_count'] ?? 0);
+        $stages['runtime_instances'] = [
+          'valid' => $runtime_errors === [],
+          'errors' => $runtime_errors,
+        ];
+        if ($runtime_errors !== []) {
+          $validator_status = 'fail';
+          foreach ($runtime_errors as $error) {
+            $validator_errors[] = '[runtime_instances] ' . $error;
+          }
+        }
+        elseif ($runtime_instance_count === 0) {
+          $validator_status = 'fail';
+          $validator_errors[] = '[runtime_instances] No campaign runtime instances were found for this storyline template.';
+          $stages['runtime_instances'] = [
+            'valid' => FALSE,
+            'errors' => ['No campaign runtime instances were found for this storyline template.'],
+          ];
+        }
+
+        $consistency_errors = $this->collectTemplateRuntimeConsistencyDiagnostics($template_data);
+        $stages['template_runtime_consistency'] = [
+          'valid' => $consistency_errors === [],
+          'errors' => $consistency_errors,
+        ];
+        if ($consistency_errors !== []) {
+          $validator_status = 'fail';
+          foreach ($consistency_errors as $error) {
+            $validator_errors[] = '[template_runtime_consistency] ' . $error;
           }
         }
       }
@@ -1282,7 +1580,115 @@ class StorylineExplorerPageController extends ControllerBase {
       'stages' => $stages,
       'graph_errors' => array_values(array_unique($graph_errors)),
       'entity_type_verification' => $this->buildEntityTypeVerificationRows($template_data, $stages),
+      'quest_template_validation' => $quest_template_validation,
+      'raw_definition_error_count' => count((array) ($stages['raw_definition_contract']['errors'] ?? [])),
+      'runtime_instance_count' => $runtime_instance_count > 0 ? $runtime_instance_count : $this->countRuntimeInstancesForTemplate($template_data),
     ];
+  }
+
+  /**
+   * Validate runtime storyline instances for one template.
+   *
+   * @return array{instance_count: int, errors: array<int, string>}
+   *   Runtime validation diagnostics.
+   */
+  protected function collectRuntimeInstanceDiagnostics(array $template_data): array {
+    if (!($this->storylineManager instanceof StorylineManagerService)) {
+      return ['instance_count' => 0, 'errors' => []];
+    }
+    $template_id = trim((string) ($template_data['template_id'] ?? ''));
+    if ($template_id === '') {
+      return ['instance_count' => 0, 'errors' => ['template_id is required for runtime instance validation.']];
+    }
+
+    $rows = \Drupal::database()->select('dc_campaign_storylines', 's')
+      ->fields('s', ['campaign_id', 'storyline_id', 'storyline_data'])
+      ->condition('template_id', $template_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $errors = [];
+    foreach ($rows as $row) {
+      $campaign_id = (int) ($row['campaign_id'] ?? 0);
+      $storyline_id = trim((string) ($row['storyline_id'] ?? ''));
+      $runtime = json_decode((string) ($row['storyline_data'] ?? ''), TRUE);
+      if (!is_array($runtime)) {
+        $errors[] = "campaign {$campaign_id} storyline {$storyline_id}: storyline_data is not valid JSON object.";
+        continue;
+      }
+      $result = $this->storylineManager->validateRuntimeStorylineContract($runtime);
+      if (!($result['valid'] ?? FALSE)) {
+        foreach ((array) ($result['errors'] ?? []) as $error) {
+          $errors[] = "campaign {$campaign_id} storyline {$storyline_id}: " . (string) $error;
+        }
+      }
+    }
+
+    return [
+      'instance_count' => count($rows),
+      'errors' => array_values(array_unique($errors)),
+    ];
+  }
+
+  /**
+   * Validate consistency between template quest graph and runtime quest rows.
+   *
+   * @return array<int, string>
+   *   Consistency errors.
+   */
+  protected function collectTemplateRuntimeConsistencyDiagnostics(array $template_data): array {
+    $template_id = trim((string) ($template_data['template_id'] ?? ''));
+    if ($template_id === '') {
+      return ['template_id is required for template/runtime consistency checks.'];
+    }
+
+    $expected_quest_ids = array_fill_keys($this->collectTemplateQuestIds($template_data), TRUE);
+    $storyline_rows = \Drupal::database()->select('dc_campaign_storylines', 's')
+      ->fields('s', ['campaign_id', 'storyline_id'])
+      ->condition('template_id', $template_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $errors = [];
+    foreach ($storyline_rows as $row) {
+      $campaign_id = (int) ($row['campaign_id'] ?? 0);
+      $storyline_id = trim((string) ($row['storyline_id'] ?? ''));
+      if ($campaign_id <= 0 || $storyline_id === '') {
+        continue;
+      }
+
+      $quest_rows = \Drupal::database()->select('dc_campaign_quests', 'q')
+        ->fields('q', ['source_template_id', 'storyline_id', 'objective_states'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('storyline_id', $storyline_id)
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC);
+
+      foreach ($quest_rows as $quest_row) {
+        $source_template_id = trim((string) ($quest_row['source_template_id'] ?? ''));
+        if ($source_template_id !== '' && !isset($expected_quest_ids[$source_template_id])) {
+          $errors[] = "campaign {$campaign_id} storyline {$storyline_id}: unexpected quest template {$source_template_id} is linked to this storyline.";
+        }
+        if (!array_key_exists('objective_states', $quest_row) || $quest_row['objective_states'] === NULL) {
+          $errors[] = "campaign {$campaign_id} storyline {$storyline_id}: objective_states is NULL for quest template {$source_template_id}.";
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Count runtime instances for the selected template.
+   */
+  protected function countRuntimeInstancesForTemplate(array $template_data): int {
+    $template_id = trim((string) ($template_data['template_id'] ?? ''));
+    if ($template_id === '') {
+      return 0;
+    }
+    return (int) \Drupal::database()->select('dc_campaign_storylines', 's')
+      ->condition('template_id', $template_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
   }
 
   /**
@@ -1377,6 +1783,119 @@ class StorylineExplorerPageController extends ControllerBase {
   }
 
   /**
+   * Collect unique quest ids for one storyline template definition.
+   *
+   * @return array<int, string>
+   *   Sorted quest ids.
+   */
+  protected function collectTemplateQuestIds(array $template_data): array {
+    $linked_quest_ids = array_keys($this->extractLinkedQuestMap($template_data));
+    $scene_quest_ids = $this->collectSceneQuestIds($template_data);
+    $quest_ids = array_values(array_unique(array_merge($linked_quest_ids, $scene_quest_ids)));
+    sort($quest_ids);
+    return $quest_ids;
+  }
+
+  /**
+   * Stage 8 — collect per-quest canonical template diagnostics.
+   *
+   * @return array<int, array{quest_id: string, status: string, phase_count: int, objective_count: int, errors: array<int, string>}>
+   *   Per-quest validation rows.
+   */
+  protected function collectQuestTemplateDiagnostics(array $template_data, string $selected_quest_id = ''): array {
+    if (!($this->storylineManager instanceof StorylineManagerService)) {
+      return [];
+    }
+
+    $selected_quest_id = trim($selected_quest_id);
+    $quest_ids = $this->collectTemplateQuestIds($template_data);
+    if ($selected_quest_id !== '') {
+      if (!in_array($selected_quest_id, $quest_ids, TRUE)) {
+        $quest_ids = [$selected_quest_id];
+      }
+      else {
+        $quest_ids = array_values(array_filter($quest_ids, static fn(string $quest_id): bool => $quest_id === $selected_quest_id));
+      }
+    }
+
+    $rows = [];
+    foreach ($quest_ids as $quest_id) {
+      $quest_id = trim((string) $quest_id);
+      if ($quest_id === '') {
+        continue;
+      }
+      $errors = [];
+      $phase_count = 0;
+      $objective_count = 0;
+      $objective_phases = NULL;
+      $load_failed = FALSE;
+
+      try {
+        $objective_phases = $this->storylineManager->getCanonicalQuestTemplateObjectivePhases($quest_id);
+      }
+      catch (\Throwable $e) {
+        $load_failed = TRUE;
+        $errors[] = 'failed to load objective phases — ' . $e->getMessage();
+      }
+
+      if (!$load_failed) {
+        if ($objective_phases === NULL) {
+          $errors[] = 'canonical quest template row not found in dungeoncrawler_content_quest_templates.';
+        }
+        elseif ($objective_phases === []) {
+          $errors[] = 'objectives_schema payload is empty.';
+        }
+        else {
+          foreach (array_values($objective_phases) as $phase_index => $phase) {
+            if (!is_array($phase)) {
+              $errors[] = "phase[{$phase_index}] must be an object.";
+              continue;
+            }
+            $phase_count++;
+            $raw_objectives = $phase['objectives'] ?? NULL;
+            if (!is_array($raw_objectives)) {
+              $errors[] = "phase[{$phase_index}].objectives must be an array.";
+              continue;
+            }
+            if ($raw_objectives === []) {
+              $errors[] = "phase[{$phase_index}].objectives is empty.";
+              continue;
+            }
+
+            foreach (array_values($raw_objectives) as $objective_index => $objective) {
+              $path = "phase[{$phase_index}].objectives[{$objective_index}]";
+              if (!is_array($objective)) {
+                $errors[] = "{$path} must be an object.";
+                continue;
+              }
+              $objective_count++;
+              if (trim((string) ($objective['objective_id'] ?? '')) === '') {
+                $errors[] = "{$path}.objective_id is required.";
+              }
+              if (trim((string) ($objective['type'] ?? '')) === '') {
+                $errors[] = "{$path}.type is required.";
+              }
+              if (!is_array($objective['completion_criteria'] ?? NULL)) {
+                $errors[] = "{$path}.completion_criteria is required.";
+              }
+            }
+          }
+        }
+      }
+
+      $rows[] = [
+        'quest_id' => $quest_id,
+        'status' => $errors === [] ? 'PASS' : 'FAIL',
+        'phase_count' => $phase_count,
+        'objective_count' => $objective_count,
+        'errors' => array_values(array_unique($errors)),
+      ];
+    }
+
+    return $rows;
+  }
+
+  /**
    * Stage 6 — collect task contract errors for the Explorer diagnostic view.
    *
    * Loads DB quest template objective phases for each quest referenced by the
@@ -1385,8 +1904,14 @@ class StorylineExplorerPageController extends ControllerBase {
    *
    * @return array<int, string>
    */
-  protected function collectTaskContractDiagnostics(array $template_data): array {
+  protected function collectTaskContractDiagnostics(array $template_data, string $selected_quest_id = ''): array {
     if (!($this->storylineManager instanceof StorylineManagerService)) {
+      return [];
+    }
+    $selected_quest_id = trim($selected_quest_id);
+    if ($selected_quest_id !== '' && !in_array($selected_quest_id, $this->collectTemplateQuestIds($template_data), TRUE)) {
+      // Unlinked library quest selection is validated via quest-template contracts.
+      // Task contracts depend on storyline scene linkage and are therefore skipped.
       return [];
     }
     $errors = [];
@@ -1398,6 +1923,9 @@ class StorylineExplorerPageController extends ControllerBase {
         foreach ((array) ($scene['quest_ids'] ?? []) as $quest_id) {
           $quest_id = trim((string) $quest_id);
           if ($quest_id === '') {
+            continue;
+          }
+          if ($selected_quest_id !== '' && $quest_id !== $selected_quest_id) {
             continue;
           }
           try {
@@ -1494,8 +2022,14 @@ class StorylineExplorerPageController extends ControllerBase {
    *
    * @return array<int, string>
    */
-  protected function collectEntityLinkageDiagnostics(array $template_data): array {
+  protected function collectEntityLinkageDiagnostics(array $template_data, string $selected_quest_id = ''): array {
     if (!($this->storylineManager instanceof StorylineManagerService)) {
+      return [];
+    }
+    $selected_quest_id = trim($selected_quest_id);
+    if ($selected_quest_id !== '' && !in_array($selected_quest_id, $this->collectTemplateQuestIds($template_data), TRUE)) {
+      // Unlinked library quest selection is validated via quest-template contracts.
+      // Entity-linkage checks depend on storyline anchors and are therefore skipped.
       return [];
     }
 
@@ -1578,6 +2112,9 @@ class StorylineExplorerPageController extends ControllerBase {
         foreach ((array) ($scene['quest_ids'] ?? []) as $quest_id) {
           $quest_id = trim((string) $quest_id);
           if ($quest_id === '') {
+            continue;
+          }
+          if ($selected_quest_id !== '' && $quest_id !== $selected_quest_id) {
             continue;
           }
           try {
