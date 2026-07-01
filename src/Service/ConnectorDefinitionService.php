@@ -173,15 +173,23 @@ class ConnectorDefinitionService {
     }
 
     $count = 0;
-    foreach ($raw_connections as $raw) {
+    foreach ($raw_connections as $index => $raw) {
       if (!is_array($raw)) {
-        continue;
+        throw new \InvalidArgumentException(sprintf(
+          'Connector sync contract violation: %s connection[%d] must be an object payload.',
+          $dungeon_id,
+          (int) $index
+        ));
       }
 
       $from = trim((string) ($raw['from_room_id'] ?? $raw['from_room'] ?? ''));
       $to = trim((string) ($raw['to_room_id'] ?? $raw['to_room'] ?? ''));
       if ($from === '' || $to === '') {
-        continue;
+        throw new \InvalidArgumentException(sprintf(
+          'Connector sync contract violation: %s connection[%d] missing from_room_id/to_room_id.',
+          $dungeon_id,
+          (int) $index
+        ));
       }
 
       $normalized = ConnectorGenerationPolicy::normalizeFromRawJson($dungeon_id, $raw);

@@ -267,6 +267,51 @@ class NavigationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies conflicting duplicate connection identities fail hard.
+   */
+  public function testBuildNavigationCapabilitiesRejectsConflictingDuplicateIdentityContracts(): void {
+    $service = new NavigationService();
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('duplicate identity');
+
+    $service->buildNavigationCapabilities([
+      'connections' => [
+        [
+          'connection_id' => 'hall_exit',
+          'from_room' => 'hall',
+          'to_room' => 'atrium',
+          'type' => 'door',
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+        ],
+        [
+          'connection_id' => 'hall_exit',
+          'from_room' => 'hall',
+          'to_room' => 'library',
+          'type' => 'door',
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+        ],
+      ],
+    ], 'hall');
+  }
+
+  /**
+   * Verifies malformed connection entries fail instead of being skipped.
+   */
+  public function testBuildNavigationCapabilitiesRejectsNonArrayConnectionPayload(): void {
+    $service = new NavigationService();
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('must be an object payload');
+
+    $service->buildNavigationCapabilities([
+      'connections' => [
+        'not-an-object',
+      ],
+    ], 'hall');
+  }
+
+  /**
    * Verifies direct room transitions enforce zero-distance contracts.
    */
   public function testBuildNavigationCapabilitiesRejectsNonZeroDirectRoomDistance(): void {

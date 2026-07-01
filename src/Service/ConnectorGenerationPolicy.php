@@ -88,6 +88,17 @@ class ConnectorGenerationPolicy {
     $raw_type = strtolower(trim((string) (
       $raw['connection_type'] ?? $raw['connector_type'] ?? $raw['type'] ?? 'hallway'
     )));
+    if (
+      isset($raw['connection_type']) || isset($raw['connector_type']) || isset($raw['type'])
+    ) {
+      if ($raw_type === '' || !array_key_exists($raw_type, self::CONNECTION_TYPE_TO_KIND)) {
+        throw new \InvalidArgumentException(sprintf(
+          'Connector generation contract violation: unsupported connection type "%s" for dungeon "%s".',
+          (string) ($raw['connection_type'] ?? $raw['connector_type'] ?? $raw['type'] ?? ''),
+          $dungeon_id
+        ));
+      }
+    }
 
     $kind = self::CONNECTION_TYPE_TO_KIND[$raw_type] ?? 'hallway';
     $direction = self::resolveDirection($raw, $raw_type);
@@ -180,8 +191,15 @@ class ConnectorGenerationPolicy {
 
   private static function resolveDefaultState(array $raw, string $kind): string {
     // Explicit state always wins.
-    if (!empty($raw['state']) && in_array($raw['state'], ConnectorDefinitionService::STATES, TRUE)) {
-      return $raw['state'];
+    if (array_key_exists('state', $raw)) {
+      $state = strtolower(trim((string) $raw['state']));
+      if ($state === '' || !in_array($state, ConnectorDefinitionService::STATES, TRUE)) {
+        throw new \InvalidArgumentException(sprintf(
+          'Connector generation contract violation: invalid state "%s".',
+          (string) $raw['state']
+        ));
+      }
+      return $state;
     }
 
     // is_locked boolean.

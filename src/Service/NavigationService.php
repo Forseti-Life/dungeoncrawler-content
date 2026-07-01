@@ -7,6 +7,10 @@ namespace Drupal\dungeoncrawler_content\Service;
  */
 class NavigationService {
 
+  private const CONNECTOR_SOURCE_CANONICAL_TABLE = 'canonical_table';
+  private const CONNECTOR_SOURCE_CAMPAIGN_TABLE = 'campaign_table';
+  private const NON_PASSABLE_CONNECTOR_STATES = ['locked', 'barred', 'collapsed', 'destroyed', 'trapped'];
+
   protected NavigationRoadGraphService $navigationRoadGraphService;
   protected ?ConnectorDefinitionService $connectorDefinitionService;
 
@@ -271,8 +275,10 @@ class NavigationService {
   protected function extractConnections(array $dungeon_data): array {
     $sources = [];
     $table_connections = $this->loadConnectorTableConnections($dungeon_data);
+    $source_label = 'payload_json';
     if ($table_connections !== []) {
       $sources[] = $table_connections;
+      $source_label = 'connector_tables';
     }
     else {
       if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
@@ -287,18 +293,31 @@ class NavigationService {
     }
 
     $connections = [];
-    $seen = [];
-    foreach ($sources as $bucket) {
-      foreach ($bucket as $connection) {
+    $seen_signatures = [];
+    foreach ($sources as $bucket_index => $bucket) {
+      foreach ($bucket as $connection_index => $connection) {
         if (!is_array($connection)) {
-          continue;
+          throw new \InvalidArgumentException(sprintf(
+            'Navigation connection contract violation (%s): connection[%d][%d] must be an object payload.',
+            $source_label,
+            (int) $bucket_index,
+            (int) $connection_index
+          ));
         }
         $normalized_connection = $this->normalizeConnectionRecord($connection);
         $identity = $this->buildConnectionIdentityKey($normalized_connection);
-        if (isset($seen[$identity])) {
+        $signature = $this->buildConnectionContractSignature($normalized_connection);
+        if (isset($seen_signatures[$identity])) {
+          if ($seen_signatures[$identity] !== $signature) {
+            throw new \InvalidArgumentException(sprintf(
+              'Navigation connection contract violation (%s): duplicate identity "%s" has conflicting payload contracts.',
+              $source_label,
+              $identity
+            ));
+          }
           continue;
         }
-        $seen[$identity] = TRUE;
+        $seen_signatures[$identity] = $signature;
         $connections[] = $normalized_connection;
       }
     }
@@ -332,16 +351,16 @@ class NavigationService {
 
     $campaign_id = $this->resolveOptionalCampaignId($dungeon_data);
     if ($campaign_id > 0) {
-      return array_values(array_map(
-        static fn(array $row): array => $row + ['__connector_source' => 'campaign_table'],
-        $this->connectorDefinitionService->loadCampaignConnectorsForDungeon($campaign_id, $dungeon_id)
-      ));
+      return $this->tagConnectorRows(
+        $this->connectorDefinitionService->loadCampaignConnectorsForDungeon($campaign_id, $dungeon_id),
+        self::CONNECTOR_SOURCE_CAMPAIGN_TABLE
+      );
     }
 
-    return array_values(array_map(
-      static fn(array $row): array => $row + ['__connector_source' => 'canonical_table'],
-      $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon($dungeon_id)
-    ));
+    return $this->tagConnectorRows(
+      $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon($dungeon_id),
+      self::CONNECTOR_SOURCE_CANONICAL_TABLE
+    );
   }
 
   /**
@@ -362,6 +381,31 @@ class NavigationService {
   }
 
   /**
+   * Annotate connector rows with source metadata for contract diagnostics.
+   *
+   * @param array<int, array<string, mixed>> $rows
+   *   Connector rows.
+   * @param string $fallback_source
+   *   Expected source label.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Tagged connector rows.
+   */
+  protected function tagConnectorRows(array $rows, string $fallback_source): array {
+    return array_values(array_map(function (array $row) use ($fallback_source): array {
+      $source = $fallback_source;
+      if (
+        $fallback_source === self::CONNECTOR_SOURCE_CAMPAIGN_TABLE
+        && !array_key_exists('campaign_id', $row)
+      ) {
+        $source = self::CONNECTOR_SOURCE_CANONICAL_TABLE;
+      }
+
+      return $row + ['__connector_source' => $source];
+    }, $rows));
+  }
+
+  /**
    * Normalize mixed legacy/canonical connector fields to navigation contract.
    *
    * @param array<string, mixed> $connection
@@ -377,30 +421,9 @@ class NavigationService {
       $this->assertConnectorTableRecordContract($connection, $connector_source);
     }
 
-    $from_room = trim((string) (
-      $connection['from_room']
-      ?? $connection['from_room_id']
-      ?? ($connection['from']['room_id'] ?? $connection['from']['room'] ?? '')
-    ));
-    $to_room = trim((string) (
-      $connection['to_room']
-      ?? $connection['to_room_id']
-      ?? ($connection['to']['room_id'] ?? $connection['to']['room'] ?? '')
-    ));
-
-    $type = trim((string) (
-      $connection['type']
-      ?? $connection['kind']
-      ?? $connection['connection_type']
-      ?? $connection['connector_type']
-      ?? 'passage'
-    ));
-    if ($type === '') {
-      $type = 'passage';
-    }
-    if ($type === 'hallway') {
-      $type = 'passage';
-    }
+    $from_room = $this->extractConnectionRoomId($connection, 'from');
+    $to_room = $this->extractConnectionRoomId($connection, 'to');
+    $type = $this->normalizeConnectionType($connection);
 
     $direction = strtolower(trim((string) ($connection['direction'] ?? '')));
     $state = strtolower(trim((string) ($connection['state'] ?? $connection['default_state'] ?? '')));
@@ -430,7 +453,7 @@ class NavigationService {
       }
     }
     if (!array_key_exists('is_passable', $normalized)) {
-      $normalized['is_passable'] = !in_array($state, ['locked', 'barred', 'collapsed', 'destroyed', 'trapped'], TRUE);
+      $normalized['is_passable'] = !in_array($state, self::NON_PASSABLE_CONNECTOR_STATES, TRUE);
     }
 
     if (!isset($normalized['from_hex']) && is_array($connection['from'] ?? NULL)) {
@@ -449,6 +472,42 @@ class NavigationService {
     unset($normalized['__connector_source']);
 
     return $normalized;
+  }
+
+  /**
+   * Extract normalized room id from a connection endpoint.
+   */
+  protected function extractConnectionRoomId(array $connection, string $endpoint): string {
+    if ($endpoint === 'from') {
+      return trim((string) (
+        $connection['from_room']
+        ?? $connection['from_room_id']
+        ?? ($connection['from']['room_id'] ?? $connection['from']['room'] ?? '')
+      ));
+    }
+    return trim((string) (
+      $connection['to_room']
+      ?? $connection['to_room_id']
+      ?? ($connection['to']['room_id'] ?? $connection['to']['room'] ?? '')
+    ));
+  }
+
+  /**
+   * Normalize connector payload type/kind values into navigation type.
+   */
+  protected function normalizeConnectionType(array $connection): string {
+    $type = trim((string) (
+      $connection['type']
+      ?? $connection['kind']
+      ?? $connection['connection_type']
+      ?? $connection['connector_type']
+      ?? 'passage'
+    ));
+    if ($type === '' || $type === 'hallway') {
+      return 'passage';
+    }
+
+    return $type;
   }
 
   /**
@@ -504,16 +563,8 @@ class NavigationService {
       return 'id:' . $explicit;
     }
 
-    $from_room = trim((string) (
-      $connection['from_room']
-      ?? $connection['from_room_id']
-      ?? ($connection['from']['room_id'] ?? $connection['from']['room'] ?? '')
-    ));
-    $to_room = trim((string) (
-      $connection['to_room']
-      ?? $connection['to_room_id']
-      ?? ($connection['to']['room_id'] ?? $connection['to']['room'] ?? '')
-    ));
+    $from_room = $this->extractConnectionRoomId($connection, 'from');
+    $to_room = $this->extractConnectionRoomId($connection, 'to');
     $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
     $from_hex = $this->normalizeHex($connection['from_hex'] ?? ($connection['from'] ?? NULL));
     $to_hex = $this->normalizeHex($connection['to_hex'] ?? ($connection['to'] ?? NULL));
@@ -533,6 +584,23 @@ class NavigationService {
   }
 
   /**
+   * Build contract signature for duplicate identity conflict detection.
+   */
+  protected function buildConnectionContractSignature(array $connection): string {
+    return sha1((string) json_encode([
+      'from_room' => $this->extractConnectionRoomId($connection, 'from'),
+      'to_room' => $this->extractConnectionRoomId($connection, 'to'),
+      'type' => $this->normalizeConnectionType($connection),
+      'destination_type' => self::normalizeDestinationType($connection),
+      'destination_id' => trim((string) ($connection['destination_id'] ?? $connection['road_node_id'] ?? $connection['road_id'] ?? $connection['to_id'] ?? '')),
+      'distance' => self::normalizeDistance($connection, self::normalizeDestinationType($connection)),
+      'bidirectional' => !empty($connection['bidirectional']),
+      'is_discovered' => !empty($connection['is_discovered']),
+      'is_passable' => !empty($connection['is_passable']),
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  }
+
+  /**
    * Derive a stable connection identifier.
    */
   protected function deriveConnectionId(array $connection): string {
@@ -541,19 +609,11 @@ class NavigationService {
       return $explicit;
     }
 
-    $from_room = trim((string) (
-      $connection['from_room']
-      ?? $connection['from_room_id']
-      ?? ($connection['from']['room_id'] ?? $connection['from']['room'] ?? 'unknown')
-    ));
+    $from_room = $this->extractConnectionRoomId($connection, 'from');
     if ($from_room === '') {
       $from_room = 'unknown';
     }
-    $to_room = trim((string) (
-      $connection['to_room']
-      ?? $connection['to_room_id']
-      ?? ($connection['to']['room_id'] ?? $connection['to']['room'] ?? 'unknown')
-    ));
+    $to_room = $this->extractConnectionRoomId($connection, 'to');
     if ($to_room === '') {
       $to_room = 'unknown';
     }
