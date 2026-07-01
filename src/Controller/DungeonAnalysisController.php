@@ -2,11 +2,12 @@
 
 namespace Drupal\dungeoncrawler_content\Controller;
 
-use Drupal\Component\Utility\Html;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\ConnectorDefinitionService;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -17,16 +18,19 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class DungeonAnalysisController extends ControllerBase {
 
   protected Connection $database;
+  protected LoggerInterface $logger;
   protected ?ConnectorDefinitionService $connectorDefinitionService;
 
-  public function __construct(Connection $database, ?ConnectorDefinitionService $connector_definition_service = NULL) {
+  public function __construct(Connection $database, LoggerChannelFactoryInterface $logger_factory, ?ConnectorDefinitionService $connector_definition_service = NULL) {
     $this->database = $database;
+    $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->connectorDefinitionService = $connector_definition_service;
   }
 
   public static function create(ContainerInterface $container) {
     return new self(
       $container->get('database'),
+      $container->get('logger.factory'),
       $container->has('dungeoncrawler_content.connector_definition_service')
         ? $container->get('dungeoncrawler_content.connector_definition_service')
         : NULL
@@ -40,6 +44,11 @@ class DungeonAnalysisController extends ControllerBase {
     $dungeons = $this->loadCanonicalDungeonOptions();
     $default_dungeon_id = $dungeons[0]['dungeon_id'] ?? '';
     $api_url_pattern = Url::fromRoute('dungeoncrawler_content.api_dungeon_analysis', ['dungeon_id' => '__DUNGEON_ID__'])->toString();
+    $this->logger->info('Dungeon analysis page rendered.', [
+      'dungeon_count' => count($dungeons),
+      'default_dungeon_id' => $default_dungeon_id,
+      'uid' => (int) $this->currentUser()->id(),
+    ]);
 
     return [
       '#type' => 'container',
@@ -145,8 +154,15 @@ class DungeonAnalysisController extends ControllerBase {
   public function graph(string $dungeon_id): JsonResponse {
     $dungeon_id = trim($dungeon_id);
     if ($dungeon_id === '') {
+      $this->logger->warning('Dungeon analysis request rejected: empty dungeon id.', [
+        'uid' => (int) $this->currentUser()->id(),
+      ]);
       throw new NotFoundHttpException();
     }
+    $this->logger->info('Dungeon analysis graph request started.', [
+      'dungeon_id' => $dungeon_id,
+      'uid' => (int) $this->currentUser()->id(),
+    ]);
 
     $row = $this->database->select('dungeoncrawler_content_dungeons', 'd')
       ->fields('d', ['dungeon_id', 'name', 'dungeon_data'])
@@ -156,15 +172,29 @@ class DungeonAnalysisController extends ControllerBase {
       ->fetchAssoc();
 
     if (!is_array($row)) {
+      $this->logger->warning('Dungeon analysis graph request failed: dungeon not found.', [
+        'dungeon_id' => $dungeon_id,
+        'uid' => (int) $this->currentUser()->id(),
+      ]);
       return new JsonResponse([
         'success' => FALSE,
         'error' => 'Canonical dungeon not found.',
       ], 404);
     }
 
-    $dungeon_data = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
-    if (!is_array($dungeon_data)) {
-      $dungeon_data = [];
+    try {
+      $dungeon_data = $this->decodeDungeonData((string) ($row['dungeon_data'] ?? ''), (string) ($row['dungeon_id'] ?? $dungeon_id));
+    }
+    catch (\InvalidArgumentException $e) {
+      $this->logger->error('Dungeon analysis graph request failed: invalid dungeon payload.', [
+        'dungeon_id' => $dungeon_id,
+        'uid' => (int) $this->currentUser()->id(),
+        'error' => $e->getMessage(),
+      ]);
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => $e->getMessage(),
+      ], 409);
     }
 
     $room_name_lookup = $this->loadCanonicalRoomNameLookup();
@@ -172,11 +202,23 @@ class DungeonAnalysisController extends ControllerBase {
       ['nodes' => $nodes, 'edges' => $edges, 'edge_source' => $edge_source] = $this->extractGraph($dungeon_id, $dungeon_data, $room_name_lookup);
     }
     catch (\InvalidArgumentException $e) {
+      $this->logger->error('Dungeon analysis graph contract violation.', [
+        'dungeon_id' => $dungeon_id,
+        'uid' => (int) $this->currentUser()->id(),
+        'error' => $e->getMessage(),
+      ]);
       return new JsonResponse([
         'success' => FALSE,
         'error' => $e->getMessage(),
       ], 409);
     }
+    $this->logger->info('Dungeon analysis graph request completed.', [
+      'dungeon_id' => $dungeon_id,
+      'uid' => (int) $this->currentUser()->id(),
+      'node_count' => count($nodes),
+      'edge_count' => count($edges),
+      'edge_source' => $edge_source,
+    ]);
 
     return new JsonResponse([
       'success' => TRUE,
@@ -211,9 +253,23 @@ class DungeonAnalysisController extends ControllerBase {
       if ($dungeon_id === '') {
         continue;
       }
-      $dungeon_data = json_decode((string) ($row->dungeon_data ?? '{}'), TRUE);
-      if (!is_array($dungeon_data)) {
-        $dungeon_data = [];
+      try {
+        $dungeon_data = $this->decodeDungeonData((string) ($row->dungeon_data ?? ''), $dungeon_id);
+      }
+      catch (\InvalidArgumentException $e) {
+        $this->logger->warning('Dungeon analysis option flagged as invalid data.', [
+          'dungeon_id' => $dungeon_id,
+          'error' => $e->getMessage(),
+        ]);
+        $options[] = [
+          'dungeon_id' => $dungeon_id,
+          'name' => trim((string) ($row->name ?? '')) ?: $dungeon_id,
+          'room_count' => 0,
+          'edge_count' => 0,
+          'edge_source' => 'invalid_data',
+          'edge_source_label' => 'invalid data',
+        ];
+        continue;
       }
       try {
         ['nodes' => $nodes, 'edges' => $edges, 'edge_source' => $edge_source] = $this->extractGraph($dungeon_id, $dungeon_data, $room_name_lookup);
@@ -382,6 +438,10 @@ class DungeonAnalysisController extends ControllerBase {
     if ($this->connectorDefinitionService !== NULL) {
       $table_rows = $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon($dungeon_id);
       if ($table_rows !== []) {
+        $this->logger->debug('Dungeon analysis using connector table edges.', [
+          'dungeon_id' => $dungeon_id,
+          'connection_count' => count($table_rows),
+        ]);
         return [
           'connections' => array_values($table_rows),
           'source' => 'connector_table',
@@ -396,11 +456,32 @@ class DungeonAnalysisController extends ControllerBase {
     if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
       $connections = array_merge($connections, $dungeon_data['hex_map']['connections']);
     }
+    $this->logger->debug('Dungeon analysis using payload JSON edges.', [
+      'dungeon_id' => $dungeon_id,
+      'connection_count' => count($connections),
+    ]);
 
     return [
       'connections' => $connections,
       'source' => 'payload_json',
     ];
+  }
+
+  /**
+   * Decode canonical dungeon payload JSON with strict contract enforcement.
+   *
+   * @return array<string, mixed>
+   *   Decoded dungeon payload object.
+   */
+  protected function decodeDungeonData(string $raw_json, string $dungeon_id): array {
+    $decoded = json_decode($raw_json, TRUE);
+    if (!is_array($decoded)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Dungeon analysis contract violation: %s dungeon_data must be a JSON object.',
+        $dungeon_id
+      ));
+    }
+    return $decoded;
   }
 
   /**
