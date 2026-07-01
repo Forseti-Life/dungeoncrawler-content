@@ -73,10 +73,104 @@
     return Math.max(min, Math.min(max, value));
   }
 
+  function resolveMermaidBaseSize(node) {
+    const svg = node.querySelector('svg');
+    if (!svg) {
+      return null;
+    }
+
+    let baseWidth = parseFloat(node.dataset.mermaidBaseWidth || '');
+    let baseHeight = parseFloat(node.dataset.mermaidBaseHeight || '');
+    if (Number.isFinite(baseWidth) && Number.isFinite(baseHeight) && baseWidth > 0 && baseHeight > 0) {
+      return { svg, baseWidth, baseHeight };
+    }
+
+    const viewBox = svg.viewBox?.baseVal;
+    if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
+      baseWidth = viewBox.width;
+      baseHeight = viewBox.height;
+    } else {
+      const rect = svg.getBoundingClientRect();
+      baseWidth = rect.width || svg.clientWidth || 0;
+      baseHeight = rect.height || svg.clientHeight || 0;
+    }
+
+    if (!(baseWidth > 0 && baseHeight > 0)) {
+      return null;
+    }
+
+    node.dataset.mermaidBaseWidth = String(baseWidth);
+    node.dataset.mermaidBaseHeight = String(baseHeight);
+    return { svg, baseWidth, baseHeight };
+  }
+
   function applyZoom(node, scale) {
-    node.style.transformOrigin = 'top left';
-    node.style.transform = `scale(${scale})`;
+    const size = resolveMermaidBaseSize(node);
+    if (size) {
+      size.svg.style.width = `${Math.max(1, size.baseWidth * scale)}px`;
+      size.svg.style.height = `${Math.max(1, size.baseHeight * scale)}px`;
+    }
     node.dataset.mermaidZoom = String(scale);
+  }
+
+  function enableDragPan(shell) {
+    if (!shell || shell.dataset.mermaidDragReady === 'true') {
+      return;
+    }
+    shell.dataset.mermaidDragReady = 'true';
+    shell.classList.add('world-game-flow__mermaid-shell--draggable');
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startScrollLeft = 0;
+    let startScrollTop = 0;
+
+    const endDrag = () => {
+      isDragging = false;
+      shell.classList.remove('world-game-flow__mermaid-shell--dragging');
+    };
+
+    shell.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'touch' || event.button !== 0) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      if (target.closest('[data-mermaid-controls]') || target.closest('button,a,input,select,textarea,label,summary')) {
+        return;
+      }
+
+      isDragging = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      startScrollLeft = shell.scrollLeft;
+      startScrollTop = shell.scrollTop;
+      shell.classList.add('world-game-flow__mermaid-shell--dragging');
+      shell.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    shell.addEventListener('pointermove', (event) => {
+      if (!isDragging) {
+        return;
+      }
+      const dx = event.clientX - startX;
+      const dy = event.clientY - startY;
+      shell.scrollLeft = startScrollLeft - dx;
+      shell.scrollTop = startScrollTop - dy;
+      event.preventDefault();
+    });
+
+    shell.addEventListener('pointerup', endDrag);
+    shell.addEventListener('pointercancel', endDrag);
+    shell.addEventListener('pointerleave', (event) => {
+      if (isDragging && event.pointerType !== 'mouse') {
+        endDrag();
+      }
+    });
   }
 
   function ensureDiagramControls(shell, node) {
@@ -175,10 +269,15 @@
       node.classList.remove('world-game-flow__mermaid--error');
       node.classList.add('mermaid');
       node.innerHTML = rendered.svg;
+      delete node.dataset.mermaidBaseWidth;
+      delete node.dataset.mermaidBaseHeight;
 
       if (typeof rendered.bindFunctions === 'function') {
         rendered.bindFunctions(node);
       }
+
+      const currentScale = parseFloat(node.dataset.mermaidZoom || '1');
+      applyZoom(node, Number.isFinite(currentScale) ? currentScale : 1);
     }
     catch (error) {
       // Keep page usable and show the exact failing source instead of blank space.
@@ -209,6 +308,7 @@
         const shell = node.closest('.world-game-flow__mermaid-shell');
         if (shell) {
           ensureDiagramControls(shell, node);
+          enableDragPan(shell);
         }
         void renderMermaidNode(node);
       });
