@@ -24,6 +24,19 @@ class GeneratedImageOptimizationService {
    *   Optimization result.
    */
   public function optimizeDataUri(string $image_data_uri): array {
+    if (!extension_loaded('gd')) {
+      return ['ok' => FALSE, 'reason' => 'gd_extension_missing'];
+    }
+    if (!function_exists('imagecreatefromstring')) {
+      return ['ok' => FALSE, 'reason' => 'gd_imagecreatefromstring_missing'];
+    }
+    if (!function_exists('imagecreatetruecolor') || !function_exists('imagecopyresampled')) {
+      return ['ok' => FALSE, 'reason' => 'gd_resize_support_missing'];
+    }
+    if (!function_exists('imagewebp')) {
+      return ['ok' => FALSE, 'reason' => 'gd_webp_support_missing'];
+    }
+
     $matches = [];
     if (!preg_match('/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s', $image_data_uri, $matches)) {
       return ['ok' => FALSE, 'reason' => 'invalid_data_uri'];
@@ -34,7 +47,7 @@ class GeneratedImageOptimizationService {
       return ['ok' => FALSE, 'reason' => 'invalid_base64'];
     }
 
-    $source = @imagecreatefromstring($binary);
+    $source = imagecreatefromstring($binary);
     if ($source === FALSE) {
       return ['ok' => FALSE, 'reason' => 'unsupported_image_binary'];
     }

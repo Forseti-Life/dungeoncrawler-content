@@ -543,7 +543,16 @@ class GeneratedImageRepository {
    */
   private function resolveStorageFromOutput(string $image_uuid, string $image_data_uri, string $image_url): array {
     if ($image_data_uri !== '') {
-      $optimized = $this->imageOptimizer->optimizeDataUri($image_data_uri);
+      try {
+        $optimized = $this->imageOptimizer->optimizeDataUri($image_data_uri);
+      }
+      catch (\Throwable $exception) {
+        $this->logger->error('Generated image optimization crashed: @message', [
+          '@message' => $exception->getMessage(),
+        ]);
+        return ['ok' => FALSE, 'reason' => 'optimization_exception'];
+      }
+
       if (empty($optimized['ok'])) {
         $reason = (string) ($optimized['reason'] ?? 'optimization_failed');
         $this->logger->error('Generated image optimization failed: @reason', [
