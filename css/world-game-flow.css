@@ -63,19 +63,63 @@
   background: linear-gradient(180deg, var(--dc-flow-surface-muted) 0%, var(--dc-flow-surface) 100%);
   border: 1px solid var(--dc-flow-border);
   border-radius: 14px;
-  overflow-x: auto;
+  overflow: auto;
   padding: 1rem;
 }
 
 .world-game-flow__mermaid {
+  display: inline-block;
   min-width: 760px;
+  transition: transform 140ms ease;
 }
 
 .world-game-flow__mermaid svg {
   display: block;
   height: auto;
-  margin: 0 auto;
-  max-width: 100%;
+  margin: 0;
+  max-width: none;
+}
+
+.world-game-flow__mermaid-controls {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.world-game-flow__mermaid-controls .btn {
+  line-height: 1;
+  min-width: 2rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.world-game-flow__mermaid-zoom-level {
+  color: var(--dc-flow-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  min-width: 3rem;
+  text-align: right;
+}
+
+.world-game-flow__mermaid--error {
+  min-width: 0;
+  white-space: normal;
+}
+
+.world-game-flow__mermaid-source {
+  background: var(--dc-flow-surface);
+  border: 1px solid var(--dc-flow-border);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  margin: 0;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .world-game-flow__table {

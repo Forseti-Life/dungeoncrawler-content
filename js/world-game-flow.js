@@ -1,5 +1,6 @@
 (function (Drupal, once) {
   let mermaidInitialized = false;
+  let mermaidRenderCounter = 0;
 
   function readColor(styles, propertyName, fallback) {
     const value = styles?.getPropertyValue(propertyName)?.trim();
@@ -68,6 +69,125 @@
     };
   }
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function applyZoom(node, scale) {
+    node.style.transformOrigin = 'top left';
+    node.style.transform = `scale(${scale})`;
+    node.dataset.mermaidZoom = String(scale);
+  }
+
+  function ensureDiagramControls(shell, node) {
+    if (!shell || shell.querySelector('[data-mermaid-controls]')) {
+      return;
+    }
+
+    const controls = document.createElement('div');
+    controls.className = 'world-game-flow__mermaid-controls';
+    controls.setAttribute('data-mermaid-controls', 'true');
+
+    const zoomOut = document.createElement('button');
+    zoomOut.type = 'button';
+    zoomOut.className = 'btn btn-sm btn-outline-secondary';
+    zoomOut.textContent = '-';
+    zoomOut.setAttribute('aria-label', 'Zoom out diagram');
+
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'btn btn-sm btn-outline-secondary';
+    reset.textContent = 'Reset';
+    reset.setAttribute('aria-label', 'Reset diagram zoom');
+
+    const zoomIn = document.createElement('button');
+    zoomIn.type = 'button';
+    zoomIn.className = 'btn btn-sm btn-outline-secondary';
+    zoomIn.textContent = '+';
+    zoomIn.setAttribute('aria-label', 'Zoom in diagram');
+
+    const level = document.createElement('span');
+    level.className = 'world-game-flow__mermaid-zoom-level';
+    level.textContent = '100%';
+    level.setAttribute('aria-live', 'polite');
+
+    const setScale = (nextScale) => {
+      const scale = clamp(nextScale, 0.5, 2.5);
+      applyZoom(node, scale);
+      level.textContent = `${Math.round(scale * 100)}%`;
+    };
+
+    zoomOut.addEventListener('click', () => {
+      const current = parseFloat(node.dataset.mermaidZoom || '1');
+      setScale(current - 0.15);
+    });
+
+    zoomIn.addEventListener('click', () => {
+      const current = parseFloat(node.dataset.mermaidZoom || '1');
+      setScale(current + 0.15);
+    });
+
+    reset.addEventListener('click', () => {
+      setScale(1);
+      shell.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    });
+
+    shell.insertBefore(controls, shell.firstChild);
+    controls.appendChild(zoomOut);
+    controls.appendChild(reset);
+    controls.appendChild(zoomIn);
+    controls.appendChild(level);
+
+    applyZoom(node, 1);
+  }
+
+  function renderMermaidError(node, source, error) {
+    node.classList.add('world-game-flow__mermaid--error');
+    node.classList.remove('mermaid');
+    node.innerHTML = '';
+
+    const message = document.createElement('div');
+    message.className = 'alert alert-warning py-2 px-3 mb-2';
+    const detail = error && typeof error.message === 'string' ? error.message : 'Unknown Mermaid parsing/rendering error.';
+    message.textContent = `Diagram render failed: ${detail}`;
+
+    const pre = document.createElement('pre');
+    pre.className = 'world-game-flow__mermaid-source';
+    pre.textContent = source;
+
+    node.appendChild(message);
+    node.appendChild(pre);
+  }
+
+  async function renderMermaidNode(node) {
+    if (!node) {
+      return;
+    }
+
+    const source = node.textContent ? node.textContent.trim() : '';
+    if (!source) {
+      return;
+    }
+
+    try {
+      const renderId = `dc-world-flow-${Date.now()}-${mermaidRenderCounter++}`;
+      const rendered = await window.mermaid.render(renderId, source);
+      node.classList.remove('world-game-flow__mermaid--error');
+      node.classList.add('mermaid');
+      node.innerHTML = rendered.svg;
+
+      if (typeof rendered.bindFunctions === 'function') {
+        rendered.bindFunctions(node);
+      }
+    }
+    catch (error) {
+      // Keep page usable and show the exact failing source instead of blank space.
+      renderMermaidError(node, source, error);
+      // eslint-disable-next-line no-console
+      console.error('Mermaid diagram render failed', error);
+    }
+  }
+
   Drupal.behaviors.dungeoncrawlerWorldGameFlow = {
     attach(context) {
       if (!window.mermaid) {
@@ -86,10 +206,12 @@
       }
 
       nodes.forEach((node) => {
-        node.classList.add('mermaid');
+        const shell = node.closest('.world-game-flow__mermaid-shell');
+        if (shell) {
+          ensureDiagramControls(shell, node);
+        }
+        void renderMermaidNode(node);
       });
-
-      window.mermaid.run({ nodes });
     },
   };
 })(Drupal, once);
