@@ -273,9 +273,12 @@ services:
     class: Drupal\dungeoncrawler_content\Service\RoomViewImageService
     arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.image_generation_integration', '@dungeoncrawler_content.chat_session_manager', '@dungeoncrawler_content.generated_image_repository', '@file_system']
 
+  dungeoncrawler_content.generated_image_optimizer:
+    class: Drupal\dungeoncrawler_content\Service\GeneratedImageOptimizationService
+
   dungeoncrawler_content.generated_image_repository:
     class: Drupal\dungeoncrawler_content\Service\GeneratedImageRepository
-    arguments: ['@database', '@file_url_generator', '@file_system', '@uuid', '@datetime.time', '@logger.factory']
+    arguments: ['@database', '@file_url_generator', '@file_system', '@uuid', '@datetime.time', '@logger.factory', '@dungeoncrawler_content.generated_image_optimizer']
 
   dungeoncrawler_content.character_image_prompt_builder:
     class: Drupal\dungeoncrawler_content\Service\CharacterImagePromptBuilder

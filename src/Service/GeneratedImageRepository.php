@@ -40,6 +40,11 @@ class GeneratedImageRepository {
   protected TimeInterface $time;
 
   /**
+   * Image optimization service.
+   */
+  protected GeneratedImageOptimizationService $imageOptimizer;
+
+  /**
    * Logger channel.
    */
   protected $logger;
@@ -47,13 +52,14 @@ class GeneratedImageRepository {
   /**
    * Constructs the repository.
    */
-  public function __construct(Connection $database, FileUrlGeneratorInterface $file_url_generator, FileSystemInterface $file_system, UuidInterface $uuid, TimeInterface $time, LoggerChannelFactoryInterface $logger_factory) {
+  public function __construct(Connection $database, FileUrlGeneratorInterface $file_url_generator, FileSystemInterface $file_system, UuidInterface $uuid, TimeInterface $time, LoggerChannelFactoryInterface $logger_factory, GeneratedImageOptimizationService $image_optimizer) {
     $this->database = $database;
     $this->fileUrlGenerator = $file_url_generator;
     $this->fileSystem = $file_system;
     $this->uuid = $uuid;
     $this->time = $time;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
+    $this->imageOptimizer = $image_optimizer;
   }
 
   /**
@@ -537,19 +543,22 @@ class GeneratedImageRepository {
    */
   private function resolveStorageFromOutput(string $image_uuid, string $image_data_uri, string $image_url): array {
     if ($image_data_uri !== '') {
-      $matches = [];
-      if (!preg_match('/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s', $image_data_uri, $matches)) {
-        return ['ok' => FALSE, 'reason' => 'invalid_data_uri'];
+      $optimized = $this->imageOptimizer->optimizeDataUri($image_data_uri);
+      if (empty($optimized['ok'])) {
+        $reason = (string) ($optimized['reason'] ?? 'optimization_failed');
+        $this->logger->error('Generated image optimization failed: @reason', [
+          '@reason' => $reason,
+        ]);
+        return ['ok' => FALSE, 'reason' => $reason];
       }
 
-      $mime_type = $matches[1];
-      $binary = base64_decode($matches[2], TRUE);
-      if ($binary === FALSE) {
-        return ['ok' => FALSE, 'reason' => 'invalid_base64'];
+      $mime_type = (string) ($optimized['mime_type'] ?? '');
+      $binary = $optimized['binary'] ?? NULL;
+      if (!is_string($binary) || $binary === '' || $mime_type === '') {
+        return ['ok' => FALSE, 'reason' => 'optimization_missing_payload'];
       }
 
       $extension = $this->extensionFromMime($mime_type);
-      $dimensions = @getimagesizefromstring($binary) ?: [NULL, NULL];
 
       $base_directory = 'public://generated-images';
       if (!$this->fileSystem->prepareDirectory($base_directory, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS)) {
@@ -582,10 +591,10 @@ class GeneratedImageRepository {
         'file_uri' => $saved_uri,
         'public_url' => NULL,
         'mime_type' => $mime_type,
-        'bytes' => strlen($binary),
-        'width' => isset($dimensions[0]) ? (int) $dimensions[0] : NULL,
-        'height' => isset($dimensions[1]) ? (int) $dimensions[1] : NULL,
-        'sha256' => hash('sha256', $binary),
+        'bytes' => isset($optimized['bytes']) ? (int) $optimized['bytes'] : strlen($binary),
+        'width' => isset($optimized['width']) ? (int) $optimized['width'] : NULL,
+        'height' => isset($optimized['height']) ? (int) $optimized['height'] : NULL,
+        'sha256' => isset($optimized['sha256']) ? (string) $optimized['sha256'] : hash('sha256', $binary),
       ];
     }
 
