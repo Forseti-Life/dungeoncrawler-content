@@ -1067,6 +1067,62 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_campaign_connections'] = [
+    'description' => 'Campaign-scoped connector instances between rooms.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Campaign ID.'],
+      'connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Stable connection slug.'],
+      'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Dungeon this connector belongs to.'],
+      'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Source room id.'],
+      'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Target room id.'],
+      'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional', 'description' => 'bidirectional or one_way.'],
+      'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway', 'description' => 'Connector kind: hallway, door, archway, hatch, portcullis, secret_door, magical_barrier, collapsed, bridge, one_way_drop.'],
+      'state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Runtime state: open, closed, locked, barred, trapped, triggered, destroyed.'],
+      'trap_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Trap definition JSON or null.'],
+      'lock_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Lock definition JSON or null.'],
+      'requirements_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Traversal requirements JSON array or null.'],
+      'description' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Flavor text shown to player.'],
+      'travel_cost' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Action cost in feet (0 = free).'],
+      'is_discovered' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1, 'description' => 'Player has seen this connector.'],
+      'is_passable' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1, 'description' => 'Connector is currently traversable.'],
+      'source_connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => FALSE, 'description' => 'Canonical connection_id this was copied from.'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_connection' => ['campaign_id', 'connection_id'],
+    ],
+    'indexes' => [
+      'campaign_id' => ['campaign_id'],
+      'campaign_dungeon' => ['campaign_id', 'dungeon_id'],
+      'from_room' => ['from_room_id'],
+      'to_room' => ['to_room_id'],
+      'source_connection_id' => ['source_connection_id'],
+    ],
+  ];
+
+  $schema['dc_campaign_connection_states'] = [
+    'description' => 'Per-campaign runtime state mutations for connectors.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Campaign ID.'],
+      'connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Connection slug.'],
+      'state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Current runtime state.'],
+      'trap_triggered' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 0, 'description' => 'Trap has been triggered.'],
+      'unlocked_by' => ['type' => 'varchar', 'length' => 100, 'not null' => FALSE, 'description' => 'Item instance or character id that unlocked this connector.'],
+      'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_connection_state' => ['campaign_id', 'connection_id'],
+    ],
+    'indexes' => [
+      'campaign_id' => ['campaign_id'],
+    ],
+  ];
+
   $schema['dc_campaigns'] = [
     'description' => 'Stores campaign sessions and high-level state.',
     'fields' => [
@@ -2546,6 +2602,37 @@ function dungeoncrawler_content_schema() {
     'indexes' => [
       'theme' => ['theme'],
       'source_dungeon_id' => ['source_dungeon_id'],
+    ],
+  ];
+
+  $schema['dungeoncrawler_content_connections'] = [
+    'description' => 'Canonical connector definitions between dungeon rooms.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Stable slug. {dungeon_id}::{from}::{to}::{kind}.'],
+      'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Dungeon template id.'],
+      'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Source room id.'],
+      'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Target room id.'],
+      'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional', 'description' => 'bidirectional or one_way.'],
+      'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway', 'description' => 'Connector kind: hallway, door, archway, hatch, portcullis, secret_door, magical_barrier, collapsed, bridge, one_way_drop.'],
+      'default_state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Default state for new campaign instances: open, closed, locked, barred, trapped, destroyed.'],
+      'trap_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Trap definition JSON: {trap_id, type, dc, damage_dice, triggered}.'],
+      'lock_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Lock definition JSON: {lock_id, type, dc, key_item_id}.'],
+      'requirements_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Traversal requirements JSON array: [{type, item_id|quest_id|ability|spell_id, ...}].'],
+      'description' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Flavor text shown to player.'],
+      'travel_cost' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Action cost in feet (0 = free).'],
+      'is_discovered_default' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1, 'description' => 'Default discovered state for new campaign instances.'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_connection' => ['connection_id'],
+    ],
+    'indexes' => [
+      'dungeon_id' => ['dungeon_id'],
+      'from_room_id' => ['from_room_id'],
+      'to_room_id' => ['to_room_id'],
     ],
   ];
 
@@ -9609,6 +9696,75 @@ function dungeoncrawler_content_update_10087() {
 }
 
 /**
+ * Ensure quest objective state column exists for navigation/API queries.
+ */
+function dungeoncrawler_content_update_10088() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $field_definition = [
+    'type' => 'text',
+    'size' => 'big',
+    'not null' => TRUE,
+    'description' => 'JSON: each objective with current/target values.',
+  ];
+
+  if (!$schema_handler->tableExists('dc_campaign_quests')) {
+    throw new \Drupal\Core\Utility\UpdateException('Cannot add dc_campaign_quests.objective_states because dc_campaign_quests does not exist.');
+  }
+
+  if ($schema_handler->fieldExists('dc_campaign_quests', 'objective_states')) {
+    return t('No schema changes required: dc_campaign_quests.objective_states already exists.');
+  }
+
+  $schema_handler->addField(
+    'dc_campaign_quests',
+    'objective_states',
+    $field_definition
+  );
+
+  $database->update('dc_campaign_quests')
+    ->fields(['objective_states' => '[]'])
+    ->isNull('objective_states')
+    ->execute();
+
+  return t('Added dc_campaign_quests.objective_states for canonical objective progress state storage.');
+}
+
+/**
+ * Backfill null quest objective states from generated objectives.
+ */
+function dungeoncrawler_content_update_10089() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if (
+    !$schema_handler->tableExists('dc_campaign_quests')
+    || !$schema_handler->fieldExists('dc_campaign_quests', 'objective_states')
+  ) {
+    throw new \Drupal\Core\Utility\UpdateException('Cannot backfill dc_campaign_quests.objective_states because required schema is missing.');
+  }
+
+  $copied = $database->update('dc_campaign_quests')
+    ->expression('objective_states', 'generated_objectives')
+    ->isNull('objective_states')
+    ->isNotNull('generated_objectives')
+    ->execute();
+
+  $defaulted = $database->update('dc_campaign_quests')
+    ->fields(['objective_states' => '[]'])
+    ->isNull('objective_states')
+    ->execute();
+
+  return t(
+    'Backfilled quest objective states: copied @copied rows from generated objectives and defaulted @defaulted rows to []',
+    [
+      '@copied' => (int) $copied,
+      '@defaulted' => (int) $defaulted,
+    ]
+  );
+}
+
+/**
  * Resolve a canonical actor row for a legacy entity reference.
  */
 function dungeoncrawler_content_resolve_actor_for_legacy_entity(\Drupal\Core\Database\Connection $database, int $campaign_id, string $entity_ref, string $display_name): ?array {
@@ -10134,8 +10290,107 @@ function dungeoncrawler_content_choose_canonical_room_row(array $rows): ?array {
 }
 
 /**
- * Build the canonical hierarchical room-session key.
+ * Create dungeon connector tables: canonical, campaign-scoped, and runtime state.
  */
+function dungeoncrawler_content_update_10090() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $created = [];
+
+  if (!$schema->tableExists('dungeoncrawler_content_connections')) {
+    $schema->createTable('dungeoncrawler_content_connections', [
+      'description' => 'Canonical connector definitions between dungeon rooms.',
+      'fields' => [
+        'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+        'connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Stable slug.'],
+        'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Dungeon template id.'],
+        'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Source room id.'],
+        'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Target room id.'],
+        'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional', 'description' => 'bidirectional or one_way.'],
+        'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway', 'description' => 'Connector kind.'],
+        'default_state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Default state for new campaign instances.'],
+        'trap_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Trap definition JSON.'],
+        'lock_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Lock definition JSON.'],
+        'requirements_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Traversal requirements JSON array.'],
+        'description' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Flavor text.'],
+        'travel_cost' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Action cost in feet.'],
+        'is_discovered_default' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1, 'description' => 'Default discovered state.'],
+        'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+        'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => ['canonical_connection' => ['connection_id']],
+      'indexes' => [
+        'dungeon_id' => ['dungeon_id'],
+        'from_room_id' => ['from_room_id'],
+        'to_room_id' => ['to_room_id'],
+      ],
+    ]);
+    $created[] = 'dungeoncrawler_content_connections';
+  }
+
+  if (!$schema->tableExists('dc_campaign_connections')) {
+    $schema->createTable('dc_campaign_connections', [
+      'description' => 'Campaign-scoped connector instances between rooms.',
+      'fields' => [
+        'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+        'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Campaign ID.'],
+        'connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Stable connection slug.'],
+        'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Dungeon id.'],
+        'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Source room id.'],
+        'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Target room id.'],
+        'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional'],
+        'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway'],
+        'state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open'],
+        'trap_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE],
+        'lock_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE],
+        'requirements_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE],
+        'description' => ['type' => 'text', 'not null' => FALSE],
+        'travel_cost' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+        'is_discovered' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1],
+        'is_passable' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1],
+        'source_connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => FALSE],
+        'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+        'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => ['campaign_connection' => ['campaign_id', 'connection_id']],
+      'indexes' => [
+        'campaign_id' => ['campaign_id'],
+        'campaign_dungeon' => ['campaign_id', 'dungeon_id'],
+        'from_room' => ['from_room_id'],
+        'to_room' => ['to_room_id'],
+        'source_connection_id' => ['source_connection_id'],
+      ],
+    ]);
+    $created[] = 'dc_campaign_connections';
+  }
+
+  if (!$schema->tableExists('dc_campaign_connection_states')) {
+    $schema->createTable('dc_campaign_connection_states', [
+      'description' => 'Per-campaign runtime state mutations for connectors.',
+      'fields' => [
+        'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+        'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+        'connection_id' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
+        'state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open'],
+        'trap_triggered' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 0],
+        'unlocked_by' => ['type' => 'varchar', 'length' => 100, 'not null' => FALSE],
+        'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => ['campaign_connection_state' => ['campaign_id', 'connection_id']],
+      'indexes' => ['campaign_id' => ['campaign_id']],
+    ]);
+    $created[] = 'dc_campaign_connection_states';
+  }
+
+  if (empty($created)) {
+    return t('Connector tables already exist — skipped.');
+  }
+
+  return t('Created connector tables: @tables', ['@tables' => implode(', ', $created)]);
+}
 function dungeoncrawler_content_room_session_key(int $campaign_id, string $dungeon_id, string $room_id): string {
   return 'campaign.' . $campaign_id . '.dungeon.' . $dungeon_id . '.room.' . dungeoncrawler_content_safe_room_key($room_id);
 }

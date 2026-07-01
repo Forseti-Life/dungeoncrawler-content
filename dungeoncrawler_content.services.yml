@@ -636,6 +636,10 @@ services:
     arguments:
       - '@dungeoncrawler_content.navigation_road_graph_service'
 
+  dungeoncrawler_content.connector_definition_service:
+    class: Drupal\dungeoncrawler_content\Service\ConnectorDefinitionService
+    arguments: ['@database']
+
   # Procedural Generation Services
   dungeoncrawler_content.room_library:
     class: Drupal\dungeoncrawler_content\Service\RoomLibraryService
