@@ -1280,6 +1280,212 @@ class StateValidationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies non-registry obstacle content_id values are accepted for room-local objects.
+   */
+  public function testValidateCanonicalRoomLibraryContractsAcceptsRoomLocalObstacleContentIds(): void {
+    $row = [
+      'room_id' => 'tpl_room_local_obstacle',
+      'name' => 'Local Obstacle Room',
+      'description' => 'Obstacle IDs can be room-local.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 1, 'r' => 0]],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [
+          ['content_id' => 'local_bar_counter', 'label' => 'Bar Counter'],
+        ],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_local_obstacle',
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $registry_statement = $this->createMock(StatementInterface::class);
+    $registry_statement->method('fetchAll')->willReturn([]);
+
+    $registry_query = $this->createMock(SelectInterface::class);
+    $registry_query->method('fields')->willReturnSelf();
+    $registry_query->method('condition')->willReturnSelf();
+    $registry_query->method('orderBy')->willReturnSelf();
+    $registry_query->method('execute')->willReturn($registry_statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry'], TRUE));
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query): SelectInterface {
+        if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
+          return $query;
+        }
+        if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
+          return $registry_query;
+        }
+        throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
+      });
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertTrue(
+      $result['valid'],
+      implode('; ', $result['items'][0]['errors'] ?? [])
+    );
+    $this->assertSame(0, $result['summary']['invalid_items']);
+  }
+
+  /**
+   * Verifies mixed blocking/passable objects keep an entry hex traversable.
+   */
+  public function testValidateCanonicalRoomLibraryContractsAcceptsDoorOnBoundaryEntryHex(): void {
+    $row = [
+      'room_id' => 'tpl_room_boundary_door_entry',
+      'name' => 'Boundary Door Room',
+      'description' => 'Entry hex includes wall and door objects.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [
+              [
+                'category' => 'wall',
+                'passable' => FALSE,
+                'blocks_movement' => TRUE,
+                'label' => 'Wall',
+                'object_id' => 'wall_stone_flat',
+              ],
+              [
+                'category' => 'door',
+                'passable' => TRUE,
+                'blocks_movement' => FALSE,
+                'label' => 'Door',
+                'object_id' => 'wooden_door',
+              ],
+            ],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 1, 'r' => 0]],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_boundary_door_entry',
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $registry_statement = $this->createMock(StatementInterface::class);
+    $registry_statement->method('fetchAll')->willReturn([]);
+
+    $registry_query = $this->createMock(SelectInterface::class);
+    $registry_query->method('fields')->willReturnSelf();
+    $registry_query->method('condition')->willReturnSelf();
+    $registry_query->method('orderBy')->willReturnSelf();
+    $registry_query->method('execute')->willReturn($registry_statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry'], TRUE));
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query): SelectInterface {
+        if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
+          return $query;
+        }
+        if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
+          return $registry_query;
+        }
+        throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
+      });
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertTrue($result['valid']);
+    $this->assertSame(0, $result['summary']['invalid_items']);
+  }
+
+  /**
    * Verifies generated storyline definitions pass validation.
    */
   public function testValidateStorylineDefinitionAcceptsCanonicalPayload(): void {

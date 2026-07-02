@@ -11,6 +11,54 @@ use Psr\Log\LoggerInterface;
  */
 class StateValidationService {
 
+  /**
+   * Required canonical room contents buckets.
+   *
+   * @var array<int, string>
+   */
+  private const ROOM_CONTENT_REQUIRED_BUCKETS = ['npcs', 'items', 'entities', 'obstacles', 'hazards', 'interactables'];
+
+  /**
+   * Contents buckets that must resolve content_id entries in registry.
+   *
+   * @var array<int, string>
+   */
+  private const ROOM_CONTENT_REGISTRY_REFERENCE_BUCKETS = ['npcs', 'items', 'entities'];
+
+  /**
+   * Allowed room hex object categories.
+   *
+   * @var array<int, string>
+   */
+  private const ROOM_HEX_ALLOWED_OBJECT_CATEGORIES = [
+    'wall',
+    'door',
+    'hazard',
+    'feature',
+    'npc',
+    'item',
+    'entity',
+    'obstacle',
+    'interactable',
+    'trap',
+    'cover',
+    'terrain',
+    'entry',
+    'exit',
+  ];
+
+  /**
+   * Prompt-derived room ID prefixes that are blocked.
+   */
+  private const BLOCKED_PROMPT_DERIVED_ROOM_ID_PATTERN = '/^(i-want|hello)-/i';
+
+  /**
+   * Axial coordinate neighbor offsets for hex pathing.
+   *
+   * @var array<int, array{0:int, 1:int}>
+   */
+  private const ROOM_HEX_NEIGHBOR_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+
   private LoggerInterface $logger;
   private ?Connection $database;
   private string $schemaBasePath;
@@ -723,20 +771,24 @@ class StateValidationService {
         $objects = [];
       }
 
-      $hex_is_blocked = FALSE;
+      $has_explicit_blocker = FALSE;
+      $has_explicit_passable = FALSE;
       foreach ($objects as $object_index => $object) {
         if (!is_array($object)) {
           $errors[] = "layout_data.hexes[{$index}].objects[{$object_index}] must be an object.";
           continue;
         }
         $errors = array_merge($errors, $this->validateCanonicalRoomHexObjectContract($object, $index, $object_index));
-        if (
-          (isset($object['blocks_movement']) && is_bool($object['blocks_movement']) && $object['blocks_movement']) ||
-          (isset($object['passable']) && is_bool($object['passable']) && !$object['passable'])
-        ) {
-          $hex_is_blocked = TRUE;
+        $blocks_movement = isset($object['blocks_movement']) && is_bool($object['blocks_movement']) ? $object['blocks_movement'] : FALSE;
+        $passable = isset($object['passable']) && is_bool($object['passable']) ? $object['passable'] : TRUE;
+        if ($blocks_movement || !$passable) {
+          $has_explicit_blocker = TRUE;
+        }
+        if ($passable && !$blocks_movement) {
+          $has_explicit_passable = TRUE;
         }
       }
+      $hex_is_blocked = $has_explicit_blocker && !$has_explicit_passable;
 
       if (!$hex_is_blocked) {
         $traversable_hexes[$coord_key] = TRUE;
@@ -797,8 +849,7 @@ class StateValidationService {
    */
   private function validateCanonicalRoomContentsContract(array $contents_data, array $registry_content_id_map): array {
     $errors = [];
-    $required_buckets = ['npcs', 'items', 'entities', 'obstacles', 'hazards', 'interactables'];
-    foreach ($required_buckets as $bucket) {
+    foreach (self::ROOM_CONTENT_REQUIRED_BUCKETS as $bucket) {
       if (!array_key_exists($bucket, $contents_data)) {
         $errors[] = "contents_data.{$bucket} is required and must be an array.";
         continue;
@@ -814,7 +865,7 @@ class StateValidationService {
       }
       foreach ($entries as $index => $entry) {
         $path = "contents_data.{$bucket}[{$index}]";
-        if (in_array((string) $bucket, ['npcs', 'items', 'entities'], TRUE)) {
+        if (in_array((string) $bucket, self::ROOM_CONTENT_REGISTRY_REFERENCE_BUCKETS, TRUE)) {
           if (!is_array($entry)) {
             $errors[] = "{$path} must be an object with content_id.";
             continue;
@@ -852,7 +903,10 @@ class StateValidationService {
               $errors[] = "{$path}.content_id '{$content_id}' does not match canonical id pattern.";
               continue;
             }
-            if (!isset($registry_content_id_map[$content_id])) {
+            if (
+              in_array((string) $bucket, self::ROOM_CONTENT_REGISTRY_REFERENCE_BUCKETS, TRUE) &&
+              !isset($registry_content_id_map[$content_id])
+            ) {
               $errors[] = "{$path}.content_id '{$content_id}' does not resolve in canonical content registry.";
             }
             continue;
@@ -927,26 +981,10 @@ class StateValidationService {
     $errors = [];
     $path = "layout_data.hexes[{$hex_index}].objects[{$object_index}]";
     $category = trim((string) ($object['category'] ?? ''));
-    $allowed_categories = [
-      'wall',
-      'door',
-      'hazard',
-      'feature',
-      'npc',
-      'item',
-      'entity',
-      'obstacle',
-      'interactable',
-      'trap',
-      'cover',
-      'terrain',
-      'entry',
-      'exit',
-    ];
     if ($category === '') {
       $errors[] = "{$path}.category is required.";
     }
-    elseif (!in_array($category, $allowed_categories, TRUE)) {
+    elseif (!in_array($category, self::ROOM_HEX_ALLOWED_OBJECT_CATEGORIES, TRUE)) {
       $errors[] = "{$path}.category '{$category}' is not allowed.";
     }
     if (!array_key_exists('passable', $object) || !is_bool($object['passable'])) {
@@ -977,36 +1015,32 @@ class StateValidationService {
    */
   private function hasTraversableRoomPath(array $entry_keys, array $exit_keys, array $traversable_hexes): bool {
     $exit_set = array_fill_keys($exit_keys, TRUE);
-    $queue = [];
+    $queue = new \SplQueue();
     $visited = [];
     foreach ($entry_keys as $entry_key) {
       if (!isset($traversable_hexes[$entry_key])) {
         continue;
       }
-      $queue[] = $entry_key;
+      $queue->enqueue($entry_key);
       $visited[$entry_key] = TRUE;
     }
-    if ($queue === []) {
+    if ($queue->isEmpty()) {
       return FALSE;
     }
 
-    $offsets = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
-    while ($queue !== []) {
-      $current = array_shift($queue);
-      if ($current === NULL) {
-        continue;
-      }
+    while (!$queue->isEmpty()) {
+      $current = $queue->dequeue();
       if (isset($exit_set[$current])) {
         return TRUE;
       }
       [$q, $r] = array_map('intval', explode(':', $current, 2));
-      foreach ($offsets as $offset) {
+      foreach (self::ROOM_HEX_NEIGHBOR_OFFSETS as $offset) {
         $neighbor_key = ($q + $offset[0]) . ':' . ($r + $offset[1]);
         if (!isset($traversable_hexes[$neighbor_key]) || isset($visited[$neighbor_key])) {
           continue;
         }
         $visited[$neighbor_key] = TRUE;
-        $queue[] = $neighbor_key;
+        $queue->enqueue($neighbor_key);
       }
     }
 
@@ -1017,7 +1051,7 @@ class StateValidationService {
    * Determine whether a room ID is from blocked prompt-derived prefixes.
    */
   private function isBlockedPromptDerivedRoomId(string $room_id): bool {
-    return preg_match('/^(i-want|hello)-/i', $room_id) === 1;
+    return preg_match(self::BLOCKED_PROMPT_DERIVED_ROOM_ID_PATTERN, $room_id) === 1;
   }
 
   /**
