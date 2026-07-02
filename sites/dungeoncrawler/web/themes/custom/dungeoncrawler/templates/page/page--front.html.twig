@@ -1,0 +1,126 @@
+{#
+/**
+ * @file
+ * Dungeon Crawler Life - Front Page
+ * Clean, focused home page
+ */
+#}
+
+{{ attach_library('dungeoncrawler/animated-header') }}
+
+<div class="page-wrapper">
+  {# Hero Section #}
+  <div id="large-header" class="large-header home-header">
+    <canvas id="demo-canvas"></canvas>
+    <h1 class="main-title">
+      <span class="highlight">Dungeon Crawler</span>
+      <span class="thin">Life</span>
+    </h1>
+    <p class="main-subtitle">
+      An AI-powered living dungeon that grows as you explore
+    </p>
+    <div class="hero-cta">
+      <a href="{{ primary_cta_url|default('/campaigns') }}" class="btn btn-primary">{{ primary_cta_label|default('Start Your Adventure') }}</a>
+      <a href="{{ secondary_cta_url|default('/how-to-play') }}" class="btn btn-outline-light">{{ secondary_cta_label|default('Learn More') }}</a>
+    </div>
+  </div>
+
+  {# Navigation #}
+  {% block page_navigation %}
+    {% embed 'radix:navbar' with {
+      navbar_container_type: null,
+      navbar_expand: 'lg',
+      navbar_theme: 'dark',
+      navbar_utility_classes: ['dungeoncrawler-navbar'],
+    } %}
+      {% block branding %}
+        {% if page.navbar_branding %}
+          {{ page.navbar_branding }}
+        {% endif %}
+      {% endblock %}
+      {% block left %}
+        {% if page.navbar_left %}
+          <div class="me-auto">
+            {{ page.navbar_left }}
+          </div>
+        {% endif %}
+      {% endblock %}
+      {% block right %}
+        {% if page.navbar_right %}
+          {{ attach_library('dungeoncrawler/navbar_right') }}
+          <div class="ms-auto region-navbar-right">
+            {{ page.navbar_right }}
+          </div>
+        {% endif %}
+      {% endblock %}
+    {% endembed %}
+  {% endblock %}
+
+  {# Main Content #}
+  <main class="main-content">
+    <div class="container">
+
+      {# Key Features - Simple 3-Column #}
+      <section class="features-section">
+        <div class="features-grid">
+          <div class="feature-card">
+            <h3>AI-Generated</h3>
+            <p>Every room, monster, and encounter is created by AI the moment you discover it</p>
+          </div>
+          <div class="feature-card">
+            <h3>Permanent World</h3>
+            <p>Once explored, rooms stay forever. Your actions shape the dungeon for everyone</p>
+          </div>
+          <div class="feature-card">
+            <h3>Party Play</h3>
+            <p>Team up with other adventurers and delve deeper into the unknown together</p>
+          </div>
+        </div>
+      </section>
+
+      {# Quick Stats #}
+      <section class="stats-section">
+        <div class="stats-row">
+          <div class="stat-item">
+            <span class="stat-number">∞</span>
+            <span class="stat-label">Rooms</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number">16</span>
+            <span class="stat-label">Classes</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number">11</span>
+            <span class="stat-label">Ancestries</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number">AI</span>
+            <span class="stat-label">Powered</span>
+          </div>
+        </div>
+      </section>
+
+      {# Final CTA #}
+      <section class="cta-section">
+        <div class="cta-content">
+          <h2>Ready to <span class="highlight">Explore</span>?</h2>
+          <p>Create your campaign and choose your party to descend into the depths</p>
+          <a href="{{ primary_cta_url|default('/campaigns') }}" class="btn btn-primary">{{ primary_cta_label|default('Create Your Campaign') }}</a>
+        </div>
+      </section>
+
+      {# Drupal Content Region #}
+      {% if page.content %}
+        <div class="drupal-content">
+          {{ page.content }}
+        </div>
+      {% endif %}
+
+    </div>
+  </main>
+
+  {# Footer #}
+  {% if page.footer %}
+    {{ page.footer }}
+  {% endif %}
+</div>

@@ -1,0 +1,3089 @@
+# ==============================================================================
+# ROUTING NOTES
+# _csrf_token: 'TRUE' is for GET link-based actions only (e.g. archive/delete links).
+# NEVER add _csrf_token to POST routes — Drupal Form API handles CSRF internally
+# via form_token. Adding it to POST routes causes all form submissions to 403.
+# ==============================================================================
+
+# ==============================================================================
+# ADMIN ROUTES
+# ==============================================================================
+
+dungeoncrawler_content.settings:
+  path: '/admin/config/content/dungeoncrawler'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\DungeonCrawlerSettingsForm'
+    _title: 'Dungeon Crawler Settings'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_content.dashboard:
+  path: '/admin/content/dungeoncrawler'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DashboardController::content'
+    _title: 'Game Content Dashboard'
+  methods: [GET]
+  requirements:
+    _permission: 'access content overview'
+
+dungeoncrawler_content.game_objects:
+  path: '/dungeoncrawler/objects'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GameObjectsController::content'
+    _title: 'Game Object Manager'
+  methods: [GET]
+  requirements:
+    _permission: 'administer dungeoncrawler content'
+
+dungeoncrawler_content.game_objects.post:
+  path: '/dungeoncrawler/objects'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GameObjectsController::content'
+    _title: 'Game Object Manager'
+  methods: [POST]
+  requirements:
+    _permission: 'administer dungeoncrawler content'
+
+dungeoncrawler_content.gemini_image_interface:
+  path: '/admin/content/dungeoncrawler/gemini-image'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\ImageGenerationInterfaceForm'
+    _title: 'Image Generation'
+  methods: [GET, POST]
+  requirements:
+    _permission: 'access content overview'
+
+dungeoncrawler_content.image_generation_interface:
+  path: '/admin/content/dungeoncrawler/image-generation'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\ImageGenerationInterfaceForm'
+    _title: 'Image Generation'
+  methods: [GET, POST]
+  requirements:
+    _permission: 'access content overview'
+
+# Admin testing home (locked to admins)
+dungeoncrawler_content.testing_home:
+  path: '/admin/dungeoncrawler/testing'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\TestingDashboardController::dashboard'
+    _title: 'Dungeon Crawler Testing'
+  methods: [GET]
+  requirements:
+    _permission: 'administer dungeoncrawler content'
+
+# ==============================================================================
+# PUBLIC PAGES
+# ==============================================================================
+
+dungeoncrawler_content.home:
+  path: '/home'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\HomeController::index'
+    _title: 'Dungeon Crawler Life'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+dungeoncrawler_content.world:
+  path: '/world'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\WorldController::index'
+    _title: 'The Living Dungeon'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+dungeoncrawler_content.how_to_play:
+  path: '/how-to-play'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\HowToPlayController::index'
+    _title: 'How to Play'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+dungeoncrawler_content.about:
+  path: '/about'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AboutController::index'
+    _title: 'About Dungeon Crawler Life'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+dungeoncrawler_content.architecture:
+  path: '/architecture'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ArchitectureController::index'
+    _title: 'System Architecture'
+  methods: [GET]
+  requirements:
+    _permission: 'access content'
+
+dungeoncrawler_content.credits:
+  path: '/credits'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CreditsController::page'
+    _title: 'Credits & Attribution'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+dungeoncrawler_content.controller_architecture:
+  path: '/architecture/controllers'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ControllerArchitectureController::overview'
+    _title: 'Controller Architecture'
+  methods: [GET]
+  requirements:
+    _permission: 'access content'
+
+dungeoncrawler_content.encounter_ai_integration:
+  path: '/architecture/encounter-ai-integration'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EncounterAiIntegrationController::overview'
+    _title: 'Encounter AI Integration'
+  methods: [GET]
+  requirements:
+    _permission: 'access content'
+
+dungeoncrawler_content.encounter_ai_integration_metrics_csv:
+  path: '/architecture/encounter-ai-integration/metrics.csv'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EncounterAiIntegrationController::exportMetricsCsv'
+    _title: 'Encounter AI Metrics CSV'
+  methods: [GET]
+  requirements:
+    _permission: 'access content'
+
+dungeoncrawler_content.data_lineage_architecture:
+  path: '/architecture/data-lineage'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DataLineageArchitectureController::overview'
+    _title: 'Data Lineage Architecture'
+  methods: [GET]
+  requirements:
+    _permission: 'access content'
+
+# ==============================================================================
+# DEMO/TESTING ROUTES
+# ==============================================================================
+
+# Hex Map tactical combat demo
+dungeoncrawler_content.hexmap_demo:
+  path: '/hexmap'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\HexMapController::demo'
+    _title: 'Hex Map Demo'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+# ==============================================================================
+# CHARACTER MANAGEMENT ROUTES
+# ==============================================================================
+# Note: '/characters/create' must come BEFORE '/characters/{character_id}'
+# to prevent "create" from being interpreted as a character_id parameter.
+
+dungeoncrawler_content.characters:
+  path: '/campaigns/{campaign_id}/characters'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterListController::listCharacters'
+    _title: 'Campaign Characters'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+
+dungeoncrawler_content.campaigns:
+  path: '/campaigns'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::listCampaigns'
+    _title: 'My Campaigns'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.campaign_create:
+  path: '/campaigns/create'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::createCampaignPage'
+    _title: 'Create Campaign'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.campaign_create.post:
+  path: '/campaigns/create'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::createCampaignPage'
+    _title: 'Create Campaign'
+  methods: [POST]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.campaigns_archived:
+  path: '/campaigns/archived'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::listArchivedCampaigns'
+    _title: 'Archived Campaigns'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.campaign_delete:
+  path: '/campaigns/{campaign_id}/delete'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\CampaignDeleteForm'
+    _title: 'Delete Campaign'
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+
+# ==============================================================================
+# NPC SYSTEM (dc-cr-npc-system)
+# ==============================================================================
+
+dungeoncrawler_content.api.npc_list:
+  path: '/api/campaign/{campaign_id}/npcs'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\NpcController::listNpcs'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.npc_create:
+  path: '/api/campaign/{campaign_id}/npcs'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\NpcController::createNpc'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.npc_get:
+  path: '/api/campaign/{campaign_id}/npcs/{npc_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\NpcController::getNpc'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    npc_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.npc_update:
+  path: '/api/campaign/{campaign_id}/npcs/{npc_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\NpcController::updateNpc'
+  methods: [PATCH]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    npc_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.npc_delete:
+  path: '/api/campaign/{campaign_id}/npcs/{npc_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\NpcController::deleteNpc'
+  methods: [DELETE]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    npc_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.npc_social_check:
+  path: '/api/campaign/{campaign_id}/npcs/{npc_id}/social-check'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\NpcController::socialCheck'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    npc_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.npc_history:
+  path: '/api/campaign/{campaign_id}/npcs/{npc_id}/history'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\NpcController::getNpcHistory'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    npc_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.campaign_archive:
+  path: '/campaigns/{campaign_id}/archive'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::archiveCampaign'
+    _title: 'Archive Campaign'
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+
+dungeoncrawler_content.campaign_unarchive:
+  path: '/campaigns/{campaign_id}/unarchive'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\CampaignUnarchiveForm'
+    _title: 'Unarchive Campaign'
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+
+dungeoncrawler_content.campaign_tavernentrance:
+  path: '/campaigns/{campaign_id}/tavernentrance'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::tavernEntrance'
+    _title: 'Tavern Entrance'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+
+dungeoncrawler_content.campaign_dungeons:
+  path: '/campaigns/{campaign_id}/dungeons'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::listCampaignDungeons'
+    _title: 'Select Dungeon'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+
+dungeoncrawler_content.campaign_select_character:
+  path: '/campaigns/{campaign_id}/select-character/{character_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::selectCharacter'
+  methods: [GET, POST]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    character_id: '\d+'
+
+# Character creation wizard - must be before character_view
+dungeoncrawler_content.character_creation_wizard:
+  path: '/characters/create'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterCreationStepController::start'
+    _title: 'Create Character'
+  methods: [GET]
+  requirements:
+    _permission: 'create dungeoncrawler characters'
+
+dungeoncrawler_content.character_step:
+  path: '/characters/create/step/{step}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterCreationStepController::step'
+    _title: 'Create Character'
+  methods: [GET]
+  requirements:
+    _permission: 'create dungeoncrawler characters'
+    step: '\d+'
+
+dungeoncrawler_content.character_step.post:
+  path: '/characters/create/step/{step}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterCreationStepController::step'
+    _title: 'Create Character'
+  methods: [POST]
+  requirements:
+    _permission: 'create dungeoncrawler characters'
+    step: '\d+'
+
+dungeoncrawler_content.character_save_step:
+  path: '/characters/create/step/{step}/save'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterCreationStepController::saveStep'
+  methods: [POST]
+  requirements:
+    _permission: 'create dungeoncrawler characters'
+    step: '\d+'
+
+# Character viewing - requires ownership or admin
+dungeoncrawler_content.character_view:
+  path: '/characters/{character_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewCharacter'
+    _title_callback: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewTitle'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+
+dungeoncrawler_content.character_view_embed:
+  path: '/characters/{character_id}/embed'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewCharacterEmbed'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+
+# Character editing - requires ownership or admin
+dungeoncrawler_content.character_edit:
+  path: '/characters/{character_id}/edit'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\CharacterCreateForm'
+    _title: 'Edit Character'
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+
+# Character archiving - requires ownership or admin
+dungeoncrawler_content.character_archive:
+  path: '/characters/{character_id}/archive'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::archiveCharacter'
+    _title: 'Archive Character'
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+
+# Character deletion - requires ownership or admin
+dungeoncrawler_content.character_delete:
+  path: '/characters/{character_id}/delete'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\CharacterDeleteForm'
+    _title: 'Delete Character'
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+
+# ==============================================================================
+# API ENDPOINTS
+# ==============================================================================
+# JSON API endpoints for AJAX operations. All require authentication and
+# return JSON responses. CSRF token validation handled in controllers.
+
+# ------------------------------------------------------------------------------
+# Character API Endpoints
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.character_save:
+  path: '/api/character/save'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterApiController::saveCharacter'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'create dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_load:
+  path: '/api/character/load/{character_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterApiController::loadCharacter'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Ability Score API Endpoints (Pathbuilder-style real-time calculation)
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.ability_scores_calculate:
+  path: '/api/characters/ability-scores/calculate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AbilityScoreApiController::calculate'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'create dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.ability_scores_validate_boost:
+  path: '/api/characters/ability-scores/validate-boost'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AbilityScoreApiController::validateBoost'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'create dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.ability_scores_available_boosts:
+  path: '/api/characters/ability-scores/available-boosts/{step}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AbilityScoreApiController::getAvailableBoosts'
+  methods: [GET, POST]
+  requirements:
+    _permission: 'create dungeoncrawler characters'
+    step: 'ancestry|background|class|free'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Character State API Endpoints
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.character_state:
+  path: '/api/character/{character_id}/state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::getState'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Ancestry Traits API Endpoints
+# ------------------------------------------------------------------------------
+
+# Trait catalog: returns all valid canonical trait strings (no character needed).
+dungeoncrawler_content.traits.catalog:
+  path: '/dungeoncrawler/traits'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterTraitsController::catalog'
+    _title: 'Ancestry Trait Catalog'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+# Character traits read: returns the traits array for a specific character.
+dungeoncrawler_content.api.character_traits:
+  path: '/api/character/{character_id}/traits'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterTraitsController::getTraits'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+# hasTraits check: ?traits[]=Humanoid&traits[]=Dwarf
+# NOTE: '/traits/check' must come BEFORE '/traits' in route matching order.
+dungeoncrawler_content.api.character_traits_check:
+  path: '/api/character/{character_id}/traits/check'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterTraitsController::checkTraits'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Dungeon State API Endpoints
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.dungeon_state_get:
+  path: '/api/dungeon/{dungeon_id}/state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonStateController::getState'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    dungeon_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.dungeon_state_set:
+  path: '/api/dungeon/{dungeon_id}/state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonStateController::setState'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    dungeon_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Campaign State API Endpoints
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.campaign_state_get:
+  path: '/api/campaign/{campaign_id}/state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignStateController::getState'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Room State API Endpoints
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.room_state_get:
+  path: '/api/dungeon/{dungeon_id}/room/{room_id}/state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomStateController::getState'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    dungeon_id: '[A-Za-z0-9_-]+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+# Room Chat API - Persistent dialogue storage per room
+dungeoncrawler_content.api.room_chat_get:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/chat'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::getChatHistory'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.room_chat_post:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/chat'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::postChatMessage'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+# Chat Channel API - List, open, and close channels per room
+dungeoncrawler_content.api.room_channels_get:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/channels'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::getChannels'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.room_channels_open:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/channels'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::openChannel'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.room_channels_close:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/channels/{channel_key}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::closeChannel'
+  methods: [DELETE]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+    channel_key: '[A-Za-z0-9_:\-]+'
+  options:
+    _format: json
+
+# ---------------------------------------------------------------------------
+# Chat Session API — Hierarchical session system (dc_chat_sessions / messages)
+# ---------------------------------------------------------------------------
+
+dungeoncrawler_content.api.sessions_list:
+  path: '/api/campaign/{campaign_id}/sessions'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::listSessions'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.session_messages_get:
+  path: '/api/campaign/{campaign_id}/sessions/{session_id}/messages'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::getSessionMessages'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    session_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.session_messages_post:
+  path: '/api/campaign/{campaign_id}/sessions/{session_id}/messages'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::postSessionMessage'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    session_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_narrative:
+  path: '/api/campaign/{campaign_id}/narrative/{character_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::getCharacterNarrative'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.party_chat_get:
+  path: '/api/campaign/{campaign_id}/party-chat'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::getPartyChat'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.party_chat_post:
+  path: '/api/campaign/{campaign_id}/party-chat'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::postPartyChat'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm_private_get:
+  path: '/api/campaign/{campaign_id}/gm-private/{character_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::getGmPrivate'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm_private_post:
+  path: '/api/campaign/{campaign_id}/gm-private/{character_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::postGmPrivate'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.system_log:
+  path: '/api/campaign/{campaign_id}/system-log'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::getSystemLog'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.narration_flush:
+  path: '/api/campaign/{campaign_id}/narration/flush'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\ChatSessionController::flushNarration'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_summary:
+  path: '/api/character/{character_id}/summary'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::getSummary'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_feat_effects:
+  path: '/api/character/{character_id}/feat-effects'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FeatEffectController::getCharacterFeatEffects'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_feat_todo_review:
+  path: '/api/character/{character_id}/feat-effects/todo-review'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FeatEffectController::getCharacterFeatTodoReview'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_state_update:
+  path: '/api/character/{character_id}/update'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::updateState'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_cast_spell:
+  path: '/api/character/{character_id}/cast-spell'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::castSpell'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_hit_points:
+  path: '/api/character/{character_id}/hp'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::updateHitPoints'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_add_condition:
+  path: '/api/character/{character_id}/conditions'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::addCondition'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_remove_condition:
+  path: '/api/character/{character_id}/conditions/{condition_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::removeCondition'
+  methods: [DELETE]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_inventory:
+  path: '/api/character/{character_id}/inventory'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::updateInventory'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+# ==============================================================================
+# INVENTORY MANAGEMENT API ENDPOINTS
+# ==============================================================================
+# Comprehensive inventory management and transfer system for managing items
+# between characters and containers.
+
+dungeoncrawler_content.api.inventory_get:
+  path: '/api/inventory/{owner_type}/{owner_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\InventoryManagementController::getInventory'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    owner_type: 'character|container'
+    owner_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.inventory_add_item:
+  path: '/api/inventory/{owner_type}/{owner_id}/item'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\InventoryManagementController::addItem'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    owner_type: 'character|container'
+    owner_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.inventory_remove_item:
+  path: '/api/inventory/{owner_type}/{owner_id}/item/{item_instance_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\InventoryManagementController::removeItem'
+  methods: [DELETE]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    owner_type: 'character|container'
+    owner_id: '[A-Za-z0-9_-]+'
+    item_instance_id: '[A-Za-z0-9_.]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.inventory_sell_item:
+  path: '/api/inventory/{owner_type}/{owner_id}/item/{item_instance_id}/sell'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\InventoryManagementController::sellItem'
+  methods: [POST]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _csrf_request_header_mode: TRUE
+    owner_type: 'character|container'
+    owner_id: '[A-Za-z0-9_-]+'
+    item_instance_id: '[A-Za-z0-9_.]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.inventory_transfer:
+  path: '/api/inventory/transfer'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\InventoryManagementController::transferItems'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.inventory_change_location:
+  path: '/api/inventory/{owner_type}/{owner_id}/item/{item_instance_id}/location'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\InventoryManagementController::changeItemLocation'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    owner_type: 'character|container'
+    owner_id: '[A-Za-z0-9_-]+'
+    item_instance_id: '[A-Za-z0-9_.]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.inventory_capacity:
+  path: '/api/inventory/{owner_type}/{owner_id}/capacity'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\InventoryManagementController::getCapacity'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    owner_type: 'character|container'
+    owner_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_experience:
+  path: '/api/character/{character_id}/experience'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::gainExperience'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_level_up:
+  path: '/api/character/{character_id}/level-up'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::triggerLevelUp'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_level_up_status:
+  path: '/api/character/{character_id}/level-up/status'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::getStatus'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_level_up_ability_boosts:
+  path: '/api/character/{character_id}/level-up/ability-boosts'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::submitAbilityBoosts'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_level_up_skill_increase:
+  path: '/api/character/{character_id}/level-up/skill-increase'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::submitSkillIncrease'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_level_up_feat:
+  path: '/api/character/{character_id}/level-up/feat'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::submitFeat'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_level_up_feats:
+  path: '/api/character/{character_id}/level-up/feats'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::getEligibleFeats'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_level_up_admin_force:
+  path: '/api/character/{character_id}/level-up/admin-force'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::adminForce'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'administer dungeoncrawler content'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_level_up_admin_reset:
+  path: '/api/character/{character_id}/level-up/admin-reset'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::adminReset'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'administer dungeoncrawler content'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_milestone:
+  path: '/api/character/{character_id}/milestone'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterLevelingController::setMilestone'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'administer dungeoncrawler content'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_start_turn:
+  path: '/api/character/{character_id}/start-turn'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterStateController::startTurn'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Combat Encounter API Endpoints (Hexmap Integration)
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.combat_state:
+  path: '/api/combat/state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::currentState'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_start:
+  path: '/api/combat/start'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::start'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_end_turn:
+  path: '/api/combat/end-turn'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::endTurn'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_end:
+  path: '/api/combat/end'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::end'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_attack:
+  path: '/api/combat/attack'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::attack'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_action:
+  path: '/api/combat/action'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::action'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_get:
+  path: '/api/combat/get'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::get'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_recommendation_preview:
+  path: '/api/combat/recommendation-preview'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EncounterAiPreviewController::preview'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'administer dungeoncrawler content'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Generated Image API Endpoints
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.image_get:
+  path: '/api/image/{image_uuid}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GeneratedImageApiController::getImage'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    image_uuid: '[A-Za-z0-9-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.images_object:
+  path: '/api/images/object/{table_name}/{object_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GeneratedImageApiController::getObjectImages'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    table_name: '[A-Za-z0-9_]+'
+    object_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_images:
+  path: '/api/campaign/{campaign_id}/images'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GeneratedImageApiController::getCampaignImages'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.sprites_resolve:
+  path: '/api/sprites/resolve'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GeneratedImageApiController::resolveSprites'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.sprite_get:
+  path: '/api/sprite/{sprite_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GeneratedImageApiController::getSprite'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    sprite_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_set:
+  path: '/api/combat/set'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatEncounterApiController::set'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+# ==============================================================================
+# TESTING ROUTES
+# ==============================================================================
+# Note: These routes should be restricted in production environments
+
+dungeoncrawler_content.testing:
+  path: '/testing'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\TestingPageController::index'
+    _title: 'Testing Page'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+# ------------------------------------------------------------------------------
+# Campaign Entity Lifecycle API Endpoints
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.entity_spawn:
+  path: '/api/campaign/{campaign_id}/entity/spawn'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignEntityController::spawnEntity'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.entity_move:
+  path: '/api/campaign/{campaign_id}/entity/{instance_id}/move'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignEntityController::moveEntity'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    instance_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.entity_despawn:
+  path: '/api/campaign/{campaign_id}/entity/{instance_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignEntityController::despawnEntity'
+  methods: [DELETE]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    instance_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.entities_list:
+  path: '/api/campaign/{campaign_id}/entities'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignEntityController::listEntities'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# ==============================================================================
+# DUNGEON GENERATION API ENDPOINTS
+# ==============================================================================
+# Procedural dungeon generation API endpoints for creating and managing
+# dynamically generated dungeons with rooms, encounters, and entities.
+
+# Generate complete dungeon with multiple levels
+dungeoncrawler_content.api.generate_dungeon:
+  path: '/api/campaign/{campaign_id}/dungeons/generate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonGeneratorController::generateDungeon'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Get complete dungeon with all levels
+dungeoncrawler_content.api.get_dungeon:
+  path: '/api/campaign/{campaign_id}/dungeons/{dungeon_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonGeneratorController::getDungeon'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    dungeon_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+# Get single dungeon level
+dungeoncrawler_content.api.get_dungeon_level:
+  path: '/api/campaign/{campaign_id}/dungeons/{dungeon_id}/levels/{depth}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonGeneratorController::getDungeonLevel'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    dungeon_id: '[A-Za-z0-9_-]+'
+    depth: '\d+'
+  options:
+    _format: json
+
+# Extend dungeon with new level
+dungeoncrawler_content.api.add_dungeon_level:
+  path: '/api/campaign/{campaign_id}/dungeons/{dungeon_id}/levels'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonGeneratorController::addDungeonLevel'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    dungeon_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+# ==============================================================================
+# ROOM GENERATION API ENDPOINTS
+# ==============================================================================
+# Individual room generation for dungeon levels.
+
+# Generate new room in dungeon level
+dungeoncrawler_content.api.generate_room:
+  path: '/api/campaign/{campaign_id}/dungeons/{dungeon_id}/levels/{depth}/rooms'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomGeneratorController::createRoom'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    dungeon_id: '[A-Za-z0-9_-]+'
+    depth: '\d+'
+  options:
+    _format: json
+
+# Get room details
+dungeoncrawler_content.api.get_room:
+  path: '/api/campaign/{campaign_id}/dungeons/{dungeon_id}/rooms/{room_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomGeneratorController::getRoom'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    dungeon_id: '[A-Za-z0-9_-]+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+# Regenerate room (admin only)
+dungeoncrawler_content.api.regenerate_room:
+  path: '/api/campaign/{campaign_id}/dungeons/{dungeon_id}/rooms/{room_id}/regenerate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomGeneratorController::regenerateRoom'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'administer dungeoncrawler content'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    dungeon_id: '[A-Za-z0-9_-]+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+# ==============================================================================
+# QUEST SYSTEM API ENDPOINTS
+# ==============================================================================
+# Quest generation, tracking, and reward management.
+
+# Generate a quest from a template
+dungeoncrawler_content.api.quest_generate:
+  path: '/api/campaign/{campaign_id}/quests/generate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestGeneratorController::generate'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Generate multiple quests for a location
+dungeoncrawler_content.api.quest_generate_for_location:
+  path: '/api/campaign/{campaign_id}/quests/generate-for-location'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestGeneratorController::generateForLocation'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Get available quests for campaign
+dungeoncrawler_content.api.quest_list_available:
+  path: '/api/campaign/{campaign_id}/quests/available'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::getAvailableQuests'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Start a quest
+dungeoncrawler_content.api.quest_start:
+  path: '/api/campaign/{campaign_id}/quests/{quest_id}/start'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::startQuest'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    quest_id: '[a-z0-9_-]+'
+  options:
+    _format: json
+
+# Update quest progress
+dungeoncrawler_content.api.quest_update_progress:
+  path: '/api/campaign/{campaign_id}/quests/{quest_id}/progress'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::updateProgress'
+  methods: [PUT]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    quest_id: '[a-z0-9_-]+'
+  options:
+    _format: json
+
+# Complete a quest
+dungeoncrawler_content.api.quest_complete:
+  path: '/api/campaign/{campaign_id}/quests/{quest_id}/complete'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::completeQuest'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    quest_id: '[a-z0-9_-]+'
+  options:
+    _format: json
+
+# Get quest journal for character
+dungeoncrawler_content.api.quest_journal:
+  path: '/api/campaign/{campaign_id}/character/{character_id}/quest-journal'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::getQuestJournal'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    character_id: '[a-z0-9_-]+'
+  options:
+    _format: json
+
+# Get quest journal for campaign
+dungeoncrawler_content.api.quest_journal_campaign:
+  path: '/api/campaign/{campaign_id}/quest-journal'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::getCampaignQuestJournal'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Ingest a quest touchpoint event.
+dungeoncrawler_content.api.quest_touchpoint_ingest:
+  path: '/api/campaign/{campaign_id}/quest-touchpoints'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::ingestTouchpoint'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# List pending quest touchpoint confirmations.
+dungeoncrawler_content.api.quest_touchpoint_confirmations_list:
+  path: '/api/campaign/{campaign_id}/quest-confirmations'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::listTouchpointConfirmations'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# Resolve a pending touchpoint confirmation.
+dungeoncrawler_content.api.quest_touchpoint_confirmations_resolve:
+  path: '/api/campaign/{campaign_id}/quest-confirmations/{confirmation_id}/resolve'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestTrackerController::resolveTouchpointConfirmation'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    confirmation_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+# Claim quest rewards
+dungeoncrawler_content.api.quest_claim_rewards:
+  path: '/api/campaign/{campaign_id}/quests/{quest_id}/rewards/claim'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestRewardController::claimRewards'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    quest_id: '[a-z0-9_-]+'
+  options:
+    _format: json
+
+# Get reward summary for quest
+dungeoncrawler_content.api.quest_get_rewards:
+  path: '/api/campaign/{campaign_id}/quests/{quest_id}/rewards'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\QuestRewardController::getRewardSummary'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    quest_id: '[a-z0-9_-]+'
+  options:
+    _format: json
+
+# Ancestry API endpoints (dc-cr-ancestry-system)
+dungeoncrawler_content.api.ancestries_list:
+  path: '/ancestries'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AncestryController::list'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.ancestry_detail:
+  path: '/ancestries/{id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AncestryController::detail'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    id: '[a-z0-9\-]+'
+  options:
+    _format: json
+
+# Background API endpoints (dc-cr-background-system)
+dungeoncrawler_content.api.backgrounds_list:
+  path: '/backgrounds'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\BackgroundController::list'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.background_detail:
+  path: '/backgrounds/{id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\BackgroundController::detail'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    id: '[a-z0-9_\-]+'
+  options:
+    _format: json
+
+# Character class API endpoints (dc-cr-character-class)
+dungeoncrawler_content.api.classes_list:
+  path: '/classes'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterClassController::list'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.class_detail:
+  path: '/classes/{id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterClassController::detail'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    id: '[a-z0-9_\-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.equipment_catalog:
+  path: '/equipment'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EquipmentCatalogController::catalog'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.class_starting_equipment:
+  path: '/classes/{id}/starting-equipment'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EquipmentCatalogController::startingEquipment'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    id: '[a-z0-9_\-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.character_skills:
+  path: '/character/{character_id}/skills'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterApiController::getCharacterSkills'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.dice_roll:
+  path: '/dice/roll'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DiceRollController::roll'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+  options:
+    _format: json
+
+dungeoncrawler_content.api.rules_check:
+  path: '/rules/check'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RulesCheckController::check'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+  options:
+    _format: json
+
+# ==============================================================================
+# Game Coordinator API — unified game loop entry points
+# ==============================================================================
+
+dungeoncrawler_content.api.game_action:
+  path: '/api/game/{campaign_id}/action'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GameCoordinatorController::action'
+  methods: [POST]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _csrf_request_header_mode: TRUE
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.game_state:
+  path: '/api/game/{campaign_id}/state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GameCoordinatorController::getState'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.game_transition:
+  path: '/api/game/{campaign_id}/transition'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GameCoordinatorController::transition'
+  methods: [POST]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    _csrf_request_header_mode: TRUE
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.game_events:
+  path: '/api/game/{campaign_id}/events'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GameCoordinatorController::events'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# ------------------------------------------------------------------------------
+# Combat API Controller — Encounter-Scoped Endpoints
+# Provides per-encounter HP, condition, initiative, participant, log, and stats
+# management endpoints. All require 'access dungeoncrawler characters' permission.
+# ------------------------------------------------------------------------------
+
+dungeoncrawler_content.api.combat_encounter_update_hp:
+  path: '/api/combat/{encounter_id}/participants/{participant_id}/hp'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::updateHP'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+    participant_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_temp_hp:
+  path: '/api/combat/{encounter_id}/participants/{participant_id}/temp-hp'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::applyTempHP'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+    participant_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_apply_condition:
+  path: '/api/combat/{encounter_id}/participants/{participant_id}/conditions'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::applyCondition'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+    participant_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_remove_condition:
+  path: '/api/combat/{encounter_id}/participants/{participant_id}/conditions/{condition_id}/remove'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::removeCondition'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+    participant_id: '\d+'
+    condition_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_list_conditions:
+  path: '/api/combat/{encounter_id}/participants/{participant_id}/conditions'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::listConditions'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+    participant_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_initiative:
+  path: '/api/combat/{encounter_id}/initiative'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::getInitiative'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_reroll_initiative:
+  path: '/api/combat/{encounter_id}/initiative/reroll'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::rerollInitiative'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_add_participant:
+  path: '/api/combat/{encounter_id}/participants'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::addParticipant'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_remove_participant:
+  path: '/api/combat/{encounter_id}/participants/{participant_id}/remove'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::removeParticipant'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+    participant_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_update_participant:
+  path: '/api/combat/{encounter_id}/participants/{participant_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::updateParticipant'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+    participant_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_log:
+  path: '/api/combat/{encounter_id}/log'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::getLog'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.combat_encounter_statistics:
+  path: '/api/combat/{encounter_id}/statistics'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CombatApiController::getStatistics'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    encounter_id: '\d+'
+  options:
+    _format: json
+
+# ==============================================================================
+# ROADMAP ROUTES
+# ==============================================================================
+
+dungeoncrawler_content.roadmap:
+  path: '/roadmap'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoadmapController::page'
+    _title: 'Implementation Roadmap'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
+dungeoncrawler_content.roadmap_status:
+  path: '/roadmap/requirement/{req_id}/status'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoadmapController::updateStatus'
+  methods: [POST]
+  requirements:
+    _permission: 'administer dungeoncrawler content'
+    _csrf_request_header_mode: 'TRUE'
+    req_id: '\d+'
+  options:
+    _format: json
+
+# ==============================================================================
+# DC TABLE API ROUTES (dc-cr-dc-rarity-spell-adjustment)
+# Read-only GET endpoints — no CSRF required; authenticated users only.
+# ==============================================================================
+
+dungeoncrawler_content.api.dc_simple:
+  path: '/api/dc/simple'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DcApiController::simpleDc'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.dc_level:
+  path: '/api/dc/level'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DcApiController::levelDc'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.dc_spell_level:
+  path: '/api/dc/spell-level'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DcApiController::spellLevelDc'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.dc_adjustment:
+  path: '/api/dc/adjustment'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DcApiController::dcAdjustment'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+# ---------------------------------------------------------------------------
+# Play Session API (dc-cr-session-structure)
+# ---------------------------------------------------------------------------
+
+dungeoncrawler_content.api.session_start:
+  path: '/api/sessions/start'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::startSession'
+    _title: 'Start Session'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.session_get:
+  path: '/api/sessions/{session_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::getSession'
+    _title: 'Get Session'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    session_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.session_end:
+  path: '/api/sessions/{session_id}/end'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::endSession'
+    _title: 'End Session'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    session_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_play_sessions:
+  path: '/api/campaign/{campaign_id}/play-sessions'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::listCampaignSessions'
+    _title: 'Campaign Play Sessions'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_latest_state:
+  path: '/api/campaign/{campaign_id}/play-sessions/latest-state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::getLatestState'
+    _title: 'Campaign Latest Character State'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_ai_context:
+  path: '/api/campaign/{campaign_id}/play-sessions/ai-context'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::getAiGmContext'
+    _title: 'Campaign AI GM Context'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_character_xp:
+  path: '/api/campaign/{campaign_id}/xp-total/{character_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::getCampaignCharacterXp'
+    _title: 'Campaign Character XP Total'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_invite:
+  path: '/api/campaign/{campaign_id}/invite'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\PlaySessionController::invitePlayer'
+    _title: 'Invite Player to Campaign'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.familiar_get:
+  path: '/api/character/{character_id}/familiar'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FamiliarController::getFamiliar'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.familiar_create:
+  path: '/api/character/{character_id}/familiar'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FamiliarController::createFamiliar'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.familiar_abilities:
+  path: '/api/character/{character_id}/familiar/abilities'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FamiliarController::getAvailableAbilities'
+  methods: [GET]
+  requirements:
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.familiar_daily_abilities:
+  path: '/api/character/{character_id}/familiar/daily-abilities'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FamiliarController::selectDailyAbilities'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.familiar_damage:
+  path: '/api/character/{character_id}/familiar/damage'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FamiliarController::applyDamage'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.familiar_replace:
+  path: '/api/character/{character_id}/familiar/replace'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FamiliarController::replaceFamiliar'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.familiar_touch_spell:
+  path: '/api/character/{character_id}/familiar/touch-spell'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FamiliarController::deliverTouchSpell'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.familiar_witch_spells:
+  path: '/api/character/{character_id}/familiar/witch-spells'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FamiliarController::storeWitchSpells'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _character_access: 'TRUE'
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.feat_catalog:
+  path: '/api/feats'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FeatCatalogController::catalog'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.focus_spell_catalog:
+  path: '/api/focus-spells'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\FocusSpellCatalogController::catalog'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+# Spell catalog (dc-cr-spells-ch07)
+dungeoncrawler_content.api.spell_catalog.list:
+  path: '/api/spells'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SpellCatalogController::list'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.spell_catalog.get:
+  path: '/api/spells/{spell_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SpellCatalogController::get'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.deity_catalog.list:
+  path: '/api/deities'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DeityController::list'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.deity_catalog.get:
+  path: '/api/deities/{deity_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DeityController::get'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+# ── GM Running Guide (dc-gmg-running-guide) ───────────────────────────────────
+
+dungeoncrawler_content.api.gm.reference.search:
+  path: '/api/gm/reference'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::searchReference'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.reference.upsert:
+  path: '/api/gm/reference'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::upsertReferenceEntry'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.reference.section:
+  path: '/api/gm/reference/section/{section}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getReferenceBySection'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.reference.get:
+  path: '/api/gm/reference/{id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getReferenceEntry'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.session_zero.get:
+  path: '/api/campaign/{campaign_id}/gm/session-zero'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getSessionZero'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.session_zero.set:
+  path: '/api/campaign/{campaign_id}/gm/session-zero'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::setSessionZero'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.dashboard.get:
+  path: '/api/campaign/{campaign_id}/gm/dashboard'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getDashboard'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.dashboard.refresh:
+  path: '/api/campaign/{campaign_id}/gm/dashboard/refresh'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::refreshDashboard'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.secret_check.reveal:
+  path: '/api/campaign/{campaign_id}/gm/secret-check/reveal'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::revealSecretCheck'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.rulings.list:
+  path: '/api/campaign/{campaign_id}/gm/rulings'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::listRulings'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.rulings.create:
+  path: '/api/campaign/{campaign_id}/gm/rulings'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::createRuling'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.rulings.review:
+  path: '/api/campaign/{campaign_id}/gm/rulings/{ruling_id}/review'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::reviewRuling'
+  methods: [PATCH]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+    ruling_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.safety.get:
+  path: '/api/campaign/{campaign_id}/gm/safety'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getSafety'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.safety.set:
+  path: '/api/campaign/{campaign_id}/gm/safety'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::setSafety'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.story_points.get:
+  path: '/api/campaign/{campaign_id}/gm/story-points/{player_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getStoryPoints'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+    player_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.story_points.award:
+  path: '/api/campaign/{campaign_id}/gm/story-points/{player_id}/award'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::awardStoryPoints'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+    player_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.story_points.spend:
+  path: '/api/campaign/{campaign_id}/gm/story-points/{player_id}/spend'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::spendStoryPoint'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+    player_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.story_points.reset:
+  path: '/api/campaign/{campaign_id}/gm/story-points/reset'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::resetStoryPoints'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.rarity.get:
+  path: '/api/campaign/{campaign_id}/gm/rarity'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getRarityAllowlist'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.rarity.set:
+  path: '/api/campaign/{campaign_id}/gm/rarity'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::setRarityAllowlist'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.rarity.evaluate:
+  path: '/api/campaign/{campaign_id}/gm/rarity/evaluate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::evaluateRarity'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.encounter_metadata.get:
+  path: '/api/campaign/{campaign_id}/gm/encounter/{encounter_id}/metadata'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getEncounterMetadata'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+    encounter_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.encounter_metadata.set:
+  path: '/api/campaign/{campaign_id}/gm/encounter/{encounter_id}/metadata'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::setEncounterMetadata'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+    encounter_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.adventure.scene:
+  path: '/api/campaign/{campaign_id}/gm/adventure/scene'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::recordSceneDesign'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.adventure.scene_summary:
+  path: '/api/campaign/{campaign_id}/gm/adventure/scene-summary'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getSceneTypeSummary'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.campaign_design.get:
+  path: '/api/campaign/{campaign_id}/gm/campaign-design'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::getCampaignDesign'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gm.campaign_design.set:
+  path: '/api/campaign/{campaign_id}/gm/campaign-design'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GmRunningGuideController::setCampaignDesign'
+  methods: [POST]
+  requirements:
+    _access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# ── dc-gmg-subsystems: Subsystem sessions ─────────────────────────────────
+
+dungeoncrawler_content.api.subsystem.initiate:
+  path: '/api/campaign/{campaign_id}/subsystems'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::initiateSubsystem'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'administer dungeoncrawler content'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.subsystem.list:
+  path: '/api/campaign/{campaign_id}/subsystems'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::listSubsystems'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.subsystem.active:
+  path: '/api/campaign/{campaign_id}/subsystems/active'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::listActiveSubsystems'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.subsystem.get:
+  path: '/api/campaign/{campaign_id}/subsystems/{session_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::getSubsystem'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    session_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.subsystem.turn:
+  path: '/api/campaign/{campaign_id}/subsystems/{session_id}/turn'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::takeTurn'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    session_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.subsystem.win_condition:
+  path: '/api/campaign/{campaign_id}/subsystems/{session_id}/win-condition'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::checkWinCondition'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    session_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.subsystem.fail_condition:
+  path: '/api/campaign/{campaign_id}/subsystems/{session_id}/fail-condition'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::checkFailCondition'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+    session_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.subsystem.resolve:
+  path: '/api/campaign/{campaign_id}/subsystems/{session_id}/resolve'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::resolveSubsystem'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'administer dungeoncrawler content'
+    campaign_id: '\d+'
+    session_id: '\d+'
+  options:
+    _format: json
+
+# ── dc-gmg-subsystems: Variant rules (campaign-scoped) ─────────────────────
+
+dungeoncrawler_content.api.variant_rules.get:
+  path: '/api/campaign/{campaign_id}/variant-rules'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::getVariantRules'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.variant_rules.set:
+  path: '/api/campaign/{campaign_id}/variant-rules/{rule}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::setVariantRule'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _permission: 'administer dungeoncrawler content'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.variant_rules.compatibility:
+  path: '/api/campaign/{campaign_id}/variant-rules/{rule}/compatibility'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::checkRuleCompatibility'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+# ── dc-gmg-subsystems: Variant rules (reference, no campaign scope) ─────────
+
+dungeoncrawler_content.api.variant_rules.abp.level:
+  path: '/api/variant-rules/abp/{level}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::getAbpBonuses'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    level: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.variant_rules.abp.table:
+  path: '/api/variant-rules/abp-table'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::getAbpTable'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.variant_rules.pwl.rank:
+  path: '/api/variant-rules/pwl/{rank}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::getPwlBonus'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.variant_rules.pwl.table:
+  path: '/api/variant-rules/pwl-table'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::getPwlTable'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.variant_rules.free_archetype.schedule:
+  path: '/api/variant-rules/free-archetype/schedule'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::getFreeArchetypeSchedule'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.variant_rules.ancestry_paragon.schedule:
+  path: '/api/variant-rules/ancestry-paragon/schedule'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SubsystemController::getAncestryParagonSchedule'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+  options:
+    _format: json
+
+# Creature catalog (dc-b2-bestiary2)
+# List and single-get are public read endpoints; import/override are GM-only.
+dungeoncrawler_content.api.creature_catalog.list:
+  path: '/api/creatures'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CreatureCatalogController::list'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.creature_catalog.get:
+  path: '/api/creatures/{creature_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CreatureCatalogController::get'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.creature_catalog.import:
+  path: '/api/creatures/import'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CreatureCatalogController::import'
+  methods: [POST]
+  requirements:
+    _campaign_gm_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+  options:
+    _format: json
+
+dungeoncrawler_content.api.creature_catalog.override:
+  path: '/api/creatures/{creature_id}/override'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CreatureCatalogController::override'
+  methods: [POST]
+  requirements:
+    _campaign_gm_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+  options:
+    _format: json
+
+# =============================================================================
+# Guns and Gears — GunGearsController routes
+# =============================================================================
+
+dungeoncrawler_content.api.gng.class_subtype:
+  path: '/api/character/{character_id}/class-subtype'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GunGearsController::selectClassSubtype'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gng.firearm_reload:
+  path: '/api/character/{character_id}/firearm/{weapon_id}/reload'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GunGearsController::firearmReload'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gng.firearm_fire:
+  path: '/api/character/{character_id}/firearm/{weapon_id}/fire'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GunGearsController::firearmFire'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gng.firearm_clear_jam:
+  path: '/api/character/{character_id}/firearm/{weapon_id}/clear-jam'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GunGearsController::firearmClearJam'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gng.firearm_mode:
+  path: '/api/character/{character_id}/firearm/{weapon_id}/mode'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GunGearsController::firearmSwitchMode'
+  methods: [PATCH]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gng.construct_companion:
+  path: '/api/character/{character_id}/construct-companion'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GunGearsController::constructCompanion'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gng.overdrive:
+  path: '/api/character/{character_id}/overdrive'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GunGearsController::overdrive'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.gng.unstable_action:
+  path: '/api/character/{character_id}/unstable-action'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GunGearsController::unstableAction'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+# ── Secrets of Magic (SOM) routes ────────────────────────────────────────────
+
+dungeoncrawler_content.api.som.class_subtype:
+  path: '/api/character/{character_id}/som/class-subtype'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SomController::selectSomSubtype'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.som.spellstrike:
+  path: '/api/character/{character_id}/spellstrike'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SomController::spellstrike'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.som.spellstrike_recharge:
+  path: '/api/character/{character_id}/spellstrike/recharge'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SomController::rechargeSpellstrike'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.som.arcane_cascade:
+  path: '/api/character/{character_id}/arcane-cascade'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SomController::arcaneCascade'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.som.eidolon:
+  path: '/api/character/{character_id}/eidolon'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SomController::createOrUpdateEidolon'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.som.eidolon_dismiss:
+  path: '/api/character/{character_id}/eidolon/dismiss'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SomController::dismissEidolon'
+  methods: [PATCH]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.som.act_together:
+  path: '/api/character/{character_id}/act-together'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\SomController::actTogether'
+  methods: [POST]
+  requirements:
+    _character_access: 'TRUE'
+    _csrf_request_header_mode: TRUE
+    character_id: '\d+'
+  options:
+    _format: json

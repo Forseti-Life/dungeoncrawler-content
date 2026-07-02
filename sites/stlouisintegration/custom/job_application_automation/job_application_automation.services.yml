@@ -1,0 +1,22 @@
+services:
+  job_application_automation.job_seeker_service:
+    class: Drupal\job_application_automation\Service\JobSeekerService
+    arguments: ['@database', '@current_user']
+  
+  job_application_automation.user_profile_service:
+    class: Drupal\job_application_automation\Service\UserProfileService
+    arguments: []
+  
+  job_application_automation.abbvie_job_scraping_service:
+    class: Drupal\job_application_automation\Service\AbbVieJobScrapingService
+    arguments: ['@http_client', '@logger.factory', '@config.factory']
+  
+  job_application_automation.resume_tailoring_service:
+    class: Drupal\job_application_automation\Service\ResumeTailoringService
+    arguments: ['@logger.factory']
+  
+  job_application_automation.commands:
+    class: Drupal\job_application_automation\Commands\JobApplicationAutomationCommands
+    arguments: ['@entity_type.manager', '@logger.factory']
+    tags:
+      - { name: drush.command }

@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "d1f4a8c2-6b3e-4c9d-a7e5-8f0b2d6e4a1c",
+  "name": "Clockwork Soldier",
+  "level": 3,
+  "creature_type": "construct",
+  "traits": [
+    "clockwork",
+    "construct",
+    "mindless"
+  ],
+  "alignment": "N",
+  "rarity": "uncommon",
+  "size": "medium",
+  "hex_footprint": 1,
+  "family": "clockwork",
+  "bestiary_source": "b2",
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": { "score": 18, "modifier": 4 },
+      "dexterity": { "score": 14, "modifier": 2 },
+      "constitution": { "score": 16, "modifier": 3 },
+      "intelligence": { "score": 1, "modifier": -5 },
+      "wisdom": { "score": 10, "modifier": 0 },
+      "charisma": { "score": 1, "modifier": -5 }
+    },
+    "hp": {
+      "max": 45,
+      "current": 45,
+      "temporary": 0,
+      "hardness": 5,
+      "immunities": ["bleed", "death effects", "disease", "doomed", "drained", "fatigued", "healing", "mental", "necromancy", "nonlethal attacks", "paralyzed", "poison", "sickened", "unconscious"],
+      "resistances": [],
+      "weaknesses": [{ "type": "electricity", "value": 5 }, { "type": "orichalcum", "value": 5 }]
+    },
+    "ac": 20,
+    "saves": {
+      "fortitude": { "modifier": 10 },
+      "reflex": { "modifier": 7 },
+      "will": { "modifier": 5 }
+    },
+    "perception": {
+      "modifier": 5,
+      "senses": ["darkvision 60ft"]
+    },
+    "speed": {
+      "land": 25,
+      "fly": null,
+      "swim": null,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Athletics": { "modifier": 11, "proficiency": "trained" }
+    },
+    "languages": [],
+    "attacks": [
+      {
+        "name": "Halberd",
+        "type": "melee",
+        "attack_bonus": 13,
+        "damage": "1d10+4",
+        "damage_type": "slashing or piercing",
+        "traits": ["reach 10ft", "versatile P"]
+      },
+      {
+        "name": "Glaive",
+        "type": "melee",
+        "attack_bonus": 11,
+        "damage": "1d8+4",
+        "damage_type": "slashing",
+        "traits": ["deadly d8", "reach 15ft"]
+      }
+    ],
+    "special_abilities": [
+      {
+        "name": "Winding",
+        "description": "A clockwork soldier that is not wound loses its reactions and can take only a single action per turn. A wind-up key can be used to fully wind the soldier (1 minute)."
+      },
+      {
+        "name": "Efficient Use",
+        "action_cost": 1,
+        "description": "The clockwork soldier uses a weapon requiring two hands as if it had the free-hand trait, freeing one hand for other purposes."
+      }
+    ]
+  },
+  "encounter_themes": ["dungeon", "city", "laboratory"],
+  "tactical_role": "soldier"
+}

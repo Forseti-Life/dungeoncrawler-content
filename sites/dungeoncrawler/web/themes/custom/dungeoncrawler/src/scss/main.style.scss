@@ -1,0 +1,32 @@
+// Bootstrap
+// -----------------------------------------------------------------------------
+@import 'init';
+@import 'bootstrap';
+
+// Include any custom stylesheets here
+// -----------------------------------------------------------------------------
+@import "base/elements";
+@import "base/functions";
+@import "base/helpers";
+@import "base/typography";
+@import "base/utilities";
+@import "base/contrast-contract";
+
+// Custom components
+@import "components/navbar";
+@import "components/navbar-right-region";
+@import "components/animated-header";
+@import "components/home-page";
+@import "components/breadcrumb";
+@import "components/footer";
+@import "components/footer-enhanced";
+@import "components/footer-block";
+@import "components/user_profile";
+@import "components/agent-power";
+@import "components/dungeoncrawler-cards";
+@import "components/character-creation";
+@import "components/safety-calculator";
+@import "components/ai-chat";
+
+// Legacy section styles for map and event interfaces
+@import "safety-community";

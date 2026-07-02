@@ -1,0 +1,34 @@
+dashboard:
+  version: 1.x
+  css:
+    theme:
+      css/dashboard.css: {}
+  js:
+    js/dead-value-actions.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
+queue-management:
+  version: 1.x
+  css:
+    theme:
+      css/queue-management.css: {}
+  js:
+    js/queue-management.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
+import-open-issues-reconcile:
+  version: 1.x
+  css:
+    theme:
+      css/dashboard.css: {}
+      css/queue-management.css: {}
+      css/import-open-issues.css: {}
+  js:
+    js/import-open-issues-reconcile.js: {}
+  dependencies:
+    - core/drupal
+    - core/once

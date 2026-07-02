@@ -1,0 +1,298 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/character_options_step1.json",
+  "title": "Character Creation Step 1 Options - Name & Concept",
+  "description": "Available options and requirements for Step 1 of PF2e character creation: choosing a name and concept",
+  "type": "object",
+  "$defs": {
+    "validationRule": {
+      "type": "object",
+      "description": "Validation constraints for a field",
+      "properties": {
+        "min_length": {
+          "type": "integer",
+          "description": "Minimum character length"
+        },
+        "max_length": {
+          "type": "integer",
+          "description": "Maximum character length"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern for validation"
+        },
+        "error_messages": {
+          "type": "object",
+          "description": "Error messages for validation failures",
+          "properties": {
+            "required": {
+              "type": "string",
+              "description": "Message when required field is empty"
+            },
+            "min_length": {
+              "type": "string",
+              "description": "Message when input is too short"
+            },
+            "max_length": {
+              "type": "string",
+              "description": "Message when input is too long"
+            },
+            "pattern": {
+              "type": "string",
+              "description": "Message when pattern validation fails"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["step", "step_name", "step_description", "fields", "validation", "navigation", "tips"],
+  "properties": {
+    "step": {
+      "type": "integer",
+      "const": 1,
+      "description": "Step number in character creation process"
+    },
+    "step_name": {
+      "type": "string",
+      "const": "Legacy Name & Concept",
+      "description": "Display name for this step"
+    },
+    "step_description": {
+      "type": "string",
+      "const": "Start your long-term story by naming your character and defining the role they will grow into across campaigns.",
+      "description": "Instructions displayed to the player"
+    },
+    "fields": {
+      "type": "object",
+      "description": "Form fields available in this step",
+      "required": ["name", "concept"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "object",
+          "description": "Character name input field",
+          "required": ["field_type", "label", "required", "validation"],
+          "additionalProperties": false,
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "enum": ["text"],
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "default": "Legacy Character Name",
+              "description": "Field label displayed to user"
+            },
+            "placeholder": {
+              "type": "string",
+              "default": "Enter the name you'll want in your roster long-term",
+              "description": "Placeholder text in input field"
+            },
+            "help_text": {
+              "type": "string",
+              "default": "Choose a name that supports long-term campaign identity and is easy for other players to remember.",
+              "description": "Additional guidance shown below field"
+            },
+            "required": {
+              "type": "boolean",
+              "const": true,
+              "description": "Whether this field must be filled"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for character name input",
+              "properties": {
+                "min_length": {
+                  "type": "integer",
+                  "default": 2,
+                  "description": "Minimum character length"
+                },
+                "max_length": {
+                  "type": "integer",
+                  "default": 100,
+                  "description": "Maximum character length"
+                },
+                "pattern": {
+                  "type": "string",
+                  "default": "^[A-Za-z][A-Za-z ]*$",
+                  "description": "Regex pattern for valid names"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "description": "Error messages for validation failures",
+                  "properties": {
+                    "required": {
+                      "type": "string",
+                      "default": "Character name is required."
+                    },
+                    "min_length": {
+                      "type": "string",
+                      "default": "Name must be at least 2 characters long."
+                    },
+                    "max_length": {
+                      "type": "string",
+                      "default": "Name cannot exceed 100 characters."
+                    },
+                    "pattern": {
+                      "type": "string",
+                      "default": "Name must start with a letter and contain only letters, spaces, hyphens, and apostrophes."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "concept": {
+          "type": "object",
+          "description": "Character concept textarea field",
+          "required": ["field_type", "label", "required"],
+          "additionalProperties": false,
+          "properties": {
+            "field_type": {
+              "type": "string",
+              "enum": ["textarea"],
+              "description": "HTML input type"
+            },
+            "label": {
+              "type": "string",
+              "default": "Legacy Character Concept",
+              "description": "Field label displayed to user"
+            },
+            "placeholder": {
+              "type": "string",
+              "default": "Describe the role this character will fill across a long campaign...",
+              "description": "Placeholder text in textarea"
+            },
+            "help_text": {
+              "type": "string",
+              "default": "Define motivation, role, and tone now so later choices create a coherent long-term arc.",
+              "description": "Additional guidance shown below field"
+            },
+            "required": {
+              "type": "boolean",
+              "const": false,
+              "description": "Concept is optional but recommended"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation rules for concept textarea",
+              "properties": {
+                "max_length": {
+                  "type": "integer",
+                  "default": 500,
+                  "description": "Maximum character length"
+                },
+                "error_messages": {
+                  "type": "object",
+                  "description": "Error messages for validation failures",
+                  "properties": {
+                    "max_length": {
+                      "type": "string",
+                      "default": "Concept cannot exceed 500 characters."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "suggestions": {
+              "type": "array",
+              "description": "Example concepts to inspire players",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "default": [
+                "A battle-scarred mercenary seeking redemption for past mistakes",
+                "An exiled noble with a secret magical heritage",
+                "A street urchin who discovered they have a gift for arcane magic",
+                "A devoted temple guardian protecting ancient relics",
+                "A wandering performer with a mysterious past",
+                "A monster hunter tracking the creature that destroyed their village",
+                "A scholar uncovering forbidden knowledge in ancient ruins",
+                "A folk hero rising from humble beginnings to defend the oppressed"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "description": "Step completion validation rules",
+      "properties": {
+        "step_complete": {
+          "type": "object",
+          "description": "Rules for determining step completion",
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": ["name"],
+              "description": "Fields that must be filled to proceed"
+            },
+            "error_message": {
+              "type": "string",
+              "default": "Please enter a character name to continue.",
+              "description": "Message shown when validation fails"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "navigation": {
+      "type": "object",
+      "description": "Navigation rules for this step",
+      "properties": {
+        "previous_step": {
+          "type": "null",
+          "const": null,
+          "description": "No previous step - this is the first step"
+        },
+        "next_step": {
+          "type": "integer",
+          "const": 2,
+          "description": "Step to navigate to on completion"
+        },
+        "can_go_back": {
+          "type": "boolean",
+          "const": false,
+          "description": "Cannot go back from first step"
+        },
+        "can_skip": {
+          "type": "boolean",
+          "const": false,
+          "description": "Step cannot be skipped"
+        }
+      },
+      "required": ["previous_step", "next_step", "can_go_back", "can_skip"],
+      "additionalProperties": false
+    },
+    "tips": {
+      "type": "array",
+      "description": "Helpful tips for new players",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "default": [
+        "Pick a name that you can imagine seeing in your roster for a long time, not just one quick run.",
+        "Write a concept that supports repeat campaign sessions: role in party, motivations, and growth direction.",
+        "A clear concept now makes later choices (ancestry, background, class, and gear) feel coherent and intentional."
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,14 @@
+uuid: b747d202-904f-4c08-8ae6-f70627dc4426
+langcode: en
+status: true
+dependencies:
+  config:
+    - user.role.dc_playwright_player
+  module:
+    - user
+id: user_add_role_action.dc_playwright_player
+label: 'Add the DC Playwright Player role to the selected user(s)'
+type: user
+plugin: user_add_role_action
+configuration:
+  rid: dc_playwright_player

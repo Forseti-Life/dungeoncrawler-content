@@ -1,0 +1,528 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the Job Hunter module.
+ * 
+ * DATA PRESERVATION POLICY:
+ * This module preserves all custom tables during uninstallation.
+ * Only module configuration is removed during uninstall.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function job_hunter_schema() {
+  // Custom tables created in hook_install() to prevent auto-deletion
+  return [];
+}
+
+/**
+ * Implements hook_requirements().
+ */
+function job_hunter_requirements($phase) {
+  $requirements = [];
+  
+  if ($phase === 'uninstall') {
+    $requirements['job_hunter_data_preservation'] = [
+      'title' => t('Job Hunter - Data Preservation'),
+      'value' => t('All custom tables will be preserved'),
+      'description' => t('Custom database tables will NOT be deleted during uninstall to prevent data loss. Manual cleanup available via database tools if needed.'),
+      'severity' => REQUIREMENT_INFO,
+    ];
+  }
+  
+  return $requirements;
+}
+
+/**
+ * Implements hook_install().
+ */
+function job_hunter_install() {
+  $messenger = \Drupal::messenger();
+  $logger = \Drupal::logger('job_hunter');
+  
+  try {
+    $logger->info('Installing Job Hunter module...');
+    
+    // Create all custom tables
+    _job_hunter_create_companies_table();
+    _job_hunter_create_job_requirements_table();
+    _job_hunter_create_job_seeker_table();
+    _job_hunter_create_job_history_table();
+    _job_hunter_create_education_history_table();
+    _job_hunter_create_resume_parsed_data_table();
+    _job_hunter_create_job_seeker_resumes_table();
+    _job_hunter_create_tailored_resumes_table();
+    
+    $messenger->addMessage(t('Job Hunter module installed successfully. Custom database tables created.'));
+    $logger->info('Job Hunter module installation completed.');
+    
+  }
+  catch (\Exception $e) {
+    $messenger->addError(t('Error installing Job Hunter module: @error', ['@error' => $e->getMessage()]));
+    $logger->error('Installation error: @error', ['@error' => $e->getMessage()]);
+    throw $e;
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function job_hunter_uninstall() {
+  $messenger = \Drupal::messenger();
+  $logger = \Drupal::logger('job_hunter');
+  
+  try {
+    $logger->info('Uninstalling Job Hunter module...');
+    
+    // Only remove module configuration - preserve all tables and data
+    \Drupal::configFactory()->getEditable('job_hunter.settings')->delete();
+    
+    $messenger->addStatus(t('Job Hunter module uninstalled. All custom tables and data preserved.'));
+    $logger->info('Job Hunter module uninstalled - data preserved.');
+    
+  }
+  catch (\Exception $e) {
+    $messenger->addError(t('Error uninstalling Job Hunter module: @error', ['@error' => $e->getMessage()]));
+    $logger->error('Uninstallation error: @error', ['@error' => $e->getMessage()]);
+  }
+}
+
+/**
+ * Create job_hunter_companies table.
+ */
+function _job_hunter_create_companies_table() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('job_hunter_companies')) {
+    return;
+  }
+  
+  $table_schema = [
+    'description' => 'Target companies for job hunting.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
+      'description' => ['type' => 'text', 'size' => 'big', 'description' => 'Company description'],
+      'website' => ['type' => 'varchar', 'length' => 512],
+      'careers_page_url' => ['type' => 'varchar', 'length' => 512],
+      'industry' => ['type' => 'varchar', 'length' => 100],
+      'location' => ['type' => 'varchar', 'length' => 255],
+      'active' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1],
+      'notes' => ['type' => 'text', 'size' => 'big'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => ['active' => ['active'], 'name' => ['name']],
+  ];
+  
+  $schema->createTable('job_hunter_companies', $table_schema);
+}
+
+/**
+ * Create job_hunter_job_requirements table.
+ */
+function _job_hunter_create_job_requirements_table() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('job_hunter_job_requirements')) {
+    return;
+  }
+  
+  $table_schema = [
+    'description' => 'Job requirements and postings.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'company_id' => ['type' => 'int'],
+      'job_title' => ['type' => 'varchar', 'length' => 255],
+      'job_description' => ['type' => 'text', 'size' => 'big'],
+      'requirements' => ['type' => 'text', 'size' => 'big'],
+      'salary_range' => ['type' => 'varchar', 'length' => 100],
+      'location' => ['type' => 'varchar', 'length' => 255],
+      'remote_option' => ['type' => 'varchar', 'length' => 50],
+      'employment_type' => ['type' => 'varchar', 'length' => 50],
+      'job_url' => ['type' => 'varchar', 'length' => 512],
+      'status' => ['type' => 'varchar', 'length' => 50, 'not null' => TRUE, 'default' => 'active'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      // JSON storage fields for job tailoring workflow
+      'raw_posting_text' => ['type' => 'text', 'size' => 'big', 'description' => 'Original pasted job posting text'],
+      'extracted_json' => ['type' => 'text', 'size' => 'big', 'description' => 'AI-extracted structured job data'],
+      'skills_required_json' => ['type' => 'text', 'size' => 'big', 'description' => 'Must-have and nice-to-have skills'],
+      'keywords_json' => ['type' => 'text', 'size' => 'big', 'description' => 'Important keywords from posting'],
+      'source_platform' => ['type' => 'varchar', 'length' => 100, 'description' => 'linkedin, indeed, company_site, etc.'],
+      'ai_extraction_status' => ['type' => 'varchar', 'length' => 32, 'default' => 'pending', 'description' => 'pending, completed, failed'],
+    ],
+    'primary key' => ['id'],
+    'indexes' => ['company_id' => ['company_id'], 'status' => ['status']],
+  ];
+  
+  $schema->createTable('job_hunter_job_requirements', $table_schema);
+}
+
+/**
+ * Create jobhunter_job_seeker table.
+ */
+function _job_hunter_create_job_seeker_table() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('jobhunter_job_seeker')) {
+    return;
+  }
+  
+  $table_schema = [
+    'description' => 'Job seeker profiles.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'uid' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'professional_summary' => ['type' => 'text'],
+      'skills' => ['type' => 'text', 'size' => 'big'],
+      'experience_years' => ['type' => 'int'],
+      'education_level' => ['type' => 'varchar', 'length' => 50],
+      'certifications' => ['type' => 'text'],
+      'job_titles' => ['type' => 'text'],
+      'consolidated_profile_json' => ['type' => 'text', 'size' => 'big', 'description' => 'Merged JSON data from all resumes'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => ['uid' => ['uid']],
+  ];
+  
+  $schema->createTable('jobhunter_job_seeker', $table_schema);
+}
+
+/**
+ * Create jobhunter_job_history table.
+ */
+function _job_hunter_create_job_history_table() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('jobhunter_job_history')) {
+    return;
+  }
+  
+  $table_schema = [
+    'description' => 'Employment history.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'job_seeker_id' => ['type' => 'int', 'not null' => TRUE],
+      'company_name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
+      'job_title' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
+      'start_date' => ['type' => 'varchar', 'length' => 50],
+      'end_date' => ['type' => 'varchar', 'length' => 50],
+      'is_current' => ['type' => 'int', 'size' => 'tiny', 'default' => 0],
+      'description' => ['type' => 'text'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => ['job_seeker_id' => ['job_seeker_id']],
+  ];
+  
+  $schema->createTable('jobhunter_job_history', $table_schema);
+}
+
+/**
+ * Create jobhunter_education_history table.
+ */
+function _job_hunter_create_education_history_table() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('jobhunter_education_history')) {
+    return;
+  }
+  
+  $table_schema = [
+    'description' => 'Education history.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'job_seeker_id' => ['type' => 'int', 'not null' => TRUE],
+      'institution_name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
+      'degree' => ['type' => 'varchar', 'length' => 255],
+      'field_of_study' => ['type' => 'varchar', 'length' => 255],
+      'start_date' => ['type' => 'varchar', 'length' => 50],
+      'end_date' => ['type' => 'varchar', 'length' => 50],
+      'is_current' => ['type' => 'int', 'size' => 'tiny', 'default' => 0],
+      'gpa' => ['type' => 'varchar', 'length' => 20],
+      'description' => ['type' => 'text'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => ['job_seeker_id' => ['job_seeker_id']],
+  ];
+  
+  $schema->createTable('jobhunter_education_history', $table_schema);
+}
+
+/**
+ * Create jobhunter_resume_parsed_data table.
+ */
+function _job_hunter_create_resume_parsed_data_table() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('jobhunter_resume_parsed_data')) {
+    return;
+  }
+  
+  $table_schema = [
+    'description' => 'AI-parsed resume data.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'uid' => ['type' => 'int', 'not null' => TRUE],
+      'resume_file_id' => ['type' => 'int'],
+      'resume_path' => ['type' => 'varchar', 'length' => 512],
+      'parsed_data' => ['type' => 'text', 'size' => 'big', 'description' => 'JSON data from AI parsing'],
+      'status' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'pending'],
+      'error_message' => ['type' => 'text'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => ['uid' => ['uid'], 'resume_file_id' => ['resume_file_id'], 'status' => ['status']],
+  ];
+  
+  $schema->createTable('jobhunter_resume_parsed_data', $table_schema);
+}
+
+/**
+ * Create jobhunter_job_seeker_resumes table.
+ */
+function _job_hunter_create_job_seeker_resumes_table() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('jobhunter_job_seeker_resumes')) {
+    return;
+  }
+  
+  $table_schema = [
+    'description' => 'Multiple resume files per user.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'job_seeker_id' => ['type' => 'int', 'not null' => TRUE],
+      'file_id' => ['type' => 'int', 'not null' => TRUE],
+      'resume_name' => ['type' => 'varchar', 'length' => 255],
+      'extracted_text' => ['type' => 'text', 'size' => 'big', 'description' => 'Extracted text from resume file'],
+      'is_primary' => ['type' => 'int', 'size' => 'tiny', 'default' => 0],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'changed' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => ['job_seeker_id' => ['job_seeker_id'], 'file_id' => ['file_id']],
+  ];
+  
+  $schema->createTable('jobhunter_job_seeker_resumes', $table_schema);
+}
+
+/**
+ * Add extracted_text column to jobhunter_job_seeker_resumes table.
+ */
+function job_hunter_update_9001() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('jobhunter_job_seeker_resumes')) {
+    if (!$schema->fieldExists('jobhunter_job_seeker_resumes', 'extracted_text')) {
+      $spec = [
+        'type' => 'text',
+        'size' => 'big',
+        'description' => 'Extracted text from resume file',
+      ];
+      $schema->addField('jobhunter_job_seeker_resumes', 'extracted_text', $spec);
+      return t('Added extracted_text column to jobhunter_job_seeker_resumes table.');
+    }
+  }
+  return t('No update needed - extracted_text column already exists.');
+}
+
+/**
+ * Add JSON storage columns to job_hunter_job_requirements for job tailoring workflow.
+ */
+function job_hunter_update_9002() {
+  $schema = \Drupal::database()->schema();
+  $messages = [];
+  
+  if (!$schema->tableExists('job_hunter_job_requirements')) {
+    return t('Table job_hunter_job_requirements does not exist.');
+  }
+  
+  $new_fields = [
+    'raw_posting_text' => [
+      'type' => 'text',
+      'size' => 'big',
+      'description' => 'Original pasted job posting text',
+    ],
+    'extracted_json' => [
+      'type' => 'text',
+      'size' => 'big',
+      'description' => 'AI-extracted structured job data',
+    ],
+    'skills_required_json' => [
+      'type' => 'text',
+      'size' => 'big',
+      'description' => 'Must-have and nice-to-have skills',
+    ],
+    'keywords_json' => [
+      'type' => 'text',
+      'size' => 'big',
+      'description' => 'Important keywords from posting',
+    ],
+    'source_platform' => [
+      'type' => 'varchar',
+      'length' => 100,
+      'description' => 'linkedin, indeed, company_site, etc.',
+    ],
+    'ai_extraction_status' => [
+      'type' => 'varchar',
+      'length' => 32,
+      'default' => 'pending',
+      'description' => 'pending, completed, failed',
+    ],
+  ];
+  
+  foreach ($new_fields as $field_name => $spec) {
+    if (!$schema->fieldExists('job_hunter_job_requirements', $field_name)) {
+      $schema->addField('job_hunter_job_requirements', $field_name, $spec);
+      $messages[] = $field_name;
+    }
+  }
+  
+  if (empty($messages)) {
+    return t('No update needed - all JSON columns already exist.');
+  }
+  
+  return t('Added columns to job_hunter_job_requirements: @columns', [
+    '@columns' => implode(', ', $messages),
+  ]);
+}
+
+/**
+ * Create job_hunter_tailored_resumes table for user-specific tailored resumes.
+ */
+function job_hunter_update_9003() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('job_hunter_tailored_resumes')) {
+    return t('Table job_hunter_tailored_resumes already exists.');
+  }
+  
+  _job_hunter_create_tailored_resumes_table();
+  
+  return t('Created job_hunter_tailored_resumes table.');
+}
+
+/**
+ * Create job_hunter_tailored_resumes table.
+ */
+function _job_hunter_create_tailored_resumes_table() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('job_hunter_tailored_resumes')) {
+    return;
+  }
+  
+  $table_schema = [
+    'description' => 'User-specific tailored resumes for job requirements.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'uid' => ['type' => 'int', 'not null' => TRUE, 'description' => 'User ID'],
+      'job_id' => ['type' => 'int', 'not null' => TRUE, 'description' => 'Job requirement ID'],
+      'tailored_resume_json' => ['type' => 'text', 'size' => 'big', 'description' => 'AI-generated tailored resume JSON'],
+      'tailoring_status' => ['type' => 'varchar', 'length' => 32, 'default' => 'pending', 'description' => 'pending, completed, failed'],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => ['user_job' => ['uid', 'job_id']],
+    'indexes' => [
+      'uid' => ['uid'],
+      'job_id' => ['job_id'],
+    ],
+  ];
+  
+  $schema->createTable('job_hunter_tailored_resumes', $table_schema);
+}
+
+/**
+ * Add pdf_path column to job_hunter_tailored_resumes table.
+ */
+function job_hunter_update_9008() {
+  $schema = \Drupal::database()->schema();
+  
+  if (!$schema->fieldExists('job_hunter_tailored_resumes', 'pdf_path')) {
+    $schema->addField('job_hunter_tailored_resumes', 'pdf_path', [
+      'type' => 'varchar',
+      'length' => 512,
+      'description' => 'Path to generated PDF file',
+    ]);
+  }
+  
+  if (!$schema->fieldExists('job_hunter_tailored_resumes', 'pdf_generated')) {
+    $schema->addField('job_hunter_tailored_resumes', 'pdf_generated', [
+      'type' => 'int',
+      'default' => 0,
+      'description' => 'Timestamp when PDF was generated',
+    ]);
+  }
+  
+  return t('Added pdf_path and pdf_generated columns to job_hunter_tailored_resumes.');
+}
+
+/**
+ * Create job_hunter_pdf_history table to track all generated PDFs.
+ */
+function job_hunter_update_9009() {
+  $schema = \Drupal::database()->schema();
+  
+  if ($schema->tableExists('job_hunter_pdf_history')) {
+    return t('Table job_hunter_pdf_history already exists.');
+  }
+  
+  $table_schema = [
+    'description' => 'History of generated resume PDFs.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'not null' => TRUE],
+      'uid' => ['type' => 'int', 'not null' => TRUE, 'description' => 'User ID'],
+      'job_id' => ['type' => 'int', 'not null' => TRUE, 'description' => 'Job requirement ID'],
+      'filename' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE],
+      'filepath' => ['type' => 'varchar', 'length' => 512, 'not null' => TRUE],
+      'filesize' => ['type' => 'int', 'default' => 0],
+      'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'uid' => ['uid'],
+      'job_id' => ['job_id'],
+      'uid_job' => ['uid', 'job_id'],
+    ],
+  ];
+  
+  $schema->createTable('job_hunter_pdf_history', $table_schema);
+  
+  return t('Created job_hunter_pdf_history table.');
+}
+
+/**
+ * Add potential_duplicates_json column for duplicate detection.
+ */
+function job_hunter_update_9010() {
+  $schema = \Drupal::database()->schema();
+  
+  if (!$schema->tableExists('job_hunter_job_requirements')) {
+    return t('Table job_hunter_job_requirements does not exist.');
+  }
+  
+  if ($schema->fieldExists('job_hunter_job_requirements', 'potential_duplicates_json')) {
+    return t('Column potential_duplicates_json already exists.');
+  }
+  
+  $schema->addField('job_hunter_job_requirements', 'potential_duplicates_json', [
+    'type' => 'text',
+    'size' => 'medium',
+    'description' => 'JSON array of potential duplicate job IDs with similarity scores',
+  ]);
+  
+  return t('Added potential_duplicates_json column to job_hunter_job_requirements.');
+}

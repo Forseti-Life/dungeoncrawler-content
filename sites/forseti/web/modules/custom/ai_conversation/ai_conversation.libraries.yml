@@ -1,0 +1,21 @@
+chat-interface:
+  version: VERSION
+  css:
+    theme:
+      css/ai-conversation-chat.css: {}
+  js:
+    js/ai-conversation-chat.js: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+
+admin-dashboard:
+  version: VERSION
+  css:
+    theme:
+      css/usage-dashboard.css: {}
+  js:
+    js/usage-dashboard.js: {}
+  dependencies:
+    - core/drupal
+    - core/charts

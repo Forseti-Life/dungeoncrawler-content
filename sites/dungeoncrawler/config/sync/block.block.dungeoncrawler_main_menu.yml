@@ -1,0 +1,27 @@
+uuid: d5c4b127-6866-4da8-82f3-eecdf0b2bc65
+langcode: en
+status: true
+dependencies:
+  config:
+    - system.menu.main
+  module:
+    - system
+  theme:
+    - dungeoncrawler
+_core:
+  default_config_hash: 1nUwelR1V23AuMIz3utw-mhEd9dmgOgwazTQwbieMzw
+id: dungeoncrawler_main_menu
+theme: dungeoncrawler
+region: navbar_left
+weight: -5
+provider: null
+plugin: 'system_menu_block:main'
+settings:
+  id: 'system_menu_block:main'
+  label: 'Main navigation'
+  label_display: '0'
+  provider: system
+  level: 1
+  depth: 2
+  expand_all_items: false
+visibility: {  }

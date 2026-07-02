@@ -1,0 +1,21 @@
+name: Dungeon Crawler Content
+description: 'Core content types for the AI-generated living dungeon - procedurally generated rooms, AI-powered creatures, items, quests, and world lore.'
+type: module
+version: '1.0.0'
+core_version_requirement: ^10.3 || ^11
+package: Dungeon Crawler
+
+dependencies:
+  - ai_conversation:ai_conversation
+  - drupal:field
+  - drupal:image
+  - drupal:link
+  - drupal:menu_ui
+  - drupal:node
+  - drupal:taxonomy
+  - drupal:text
+
+# Module maintainer information
+author: 'DungeonCrawler Development Team'
+homepage: 'https://www.drupal.org/project/dungeoncrawler_content'
+support: 'https://www.drupal.org/project/dungeoncrawler_content/issues'

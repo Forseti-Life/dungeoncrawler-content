@@ -1,0 +1,25 @@
+uuid: 50e11771-bb58-4e59-9467-0d56cf61655b
+langcode: en
+status: true
+dependencies:
+  module:
+    - system
+  theme:
+    - dungeoncrawler
+_core:
+  default_config_hash: oZTMx-Y23wVnYf5qQ9DuSEm7VuLkWNfzqB--ZdaRBAw
+id: dungeoncrawler_branding
+theme: dungeoncrawler
+region: navbar_branding
+weight: -1
+provider: null
+plugin: system_branding_block
+settings:
+  id: system_branding_block
+  label: 'Site branding'
+  label_display: '0'
+  provider: system
+  use_site_logo: true
+  use_site_name: false
+  use_site_slogan: false
+visibility: {  }

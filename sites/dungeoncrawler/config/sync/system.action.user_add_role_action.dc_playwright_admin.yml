@@ -1,0 +1,14 @@
+uuid: 069e2a4d-aee0-43ec-bad6-6204aeac901b
+langcode: en
+status: true
+dependencies:
+  config:
+    - user.role.dc_playwright_admin
+  module:
+    - user
+id: user_add_role_action.dc_playwright_admin
+label: 'Add the DC Playwright Admin role to the selected user(s)'
+type: user
+plugin: user_add_role_action
+configuration:
+  rid: dc_playwright_admin

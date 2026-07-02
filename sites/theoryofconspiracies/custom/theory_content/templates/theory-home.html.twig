@@ -1,0 +1,131 @@
+{#
+/**
+ * @file
+ * Theory of Conspiracies home page template
+ *
+ * Available variables:
+ * - movie_data: Movie information and details
+ * - featured_characters: Array of featured characters
+ * - nav_sections: Navigation sections for site exploration
+ * - updates: Latest news and updates
+ */
+#}
+
+<div class="theory-home cyberpunk-container">
+
+  <!-- Synopsis Section -->
+  <section class="synopsis-section">
+    <div class="section-container">
+      <h2 class="section-title">The Story</h2>
+      <div class="synopsis-content">
+        <p class="synopsis-text">{{ movie_data.synopsis }}</p>
+        
+        <div class="crew-info">
+          <div class="crew-item">
+            <span class="crew-role">Writer:</span>
+            <span class="crew-name">{{ movie_data.writer }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Featured Characters Section -->
+  <section class="featured-characters-section">
+    <div class="section-container">
+      <h2 class="section-title">Main Characters</h2>
+      <div class="characters-grid">
+        {% for character in featured_characters %}
+          <div class="character-preview">
+            <div class="character-image">
+              <div class="image-placeholder">
+                <div class="loading-animation">
+                  <span>{{ character.name|upper }}_LOADING...</span>
+                </div>
+              </div>
+            </div>
+            <div class="character-info">
+              <h3 class="character-name">
+                <a href="{{ character.path }}">{{ character.name }}</a>
+              </h3>
+              <div class="character-role">{{ character.role }}</div>
+              <p class="character-description">{{ character.description }}</p>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="characters-action">
+        <a href="/characters" class="cyberpunk-btn">View Characters</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Themes Section -->
+  <section class="themes-section">
+    <div class="section-container">
+      <h2 class="section-title">Themes Explored</h2>
+      <div class="themes-grid">
+        {% for theme in movie_data.themes %}
+          <div class="theme-item">
+            <div class="theme-icon">▸</div>
+            <div class="theme-text">{{ theme }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Navigation Sections -->
+  <section class="navigation-sections">
+    <div class="section-container">
+      <h2 class="section-title">Explore the World</h2>
+      <div class="nav-grid">
+        {% for section in nav_sections %}
+          <div class="nav-card">
+            <div class="nav-icon">{{ section.icon }}</div>
+            <h3 class="nav-title">{{ section.title }}</h3>
+            <p class="nav-description">{{ section.description }}</p>
+            <a href="{{ section.path }}" class="nav-link">Explore →</a>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Updates Section -->
+  <section class="updates-section">
+    <div class="section-container">
+      <h2 class="section-title">Latest Updates</h2>
+      <div class="updates-timeline">
+        {% for update in updates %}
+          <div class="update-item">
+            <div class="update-marker"></div>
+            <div class="update-content">
+              <h3 class="update-title">{{ update.title }}</h3>
+              <div class="update-date">{{ update.date }}</div>
+              <p class="update-description">{{ update.description }}</p>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Call to Action -->
+  <section class="home-cta-section">
+    <div class="section-container">
+      <div class="home-cta-content">
+        <h2 class="home-cta-title">Enter Philadelphia 2085</h2>
+        <p class="home-cta-description">
+          Discover a world where the line between human and artificial intelligence blurs, 
+          and every choice determines the fate of authentic connection.
+        </p>
+        <div class="home-cta-actions">
+          <a href="/setting/philadelphia-2085" class="cyberpunk-btn primary">Explore Setting</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+

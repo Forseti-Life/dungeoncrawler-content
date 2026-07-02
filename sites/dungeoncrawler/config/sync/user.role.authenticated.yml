@@ -1,0 +1,36 @@
+uuid: 516300e0-47dd-42b2-be62-c64dfefd7b95
+langcode: en
+status: true
+dependencies:
+  config:
+    - filter.format.basic_html
+    - node.type.ai_conversation
+  module:
+    - comment
+    - dungeoncrawler_content
+    - file
+    - filter
+    - node
+    - search
+    - shortcut
+    - system
+_core:
+  default_config_hash: hcfESiA8tr3D1muRk2KF7tbcun16ZJlG1R5SzKGed6g
+id: authenticated
+label: 'Authenticated user'
+weight: 1
+is_admin: false
+permissions:
+  - 'access comments'
+  - 'access content'
+  - 'access dungeoncrawler characters'
+  - 'access shortcuts'
+  - 'create ai_conversation content'
+  - 'create dungeoncrawler characters'
+  - 'delete own ai_conversation content'
+  - 'delete own files'
+  - 'edit own ai_conversation content'
+  - 'post comments'
+  - 'search content'
+  - 'skip comment approval'
+  - 'use text format basic_html'

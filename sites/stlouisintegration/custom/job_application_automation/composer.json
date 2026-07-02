@@ -1,0 +1,16 @@
+{
+  "name": "drupal/job_application_automation",
+  "description": "Automated job application workflow and tracking system",
+  "type": "drupal-module",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": "^8.1",
+    "drupal/core": "^10.3 || ^11"
+  },
+  "keywords": [
+    "drupal",
+    "job-application",
+    "automation",
+    "tracking"
+  ]
+}

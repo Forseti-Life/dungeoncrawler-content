@@ -1,0 +1,14 @@
+uuid: 67a70268-a438-4877-8863-f15c8edd93ba
+langcode: en
+status: true
+dependencies:
+  config:
+    - user.role.dc_playwright_admin
+  module:
+    - user
+id: user_remove_role_action.dc_playwright_admin
+label: 'Remove the DC Playwright Admin role from the selected user(s)'
+type: user
+plugin: user_remove_role_action
+configuration:
+  rid: dc_playwright_admin

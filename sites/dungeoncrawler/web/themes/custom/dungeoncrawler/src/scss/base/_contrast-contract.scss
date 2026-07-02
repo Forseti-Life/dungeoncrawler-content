@@ -1,0 +1,146 @@
+// Centralized contrast contract
+// -----------------------------------------------------------------------------
+// Defines canonical text/surface pairs and utility classes to keep readable
+// foreground/background combinations across templates and components.
+
+:root {
+  --dc-surface-primary: #1a1a2e;
+  --dc-surface-elevated: #16213e;
+  --dc-surface-abyss: #0f0f1a;
+  --dc-surface-deepest: #000814;
+
+  --dc-text-primary: #e2e8f0;
+  --dc-text-secondary: #94a3b8;
+  --dc-text-muted: #7b8da6;
+  --dc-text-inverse: #1e293b;
+  --dc-text-on-brand: #ffffff;
+  --dc-text-soft: rgba(249, 241, 233, 0.85);
+  --dc-text-soft-muted: rgba(249, 241, 233, 0.7);
+  --dc-text-success-soft: #a5d6a7;
+  --dc-text-danger-soft: #ef9a9a;
+
+  --dc-link-primary: #f59e0b;
+  --dc-link-hover: #fdd835;
+  --dc-accent-cyan: #00d4ff;
+  --dc-accent-cyan-strong: #00e5ff;
+  --dc-accent-cyan-dark: #0099cc;
+  --dc-accent-cyan-mid: #00aadd;
+}
+
+[data-bs-theme='light'] {
+  --dc-surface-primary: #ffffff;
+  --dc-surface-elevated: #f8fafc;
+  --dc-surface-abyss: #e2e8f0;
+  --dc-surface-deepest: #e2e8f0;
+
+  --dc-text-primary: #1e293b;
+  --dc-text-secondary: #334155;
+  --dc-text-muted: #475569;
+  --dc-text-inverse: #ffffff;
+  --dc-text-on-brand: #ffffff;
+  --dc-text-soft: #334155;
+  --dc-text-soft-muted: #475569;
+  --dc-text-success-soft: #166534;
+  --dc-text-danger-soft: #991b1b;
+
+  --dc-link-primary: #1e40af;
+  --dc-link-hover: #1d4ed8;
+  --dc-accent-cyan: #1d4ed8;
+  --dc-accent-cyan-strong: #1e40af;
+  --dc-accent-cyan-dark: #1e3a8a;
+  --dc-accent-cyan-mid: #2563eb;
+}
+
+body {
+  background-color: var(--dc-surface-primary);
+  color: var(--dc-text-primary);
+}
+
+a {
+  color: var(--dc-link-primary);
+
+  &:hover,
+  &:focus {
+    color: var(--dc-link-hover);
+  }
+}
+
+.dc-text-primary {
+  color: var(--dc-text-primary);
+}
+
+.dc-text-secondary {
+  color: var(--dc-text-secondary);
+}
+
+.dc-text-muted {
+  color: var(--dc-text-muted);
+}
+
+.dc-surface-primary {
+  background-color: var(--dc-surface-primary);
+  color: var(--dc-text-primary);
+}
+
+.dc-surface-elevated {
+  background-color: var(--dc-surface-elevated);
+  color: var(--dc-text-primary);
+}
+
+.dc-heading-accent {
+  font-family: 'Cinzel', serif;
+  color: #f59e0b;
+}
+
+.dc-auth-icon {
+  color: #f59e0b;
+}
+
+.dc-auth-subtitle {
+  color: var(--dc-text-secondary);
+}
+
+.dc-auth-divider {
+  border-top: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.dc-auth-google-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.dc-error-icon-danger {
+  color: #dc2626;
+  opacity: 0.8;
+}
+
+.dc-error-icon-warning {
+  color: #f59e0b;
+  opacity: 0.8;
+}
+
+.dc-error-code {
+  font-size: 6rem;
+  font-weight: 700;
+  font-family: 'Cinzel', serif;
+}
+
+.dc-error-code--danger {
+  color: #dc2626;
+}
+
+.dc-error-code--warning {
+  color: #f59e0b;
+}
+
+.dc-error-subtitle {
+  color: var(--dc-text-primary);
+}
+
+.dc-error-copy-wrap {
+  max-width: 700px;
+}
+
+.dc-error-copy {
+  color: var(--dc-text-secondary);
+}

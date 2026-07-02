@@ -1,0 +1,315 @@
+/**
+ * @file
+ * Styles for the credits/attribution page.
+ */
+
+/* Design System Variables - Aligned with character-sheet.css */
+:root {
+  /* Core theme colors (from dungeoncrawler theme) */
+  --dc-stone: var(--dc-surface-elevated);
+  --dc-deep-cavern: var(--dc-surface-primary);
+  --dc-abyss: var(--dc-surface-abyss);
+  --dc-torch-gold: var(--bs-warning);
+  --dc-mystic-purple: var(--bs-purple);
+  --dc-blood-red: var(--bs-danger);
+  --dc-text: var(--dc-text-primary);
+  --dc-text-muted: var(--bs-secondary-color);
+  --dc-border: var(--bs-border-color);
+  
+  /* Credits-specific variables */
+  --credits-bg-card: var(--bs-body-bg);
+  --credits-bg-light: var(--bs-tertiary-bg);
+  --credits-primary: var(--dc-torch-gold);
+  --credits-hover: var(--dc-mystic-purple);
+  --credits-text-dark: var(--bs-body-color);
+  --credits-text-normal: var(--bs-secondary-color);
+  --credits-text-muted: color-mix(in srgb, var(--bs-secondary-color) 90%, white);
+  --credits-border-light: var(--bs-border-color);
+  --credits-border-gray: color-mix(in srgb, var(--bs-border-color) 85%, white);
+  --credits-status-pending: color-mix(in srgb, var(--dc-torch-gold) 70%, white);
+  --credits-status-pending-dark: color-mix(in srgb, var(--dc-torch-gold) 90%, black);
+  
+  /* Spacing scale */
+  --space-xs: 10px;
+  --space-sm: 15px;
+  --space-md: 20px;
+  --space-lg: 25px;
+  --space-xl: 30px;
+  --space-2xl: 40px;
+  --space-3xl: 50px;
+}
+
+.credits-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-2xl) var(--space-md);
+}
+
+.credits-header {
+  text-align: center;
+  margin-bottom: var(--space-3xl);
+  padding-bottom: var(--space-xl);
+  border-bottom: 3px solid var(--credits-primary);
+}
+
+.credits-header h1 {
+  margin: 0 0 var(--space-md) 0;
+  color: var(--credits-text-dark);
+  font-size: 2.5em;
+  font-weight: 700;
+}
+
+.credits-intro {
+  max-width: 800px;
+  margin: 0 auto;
+  color: var(--credits-text-normal);
+  font-size: 1.1em;
+  line-height: 1.6;
+}
+
+.credits-content {
+  margin-bottom: var(--space-3xl);
+}
+
+/* Credit Categories */
+.credit-category {
+  margin-bottom: var(--space-3xl);
+  padding: var(--space-xl);
+  background: white;
+  border: 2px solid var(--credits-border-light);
+  border-radius: 12px;
+  box-shadow: 0 4px 6px color-mix(in srgb, black 5%, transparent);
+}
+
+.credit-category h2 {
+  margin: 0 0 var(--space-lg) 0;
+  color: var(--credits-text-dark);
+  font-size: 1.8em;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 2px solid var(--credits-border-light);
+  padding-bottom: var(--space-sm);
+}
+
+.category-icon {
+  font-size: 1.3em;
+}
+
+.credit-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--space-lg);
+}
+
+/* Individual Credit Items */
+.credit-item {
+  padding: var(--space-md);
+  background: var(--credits-bg-card);
+  border: 1px solid var(--credits-border-light);
+  border-left: 4px solid var(--credits-primary);
+  border-radius: 8px;
+  transition: border-left-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.credit-item:hover,
+.credit-item:focus-within {
+  border-left-color: var(--credits-hover);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--credits-primary) 15%, transparent);
+  transform: translateY(-2px);
+}
+
+.credit-item.credit-planned {
+  opacity: 0.7;
+  border-left-color: var(--credits-status-pending);
+  position: relative;
+}
+
+.status-badge {
+  position: absolute;
+  top: -10px;
+  right: 10px;
+  background: linear-gradient(135deg, var(--credits-status-pending) 0%, var(--credits-status-pending-dark) 100%);
+  color: var(--bs-light);
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.credit-name {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: 1.3em;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.credit-name a {
+  color: var(--credits-primary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.credit-name a:hover,
+.credit-name a:focus {
+  color: var(--credits-hover);
+  text-decoration: underline;
+  outline: none;
+}
+
+.credit-name a:focus-visible {
+  outline: 2px solid var(--credits-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.credit-version {
+  font-size: 0.7em;
+  padding: 3px 8px;
+  background: var(--credits-primary);
+  color: var(--bs-light);
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.credit-creator {
+  margin: 5px 0;
+  color: var(--credits-text-muted);
+  font-size: 0.95em;
+  font-style: italic;
+}
+
+.credit-usage {
+  margin: var(--space-xs) 0;
+  color: var(--credits-text-normal);
+  font-size: 0.95em;
+  line-height: 1.5;
+}
+
+.credit-license {
+  margin: var(--space-xs) 0 0 0;
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--credits-border-light);
+  font-size: 0.9em;
+  color: var(--credits-text-muted);
+}
+
+.credit-license strong {
+  color: var(--credits-text-dark);
+}
+
+/* Empty Categories */
+.credit-empty {
+  text-align: center;
+  padding: var(--space-2xl) var(--space-xl);
+  background: var(--credits-bg-card);
+}
+
+.empty-message {
+  margin: var(--space-sm) 0 0 0;
+  color: var(--credits-text-muted);
+  font-size: 1em;
+  font-style: italic;
+}
+
+/* Footer */
+.credits-footer {
+  padding: var(--space-2xl) var(--space-xl);
+  background: linear-gradient(135deg, var(--credits-bg-card) 0%, var(--credits-bg-light) 100%);
+  border: 2px solid var(--credits-border-light);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.credits-footer h2 {
+  margin: 0 0 var(--space-md) 0;
+  color: var(--credits-text-dark);
+  font-size: 1.8em;
+}
+
+.credits-footer p {
+  margin: var(--space-sm) auto;
+  max-width: 800px;
+  color: var(--credits-text-normal);
+  font-size: 1em;
+  line-height: 1.6;
+}
+
+.assets-location {
+  margin: var(--space-lg) auto var(--space-sm) auto;
+  padding: var(--space-sm) var(--space-md);
+  background: white;
+  border-left: 4px solid var(--credits-primary);
+  border-radius: 6px;
+  text-align: left;
+  color: var(--credits-text-normal);
+}
+
+.assets-location code {
+  padding: 3px 8px;
+  background: var(--credits-bg-light);
+  border: 1px solid var(--credits-border-gray);
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+  color: var(--credits-text-dark);
+}
+
+.contribute-info a {
+  color: var(--credits-primary);
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.contribute-info a:hover,
+.contribute-info a:focus {
+  color: var(--credits-hover);
+  text-decoration: underline;
+  outline: none;
+}
+
+.contribute-info a:focus-visible {
+  outline: 2px solid var(--credits-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .credit-items {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .credits-container {
+    padding: var(--space-xl) var(--space-sm);
+  }
+
+  .credits-header h1 {
+    font-size: 2em;
+  }
+
+  .credits-intro {
+    font-size: 1em;
+  }
+
+  .credit-category {
+    padding: var(--space-md) var(--space-sm);
+  }
+
+  .credit-items {
+    grid-template-columns: 1fr;
+  }
+
+  .credit-category h2 {
+    font-size: 1.4em;
+  }
+}

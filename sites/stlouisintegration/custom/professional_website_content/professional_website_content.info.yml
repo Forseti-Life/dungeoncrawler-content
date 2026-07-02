@@ -1,0 +1,18 @@
+name: Professional Website Content
+description: Manages professional website content including About Us, Services, Industry pages, and Case Studies based on resume data.
+type: module
+version: '1.0'
+core_version_requirement: ^10.3 || ^11
+package: Custom
+
+dependencies:
+  - drupal:node
+  - drupal:field
+  - drupal:text
+  - drupal:image
+  - drupal:link
+  - drupal:menu_ui
+  - drupal:rest
+  - drupal:serialization
+  - drupal:basic_auth
+  - drupal:jsonapi

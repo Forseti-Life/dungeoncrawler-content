@@ -1,0 +1,13 @@
+# Job Application Automation Task Links
+
+job_application_automation.dashboard_tab:
+  title: 'Dashboard'
+  route_name: job_application_automation.dashboard
+  base_route: job_application_automation.dashboard
+  weight: 0
+
+job_application_automation.content_tab:
+  title: 'Content Management'
+  route_name: system.admin_content
+  base_route: job_application_automation.dashboard
+  weight: 1

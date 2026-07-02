@@ -1,0 +1,20 @@
+uuid: 9ec6b4f0-63e0-42e0-b5e8-cb58487f1b9a
+langcode: en
+status: true
+dependencies:
+  theme:
+    - dungeoncrawler
+_core:
+  default_config_hash: ZhZedGcM0RCxRSFSl4O1H_WwtMfhT4gnP_9BMfQU17g
+id: dungeoncrawler_local_actions
+theme: dungeoncrawler
+region: header
+weight: -4
+provider: null
+plugin: local_actions_block
+settings:
+  id: local_actions_block
+  label: 'Primary admin actions'
+  label_display: '0'
+  provider: core
+visibility: {  }

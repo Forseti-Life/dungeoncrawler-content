@@ -1,0 +1,54 @@
+{
+  "template_id": "gather_herbs",
+  "name": "Gather {herb_name} for the Alchemist",
+  "description": "The local alchemist needs {herb_name} to create healing potions. Gather some from the nearby {location}.",
+  "quest_type": "side_quest",
+  "level_min": 1,
+  "level_max": 4,
+  "tags": ["gathering", "exploration"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "collect_herbs",
+          "type": "collect",
+          "item": "{herb_name}",
+          "target_count_range": [5, 8],
+          "description": "Collect {herb_name} from {location}"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "return_herbs",
+          "type": "interact",
+          "target": "alchemist",
+          "description": "Return the herbs to the alchemist"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 60,
+      "per_level": 20
+    },
+    "gold": {
+      "base": 8,
+      "per_level": 3,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "alchemy_reward",
+      "count": 2
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "estimated_duration_minutes": 30,
+  "version": "1.0.0"
+}

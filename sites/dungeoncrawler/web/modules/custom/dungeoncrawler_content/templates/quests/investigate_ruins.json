@@ -1,0 +1,78 @@
+{
+  "template_id": "investigate_ruins",
+  "name": "Investigate the Ancient Ruins",
+  "description": "Strange lights have been seen emanating from the {location}. Investigate the ruins and report back on what you find.",
+  "quest_type": "exploration",
+  "level_min": 3,
+  "level_max": 6,
+  "tags": ["exploration", "mystery", "dungeon"],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "find_ruins",
+          "type": "explore",
+          "target": "{location}",
+          "description": "Locate the {location}"
+        },
+        {
+          "objective_id": "explore_chambers",
+          "type": "explore",
+          "target": "{location}_inner",
+          "description": "Explore the inner chambers"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "collect_artifact",
+          "type": "collect",
+          "item": "ancient_artifact",
+          "target_count": 1,
+          "description": "Retrieve the mysterious artifact"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "objectives": [
+        {
+          "objective_id": "return_report",
+          "type": "interact",
+          "target": "quest_giver",
+          "description": "Report your findings"
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 200,
+      "per_level": 50
+    },
+    "gold": {
+      "base": 25,
+      "per_level": 10,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "ancient_treasure",
+      "count": 1
+    },
+    "reputation": {
+      "faction": "scholars_guild",
+      "amount": 50
+    }
+  },
+  "prerequisites": {
+    "level_min": 3
+  },
+  "story_impact": {
+    "unlocks": ["ruins_questline_part2"]
+  },
+  "estimated_duration_minutes": 90,
+  "version": "1.0.0"
+}

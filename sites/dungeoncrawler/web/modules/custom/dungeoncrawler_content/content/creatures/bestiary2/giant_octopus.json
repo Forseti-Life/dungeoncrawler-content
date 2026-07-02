@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "c8b2e4a6-7d3f-4b5e-9a1c-3f0d6b8e2c4a",
+  "name": "Giant Octopus",
+  "level": 8,
+  "creature_type": "animal",
+  "traits": [
+    "animal",
+    "aquatic"
+  ],
+  "alignment": "N",
+  "rarity": "common",
+  "size": "huge",
+  "hex_footprint": 3,
+  "family": "octopus",
+  "bestiary_source": "b2",
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": { "score": 26, "modifier": 8 },
+      "dexterity": { "score": 16, "modifier": 3 },
+      "constitution": { "score": 18, "modifier": 4 },
+      "intelligence": { "score": 4, "modifier": -3 },
+      "wisdom": { "score": 14, "modifier": 2 },
+      "charisma": { "score": 6, "modifier": -2 }
+    },
+    "hp": {
+      "max": 130,
+      "current": 130,
+      "temporary": 0,
+      "hardness": 0,
+      "immunities": [],
+      "resistances": [],
+      "weaknesses": []
+    },
+    "ac": 26,
+    "saves": {
+      "fortitude": { "modifier": 18 },
+      "reflex": { "modifier": 15 },
+      "will": { "modifier": 12 }
+    },
+    "perception": {
+      "modifier": 16,
+      "senses": ["low-light vision", "darkvision 60ft"]
+    },
+    "speed": {
+      "land": 10,
+      "fly": null,
+      "swim": 35,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Athletics": { "modifier": 20, "proficiency": "trained" },
+      "Stealth": { "modifier": 17, "proficiency": "trained" }
+    },
+    "languages": [],
+    "attacks": [
+      {
+        "name": "Tentacle",
+        "type": "melee",
+        "attack_bonus": 20,
+        "damage": "2d8+8",
+        "damage_type": "bludgeoning",
+        "traits": ["agile", "grab", "reach 15ft"]
+      },
+      {
+        "name": "Beak",
+        "type": "melee",
+        "attack_bonus": 20,
+        "damage": "2d10+8",
+        "damage_type": "piercing",
+        "traits": []
+      }
+    ],
+    "special_abilities": [
+      {
+        "name": "Constrict",
+        "action_cost": 1,
+        "description": "3d8+6 bludgeoning, DC 26 Fortitude. A grabbed creature takes this damage and is restrained on a critical failure."
+      },
+      {
+        "name": "Ink Cloud",
+        "action_cost": 1,
+        "description": "The octopus releases a cloud of ink in a 15-foot emanation. This area is difficult terrain and lightly obscured for non-octopuses until the start of the octopus's next turn."
+      },
+      {
+        "name": "Jet",
+        "action_cost": 2,
+        "description": "The octopus moves up to 60 feet in a straight line through water without triggering reactions."
+      }
+    ]
+  },
+  "encounter_themes": ["aquatic", "ocean", "sea-cave"],
+  "tactical_role": "bruiser"
+}

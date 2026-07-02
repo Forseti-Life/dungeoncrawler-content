@@ -103,9 +103,9 @@ function ai_conversation_entity_view(array &$build, EntityInterface $entity, Ent
 }
 
 /**
- * Implements hook_entity_operation().
+ * Template helper that mirrors the ai_conversation entity operation example.
  */
-function ai_conversation_entity_operation(EntityInterface $entity) {
+function ai_conversation_template_entity_operation(EntityInterface $entity) {
   $operations = [];
 
   if ($entity->getEntityTypeId() === 'node' && $entity->bundle() === 'ai_conversation') {

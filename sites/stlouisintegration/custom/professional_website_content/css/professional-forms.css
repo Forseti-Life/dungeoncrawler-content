@@ -1,0 +1,163 @@
+/**
+ * @file
+ * Professional form styling for St. Louis Integration modules
+ */
+
+/* Form Container */
+.professional-form-container {
+  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Form Fields */
+.professional-form-container .form-item {
+  margin-bottom: 1.5rem;
+}
+
+.professional-form-container .form-item label {
+  color: var(--text-light);
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.professional-form-container .form-control,
+.professional-form-container .form-select,
+.professional-form-container textarea {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-light);
+  transition: var(--transition);
+}
+
+.professional-form-container .form-control:focus,
+.professional-form-container .form-select:focus,
+.professional-form-container textarea:focus {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 0.2rem rgba(100, 181, 246, 0.25);
+  color: var(--text-light);
+}
+
+.professional-form-container .form-control::placeholder,
+.professional-form-container textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* Checkbox and Radio Styling */
+.professional-form-container .form-check-input {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-color);
+  margin-right: 0.5rem;
+}
+
+.professional-form-container .form-check-input:checked {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.professional-form-container .form-check-label {
+  color: var(--text-light);
+}
+
+/* File Upload Styling */
+.professional-form-container .form-control[type="file"] {
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px dashed var(--border-color);
+  padding: 1rem;
+  text-align: center;
+  transition: var(--transition);
+}
+
+.professional-form-container .form-control[type="file"]:hover {
+  border-color: var(--border-hover);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Form Actions */
+.professional-form-actions {
+  padding: 2rem;
+  border-top: 1px solid var(--border-color);
+  margin-top: 2rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.professional-form-actions .btn {
+  margin: 0 0.5rem;
+  min-width: 120px;
+}
+
+/* Field Descriptions */
+.professional-form-container .description {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+/* Required Field Indicator */
+.professional-form-container .form-required {
+  color: #ff6b6b;
+}
+
+/* Error States */
+.professional-form-container .form-item.error .form-control,
+.professional-form-container .form-item.error .form-select,
+.professional-form-container .form-item.error textarea {
+  border-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.professional-form-container .error-message {
+  color: #ff6b6b;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+/* Success States */
+.professional-form-container .form-item.success .form-control {
+  border-color: #51cf66;
+  background: rgba(81, 207, 102, 0.1);
+}
+
+/* Loading States */
+.professional-form-container .form-item.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.professional-form-container .loading-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid transparent;
+  border-top: 2px solid var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-left: 0.5rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive Form Design */
+@media (max-width: 768px) {
+  .professional-form-container {
+    padding: 1rem;
+  }
+  
+  .professional-form-actions {
+    padding: 1rem;
+  }
+  
+  .professional-form-actions .btn {
+    display: block;
+    width: 100%;
+    margin: 0.5rem 0;
+  }
+}

@@ -1,0 +1,11 @@
+uuid: 4bbe3f88-6b60-49b8-b91b-a4f728cab8ac
+langcode: en
+status: true
+dependencies: {  }
+name: Background
+type: background
+description: 'PF2E character backgrounds (acolyte, criminal, entertainer, etc.).'
+help: null
+new_revision: true
+preview_mode: 1
+display_submitted: true

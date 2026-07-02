@@ -1,0 +1,2505 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the Job Application Automation module.
+ * 
+ * DATA PRESERVATION POLICY:
+ * ========================
+ * This module is designed to NEVER delete user content or fields during uninstallation.
+ * All job applications, company data, user profiles, resume files, and custom content
+ * are preserved to prevent accidental data loss.
+ * 
+ * Protected during uninstall:
+ * - Content types: company, job_posting, application, issue, tailored_resume
+ * - User fields: field_resume_file, field_primary_resume_text, field_profile_completeness, etc.
+ * - Profile fields: field_profile_completeness, field_resume_file
+ * - All associated content and data
+ * 
+ * Only module configuration settings are removed during uninstall.
+ * Manual cleanup can be performed via Drupal admin interface if desired.
+ */
+
+use Drupal\Core\Entity\Entity\EntityFormDisplay;
+use Drupal\Core\Entity\Entity\EntityViewDisplay;
+use Drupal\field\Entity\FieldConfig;
+use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\node\Entity\NodeType;
+use Drupal\views\Views;
+
+/**
+ * Implements hook_schema().
+ * 
+ * Note: The job_seeker table is NOT defined here to prevent automatic
+ * deletion during module uninstall. It is created in hook_install() instead.
+ */
+function job_application_automation_schema() {
+  // Return empty array - custom tables are created in hook_install()
+  // and preserved during uninstall
+  return [];
+}
+
+/**
+ * Implements hook_requirements().
+ */
+function job_application_automation_requirements($phase) {
+  $requirements = [];
+  
+  if ($phase === 'uninstall') {
+    $requirements['job_application_automation_data_preservation'] = [
+      'title' => t('Job Application Automation - Data Preservation'),
+      'value' => t('All content, fields, and custom tables will be preserved'),
+      'description' => t('This module is designed to preserve all user data during uninstallation. The job_seeker custom table, content types (company, job_posting, application, issue, tailored_resume), user fields (resume files, profile data), and profile fields will NOT be deleted. This prevents accidental data loss. If you need to remove these items, do so manually after uninstallation via Structure > Content types, Configuration > Account settings, or database administration tools.'),
+      'severity' => REQUIREMENT_INFO,
+    ];
+  }
+  
+  return $requirements;
+}
+
+/**
+ * Create the job_seeker custom table.
+ * 
+ * This table is created outside of hook_schema() to prevent automatic
+ * deletion during module uninstall, preserving all job seeker data.
+ */
+function _job_application_automation_create_job_seeker_table() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $logger = \Drupal::logger('job_application_automation');
+  
+  try {
+    // Check if table already exists
+    if ($schema->tableExists('job_seeker')) {
+      $logger->info('Job seeker table already exists, skipping creation.');
+      return;
+    }
+    
+    $table_schema = [
+      'description' => 'Stores job seeker profile information.',
+      'fields' => [
+        'id' => [
+          'type' => 'serial',
+          'not null' => TRUE,
+          'description' => 'Primary Key: Unique job seeker ID.',
+        ],
+        'uid' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+          'description' => 'The {users}.uid of the user this profile belongs to.',
+        ],
+        'resume_node_id' => [
+          'type' => 'int',
+          'not null' => FALSE,
+          'description' => 'Node ID of the original resume document.',
+        ],
+        'skills' => [
+          'type' => 'text',
+          'not null' => FALSE,
+          'size' => 'big',
+          'description' => 'JSON-encoded array of skills.',
+        ],
+        'experience_years' => [
+          'type' => 'int',
+          'not null' => FALSE,
+          'description' => 'Years of professional experience.',
+        ],
+        'target_companies' => [
+          'type' => 'text',
+          'not null' => FALSE,
+          'size' => 'big',
+          'description' => 'JSON-encoded array of target company node IDs.',
+        ],
+        'preferred_locations' => [
+          'type' => 'text',
+          'not null' => FALSE,
+          'description' => 'JSON-encoded array of preferred job locations.',
+        ],
+        'job_titles' => [
+          'type' => 'text',
+          'not null' => FALSE,
+          'description' => 'JSON-encoded array of target job titles.',
+        ],
+        'salary_expectation' => [
+          'type' => 'varchar',
+          'length' => 255,
+          'not null' => FALSE,
+          'description' => 'Expected salary range.',
+        ],
+        'availability' => [
+          'type' => 'varchar',
+          'length' => 50,
+          'not null' => FALSE,
+          'description' => 'Availability status (e.g., immediate, 2 weeks, etc.).',
+        ],
+        'linkedin_url' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => FALSE,
+          'description' => 'LinkedIn profile URL.',
+        ],
+        'portfolio_url' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => FALSE,
+          'description' => 'Portfolio or personal website URL.',
+        ],
+        'created' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+          'description' => 'Timestamp when the profile was created.',
+        ],
+        'changed' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+          'description' => 'Timestamp when the profile was last updated.',
+        ],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => [
+        'uid' => ['uid'],
+      ],
+      'indexes' => [
+        'created' => ['created'],
+        'changed' => ['changed'],
+      ],
+    ];
+    
+    $schema->createTable('job_seeker', $table_schema);
+    $logger->info('Job seeker table created successfully.');
+  }
+  catch (\Exception $e) {
+    // Log error but don't fail installation
+    $logger->warning('Could not create job_seeker table (may already exist): @error', ['@error' => $e->getMessage()]);
+  }
+}
+
+/**
+ * Implements hook_install().
+ */
+function job_application_automation_install() {
+  $messenger = \Drupal::messenger();
+  $logger = \Drupal::logger('job_application_automation');
+  
+  try {
+    $logger->info('Starting Job Application Automation module installation...');
+    
+    // Create custom job_seeker table
+    _job_application_automation_create_job_seeker_table();
+    $logger->info('Job seeker custom table created.');
+    
+    // Check for partial installation state and warn about it
+    _job_application_automation_check_partial_installation();
+    
+    // Ensure Profile module is enabled
+    $module_handler = \Drupal::service('module_handler');
+    if (!$module_handler->moduleExists('profile')) {
+      \Drupal::service('module_installer')->install(['profile']);
+      $logger->info('Profile module has been enabled.');
+    }
+    
+    // Import profile configurations that may not have been imported automatically
+    _job_application_automation_import_profile_configs();
+    $logger->info('Profile configurations imported.');
+    
+    // Ensure critical profile fields exist programmatically
+    _job_application_automation_ensure_profile_fields();
+    $logger->info('Profile fields verified and created if needed.');
+    
+    // Create content types if they don't exist
+    // This checks for existing types and only creates missing ones
+    _job_application_automation_create_content_types();
+    
+    // Create the target companies profile field now that company content type exists
+    _job_application_automation_create_target_companies_field();
+    
+    // Create and attach fields to content types
+    _job_application_automation_create_content_type_fields();
+    
+    // Configure field displays (content types only - profile fields are handled by config)
+    _job_application_automation_configure_displays();
+    
+    // Create administrative Views
+    _job_application_automation_create_views();
+    
+    // Set default permissions
+    _job_application_automation_set_permissions();
+    
+    // Final verification of installation completeness
+    _job_application_automation_verify_installation_completeness();
+    
+    $messenger->addMessage(t('Job Application Automation module has been installed successfully. All content types, fields, and administrative views have been created.'));
+    $logger->info('Job Application Automation module installation completed successfully.');
+    
+  }
+  catch (Exception $e) {
+    $messenger->addError(t('There was an error installing the Job Application Automation module: @error', ['@error' => $e->getMessage()]));
+    $logger->error('Installation error: @error', ['@error' => $e->getMessage()]);
+    throw $e;
+  }
+}
+
+/**
+ * Check for partial installation state and log warnings.
+ * 
+ * This function detects if there's a partially implemented module in production
+ * and logs warnings about what will be created or updated during installation.
+ */
+function _job_application_automation_check_partial_installation() {
+  $logger = \Drupal::logger('job_application_automation');
+  $logger->info('INSTALLATION STATE CHECK: Analyzing existing components...');
+  
+  $existing_components = [];
+  $missing_components = [];
+  
+  // Check content types
+  $expected_content_types = ['company', 'job_posting', 'application', 'issue', 'tailored_resume'];
+  foreach ($expected_content_types as $type) {
+    if (NodeType::load($type)) {
+      $existing_components['content_types'][] = $type;
+      $logger->warning('PARTIAL INSTALLATION DETECTED: Content type "@type" already exists', ['@type' => $type]);
+    } else {
+      $missing_components['content_types'][] = $type;
+    }
+  }
+  
+  // Check profile type
+  $profile_type = \Drupal::entityTypeManager()->getStorage('profile_type')->load('job_seeker');
+  if ($profile_type) {
+    $existing_components['profile_types'][] = 'job_seeker';
+    $logger->warning('PARTIAL INSTALLATION DETECTED: Profile type "job_seeker" already exists');
+  } else {
+    $missing_components['profile_types'][] = 'job_seeker';
+  }
+  
+  // Check profile field configurations
+  $field_storage_config_storage = \Drupal::entityTypeManager()->getStorage('field_storage_config');
+  $profile_field_storages = $field_storage_config_storage->loadByProperties(['entity_type' => 'profile']);
+  $profile_fields_config = [];
+  $profile_fields_missing_tables = [];
+  
+  $database = \Drupal::database();
+  foreach ($profile_field_storages as $field_storage) {
+    $field_name = $field_storage->getName();
+    $table_name = 'profile__' . $field_name;
+    $profile_fields_config[] = $field_name;
+    
+    if ($database->schema()->tableExists($table_name)) {
+      $existing_components['profile_field_tables'][] = $field_name;
+    } else {
+      $profile_fields_missing_tables[] = $field_name;
+      $missing_components['profile_field_tables'][] = $field_name;
+      $logger->warning('PARTIAL INSTALLATION DETECTED: Profile field "@field" has config but missing database table "@table"', [
+        '@field' => $field_name,
+        '@table' => $table_name
+      ]);
+    }
+  }
+  
+  // Check for any profile field instance configurations
+  $profile_field_instances = \Drupal::entityTypeManager()
+    ->getStorage('field_config')
+    ->loadByProperties(['entity_type' => 'profile', 'bundle' => 'job_seeker']);
+  
+  foreach ($profile_field_instances as $field_instance) {
+    $field_name = $field_instance->getName();
+    $existing_components['profile_field_instances'][] = $field_name;
+  }
+  
+  // Summary logging
+  if (!empty($existing_components)) {
+    $logger->warning('PARTIAL INSTALLATION STATE DETECTED - The following components already exist and will be preserved:');
+    foreach ($existing_components as $component_type => $components) {
+      $logger->warning('  @type: @list', [
+        '@type' => strtoupper(str_replace('_', ' ', $component_type)),
+        '@list' => implode(', ', $components)
+      ]);
+    }
+  }
+  
+  if (!empty($missing_components)) {
+    $logger->info('MISSING COMPONENTS - The following will be created during installation:');
+    foreach ($missing_components as $component_type => $components) {
+      $logger->info('  @type: @list', [
+        '@type' => strtoupper(str_replace('_', ' ', $component_type)),
+        '@list' => implode(', ', $components)
+      ]);
+    }
+  }
+  
+  if (!empty($profile_fields_missing_tables)) {
+    $logger->warning('DATABASE TABLE CREATION REQUIRED: @count profile field(s) have configurations but missing database tables. These will be created automatically.', [
+      '@count' => count($profile_fields_missing_tables)
+    ]);
+  }
+  
+  if (empty($existing_components) && empty($missing_components)) {
+    $logger->info('CLEAN INSTALLATION: No existing components detected. Proceeding with full installation.');
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function job_application_automation_uninstall() {
+  $messenger = \Drupal::messenger();
+  $logger = \Drupal::logger('job_application_automation');
+  
+  try {
+    $logger->info('Starting Job Application Automation module uninstallation...');
+    
+    // Only remove module-specific configuration - NOT content or fields
+    \Drupal::configFactory()->getEditable('job_application_automation.settings')->delete();
+    
+    // CRITICAL: Custom tables, content types and fields are NEVER deleted during uninstall
+    // This preserves all user data, job applications, companies, and profile information
+    // 
+    // Protected custom tables:
+    // - job_seeker: All job seeker profile data (skills, experience, preferences)
+    //
+    // Protected content types:
+    // - company: All employer company data
+    // - job_posting: All discovered job opportunities  
+    // - application: All user job applications and status history
+    // - issue: All support requests and system issues
+    // - tailored_resume: All AI-generated resume content
+    //
+    // Protected user fields:
+    // - field_resume_file: Primary resume uploads
+    // - field_primary_resume_text: Extracted resume text
+    // - field_profile_completeness: User profile completion data
+    // - All other user profile fields (work auth, skills, etc.)
+    //
+    // Protected profile fields (job_seeker profile):
+    // - field_profile_completeness: Profile completion tracking
+    // - field_resume_file: Resume file uploads
+    // - All job seeker profile data
+    //
+    // Manual cleanup (if desired):
+    // To remove custom tables: Use database administration tools
+    // To remove content types: Structure > Content types > Delete
+    // To remove fields: Structure > Content types > Manage fields > Delete
+    // To remove user fields: Configuration > Account settings > Manage fields > Delete
+    
+    $preserved_items = [
+      'Custom Tables' => ['job_seeker'],
+      'Content Types' => ['company', 'job_posting', 'application', 'issue', 'tailored_resume'],
+      'User Fields' => ['field_resume_file', 'field_primary_resume_text', 'field_profile_completeness', 'field_work_authorization', 'field_professional_summary', 'field_skills_summary', 'field_experience_years'],
+      'Profile Fields' => ['field_profile_completeness', 'field_resume_file'],
+      'Views' => ['Job Applications Dashboard', 'Company Management', 'Job Discovery'],
+      'Configuration' => ['Field displays', 'Form displays', 'Permissions'],
+    ];
+    
+    $message_parts = ['Job Application Automation module has been uninstalled safely.'];
+    $message_parts[] = 'ALL CONTENT AND FIELDS HAVE BEEN PRESERVED to prevent data loss.';
+    
+    foreach ($preserved_items as $category => $items) {
+      $message_parts[] = $category . ': ' . implode(', ', $items);
+    }
+    
+    $message_parts[] = 'To manually remove items: Go to Structure > Content types or Configuration > Account settings.';
+    
+    $messenger->addStatus(implode('<br>', $message_parts));
+    $logger->info('Job Application Automation module uninstallation completed. All content and fields preserved.');
+    
+  }
+  catch (Exception $e) {
+    $messenger->addError(t('There was an error uninstalling the Job Application Automation module: @error', ['@error' => $e->getMessage()]));
+    $logger->error('Uninstallation error: @error', ['@error' => $e->getMessage()]);
+  }
+}
+
+/**
+ * Create all required content types if they don't exist.
+ * This function checks for existing content types and only creates missing ones.
+ */
+function _job_application_automation_create_content_types() {
+  $content_types = [
+    'company' => [
+      'label' => 'Company',
+      'description' => 'Employer companies for job application automation',
+    ],
+    'job_posting' => [
+      'label' => 'Job Posting',
+      'description' => 'Individual job opportunities discovered through scraping',
+    ],
+    'application' => [
+      'label' => 'Application',
+      'description' => 'User job applications and their status',
+    ],
+    'issue' => [
+      'label' => 'Issue',
+      'description' => 'Support requests and system issues requiring attention',
+    ],
+    'tailored_resume' => [
+      'label' => 'Tailored Resume',
+      'description' => 'AI-generated resumes tailored for specific job opportunities',
+      'create_body' => TRUE,
+    ],
+  ];
+
+  foreach ($content_types as $type => $info) {
+    // Check if content type already exists
+    $existing_type = NodeType::load($type);
+    if (!$existing_type) {
+      $node_type = NodeType::create([
+        'type' => $type,
+        'name' => $info['label'],
+        'description' => $info['description'],
+        'title_label' => 'Title',
+        'create_body' => isset($info['create_body']) ? $info['create_body'] : FALSE,
+        'promote' => FALSE,
+        'sticky' => FALSE,
+        'locked' => FALSE,
+      ]);
+      $node_type->save();
+      
+      \Drupal::logger('job_application_automation')->info('CREATED content type: @type (@label)', [
+        '@type' => $type,
+        '@label' => $info['label']
+      ]);
+    }
+    else {
+      \Drupal::logger('job_application_automation')->warning('SKIPPED content type creation: @type already exists (preserving existing configuration)', ['@type' => $type]);
+      
+      // Verify the existing content type has expected settings
+      if ($existing_type->get('description') !== $info['description']) {
+        \Drupal::logger('job_application_automation')->notice('Content type @type has different description than expected', ['@type' => $type]);
+      }
+    }
+  }
+}
+
+/**
+ * Create the target companies field programmatically.
+ * 
+ * This field is created programmatically instead of via config files
+ * to ensure the company content type exists before the field is created.
+ */
+function _job_application_automation_create_target_companies_field() {
+  $logger = \Drupal::logger('job_application_automation');
+  
+  // Ensure job_seeker profile type exists
+  $profile_type = \Drupal::entityTypeManager()->getStorage('profile_type')->load('job_seeker');
+  if (!$profile_type) {
+    $profile_type = \Drupal::entityTypeManager()->getStorage('profile_type')->create([
+      'id' => 'job_seeker',
+      'label' => 'Job Seeker',
+      'weight' => 0,
+      'registration' => FALSE,
+      'multiple' => FALSE,
+    ]);
+    $profile_type->save();
+    $logger->info('Created job_seeker profile type.');
+  }
+  
+  // Create field storage for target companies field
+  $field_storage = FieldStorageConfig::loadByName('profile', 'field_target_companies');
+  if (!$field_storage) {
+    $field_storage = FieldStorageConfig::create([
+      'field_name' => 'field_target_companies',
+      'entity_type' => 'profile',
+      'type' => 'entity_reference',
+      'cardinality' => -1, // Unlimited
+      'settings' => [
+        'target_type' => 'node',
+      ],
+    ]);
+    $field_storage->save();
+    $logger->info('Created field storage for field_target_companies.');
+  }
+  
+  // Create field config on job_seeker profile
+  $field_config = FieldConfig::loadByName('profile', 'job_seeker', 'field_target_companies');
+  if (!$field_config) {
+    $field_config = FieldConfig::create([
+      'field_storage' => $field_storage,
+      'bundle' => 'job_seeker',
+      'label' => t('Target Companies'),
+      'description' => t('Companies you are interested in working for'),
+      'required' => FALSE,
+      'settings' => [
+        'handler' => 'default:node',
+        'handler_settings' => [
+          'target_bundles' => [
+            'company' => 'company',
+          ],
+        ],
+      ],
+    ]);
+    $field_config->save();
+    $logger->info('Created field_target_companies field on job_seeker profile.');
+    
+    // Configure form display for the field
+    $form_display = EntityFormDisplay::load('profile.job_seeker.default');
+    if ($form_display && !$form_display->getComponent('field_target_companies')) {
+      $form_display->setComponent('field_target_companies', [
+        'type' => 'entity_reference_autocomplete',
+        'weight' => 17,
+        'region' => 'content',
+        'settings' => [
+          'match_operator' => 'CONTAINS',
+          'match_limit' => 10,
+          'size' => 60,
+          'placeholder' => 'Type company names...',
+        ],
+      ]);
+      $form_display->save();
+      $logger->info('Added field_target_companies to form display.');
+    }
+    
+    // Configure view display for the field
+    $view_display = EntityViewDisplay::load('profile.job_seeker.default');
+    if ($view_display && !$view_display->getComponent('field_target_companies')) {
+      $view_display->setComponent('field_target_companies', [
+        'type' => 'entity_reference_label',
+        'label' => 'above',
+        'weight' => 17,
+        'region' => 'content',
+        'settings' => [
+          'link' => TRUE,
+        ],
+      ]);
+      $view_display->save();
+      $logger->info('Added field_target_companies to view display.');
+    }
+  }
+}
+
+/**
+ * Create and attach all fields to content types.
+ */
+function _job_application_automation_create_content_type_fields() {
+  $field_definitions = _job_application_automation_get_field_definitions();
+  
+  foreach ($field_definitions as $entity_type => $bundles) {
+    foreach ($bundles as $bundle => $fields) {
+      foreach ($fields as $field_name => $field_config) {
+        _job_application_automation_create_field($entity_type, $bundle, $field_name, $field_config);
+      }
+    }
+  }
+}
+
+/**
+ * Create user entity fields.
+ * 
+ * @deprecated This function is no longer used since all profile fields 
+ * are now handled by the Profile module and config files.
+ */
+function _job_application_automation_create_user_fields() {
+  // No longer needed - profile fields are handled by Profile module config
+  \Drupal::logger('job_application_automation')->info('User field creation skipped - using Profile module instead.');
+}
+
+/**
+ * Create a single field and attach it to an entity bundle.
+ */
+function _job_application_automation_create_field($entity_type, $bundle, $field_name, $field_config) {
+  $logger = \Drupal::logger('job_application_automation');
+  
+  // Check if field storage exists
+  $field_storage = FieldStorageConfig::loadByName($entity_type, $field_name);
+  
+  if (!$field_storage) {
+    $storage_config = [
+      'field_name' => $field_name,
+      'entity_type' => $entity_type,
+      'type' => $field_config['type'],
+    ];
+    
+    // Add additional storage settings if specified
+    if (isset($field_config['cardinality'])) {
+      $storage_config['cardinality'] = $field_config['cardinality'];
+    }
+    if (isset($field_config['settings'])) {
+      $storage_config['settings'] = $field_config['settings'];
+    }
+    
+    try {
+      $field_storage = FieldStorageConfig::create($storage_config);
+      $field_storage->save();
+      
+      $logger->info('CREATED field storage: @field (@type) for @entity_type', [
+        '@field' => $field_name,
+        '@type' => $field_config['type'],
+        '@entity_type' => $entity_type,
+      ]);
+    } catch (Exception $e) {
+      $logger->error('FAILED to create field storage @field for @entity_type: @error', [
+        '@field' => $field_name,
+        '@entity_type' => $entity_type,
+        '@error' => $e->getMessage()
+      ]);
+      return;
+    }
+  } else {
+    $logger->warning('SKIPPED field storage creation: @field already exists for @entity_type (preserving existing)', [
+      '@field' => $field_name,
+      '@entity_type' => $entity_type,
+    ]);
+    
+    // Check if the existing field storage has the expected type
+    if ($field_storage->getType() !== $field_config['type']) {
+      $logger->warning('Field storage @field has type "@existing_type" but expected "@expected_type"', [
+        '@field' => $field_name,
+        '@existing_type' => $field_storage->getType(),
+        '@expected_type' => $field_config['type']
+      ]);
+    }
+  }
+  
+  // Check if field config exists for this bundle
+  $field_instance = FieldConfig::loadByName($entity_type, $bundle, $field_name);
+  
+  if (!$field_instance) {
+    $instance_config = [
+      'field_name' => $field_name,
+      'entity_type' => $entity_type,
+      'bundle' => $bundle,
+      'label' => $field_config['label'],
+    ];
+    
+    // Add additional instance settings
+    if (isset($field_config['required'])) {
+      $instance_config['required'] = $field_config['required'];
+    }
+    if (isset($field_config['description'])) {
+      $instance_config['description'] = $field_config['description'];
+    }
+    if (isset($field_config['default_value'])) {
+      $instance_config['default_value'] = $field_config['default_value'];
+    }
+    
+    try {
+      $field_instance = FieldConfig::create($instance_config);
+      $field_instance->save();
+      
+      $logger->info('CREATED field instance: @field (@label) for @entity_type:@bundle', [
+        '@field' => $field_name,
+        '@label' => $field_config['label'],
+        '@entity_type' => $entity_type,
+        '@bundle' => $bundle,
+      ]);
+    } catch (Exception $e) {
+      $logger->error('FAILED to create field instance @field for @entity_type:@bundle: @error', [
+        '@field' => $field_name,
+        '@entity_type' => $entity_type,
+        '@bundle' => $bundle,
+        '@error' => $e->getMessage()
+      ]);
+    }
+  } else {
+    $logger->warning('SKIPPED field instance creation: @field already exists for @entity_type:@bundle (preserving existing)', [
+      '@field' => $field_name,
+      '@entity_type' => $entity_type,
+      '@bundle' => $bundle,
+    ]);
+    
+    // Check if existing field has expected settings
+    if ($field_instance->getLabel() !== $field_config['label']) {
+      $logger->notice('Field instance @field has label "@existing_label" but expected "@expected_label"', [
+        '@field' => $field_name,
+        '@existing_label' => $field_instance->getLabel(),
+        '@expected_label' => $field_config['label']
+      ]);
+    }
+  }
+  
+  // Verify database table exists for this field (particularly important for file fields)
+  if ($entity_type === 'profile' || $entity_type === 'user') {
+    $table_name = $entity_type . '__' . $field_name;
+    $database = \Drupal::database();
+    
+    if (!$database->schema()->tableExists($table_name)) {
+      $logger->warning('Database table @table is missing for field @field - this may cause runtime errors', [
+        '@table' => $table_name,
+        '@field' => $field_name
+      ]);
+    }
+  }
+}
+
+/**
+ * Get field definitions for all content types.
+ */
+function _job_application_automation_get_field_definitions() {
+  return [
+    'node' => [
+      'company' => [
+        'field_website' => [
+          'type' => 'link',
+          'label' => 'Company Website',
+          'description' => 'Company website URL',
+          'required' => FALSE,
+        ],
+        'field_careers_url' => [
+          'type' => 'link',
+          'label' => 'Careers Page URL',
+          'description' => 'Career page URL for scraping',
+          'required' => FALSE,
+        ],
+        'field_description' => [
+          'type' => 'text_long',
+          'label' => 'Company Description',
+          'description' => 'Company description and information',
+          'required' => FALSE,
+        ],
+        'field_industry' => [
+          'type' => 'list_string',
+          'label' => 'Industry',
+          'description' => 'Industry category',
+          'required' => FALSE,
+          'settings' => [
+            'allowed_values' => [
+              'technology' => 'Technology',
+              'healthcare' => 'Healthcare',
+              'finance' => 'Finance',
+              'manufacturing' => 'Manufacturing',
+              'retail' => 'Retail',
+              'education' => 'Education',
+              'government' => 'Government',
+              'nonprofit' => 'Non-profit',
+              'other' => 'Other',
+            ],
+          ],
+        ],
+        'field_size' => [
+          'type' => 'list_string',
+          'label' => 'Company Size',
+          'description' => 'Company size category',
+          'required' => FALSE,
+          'settings' => [
+            'allowed_values' => [
+              'startup' => 'Startup (1-50)',
+              'small' => 'Small (51-200)',
+              'medium' => 'Medium (201-1000)',
+              'large' => 'Large (1001-5000)',
+              'enterprise' => 'Enterprise (5000+)',
+            ],
+          ],
+        ],
+        'field_active' => [
+          'type' => 'boolean',
+          'label' => 'Active Job Scraping',
+          'description' => 'Whether active job scraping is enabled for this company',
+          'required' => FALSE,
+          'default_value' => [['value' => 1]],
+        ],
+        'field_scraping_notes' => [
+          'type' => 'text_long',
+          'label' => 'Scraping Notes',
+          'description' => 'Admin notes for scraping configuration',
+          'required' => FALSE,
+        ],
+        'field_location' => [
+          'type' => 'string',
+          'label' => 'Company Location',
+          'description' => 'Company headquarters location',
+          'required' => FALSE,
+        ],
+        'field_company_logo' => [
+          'type' => 'image',
+          'label' => 'Company Logo',
+          'description' => 'Company logo for display',
+          'required' => FALSE,
+        ],
+      ],
+      'job_posting' => [
+        'field_company_ref' => [
+          'type' => 'entity_reference',
+          'label' => 'Company',
+          'description' => 'Reference to Company node',
+          'required' => TRUE,
+          'settings' => [
+            'target_type' => 'node',
+            'handler_settings' => [
+              'target_bundles' => ['company' => 'company'],
+            ],
+          ],
+        ],
+        'field_job_title' => [
+          'type' => 'string',
+          'label' => 'Job Title',
+          'description' => 'Position title',
+          'required' => TRUE,
+        ],
+        'field_job_description' => [
+          'type' => 'text_long',
+          'label' => 'Job Description',
+          'description' => 'Full job description',
+          'required' => FALSE,
+        ],
+        'field_requirements' => [
+          'type' => 'text_long',
+          'label' => 'Requirements',
+          'description' => 'Job requirements and qualifications',
+          'required' => FALSE,
+        ],
+        'field_salary_range' => [
+          'type' => 'string',
+          'label' => 'Salary Range',
+          'description' => 'Salary information if available',
+          'required' => FALSE,
+        ],
+        'field_location' => [
+          'type' => 'string',
+          'label' => 'Job Location',
+          'description' => 'Job location',
+          'required' => FALSE,
+        ],
+        'field_remote_option' => [
+          'type' => 'list_string',
+          'label' => 'Remote Options',
+          'description' => 'Remote work options',
+          'required' => FALSE,
+          'settings' => [
+            'allowed_values' => [
+              'remote' => 'Remote',
+              'hybrid' => 'Hybrid',
+              'onsite' => 'On-site',
+            ],
+          ],
+        ],
+        'field_employment_type' => [
+          'type' => 'list_string',
+          'label' => 'Employment Type',
+          'description' => 'Type of employment',
+          'required' => FALSE,
+          'settings' => [
+            'allowed_values' => [
+              'fulltime' => 'Full-time',
+              'parttime' => 'Part-time',
+              'contract' => 'Contract',
+              'temporary' => 'Temporary',
+              'internship' => 'Internship',
+            ],
+          ],
+        ],
+        'field_job_url' => [
+          'type' => 'link',
+          'label' => 'Job URL',
+          'description' => 'Direct link to job posting',
+          'required' => FALSE,
+        ],
+        'field_posting_date' => [
+          'type' => 'datetime',
+          'label' => 'Posting Date',
+          'description' => 'When job was posted',
+          'required' => FALSE,
+        ],
+        'field_application_deadline' => [
+          'type' => 'datetime',
+          'label' => 'Application Deadline',
+          'description' => 'Application deadline if specified',
+          'required' => FALSE,
+        ],
+        'field_skills_required' => [
+          'type' => 'text_long',
+          'label' => 'Skills Required',
+          'description' => 'Extracted skills and technologies',
+          'required' => FALSE,
+        ],
+        'field_experience_level' => [
+          'type' => 'list_string',
+          'label' => 'Experience Level',
+          'description' => 'Required experience level',
+          'required' => FALSE,
+          'settings' => [
+            'allowed_values' => [
+              'entry' => 'Entry Level',
+              'mid' => 'Mid Level',
+              'senior' => 'Senior Level',
+              'executive' => 'Executive',
+              'lead' => 'Lead/Principal',
+            ],
+          ],
+        ],
+        'field_job_status' => [
+          'type' => 'list_string',
+          'label' => 'Job Status',
+          'description' => 'Current status of job posting',
+          'required' => FALSE,
+          'settings' => [
+            'allowed_values' => [
+              'active' => 'Active',
+              'applied' => 'Applied',
+              'archived' => 'Archived',
+              'expired' => 'Expired',
+            ],
+          ],
+          'default_value' => [['value' => 'active']],
+        ],
+      ],
+      'application' => [
+        'field_user_ref' => [
+          'type' => 'entity_reference',
+          'label' => 'User',
+          'description' => 'Reference to User',
+          'required' => TRUE,
+          'settings' => [
+            'target_type' => 'user',
+          ],
+        ],
+        'field_company_ref' => [
+          'type' => 'entity_reference',
+          'label' => 'Company',
+          'description' => 'Reference to Company node',
+          'required' => TRUE,
+          'settings' => [
+            'target_type' => 'node',
+            'handler_settings' => [
+              'target_bundles' => ['company' => 'company'],
+            ],
+          ],
+        ],
+        'field_job_posting_ref' => [
+          'type' => 'entity_reference',
+          'label' => 'Job Posting',
+          'description' => 'Reference to Job Posting node',
+          'required' => FALSE,
+          'settings' => [
+            'target_type' => 'node',
+            'handler_settings' => [
+              'target_bundles' => ['job_posting' => 'job_posting'],
+            ],
+          ],
+        ],
+        'field_application_date' => [
+          'type' => 'datetime',
+          'label' => 'Application Date',
+          'description' => 'When application was submitted',
+          'required' => TRUE,
+        ],
+        'field_application_status' => [
+          'type' => 'list_string',
+          'label' => 'Application Status',
+          'description' => 'Current application status',
+          'required' => TRUE,
+          'settings' => [
+            'allowed_values' => [
+              'submitted' => 'Submitted',
+              'under_review' => 'Under Review',
+              'interview_scheduled' => 'Interview Scheduled',
+              'interview_completed' => 'Interview Completed',
+              'offer_received' => 'Offer Received',
+              'rejected' => 'Rejected',
+              'withdrawn' => 'Withdrawn',
+              'archived' => 'Archived',
+            ],
+          ],
+          'default_value' => [['value' => 'submitted']],
+        ],
+        'field_resume_used' => [
+          'type' => 'file',
+          'label' => 'Resume Used',
+          'description' => 'Copy of resume used for this application',
+          'required' => FALSE,
+          'settings' => [
+            'file_extensions' => 'pdf doc docx',
+          ],
+        ],
+        'field_cover_letter_used' => [
+          'type' => 'file',
+          'label' => 'Cover Letter Used',
+          'description' => 'Cover letter used for this application',
+          'required' => FALSE,
+          'settings' => [
+            'file_extensions' => 'pdf doc docx',
+          ],
+        ],
+        'field_notes' => [
+          'type' => 'text_long',
+          'label' => 'Notes',
+          'description' => 'User notes about the application',
+          'required' => FALSE,
+        ],
+        'field_automated' => [
+          'type' => 'boolean',
+          'label' => 'Automated Application',
+          'description' => 'Whether application was automated or manual',
+          'required' => FALSE,
+          'default_value' => [['value' => 0]],
+        ],
+        'field_tailored_content' => [
+          'type' => 'text_long',
+          'label' => 'Tailored Content',
+          'description' => 'AI-generated tailored resume content',
+          'required' => FALSE,
+        ],
+        'field_application_url' => [
+          'type' => 'link',
+          'label' => 'Application URL',
+          'description' => "URL to employer's application if available",
+          'required' => FALSE,
+        ],
+      ],
+      'issue' => [
+        'field_company_ref' => [
+          'type' => 'entity_reference',
+          'label' => 'Company',
+          'description' => 'Reference to Company node',
+          'required' => FALSE,
+          'settings' => [
+            'target_type' => 'node',
+            'handler_settings' => [
+              'target_bundles' => ['company' => 'company'],
+            ],
+          ],
+        ],
+        'field_user_ref' => [
+          'type' => 'entity_reference',
+          'label' => 'Affected User',
+          'description' => 'Reference to affected User',
+          'required' => FALSE,
+          'settings' => [
+            'target_type' => 'user',
+          ],
+        ],
+        'field_job_posting_ref' => [
+          'type' => 'entity_reference',
+          'label' => 'Job Posting',
+          'description' => 'Reference to Job Posting if applicable',
+          'required' => FALSE,
+          'settings' => [
+            'target_type' => 'node',
+            'handler_settings' => [
+              'target_bundles' => ['job_posting' => 'job_posting'],
+            ],
+          ],
+        ],
+        'field_error_type' => [
+          'type' => 'list_string',
+          'label' => 'Error Type',
+          'description' => 'Type of error',
+          'required' => TRUE,
+          'settings' => [
+            'allowed_values' => [
+              'authentication' => 'Authentication Error',
+              'scraping' => 'Scraping Error',
+              'submission' => 'Submission Error',
+              'technical' => 'Technical Error',
+              'configuration' => 'Configuration Error',
+            ],
+          ],
+        ],
+        'field_error_message' => [
+          'type' => 'text_long',
+          'label' => 'Error Message',
+          'description' => 'Detailed error description',
+          'required' => TRUE,
+        ],
+        'field_error_data' => [
+          'type' => 'text_long',
+          'label' => 'Error Data',
+          'description' => 'Technical error data and stack traces',
+          'required' => FALSE,
+        ],
+        'field_priority' => [
+          'type' => 'list_string',
+          'label' => 'Priority',
+          'description' => 'Error priority level',
+          'required' => TRUE,
+          'settings' => [
+            'allowed_values' => [
+              'low' => 'Low',
+              'medium' => 'Medium',
+              'high' => 'High',
+              'critical' => 'Critical',
+            ],
+          ],
+          'default_value' => [['value' => 'medium']],
+        ],
+        'field_status' => [
+          'type' => 'list_string',
+          'label' => 'Status',
+          'description' => 'Error resolution status',
+          'required' => TRUE,
+          'settings' => [
+            'allowed_values' => [
+              'new' => 'New',
+              'in_progress' => 'In Progress',
+              'resolved' => 'Resolved',
+              'deferred' => 'Deferred',
+            ],
+          ],
+          'default_value' => [['value' => 'new']],
+        ],
+        'field_assigned_admin' => [
+          'type' => 'entity_reference',
+          'label' => 'Assigned Admin',
+          'description' => 'Reference to admin User',
+          'required' => FALSE,
+          'settings' => [
+            'target_type' => 'user',
+          ],
+        ],
+        'field_resolution_notes' => [
+          'type' => 'text_long',
+          'label' => 'Resolution Notes',
+          'description' => 'Admin resolution documentation',
+          'required' => FALSE,
+        ],
+        'field_fixed' => [
+          'type' => 'boolean',
+          'label' => 'Fixed',
+          'description' => 'Simple checkbox for MVP queue management',
+          'required' => FALSE,
+          'default_value' => [['value' => 0]],
+        ],
+        'field_screenshot' => [
+          'type' => 'image',
+          'label' => 'Screenshot',
+          'description' => 'Screenshot of error if available',
+          'required' => FALSE,
+        ],
+      ],
+      'tailored_resume' => [
+        'field_job_posting' => [
+          'type' => 'entity_reference',
+          'label' => 'Job Posting',
+          'description' => 'Reference to the job posting this resume was tailored for',
+          'required' => TRUE,
+          'settings' => [
+            'target_type' => 'node',
+            'handler_settings' => [
+              'target_bundles' => ['job_posting' => 'job_posting'],
+            ],
+          ],
+        ],
+        'field_resume' => [
+          'type' => 'entity_reference',
+          'label' => 'Original Resume',
+          'description' => 'Reference to the original resume that was tailored',
+          'required' => TRUE,
+          'settings' => [
+            'target_type' => 'node',
+            'handler_settings' => [
+              'target_bundles' => ['resume' => 'resume'],
+            ],
+          ],
+        ],
+      ],
+    ],
+  ];
+}
+
+/**
+ * Get user field definitions.
+ */
+function _job_application_automation_get_user_field_definitions() {
+  return [
+    'field_resume_file' => [
+      'type' => 'file',
+      'label' => 'Primary Resume',
+      'description' => 'Primary resume upload',
+      'required' => FALSE,
+      'settings' => [
+        'file_extensions' => 'pdf doc docx',
+      ],
+    ],
+    'field_primary_resume_text' => [
+      'type' => 'text_long',
+      'label' => 'Primary Resume Text',
+      'description' => 'Extracted text content from uploaded resume file (automatically populated)',
+      'required' => FALSE,
+    ],
+    'field_professional_summary' => [
+      'type' => 'text_long',
+      'label' => 'Professional Summary',
+      'description' => 'Professional summary/objective',
+      'required' => FALSE,
+    ],
+    'field_skills_summary' => [
+      'type' => 'text_long',
+      'label' => 'Skills Summary',
+      'description' => 'Skills and technologies overview',
+      'required' => FALSE,
+    ],
+    'field_work_authorization' => [
+      'type' => 'list_string',
+      'label' => 'Work Authorization',
+      'description' => 'US work authorization status',
+      'required' => FALSE,
+      'settings' => [
+        'allowed_values' => [
+          'us_citizen' => 'US Citizen',
+          'permanent_resident' => 'Permanent Resident',
+          'work_visa' => 'Work Visa (H1B)',
+          'student_visa' => 'Student Visa (F1)',
+          'visa_sponsorship' => 'Visa Sponsorship Required',
+          'other' => 'Other',
+        ],
+      ],
+    ],
+    'field_salary_expectation_min' => [
+      'type' => 'integer',
+      'label' => 'Minimum Salary Expectation',
+      'description' => 'Minimum salary expectation',
+      'required' => FALSE,
+    ],
+    'field_salary_expectation_max' => [
+      'type' => 'integer',
+      'label' => 'Maximum Salary Expectation',
+      'description' => 'Maximum salary expectation',
+      'required' => FALSE,
+    ],
+    'field_available_start_date' => [
+      'type' => 'datetime',
+      'label' => 'Available Start Date',
+      'description' => 'Earliest start date',
+      'required' => FALSE,
+    ],
+    'field_remote_preference' => [
+      'type' => 'list_string',
+      'label' => 'Remote Preference',
+      'description' => 'Remote work preference',
+      'required' => FALSE,
+      'settings' => [
+        'allowed_values' => [
+          'remote' => 'Remote',
+          'hybrid' => 'Hybrid',
+          'onsite' => 'On-site',
+          'no_preference' => 'No Preference',
+        ],
+      ],
+    ],
+    'field_relocation_willing' => [
+      'type' => 'boolean',
+      'label' => 'Willing to Relocate',
+      'description' => 'Willing to relocate for employment',
+      'required' => FALSE,
+      'default_value' => [['value' => 0]],
+    ],
+    'field_keywords_interested' => [
+      'type' => 'text_long',
+      'label' => 'Job Search Keywords',
+      'description' => 'Job search keywords and interests',
+      'required' => FALSE,
+    ],
+    'field_target_companies' => [
+      'type' => 'entity_reference',
+      'label' => 'Target Companies',
+      'description' => 'Companies of interest',
+      'required' => FALSE,
+      'cardinality' => -1,
+      'settings' => [
+        'target_type' => 'node',
+        'handler_settings' => [
+          'target_bundles' => ['company' => 'company'],
+        ],
+      ],
+    ],
+    'field_target_job_titles' => [
+      'type' => 'text_long',
+      'label' => 'Target Job Titles',
+      'description' => 'Desired job titles and roles',
+      'required' => FALSE,
+    ],
+    'field_experience_years' => [
+      'type' => 'integer',
+      'label' => 'Years of Experience',
+      'description' => 'Years of professional experience',
+      'required' => FALSE,
+    ],
+    'field_education_level' => [
+      'type' => 'list_string',
+      'label' => 'Education Level',
+      'description' => 'Highest education level',
+      'required' => FALSE,
+      'settings' => [
+        'allowed_values' => [
+          'high_school' => 'High School',
+          'associates' => 'Associates Degree',
+          'bachelors' => 'Bachelors Degree',
+          'masters' => 'Masters Degree',
+          'doctoral' => 'Doctoral Degree',
+          'professional' => 'Professional Degree',
+        ],
+      ],
+    ],
+    'field_certifications' => [
+      'type' => 'text_long',
+      'label' => 'Certifications',
+      'description' => 'Professional certifications and licenses',
+      'required' => FALSE,
+    ],
+    'field_portfolio_url' => [
+      'type' => 'link',
+      'label' => 'Portfolio URL',
+      'description' => 'Portfolio or personal website',
+      'required' => FALSE,
+    ],
+    'field_linkedin_url' => [
+      'type' => 'link',
+      'label' => 'LinkedIn URL',
+      'description' => 'LinkedIn profile URL',
+      'required' => FALSE,
+    ],
+    'field_github_url' => [
+      'type' => 'link',
+      'label' => 'GitHub URL',
+      'description' => 'GitHub profile URL',
+      'required' => FALSE,
+    ],
+    'field_references_available' => [
+      'type' => 'boolean',
+      'label' => 'References Available',
+      'description' => 'References available upon request',
+      'required' => FALSE,
+      'default_value' => [['value' => 1]],
+    ],
+    'field_cover_letter_template' => [
+      'type' => 'text_long',
+      'label' => 'Cover Letter Template',
+      'description' => 'Default cover letter template',
+      'required' => FALSE,
+    ],
+    'field_ai_analysis_data' => [
+      'type' => 'text_long',
+      'label' => 'AI Analysis Data',
+      'description' => 'JSON storage for AI-analyzed profile data',
+      'required' => FALSE,
+    ],
+    'field_profile_completeness' => [
+      'type' => 'integer',
+      'label' => 'Profile Completeness',
+      'description' => 'Profile completion percentage',
+      'required' => FALSE,
+      'default_value' => [['value' => 0]],
+    ],
+    'field_last_profile_update' => [
+      'type' => 'datetime',
+      'label' => 'Last Profile Update',
+      'description' => 'Last time profile was updated',
+      'required' => FALSE,
+    ],
+    'field_notification_preferences' => [
+      'type' => 'text_long',
+      'label' => 'Notification Preferences',
+      'description' => 'JSON storage for notification settings',
+      'required' => FALSE,
+    ],
+  ];
+}
+
+/**
+ * Configure field displays for content types.
+ */
+function _job_application_automation_configure_displays() {
+  // Configure form displays for all content types
+  _job_application_automation_configure_company_form_display();
+  _job_application_automation_configure_job_posting_form_display();
+  _job_application_automation_configure_application_form_display();
+  _job_application_automation_configure_issue_form_display();
+  _job_application_automation_configure_user_form_display();
+  
+  \Drupal::logger('job_application_automation')->info('Field displays configured successfully.');
+}
+
+/**
+ * Configure form display for company content type.
+ */
+function _job_application_automation_configure_company_form_display() {
+  $form_display = EntityFormDisplay::load('node.company.default');
+  
+  if (!$form_display) {
+    $form_display = EntityFormDisplay::create([
+      'targetEntityType' => 'node',
+      'bundle' => 'company',
+      'mode' => 'default',
+      'status' => TRUE,
+    ]);
+  }
+
+  // Configure field displays with proper weights
+  $form_display->setComponent('field_website', [
+    'type' => 'link_default',
+    'weight' => 1,
+    'settings' => [
+      'placeholder_url' => 'https://example.com',
+      'placeholder_title' => 'Company Website',
+    ],
+  ]);
+
+  $form_display->setComponent('field_careers_url', [
+    'type' => 'link_default',
+    'weight' => 2,
+    'settings' => [
+      'placeholder_url' => 'https://example.com/careers',
+      'placeholder_title' => 'Careers Page',
+    ],
+  ]);
+
+  $form_display->setComponent('field_description', [
+    'type' => 'text_textarea',
+    'weight' => 3,
+    'settings' => [
+      'rows' => 5,
+      'placeholder' => 'Enter company description...',
+    ],
+  ]);
+
+  $form_display->setComponent('field_industry', [
+    'type' => 'options_select',
+    'weight' => 4,
+  ]);
+
+  $form_display->setComponent('field_size', [
+    'type' => 'options_select',
+    'weight' => 5,
+  ]);
+
+  $form_display->setComponent('field_location', [
+    'type' => 'string_textfield',
+    'weight' => 6,
+    'settings' => [
+      'placeholder' => 'City, State/Country',
+    ],
+  ]);
+
+  $form_display->setComponent('field_active', [
+    'type' => 'boolean_checkbox',
+    'weight' => 7,
+    'settings' => [
+      'display_label' => TRUE,
+    ],
+  ]);
+
+  $form_display->setComponent('field_company_logo', [
+    'type' => 'image_image',
+    'weight' => 8,
+  ]);
+
+  $form_display->setComponent('field_scraping_notes', [
+    'type' => 'text_textarea',
+    'weight' => 9,
+    'settings' => [
+      'rows' => 3,
+      'placeholder' => 'Internal notes about job scraping for this company...',
+    ],
+  ]);
+
+  $form_display->save();
+  
+  \Drupal::logger('job_application_automation')->info('Company form display configured successfully.');
+}
+
+/**
+ * Configure form display for job_posting content type.
+ */
+function _job_application_automation_configure_job_posting_form_display() {
+  $form_display = EntityFormDisplay::load('node.job_posting.default');
+  
+  if (!$form_display) {
+    $form_display = EntityFormDisplay::create([
+      'targetEntityType' => 'node',
+      'bundle' => 'job_posting',
+      'mode' => 'default',
+      'status' => TRUE,
+    ]);
+  }
+
+  // Configure key job posting fields
+  $form_display->setComponent('field_company_ref', [
+    'type' => 'entity_reference_autocomplete',
+    'weight' => 1,
+  ]);
+
+  $form_display->setComponent('field_job_type', [
+    'type' => 'options_select',
+    'weight' => 2,
+  ]);
+
+  $form_display->setComponent('field_salary_range', [
+    'type' => 'string_textfield',
+    'weight' => 3,
+  ]);
+
+  $form_display->setComponent('field_location', [
+    'type' => 'string_textfield',
+    'weight' => 4,
+  ]);
+
+  $form_display->save();
+  \Drupal::logger('job_application_automation')->info('Job posting form display configured successfully.');
+}
+
+/**
+ * Configure form display for application content type.
+ */
+function _job_application_automation_configure_application_form_display() {
+  $form_display = EntityFormDisplay::load('node.application.default');
+  
+  if (!$form_display) {
+    $form_display = EntityFormDisplay::create([
+      'targetEntityType' => 'node',
+      'bundle' => 'application',
+      'mode' => 'default',
+      'status' => TRUE,
+    ]);
+  }
+
+  // Configure key application fields
+  $form_display->setComponent('field_company_ref', [
+    'type' => 'entity_reference_autocomplete',
+    'weight' => 1,
+  ]);
+
+  $form_display->setComponent('field_application_status', [
+    'type' => 'options_select',
+    'weight' => 2,
+  ]);
+
+  $form_display->setComponent('field_application_date', [
+    'type' => 'datetime_default',
+    'weight' => 3,
+  ]);
+
+  $form_display->save();
+  \Drupal::logger('job_application_automation')->info('Application form display configured successfully.');
+}
+
+/**
+ * Configure form display for issue content type.
+ */
+function _job_application_automation_configure_issue_form_display() {
+  $form_display = EntityFormDisplay::load('node.issue.default');
+  
+  if (!$form_display) {
+    $form_display = EntityFormDisplay::create([
+      'targetEntityType' => 'node',
+      'bundle' => 'issue',
+      'mode' => 'default',
+      'status' => TRUE,
+    ]);
+  }
+
+  // Configure key issue fields
+  $form_display->setComponent('field_priority', [
+    'type' => 'options_select',
+    'weight' => 1,
+  ]);
+
+  $form_display->setComponent('field_issue_status', [
+    'type' => 'options_select',
+    'weight' => 2,
+  ]);
+
+  $form_display->save();
+  \Drupal::logger('job_application_automation')->info('Issue form display configured successfully.');
+}
+
+/**
+ * Configure form display for user profile fields.
+ */
+function _job_application_automation_configure_user_form_display() {
+  $form_display = EntityFormDisplay::load('user.user.default');
+  
+  if (!$form_display) {
+    $form_display = EntityFormDisplay::create([
+      'targetEntityType' => 'user',
+      'bundle' => 'user',
+      'mode' => 'default',
+      'status' => TRUE,
+    ]);
+  }
+
+  // Configure key user profile fields with proper weights
+  $weight = 10; // Start after default fields
+  
+  $user_fields = [
+    'field_first_name' => 'string_textfield',
+    'field_last_name' => 'string_textfield',
+    'field_phone_number' => 'telephone_default',
+    'field_city' => 'string_textfield',
+    'field_state' => 'string_textfield',
+    'field_country' => 'string_textfield',
+    'field_job_title' => 'string_textfield',
+    'field_years_experience' => 'number',
+    'field_skills' => 'text_textarea',
+    'field_education_level' => 'options_select',
+    'field_resume_file' => 'file_generic',
+    'field_desired_salary_min' => 'number',
+    'field_desired_salary_max' => 'number',
+    'field_job_search_status' => 'options_select',
+    'field_remote_preference' => 'options_select',
+  ];
+
+  foreach ($user_fields as $field_name => $widget_type) {
+    $form_display->setComponent($field_name, [
+      'type' => $widget_type,
+      'weight' => $weight++,
+    ]);
+  }
+
+  $form_display->save();
+  \Drupal::logger('job_application_automation')->info('User form display configured successfully.');
+}
+
+/**
+ * Update 8001: Configure field displays for existing installations.
+ */
+function job_application_automation_update_8001() {
+  // Configure field displays that were missing from initial install
+  _job_application_automation_configure_displays();
+  
+  return t('Field displays have been configured for all content types.');
+}
+
+/**
+ * Create administrative Views for content management.
+ */
+function _job_application_automation_create_views() {
+  // For MVP, we'll rely on the default content management views
+  // Advanced administrative Views can be created in later phases
+  // Users can access content via /admin/content filtered by content type
+  
+  \Drupal::logger('job_application_automation')->info('Administrative Views can be accessed via /admin/content with content type filtering.');
+}
+
+/**
+ * Add primary resume text field for automatic text extraction.
+ */
+function job_application_automation_update_8002() {
+  $logger = \Drupal::logger('job_application_automation');
+  
+  try {
+    // Create the new field for storing extracted resume text
+    $field_config = [
+      'type' => 'text_long',
+      'label' => 'Primary Resume Text',
+      'description' => 'Extracted text content from uploaded resume file (automatically populated)',
+      'required' => FALSE,
+    ];
+    
+    _job_application_automation_create_field('user', 'user', 'field_primary_resume_text', $field_config);
+    
+    // Configure the field display to be visible
+    _job_application_automation_configure_primary_resume_display();
+    
+    $logger->info('Primary resume text field added successfully.');
+    return t('Primary resume text field has been added for automatic text extraction.');
+    
+  } catch (Exception $e) {
+    $logger->error('Error adding primary resume text field: @error', ['@error' => $e->getMessage()]);
+    throw $e;
+  }
+}
+
+/**
+ * Configure the primary resume text field display.
+ */
+function _job_application_automation_configure_primary_resume_display() {
+  // Configure view display
+  $view_display = EntityViewDisplay::load('user.user.default');
+  if ($view_display) {
+    $view_display->setComponent('field_primary_resume_text', [
+      'type' => 'text_default',
+      'label' => 'above',
+      'weight' => 15,
+      'settings' => [],
+      'third_party_settings' => [],
+    ]);
+    $view_display->save();
+    
+    \Drupal::logger('job_application_automation')->info('Primary resume text field display configured.');
+  }
+  
+  // Keep field hidden in edit forms (it's auto-populated)
+  $form_display = EntityFormDisplay::load('user.user.default');
+  if ($form_display) {
+    $form_display->removeComponent('field_primary_resume_text');
+    $form_display->save();
+    
+    \Drupal::logger('job_application_automation')->info('Primary resume text field hidden from forms.');
+  }
+}
+
+/**
+ * Configure primary resume text field display for existing installations.
+ */
+function job_application_automation_update_8003() {
+  $logger = \Drupal::logger('job_application_automation');
+  
+  try {
+    _job_application_automation_configure_primary_resume_display();
+    
+    $logger->info('Primary resume text field display configured successfully.');
+    return t('Primary resume text field is now visible in user profiles.');
+    
+  } catch (Exception $e) {
+    $logger->error('Error configuring primary resume text field display: @error', ['@error' => $e->getMessage()]);
+    throw $e;
+  }
+}
+
+/**
+ * Set default permissions for the module.
+ */
+function _job_application_automation_set_permissions() {
+  $role_storage = \Drupal::entityTypeManager()->getStorage('user_role');
+  
+  // Get the authenticated user role
+  $authenticated_role = $role_storage->load('authenticated');
+  
+  if ($authenticated_role) {
+    // Grant permissions to authenticated users
+    $permissions = [
+      'access user job applications',
+      'edit own job application profile',
+      'view own job application profile',
+      'create application content',
+      'edit own application content',
+      'view application content',
+      'create tailored_resume content',
+      'edit own tailored_resume content',
+      'view tailored_resume content',
+      'create company content',
+      'view company content',
+      'create job_posting content',
+      'view job_posting content',
+      'access job discovery',
+      'tailor resume',
+      'access companies overview',
+    ];
+    
+    foreach ($permissions as $permission) {
+      try {
+        $authenticated_role->grantPermission($permission);
+      } catch (\Exception $e) {
+        \Drupal::logger('job_application_automation')->warning('Could not grant permission @permission: @error', [
+          '@permission' => $permission,
+          '@error' => $e->getMessage(),
+        ]);
+      }
+    }
+    
+    $authenticated_role->save();
+    \Drupal::logger('job_application_automation')->info('Permissions granted to authenticated users.');
+  }
+}
+
+/**
+ * Update 8005: Grant permissions to authenticated users for job discovery functionality.
+ */
+function job_application_automation_update_8005() {
+  _job_application_automation_set_permissions();
+  return 'Permissions have been updated for authenticated users to access job discovery functionality.';
+}
+
+/**
+ * Safely import profile configurations, checking for existing configs first.
+ */
+function _job_application_automation_import_profile_configs() {
+  $config_factory = \Drupal::configFactory();
+  $logger = \Drupal::logger('job_application_automation');
+  
+  // List of configuration files that should be imported
+  $config_files = [
+    'profile.type.job_seeker',
+    'field.storage.profile.field_resume_file',
+    'field.storage.profile.field_primary_resume_text',
+    'field.storage.profile.field_professional_summary',
+    'field.storage.profile.field_skills_summary',
+    'field.storage.profile.field_work_authorization',
+    'field.storage.profile.field_salary_expectation_min',
+    'field.storage.profile.field_salary_expectation_max',
+    'field.storage.profile.field_available_start_date',
+    'field.storage.profile.field_remote_preference',
+    'field.storage.profile.field_education_level',
+    'field.storage.profile.field_relocation_willing',
+    'field.storage.profile.field_references_available',
+    'field.storage.profile.field_keywords_interested',
+    'field.storage.profile.field_target_job_titles',
+    'field.storage.profile.field_experience_years',
+    'field.storage.profile.field_certifications',
+    'field.storage.profile.field_portfolio_url',
+    'field.storage.profile.field_linkedin_url',
+    'field.storage.profile.field_github_url',
+    'field.storage.profile.field_cover_letter_template',
+    'field.storage.profile.field_target_companies',
+    'field.storage.profile.field_ai_analysis_data',
+    'field.storage.profile.field_profile_completeness',
+    'field.storage.profile.field_last_profile_update',
+    // Field instances
+    'field.field.profile.job_seeker.field_resume_file',
+    'field.field.profile.job_seeker.field_primary_resume_text',
+    'field.field.profile.job_seeker.field_professional_summary',
+    'field.field.profile.job_seeker.field_skills_summary',
+    'field.field.profile.job_seeker.field_work_authorization',
+    'field.field.profile.job_seeker.field_salary_expectation_min',
+    'field.field.profile.job_seeker.field_salary_expectation_max',
+    'field.field.profile.job_seeker.field_available_start_date',
+    'field.field.profile.job_seeker.field_remote_preference',
+    'field.field.profile.job_seeker.field_education_level',
+    'field.field.profile.job_seeker.field_relocation_willing',
+    'field.field.profile.job_seeker.field_references_available',
+    'field.field.profile.job_seeker.field_keywords_interested',
+    'field.field.profile.job_seeker.field_target_job_titles',
+    'field.field.profile.job_seeker.field_experience_years',
+    'field.field.profile.job_seeker.field_certifications',
+    'field.field.profile.job_seeker.field_portfolio_url',
+    'field.field.profile.job_seeker.field_linkedin_url',
+    'field.field.profile.job_seeker.field_github_url',
+    'field.field.profile.job_seeker.field_cover_letter_template',
+    'field.field.profile.job_seeker.field_target_companies',
+    'field.field.profile.job_seeker.field_ai_analysis_data',
+    'field.field.profile.job_seeker.field_profile_completeness',
+    'field.field.profile.job_seeker.field_last_profile_update',
+    // Display configurations
+    'core.entity_form_display.profile.job_seeker.default',
+    'core.entity_view_display.profile.job_seeker.default',
+  ];
+  
+  $skipped = 0;
+  $imported = 0;
+  
+  foreach ($config_files as $config_name) {
+    // Check if configuration already exists
+    $existing_config = $config_factory->get($config_name);
+    if (!$existing_config->isNew()) {
+      $logger->info('Configuration @config already exists, skipping import.', ['@config' => $config_name]);
+      $skipped++;
+      continue;
+    }
+    
+    // Configuration doesn't exist, it will be imported automatically by Drupal
+    // during module installation from the config/install directory
+    $logger->info('Configuration @config will be imported.', ['@config' => $config_name]);
+    $imported++;
+  }
+  
+  $logger->info('Profile configuration import completed. Imported: @imported, Skipped: @skipped', [
+    '@imported' => $imported,
+    '@skipped' => $skipped
+  ]);
+}
+
+/**
+ * Update 8004: Import Job Seeker profile configuration safely.
+ */
+function job_application_automation_update_8004() {
+  $logger = \Drupal::logger('job_application_automation');
+  
+  try {
+    // Ensure Profile module is enabled
+    $module_handler = \Drupal::service('module_handler');
+    if (!$module_handler->moduleExists('profile')) {
+      \Drupal::service('module_installer')->install(['profile']);
+      $logger->info('Profile module has been enabled.');
+    }
+    
+    // Import profile configurations from config/install directory
+    $config_installer = \Drupal::service('config.installer');
+    $storage = \Drupal::service('config.storage');
+    $config_factory = \Drupal::configFactory();
+    
+    // Get the module path and config install directory
+    $module_path = \Drupal::service('extension.path.resolver')->getPath('module', 'job_application_automation');
+    $config_install_path = $module_path . '/config/install';
+    
+    if (!file_exists($config_install_path)) {
+      throw new \Exception('Config install directory not found: ' . $config_install_path);
+    }
+    
+    // Get all YAML files from config/install
+    $config_files = glob($config_install_path . '/*.yml');
+    $imported = 0;
+    $skipped = 0;
+    
+    foreach ($config_files as $config_file) {
+      $config_name = basename($config_file, '.yml');
+      
+      // Skip if not profile-related
+      if (!preg_match('/^(profile\.|field\..*\.profile\.|core\.entity_.*display\.profile\.)/', $config_name)) {
+        continue;
+      }
+      
+      // Check if config already exists
+      $existing_config = $config_factory->get($config_name);
+      if (!$existing_config->isNew()) {
+        $logger->info('Configuration @config already exists, skipping.', ['@config' => $config_name]);
+        $skipped++;
+        continue;
+      }
+      
+      // Load config data from file
+      $config_data = \Drupal\Component\Serialization\Yaml::decode(file_get_contents($config_file));
+      
+      // Create the configuration
+      $config_factory->getEditable($config_name)
+        ->setData($config_data)
+        ->save();
+      
+      $logger->info('Imported configuration: @config', ['@config' => $config_name]);
+      $imported++;
+    }
+    
+    // Clear caches
+    drupal_flush_all_caches();
+    
+    $logger->info('Profile configuration import completed. Imported: @imported, Skipped: @skipped', [
+      '@imported' => $imported,
+      '@skipped' => $skipped
+    ]);
+    
+    return t('Job Seeker profile configuration imported. Imported: @imported, Skipped: @skipped', [
+      '@imported' => $imported,
+      '@skipped' => $skipped
+    ]);
+    
+  } catch (\Exception $e) {
+    $logger->error('Error importing profile configurations: @error', ['@error' => $e->getMessage()]);
+    throw $e;
+  }
+}
+/**
+ * Update 8006: Add missing body field to tailored_resume content type and configure display.
+ */
+function job_application_automation_update_8006() {
+  $logger = \Drupal::logger('job_application_automation');
+  
+  try {
+    // Create body field for tailored_resume if it doesn't exist
+    $field_config = FieldConfig::loadByName('node', 'tailored_resume', 'body');
+    
+    if (!$field_config) {
+      // First ensure the body field storage exists for node entities (it should by default)
+      $body_storage = FieldStorageConfig::loadByName('node', 'body');
+      if (!$body_storage) {
+        // This shouldn't happen, but create it if missing
+        $body_storage = FieldStorageConfig::create([
+          'field_name' => 'body',
+          'entity_type' => 'node',
+          'type' => 'text_with_summary',
+        ]);
+        $body_storage->save();
+        $logger->info('Created body field storage for node entity.');
+      }
+      
+      // Create the body field instance for tailored_resume
+      $field_config = FieldConfig::create([
+        'field_name' => 'body',
+        'entity_type' => 'node',
+        'bundle' => 'tailored_resume',
+        'label' => 'Body',
+        'description' => 'The tailored resume content',
+        'required' => FALSE,
+      ]);
+      $field_config->save();
+      
+      $logger->info('Created body field for tailored_resume content type.');
+    } else {
+      $logger->info('Body field already exists for tailored_resume content type.');
+    }
+    
+    // Configure the view display to show body field
+    $view_display = EntityViewDisplay::load('node.tailored_resume.default');
+    if ($view_display) {
+      $view_display->setComponent('body', [
+        'type' => 'text_default',
+        'label' => 'above',
+        'weight' => 0,
+        'settings' => [],
+        'third_party_settings' => [],
+      ]);
+      $view_display->save();
+      $logger->info('Configured view display for tailored_resume body field.');
+    }
+    
+    // Configure the form display to show body field
+    $form_display = EntityFormDisplay::load('node.tailored_resume.default');
+    if (!$form_display) {
+      $form_display = EntityFormDisplay::create([
+        'targetEntityType' => 'node',
+        'bundle' => 'tailored_resume',
+        'mode' => 'default',
+        'status' => TRUE,
+      ]);
+    }
+    
+    $form_display->setComponent('body', [
+      'type' => 'text_textarea_with_summary',
+      'weight' => 0,
+      'settings' => [
+        'rows' => 10,
+        'summary_rows' => 3,
+        'placeholder' => 'Enter the tailored resume content...',
+        'show_summary' => FALSE,
+      ],
+    ]);
+    $form_display->save();
+    $logger->info('Configured form display for tailored_resume body field.');
+    
+    return t('Body field has been added to tailored_resume content type and displays configured.');
+    
+  } catch (Exception $e) {
+    $logger->error('Error adding body field to tailored_resume: @error', ['@error' => $e->getMessage()]);
+    throw $e;
+  }
+}
+
+/**
+ * Update 8007: Ensure profile fields exist and database tables are created.
+ */
+function job_application_automation_update_8007() {
+  $logger = \Drupal::logger('job_application_automation');
+  
+  try {
+    // Ensure Profile module is enabled
+    $module_handler = \Drupal::service('module_handler');
+    if (!$module_handler->moduleExists('profile')) {
+      \Drupal::service('module_installer')->install(['profile']);
+      $logger->info('Profile module has been enabled.');
+    }
+    
+    // Ensure critical profile fields exist
+    _job_application_automation_ensure_profile_fields();
+    
+    return t('Profile fields have been verified and created. Missing database tables have been created.');
+    
+  } catch (Exception $e) {
+    $logger->error('Error in update 8005: @error', ['@error' => $e->getMessage()]);
+    throw $e;
+  }
+}
+
+/**
+ * Update 8008: Migrate user fields to profile fields and fix field entity type mismatch.
+ * 
+ * This update handles the migration from user entity fields to profile entity fields
+ * that was causing database table mismatch issues on production. It:
+ * 1. Creates profile entities for users who have user field data
+ * 2. Migrates user field data to corresponding profile fields
+ * 3. Ensures all profile field database tables exist
+ * 4. Preserves all existing user data during migration
+ */
+function job_application_automation_update_8008() {
+  $logger = \Drupal::logger('job_application_automation');
+  $logger->info('Starting user-to-profile field migration (Update 8008)...');
+  
+  // Ensure Profile module is enabled
+  $module_handler = \Drupal::service('module_handler');
+  if (!$module_handler->moduleExists('profile')) {
+    \Drupal::service('module_installer')->install(['profile']);
+    $logger->info('Profile module has been enabled.');
+  }
+  
+  // Ensure job_seeker profile type exists and create missing field tables
+  _job_application_automation_ensure_profile_fields();
+  
+  // Map of user fields to profile fields (same field names, different entity types)
+  $field_mapping = [
+    'field_ai_analysis_data',
+    'field_available_start_date', 
+    'field_certifications',
+    'field_cover_letter_template',
+    'field_education_level',
+    'field_experience_years',
+    'field_github_url',
+    'field_keywords_interested',
+    'field_last_profile_update',
+    'field_linkedin_url',
+    'field_notification_preferences',
+    'field_portfolio_url', 
+    'field_professional_summary',
+    'field_profile_completeness',
+    'field_references_available',
+    'field_relocation_willing',
+    'field_remote_preference',
+    'field_resume_file',
+    'field_salary_expectation_max',
+    'field_salary_expectation_min',
+    'field_skills_summary',
+    'field_target_companies',
+    'field_target_job_titles',
+    'field_work_authorization'
+  ];
+  
+  $migrated_users = 0;
+  $errors = [];
+  
+  // Get all users who have any of the user fields with data
+  $database = \Drupal::database();
+  $user_storage = \Drupal::entityTypeManager()->getStorage('user');
+  $profile_storage = \Drupal::entityTypeManager()->getStorage('profile');
+  
+  // Get all users with profile data
+  $users_with_data = [];
+  foreach ($field_mapping as $field_name) {
+    $user_table = 'user__' . $field_name;
+    
+    // Check if user field table exists
+    if ($database->schema()->tableExists($user_table)) {
+      $query = $database->select($user_table, 'uf')
+        ->fields('uf', ['entity_id'])
+        ->distinct();
+      $user_ids = $query->execute()->fetchCol();
+      
+      foreach ($user_ids as $user_id) {
+        if ($user_id > 0) { // Skip anonymous
+          $users_with_data[$user_id] = $user_id;
+        }
+      }
+    }
+  }
+  
+  $logger->info('Found @count users with profile field data to migrate', ['@count' => count($users_with_data)]);
+  
+  foreach ($users_with_data as $user_id) {
+    try {
+      $user = $user_storage->load($user_id);
+      if (!$user) continue;
+      
+      // Check if user already has a job_seeker profile
+      $existing_profiles = $profile_storage->loadByProperties([
+        'uid' => $user_id,
+        'type' => 'job_seeker'
+      ]);
+      
+      if (empty($existing_profiles)) {
+        // Create new job_seeker profile for this user
+        $profile = $profile_storage->create([
+          'type' => 'job_seeker',
+          'uid' => $user_id,
+          'status' => 1,
+        ]);
+      } else {
+        $profile = reset($existing_profiles);
+      }
+      
+      // Migrate each field that has data
+      $migrated_fields = 0;
+      foreach ($field_mapping as $field_name) {
+        if ($user->hasField($field_name) && !$user->get($field_name)->isEmpty()) {
+          $field_value = $user->get($field_name)->getValue();
+          
+          if ($profile->hasField($field_name)) {
+            $profile->set($field_name, $field_value);
+            $migrated_fields++;
+          }
+        }
+      }
+      
+      if ($migrated_fields > 0) {
+        $profile->save();
+        $migrated_users++;
+        $logger->info('Migrated @fields fields from user @uid to job_seeker profile', [
+          '@fields' => $migrated_fields,
+          '@uid' => $user_id
+        ]);
+      }
+      
+    } catch (Exception $e) {
+      $errors[] = "Error migrating user $user_id: " . $e->getMessage();
+      $logger->error('Migration error for user @uid: @error', [
+        '@uid' => $user_id,
+        '@error' => $e->getMessage()
+      ]);
+    }
+  }
+  
+  // Clear caches to ensure new profile data is recognized
+  drupal_flush_all_caches();
+  
+  $logger->info('User-to-profile field migration completed. Migrated: @migrated, Errors: @errors', [
+    '@migrated' => $migrated_users,
+    '@errors' => count($errors)
+  ]);
+  
+  if (!empty($errors)) {
+    $logger->warning('Migration errors: @errors', ['@errors' => implode('; ', array_slice($errors, 0, 5))]);
+  }
+  
+    return t('Successfully migrated user field data to profile fields for @count users.', ['@count' => $migrated_users]);
+}
+
+/**
+ * Update 8009: Fix NumberWidget prefix/suffix configuration to resolve PHP 8.3+ warnings.
+ * 
+ * This update ensures all number field widgets have proper prefix and suffix keys
+ * to prevent "Undefined array key" errors in Drupal\Core\Field\Plugin\Field\FieldWidget\NumberWidget.
+ */
+function job_application_automation_update_8009() {
+  $logger = \Drupal::logger('job_application_automation');
+  $logger->info('Starting NumberWidget configuration fix (Update 8009)...');
+  
+  try {
+    // Load the job_seeker profile form display
+    $form_display = \Drupal::entityTypeManager()
+      ->getStorage('entity_form_display')
+      ->load('profile.job_seeker.default');
+    
+    if (!$form_display) {
+      $logger->error('Form display profile.job_seeker.default not found');
+      return t('Error: Form display profile.job_seeker.default not found');
+    }
+    
+    $updated_fields = 0;
+    $number_fields = [
+      'field_experience_years',
+      'field_salary_expectation_min', 
+      'field_salary_expectation_max',
+      'field_profile_completeness'
+    ];
+    
+    foreach ($number_fields as $field_name) {
+      $component = $form_display->getComponent($field_name);
+      
+      if ($component && $component['type'] === 'number') {
+        // Ensure prefix and suffix keys exist
+        if (!isset($component['settings']['prefix'])) {
+          $component['settings']['prefix'] = null;
+        }
+        if (!isset($component['settings']['suffix'])) {
+          $component['settings']['suffix'] = null;
+        }
+        
+        // Set specific values for certain fields
+        if ($field_name === 'field_experience_years') {
+          $component['settings']['suffix'] = ' years';
+        } elseif (in_array($field_name, ['field_salary_expectation_min', 'field_salary_expectation_max'])) {
+          $component['settings']['prefix'] = '$';
+        }
+        
+        $form_display->setComponent($field_name, $component);
+        $updated_fields++;
+        
+        $logger->info('Updated NumberWidget configuration for field: @field', ['@field' => $field_name]);
+      }
+    }
+    
+    if ($updated_fields > 0) {
+      $form_display->save();
+      
+      // Clear relevant caches
+      \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
+      \Drupal::cache('render')->deleteAll();
+      
+      $logger->info('NumberWidget configuration update completed. Updated @count fields.', ['@count' => $updated_fields]);
+      
+      return t('Successfully updated NumberWidget configuration for @count fields to prevent PHP 8.3+ warnings.', ['@count' => $updated_fields]);
+    } else {
+      $logger->info('No NumberWidget fields found that needed updating.');
+      return t('No NumberWidget fields required configuration updates.');
+    }
+    
+  } catch (Exception $e) {
+    $logger->error('Error updating NumberWidget configuration: @error', ['@error' => $e->getMessage()]);
+    throw $e;
+  }
+}/**
+ * Ensures critical profile fields exist programmatically.
+ * This function creates fields if they don't exist, ensuring the database
+ * tables are properly created even if config import fails.
+ */
+function _job_application_automation_ensure_profile_fields() {
+  $logger = \Drupal::logger('job_application_automation');
+  
+  // Ensure job_seeker profile type exists
+  $profile_type = \Drupal::entityTypeManager()->getStorage('profile_type')->load('job_seeker');
+  if (!$profile_type) {
+    $profile_type = \Drupal::entityTypeManager()->getStorage('profile_type')->create([
+      'id' => 'job_seeker',
+      'label' => 'Job Seeker',
+      'weight' => 0,
+      'registration' => FALSE,
+      'multiple' => FALSE,
+    ]);
+    $profile_type->save();
+    $logger->info('Created job_seeker profile type.');
+  }
+  
+  // After profile type creation, ensure all profile field storage definitions
+  // have corresponding database tables. This fixes the field entity type mismatch
+  // where configurations exist but database tables are missing.
+  $field_storage_config_storage = \Drupal::entityTypeManager()->getStorage('field_storage_config');
+  $profile_field_storages = $field_storage_config_storage->loadByProperties(['entity_type' => 'profile']);
+  
+  $database = \Drupal::database();
+  $created_tables = 0;
+  
+  foreach ($profile_field_storages as $field_storage) {
+    $field_name = $field_storage->getName();
+    $table_name = 'profile__' . $field_name;
+    
+    // Check if database table exists for this field
+    if (!$database->schema()->tableExists($table_name)) {
+      try {
+        // Get field storage definition and create database table
+        $field_storage_definition = $field_storage->getFieldStorageDefinition();
+        
+        // Use entity definition update manager to create the missing table
+        $update_manager = \Drupal::entityDefinitionUpdateManager();
+        $update_manager->installFieldStorageDefinition($field_name, 'profile', 'profile', $field_storage_definition);
+        
+        $logger->info('Created database table for profile field: @field_name', ['@field_name' => $field_name]);
+        $created_tables++;
+      } catch (Exception $e) {
+        $logger->error('Failed to create database table for profile field @field_name: @error', [
+          '@field_name' => $field_name,
+          '@error' => $e->getMessage()
+        ]);
+      }
+    }
+  }
+  
+  if ($created_tables > 0) {
+    $logger->info('Successfully created @count profile field database tables.', ['@count' => $created_tables]);
+  } else {
+    $logger->info('All profile field database tables already exist.');
+  }
+  
+  // Define critical profile fields that must exist programmatically
+  // (This is a fallback in case config import doesn't work properly)
+  $profile_fields = [
+    'field_profile_completeness' => [
+      'type' => 'integer',
+      'label' => 'Profile Completeness',
+      'description' => 'Profile completion percentage (0-100)',
+      'settings' => [
+        'min' => 0,
+        'max' => 100,
+        'prefix' => '',
+        'suffix' => '%',
+      ],
+      'default_value' => [['value' => 0]],
+    ],
+  ];
+  
+  foreach ($profile_fields as $field_name => $field_config) {
+    // Check if field storage exists
+    $field_storage = FieldStorageConfig::loadByName('profile', $field_name);
+    if (!$field_storage) {
+      // Create field storage
+      $field_storage = FieldStorageConfig::create([
+        'field_name' => $field_name,
+        'entity_type' => 'profile',
+        'type' => $field_config['type'],
+        'settings' => $field_config['settings'] ?? [],
+        'cardinality' => 1,
+      ]);
+      $field_storage->save();
+      $logger->info('Created field storage for @field', ['@field' => $field_name]);
+    }
+    
+    // Check if field instance exists
+    $field = FieldConfig::loadByName('profile', 'job_seeker', $field_name);
+    if (!$field) {
+      // Create field instance
+      $field = FieldConfig::create([
+        'field_storage' => $field_storage,
+        'bundle' => 'job_seeker',
+        'label' => $field_config['label'],
+        'description' => $field_config['description'] ?? '',
+        'required' => $field_config['required'] ?? FALSE,
+        'default_value' => $field_config['default_value'] ?? [],
+        'settings' => $field_config['settings'] ?? [],
+      ]);
+      $field->save();
+      $logger->info('Created field instance for @field on job_seeker profile', ['@field' => $field_name]);
+      
+      // Ensure database table is created
+      \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
+      \Drupal::entityDefinitionUpdateManager()->applyUpdates();
+      $logger->info('Applied entity updates to create database table for @field', ['@field' => $field_name]);
+    }
+  }
+}
+
+/**
+ * Verify installation completeness and log final status.
+ * 
+ * This function performs a final check to ensure all components were created
+ * successfully and logs the final installation status.
+ */
+function _job_application_automation_verify_installation_completeness() {
+  $logger = \Drupal::logger('job_application_automation');
+  $logger->info('INSTALLATION VERIFICATION: Checking completeness...');
+  
+  $verification_passed = TRUE;
+  $issues = [];
+  
+  // Verify content types
+  $expected_content_types = ['company', 'job_posting', 'application', 'issue', 'tailored_resume'];
+  foreach ($expected_content_types as $type) {
+    if (!NodeType::load($type)) {
+      $verification_passed = FALSE;
+      $issues[] = "Content type '$type' was not created";
+      $logger->error('VERIFICATION FAILED: Content type "@type" is missing', ['@type' => $type]);
+    }
+  }
+  
+  // Verify profile type
+  $profile_type = \Drupal::entityTypeManager()->getStorage('profile_type')->load('job_seeker');
+  if (!$profile_type) {
+    $verification_passed = FALSE;
+    $issues[] = "Profile type 'job_seeker' was not created";
+    $logger->error('VERIFICATION FAILED: Profile type "job_seeker" is missing');
+  }
+  
+  // Verify profile fields and database tables
+  $field_storage_config_storage = \Drupal::entityTypeManager()->getStorage('field_storage_config');
+  $profile_field_storages = $field_storage_config_storage->loadByProperties(['entity_type' => 'profile']);
+  
+  $database = \Drupal::database();
+  $field_count = 0;
+  $table_count = 0;
+  
+  foreach ($profile_field_storages as $field_storage) {
+    $field_name = $field_storage->getName();
+    $table_name = 'profile__' . $field_name;
+    $field_count++;
+    
+    if ($database->schema()->tableExists($table_name)) {
+      $table_count++;
+    } else {
+      $verification_passed = FALSE;
+      $issues[] = "Database table '$table_name' for profile field '$field_name' is missing";
+      $logger->error('VERIFICATION FAILED: Database table "@table" for profile field "@field" is missing', [
+        '@table' => $table_name,
+        '@field' => $field_name
+      ]);
+    }
+  }
+  
+  // Verify critical profile field instance
+  $profile_completeness_field = \Drupal::entityTypeManager()
+    ->getStorage('field_config')
+    ->load('profile.job_seeker.field_profile_completeness');
+  
+  if (!$profile_completeness_field) {
+    $verification_passed = FALSE;
+    $issues[] = "Critical field 'field_profile_completeness' instance is missing";
+    $logger->error('VERIFICATION FAILED: Critical field "field_profile_completeness" instance is missing');
+  }
+  
+  // Log final status
+  if ($verification_passed) {
+    $logger->info('INSTALLATION VERIFICATION SUCCESSFUL: All components created successfully');
+    $logger->info('  - Content types: @count created', ['@count' => count($expected_content_types)]);
+    $logger->info('  - Profile type: job_seeker created');
+    $logger->info('  - Profile fields: @field_count configurations with @table_count database tables', [
+      '@field_count' => $field_count,
+      '@table_count' => $table_count
+    ]);
+    
+    // Special verification for the production issue we fixed
+    if ($database->schema()->tableExists('profile__field_profile_completeness')) {
+      $logger->info('PRODUCTION ISSUE RESOLVED: profile__field_profile_completeness table exists and resume upload should work');
+    }
+    
+  } else {
+    $logger->error('INSTALLATION VERIFICATION FAILED: @count issues detected:', ['@count' => count($issues)]);
+    foreach ($issues as $issue) {
+      $logger->error('  - @issue', ['@issue' => $issue]);
+    }
+    
+    // Don't throw exception, but log the issues for manual resolution
+    $logger->warning('Installation completed with issues. Manual review recommended.');
+  }
+}

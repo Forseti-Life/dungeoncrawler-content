@@ -1,0 +1,27 @@
+uuid: e12ed37b-1e9d-4794-86d2-9701bb3cbd5f
+langcode: en
+status: true
+dependencies:
+  config:
+    - system.menu.footer
+  module:
+    - system
+  theme:
+    - dungeoncrawler
+_core:
+  default_config_hash: J2b_Itc7fn_dEH9gtuFqT62oDBKwKcuuAFVBwpy1V9w
+id: dungeoncrawler_footer
+theme: dungeoncrawler
+region: footer
+weight: -5
+provider: null
+plugin: 'system_menu_block:footer'
+settings:
+  id: 'system_menu_block:footer'
+  label: 'Footer menu'
+  label_display: '0'
+  provider: system
+  level: 1
+  depth: 0
+  expand_all_items: false
+visibility: {  }

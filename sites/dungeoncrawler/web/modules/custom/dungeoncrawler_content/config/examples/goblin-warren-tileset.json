@@ -1,0 +1,158 @@
+{
+  "tileset_id": "goblin_warren_base_v1",
+  "theme": "goblin_warrens",
+  "description": "Base tileset for a classic goblin warren dungeon.",
+  "defaults": {
+    "entity_type": "floortile",
+    "resolution": 512,
+    "aspect_ratio": "1:1",
+    "view": "top-down orthographic",
+    "tileable": true,
+    "background": "opaque",
+    "palette": "earthy stone, damp moss greens, muddy browns",
+    "lighting": "upper-left, soft ambient",
+    "mood": "damp, grimy, lived-in"
+  },
+  "tiles": [
+    {
+      "tile_id": "floor_rough_stone",
+      "category": "floor_core",
+      "terrain_type": "rough_stone",
+      "notes": "Primary floor tile with subtle cracks."
+    },
+    {
+      "tile_id": "floor_packed_dirt",
+      "category": "floor_core",
+      "terrain_type": "packed_dirt",
+      "palette": "muddy brown, low contrast",
+      "notes": "Secondary floor tile for non-stone sections."
+    },
+    {
+      "tile_id": "floor_muddy_track",
+      "category": "floor_core",
+      "terrain_type": "mud",
+      "notes": "Ruts and light water sheen."
+    },
+    {
+      "tile_id": "floor_damp_moss",
+      "category": "floor_core",
+      "terrain_type": "mossy_stone",
+      "notes": "Moss growth on stone edges."
+    },
+    {
+      "tile_id": "floor_fungal_patch",
+      "category": "floor_core",
+      "terrain_type": "fungal_growth",
+      "notes": "Subtle bioluminescent hints."
+    },
+    {
+      "tile_id": "transition_stone_to_dirt",
+      "category": "transition",
+      "terrain_type": "rough_stone",
+      "tags": ["transition", "dirt"],
+      "notes": "Blend stone into dirt."
+    },
+    {
+      "tile_id": "transition_stone_to_moss",
+      "category": "transition",
+      "terrain_type": "rough_stone",
+      "tags": ["transition", "moss"],
+      "notes": "Blend stone into mossy edge."
+    },
+    {
+      "tile_id": "transition_dirt_to_mud",
+      "category": "transition",
+      "terrain_type": "mud",
+      "tags": ["transition", "dirt"],
+      "notes": "Blend dirt into wetter mud."
+    },
+    {
+      "tile_id": "hazard_shallow_seep",
+      "category": "hazard",
+      "terrain_type": "water_shallow",
+      "notes": "Thin water seep, slight shine."
+    },
+    {
+      "tile_id": "hazard_slime_slick",
+      "category": "hazard",
+      "terrain_type": "slime",
+      "notes": "Green slick, subtle specular."
+    },
+    {
+      "tile_id": "hazard_pit_edge",
+      "category": "hazard",
+      "entity_type": "obstacle",
+      "view": "top-down 3/4",
+      "tileable": false,
+      "background": "transparent",
+      "notes": "Pit edge overlay piece."
+    },
+    {
+      "tile_id": "prop_crude_barricade",
+      "category": "prop",
+      "entity_type": "obstacle",
+      "view": "top-down 3/4",
+      "tileable": false,
+      "background": "transparent",
+      "notes": "Wood scraps and rope bindings."
+    },
+    {
+      "tile_id": "prop_bone_pile",
+      "category": "prop",
+      "entity_type": "obstacle",
+      "view": "top-down 3/4",
+      "tileable": false,
+      "background": "transparent",
+      "notes": "Clustered bones, dull highlight."
+    },
+    {
+      "tile_id": "prop_broken_crates",
+      "category": "prop",
+      "entity_type": "obstacle",
+      "view": "top-down 3/4",
+      "tileable": false,
+      "background": "transparent",
+      "notes": "Splintered wood debris."
+    },
+    {
+      "tile_id": "prop_fungus_bloom",
+      "category": "prop",
+      "entity_type": "obstacle",
+      "view": "top-down 3/4",
+      "tileable": false,
+      "background": "transparent",
+      "notes": "Spore caps, muted glow."
+    },
+    {
+      "tile_id": "effect_torch_glow",
+      "category": "effect",
+      "entity_type": "background",
+      "view": "top-down 3/4",
+      "tileable": false,
+      "background": "transparent",
+      "notes": "Warm light decal for torch placement."
+    },
+    {
+      "tile_id": "effect_smoke_haze",
+      "category": "effect",
+      "entity_type": "background",
+      "view": "top-down 3/4",
+      "tileable": false,
+      "background": "transparent",
+      "notes": "Subtle haze decal for atmosphere."
+    },
+    {
+      "tile_id": "setpiece_goblin_shrine",
+      "category": "setpiece",
+      "terrain_type": "rough_stone",
+      "notes": "No text or symbols; purely abstract emblem."
+    },
+    {
+      "tile_id": "setpiece_guard_post",
+      "category": "setpiece",
+      "terrain_type": "rough_stone",
+      "resolution": 1024,
+      "notes": "Raised dais tile for guard station."
+    }
+  ]
+}

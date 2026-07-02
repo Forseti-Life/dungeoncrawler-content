@@ -1,0 +1,129 @@
+{#
+ # Character List — /characters page
+ # Shows all characters for the logged-in user as cards.
+ #}
+<div class="dc-character-list">
+  <div class="dc-character-list__header">
+    <h1 class="dc-character-list__title">⚔️ My Legacy Roster</h1>
+    <div class="dc-sheet__nav-actions">
+      {% if not campaign_id %}
+        <a href="{{ create_campaign_url }}" class="dc-btn dc-btn-success">▶️ Create Campaign Home</a>
+      {% endif %}
+      <a href="{{ create_url }}" class="dc-btn dc-btn-primary">
+        <span class="dc-btn__icon">+</span> Create New Character
+      </a>
+    </div>
+  </div>
+
+  {% if campaign_id %}
+    <div class="dc-sheet__section dc-character-list__campaign-setup">
+      <h2 class="dc-sheet__section-title">Campaign Setup</h2>
+      <p>
+        You are selecting a character for
+        <strong>{{ campaign_name ?: ('Campaign #' ~ campaign_id) }}</strong>.
+        Choose a completed character from your roster, or create one to begin a new legacy arc.
+      </p>
+    </div>
+  {% endif %}
+
+  {% if characters|length > 0 %}
+    <div class="dc-character-grid">
+      {% for char in characters %}
+        {% if campaign_id %}
+          {% set target_url = char.select_url ?: char.continue_url %}
+        {% else %}
+          {% set target_url = char.continue_url ?: char.url %}
+        {% endif %}
+        {% set is_clickable = target_url ? true : false %}
+
+        <div class="dc-character-card dc-character-card--{{ char.status }} {{ not is_clickable ? 'dc-character-card--disabled' : '' }}">
+          {% if char.archive_url %}
+            <a href="{{ char.archive_url }}" class="dc-character-card__archive-btn" title="Archive {{ char.name }}">
+              🗄️
+            </a>
+          {% endif %}
+
+          <a href="{{ target_url ?: '#' }}" class="dc-character-card__main-link {{ not is_clickable ? 'dc-character-card__main-link--disabled' : '' }}">
+            <div class="dc-character-card__portrait">
+              {% if char.portrait %}
+                <img src="{{ char.portrait }}" alt="{{ char.name }}" />
+              {% else %}
+                <div class="dc-character-card__portrait-placeholder">
+                  <span class="dc-character-card__initial">{{ char.name|first|upper }}</span>
+                </div>
+              {% endif %}
+              {% if char.status == 'incomplete' %}
+                <div class="dc-character-card__status-badge dc-character-card__status-badge--incomplete">⚠️ Draft</div>
+              {% elseif char.status == 'archived' %}
+                <div class="dc-character-card__status-badge dc-character-card__status-badge--archived">🗄️ Archived</div>
+              {% endif %}
+            </div>
+
+            <div class="dc-character-card__info">
+              <h3 class="dc-character-card__name">{{ char.name }}</h3>
+              <div class="dc-character-card__subtitle">
+                Level {{ char.level }} {{ char.ancestry }} {{ char.class }}
+              </div>
+
+              {% if char.heritage %}
+                <div class="dc-character-card__heritage">{{ char.heritage }}</div>
+              {% endif %}
+
+              <div class="dc-character-card__stats">
+                <div class="dc-character-card__stat">
+                  <span class="dc-character-card__stat-label">HP</span>
+                  <span class="dc-character-card__stat-value dc-character-card__hp">
+                    {{ char.hp_current }}/{{ char.hp_max }}
+                  </span>
+                </div>
+                <div class="dc-character-card__stat">
+                  <span class="dc-character-card__stat-label">AC</span>
+                  <span class="dc-character-card__stat-value">{{ char.ac }}</span>
+                </div>
+              </div>
+
+              <div class="dc-character-card__meta">
+                <span class="dc-character-card__alignment">{{ char.alignment }}</span>
+                <span class="dc-character-card__created">{{ char.created }}</span>
+              </div>
+
+              <div class="dc-character-card__action-text">
+                {% if campaign_id %}
+                  {% if char.select_url %}
+                    <span class="dc-btn dc-btn-success">✅ Select for Campaign</span>
+                  {% elseif char.continue_url %}
+                    <span class="dc-btn dc-btn-warning">⚠️ Complete Creation (Step {{ char.step }}/8)</span>
+                  {% else %}
+                    <span class="dc-btn dc-btn-muted">Not Available</span>
+                  {% endif %}
+                {% else %}
+                  {% if char.continue_url %}
+                    <span class="dc-btn dc-btn-warning">⚠️ Continue Creation (Step {{ char.step }}/8)</span>
+                  {% else %}
+                    <span class="dc-btn dc-btn-secondary">👁️ View Character</span>
+                  {% endif %}
+                {% endif %}
+              </div>
+              {% if char.url %}
+                <a href="{{ char.url }}" class="dc-character-card__view-link dc-btn dc-btn-secondary dc-btn-sm" onclick="event.stopPropagation();">
+                  📋 View Full Sheet
+                </a>
+              {% endif %}
+            </div>
+
+            <div class="dc-character-card__arrow">›</div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="dc-character-list__empty">
+      <div class="dc-character-list__empty-icon">🗡️</div>
+      <h2>No Characters Yet</h2>
+      <p>Your roster is empty. Create your first character and start building a permanent home in Forseti Life.</p>
+      <a href="{{ create_url }}" class="dc-btn dc-btn-primary">
+        Create Your First Legacy Character
+      </a>
+    </div>
+  {% endif %}
+</div>

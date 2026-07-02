@@ -1,0 +1,114 @@
+{
+  "name": "Test Rogue",
+  "level": 5,
+  "ancestry": {
+    "id": "halfling",
+    "name": "Halfling",
+    "hp_bonus": 0,
+    "size": "Small",
+    "speed": 25
+  },
+  "background": {
+    "id": "criminal",
+    "name": "Criminal",
+    "ability_boosts": ["DEX", "INT"]
+  },
+  "class": {
+    "id": "rogue",
+    "name": "Rogue",
+    "hp": 8,
+    "key_abilities": ["DEX", "STR", "INT", "CHA"]
+  },
+  "ability_scores": {
+    "strength": 12,
+    "dexterity": 20,
+    "constitution": 14,
+    "intelligence": 14,
+    "wisdom": 12,
+    "charisma": 10
+  },
+  "ability_modifiers": {
+    "strength": 1,
+    "dexterity": 5,
+    "constitution": 2,
+    "intelligence": 2,
+    "wisdom": 1,
+    "charisma": 0
+  },
+  "calculated_stats": {
+    "max_hp": 50,
+    "hp_breakdown": {
+      "class_base": 40,
+      "con_modifier": 10,
+      "ancestry_bonus": 0,
+      "other": 0
+    },
+    "armor_class": 23,
+    "ac_breakdown": {
+      "base": 10,
+      "dex_modifier": 4,
+      "armor": 2,
+      "proficiency": 2,
+      "level": 5,
+      "other": 0
+    }
+  },
+  "proficiencies": {
+    "perception": "expert",
+    "fortitude": "trained",
+    "reflex": "expert",
+    "will": "expert"
+  },
+  "skills": {
+    "acrobatics": "expert",
+    "athletics": "trained",
+    "deception": "expert",
+    "diplomacy": "trained",
+    "stealth": "master",
+    "thievery": "expert"
+  },
+  "equipment": [
+    {
+      "name": "+1 Leather Armor",
+      "type": "armor",
+      "ac_bonus": 2,
+      "magical": true
+    },
+    {
+      "name": "Shortsword",
+      "type": "weapon",
+      "damage": "1d6",
+      "traits": ["agile", "finesse", "versatile S"]
+    },
+    {
+      "name": "Hand Crossbow",
+      "type": "weapon",
+      "damage": "1d6",
+      "traits": ["reload 1"]
+    }
+  ],
+  "special_abilities": [
+    "Sneak Attack +3d6",
+    "Deny Advantage",
+    "Weapon Tricks"
+  ],
+  "description": "Level 5 rogue for testing mid-level calculations and proficiency progression",
+  "test_cases": {
+    "hp_calculation": {
+      "expected": 50,
+      "formula": "(8 * 5) (class) + (2 * 5) (CON mod) + 0 (ancestry)"
+    },
+    "ac_calculation": {
+      "expected": 23,
+      "formula": "10 + 4 (DEX cap) + 2 (armor + potency) + 2 (proficiency) + 5 (level)"
+    },
+    "sneak_attack_damage": {
+      "expected": "1d6 + 5 (DEX) + 3d6 (sneak attack)",
+      "formula": "Base damage + DEX + sneak attack dice"
+    },
+    "perception_bonus": {
+      "expected": 13,
+      "formula": "1 (WIS) + 4 (expert) + 5 (level) + 3 (item)"
+    }
+  }
+}

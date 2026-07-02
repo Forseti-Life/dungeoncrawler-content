@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/campaign.schema.json",
+  "title": "Campaign Schema",
+  "description": "Canonical JSON structure for campaign state stored in dc_campaigns.campaign_data. Tracks campaign ownership, start status, progress history, and current location state.",
+  "type": "object",
+  "required": ["created_by", "started", "progress"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version for schema migration compatibility (e.g., '1.0.0').",
+      "default": "1.0.0"
+    },
+    "created_by": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Drupal user ID of the user who created this campaign."
+    },
+    "started": {
+      "type": "boolean",
+      "description": "Whether the campaign has started (true) or is still in draft/setup (false)."
+    },
+    "progress": {
+      "type": "array",
+      "description": "Chronologically ordered campaign progress markers/events. Each entry records significant campaign milestones such as quest starts, location discoveries, or combat outcomes.",
+      "items": {
+        "$ref": "#/definitions/progress_event"
+      },
+      "examples": [
+        [
+          {
+            "type": "quest_started",
+            "timestamp": 1708200000,
+            "payload": {
+              "quest_id": "dragon_hunt",
+              "quest_name": "Slay the Dragon"
+            }
+          },
+          {
+            "type": "location_discovered",
+            "timestamp": 1708200300,
+            "payload": {
+              "location_id": "dark_cave",
+              "hex": "q2r-1"
+            }
+          }
+        ]
+      ]
+    },
+    "active_hex": {
+      "type": "string",
+      "pattern": "^q-?\\d+r-?\\d+$",
+      "description": "Current hex location key in axial coordinate format (e.g., 'q0r0', 'q2r-1'). Null/undefined if no active location."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the campaign was created."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the campaign was last updated."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional campaign metadata for storing additional game state, custom flags, or campaign-specific configuration.",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "progress_event": {
+      "type": "object",
+      "description": "A single campaign progress event recording a significant milestone or action.",
+      "required": ["type", "timestamp"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "enum": [
+            "quest_started",
+            "quest_completed",
+            "location_discovered",
+            "combat_won",
+            "combat_fled",
+            "item_acquired",
+            "level_up",
+            "character_death",
+            "milestone_reached",
+            "dungeon_entered",
+            "dungeon_exited",
+            "party_formed",
+            "party_disbanded",
+            "npc_encountered",
+            "treasure_found",
+            "trap_triggered",
+            "puzzle_solved",
+            "boss_defeated"
+          ],
+          "description": "Progress event type identifier. Standardized event types for consistent tracking."
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix timestamp (seconds since epoch) when this event was recorded."
+        },
+        "payload": {
+          "type": ["object", "null"],
+          "description": "Optional event-specific details. Structure varies by event type. Examples: {quest_id: 'abc', quest_name: 'Dragon Hunt'}, {location_id: 'xyz', hex: 'q2r-1'}, {encounter_id: '123', xp_awarded: 500}",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "type": "quest_started",
+          "timestamp": 1708200000,
+          "payload": {
+            "quest_id": "dragon_hunt",
+            "quest_name": "Slay the Dragon"
+          }
+        },
+        {
+          "type": "combat_won",
+          "timestamp": 1708200500,
+          "payload": {
+            "encounter_id": "goblin_ambush_1",
+            "xp_awarded": 120,
+            "enemies_defeated": 4
+          }
+        }
+      ]
+    }
+  }
+}

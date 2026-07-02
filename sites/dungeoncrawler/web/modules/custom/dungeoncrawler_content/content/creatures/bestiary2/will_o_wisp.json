@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0.0",
+  "creature_id": "b6e2c1a4-8f3d-4b7e-9a5c-2d1e0f4a8b6c",
+  "name": "Will-o-Wisp",
+  "level": 6,
+  "creature_type": "aberration",
+  "traits": [
+    "aberration",
+    "evil",
+    "incorporeal",
+    "light"
+  ],
+  "alignment": "CE",
+  "rarity": "uncommon",
+  "size": "small",
+  "hex_footprint": 1,
+  "family": "will-o-wisp",
+  "bestiary_source": "b2",
+  "pf2e_stats": {
+    "ability_scores": {
+      "strength": { "score": 1, "modifier": -5 },
+      "dexterity": { "score": 22, "modifier": 6 },
+      "constitution": { "score": 12, "modifier": 1 },
+      "intelligence": { "score": 16, "modifier": 3 },
+      "wisdom": { "score": 14, "modifier": 2 },
+      "charisma": { "score": 18, "modifier": 4 }
+    },
+    "hp": {
+      "max": 50,
+      "current": 50,
+      "temporary": 0,
+      "hardness": 0,
+      "immunities": ["bleed", "disease", "paralyzed", "poison", "precision", "sleep"],
+      "resistances": [],
+      "weaknesses": [{ "type": "salt water", "value": 5 }]
+    },
+    "ac": 25,
+    "saves": {
+      "fortitude": { "modifier": 9 },
+      "reflex": { "modifier": 18 },
+      "will": { "modifier": 14 }
+    },
+    "perception": {
+      "modifier": 14,
+      "senses": ["darkvision 120ft", "detect life 60ft"]
+    },
+    "speed": {
+      "land": 0,
+      "fly": 50,
+      "swim": null,
+      "climb": null,
+      "burrow": null
+    },
+    "skills": {
+      "Acrobatics": { "modifier": 18, "proficiency": "master" },
+      "Deception": { "modifier": 16, "proficiency": "master" },
+      "Stealth": { "modifier": 18, "proficiency": "master" }
+    },
+    "languages": ["Aklo", "Common"],
+    "attacks": [
+      {
+        "name": "Shock",
+        "type": "melee",
+        "attack_bonus": 18,
+        "damage": "3d8",
+        "damage_type": "electricity",
+        "traits": ["agile", "finesse"]
+      }
+    ],
+    "special_abilities": [
+      {
+        "name": "Feed on Fear",
+        "description": "When a creature within 15 feet of the will-o-wisp rolls a failure on a fear effect save, the wisp gains 5 temporary Hit Points."
+      },
+      {
+        "name": "Flicker",
+        "action_cost": 1,
+        "description": "The will-o-wisp extinguishes or relights its glow, becoming invisible or visible. It can remain invisible indefinitely."
+      },
+      {
+        "name": "Harrowing Howl",
+        "action_cost": 2,
+        "description": "The will-o-wisp lets out a terrifying howl. Creatures within 30 feet must succeed at a DC 22 Will save or become frightened 2 (frightened 1 on a success)."
+      }
+    ]
+  },
+  "encounter_themes": ["swamp", "marsh", "haunted"],
+  "tactical_role": "skirmisher"
+}

@@ -1,0 +1,276 @@
+<?php
+
+/**
+ * @file
+ * Primary module hooks for Dungeon Crawler Content module.
+ *
+ * Provides content types and management for the AI-generated living dungeon
+ * including procedurally generated rooms, AI-powered creatures with
+ * personalities, items with rarity tiers, quests, and world lore.
+ */
+
+use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\node\NodeInterface;
+
+/**
+ * Implements hook_form_FORM_ID_alter() for user_login_form.
+ */
+function dungeoncrawler_content_form_user_login_form_alter(array &$form, FormStateInterface $form_state, $form_id): void {
+}
+
+/**
+ * Implements hook_theme().
+ *
+ * Defines custom theme templates for dungeon crawler game components.
+ *
+ * @param array $existing
+ *   An array of existing implementations.
+ * @param string $type
+ *   Whether a theme, module, etc. is being processed.
+ * @param string $theme
+ *   The actual name of theme, module, etc. that is being processed.
+ * @param string $path
+ *   The directory path of the theme or module.
+ *
+ * @return array
+ *   An associative array of theme hook definitions.
+ */
+function dungeoncrawler_content_theme(array $existing, string $type, string $theme, string $path): array {
+  return [
+    // Game content display cards.
+    'dungeon_card' => [
+      'variables' => [
+        'title' => NULL,
+        'description' => NULL,
+        'difficulty' => NULL,
+        'image' => NULL,
+        'level_range' => NULL,
+        'rewards' => [],
+      ],
+      'template' => 'dungeon-card',
+      'path' => $path . '/templates',
+    ],
+    'character_class_card' => [
+      'variables' => [
+        'name' => NULL,
+        'description' => NULL,
+        'image' => NULL,
+        'primary_stat' => NULL,
+        'abilities' => [],
+      ],
+      'template' => 'character-class-card',
+      'path' => $path . '/templates',
+    ],
+    'item_card' => [
+      'variables' => [
+        'name' => NULL,
+        'description' => NULL,
+        'rarity' => NULL,
+        'image' => NULL,
+        'stats' => [],
+      ],
+      'template' => 'item-card',
+      'path' => $path . '/templates',
+    ],
+
+    // Character and campaign management lists.
+    'character_list' => [
+      'variables' => [
+        'characters' => [],
+        'create_url' => NULL,
+      ],
+      'template' => 'character-list',
+      'path' => $path . '/templates',
+    ],
+    'campaign_list' => [
+      'variables' => [
+        'campaigns' => [],
+        'create_url' => NULL,
+        'characters_url' => NULL,
+        'archived_url' => NULL,
+      ],
+      'template' => 'campaign-list',
+      'path' => $path . '/templates',
+    ],
+    'campaign_archived_list' => [
+      'variables' => [
+        'campaigns' => [],
+        'back_url' => NULL,
+      ],
+      'template' => 'campaign-archived-list',
+      'path' => $path . '/templates',
+    ],
+
+    // Campaign entry point - tavern entrance where players select characters.
+    'campaign_tavernentrance' => [
+      'variables' => [
+        'campaign' => [],
+        'characters' => [],
+        'dungeon_selection_url' => NULL,
+        'create_character_url' => NULL,
+        'back_url' => NULL,
+      ],
+      'template' => 'campaign-tavernentrance',
+      'path' => $path . '/templates',
+    ],
+
+    // Campaign dungeon selection page.
+    'campaign_dungeon_selection' => [
+      'variables' => [
+        'campaign' => [],
+        'dungeons' => [],
+        'back_url' => NULL,
+        'tavern_url' => NULL,
+      ],
+      'template' => 'campaign-dungeon-selection',
+      'path' => $path . '/templates',
+    ],
+
+    // Wrapper template for management forms (create/edit pages).
+    'management_form_page' => [
+      'variables' => [
+        'page_title' => NULL,
+        'page_description' => NULL,
+        'form' => [],
+        'back_url' => NULL,
+        'back_label' => NULL,
+      ],
+      'template' => 'management-form-page',
+      'path' => $path . '/templates',
+    ],
+
+    // Character sheet display with full stats and equipment.
+    'character_sheet' => [
+      'variables' => [
+        'character' => [],
+        'char_data' => [],
+        'ancestry' => [],
+        'background' => [],
+        'class_data' => [],
+        'abilities' => [],
+        'hp' => [],
+        // Default AC of 10 represents baseline unarmored AC in Pathfinder 2e.
+        // Controllers should always calculate and pass the actual value.
+        'ac' => 10,
+        'saves' => [],
+        'perception' => [],
+        'skills' => [],
+        'melee_attacks' => [],
+        'ranged_attacks' => [],
+        'equipment' => [],
+        'feats' => [],
+        'spells' => NULL,
+        'conditions' => [],
+        'personality' => [],
+        'npc_data' => NULL,
+        'raw_json' => '',
+        'edit_url' => NULL,
+        'archive_url' => NULL,
+        'launch_url' => NULL,
+        'tavern_url' => NULL,
+        'campaign_id' => NULL,
+        'back_url' => NULL,
+        'embed_mode' => FALSE,
+      ],
+      'template' => 'character-sheet',
+      'path' => $path . '/templates',
+    ],
+
+    // Character creation wizard - initial selection interface.
+    'character_creation_wizard' => [
+      'variables' => [
+        'ancestries' => [],
+        'classes' => [],
+        'backgrounds' => [],
+        'alignments' => [],
+      ],
+      'template' => 'character-creation-wizard',
+      'path' => $path . '/templates',
+    ],
+
+    // Unified schema-driven step template for character creation workflow.
+    // This template handles all character creation steps with dynamic content
+    // based on step number and schema configuration.
+    'character_creation_step' => [
+      'variables' => [
+        'character_id' => NULL,
+        'character' => [],
+        'step' => 1,
+        'step_name' => NULL,
+        'step_description' => NULL,
+        'tips' => [],
+      ],
+      'template' => 'character-creation-step',
+      'path' => $path . '/templates',
+    ],
+
+    // Pathbuilder-style ability score widget with interactive boost selection.
+    // Supports three modes: full (detailed), compact (minimal), interactive (selectable).
+    'character_ability_widget' => [
+      'variables' => [
+        'abilities' => [],
+        'mode' => 'full',
+        'show_sources' => TRUE,
+        'highlight_changes' => FALSE,
+        'boosts_remaining' => 0,
+        'boosts_total' => 4,
+        'attributes' => [],
+      ],
+      'template' => 'character-ability-widget',
+      'path' => $path . '/templates',
+    ],
+
+    // Hexmap demo interface for dungeon exploration.
+    'hexmap_demo' => [
+      'variables' => [
+        'launch_context' => [],
+        'dungeon_payload' => [],
+        'is_admin' => FALSE,
+      ],
+      'template' => 'hexmap-demo',
+      'path' => $path . '/templates',
+    ],
+
+    // Credits page displaying contributors and attributions.
+    'credits_page' => [
+      'variables' => [
+        'credits' => [],
+      ],
+      'template' => 'credits-page',
+      'path' => $path . '/templates',
+    ],
+
+    // System architecture hub page.
+    'architecture_overview' => [
+      'variables' => [
+        'intro' => '',
+        'flow_cards' => [],
+        'requirement_domains' => [],
+        'release_gates' => [],
+        'system_domains' => [],
+        'critical_flows' => [],
+        'architecture_map' => [],
+        'feature_index' => [],
+        'governance_links' => [],
+      ],
+      'template' => 'architecture-overview',
+      'path' => $path . '/templates',
+    ],
+    'dungeoncrawler_roadmap' => [
+      'variables' => [
+        'books'          => [],
+        'totals'         => [],
+        'total'          => 0,
+        'impl_pct'       => 0,
+        'prog_pct'       => 0,
+        'is_admin'       => FALSE,
+        'backlog_groups' => [],
+        'status_labels'  => [],
+      ],
+      'template' => 'dungeoncrawler-roadmap',
+      'path' => $path . '/templates',
+    ],
+  ];
+}

@@ -1,0 +1,23 @@
+# Dungeon Crawler site-specific service overrides.
+#
+# Session cookie isolation: both the forseti and dungeoncrawler sites run on
+# localhost (ports 80 and 8080 respectively). Without a name_suffix, Drupal
+# computes the same session cookie name (SESS + hash('localhost')) for both
+# sites.  Because each site maintains its own sessions table in a separate
+# database, the "other" site can't look up the session — and on save() it
+# calls destroy(), which deletes the cookie from the browser.  The next
+# request to the first site then has no session cookie → 403 Access Denied.
+#
+# Setting name_suffix differentiates the cookie names so the two sites
+# never touch each other's session cookies.
+#
+# NOTE: session.storage.options uses a SHALLOW merge — the entire block from
+# core.services.yml must be duplicated here when overriding any key.
+parameters:
+  session.storage.options:
+    gc_probability: 1
+    gc_divisor: 100
+    gc_maxlifetime: 200000
+    cookie_lifetime: 2000000
+    cookie_samesite: Lax
+    name_suffix: '_dc'

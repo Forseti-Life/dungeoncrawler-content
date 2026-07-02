@@ -1,0 +1,383 @@
+.dungeoncrawler-testing-dashboard {
+  --dt-surface: var(--bs-body-bg);
+  --dt-surface-muted: var(--bs-tertiary-bg);
+  --dt-surface-strong: var(--dc-surface-abyss);
+  --dt-surface-callout-a: var(--dc-surface-abyss);
+  --dt-surface-callout-b: var(--dc-surface-primary);
+  --dt-border: var(--bs-border-color);
+  --dt-border-soft: color-mix(in srgb, var(--dt-border) 70%, transparent);
+  --dt-text: var(--bs-body-color);
+  --dt-text-muted: var(--bs-secondary-color);
+  --dt-text-soft: color-mix(in srgb, var(--dt-text) 78%, white);
+  --dt-code-text: var(--dc-text-primary);
+  --dt-danger: var(--bs-danger);
+  --dt-warning: var(--bs-warning);
+  --dt-success: var(--bs-success);
+  --dt-link: var(--bs-link-color);
+  --dt-shadow-lg: 0 8px 20px color-mix(in srgb, var(--dt-text) 16%, transparent);
+  --dt-shadow-md: 0 6px 16px color-mix(in srgb, var(--dt-text) 14%, transparent);
+  --dt-shadow-callout: 0 10px 28px color-mix(in srgb, var(--dt-text) 32%, transparent);
+
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: 1fr;
+  align-items: start;
+  color: var(--dt-text);
+}
+
+.dungeoncrawler-testing-dashboard .dashboard-flow {
+  grid-column: 1 / -1;
+  background: var(--dt-surface);
+  border: 1px solid var(--dt-border);
+  border-radius: 10px;
+  padding: 1.1rem 1.2rem;
+  box-shadow: var(--dt-shadow-lg);
+}
+
+.dungeoncrawler-testing-dashboard .documentation-links,
+.dungeoncrawler-testing-dashboard .test-commands,
+.dungeoncrawler-testing-dashboard .dashboard-capabilities,
+.dungeoncrawler-testing-dashboard .dashboard-roadmap,
+.dungeoncrawler-testing-dashboard .dashboard-flow-tracking,
+.dungeoncrawler-testing-dashboard .dashboard-cron-agents,
+.dungeoncrawler-testing-dashboard .dashboard-stagegates,
+.dungeoncrawler-testing-dashboard .dungeoncrawler-testing-issues,
+.dungeoncrawler-testing-dashboard .issue-card {
+  background: var(--dt-surface);
+  border: 1px solid var(--dt-border);
+  border-radius: 10px;
+  padding: 1.1rem 1.2rem;
+  box-shadow: var(--dt-shadow-lg);
+}
+
+.dungeoncrawler-testing-dashboard .dashboard-cron-agents {
+  grid-column: 1 / -1;
+}
+
+.dungeoncrawler-testing-dashboard .messages--warning {
+  margin-bottom: 0;
+}
+
+.dungeoncrawler-testing-dashboard .stage-card {
+  color: var(--dt-text);
+  letter-spacing: 0.01em;
+}
+
+.dungeoncrawler-testing-dashboard .command-snippet {
+  margin: 0.35rem 0 0.8rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--dt-surface-strong);
+  color: var(--dt-code-text);
+  border-radius: 4px;
+  font-family: Menlo, Consolas, "Courier New", monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.dungeoncrawler-testing-dashboard .command-log {
+  margin-top: 0.35rem;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.dungeoncrawler-testing-dashboard .command-list {
+  margin: 0;
+}
+
+.dungeoncrawler-testing-dashboard .dungeoncrawler-testing-issues .item-list {
+  margin-bottom: 0.75rem;
+}
+
+.dungeoncrawler-testing-dashboard .messages--error {
+  background: color-mix(in srgb, var(--dt-danger) 14%, var(--dt-surface));
+  color: color-mix(in srgb, var(--dt-danger) 85%, black);
+  border: 1px solid color-mix(in srgb, var(--dt-danger) 45%, var(--dt-surface));
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+}
+
+.dungeoncrawler-testing-dashboard .item-list__item {
+  line-height: 1.5;
+}
+
+.dungeoncrawler-testing-dashboard .dashboard-stagegates .item-list,
+.dungeoncrawler-testing-dashboard .dashboard-capabilities .item-list,
+.dungeoncrawler-testing-dashboard .dashboard-roadmap .item-list,
+.dungeoncrawler-testing-dashboard .dashboard-flow-tracking .item-list,
+.dungeoncrawler-testing-dashboard .documentation-links .item-list,
+.dungeoncrawler-testing-dashboard .issue-card .item-list {
+  margin: 0;
+}
+
+.dungeoncrawler-testing-dashboard .dashboard-flow-tracking .flow-status-card {
+  background: var(--dt-surface);
+  border: 1px solid var(--dt-border);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  box-shadow: var(--dt-shadow-md);
+  margin-bottom: 0.85rem;
+}
+
+.dungeoncrawler-testing-dashboard .dashboard-flow-tracking .flow-status-card:last-child {
+  margin-bottom: 0;
+}
+
+.dungeoncrawler-testing-dashboard .dashboard-flow-tracking p {
+  margin: 0.35rem 0 0.55rem;
+  color: var(--dt-text-muted);
+}
+
+.dungeoncrawler-testing-dashboard .stage-state-badge {
+  display: inline-block;
+  margin: 0 0 0.4rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--dt-danger) 12%, var(--dt-surface));
+  color: color-mix(in srgb, var(--dt-danger) 80%, black);
+  border: 1px solid color-mix(in srgb, var(--dt-danger) 45%, var(--dt-surface));
+}
+
+.dungeoncrawler-testing-dashboard .stage-state-badge.is-blocked {
+  background: color-mix(in srgb, var(--dt-warning) 14%, var(--dt-surface));
+  color: color-mix(in srgb, var(--dt-warning) 80%, black);
+  border-color: color-mix(in srgb, var(--dt-warning) 50%, var(--dt-surface));
+}
+
+.dungeoncrawler-testing-dashboard .stage-card .details__summary {
+  font-weight: 600;
+}
+
+.dungeoncrawler-testing-dashboard .queue-management-callout {
+  grid-column: 1 / -1;
+  background: linear-gradient(120deg, var(--dt-surface-callout-a), var(--dt-surface-callout-b));
+  color: var(--dt-code-text);
+  border-radius: 12px;
+  padding: 1.25rem 1.4rem;
+  box-shadow: var(--dt-shadow-callout);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dungeoncrawler-testing-dashboard .queue-management-callout h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.2rem;
+}
+
+.dungeoncrawler-testing-dashboard .queue-management-callout p {
+  margin: 0;
+  color: var(--dt-text-soft);
+}
+
+.dungeoncrawler-testing-dashboard .queue-link {
+  display: inline-block;
+  padding: 0.55rem 0.95rem;
+  background: var(--dt-warning);
+  color: var(--dt-text);
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+  box-shadow: var(--dt-shadow-md);
+}
+
+.dungeoncrawler-testing-dashboard .queue-link:hover,
+.dungeoncrawler-testing-dashboard .queue-link:focus {
+  background: color-mix(in srgb, var(--dt-warning) 85%, white);
+  color: var(--dt-text);
+}
+
+.dungeoncrawler-testing-dashboard h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.02rem;
+  color: var(--dt-text);
+}
+
+.dungeoncrawler-testing-dashboard .dashboard-flow p {
+  margin: 0.5rem 0 0;
+  color: var(--dt-text-muted);
+}
+
+.dungeoncrawler-testing-dashboard .stage-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+.dungeoncrawler-testing-dashboard .stage-card {
+  background: var(--dt-surface);
+  border: 1px solid var(--dt-border);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  box-shadow: var(--dt-shadow-md);
+}
+
+.dungeoncrawler-testing-dashboard .stage-card h3 {
+  margin: 0 0 0.35rem;
+}
+
+.dungeoncrawler-testing-dashboard .stage-card p {
+  margin: 0 0 0.6rem;
+  color: var(--dt-text-muted);
+}
+
+.dungeoncrawler-testing-dashboard .stage-command-list {
+  margin: 0 0 0.6rem;
+}
+
+.dungeoncrawler-testing-dashboard .stage-command {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+}
+
+.dungeoncrawler-testing-dashboard .stage-command-form .form-submit {
+  margin-top: 0.35rem;
+}
+
+.dungeoncrawler-testing-dashboard .stage-reports {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--dt-border);
+}
+
+.dungeoncrawler-testing-dashboard .stage-reports h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.98rem;
+}
+
+.dungeoncrawler-testing-dashboard .command-list .item-list__item {
+  list-style: none;
+}
+
+.tester-issue-pr-report .item-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.tester-issue-pr-report .item-list > .item-list__item {
+  margin-bottom: 0.75rem;
+}
+
+.tester-issue-pr-report .issue-report-item h3 {
+  margin: 0 0 0.45rem;
+}
+
+.tester-issue-pr-report .issue-report-item h4 {
+  margin: 0.65rem 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.tester-issue-pr-report .issue-report-pr-item {
+  margin-bottom: 0.45rem;
+}
+
+.tester-issue-pr-report .issue-report-actions {
+  margin-top: 0.4rem;
+}
+
+.tester-issue-pr-report .text-muted-light,
+.tester-issue-pr-report .issue-report-item p {
+  color: var(--dt-text-muted);
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-coverage-details {
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--dt-border);
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-coverage-details h5 {
+  margin: 0 0 0.35rem;
+  font-size: 0.94rem;
+  color: var(--dt-text);
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-coverage-details .text-muted-light {
+  margin: 0 0 0.55rem;
+  color: var(--dt-text-muted);
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--dt-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--dt-surface) !important;
+  color: var(--dt-text) !important;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table th,
+.dungeoncrawler-testing-dashboard .unit-suite-status-table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--dt-border-soft);
+  vertical-align: top;
+  background-color: var(--dt-surface) !important;
+  color: var(--dt-text) !important;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table th {
+  background: var(--dt-surface-muted);
+  color: var(--dt-text);
+  font-weight: 700;
+  text-align: left;
+  background-color: var(--dt-surface-muted) !important;
+  color: var(--dt-text) !important;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table .unit-test-case-cell {
+  font-family: Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.86rem;
+  color: var(--dt-text);
+  word-break: break-word;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table .unit-test-status-cell {
+  width: 16rem;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table .unit-test-status {
+  display: inline-block;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid var(--dt-border);
+  color: var(--dt-text-muted);
+  background: var(--dt-surface-muted);
+  color: var(--dt-text-muted) !important;
+  background-color: var(--dt-surface-muted) !important;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table .unit-test-status.is-passed {
+  border-color: color-mix(in srgb, var(--dt-success) 45%, var(--dt-surface));
+  background: color-mix(in srgb, var(--dt-success) 12%, var(--dt-surface));
+  color: color-mix(in srgb, var(--dt-success) 80%, black);
+  background-color: color-mix(in srgb, var(--dt-success) 12%, var(--dt-surface)) !important;
+  color: color-mix(in srgb, var(--dt-success) 80%, black) !important;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table .unit-test-status.is-failed {
+  border-color: color-mix(in srgb, var(--dt-danger) 45%, var(--dt-surface));
+  background: color-mix(in srgb, var(--dt-danger) 12%, var(--dt-surface));
+  color: color-mix(in srgb, var(--dt-danger) 80%, black);
+  background-color: color-mix(in srgb, var(--dt-danger) 12%, var(--dt-surface)) !important;
+  color: color-mix(in srgb, var(--dt-danger) 80%, black) !important;
+}
+
+.dungeoncrawler-testing-dashboard .unit-suite-status-table .unit-test-status.is-no-run,
+.dungeoncrawler-testing-dashboard .unit-suite-status-table .unit-test-status.is-unknown {
+  border-color: var(--dt-border);
+  background: var(--dt-surface-muted);
+  color: var(--dt-text-muted);
+  background-color: var(--dt-surface-muted) !important;
+  color: var(--dt-text-muted) !important;
+}

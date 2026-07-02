@@ -1,0 +1,136 @@
+/**
+ * @file
+ * Job Application Automation specific styling overrides
+ * Leverages professional_website_content theme as base
+ */
+
+/* Job Seeker Profile Specific Styles */
+.job-seeker-profile-form {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0a0a15 0%, #1a1a2e 100%);
+  padding: 2rem 0;
+}
+
+.job-seeker-profile-form .professional-title i {
+  color: #64b5f6;
+  margin-right: 1rem;
+}
+
+/* Section-specific icons and colors */
+.personal-section .professional-section-title i {
+  color: #64b5f6;
+}
+
+.resume-section .professional-section-title i {
+  color: #20c997;
+}
+
+.experience-section .professional-section-title i {
+  color: #ffc107;
+}
+
+.preferences-section .professional-section-title i {
+  color: #6f42c1;
+}
+
+.online-section .professional-section-title i {
+  color: #fd7e14;
+}
+
+/* Profile Progress Indicators */
+.profile-completeness-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: var(--primary-gradient);
+  border: 1px solid var(--border-color);
+  border-radius: 50px;
+  padding: 0.5rem 1rem;
+  color: var(--text-light);
+  font-size: 0.875rem;
+  z-index: 1000;
+  box-shadow: var(--card-shadow);
+}
+
+.profile-completeness-indicator i {
+  color: var(--primary-color);
+  margin-right: 0.5rem;
+}
+
+/* Custom field styling for job application specific fields */
+.field--name-field-resume-file .file-widget {
+  background: rgba(100, 181, 246, 0.1);
+  border: 2px dashed var(--primary-color);
+  border-radius: var(--border-radius);
+  padding: 2rem;
+  text-align: center;
+  transition: var(--transition);
+}
+
+.field--name-field-resume-file .file-widget:hover {
+  background: rgba(100, 181, 246, 0.2);
+  border-color: var(--border-hover);
+}
+
+.field--name-field-resume-file .file-upload {
+  color: var(--text-light);
+}
+
+/* Salary range fields side by side styling */
+.salary-range-container {
+  display: flex;
+  gap: 1rem;
+  align-items: end;
+}
+
+.salary-range-container .form-item {
+  flex: 1;
+}
+
+/* Target companies autocomplete styling */
+.field--name-field-target-companies .form-autocomplete {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+}
+
+/* URL field icons */
+.field--name-field-linkedin-url::before,
+.field--name-field-github-url::before,
+.field--name-field-portfolio-url::before {
+  font-family: "Font Awesome 5 Free";
+  font-weight: 900;
+  color: var(--primary-color);
+  margin-right: 0.5rem;
+}
+
+.field--name-field-linkedin-url::before {
+  content: "\f08c";
+}
+
+.field--name-field-github-url::before {
+  content: "\f09b";
+}
+
+.field--name-field-portfolio-url::before {
+  content: "\f0ac";
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .job-seeker-profile-form {
+    padding: 1rem 0;
+  }
+  
+  .profile-completeness-indicator {
+    position: static;
+    margin-bottom: 1rem;
+    display: block;
+    text-align: center;
+  }
+  
+  .salary-range-container {
+    flex-direction: column;
+    gap: 0;
+  }
+}

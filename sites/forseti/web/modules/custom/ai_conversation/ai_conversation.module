@@ -1,0 +1,210 @@
+<?php
+
+/**
+ * @file
+ * AI Conversation module for federated GenAI integration.
+ *
+ * Provides conversational AI interface with context persistence, supporting
+ * both Bedrock and Ollama backends. Designed for multi-site federation with
+ * site-specific configuration overlays.
+ *
+ * Core features:
+ * - Conversation persistence via user data service
+ * - GenAI API integration (Bedrock, Ollama)
+ * - Usage tracking and cost reporting
+ * - Extensible prompt system for site-specific context
+ *
+ * Site-specific features configured via ai_conversation.settings:
+ * - enable_user_provider_selection (Forseti-specific)
+ * - context_provider (job_search vs campaign)
+ */
+
+use Drupal\Core\Render\Element;
+
+/**
+ * Implements hook_theme().
+ *
+ * Registers Twig templates for rendering conversation UI and reports.
+ * Site-specific templates can be overridden via configuration.
+ */
+function ai_conversation_theme($existing, $type, $theme, $path) {
+  $themes = [
+    'ai_conversation_chat' => [
+      'variables' => [
+        'conversation_id' => NULL,
+        'messages' => [],
+        'loading' => FALSE,
+        'debug_mode' => FALSE,
+      ],
+      'template' => 'ai-conversation-chat',
+    ],
+    'ai_conversation_usage_dashboard' => [
+      'variables' => [
+        'total_calls' => 0,
+        'total_cost' => 0.0,
+        'calls_today' => 0,
+        'cost_today' => 0.0,
+        'calls_this_month' => 0,
+        'cost_this_month' => 0.0,
+        'current_days' => 0,
+        'filtered_total_cost' => 0.0,
+        'filtered_total_calls' => 0,
+        'alltime_total_cost' => 0.0,
+        'alltime_total_calls' => 0,
+      ],
+      'template' => 'ai-usage-dashboard',
+    ],
+    'ai_conversation_genai_debug_list' => [
+      'variables' => [
+        'requests' => [],
+        'pager' => [],
+      ],
+      'template' => 'genai-debug-list',
+    ],
+    'ai_conversation_genai_debug_detail' => [
+      'variables' => [
+        'request_id' => NULL,
+        'request' => [],
+      ],
+      'template' => 'genai-debug-detail',
+    ],
+    'ai_conversation_user_conversations' => [
+      'variables' => [
+        'conversations' => [],
+        'total' => 0,
+        'page' => 1,
+        'per_page' => 20,
+        'has_next' => FALSE,
+        'has_prev' => FALSE,
+      ],
+      'template' => 'user-ai-conversations',
+    ],
+    'ai_conversation_model_pricing' => [
+      'variables' => [
+        'models' => [],
+        'total_calls' => 0,
+        'total_cost' => 0.0,
+      ],
+      'template' => 'ai-model-pricing',
+    ],
+  ];
+
+  return $themes;
+}
+
+/**
+ * Implements hook_preprocess_HOOK() for ai-conversation-chat template.
+ */
+function ai_conversation_preprocess_ai_conversation_chat(&$variables) {
+  $variables['#attached']['library'][] = 'ai_conversation/chat-interface';
+  $variables['current_user'] = \Drupal::currentUser();
+}
+
+/**
+ * Implements hook_form_user_form_alter() — AC-2: optional user provider preference.
+ *
+ * ONLY active when enable_user_provider_selection is TRUE in config.
+ * Allows users to override the site default AI provider/model.
+ *
+ * Preferences stored via user.data service:
+ * - Module: ai_conversation
+ * - Keys: ai_provider, ai_model
+ * - No entity field config required.
+ */
+function ai_conversation_form_user_form_alter(array &$form, \Drupal\Core\Form\FormStateInterface $form_state, string $form_id): void {
+  // Check if user provider selection is enabled in config.
+  $config = \Drupal::config('ai_conversation.settings');
+  if (!$config->get('enable_user_provider_selection')) {
+    return;
+  }
+
+  // Only on user profile edit forms (not registration).
+  if ($form_id !== 'user_form') {
+    return;
+  }
+
+  /** @var \Drupal\user\UserInterface $account */
+  $account = $form_state->getFormObject()->getEntity();
+  $uid = (int) $account->id();
+
+  $provider_config = \Drupal::config('ai_conversation.provider_settings');
+  $ollama_service  = \Drupal::service('ai_conversation.ollama_api_service');
+  $user_data       = \Drupal::service('user.data');
+
+  $saved_provider  = $user_data->get('ai_conversation', $uid, 'ai_provider') ?: 'default';
+  $saved_model     = $user_data->get('ai_conversation', $uid, 'ai_model') ?: '';
+
+  $ollama_configured = $ollama_service->isConfigured();
+  $ollama_models     = $ollama_configured ? $ollama_service->getAvailableModels() : [];
+
+  $provider_options = [
+    'default' => t('Use site default'),
+    'bedrock' => t('AWS Bedrock (cloud)'),
+  ];
+  if ($ollama_configured) {
+    $provider_options['ollama'] = t('Ollama (self-hosted)');
+  }
+
+  $form['ai_provider_preferences'] = [
+    '#type' => 'details',
+    '#title' => t('AI Provider Preference'),
+    '#open' => ($saved_provider !== 'default'),
+    '#weight' => 10,
+  ];
+
+  $form['ai_provider_preferences']['field_ai_provider'] = [
+    '#type' => 'select',
+    '#title' => t('Preferred AI provider'),
+    '#options' => $provider_options,
+    '#default_value' => in_array($saved_provider, array_keys($provider_options), TRUE) ? $saved_provider : 'default',
+    '#description' => $ollama_configured
+      ? t('Choose which AI backend handles your chat requests.')
+      : t('Choose which AI backend handles your chat requests. Ollama is not yet configured by the site admin.'),
+  ];
+
+  if (!empty($ollama_models)) {
+    $model_opts = ['' => t('— Use model default —')];
+    foreach ($ollama_models as $m) {
+      $model_opts[$m] = $m;
+    }
+    $form['ai_provider_preferences']['field_ai_model'] = [
+      '#type' => 'select',
+      '#title' => t('Preferred Ollama model'),
+      '#options' => $model_opts,
+      '#default_value' => $saved_model,
+      '#description' => t('Only applies when Ollama is selected as your provider.'),
+      '#states' => [
+        'visible' => [
+          ':input[name="field_ai_provider"]' => ['value' => 'ollama'],
+        ],
+      ],
+    ];
+  }
+
+  $form['#submit'][] = 'ai_conversation_user_form_submit';
+}
+
+/**
+ * User form submit handler — saves AI provider preference via user.data.
+ *
+ * Only executed when enable_user_provider_selection is TRUE.
+ */
+function ai_conversation_user_form_submit(array &$form, \Drupal\Core\Form\FormStateInterface $form_state): void {
+  /** @var \Drupal\user\UserInterface $account */
+  $account  = $form_state->getFormObject()->getEntity();
+  $uid      = (int) $account->id();
+  $ud       = \Drupal::service('user.data');
+
+  $provider = $form_state->getValue('field_ai_provider') ?: 'default';
+  $model    = $form_state->getValue('field_ai_model') ?: '';
+
+  if ($provider === 'default') {
+    // Clear preferences — user will use site default.
+    $ud->delete('ai_conversation', $uid, 'ai_provider');
+    $ud->delete('ai_conversation', $uid, 'ai_model');
+  }
+  else {
+    $ud->set('ai_conversation', $uid, 'ai_provider', $provider);
+    $ud->set('ai_conversation', $uid, 'ai_model', $model);
+  }
+}

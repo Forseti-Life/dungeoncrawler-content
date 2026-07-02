@@ -1,0 +1,45 @@
+{#
+/**
+ * @file
+ * Template for a dungeon card display.
+ *
+ * Available variables:
+ * - title: The dungeon name.
+ * - description: The dungeon description.
+ * - difficulty: The difficulty level.
+ * - image: The dungeon image.
+ * - level_range: The recommended level range.
+ * - rewards: List of possible rewards.
+ */
+#}
+<div class="dungeon-card card mb-4 shadow-sm">
+  {% if image %}
+    <div class="dungeon-card__image">
+      {{ image }}
+    </div>
+  {% endif %}
+  <div class="card-body">
+    <h3 class="dungeon-card__title card-title">{{ title }}</h3>
+    {% if difficulty %}
+      <span class="badge bg-{{ difficulty|lower == 'easy' ? 'success' : (difficulty|lower == 'normal' ? 'primary' : (difficulty|lower == 'hard' ? 'warning' : 'danger')) }}">
+        {{ difficulty }}
+      </span>
+    {% endif %}
+    {% if level_range %}
+      <span class="dungeon-card__level badge bg-secondary ms-1">Level {{ level_range }}</span>
+    {% endif %}
+    {% if description %}
+      <p class="dungeon-card__description card-text mt-2">{{ description }}</p>
+    {% endif %}
+    {% if rewards is not empty %}
+      <div class="dungeon-card__rewards mt-2">
+        <strong>{{ 'Rewards:'|t }}</strong>
+        <ul class="list-unstyled">
+          {% for reward in rewards %}
+            <li>⚔️ {{ reward }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+</div>

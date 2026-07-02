@@ -1,0 +1,438 @@
+[
+    {
+        "table_id": "core_starter_adventure",
+        "name": "Core Starter Adventure",
+        "description": "Player-handbook style starter consumables and kits.",
+        "level_range": "1-2",
+        "entries": [
+            {
+                "item_id": "healing_potion_minor",
+                "weight": 35,
+                "quantity": "1"
+            },
+            {
+                "item_id": "elixir_of_life_minor",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "thieves_tools",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healers_tools",
+                "weight": 20,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "core_alchemical_response",
+        "name": "Core Alchemical Response",
+        "description": "Core defensive and offensive alchemical picks.",
+        "level_range": "1-3",
+        "entries": [
+            {
+                "item_id": "antidote_lesser",
+                "weight": 30,
+                "quantity": "1"
+            },
+            {
+                "item_id": "antiplague_lesser",
+                "weight": 30,
+                "quantity": "1"
+            },
+            {
+                "item_id": "alchemists_fire_lesser",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "acid_flask_lesser",
+                "weight": 20,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "core_ruin_scavengers",
+        "name": "Core Ruin Scavengers",
+        "description": "Mixed utility and consumable rewards for low-tier dungeons.",
+        "level_range": "1-3",
+        "entries": [
+            {
+                "item_id": "thieves_tools",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healing_potion_minor",
+                "weight": 30,
+                "quantity": "1"
+            },
+            {
+                "item_id": "antidote_lesser",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "acid_flask_lesser",
+                "weight": 20,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "core_field_support",
+        "name": "Core Field Support",
+        "description": "Medicine-forward loot set for sustained delves.",
+        "level_range": "1-4",
+        "entries": [
+            {
+                "item_id": "healers_tools",
+                "weight": 30,
+                "quantity": "1"
+            },
+            {
+                "item_id": "elixir_of_life_minor",
+                "weight": 30,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healing_potion_minor",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "antiplague_lesser",
+                "weight": 15,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "core_weapon_progression",
+        "name": "Core Weapon Progression",
+        "description": "Fundamental rune progression rewards.",
+        "level_range": "2-5",
+        "entries": [
+            {
+                "item_id": "weapon_potency_rune_1",
+                "weight": 45,
+                "quantity": "1"
+            },
+            {
+                "item_id": "alchemists_fire_lesser",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "acid_flask_lesser",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healing_potion_minor",
+                "weight": 15,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "core_hazard_toolbox",
+        "name": "Core Hazard Toolbox",
+        "description": "Items useful for trap and hazard-heavy routes.",
+        "level_range": "1-4",
+        "entries": [
+            {
+                "item_id": "thieves_tools",
+                "weight": 35,
+                "quantity": "1"
+            },
+            {
+                "item_id": "antidote_lesser",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "antiplague_lesser",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "elixir_of_life_minor",
+                "weight": 20,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "gmg_relic_hooks",
+        "name": "GMG Relic Hooks",
+        "description": "Dungeon Master Guide relic-seed style rewards.",
+        "level_range": "3-6",
+        "entries": [
+            {
+                "item_id": "relic_seed_emberheart",
+                "weight": 40,
+                "quantity": "1"
+            },
+            {
+                "item_id": "weapon_potency_rune_1",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healing_potion_minor",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "elixir_of_life_minor",
+                "weight": 15,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "gmg_story_treasures",
+        "name": "GMG Story Treasures",
+        "description": "Narrative campaign pacing set with relic and support items.",
+        "level_range": "3-7",
+        "entries": [
+            {
+                "item_id": "relic_seed_emberheart",
+                "weight": 30,
+                "quantity": "1"
+            },
+            {
+                "item_id": "antiplague_lesser",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "antidote_lesser",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healers_tools",
+                "weight": 20,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "gmg_downtime_recovery",
+        "name": "GMG Downtime Recovery",
+        "description": "GM-facing recovery cache for between-delves pacing.",
+        "level_range": "2-5",
+        "entries": [
+            {
+                "item_id": "healing_potion_minor",
+                "weight": 35,
+                "quantity": "1"
+            },
+            {
+                "item_id": "elixir_of_life_minor",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healers_tools",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "weapon_potency_rune_1",
+                "weight": 20,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "gmg_balanced_party_cache",
+        "name": "GMG Balanced Party Cache",
+        "description": "Mixed party-support cache combining core and GMG-oriented rewards.",
+        "level_range": "1-6",
+        "entries": [
+            {
+                "item_id": "thieves_tools",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healers_tools",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healing_potion_minor",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "relic_seed_emberheart",
+                "weight": 15,
+                "quantity": "1"
+            },
+            {
+                "item_id": "weapon_potency_rune_1",
+                "weight": 20,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "phb_martial_starter_loadout",
+        "name": "PHB Martial Starter Loadout",
+        "description": "Starter martial options from the core equipment lists.",
+        "level_range": "1-2",
+        "entries": [
+            {
+                "item_id": "longsword",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "shortsword",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "spear",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "steel_shield",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "leather_armor",
+                "weight": 20,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "phb_ranged_starter_loadout",
+        "name": "PHB Ranged Starter Loadout",
+        "description": "Basic ranged weapon options and support gear.",
+        "level_range": "1-2",
+        "entries": [
+            {
+                "item_id": "longbow",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "shortbow",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "dagger",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "backpack",
+                "weight": 15,
+                "quantity": "1"
+            },
+            {
+                "item_id": "rope_hempen_50ft",
+                "weight": 15,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "phb_field_supplies",
+        "name": "PHB Field Supplies",
+        "description": "Adventuring basics for overland travel and dungeon delves.",
+        "level_range": "1-2",
+        "entries": [
+            {
+                "item_id": "bedroll",
+                "weight": 15,
+                "quantity": "1"
+            },
+            {
+                "item_id": "rations_1_week",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "waterskin",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "flint_and_steel",
+                "weight": 15,
+                "quantity": "1"
+            },
+            {
+                "item_id": "torches_5_pack",
+                "weight": 15,
+                "quantity": "1"
+            },
+            {
+                "item_id": "crowbar",
+                "weight": 15,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    },
+    {
+        "table_id": "phb_defensive_kits",
+        "name": "PHB Defensive Kits",
+        "description": "Core defensive armor and recovery options.",
+        "level_range": "1-3",
+        "entries": [
+            {
+                "item_id": "chain_shirt",
+                "weight": 25,
+                "quantity": "1"
+            },
+            {
+                "item_id": "leather_armor",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "steel_shield",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "healing_potion_minor",
+                "weight": 20,
+                "quantity": "1"
+            },
+            {
+                "item_id": "elixir_of_life_minor",
+                "weight": 15,
+                "quantity": "1"
+            }
+        ],
+        "created": "1772558369"
+    }
+]

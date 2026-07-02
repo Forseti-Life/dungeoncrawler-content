@@ -1,0 +1,58 @@
+# Drupal module .gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.buildpath
+.settings/
+
+# Vendor (use composer instead)
+vendor/
+composer.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Runtime
+*.log
+.tmp/
+tmp/
+
+# Private files
+private/
+files/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Node (if using frontend tools)
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Testing
+.phpunit.result.cache
+coverage/
+.pytest_cache/
+
+# Drupal specific
+web/sites/*/files/
+web/sites/*/private/
+
+# Keep these
+!.gitkeep

@@ -1,0 +1,78 @@
+global-styling:
+  css:
+    theme:
+      css/job_application_automation.css: {}
+  dependencies:
+    - core/drupal
+
+home-page:
+  css:
+    theme:
+      css/job_application_automation.css: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+
+job-hunter-home:
+  css:
+    theme:
+      css/job-hunter-home.css: {}
+  dependencies:
+    - core/drupal
+
+job-hunter-navigation:
+  css:
+    theme:
+      css/job-hunter-navigation.css: {}
+  dependencies:
+    - core/drupal
+
+documentation:
+  css:
+    theme:
+      css/documentation.css: {}
+  dependencies:
+    - core/drupal
+
+user_profile:
+  css:
+    theme:
+      css/user-profile-custom.css: {}
+  js:
+    js/user-profile.js: {}
+  dependencies:
+    - professional_website_content/professional_theme
+    - professional_website_content/form_styling
+    - core/drupal
+    - core/jquery
+
+company_profile:
+  css:
+    theme:
+      css/company-profile.css: {}
+  dependencies:
+    - core/drupal
+
+job_discovery:
+  css:
+    theme:
+      css/job-discovery.css: {}
+  js:
+    js/job-discovery.js: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/drupal.ajax
+    - core/once
+
+tailor_resume:
+  css:
+    theme:
+      css/tailor-resume.css: {}
+  js:
+    js/tailor-resume.js: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/drupal.ajax
+    - core/once

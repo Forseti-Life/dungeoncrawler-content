@@ -1,0 +1,6 @@
+ai_conversation.admin_link:
+  title: 'AI Conversation'
+  parent: system.admin_config_ai
+  description: 'Configure AI Conversation'
+  route_name: ai_conversation.admin_settings
+  weight: 0

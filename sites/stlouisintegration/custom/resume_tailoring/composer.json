@@ -1,0 +1,29 @@
+{
+  "name": "drupal/resume_tailoring",
+  "description": "Professional resume customization and optimization for job applications",
+  "type": "drupal-module",
+  "license": "GPL-2.0-or-later",
+  "minimum-stability": "stable",
+  "require": {
+    "php": "^8.1",
+    "drupal/core": "^10.3 || ^11"
+  },
+  "require-dev": {
+    "drupal/coder": "^8.3",
+    "phpunit/phpunit": "^9.5",
+    "phpstan/phpstan": "^1.0"
+  },
+  "keywords": [
+    "drupal",
+    "resume",
+    "job-application",
+    "tailoring",
+    "export"
+  ],
+  "authors": [
+    {
+      "name": "DungeonCrawler Development Team",
+      "email": "dev@example.com"
+    }
+  ]
+}

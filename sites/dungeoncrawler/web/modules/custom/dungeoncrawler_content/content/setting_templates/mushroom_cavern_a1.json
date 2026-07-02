@@ -1,0 +1,108 @@
+{
+    "template_id": "mushroom_cavern_a1",
+    "name": "The Glowing Cavern",
+    "description": "A vast natural cavern opens before you, its ceiling lost in darkness above. Clusters of phosphorescent mushrooms cast an eerie blue-green glow across dripping stalactites and pools of still water. The air is thick with spores and the earthy scent of decay.",
+    "setting_type": "cave",
+    "size": "large",
+    "lighting": "dim_light",
+    "setting_data": {
+        "theme_tags": [
+            "mushroom",
+            "cavern",
+            "underground",
+            "natural",
+            "mysterious"
+        ],
+        "atmosphere": "Bioluminescent fungi pulse with a slow rhythm like breathing, casting shifting shadows across the cavern walls. Drops of water echo in the silence, and strange rustlings come from the fungal clusters.",
+        "npcs": [
+            {
+                "name": "Sporeling Scout",
+                "content_id": "sporeling_scout_01",
+                "ancestry": "Leshy",
+                "class": "Druid",
+                "role": "neutral",
+                "team": "fungal_colony",
+                "occupation": "Cavern guardian",
+                "description": "A small humanoid figure composed entirely of interwoven mushroom caps and mycelium threads. It watches with glowing spore-eyes.",
+                "backstory": "One of many sporelings that tend the cavern, this one serves as a watcher for the fungal colony that has grown here over centuries.",
+                "attitude": "cautious",
+                "stats": {
+                    "maxHp": 12,
+                    "currentHp": 12,
+                    "ac": 14,
+                    "speed": 25,
+                    "perception": 7,
+                    "initiative_bonus": 3
+                },
+                "equipment": [
+                    "staff of thorns"
+                ]
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "glowing_mushroom_cluster",
+                "label": "Glowing Mushroom Cluster",
+                "category": "decor",
+                "description": "A dense cluster of blue-green phosphorescent mushrooms, some as tall as a halfling, pulsing gently.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "still_pool",
+                "label": "Still Underground Pool",
+                "category": "obstacle",
+                "description": "A shallow pool of crystal-clear water fed by dripping stalactites. Something glints at its bottom.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "ancient_stalagmite",
+                "label": "Ancient Stalagmite",
+                "category": "custom",
+                "description": "A towering mineral formation covered in moss and fungal growth, thousands of years in the making.",
+                "passable": false,
+                "interactable": false
+            },
+            {
+                "object_id": "mycelium_bridge",
+                "label": "Mycelium Bridge",
+                "category": "custom",
+                "description": "A thick mat of hardened mycelium stretching across a narrow crevasse, surprisingly sturdy.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "spore_vent",
+                "label": "Spore Vent",
+                "category": "trap",
+                "description": "A cluster of puffball mushrooms surrounding a crack in the floor that periodically releases clouds of spores.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "mushroom",
+        "cavern",
+        "cave",
+        "underground",
+        "glowing",
+        "fungus",
+        "spore",
+        "pool",
+        "stalactite",
+        "natural",
+        "mysterious",
+        "bioluminescent",
+        "grotto",
+        "mycelium",
+        "damp",
+        "fungal"
+    ],
+    "level_min": "1",
+    "level_max": "6",
+    "usage_count": "0",
+    "quality_score": "0.8",
+    "source": "handcrafted"
+}

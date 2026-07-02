@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "musical_instrument_handheld",
+  "name": "Musical Instrument (Handheld)",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A portable handheld musical instrument such as a flute, lute, or drum. Required for Performance checks and some bard activities.",
+  "price": { "cp": 0, "sp": 8, "gp": 0, "pp": 0 },
+  "bulk": "1",
+  "hands": 2,
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

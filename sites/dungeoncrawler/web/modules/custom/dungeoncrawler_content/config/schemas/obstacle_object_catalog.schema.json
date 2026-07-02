@@ -1,0 +1,310 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/obstacle_object_catalog.schema.json",
+  "title": "Obstacle Object Catalog Schema",
+  "description": "Reusable obstacle object definitions used by placed obstacle entities on dungeon maps.",
+  "type": "object",
+  "required": ["schema_version", "objects"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional self-reference to this schema URI for editor tooling."
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "examples": ["1.0.0", "1.1.0", "2.0.0"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Catalog creation timestamp (ISO 8601 format).",
+      "examples": ["2026-02-17T00:00:00Z"]
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp (ISO 8601 format).",
+      "examples": ["2026-02-17T20:48:00Z"]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional catalog-level metadata for organization and documentation.",
+      "properties": {
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable description of this catalog's purpose."
+        },
+        "theme": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Thematic grouping (e.g., 'tavern-furnishings', 'dungeon-traps')."
+        },
+        "usage": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Usage instructions or references to consuming code."
+        }
+      },
+      "additionalProperties": true
+    },
+    "objects": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "description": "Array of obstacle object definitions. Maximum 500 objects per catalog for performance and maintainability.",
+      "items": {
+        "type": "object",
+        "required": [
+          "object_id",
+          "label",
+          "category",
+          "movable",
+          "stackable",
+          "movement"
+        ],
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Stable machine-readable ID (lowercase, digits, underscore).",
+            "examples": ["wooden_tavern_door", "tavern_bar_counter_a", "tavern_table_round_a"]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Human-friendly name shown on the map UI.",
+            "examples": ["Tavern Door", "Bar Counter A", "Round Table"]
+          },
+          "category": {
+            "type": "string",
+            "enum": ["bar", "table", "stool", "crate", "door", "decor", "wall", "custom"],
+            "description": "Coarse grouping used for styling/filtering. Common categories: bar (fixed counters), table (movable furniture), stool (seating), crate (storage), door (transitions), decor (non-functional), wall (structural barriers), custom (other)."
+          },
+          "description": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Human-readable description for tooltips or documentation. Should focus on gameplay implications (how it affects movement, combat, or interaction) rather than restating property values. Good descriptions explain the obstacle's purpose and behavior; poor descriptions merely repeat labels or property values.",
+            "examples": [
+              "Heavy wooden door between tavern and dungeon room. When open, allows passage between areas without movement penalty.",
+              "Movable round tavern table suitable for small gatherings. Can be pushed by players to rearrange the tavern space or create barriers during combat.",
+              "Fixed wooden bar counter providing a physical barrier for drink service. Cannot be moved or passed through.",
+              "Stack of lightweight tavern stools. Multiple stools can occupy the same space, allowing flexible positioning around tables."
+            ]
+          },
+          "movable": {
+            "type": "boolean",
+            "description": "Whether the object can be moved (pushed/lifted/rearranged) by entities."
+          },
+          "stackable": {
+            "type": "boolean",
+            "description": "Whether multiple instances can share a hex (e.g., stacked stools, crates)."
+          },
+          "movement": {
+            "$ref": "#/$defs/movement_config"
+          },
+          "tags": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 10,
+            "items": { "type": "string", "minLength": 1, "maxLength": 50 },
+            "description": "Optional semantic tags for filtering and UI chips. Common tags: door, transition, bar, fixture, table, furniture, stool, stack, crate, storage, decor, floor, light_source.",
+            "examples": [
+              ["door", "transition"],
+              ["bar", "fixture"],
+              ["table", "furniture"],
+              ["stool", "furniture", "stack"],
+              ["decor", "floor"],
+              ["decor", "fixture", "light_source"]
+            ]
+          },
+          "size": {
+            "type": "string",
+            "enum": ["tiny", "small", "medium", "large", "huge", "gargantuan"],
+            "description": "Optional PF2e size category for the obstacle. Helps determine space occupied and interaction mechanics. If omitted, size is determined by placement context.",
+            "examples": ["small", "medium", "large"]
+          },
+          "weight": {
+            "type": "string",
+            "pattern": "^(L|\\d+)$",
+            "description": "Optional PF2e Bulk value indicating weight/portability. 'L' for light bulk, numeric values for standard bulk (1, 2, 5, 10, etc.). Used for determining if an obstacle can be moved or lifted by characters.",
+            "examples": ["L", "1", "2", "5", "10", "20"]
+          },
+          "interaction": {
+            "type": "object",
+            "description": "Optional interaction mechanics for this obstacle object.",
+            "additionalProperties": false,
+            "properties": {
+              "can_open": {
+                "type": "boolean",
+                "description": "Whether this obstacle can be opened (e.g., doors, chests, windows).",
+                "default": false
+              },
+              "can_close": {
+                "type": "boolean",
+                "description": "Whether this obstacle can be closed after being opened.",
+                "default": false
+              },
+              "requires_key": {
+                "type": "boolean",
+                "description": "Whether opening requires a specific key or item.",
+                "default": false
+              },
+              "athletics_dc": {
+                "type": ["integer", "null"],
+                "minimum": 0,
+                "maximum": 50,
+                "description": "Optional Athletics DC to force open, break, or move the obstacle."
+              },
+              "thievery_dc": {
+                "type": ["integer", "null"],
+                "minimum": 0,
+                "maximum": 50,
+                "description": "Optional Thievery DC to pick a lock or disable a mechanism."
+              }
+            }
+          },
+          "visual": {
+            "type": "object",
+            "description": "Optional visual representation metadata for rendering.",
+            "additionalProperties": true,
+            "properties": {
+              "sprite_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "description": "Identifier for the visual sprite or asset to render this obstacle."
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6}$",
+                "description": "Hex color code for tinting or theming the obstacle (e.g., '#8B4513' for brown)."
+              },
+              "rotation": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 359,
+                "description": "Default rotation in degrees (0-359) for oriented obstacles like doors or furniture."
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "examples": [
+          {
+            "object_id": "wooden_tavern_door",
+            "label": "Tavern Door",
+            "category": "door",
+            "description": "Heavy wooden door between tavern and dungeon room. When open, allows passage between areas without movement penalty.",
+            "movable": false,
+            "stackable": false,
+            "movement": {
+              "passable": true,
+              "blocks_movement": false,
+              "cost_multiplier": 1
+            },
+            "tags": ["door", "transition"]
+          }
+        ]
+      },
+      "examples": [
+        [
+          {
+            "object_id": "wooden_tavern_door",
+            "label": "Tavern Door",
+            "category": "door",
+            "description": "Heavy wooden door between tavern and dungeon room.",
+            "movable": false,
+            "stackable": false,
+            "movement": {
+              "passable": true,
+              "blocks_movement": false,
+              "cost_multiplier": 1
+            },
+            "tags": ["door", "transition"]
+          },
+          {
+            "object_id": "tavern_table_round_a",
+            "label": "Round Table A",
+            "category": "table",
+            "description": "Movable round tavern table. Can be pushed by players.",
+            "movable": true,
+            "stackable": false,
+            "movement": {
+              "passable": false,
+              "blocks_movement": true,
+              "cost_multiplier": 2
+            },
+            "tags": ["table", "furniture"]
+          }
+        ]
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "movement_config": {
+      "type": "object",
+      "required": ["passable", "blocks_movement", "cost_multiplier"],
+      "additionalProperties": false,
+      "properties": {
+        "passable": {
+          "type": "boolean",
+          "description": "If true, occupants can share the hex without obstruction (e.g., floor rugs, open doors)."
+        },
+        "blocks_movement": {
+          "type": "boolean",
+          "description": "If true, pathfinding treats this hex as blocked unless interacted with (e.g., closed doors, walls)."
+        },
+        "cost_multiplier": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 999,
+          "default": 1,
+          "description": "Movement cost multiplier for entering this hex (1 = normal, 2 = difficult terrain, 999 = effectively impassable). Used for future pathfinding AI; not currently used in rendering.",
+          "examples": [1, 1.5, 2, 3, 999]
+        }
+      },
+      "description": "Traversal characteristics for an obstacle object.",
+      "examples": [
+        {"passable": true, "blocks_movement": false, "cost_multiplier": 1},
+        {"passable": false, "blocks_movement": true, "cost_multiplier": 999}
+      ]
+    }
+  },
+  "examples": [
+    {
+      "$schema": "../schemas/obstacle_object_catalog.schema.json",
+      "schema_version": "1.0.0",
+      "created_at": "2026-02-17T00:00:00Z",
+      "updated_at": "2026-02-17T20:48:00Z",
+      "metadata": {
+        "description": "Reusable tavern furniture and fixture obstacle definitions",
+        "theme": "tavern-furnishings"
+      },
+      "objects": [
+        {
+          "object_id": "wooden_tavern_door",
+          "label": "Tavern Door",
+          "category": "door",
+          "description": "Heavy wooden door between tavern and dungeon room.",
+          "movable": false,
+          "stackable": false,
+          "movement": {
+            "passable": true,
+            "blocks_movement": false,
+            "cost_multiplier": 1
+          },
+          "tags": ["door", "transition"]
+        }
+      ]
+    }
+  ]
+}

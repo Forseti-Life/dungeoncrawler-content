@@ -1,0 +1,41 @@
+services:
+  dungeoncrawler_tester.dashboard_run_state:
+    class: Drupal\dungeoncrawler_tester\Service\DashboardRunStateService
+    arguments: ['@state', '@string_translation']
+
+  dungeoncrawler_tester.sdlc_reset_service:
+    class: Drupal\dungeoncrawler_tester\Service\SdlcResetService
+    arguments: ['@state', '@dungeoncrawler_tester.local_issues_tracker', '@database', '@dungeoncrawler_tester.stage_definitions', '@cache.default']
+
+  dungeoncrawler_tester.local_issues_tracker:
+    class: Drupal\dungeoncrawler_tester\Service\LocalIssuesTrackerService
+    arguments: ['%app.root%']
+
+  dungeoncrawler_tester.github_context_resolver:
+    class: Drupal\dungeoncrawler_tester\Service\GithubClientContextResolver
+    arguments: ['@config.factory', '@state']
+
+  dungeoncrawler_tester.github_mutation_state_store:
+    class: Drupal\dungeoncrawler_tester\Service\GithubMutationStateStore
+    arguments: ['@dungeoncrawler_tester.github_context_resolver', '@logger.factory']
+
+  dungeoncrawler_tester.github_issue_pr_client:
+    class: Drupal\dungeoncrawler_tester\Service\GithubIssuePrClient
+    arguments: ['@http_client', '@dungeoncrawler_tester.github_context_resolver', '@dungeoncrawler_tester.github_mutation_state_store', '@logger.factory']
+
+  Drupal\dungeoncrawler_tester\Service\GithubIssuePrClientInterface:
+    alias: dungeoncrawler_tester.github_issue_pr_client
+
+  dungeoncrawler_tester.stage_issue_sync:
+    class: Drupal\dungeoncrawler_tester\Service\StageIssueSyncService
+    arguments: ['@state', '@dungeoncrawler_tester.local_issues_tracker', '@logger.factory']
+  dungeoncrawler_tester.stage_definitions:
+    class: Drupal\dungeoncrawler_tester\Service\StageDefinitionService
+    arguments: ['@string_translation', '%app.root%', '@config.factory']
+  dungeoncrawler_tester.stage_auto_enqueue:
+    class: Drupal\dungeoncrawler_tester\Service\StageAutoEnqueueService
+    arguments: ['@queue', '@state', '@lock', '@logger.factory', '@uuid', '@dungeoncrawler_tester.stage_definitions']
+
+  dungeoncrawler_tester.open_issues_reconcile_feed:
+    class: Drupal\dungeoncrawler_tester\Service\OpenIssuesReconcileFeedService
+    arguments: ['@state', '@lock', '@database', '@dungeoncrawler_tester.local_issues_tracker', '@dungeoncrawler_tester.github_issue_pr_client', '@logger.factory']

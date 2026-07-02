@@ -1,0 +1,216 @@
+{#
+/**
+ * @file
+ * Template for GenAI Debug Inspector - List View
+ *
+ * Available variables:
+ * - calls: Array of GenAI API call records
+ * - modules: Array of unique module names for filter
+ * - operations: Array of unique operation names for filter
+ * - current_module: Currently selected module filter
+ * - current_operation: Currently selected operation filter
+ * - current_success: Currently selected success filter
+ * - current_limit: Currently selected limit
+ * - current_days: Currently selected days filter
+ * - filtered_total_cost: Total cost for filtered period
+ * - filtered_total_calls: Total calls for filtered period
+ * - alltime_total_cost: All-time total cost
+ * - alltime_total_calls: All-time total calls
+ */
+#}
+
+{{ attach_library('ai_conversation/genai-debug') }}
+
+<div class="genai-debug-inspector">
+  <h2>GenAI Debug Inspector</h2>
+  <p class="description">Inspect actual GenAI request/response data for debugging.</p>
+
+  {# Filters #}
+  <div class="genai-debug-filters">
+    <form method="get" class="genai-debug-filter-form">
+      
+      <div class="genai-debug-field">
+        <label for="module" class="genai-debug-label">Module:</label>
+        <select name="module" id="module" class="genai-debug-select">
+          <option value="">All Modules</option>
+          {% for module in modules %}
+            <option value="{{ module }}" {% if current_module == module %}selected{% endif %}>{{ module }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="genai-debug-field">
+        <label for="operation" class="genai-debug-label">Operation:</label>
+        <select name="operation" id="operation" class="genai-debug-select">
+          <option value="">All Operations</option>
+          {% for operation in operations %}
+            <option value="{{ operation }}" {% if current_operation == operation %}selected{% endif %}>{{ operation }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="genai-debug-field genai-debug-field--status">
+        <label for="success" class="genai-debug-label">Status:</label>
+        <select name="success" id="success" class="genai-debug-select">
+          <option value="">All</option>
+          <option value="1" {% if current_success == '1' %}selected{% endif %}>Success ✅</option>
+          <option value="0" {% if current_success == '0' %}selected{% endif %}>Failed ❌</option>
+        </select>
+      </div>
+
+      <div class="genai-debug-field genai-debug-field--narrow">
+        <label for="days" class="genai-debug-label">Time Period:</label>
+        <select name="days" id="days" class="genai-debug-select">
+          <option value="1" {% if current_days == 1 %}selected{% endif %}>Last 24 hours</option>
+          <option value="3" {% if current_days == 3 %}selected{% endif %}>Last 3 days</option>
+          <option value="7" {% if current_days == 7 %}selected{% endif %}>Last 7 days</option>
+          <option value="30" {% if current_days == 30 %}selected{% endif %}>Last 30 days</option>
+          <option value="90" {% if current_days == 90 %}selected{% endif %}>Last 90 days</option>
+          <option value="0" {% if current_days == 0 %}selected{% endif %}>All Time</option>
+        </select>
+      </div>
+
+      <div class="genai-debug-field genai-debug-field--narrow">
+        <label for="limit" class="genai-debug-label">Limit:</label>
+        <select name="limit" id="limit" class="genai-debug-select">
+          <option value="50" {% if current_limit == 50 %}selected{% endif %}>50</option>
+          <option value="100" {% if current_limit == 100 %}selected{% endif %}>100</option>
+          <option value="200" {% if current_limit == 200 %}selected{% endif %}>200</option>
+          <option value="500" {% if current_limit == 500 %}selected{% endif %}>500</option>
+        </select>
+      </div>
+
+      <div class="genai-debug-field genai-debug-field--actions">
+        <button type="submit" class="genai-debug-btn genai-debug-btn--primary">
+          Filter
+        </button>
+        <a href="/admin/reports/genai-debug" class="genai-debug-link-btn genai-debug-link-btn--muted">
+          Clear
+        </a>
+      </div>
+    </form>
+    
+    {# Delete All Filtered button #}
+    {% if calls is not empty %}
+      <form method="post" action="/admin/reports/genai-debug/delete-all" class="genai-debug-delete-all-form" onsubmit="return confirm('Delete ALL {{ calls|length }} filtered GenAI calls? This will force fresh API calls.');">
+        <input type="hidden" name="module" value="{{ current_module }}">
+        <input type="hidden" name="operation" value="{{ current_operation }}">
+        <input type="hidden" name="success" value="{{ current_success }}">
+        <input type="hidden" name="days" value="{{ current_days }}">
+        <button type="submit" class="genai-debug-btn genai-debug-btn--danger genai-debug-btn--strong">
+          🗑️ Delete All Filtered ({{ calls|length }})
+        </button>
+      </form>
+    {% endif %}
+  </div>
+
+  {# Cost Totals Summary #}
+  <div class="genai-debug-card">
+    <div class="genai-debug-summary-grid">
+      
+      {# Filtered Period Total #}
+      <div class="genai-debug-summary-tile genai-debug-summary-tile--period">
+        <div class="genai-debug-summary-label">
+          {% if current_days == 1 %}
+            Last 24 Hours
+          {% elseif current_days == 0 %}
+            All Time (Filtered)
+          {% else %}
+            Last {{ current_days }} Days
+          {% endif %}
+        </div>
+        <div class="genai-debug-summary-value">
+          ${{ filtered_total_cost|number_format(4) }}
+        </div>
+        <div class="genai-debug-summary-sub">
+          {{ filtered_total_calls|number_format(0) }} calls
+        </div>
+      </div>
+
+      {# All-Time Running Total #}
+      <div class="genai-debug-summary-tile genai-debug-summary-tile--alltime">
+        <div class="genai-debug-summary-label">
+          Running Total (All Time)
+        </div>
+        <div class="genai-debug-summary-value">
+          ${{ alltime_total_cost|number_format(4) }}
+        </div>
+        <div class="genai-debug-summary-sub">
+          {{ alltime_total_calls|number_format(0) }} total calls
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  {# Results Count #}
+  <div class="genai-debug-results">
+    <strong>{{ calls|length }} calls found</strong>
+  </div>
+
+  {# Calls Table #}
+  {% if calls %}
+    <div class="genai-debug-table-wrap">
+      <table class="genai-debug-table">
+        <thead>
+          <tr class="genai-debug-table-head">
+            <th class="genai-debug-th">ID</th>
+            <th class="genai-debug-th">Time</th>
+            <th class="genai-debug-th">Module</th>
+            <th class="genai-debug-th">Operation</th>
+            <th class="genai-debug-th">Model</th>
+            <th class="genai-debug-th genai-debug-th--right">Tokens</th>
+            <th class="genai-debug-th genai-debug-th--right">Cost</th>
+            <th class="genai-debug-th genai-debug-th--center">Status</th>
+            <th class="genai-debug-th">Stop Reason</th>
+            <th class="genai-debug-th genai-debug-th--center">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for call in calls %}
+            <tr class="genai-debug-row {% if not call.success_bool %}is-failed{% endif %}">
+              <td class="genai-debug-td">{{ call.id }}</td>
+              <td class="genai-debug-td genai-debug-td--nowrap">{{ call.timestamp_ago }}</td>
+              <td class="genai-debug-td"><span class="genai-debug-module-tag">{{ call.module }}</span></td>
+              <td class="genai-debug-td"><code class="genai-debug-op-code">{{ call.operation }}</code></td>
+              <td class="genai-debug-td genai-debug-model-id">{{ call.model_id }}</td>
+              <td class="genai-debug-td genai-debug-td--right">{{ call.total_tokens }}</td>
+              <td class="genai-debug-td genai-debug-td--right">{{ call.cost }}</td>
+              <td class="genai-debug-td genai-debug-td--center">{{ call.success }}</td>
+              <td class="genai-debug-td">
+                {% if call.stop_reason %}
+                  <span class="genai-debug-stop-reason {% if call.stop_reason == 'max_tokens' %}is-max-tokens{% endif %}">
+                    {{ call.stop_reason }}
+                  </span>
+                {% endif %}
+              </td>
+              <td class="genai-debug-td genai-debug-td--center genai-debug-actions">
+                <a href="/admin/reports/genai-debug/{{ call.id }}" 
+                   class="genai-debug-link-btn genai-debug-link-btn--primary genai-debug-link-btn--small">
+                  View
+                </a>
+                <form method="post" action="/admin/reports/genai-debug/{{ call.id }}/delete" class="genai-debug-inline-form" onsubmit="return confirm('Delete this GenAI call record? This will force a fresh API call next time.');">
+                  <button type="submit" class="genai-debug-btn genai-debug-btn--danger genai-debug-btn--small">
+                    Delete
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% if call.error_message %}
+              <tr class="genai-debug-row genai-debug-error-row">
+                <td colspan="10" class="genai-debug-td genai-debug-op-code">
+                  <strong class="genai-debug-error-label">Error:</strong> {{ call.error_message }}
+                </td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="genai-debug-empty">
+      <p class="genai-debug-empty-copy">No GenAI API calls found matching your filters.</p>
+    </div>
+  {% endif %}
+
+</div>

@@ -1,0 +1,325 @@
+{
+  "$schema": "../schemas/item.schema.json",
+  "description": "Example container items demonstrating container_stats usage",
+  "containers": [
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-belt-pouch-001",
+      "name": "Leather Belt Pouch",
+      "item_type": "adventuring_gear",
+      "level": 0,
+      "rarity": "common",
+      "traits": [],
+      "description": "A small leather pouch that attaches to your belt. Perfect for coins, keys, and other small essentials.",
+      "price": {
+        "cp": 0,
+        "sp": 4,
+        "gp": 0,
+        "pp": 0
+      },
+      "bulk": "L",
+      "hands": "0",
+      "container_stats": {
+        "capacity": 0.4,
+        "capacity_reduction": 1.0,
+        "can_lock": false,
+        "access_time": "free",
+        "water_resistant": false,
+        "extradimensional": false,
+        "container_type": "pouch"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-backpack-standard-001",
+      "name": "Adventurer's Backpack",
+      "item_type": "adventuring_gear",
+      "level": 0,
+      "rarity": "common",
+      "traits": [],
+      "description": "A sturdy leather backpack with multiple pockets and straps. The standard choice for adventurers heading into the dungeon.",
+      "price": {
+        "cp": 0,
+        "sp": 0,
+        "gp": 1,
+        "pp": 0
+      },
+      "bulk": "L",
+      "hands": "0",
+      "container_stats": {
+        "capacity": 4.0,
+        "capacity_reduction": 1.0,
+        "can_lock": false,
+        "access_time": "interact",
+        "water_resistant": false,
+        "extradimensional": false,
+        "container_type": "backpack"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-satchel-leather-001",
+      "name": "Leather Satchel",
+      "item_type": "adventuring_gear",
+      "level": 0,
+      "rarity": "common",
+      "traits": [],
+      "description": "A shoulder-worn leather bag with a flap closure. Smaller than a backpack but easier to access quickly.",
+      "price": {
+        "cp": 0,
+        "sp": 5,
+        "gp": 0,
+        "pp": 0
+      },
+      "bulk": "L",
+      "hands": "0",
+      "container_stats": {
+        "capacity": 2.0,
+        "capacity_reduction": 1.0,
+        "can_lock": false,
+        "access_time": "interact",
+        "water_resistant": false,
+        "extradimensional": false,
+        "container_type": "satchel"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-chest-small-locked-001",
+      "name": "Locked Iron Chest",
+      "item_type": "adventuring_gear",
+      "level": 1,
+      "rarity": "common",
+      "traits": ["locked"],
+      "description": "A small iron-banded chest with a complex lock mechanism. Commonly found in dungeon treasure rooms.",
+      "price": {
+        "cp": 0,
+        "sp": 0,
+        "gp": 5,
+        "pp": 0
+      },
+      "bulk": "2",
+      "hands": "2",
+      "container_stats": {
+        "capacity": 8.0,
+        "capacity_reduction": 1.0,
+        "can_lock": true,
+        "lock_dc": 20,
+        "is_locked": true,
+        "access_time": "interact",
+        "water_resistant": true,
+        "extradimensional": false,
+        "container_type": "chest"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-barrel-wooden-001",
+      "name": "Wooden Barrel",
+      "item_type": "adventuring_gear",
+      "level": 0,
+      "rarity": "common",
+      "traits": [],
+      "description": "A large wooden barrel typically used for storing wine, water, or other liquids. Can also hold a surprising amount of equipment.",
+      "price": {
+        "cp": 0,
+        "sp": 0,
+        "gp": 2,
+        "pp": 0
+      },
+      "bulk": "4",
+      "hands": "2",
+      "container_stats": {
+        "capacity": 10.0,
+        "capacity_reduction": 1.0,
+        "can_lock": false,
+        "access_time": "2_actions",
+        "water_resistant": true,
+        "extradimensional": false,
+        "container_type": "barrel"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-bag-holding-type1-001",
+      "name": "Bag of Holding (Type I)",
+      "item_type": "held_item",
+      "level": 4,
+      "rarity": "uncommon",
+      "traits": ["magical", "conjuration", "extradimensional"],
+      "description": "This leather satchel appears ordinary, but a command word opens an extradimensional space capable of holding far more than its size suggests. Items placed within are held in stasis and add no weight to the carrier.",
+      "price": {
+        "cp": 0,
+        "sp": 0,
+        "gp": 75,
+        "pp": 0
+      },
+      "bulk": "1",
+      "hands": "0",
+      "container_stats": {
+        "capacity": 25.0,
+        "capacity_reduction": 0.0,
+        "can_lock": false,
+        "access_time": "interact",
+        "water_resistant": true,
+        "extradimensional": true,
+        "container_type": "bag_of_holding"
+      },
+      "magic_properties": {
+        "invested": false,
+        "activation": {
+          "actions": "interact",
+          "components": ["command", "interact"],
+          "requirements": "You must speak the command word to open the extradimensional space."
+        },
+        "effect": "This bag has an extradimensional space that can hold up to 25 Bulk. The bag's weight is constant at 1 Bulk regardless of contents. Anything placed in the bag is held in stasis and doesn't count toward your Bulk limit."
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-bag-holding-type2-001",
+      "name": "Bag of Holding (Type II)",
+      "item_type": "held_item",
+      "level": 7,
+      "rarity": "uncommon",
+      "traits": ["magical", "conjuration", "extradimensional"],
+      "description": "A more powerful version of the bag of holding, this enchanted satchel can hold twice as much as its lesser cousin while weighing the same.",
+      "price": {
+        "cp": 0,
+        "sp": 0,
+        "gp": 300,
+        "pp": 0
+      },
+      "bulk": "1",
+      "hands": "0",
+      "container_stats": {
+        "capacity": 50.0,
+        "capacity_reduction": 0.0,
+        "can_lock": false,
+        "access_time": "interact",
+        "water_resistant": true,
+        "extradimensional": true,
+        "container_type": "bag_of_holding"
+      },
+      "magic_properties": {
+        "invested": false,
+        "activation": {
+          "actions": "interact",
+          "components": ["command", "interact"],
+          "requirements": "You must speak the command word to open the extradimensional space."
+        },
+        "effect": "This bag has an extradimensional space that can hold up to 50 Bulk. The bag's weight is constant at 1 Bulk regardless of contents. Anything placed in the bag is held in stasis and doesn't count toward your Bulk limit."
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-quiver-arrow-001",
+      "name": "Arrow Quiver",
+      "item_type": "adventuring_gear",
+      "level": 0,
+      "rarity": "common",
+      "traits": [],
+      "description": "A cylindrical leather case designed to hold arrows, worn on the back or hip. Provides quick access for ranged combat.",
+      "price": {
+        "cp": 0,
+        "sp": 5,
+        "gp": 0,
+        "pp": 0
+      },
+      "bulk": "L",
+      "hands": "0",
+      "container_stats": {
+        "capacity": 1.0,
+        "capacity_reduction": 1.0,
+        "can_lock": false,
+        "access_time": "free",
+        "water_resistant": true,
+        "extradimensional": false,
+        "container_type": "quiver"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-sack-burlap-001",
+      "name": "Burlap Sack",
+      "item_type": "adventuring_gear",
+      "level": 0,
+      "rarity": "common",
+      "traits": [],
+      "description": "A simple sack made of rough burlap fabric. Inexpensive but not particularly durable or water-resistant.",
+      "price": {
+        "cp": 5,
+        "sp": 0,
+        "gp": 0,
+        "pp": 0
+      },
+      "bulk": "L",
+      "hands": "1",
+      "container_stats": {
+        "capacity": 3.0,
+        "capacity_reduction": 1.0,
+        "can_lock": false,
+        "access_time": "interact",
+        "water_resistant": false,
+        "extradimensional": false,
+        "container_type": "sack"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-scroll-case-001",
+      "name": "Scroll Case",
+      "item_type": "adventuring_gear",
+      "level": 0,
+      "rarity": "common",
+      "traits": [],
+      "description": "A waterproof leather or metal tube designed to protect scrolls and documents from the elements.",
+      "price": {
+        "cp": 0,
+        "sp": 5,
+        "gp": 0,
+        "pp": 0
+      },
+      "bulk": "L",
+      "hands": "1",
+      "container_stats": {
+        "capacity": 0.5,
+        "capacity_reduction": 1.0,
+        "can_lock": false,
+        "access_time": "interact",
+        "water_resistant": true,
+        "extradimensional": false,
+        "container_type": "case"
+      }
+    },
+    {
+      "schema_version": "1.0.0",
+      "item_id": "container-chest-treasure-ornate-001",
+      "name": "Ornate Treasure Chest",
+      "item_type": "adventuring_gear",
+      "level": 3,
+      "rarity": "uncommon",
+      "traits": ["locked"],
+      "description": "An elaborately carved wooden chest with golden inlays and a sophisticated locking mechanism. Often found in the deepest reaches of dungeons, protecting the most valuable treasures.",
+      "price": {
+        "cp": 0,
+        "sp": 0,
+        "gp": 20,
+        "pp": 0
+      },
+      "bulk": "3",
+      "hands": "2",
+      "container_stats": {
+        "capacity": 12.0,
+        "capacity_reduction": 1.0,
+        "can_lock": true,
+        "lock_dc": 25,
+        "is_locked": true,
+        "access_time": "interact",
+        "water_resistant": true,
+        "extradimensional": false,
+        "container_type": "chest"
+      }
+    }
+  ]
+}

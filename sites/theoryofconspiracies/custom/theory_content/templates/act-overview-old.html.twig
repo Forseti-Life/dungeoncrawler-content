@@ -1,0 +1,929 @@
+<div class="act-overview">
+  <h1>{{ act.title }}</h1>
+  <p>{{ act.description }}</p>
+  
+  <h2>Major Themes</h2>
+  {% for theme in act.major_themes %}
+    <h3>{{ theme.theme }}</h3>
+    <p>{{ theme.description }}</p>
+  {% endfor %}
+  
+  <h2>Act Progression</h2>
+  <p><strong>Opening:</strong> {{ act.act_progression.opening }}</p>
+  <p><strong>Climax:</strong> {{ act.act_progression.climax }}</p>
+</div>
+              
+              {% if sequence.character_development %}
+                <div class="character-development">
+                  <h4>Character Development:</h4>
+                  <ul>
+                    {% for development in sequence.character_development %}
+                      <li>{{ development }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endif %}
+              
+              {% if sequence.trust_changes %}
+                <div class="trust-changes">
+                  <h4>Trust Relationship Changes:</h4>
+                  <div class="trust-metrics">
+                    {% for change in sequence.trust_changes %}
+                      <div class="trust-change">{{ change }}</div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
+              
+              {% if sequence.themes_explored %}
+                <div class="sequence-themes">
+                  <h4>Themes Explored:</h4>
+                  <div class="theme-tags">
+                    {% for theme in sequence.themes_explored %}
+                      <span class="theme-tag">{{ theme }}</span>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
+            </div>
+            
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- World Building Section -->
+  <div class="world-building-section">
+    <h2 class="section-title">World Building Elements</h2>
+    <div class="world-building-grid">
+      {% for element in act.world_building_elements %}
+        <div class="world-building-card">
+          <h3 class="world-building-title">{{ element.element }}</h3>
+          <p class="world-building-description">{{ element.description }}</p>
+          {% if element.key_locations %}
+            <div class="world-building-details">
+              <h4>Key Locations:</h4>
+              <ul>
+                {% for location in element.key_locations %}
+                  <li>{{ location }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+          {% if element.key_players %}
+            <div class="world-building-details">
+              <h4>Key Players:</h4>
+              <ul>
+                {% for player in element.key_players %}
+                  <li>{{ player }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+          {% if element.technologies %}
+            <div class="world-building-details">
+              <h4>Technologies:</h4>
+              <ul>
+                {% for tech in element.technologies %}
+                  <li>{{ tech }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Act Conclusion Section -->
+  <div class="act-conclusion-section">
+    <h2 class="section-title">Act Climax & Resolution</h2>
+    <div class="conclusion-content">
+      <div class="act-climax">
+        <h3 class="conclusion-subtitle">Act I Climax</h3>
+        <p class="conclusion-text">{{ act.act_climax }}</p>
+      </div>
+      <div class="act-transition">
+        <h3 class="conclusion-subtitle">Transition to Act II</h3>
+        <p class="conclusion-text">{{ act.transition_to_act_ii }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="act-navigation">
+    <a href="/characters" class="cyberpunk-btn">View Characters</a>
+    <a href="/story/act-ii" class="cyberpunk-btn">Continue to Act II</a>
+    <a href="/setting/philadelphia-2085" class="cyberpunk-btn">Explore Setting</a>
+  </div>
+
+</div>
+
+<style>
+/* Act Overview Styles */
+.act-overview {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+  background: linear-gradient(180deg, rgba(13, 13, 13, 0.95), rgba(26, 26, 26, 0.9));
+  min-height: 100vh;
+}
+
+.page-header {
+  text-align: center;
+  margin-bottom: 4rem;
+  position: relative;
+  padding: 2rem 0;
+}
+
+.page-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 3.5rem;
+  color: #00ffff;
+  text-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+  margin-bottom: 1rem;
+  letter-spacing: 4px;
+}
+
+.page-subtitle {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.6rem;
+  color: #ff00ff;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 1.5rem;
+  text-shadow: 0 0 15px rgba(255, 0, 255, 0.6);
+}
+
+.page-description {
+  font-family: 'Rajdhani', sans-serif;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.2rem;
+  max-width: 1000px;
+  margin: 0 auto;
+  line-height: 1.8;
+}
+
+.section-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 2.2rem;
+  color: #00ff41;
+  text-shadow: 0 0 20px rgba(0, 255, 65, 0.7);
+  margin-bottom: 3rem;
+  text-align: center;
+  letter-spacing: 2px;
+  position: relative;
+}
+
+.section-title::after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00ff41, transparent);
+}
+
+/* Overview Section */
+.overview-section {
+  margin-bottom: 5rem;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+}
+
+.overview-card {
+  background: linear-gradient(135deg, rgba(0, 255, 255, 0.1), rgba(0, 255, 255, 0.05));
+  border: 2px solid rgba(0, 255, 255, 0.3);
+  padding: 2rem;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.overview-card:hover {
+  transform: translateY(-5px);
+  border-color: #00ffff;
+  box-shadow: 0 15px 30px rgba(0, 255, 255, 0.2);
+}
+
+.overview-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 15px,
+    rgba(0, 255, 255, 0.02) 15px,
+    rgba(0, 255, 255, 0.02) 30px
+  );
+  pointer-events: none;
+}
+
+.overview-title {
+  font-family: 'Orbitron', monospace;
+  color: #00ffff;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  letter-spacing: 1px;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
+}
+
+.overview-content {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'Rajdhani', sans-serif;
+  line-height: 1.7;
+  font-size: 1.1rem;
+}
+
+/* Act Progression Section */
+.progression-section {
+  margin-bottom: 5rem;
+}
+
+.progression-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.progression-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 2rem;
+  background: linear-gradient(135deg, rgba(255, 0, 255, 0.1), rgba(255, 0, 255, 0.05));
+  border: 2px solid rgba(255, 0, 255, 0.3);
+  padding: 2rem;
+  border-radius: 12px;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.progression-item:hover {
+  border-color: #ff00ff;
+  box-shadow: 0 10px 20px rgba(255, 0, 255, 0.2);
+}
+
+.progression-marker {
+  flex-shrink: 0;
+  background: linear-gradient(45deg, #ff00ff, #00ffff);
+  color: #000;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  font-family: 'Orbitron', monospace;
+  font-weight: bold;
+  font-size: 0.9rem;
+  text-align: center;
+  min-width: 120px;
+  box-shadow: 0 0 15px rgba(255, 0, 255, 0.5);
+}
+
+.progression-content {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'Rajdhani', sans-serif;
+  line-height: 1.7;
+  font-size: 1.1rem;
+}
+
+/* Major Themes Section */
+.themes-section {
+  margin-bottom: 5rem;
+}
+
+.themes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 2rem;
+}
+
+.theme-card {
+  background: linear-gradient(135deg, rgba(0, 255, 65, 0.1), rgba(0, 255, 65, 0.05));
+  border: 2px solid rgba(0, 255, 65, 0.3);
+  padding: 2rem;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.theme-card:hover {
+  transform: translateY(-5px);
+  border-color: #00ff41;
+  box-shadow: 0 15px 30px rgba(0, 255, 65, 0.2);
+}
+
+.theme-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 10px,
+    rgba(0, 255, 65, 0.02) 10px,
+    rgba(0, 255, 65, 0.02) 20px
+  );
+  pointer-events: none;
+}
+
+.theme-title {
+  font-family: 'Orbitron', monospace;
+  color: #00ff41;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  letter-spacing: 1px;
+  text-shadow: 0 0 10px rgba(0, 255, 65, 0.6);
+}
+
+.theme-description {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'Rajdhani', sans-serif;
+  line-height: 1.7;
+  font-size: 1.1rem;
+  margin-bottom: 1.5rem;
+}
+
+.theme-manifestations h4 {
+  font-family: 'Rajdhani', sans-serif;
+  color: #00ff41;
+  font-size: 1rem;
+  margin-bottom: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.theme-manifestations ul {
+  list-style: none;
+  padding: 0;
+}
+
+.theme-manifestations li {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: 'Rajdhani', sans-serif;
+  padding: 0.5rem 0;
+  position: relative;
+  padding-left: 1.5rem;
+  line-height: 1.5;
+}
+
+.theme-manifestations li::before {
+  content: '▸';
+  color: #00ff41;
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  font-size: 1.2rem;
+}
+
+/* Detailed Sequences Section */
+.sequences-section {
+  margin-bottom: 5rem;
+}
+
+.timeline-container {
+  position: relative;
+}
+
+.sequence-item {
+  display: flex;
+  margin-bottom: 4rem;
+  position: relative;
+}
+
+.sequence-marker {
+  flex-shrink: 0;
+  width: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: 2.5rem;
+}
+
+.sequence-number {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #00ffff, #ff00ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Orbitron', monospace;
+  font-weight: bold;
+  color: #000;
+  font-size: 1.4rem;
+  box-shadow: 0 0 25px rgba(0, 255, 255, 0.6);
+  position: relative;
+  z-index: 2;
+}
+
+.sequence-line {
+  width: 4px;
+  height: 120px;
+  background: linear-gradient(180deg, #00ffff, rgba(0, 255, 255, 0.3));
+  margin-top: 15px;
+  position: relative;
+}
+
+.sequence-item:last-child .sequence-line {
+  display: none;
+}
+
+.sequence-content {
+  flex: 1;
+  background: linear-gradient(135deg, rgba(26, 26, 26, 0.95), rgba(17, 17, 17, 0.9));
+  border: 2px solid rgba(0, 255, 255, 0.3);
+  padding: 2.5rem;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.sequence-content:hover {
+  border-color: #00ffff;
+  box-shadow: 0 15px 30px rgba(0, 255, 255, 0.2);
+}
+
+.sequence-content::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 20px,
+    rgba(0, 255, 255, 0.02) 20px,
+    rgba(0, 255, 255, 0.02) 40px
+  );
+  pointer-events: none;
+}
+
+.sequence-header {
+  margin-bottom: 1.5rem;
+}
+
+.sequence-title {
+  font-family: 'Orbitron', monospace;
+  color: #00ffff;
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+  text-shadow: 0 0 15px rgba(0, 255, 255, 0.7);
+  letter-spacing: 1px;
+}
+
+.sequence-tagline {
+  font-family: 'Rajdhani', sans-serif;
+  color: #ff00ff;
+  font-size: 1.1rem;
+  font-style: italic;
+  text-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+}
+
+.sequence-summary {
+  color: rgba(255, 255, 255, 0.9);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.2rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+  font-weight: 500;
+}
+
+.sequence-detailed-description {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'Rajdhani', sans-serif;
+  line-height: 1.8;
+  margin-bottom: 2rem;
+  font-size: 1.1rem;
+  text-align: justify;
+}
+
+.sequence-details {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.key-moments h4,
+.character-development h4,
+.trust-changes h4,
+.sequence-themes h4 {
+  font-family: 'Rajdhani', sans-serif;
+  color: #ff00ff;
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-shadow: 0 0 8px rgba(255, 0, 255, 0.5);
+}
+
+.key-moments ul,
+.character-development ul {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 1rem;
+}
+
+.key-moments li,
+.character-development li {
+  color: rgba(255, 255, 255, 0.8);
+  font-family: 'Rajdhani', sans-serif;
+  padding: 0.6rem 0;
+  position: relative;
+  padding-left: 2rem;
+  line-height: 1.6;
+  font-size: 1rem;
+}
+
+.key-moments li::before,
+.character-development li::before {
+  content: '▸';
+  color: #00ff41;
+  position: absolute;
+  left: 0;
+  top: 0.6rem;
+  font-size: 1.3rem;
+}
+
+.trust-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.trust-change {
+  background: rgba(255, 0, 255, 0.1);
+  border: 1px solid rgba(255, 0, 255, 0.3);
+  padding: 1rem;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.8);
+  font-family: 'Courier New', monospace;
+  font-size: 1rem;
+  text-align: center;
+  position: relative;
+}
+
+.trust-change::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 5px,
+    rgba(255, 0, 255, 0.05) 5px,
+    rgba(255, 0, 255, 0.05) 10px
+  );
+  pointer-events: none;
+}
+
+.theme-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.theme-tag {
+  background: rgba(0, 255, 65, 0.2);
+  color: #00ff41;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.95rem;
+  border: 1px solid rgba(0, 255, 65, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.3s ease;
+}
+
+.theme-tag:hover {
+  background: rgba(0, 255, 65, 0.3);
+  box-shadow: 0 5px 10px rgba(0, 255, 65, 0.3);
+}
+
+/* World Building Section */
+.world-building-section {
+  margin-bottom: 5rem;
+}
+
+.world-building-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 2rem;
+}
+
+.world-building-card {
+  background: linear-gradient(135deg, rgba(255, 255, 0, 0.1), rgba(255, 255, 0, 0.05));
+  border: 2px solid rgba(255, 255, 0, 0.3);
+  padding: 2rem;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.world-building-card:hover {
+  transform: translateY(-5px);
+  border-color: #ffff00;
+  box-shadow: 0 15px 30px rgba(255, 255, 0, 0.2);
+}
+
+.world-building-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 15px,
+    rgba(255, 255, 0, 0.02) 15px,
+    rgba(255, 255, 0, 0.02) 30px
+  );
+  pointer-events: none;
+}
+
+.world-building-title {
+  font-family: 'Orbitron', monospace;
+  color: #ffff00;
+  font-size: 1.4rem;
+  margin-bottom: 1rem;
+  letter-spacing: 1px;
+  text-shadow: 0 0 15px rgba(255, 255, 0, 0.6);
+}
+
+.world-building-description {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'Rajdhani', sans-serif;
+  line-height: 1.7;
+  font-size: 1.1rem;
+  margin-bottom: 1.5rem;
+}
+
+.world-building-details h4 {
+  font-family: 'Rajdhani', sans-serif;
+  color: #ffff00;
+  font-size: 1rem;
+  margin-bottom: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.world-building-details ul {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 1.5rem;
+}
+
+.world-building-details li {
+  color: rgba(255, 255, 255, 0.75);
+  font-family: 'Rajdhani', sans-serif;
+  padding: 0.5rem 0;
+  position: relative;
+  padding-left: 1.5rem;
+  line-height: 1.6;
+}
+
+.world-building-details li::before {
+  content: '▸';
+  color: #ffff00;
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  font-size: 1.2rem;
+}
+
+/* Act Conclusion Section */
+.act-conclusion-section {
+  margin-bottom: 5rem;
+}
+
+.conclusion-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.act-climax,
+.act-transition {
+  background: linear-gradient(135deg, rgba(255, 165, 0, 0.1), rgba(255, 165, 0, 0.05));
+  border: 2px solid rgba(255, 165, 0, 0.3);
+  padding: 2rem;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.act-climax:hover,
+.act-transition:hover {
+  border-color: #ffa500;
+  box-shadow: 0 15px 30px rgba(255, 165, 0, 0.2);
+}
+
+.conclusion-subtitle {
+  font-family: 'Orbitron', monospace;
+  color: #ffa500;
+  font-size: 1.4rem;
+  margin-bottom: 1rem;
+  letter-spacing: 1px;
+  text-shadow: 0 0 15px rgba(255, 165, 0, 0.6);
+}
+
+.conclusion-text {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'Rajdhani', sans-serif;
+  line-height: 1.8;
+  font-size: 1.1rem;
+}
+
+/* Navigation */
+.act-navigation {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 3rem 0;
+}
+
+.cyberpunk-btn {
+  background: linear-gradient(45deg, rgba(0, 255, 255, 0.2), rgba(255, 0, 255, 0.2));
+  border: 2px solid #00ffff;
+  color: #00ffff;
+  padding: 1rem 2rem;
+  text-decoration: none;
+  font-family: 'Orbitron', monospace;
+  font-size: 1rem;
+  font-weight: bold;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.cyberpunk-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.cyberpunk-btn:hover::before {
+  left: 100%;
+}
+
+.cyberpunk-btn:hover {
+  border-color: #ff00ff;
+  color: #ff00ff;
+  box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+  transform: translateY(-3px);
+}
+
+@media (max-width: 1200px) {
+  .act-overview {
+    padding: 1.5rem;
+  }
+  
+  .overview-grid,
+  .themes-grid,
+  .world-building-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  
+  .conclusion-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-title {
+    font-size: 2.5rem;
+    letter-spacing: 2px;
+  }
+  
+  .page-subtitle {
+    font-size: 1.2rem;
+  }
+  
+  .section-title {
+    font-size: 1.8rem;
+  }
+  
+  .overview-grid,
+  .themes-grid,
+  .world-building-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .progression-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+  
+  .progression-marker {
+    align-self: flex-start;
+    min-width: auto;
+    padding: 0.8rem 1.2rem;
+  }
+  
+  .sequence-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .sequence-marker {
+    flex-direction: row;
+    margin-bottom: 1.5rem;
+    margin-right: 0;
+    width: auto;
+    align-items: center;
+  }
+  
+  .sequence-line {
+    width: 60px;
+    height: 4px;
+    margin-top: 0;
+    margin-left: 15px;
+  }
+  
+  .sequence-content {
+    padding: 1.5rem;
+  }
+  
+  .sequence-title {
+    font-size: 1.5rem;
+  }
+  
+  .act-navigation {
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  
+  .cyberpunk-btn {
+    width: 100%;
+    max-width: 300px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .act-overview {
+    padding: 1rem;
+  }
+  
+  .page-title {
+    font-size: 2rem;
+  }
+  
+  .section-title {
+    font-size: 1.5rem;
+  }
+  
+  .sequence-number {
+    width: 50px;
+    height: 50px;
+    font-size: 1.2rem;
+  }
+  
+  .theme-tags,
+  .trust-metrics {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .theme-tag {
+    text-align: center;
+  }
+}
+</style>

@@ -1,0 +1,106 @@
+dungeoncrawler_content.settings:
+  type: config_object
+  label: 'Dungeon Crawler Content settings'
+  mapping:
+    max_level:
+      type: integer
+      label: 'Maximum adventurer level'
+    difficulty_levels:
+      type: text
+      label: 'Dungeon depth tiers'
+    rarity_tiers:
+      type: text
+      label: 'Item rarity tiers'
+    room_persistence:
+      type: boolean
+      label: 'Rooms are permanent after first generation'
+    monster_permadeath:
+      type: boolean
+      label: 'Enable monster permadeath'
+    encounter_ai_npc_autoplay_enabled:
+      type: boolean
+      label: 'Enable AI-driven NPC auto-play in encounter turn loop'
+    encounter_ai_narration_enabled:
+      type: boolean
+      label: 'Persist AI narration events to encounter timeline'
+    encounter_ai_retry_attempts:
+      type: integer
+      label: 'Encounter AI retry attempts per request'
+    encounter_ai_recommendation_max_tokens:
+      type: integer
+      label: 'Encounter AI recommendation max tokens'
+    encounter_ai_narration_max_tokens:
+      type: integer
+      label: 'Encounter AI narration max tokens'
+    items_per_page:
+      type: integer
+      label: 'Items per page'
+    show_game_stats:
+      type: boolean
+      label: 'Show game stats on content pages'
+    generated_image_provider:
+      type: string
+      label: 'Default generated image provider'
+    gemini_image_enabled:
+      type: boolean
+      label: 'Enable Gemini image generation live mode'
+    gemini_image_model:
+      type: string
+      label: 'Gemini image model'
+    gemini_image_endpoint:
+      type: string
+      label: 'Gemini endpoint template'
+    gemini_image_timeout:
+      type: integer
+      label: 'Gemini request timeout (seconds)'
+    gemini_image_api_key:
+      type: string
+      label: 'Gemini API key'
+    gemini_system_context_prompt:
+      type: text
+      label: 'Gemini system context prompt'
+    vertex_image_enabled:
+      type: boolean
+      label: 'Enable Vertex image generation live mode'
+    vertex_image_project_id:
+      type: string
+      label: 'Vertex project ID'
+    vertex_image_location:
+      type: string
+      label: 'Vertex location'
+    vertex_image_model:
+      type: string
+      label: 'Vertex image model'
+    vertex_image_endpoint:
+      type: string
+      label: 'Vertex endpoint template'
+    vertex_image_timeout:
+      type: integer
+      label: 'Vertex request timeout (seconds)'
+    vertex_image_api_key:
+      type: string
+      label: 'Vertex API key'
+    ai_gm_narration_enabled:
+      type: boolean
+      label: 'Enable AI Game Master narration across all trigger types'
+    ai_gm_narration_max_tokens:
+      type: integer
+      label: 'AI GM narration max tokens per request'
+    ai_gm_trigger_room_entry:
+      type: boolean
+      label: 'Enable AI narration on room entry'
+    ai_gm_trigger_encounter_start:
+      type: boolean
+      label: 'Enable AI narration on encounter start'
+    ai_gm_trigger_encounter_end:
+      type: boolean
+      label: 'Enable AI narration on encounter end'
+    ai_gm_trigger_round_start:
+      type: boolean
+      label: 'Enable AI narration on combat round start'
+    ai_gm_trigger_entity_defeated:
+      type: boolean
+      label: 'Enable AI narration when entity is defeated'
+    ai_gm_trigger_phase_transition:
+      type: boolean
+      label: 'Enable AI narration on phase transitions'

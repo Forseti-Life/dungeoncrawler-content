@@ -1,0 +1,164 @@
+{#
+/**
+ * @file
+ * Am I Safe Dashboard template
+ *
+ * Available variables:
+ * - dashboard_data: Array containing all dashboard information
+ */
+#}
+
+<div class="amisafe-dashboard cyberpunk-container">
+  
+  {# Header Section #}
+  <div class="dashboard-header">
+    <h1 class="dashboard-title cyberpunk-title">Am I Safe?</h1>
+    <div class="last-updated">
+      <span class="update-label">Last Updated:</span>
+      <span class="update-time">{{ dashboard_data.last_updated }}</span>
+    </div>
+  </div>
+
+  {# Threat Level Status #}
+  <div class="threat-status-section">
+    <div class="threat-level-card {{ dashboard_data.threat_color }}">
+      <div class="threat-level-header">
+        <h2>Current Threat Level</h2>
+        <div class="location-info">{{ dashboard_data.location_status }}</div>
+      </div>
+      <div class="threat-level-indicator">
+        <span class="threat-level-text">{{ dashboard_data.current_threat_level }}</span>
+        <div class="threat-pulse"></div>
+      </div>
+    </div>
+  </div>
+
+  {# Main Dashboard Grid #}
+  <div class="dashboard-grid">
+    
+    {# Active Threats Panel #}
+    <div class="dashboard-panel threats-panel">
+      <h3 class="panel-title">
+        <span class="panel-icon">⚠️</span>
+        Active Threats
+      </h3>
+      <div class="threats-list">
+        {% for threat in dashboard_data.active_threats %}
+          <div class="threat-item severity-{{ threat.severity|lower }}">
+            <div class="threat-header">
+              <span class="threat-type">{{ threat.type }}</span>
+              <span class="threat-severity">{{ threat.severity }}</span>
+            </div>
+            <div class="threat-description">{{ threat.description }}</div>
+            <div class="threat-time">{{ threat.time_detected }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Network Status Panel #}
+    <div class="dashboard-panel network-panel">
+      <h3 class="panel-title">
+        <span class="panel-icon">🌐</span>
+        Network Status
+      </h3>
+      <div class="network-stats">
+        <div class="stat-item">
+          <span class="stat-label">Mesh Connectivity</span>
+          <div class="stat-bar">
+            <div class="stat-fill" style="width: {{ dashboard_data.network_status.mesh_connectivity }}%"></div>
+          </div>
+          <span class="stat-value">{{ dashboard_data.network_status.mesh_connectivity }}%</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Encryption Level</span>
+          <span class="stat-value">{{ dashboard_data.network_status.encryption_level }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">AI Detection Risk</span>
+          <span class="stat-value">{{ dashboard_data.network_status.ai_detection_risk }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Active Peer Nodes</span>
+          <span class="stat-value">{{ dashboard_data.network_status.peer_nodes_active }}</span>
+        </div>
+      </div>
+    </div>
+
+    {# Safety Recommendations Panel #}
+    <div class="dashboard-panel recommendations-panel">
+      <h3 class="panel-title">
+        <span class="panel-icon">🛡️</span>
+        Safety Recommendations
+      </h3>
+      <ul class="recommendations-list">
+        {% for recommendation in dashboard_data.safety_recommendations %}
+          <li class="recommendation-item">{{ recommendation }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    {# Safe Zones Panel #}
+    <div class="dashboard-panel safezones-panel">
+      <h3 class="panel-title">
+        <span class="panel-icon">📍</span>
+        Nearby Safe Zones
+      </h3>
+      <div class="safezones-list">
+        {% for zone in dashboard_data.safe_zones %}
+          <div class="safezone-item">
+            <div class="zone-header">
+              <span class="zone-name">{{ zone.name }}</span>
+              <span class="zone-distance">{{ zone.distance }}</span>
+            </div>
+            <div class="zone-details">
+              <span class="zone-capacity capacity-{{ zone.capacity|lower }}">{{ zone.capacity }}</span>
+              <span class="zone-security security-{{ zone.security_rating|lower }}">{{ zone.security_rating }}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  {# Emergency Alert Section #}
+  <div class="emergency-alert-section">
+    <div class="alert alert-danger cyberpunk-alert">
+      <h4 class="alert-heading">
+        <span class="neon-pulse">⚠️</span> EMERGENCY PROTOCOL
+      </h4>
+      <p class="mb-3">
+        <strong>If threat level reaches CRITICAL:</strong> Immediately seek nearest safe zone or activate emergency mesh beacon.
+      </p>
+      <div class="emergency-code">
+        <strong>Emergency Beacon Code:</strong> <code>AMISAFE-2085-{{ "now"|date("His") }}</code>
+      </div>
+      <div class="emergency-contact mt-3">
+        <strong>Emergency Contact:</strong> <span class="text-cyan">MESH-7749-ALPHA</span>
+      </div>
+    </div>
+  </div>
+
+  {# Dashboard Navigation Links #}
+  <div class="dashboard-nav-section">
+    <div class="row text-center">
+      <div class="col-md-4 mb-3">
+        <a href="/amisafe/crime-map" class="btn cyberpunk-btn d-block">
+          <span class="btn-icon">🗺️</span> Crime Map
+        </a>
+      </div>
+      <div class="col-md-4 mb-3">
+        <a href="/characters" class="btn cyberpunk-btn d-block">
+          <span class="btn-icon">👥</span> Resistance Contacts
+        </a>
+      </div>
+      <div class="col-md-4 mb-3">
+        <a href="/story/act-i" class="btn cyberpunk-btn d-block">
+          <span class="btn-icon">📖</span> Survival Guide
+        </a>
+      </div>
+    </div>
+  </div>
+
+</div>

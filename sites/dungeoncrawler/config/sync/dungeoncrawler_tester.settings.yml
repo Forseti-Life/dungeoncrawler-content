@@ -1,0 +1,6 @@
+_core:
+  default_config_hash: URhSWP1GhFEJ3Rq9E7iemMSJQpjXeeecg5IcFfa1bTI
+github_repo: ''
+github_token: ''
+copilot_assignment_max_open: 0
+cron_agents_enabled: true

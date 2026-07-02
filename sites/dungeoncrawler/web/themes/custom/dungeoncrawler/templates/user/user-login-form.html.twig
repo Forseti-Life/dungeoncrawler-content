@@ -1,0 +1,41 @@
+{#
+/**
+ * @file
+ * Theme override for the user login form - Dungeon Crawler RPG.
+ */
+#}
+
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-6">
+      <div class="text-center mb-5">
+        <i class="fas fa-dungeon fa-4x mb-4 dc-auth-icon"></i>
+        <h1 class="mb-3 dc-heading-accent">Return to the Depths</h1>
+        <p class="lead dc-auth-subtitle">Present your credentials to the Guild Master and rejoin your adventuring party.</p>
+      </div>
+
+      <div class="card-dungeoncrawler p-4">
+        {{ form }}
+
+        <div class="text-center mt-4 pt-4 dc-auth-divider">
+          <p class="text-muted mb-3">Or authenticate with:</p>
+          <div class="social-auth-container">
+            <a class="social-auth auth-link btn btn-light" href="/user/login/google">
+              <img class="social-auth auth-icon me-2 dc-auth-google-icon" src="/modules/contrib/social_auth_google/img/google_logo.svg" alt="Google logo">
+              Sign in with Google
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="text-center mt-4">
+        <p class="text-muted">
+          New adventurer? <a href="/user/register" class="link-cyan">Join the Guild</a>
+        </p>
+        <p class="text-muted">
+          <a href="/user/password" class="link-cyan">Lost your credentials?</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>

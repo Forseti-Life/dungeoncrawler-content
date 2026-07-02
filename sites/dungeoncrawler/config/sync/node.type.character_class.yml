@@ -1,0 +1,11 @@
+uuid: 99865222-76d9-4af0-8562-6fde1550d23b
+langcode: en
+status: true
+dependencies: {  }
+name: 'Character Class'
+type: character_class
+description: 'PF2E character classes (fighter, wizard, cleric, etc.).'
+help: null
+new_revision: true
+preview_mode: 1
+display_submitted: true

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit configuration for Dungeon Crawler project-level tests.
+
+  Usage:
+    cd sites/dungeoncrawler
+    ./vendor/bin/phpunit -c phpunit.xml
+
+  Suites:
+    - functional: Browser tests for controllers/routes/workflows
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
+         bootstrap="web/core/tests/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache">
+  
+  <!-- Test Suites -->
+  <testsuites>
+    <testsuite name="functional">
+      <directory>tests/src/Functional</directory>
+    </testsuite>
+  </testsuites>
+
+  <source>
+    <include>
+      <directory suffix=".php">web/modules/custom</directory>
+    </include>
+    <exclude>
+      <directory>tests</directory>
+      <directory>web/modules/custom/*/tests</directory>
+    </exclude>
+  </source>
+  
+  <!-- PHP Environment -->
+  <php>
+    <!-- Drupal test database -->
+    <!-- Example: mysql://username:password@localhost/database_name -->
+    <!-- Set this to your local database connection string -->
+    <env name="SIMPLETEST_DB" value="mysql://db_user:db_password@localhost/db_name"/>
+    
+    <!-- Base URL for functional tests -->
+    <!-- Set this to your local Drupal site URL -->
+    <env name="SIMPLETEST_BASE_URL" value="http://localhost"/>
+    
+    <!-- Simpletest file storage -->
+    <env name="BROWSERTEST_OUTPUT_DIRECTORY" value="/tmp/dungeoncrawler-simpletest/browser_output"/>
+    <env name="BROWSERTEST_OUTPUT_BASE_URL" value=""/>
+    
+    <!-- Memory limit -->
+    <ini name="memory_limit" value="512M"/>
+    
+    <!-- Error reporting -->
+    <ini name="error_reporting" value="32767"/>
+  </php>
+  
+</phpunit>

@@ -1,0 +1,448 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/trap.schema.json",
+  "title": "Trap Schema",
+  "description": "PF2e-compatible trap or snare placed in the dungeon. Can be attached to hexes, connections (doors), or interactables.",
+  "type": "object",
+  "required": ["trap_id", "name", "level", "type", "stealth_dc"],
+  "additionalProperties": false,
+  "definitions": {
+    "hex_coordinate": {
+      "type": "object",
+      "description": "Axial coordinate for hex-based positioning.",
+      "required": ["q", "r"],
+      "additionalProperties": false,
+      "properties": {
+        "q": {
+          "type": "integer",
+          "description": "Axial q coordinate."
+        },
+        "r": {
+          "type": "integer",
+          "description": "Axial r coordinate."
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "trap_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this trap."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Display name of the trap.",
+      "examples": ["Poisoned Dart Trap", "Scything Blade", "Pit Trap", "Flame Jet"]
+    },
+    "level": {
+      "type": "integer",
+      "minimum": -1,
+      "maximum": 25,
+      "description": "PF2e trap level. Determines DCs and XP reward."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["mechanical", "magical", "haunt", "environmental"],
+      "description": "PF2e trap type."
+    },
+    "rarity": {
+      "type": "string",
+      "enum": ["common", "uncommon", "rare", "unique"],
+      "default": "common",
+      "description": "PF2e rarity classification."
+    },
+    "traits": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "maxItems": 10,
+      "description": "PF2e trap traits (e.g., ['Magical', 'Trap', 'Mechanical'])."
+    },
+    "complexity": {
+      "type": "string",
+      "enum": ["simple", "complex"],
+      "description": "Simple traps act once; complex traps act each round."
+    },
+    "stealth_dc": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 50,
+      "description": "DC to detect the trap with Perception. Null if the trap is obvious."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Narrative description of the trap and its appearance."
+    },
+    "disable": {
+      "type": "object",
+      "description": "How to disable this trap. Skill names map to DCs. Additional skills can be added beyond the standard ones.",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 50
+      },
+      "properties": {
+        "thievery_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Thievery skill DC to disarm the trap."
+        },
+        "athletics_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Athletics skill DC to disable the trap (e.g., breaking mechanism)."
+        },
+        "arcana_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Arcana skill DC to dispel or disable magical traps."
+        },
+        "religion_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Religion skill DC to disable divine traps."
+        },
+        "crafting_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Crafting skill DC to disable the trap mechanism."
+        },
+        "custom": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Non-standard disarm method (narrative description)."
+        }
+      }
+    },
+    "trigger": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "What triggers the trap (e.g., 'A creature enters the trapped hex', 'Opening the door')."
+    },
+    "effect": {
+      "type": "object",
+      "description": "The mechanical effect when the trap is triggered.",
+      "additionalProperties": false,
+      "properties": {
+        "attack_bonus": {
+          "type": ["integer", "null"],
+          "minimum": -10,
+          "maximum": 50,
+          "description": "Attack bonus for attack-based traps (roll vs target AC)."
+        },
+        "damage": {
+          "type": "string",
+          "pattern": "^\\d+d\\d+(\\+\\d+)?$",
+          "examples": ["2d6+8", "3d10", "1d4+2"],
+          "description": "Damage dice notation (e.g., '2d6+8')."
+        },
+        "damage_type": {
+          "type": "string",
+          "minLength": 1,
+          "examples": ["piercing", "slashing", "bludgeoning", "fire", "cold", "acid", "electricity", "poison"],
+          "description": "Type of damage dealt by the trap. For multiple damage types, use a comma-separated string (e.g., 'fire, poison')."
+        },
+        "save_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "DC for the saving throw to avoid or reduce the effect."
+        },
+        "save_type": {
+          "type": ["string", "null"],
+          "enum": ["fortitude", "reflex", "will", null],
+          "description": "Type of save required (Fortitude, Reflex, or Will). Null if no save is allowed."
+        },
+        "conditions_applied": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "uniqueItems": true,
+          "description": "Conditions applied on a failed save (e.g., ['poisoned', 'stunned 1'])."
+        },
+        "area": {
+          "type": "object",
+          "description": "Area of effect for traps that affect multiple targets.",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["single_hex", "burst", "emanation", "cone", "line"],
+              "description": "Shape of the area of effect."
+            },
+            "radius_ft": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 120,
+              "description": "Radius in feet for burst/emanation effects."
+            }
+          }
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Narrative description of the trap's effect."
+        }
+      }
+    },
+    "reset": {
+      "description": "How and when the trap resets. Can be a simple string or detailed object.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "automatic": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether the trap resets automatically."
+            },
+            "reset_time_minutes": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 10080,
+              "description": "Time in minutes before automatic reset (max 1 week = 10080 minutes)."
+            },
+            "conditions": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "Specific conditions required for reset."
+            }
+          }
+        }
+      ]
+    },
+    "ac": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 50,
+      "description": "Armor Class for targeting the trap. Null if not targetable."
+    },
+    "hardness": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 30,
+      "description": "Damage reduction when the trap takes physical damage."
+    },
+    "hp": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 300,
+      "description": "Hit Points. When reduced to 0, the trap is destroyed."
+    },
+    "broken_threshold": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "HP threshold at which the trap becomes broken (typically HP/2)."
+    },
+    "immunities": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 50 },
+      "uniqueItems": true,
+      "description": "Damage types and conditions the trap is immune to."
+    },
+    "resistances": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Damage type resisted."
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "Amount of resistance."
+          }
+        }
+      },
+      "description": "Damage resistances (reduces incoming damage)."
+    },
+    "weaknesses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Damage type weakness."
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "Additional damage taken."
+          }
+        }
+      },
+      "description": "Damage weaknesses (increases incoming damage)."
+    },
+    "is_detected": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the party has successfully detected this trap."
+    },
+    "is_disabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the trap has been successfully disabled."
+    },
+    "is_triggered": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the trap has been triggered at least once."
+    },
+    "is_destroyed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the trap has been destroyed (HP reduced to 0)."
+    },
+    "hexes_affected": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/hex_coordinate" },
+      "description": "Hexmap coordinates affected by this trap."
+    },
+    "xp_reward": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "XP awarded for overcoming this trap. Auto-calculated from level if omitted."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Trap creation timestamp."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp."
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "1.0.0",
+      "trap_id": "61d7eb57-29cf-4483-aa4b-46e681f46827",
+      "name": "Simple Arrow Trap",
+      "level": 1,
+      "type": "mechanical",
+      "rarity": "common",
+      "traits": ["Mechanical", "Trap"],
+      "complexity": "simple",
+      "stealth_dc": 15,
+      "description": "A concealed pressure plate triggers a spring-loaded arrow mechanism. The arrow fires from a hidden slit in the wall at chest height.",
+      "disable": {
+        "thievery_dc": 15
+      },
+      "trigger": "A creature steps on the pressure plate.",
+      "effect": {
+        "attack_bonus": 8,
+        "damage": "1d8+2",
+        "damage_type": "piercing",
+        "area": {
+          "type": "single_hex"
+        },
+        "description": "Fires a concealed arrow at the triggering creature."
+      },
+      "reset": {
+        "automatic": false,
+        "reset_time_minutes": 10
+      },
+      "ac": 19,
+      "hardness": 5,
+      "hp": 20,
+      "broken_threshold": 10,
+      "immunities": ["poison", "mental"],
+      "hexes_affected": [
+        { "q": 0, "r": 0 }
+      ],
+      "is_detected": false,
+      "is_disabled": false,
+      "is_triggered": false,
+      "is_destroyed": false,
+      "xp_reward": 10,
+      "created_at": "2026-02-17T12:00:00Z",
+      "updated_at": "2026-02-17T12:00:00Z"
+    },
+    {
+      "schema_version": "1.0.0",
+      "trap_id": "a7b8c9d0-e1f2-3456-7890-abcdef123456",
+      "name": "Poison Dart Gallery",
+      "level": 4,
+      "type": "mechanical",
+      "rarity": "uncommon",
+      "traits": ["Mechanical", "Trap", "Poison"],
+      "complexity": "complex",
+      "stealth_dc": 22,
+      "description": "Stone faces line the corridor walls, their mouths concealing dart launchers. When triggered, they fire waves of poisoned darts in a deadly crossfire pattern.",
+      "disable": {
+        "thievery_dc": 24,
+        "crafting_dc": 22
+      },
+      "trigger": "A creature enters one of the affected hexes without speaking the correct passphrase.",
+      "effect": {
+        "attack_bonus": 18,
+        "damage": "2d6+4",
+        "damage_type": "piercing, poison",
+        "save_dc": 21,
+        "save_type": "fortitude",
+        "conditions_applied": ["persistent poison 1d6"],
+        "area": {
+          "type": "burst",
+          "radius_ft": 15
+        },
+        "description": "Multiple dart launchers fire simultaneously. Each creature in the area is targeted by an attack (+18 vs AC). On a hit, the target takes piercing and poison damage and must succeed at a DC 21 Fortitude save or take persistent poison damage."
+      },
+      "reset": {
+        "automatic": true,
+        "reset_time_minutes": 60,
+        "conditions": "Resets automatically after 1 hour, requiring manual reloading of dart magazines."
+      },
+      "ac": 21,
+      "hardness": 8,
+      "hp": 48,
+      "broken_threshold": 24,
+      "immunities": ["poison", "mental"],
+      "resistances": [
+        { "type": "physical", "value": 5 }
+      ],
+      "weaknesses": [
+        { "type": "fire", "value": 5 }
+      ],
+      "hexes_affected": [
+        { "q": 2, "r": 0 },
+        { "q": 3, "r": 0 },
+        { "q": 2, "r": 1 }
+      ],
+      "is_detected": false,
+      "is_disabled": false,
+      "is_triggered": false,
+      "is_destroyed": false,
+      "xp_reward": 40,
+      "created_at": "2026-02-17T12:00:00Z",
+      "updated_at": "2026-02-17T12:00:00Z"
+    }
+  ]
+}

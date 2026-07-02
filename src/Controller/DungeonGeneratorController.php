@@ -163,7 +163,10 @@ class DungeonGeneratorController extends ControllerBase {
       }
     }
     catch (\Exception $e) {
-      // DB check failed — proceed with generation.
+      return new JsonResponse(
+        ['error' => 'Failed to verify existing dungeon: ' . $e->getMessage()],
+        JsonResponse::HTTP_INTERNAL_SERVER_ERROR
+      );
     }
 
     // 4. Build generation context.
@@ -233,15 +236,15 @@ class DungeonGeneratorController extends ControllerBase {
    *
    * @param int $campaign_id
    *   Campaign ID.
-   * @param int $dungeon_id
-   *   Dungeon ID (UUID).
+   * @param string $dungeon_id
+   *   Dungeon ID.
    *
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    *   JSON response with dungeon data (200 OK) or 404 Not Found
    */
   public function getDungeon(
     int $campaign_id,
-    int $dungeon_id
+    string $dungeon_id
   ): JsonResponse {
     try {
       $db = \Drupal::database();
@@ -249,7 +252,7 @@ class DungeonGeneratorController extends ControllerBase {
       $row = $db->select('dc_campaign_dungeons', 'd')
         ->fields('d')
         ->condition('d.campaign_id', $campaign_id)
-        ->condition('d.id', $dungeon_id)
+        ->condition('d.dungeon_id', $dungeon_id)
         ->execute()
         ->fetchAssoc();
 
@@ -297,8 +300,8 @@ class DungeonGeneratorController extends ControllerBase {
    *
    * @param int $campaign_id
    *   Campaign ID.
-   * @param int $dungeon_id
-   *   Dungeon ID (UUID).
+   * @param string $dungeon_id
+   *   Dungeon ID.
    * @param int $depth
    *   Level depth (1-based).
    *
@@ -307,7 +310,7 @@ class DungeonGeneratorController extends ControllerBase {
    */
   public function getDungeonLevel(
     int $campaign_id,
-    int $dungeon_id,
+    string $dungeon_id,
     int $depth
   ): JsonResponse {
     try {
@@ -317,7 +320,7 @@ class DungeonGeneratorController extends ControllerBase {
       $row = $db->select('dc_campaign_dungeons', 'd')
         ->fields('d')
         ->condition('d.campaign_id', $campaign_id)
-        ->condition('d.id', $dungeon_id)
+        ->condition('d.dungeon_id', $dungeon_id)
         ->execute()
         ->fetchAssoc();
 
@@ -373,8 +376,8 @@ class DungeonGeneratorController extends ControllerBase {
    *   The HTTP request.
    * @param int $campaign_id
    *   Campaign ID.
-   * @param int $dungeon_id
-   *   Dungeon ID (UUID).
+   * @param string $dungeon_id
+   *   Dungeon ID.
    *
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    *   JSON response with new level (201 Created)
@@ -382,7 +385,7 @@ class DungeonGeneratorController extends ControllerBase {
   public function addDungeonLevel(
     Request $request,
     int $campaign_id,
-    int $dungeon_id
+    string $dungeon_id
   ): JsonResponse {
     $data = json_decode($request->getContent(), TRUE);
     if (!$data) {
@@ -404,7 +407,7 @@ class DungeonGeneratorController extends ControllerBase {
       $row = $db->select('dc_campaign_dungeons', 'd')
         ->fields('d')
         ->condition('d.campaign_id', $campaign_id)
-        ->condition('d.id', $dungeon_id)
+        ->condition('d.dungeon_id', $dungeon_id)
         ->execute()
         ->fetchAssoc();
 
@@ -452,7 +455,8 @@ class DungeonGeneratorController extends ControllerBase {
           'dungeon_data' => json_encode($dungeon_data),
           'updated' => time(),
         ])
-        ->condition('id', $dungeon_id)
+        ->condition('campaign_id', $campaign_id)
+        ->condition('dungeon_id', $dungeon_id)
         ->execute();
 
       // Persist new level's rooms.

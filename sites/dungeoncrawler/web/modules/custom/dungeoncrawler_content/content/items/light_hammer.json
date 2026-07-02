@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "light_hammer",
+  "name": "Light Hammer",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": [
+    "simple",
+    "hammer"
+  ],
+  "description": "A small, lightweight hammer that can be used in melee or thrown. A common tool repurposed for combat.",
+  "price": {
+    "cp": 0,
+    "sp": 3,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "simple",
+    "group": "hammer",
+    "damage": {
+      "dice_count": 1,
+      "die_size": "d6",
+      "damage_type": "bludgeoning"
+    },
+    "range": null,
+    "reload": null,
+    "weapon_traits": [
+      "agile",
+      "thrown 20 ft."
+    ]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

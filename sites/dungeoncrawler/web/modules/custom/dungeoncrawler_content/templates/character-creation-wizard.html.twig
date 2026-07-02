@@ -1,0 +1,427 @@
+{#
+/**
+ * @file
+ * Template for the PF2E character creation wizard.
+ *
+ * Available variables:
+ * - ancestries: Array of ancestry options
+ * - classes: Array of class options  
+ * - backgrounds: Array of background options
+ * - alignments: Array of alignment options
+ */
+#}
+
+<div class="character-creation-wizard" id="characterCreationWizard">
+  
+  {# Progress Tracker #}
+  <div class="creation-progress">
+    <div class="progress-steps">
+      <div class="progress-step active" data-step="1">
+        <span class="step-number">1</span>
+        <span class="step-label">Concept</span>
+      </div>
+      <div class="progress-step" data-step="2">
+        <span class="step-number">2</span>
+        <span class="step-label">Ancestry</span>
+      </div>
+      <div class="progress-step" data-step="3">
+        <span class="step-number">3</span>
+        <span class="step-label">Background</span>
+      </div>
+      <div class="progress-step" data-step="4">
+        <span class="step-number">4</span>
+        <span class="step-label">Class</span>
+      </div>
+      <div class="progress-step" data-step="5">
+        <span class="step-number">5</span>
+        <span class="step-label">Abilities</span>
+      </div>
+      <div class="progress-step" data-step="6">
+        <span class="step-number">6</span>
+        <span class="step-label">Details</span>
+      </div>
+      <div class="progress-step" data-step="7">
+        <span class="step-number">7</span>
+        <span class="step-label">Equipment</span>
+      </div>
+      <div class="progress-step" data-step="8">
+        <span class="step-number">8</span>
+        <span class="step-label">Review</span>
+      </div>
+    </div>
+  </div>
+
+  {# Character Sheet Preview (Sidebar) #}
+  <div class="creation-layout">
+    <aside class="character-preview">
+      <h3>Character Preview</h3>
+      <div class="preview-card">
+        <div class="preview-name" id="previewName">Unnamed Character</div>
+        <div class="preview-details">
+          <div class="preview-row">
+            <strong>Level:</strong> <span id="previewLevel">1</span>
+          </div>
+          <div class="preview-row">
+            <strong>Ancestry:</strong> <span id="previewAncestry">—</span>
+          </div>
+          <div class="preview-row">
+            <strong>Class:</strong> <span id="previewClass">—</span>
+          </div>
+          <div class="preview-row">
+            <strong>Background:</strong> <span id="previewBackground">—</span>
+          </div>
+        </div>
+        
+        <div class="preview-abilities">
+          <h4>Ability Scores</h4>
+          <div class="ability-grid">
+            <div class="ability-score">
+              <span class="ability-label">STR</span>
+              <span class="ability-value" id="previewStr">10</span>
+              <span class="ability-mod" id="previewStrMod">+0</span>
+            </div>
+            <div class="ability-score">
+              <span class="ability-label">DEX</span>
+              <span class="ability-value" id="previewDex">10</span>
+              <span class="ability-mod" id="previewDexMod">+0</span>
+            </div>
+            <div class="ability-score">
+              <span class="ability-label">CON</span>
+              <span class="ability-value" id="previewCon">10</span>
+              <span class="ability-mod" id="previewConMod">+0</span>
+            </div>
+            <div class="ability-score">
+              <span class="ability-label">INT</span>
+              <span class="ability-value" id="previewInt">10</span>
+              <span class="ability-mod" id="previewIntMod">+0</span>
+            </div>
+            <div class="ability-score">
+              <span class="ability-label">WIS</span>
+              <span class="ability-value" id="previewWis">10</span>
+              <span class="ability-mod" id="previewWisMod">+0</span>
+            </div>
+            <div class="ability-score">
+              <span class="ability-label">CHA</span>
+              <span class="ability-value" id="previewCha">10</span>
+              <span class="ability-mod" id="previewChaMod">+0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="preview-stats">
+          <div class="stat-row">
+            <strong>HP:</strong> <span id="previewHp">0</span>
+          </div>
+          <div class="stat-row">
+            <strong>AC:</strong> <span id="previewAc">10</span>
+          </div>
+          <div class="stat-row">
+            <strong>Perception:</strong> <span id="previewPerception">+0</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    {# Main Content Area #}
+    <main class="creation-content">
+      
+      {# Step 1: Character Concept #}
+      <div class="creation-step" id="step1" data-step="1">
+        <h2>Step 1: Create Your Concept</h2>
+        <p class="step-description">Begin by imagining your character. What kind of hero will you be?</p>
+        
+        <div class="form-group">
+          <label for="characterName">Character Name <span class="required">*</span></label>
+          <input type="text" id="characterName" class="form-input" placeholder="Enter your character's name" required>
+        </div>
+
+        <div class="form-group">
+          <label for="characterConcept">Character Concept</label>
+          <textarea id="characterConcept" class="form-textarea" rows="4" placeholder="Describe your character's personality, motivations, and worldview..."></textarea>
+          <small class="form-help">This helps guide your choices throughout creation.</small>
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-primary" onclick="nextStep(2)">Next: Choose Ancestry →</button>
+        </div>
+      </div>
+
+      {# Step 2: Select Ancestry #}
+      <div class="creation-step hidden" id="step2" data-step="2">
+        <h2>Step 2: Select Ancestry</h2>
+        <p class="step-description">Your ancestry determines your heritage, base abilities, and physical characteristics. Choose wisely—this choice will affect your character throughout their entire career.</p>
+        
+        <div class="ancestry-grid">
+          {% for ancestry in ancestries %}
+          <div class="ancestry-card" data-ancestry="{{ ancestry.id }}" onclick="selectAncestry('{{ ancestry.id }}')">
+            <h3>{{ ancestry.name }}</h3>
+            <p class="ancestry-description">{{ ancestry.description }}</p>
+            <div class="ancestry-stats">
+              <span class="stat-badge">HP: {{ ancestry.hp }}</span>
+              <span class="stat-badge">Size: {{ ancestry.size }}</span>
+              <span class="stat-badge">Speed: {{ ancestry.speed }}ft</span>
+            </div>
+            <button type="button" class="btn-info" onclick="showAncestryDetails('{{ ancestry.id }}', event)">View Details</button>
+          </div>
+          {% endfor %}
+        </div>
+
+        {# Selected Ancestry Details Panel #}
+        <div id="ancestryDetails" class="details-panel hidden">
+          <div class="detail-content">
+            <h3 id="ancestryDetailName"></h3>
+            <p id="ancestryDetailDescription" class="detail-text"></p>
+            
+            <div class="detail-section">
+              <h4>Ability Adjustments</h4>
+              <div id="ancestryAbilityChanges"></div>
+            </div>
+
+            <div class="detail-section">
+              <h4>Choose a Heritage</h4>
+              <p class="help-text">Heritages represent different subgroups or lineages within your ancestry.</p>
+              <div id="heritageOptions" class="heritage-grid"></div>
+            </div>
+
+            {% if ancestry.traits %}
+            <div class="detail-section">
+              <h4>Special Traits</h4>
+              <div id="ancestryTraits"></div>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-secondary" onclick="prevStep(1)">← Back</button>
+          <button type="button" class="btn btn-primary" onclick="nextStep(3)" id="ancestryNextBtn" disabled>Next: Choose Background →</button>
+        </div>
+      </div>
+
+      {# Step 3: Pick Background #}
+      <div class="creation-step hidden" id="step3" data-step="3">
+        <h2>Step 3: Pick a Background</h2>
+        <p class="step-description">Your background represents your training and experience before becoming an adventurer.</p>
+        
+        <div class="background-grid">
+          {% for background in backgrounds %}
+          <div class="background-card" data-background="{{ background.id }}" onclick="selectBackground('{{ background.id }}')">
+            <h3>{{ background.name }}</h3>
+            <div class="background-benefits">
+              <div><strong>Skill:</strong> {{ background.skill }}</div>
+              <div><strong>Feat:</strong> {{ background.feat }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        {# Background Ability Boosts #}
+        <div id="backgroundBoosts" class="details-panel hidden">
+          <h3>Choose 2 Ability Boosts</h3>
+          <p>Select two different abilities to boost from your background:</p>
+          <div class="ability-boost-selector">
+            <label><input type="checkbox" name="bgBoost" value="str"> Strength</label>
+            <label><input type="checkbox" name="bgBoost" value="dex"> Dexterity</label>
+            <label><input type="checkbox" name="bgBoost" value="con"> Constitution</label>
+            <label><input type="checkbox" name="bgBoost" value="int"> Intelligence</label>
+            <label><input type="checkbox" name="bgBoost" value="wis"> Wisdom</label>
+            <label><input type="checkbox" name="bgBoost" value="cha"> Charisma</label>
+          </div>
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-secondary" onclick="prevStep(2)">← Back</button>
+          <button type="button" class="btn btn-primary" onclick="nextStep(4)" id="backgroundNextBtn" disabled>Next: Choose Class →</button>
+        </div>
+      </div>
+
+      {# Step 4: Choose Class #}
+      <div class="creation-step hidden" id="step4" data-step="4">
+        <h2>Step 4: Choose Your Class</h2>
+        <p class="step-description">Your class is your character's profession and calling. This is your most important choice, determining the majority of your abilities.</p>
+        
+        <div class="class-grid">
+          {% for class in classes %}
+          <div class="class-card" data-class="{{ class.id }}" onclick="selectClass('{{ class.id }}')">
+            <div class="class-header">
+              <h3>{{ class.name }}</h3>
+              <span class="complexity-badge complexity-{{ class.complexity|lower }}">{{ class.complexity }}</span>
+            </div>
+            <p class="class-description">{{ class.description }}</p>
+            <div class="class-stats">
+              <span class="stat-badge">HP/lvl: {{ class.hp }}</span>
+              <span class="stat-badge">Key: {{ class.key_ability }}</span>
+              <span class="stat-badge role-badge">{{ class.role }}</span>
+            </div>
+            <button type="button" class="btn-info" onclick="showClassDetails('{{ class.id }}', event)">View Details</button>
+          </div>
+          {% endfor %}
+        </div>
+
+        {# Selected Class Details Panel #}
+        <div id="classDetails" class="details-panel hidden">
+          <div class="detail-content">
+            <h3 id="classDetailName"></h3>
+            <p id="classDetailDescription" class="detail-text"></p>
+            
+            <div class="detail-section">
+              <h4>Proficiencies at 1st Level</h4>
+              <div id="classProficiencies" class="proficiency-list"></div>
+            </div>
+
+            <div class="detail-section">
+              <h4>Play Style</h4>
+              <p><strong>Role:</strong> <span id="classRole"></span></p>
+              <p><strong>Complexity:</strong> <span id="classComplexity"></span></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-secondary" onclick="prevStep(3)">← Back</button>
+          <button type="button" class="btn btn-primary" onclick="nextStep(5)" id="classNextBtn" disabled>Next: Abilities →</button>
+        </div>
+      </div>
+
+      {# Step 5: Finalize Ability Scores #}
+      <div class="creation-step hidden" id="step5" data-step="5">
+        <h2>Step 5: Finalize Ability Scores</h2>
+        <p class="step-description">Apply your final 4 ability boosts (each to a different ability).</p>
+        
+        <div class="ability-builder">
+          <div class="ability-summary">
+            <h3>Current Scores</h3>
+            <div id="currentAbilityScores" class="ability-listing"></div>
+          </div>
+
+          <div class="free-boosts-panel">
+            <h3>4 Free Ability Boosts</h3>
+            <p>Choose 4 different abilities to boost:</p>
+            <div class="ability-boost-selector">
+              <label><input type="checkbox" name="freeBoost" value="str"> Strength</label>
+              <label><input type="checkbox" name="freeBoost" value="dex"> Dexterity</label>
+              <label><input type="checkbox" name="freeBoost" value="con"> Constitution</label>
+              <label><input type="checkbox" name="freeBoost" value="int"> Intelligence</label>
+              <label><input type="checkbox" name="freeBoost" value="wis"> Wisdom</label>
+              <label><input type="checkbox" name="freeBoost" value="cha"> Charisma</label>
+            </div>
+            <p class="boost-counter">Selected: <span id="boostCount">0</span>/4</p>
+          </div>
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-secondary" onclick="prevStep(4)">← Back</button>
+          <button type="button" class="btn btn-primary" onclick="nextStep(6)" id="abilitiesNextBtn" disabled>Next: Character Details →</button>
+        </div>
+      </div>
+
+      {# Step 6: Character Details #}
+      <div class="creation-step hidden" id="step6" data-step="6">
+        <h2>Step 6: Finishing Touches</h2>
+        <p class="step-description">Add the final details to bring your character to life.</p>
+        
+        <div class="details-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="alignment">Alignment</label>
+              <select id="alignment" class="form-select">
+                <option value="">— Select Alignment —</option>
+                {% for alignment in alignments %}
+                <option value="{{ alignment.id }}">{{ alignment.name }} - {{ alignment.description }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="deity">Deity (Optional)</label>
+              <input type="text" id="deity" class="form-input" placeholder="e.g., Sarenrae, Desna...">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="age">Age</label>
+              <input type="number" id="age" class="form-input" min="1" max="1000" placeholder="Years">
+            </div>
+
+            <div class="form-group">
+              <label for="gender">Gender & Pronouns</label>
+              <input type="text" id="gender" class="form-input" placeholder="e.g., Female, he/him, they/them">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="appearance">Appearance</label>
+            <textarea id="appearance" class="form-textarea" rows="3" placeholder="Describe your character's looks, style, and distinctive features..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="personality">Personality</label>
+            <textarea id="personality" class="form-textarea" rows="3" placeholder="Describe your character's traits, quirks, and behavior..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="backstory">Backstory</label>
+            <textarea id="backstory" class="form-textarea" rows="4" placeholder="Tell your character's story..."></textarea>
+          </div>
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-secondary" onclick="prevStep(5)">← Back</button>
+          <button type="button" class="btn btn-primary" onclick="nextStep(7)">Next: Buy Equipment →</button>
+        </div>
+      </div>
+
+      {# Step 7: Buy Equipment #}
+      <div class="creation-step hidden" id="step7" data-step="7">
+        <h2>Step 7: Buy Equipment</h2>
+        <p class="step-description">You start with <strong>15 gold pieces</strong> to purchase your gear.</p>
+        
+        <div class="equipment-shop">
+          <div class="gold-counter">
+            <strong>Gold Remaining:</strong> <span id="goldRemaining">15</span> gp
+          </div>
+
+          <div class="shop-categories">
+            <button class="category-btn active" onclick="showShopCategory('weapons')">Weapons</button>
+            <button class="category-btn" onclick="showShopCategory('armor')">Armor</button>
+            <button class="category-btn" onclick="showShopCategory('gear')">Adventuring Gear</button>
+          </div>
+
+          <div id="shopInventory" class="shop-inventory">
+            {# Populated by JavaScript #}
+          </div>
+
+          <div class="equipment-cart">
+            <h3>Your Equipment</h3>
+            <div id="equipmentList" class="equipment-list">
+              <p class="empty-message">No equipment purchased yet.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-secondary" onclick="prevStep(6)">← Back</button>
+          <button type="button" class="btn btn-primary" onclick="nextStep(8)">Next: Review →</button>
+        </div>
+      </div>
+
+      {# Step 8: Review & Submit #}
+      <div class="creation-step hidden" id="step8" data-step="8">
+        <h2>Step 8: Review Your Character</h2>
+        <p class="step-description">Review your choices and create your character!</p>
+        
+        <div class="character-summary" id="characterSummary">
+          {# Populated by JavaScript #}
+        </div>
+
+        <div class="step-actions">
+          <button type="button" class="btn btn-secondary" onclick="prevStep(7)">← Back</button>
+          <button type="button" class="btn btn-success btn-lg" onclick="submitCharacter()">⚔️ Create Character & Enter the Dungeon!</button>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+</div>

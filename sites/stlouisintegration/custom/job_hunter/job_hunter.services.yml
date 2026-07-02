@@ -1,0 +1,22 @@
+services:
+  job_hunter.job_seeker_service:
+    class: Drupal\job_hunter\Service\JobSeekerService
+    arguments: ['@database', '@current_user']
+  
+  job_hunter.user_profile_service:
+    class: Drupal\job_hunter\Service\UserProfileService
+    arguments: []
+  
+  job_hunter.abbvie_job_scraping_service:
+    class: Drupal\job_hunter\Service\AbbVieJobScrapingService
+    arguments: ['@http_client', '@logger.factory', '@config.factory']
+
+  job_hunter.resume_pdf_service:
+    class: Drupal\job_hunter\Service\ResumePdfService
+    arguments: ['@file_system', '@logger.factory']
+  
+  job_hunter.commands:
+    class: Drupal\job_hunter\Commands\JobApplicationAutomationCommands
+    arguments: ['@entity_type.manager', '@logger.factory']
+    tags:
+      - { name: drush.command }

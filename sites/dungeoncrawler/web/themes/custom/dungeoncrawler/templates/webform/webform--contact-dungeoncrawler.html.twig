@@ -1,0 +1,66 @@
+{#
+/**
+ * @file
+ * Theme override for the Contact form - Dungeon Crawler RPG.
+ */
+#}
+<form{{ attributes }}>
+  {{ title_prefix }}
+  <div class="container py-3">
+    <div class="row">
+      <div class="col-lg-8 mx-auto">
+        <h1 class="text-center mb-3 dc-heading-accent">🏰 Contact the Guild Master</h1>
+        <p class="text-center mb-4 dc-text-secondary">
+          Have questions about the dungeon? Want to report a bug in the labyrinth? Send a message.
+        </p>
+
+        <div class="card card-dungeoncrawler p-4 mb-4">
+          <h2 class="mb-3 dc-heading-accent">Send a Raven</h2>
+          {{ children }}
+        </div>
+
+      <div class="row mb-4">
+        <div class="col-md-6 mb-3">
+          <div class="card card-dungeoncrawler h-100 text-center">
+            <div class="card-body">
+              <h4>🗺️ The Dungeon</h4>
+              <p class="dc-text-secondary">Infinite procedurally generated levels</p>
+              <p class="dc-text-muted">AI-powered rooms, monsters, and NPCs</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6 mb-3">
+          <div class="card card-dungeoncrawler h-100 text-center">
+            <div class="card-body">
+              <h4>⚔️ Guild Support</h4>
+              <p class="dc-text-secondary">The Guild Master reads all messages</p>
+              <p class="dc-text-muted">Response within 1-2 business days</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card card-dungeoncrawler p-4 mb-4">
+        <h3 class="mb-3 dc-heading-accent">Quick Links</h3>
+        <div class="row">
+          <div class="col-md-6">
+            <ul>
+              <li><a href="/" class="link-cyan">🏠 Return to camp</a></li>
+              <li><a href="/user/register" class="link-cyan">📜 Join the Guild</a></li>
+              <li><a href="/user/login" class="link-cyan">🗡️ Enter the dungeon</a></li>
+            </ul>
+          </div>
+          <div class="col-md-6">
+            <ul>
+              <li><a href="/privacy" class="link-cyan">🛡️ Privacy & security</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  {{ title_suffix }}
+</form>
+</div>

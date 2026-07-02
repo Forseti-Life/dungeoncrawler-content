@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "shield",
+  "name": "Wooden Shield",
+  "item_type": "armor",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A sturdy wooden shield that can be raised to deflect attacks. You can use the Raise a Shield action to gain its AC bonus. The shield can also be used to Shield Block, absorbing damage at the cost of its own durability.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 1,
+    "pp": 0
+  },
+  "bulk": "1",
+  "hands": "1",
+  "armor_stats": {
+    "category": "shield",
+    "hardness": 3,
+    "hp": 12,
+    "bt": 6,
+    "ac_bonus": 2
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "armor"
+}

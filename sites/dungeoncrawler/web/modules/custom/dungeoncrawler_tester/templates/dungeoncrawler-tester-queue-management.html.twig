@@ -1,0 +1,113 @@
+{#
+  Queue Management for dungeoncrawler tester
+  Variables:
+    - queue_items
+    - queue_status
+#}
+<div class="dc-queue-page">
+  <div class="page-header">
+    <h1>{{ 'Testing Queue Management'|t }}</h1>
+    <p class="subtitle">{{ 'Administer background test runs without blocking the dashboard'|t }}</p>
+  </div>
+
+  <div class="queue-controls" id="dc-queue-controls">
+    <div class="controls-left">
+      <button type="button" class="btn-run-all" data-action="run-all">▶️ {{ 'Run queue'|t }}</button>
+      <button type="button" class="btn-refresh" data-action="refresh">🔄 {{ 'Refresh'|t }}</button>
+      <label class="toggle">
+        <input type="checkbox" id="dc-auto-refresh" checked>
+        <span>{{ 'Auto-refresh (5s)'|t }}</span>
+        <span class="refresh-countdown" id="dc-auto-refresh-countdown" aria-live="polite"></span>
+      </label>
+    </div>
+    <div class="controls-right">
+      <div class="status-pill">
+        <span class="dot"></span>
+        <span class="text" data-status-text>Idle</span>
+        <span class="last-refresh-inline" id="dc-last-refresh-inline">—</span>
+      </div>
+      <div class="count-pill">
+        <strong data-total-count>0</strong>
+        <span>{{ 'pending item(s)'|t }}</span>
+      </div>
+      <div class="refresh-meta">
+        <div>{{ 'Status updated'|t }} <span id="dc-status-updated">—</span></div>
+        <div>{{ 'Logs updated'|t }} <span id="dc-logs-updated">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="queue-status-table">
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th>{{ 'Queue'|t }}</th>
+          <th>{{ 'Pending'|t }}</th>
+          <th>{{ 'Description'|t }}</th>
+        </tr>
+      </thead>
+      <tbody id="dc-queue-status-body">
+        {% for queue_id, queue in queue_status %}
+          <tr data-queue-id="{{ queue_id }}">
+            <td class="icon">{{ queue.icon }}</td>
+            <td><strong>{{ queue.name }}</strong></td>
+            <td><span class="badge" data-count>{{ queue.items }}</span></td>
+            <td class="muted">{{ queue.description }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="log-panel">
+    <div class="log-header">
+      <h3>📋 {{ 'Recent activity'|t }}</h3>
+      <button type="button" class="btn-refresh-logs" data-action="refresh-logs">{{ 'Refresh logs'|t }}</button>
+    </div>
+    <div class="log-entries" id="dc-log-entries">
+      <div class="log-entry">{{ 'Waiting for activity...'|t }}</div>
+    </div>
+  </div>
+
+  <div class="queue-items">
+    <h3>🔍 {{ 'Queued items'|t }}</h3>
+    {% if queue_items is empty %}
+      <div class="empty">{{ 'No items are currently queued.'|t }}</div>
+    {% else %}
+      <ul class="items-list">
+        {% for item in queue_items %}
+          <li class="item-row" data-item-id="{{ item.item_id }}">
+            <div class="item-main">
+              <div class="item-head">
+                <span class="badge">{{ item.queue_label }}</span>
+                <span class="item-id">#{{ item.item_id }}</span>
+              </div>
+              <div class="item-meta">
+                <div><strong>{{ 'Created'|t }}:</strong> {{ item.created|date('Y-m-d H:i:s') }}</div>
+                {% if item.expire > 0 %}
+                  <div><strong>{{ 'Expires'|t }}:</strong> {{ item.expire|date('Y-m-d H:i:s') }}</div>
+                {% endif %}
+              </div>
+              <div class="item-preview">
+                {% if item.data_preview.stage %}
+                  <div><strong>{{ 'Stage'|t }}:</strong> {{ item.data_preview.stage }}</div>
+                {% endif %}
+                {% if item.data_preview.command %}
+                  <div class="command"><strong>{{ 'Command'|t }}:</strong> {{ item.data_preview.command }}</div>
+                {% endif %}
+                {% if item.data_preview.job_id %}
+                  <div><strong>{{ 'Job ID'|t }}:</strong> {{ item.data_preview.job_id }}</div>
+                {% endif %}
+              </div>
+            </div>
+            <div class="item-actions">
+              <button type="button" class="btn-item-rerun" data-action="rerun-item" data-item-id="{{ item.item_id }}">↻ {{ 'Re-run'|t }}</button>
+              <button type="button" class="btn-item-delete" data-action="delete-item" data-item-id="{{ item.item_id }}">🗑 {{ 'Delete'|t }}</button>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+</div>

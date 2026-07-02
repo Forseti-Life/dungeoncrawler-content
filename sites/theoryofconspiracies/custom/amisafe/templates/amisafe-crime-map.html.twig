@@ -1,0 +1,247 @@
+{#
+/**
+ * @file
+ * AmISafe Crime Map template.
+ *
+ * Available variables:
+ * - map_config: Configuration for the map
+ * - crime_types: Available crime types for filtering
+ * - districts: Police districts
+ * - date_range: Available date range
+ */
+#}
+
+<div class="amisafe-crime-map-page">
+  <div class="page-header cyberpunk-header">
+    <h1 class="page-title terminal-text">
+      <span class="glitch-text">PHILADELPHIA CRIME MAP - 2085</span>
+    </h1>
+    <div class="subtitle terminal-text">
+      Real-time crime monitoring and spatial analysis
+    </div>
+  </div>
+
+  <div class="crime-map-layout">
+    <div class="control-panel-container">
+      <div class="control-panel">
+        <h3 class="panel-title">SECTOR FILTERS</h3>
+        
+        <!-- Crime Type Multi-Select Filter -->
+        <div class="filter-section">
+          <label class="filter-label">THREAT CATEGORIES</label>
+          <select id="crime-type-selector" class="cyber-select-multi" multiple>
+            <!-- Dynamically populated from API -->
+          </select>
+          <div class="filter-helper">Hold Ctrl/Cmd to select multiple</div>
+        </div>
+        
+        <!-- District Multi-Select Filter -->
+        <div class="filter-section">
+          <label class="filter-label">DISTRICTS</label>
+          <select id="district-selector" class="cyber-select-multi" multiple>
+            <!-- Dynamically populated from API -->
+          </select>
+          <div class="filter-helper">Hold Ctrl/Cmd to select multiple</div>
+        </div>
+        
+        <!-- Date Range Selectors -->
+        <div class="filter-section">
+          <label class="filter-label">TIME PERIOD</label>
+          <div class="date-selector-grid">
+            <div class="date-selector-group">
+              <label class="sub-label">FROM MONTH</label>
+              <select id="start-month" class="cyber-select">
+                <option value="01">JANUARY</option>
+                <option value="02">FEBRUARY</option>
+                <option value="03">MARCH</option>
+                <option value="04">APRIL</option>
+                <option value="05">MAY</option>
+                <option value="06">JUNE</option>
+                <option value="07">JULY</option>
+                <option value="08">AUGUST</option>
+                <option value="09">SEPTEMBER</option>
+                <option value="10">OCTOBER</option>
+                <option value="11">NOVEMBER</option>
+                <option value="12">DECEMBER</option>
+              </select>
+            </div>
+            <div class="date-selector-group">
+              <label class="sub-label">TO MONTH</label>
+              <select id="end-month" class="cyber-select">
+                <option value="01">JANUARY</option>
+                <option value="02">FEBRUARY</option>
+                <option value="03">MARCH</option>
+                <option value="04">APRIL</option>
+                <option value="05">MAY</option>
+                <option value="06">JUNE</option>
+                <option value="07">JULY</option>
+                <option value="08">AUGUST</option>
+                <option value="09">SEPTEMBER</option>
+                <option value="10">OCTOBER</option>
+                <option value="11">NOVEMBER</option>
+                <option value="12" selected>DECEMBER</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Time of Day Filter -->
+        <div class="filter-section">
+          <label class="filter-label">TIME OF DAY</label>
+          <select id="time-period-selector" class="cyber-select-multi" multiple>
+            <option value="early-morning" selected>EARLY MORNING (00:00-05:59)</option>
+            <option value="morning" selected>MORNING (06:00-11:59)</option>
+            <option value="afternoon" selected>AFTERNOON (12:00-17:59)</option>
+            <option value="evening" selected>EVENING (18:00-23:59)</option>
+          </select>
+          <div class="filter-helper">Select time periods to include</div>
+        </div>
+        
+        <!-- Quick Filter Presets -->
+        <div class="filter-section">
+          <label class="filter-label">QUICK PRESETS</label>
+          <div class="preset-buttons">
+            <button id="preset-violent" class="cyber-button preset-btn" data-preset="violent">VIOLENT CRIMES</button>
+            <button id="preset-property" class="cyber-button preset-btn" data-preset="property">PROPERTY CRIMES</button>
+            <button id="preset-recent" class="cyber-button preset-btn" data-preset="recent">RECENT (30 DAYS)</button>
+          </div>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="filter-actions">
+          <button id="apply-filters" class="cyber-button primary">SCAN SECTORS</button>
+          <button id="clear-filters" class="cyber-button secondary">RESET ALL</button>
+        </div>
+        
+        <!-- View Options -->
+        <div class="filter-section">
+          <label class="filter-label">DISPLAY MODE</label>
+          <div class="view-options">
+            <button id="hexagon-view" class="cyber-button active">HEXAGON</button>
+            <button id="heatmap-view" class="cyber-button">HEATMAP</button>
+            <button id="points-view" class="cyber-button">POINTS</button>
+          </div>
+        </div>
+
+        <!-- Map Controls -->
+        <div class="filter-section">
+          <label class="filter-label">MAP CONTROLS</label>
+          <div class="preset-buttons">
+            <button id="fit-hexagons-btn" class="cyber-button">📍 CENTER ON DATA</button>
+          </div>
+        </div>
+        
+        <!-- Stats Summary -->
+        <div class="stats-summary">
+          <!-- Citywide Overview -->
+          <div class="citywide-stats">
+            <h4 class="stats-title">PHILADELPHIA 2085 - CITYWIDE STATUS</h4>
+            <div id="citywide-overview" class="citywide-overview">
+              <div class="stat-row">
+                <div class="stat-item-small">
+                  <span class="stat-label-small">TOTAL CITYWIDE:</span>
+                  <span id="citywide-total" class="stat-value neon-cyan">--</span>
+                </div>
+                <div class="stat-item-small">
+                  <span class="stat-label-small">ALL DISTRICTS:</span>
+                  <span id="citywide-districts" class="stat-value neon-purple">--</span>
+                </div>
+              </div>
+              <div class="stat-row">
+                <div class="stat-item-small">
+                  <span class="stat-label-small">CITYWIDE THREAT:</span>
+                  <span id="citywide-threat" class="stat-value neon-red">--</span>
+                </div>
+                <div class="stat-item-small">
+                  <span class="stat-label-small">COVERAGE:</span>
+                  <span id="citywide-coverage" class="stat-value neon-yellow">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Current View Status -->
+          <h4 class="stats-title">CURRENT VIEW STATUS</h4>
+          <div id="current-stats" class="current-stats">
+            <div class="stat-item">
+              <span class="stat-label">VISIBLE INCIDENTS:</span>
+              <span id="total-incidents" class="stat-value neon-green">--</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">VIEW THREAT LEVEL:</span>
+              <span id="threat-level" class="stat-value neon-orange">CALCULATING</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">ACTIVE SECTORS:</span>
+              <span id="active-sectors" class="stat-value neon-blue">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="map-container">
+      <div id="crime-map-container" class="crime-map-container">
+        <div id="loading-overlay" class="loading-overlay">
+          <div class="loading-indicator">
+            <div class="terminal-text">INITIALIZING NEURAL MAP</div>
+            <div class="loading-dots">LOADING</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Map Controls -->
+      <div class="map-controls">
+        <!-- Zoom Level Indicator -->
+        <div id="zoom-indicator" class="zoom-indicator terminal-text">
+          <span class="zoom-label">ZOOM:</span>
+          <span id="zoom-level">12</span>
+          <span class="resolution-label">H3:</span>
+          <span id="h3-resolution">8</span>
+          <span class="scale-label">~0.7km²</span>
+          <button id="refresh-zoom" style="margin-left: 10px; font-size: 10px;">REFRESH</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Expandable Analytics Dashboard -->
+  <div class="analytics-section">
+    <button id="toggle-analytics" class="section-toggle cyber-button">
+      <span class="toggle-text">SHOW ANALYTICS</span>
+      <i class="fas fa-chevron-down toggle-icon"></i>
+    </button>
+    
+    <div id="analytics-dashboard" class="analytics-dashboard collapsed">
+      <div class="analytics-grid">
+        <div class="chart-container">
+          <h4 class="chart-title">TEMPORAL ANALYSIS</h4>
+          <canvas id="crime-trend-chart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+          <h4 class="chart-title">PATTERN MATRIX</h4>
+          <div id="time-pattern-heatmap"></div>
+        </div>
+        
+        <div class="chart-container">
+          <h4 class="chart-title">DISTRICT RANKINGS</h4>
+          <div id="district-rankings-table"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Incident Details Modal -->
+<div id="incident-modal" class="modal cyberpunk-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 class="modal-title terminal-text">INCIDENT ANALYSIS</h3>
+      <button class="modal-close cyber-button">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="incident-details"></div>
+    </div>
+  </div>
+</div>

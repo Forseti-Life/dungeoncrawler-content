@@ -1,0 +1,481 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/hazard.schema.json",
+  "title": "Hazard Schema",
+  "description": "PF2e-compatible environmental hazard. Unlike traps, hazards are often ongoing and visible. Includes complex hazards that act in initiative.",
+  "type": "object",
+  "required": ["hazard_id", "name", "level", "complexity"],
+  "additionalProperties": false,
+  "definitions": {
+    "hex_coordinate": {
+      "type": "object",
+      "description": "Axial coordinate for hex-based positioning.",
+      "required": ["q", "r"],
+      "additionalProperties": false,
+      "properties": {
+        "q": {
+          "type": "integer",
+          "description": "Axial q coordinate."
+        },
+        "r": {
+          "type": "integer",
+          "description": "Axial r coordinate."
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for migration compatibility.",
+      "default": "1.0.0",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "hazard_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this hazard."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Display name of the hazard.",
+      "examples": ["Collapsing Ceiling", "Poison Gas Trap", "Falling Rocks"]
+    },
+    "level": {
+      "type": "integer",
+      "minimum": -1,
+      "maximum": 25,
+      "description": "PF2e hazard level. Determines DCs and XP reward."
+    },
+    "complexity": {
+      "type": "string",
+      "enum": ["simple", "complex"],
+      "description": "Simple hazards act once; complex hazards act each round."
+    },
+    "rarity": {
+      "type": "string",
+      "enum": ["common", "uncommon", "rare", "unique"],
+      "default": "common",
+      "description": "PF2e rarity classification."
+    },
+    "traits": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "maxItems": 10,
+      "description": "PF2e hazard traits (e.g., ['Magical', 'Trap', 'Environmental'])."
+    },
+    "stealth_dc": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 50,
+      "description": "DC to detect the hazard with Perception. Null if the hazard is obvious."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "Narrative description of the hazard and its appearance."
+    },
+    "disable": {
+      "type": "object",
+      "description": "How to disable this hazard. Skill names map to DCs. Additional skills can be added beyond the standard ones.",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 50
+      },
+      "properties": {
+        "thievery_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Thievery skill DC to disarm the hazard mechanism."
+        },
+        "athletics_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Athletics skill DC to disable the hazard (e.g., breaking mechanism, climbing to safety)."
+        },
+        "arcana_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Arcana skill DC to dispel or disable magical hazards."
+        },
+        "religion_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Religion skill DC to disable divine hazards."
+        },
+        "crafting_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Crafting skill DC to disable the hazard mechanism."
+        },
+        "custom": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Non-standard disarm method (narrative description)."
+        }
+      }
+    },
+    "ac": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 50,
+      "description": "Armor Class for targeting the hazard. Null if not targetable."
+    },
+    "hardness": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 30,
+      "description": "Damage reduction when the hazard takes physical damage."
+    },
+    "hp": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 300,
+      "description": "Hit Points. When reduced to 0, the hazard is destroyed."
+    },
+    "broken_threshold": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "HP threshold at which the hazard becomes broken (typically HP/2)."
+    },
+    "saves": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fortitude": {
+          "type": ["integer", "null"],
+          "minimum": -10,
+          "maximum": 40,
+          "description": "Fortitude save modifier."
+        },
+        "reflex": {
+          "type": ["integer", "null"],
+          "minimum": -10,
+          "maximum": 40,
+          "description": "Reflex save modifier."
+        },
+        "will": {
+          "type": ["integer", "null"],
+          "minimum": -10,
+          "maximum": 40,
+          "description": "Will save modifier."
+        }
+      }
+    },
+    "immunities": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 50 },
+      "uniqueItems": true,
+      "maxItems": 8,
+      "description": "Damage types and conditions the hazard is immune to."
+    },
+    "resistances": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["type", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "minLength": 1, "maxLength": 50, "description": "Damage type resisted." },
+          "value": { "type": "integer", "minimum": 1, "maximum": 30, "description": "Amount of resistance." }
+        }
+      },
+      "description": "Damage resistances (reduces incoming damage)."
+    },
+    "weaknesses": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["type", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "minLength": 1, "maxLength": 50, "description": "Damage type weakness." },
+          "value": { "type": "integer", "minimum": 1, "maximum": 30, "description": "Additional damage taken." }
+        }
+      },
+      "description": "Damage weaknesses (increases incoming damage)."
+    },
+    "initiative_modifier": {
+      "type": ["integer", "null"],
+      "minimum": -10,
+      "maximum": 40,
+      "description": "Initiative bonus for complex hazards that roll initiative. Should be provided for complex hazards."
+    },
+    "actions_per_round": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4,
+      "default": 1,
+      "description": "Number of actions the complex hazard takes each round. Typically 1-3."
+    },
+    "routine": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "What the complex hazard does each round in initiative order (for complex hazards)."
+    },
+    "trigger": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "What activates or triggers the hazard."
+    },
+    "effect": {
+      "type": "object",
+      "description": "The mechanical effect when the hazard is triggered or acts.",
+      "additionalProperties": false,
+      "properties": {
+        "attack_bonus": {
+          "type": ["integer", "null"],
+          "minimum": -10,
+          "maximum": 50,
+          "description": "Attack bonus for attack-based hazards (roll vs target AC)."
+        },
+        "damage": {
+          "type": "string",
+          "pattern": "^\\d+d\\d+(\\+\\d+)?$",
+          "examples": ["2d6+8", "3d10", "1d4+2"],
+          "description": "Damage dice notation (e.g., '2d6+8')."
+        },
+        "damage_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "examples": ["piercing", "slashing", "bludgeoning", "fire", "cold", "acid", "electricity", "poison"],
+          "description": "Type of damage dealt by the hazard."
+        },
+        "save_dc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 50,
+          "description": "DC for the saving throw to avoid or reduce the effect."
+        },
+        "save_type": {
+          "type": ["string", "null"],
+          "enum": ["fortitude", "reflex", "will", null],
+          "description": "Type of save required (Fortitude, Reflex, or Will). Null if no save is allowed."
+        },
+        "conditions_applied": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "uniqueItems": true,
+          "description": "Conditions applied on a failed save (e.g., ['poisoned', 'stunned 1', 'persistent fire 2d6'])."
+        },
+        "area": {
+          "type": "object",
+          "description": "Area of effect for hazards that affect multiple targets.",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["single_hex", "burst", "emanation", "cone", "line"],
+              "description": "Shape of the area of effect."
+            },
+            "radius_ft": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 120,
+              "description": "Radius in feet for burst/emanation effects."
+            }
+          }
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Narrative description of the hazard's effect."
+        }
+      }
+    },
+    "reset": {
+      "type": ["string", "object"],
+      "description": "How and when the hazard resets. Can be a simple string or detailed object.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "automatic": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether the hazard resets automatically."
+            },
+            "reset_time_minutes": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 10080,
+              "description": "Time in minutes before automatic reset (max 1 week = 10080 minutes)."
+            },
+            "conditions": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "Specific conditions required for reset."
+            }
+          }
+        }
+      ]
+    },
+    "hexes_affected": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/hex_coordinate" },
+      "description": "Hexmap coordinates affected by this hazard."
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the hazard is currently active and dangerous."
+    },
+    "is_detected": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the party has successfully detected this hazard."
+    },
+    "is_triggered": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the hazard has been triggered at least once. Important for complex hazards and reset tracking."
+    },
+    "is_disabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the hazard has been successfully disabled."
+    },
+    "is_destroyed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the hazard has been destroyed (HP reduced to 0)."
+    },
+    "xp_reward": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "XP awarded for overcoming this hazard. Auto-calculated from level if omitted."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Hazard creation timestamp."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp."
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "1.0.0",
+      "hazard_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Collapsing Ceiling",
+      "level": 3,
+      "complexity": "simple",
+      "rarity": "common",
+      "traits": ["Environmental", "Trap"],
+      "stealth_dc": null,
+      "description": "Cracked ceiling stones, barely held together by ancient mortar. The slightest disturbance could bring tons of rubble down on the party.",
+      "disable": {
+        "athletics_dc": 18,
+        "crafting_dc": 16
+      },
+      "ac": 19,
+      "hardness": 8,
+      "hp": 36,
+      "broken_threshold": 18,
+      "trigger": "A creature in the affected area makes a loud noise or uses an area effect.",
+      "effect": {
+        "damage": "3d6",
+        "damage_type": "bludgeoning",
+        "save_dc": 20,
+        "save_type": "reflex",
+        "area": {
+          "type": "burst",
+          "radius_ft": 15
+        },
+        "description": "The ceiling collapses. All creatures in the area take 3d6 bludgeoning damage (Reflex DC 20 for half)."
+      },
+      "hexes_affected": [
+        { "q": 0, "r": 0 },
+        { "q": 1, "r": 0 },
+        { "q": 0, "r": 1 }
+      ],
+      "is_active": true,
+      "is_detected": false,
+      "is_triggered": false,
+      "is_disabled": false,
+      "is_destroyed": false,
+      "xp_reward": 30,
+      "created_at": "2026-02-17T12:00:00Z",
+      "updated_at": "2026-02-17T12:00:00Z"
+    },
+    {
+      "schema_version": "1.0.0",
+      "hazard_id": "f7e8d9c0-b1a2-3456-7890-abcdef123456",
+      "name": "Flaming Pillars",
+      "level": 5,
+      "complexity": "complex",
+      "rarity": "uncommon",
+      "traits": ["Magical", "Fire", "Environmental"],
+      "stealth_dc": 21,
+      "description": "Stone pillars carved with runes glow with an inner fire. When activated, they shoot jets of flame in a rotating pattern.",
+      "disable": {
+        "arcana_dc": 24,
+        "thievery_dc": 26
+      },
+      "ac": 22,
+      "hardness": 10,
+      "hp": 60,
+      "broken_threshold": 30,
+      "saves": {
+        "fortitude": 18,
+        "reflex": 12,
+        "will": 10
+      },
+      "immunities": ["fire", "mental"],
+      "resistances": [
+        { "type": "physical", "value": 5 }
+      ],
+      "weaknesses": [
+        { "type": "cold", "value": 10 }
+      ],
+      "initiative_modifier": 15,
+      "actions_per_round": 2,
+      "routine": "The hazard uses its 2 actions to shoot flames at the two nearest creatures within 30 feet. Each flame jet makes an attack (+18 vs AC) dealing 2d10+6 fire damage on a hit.",
+      "trigger": "A creature enters one of the affected hexes.",
+      "effect": {
+        "attack_bonus": 18,
+        "damage": "2d10+6",
+        "damage_type": "fire",
+        "conditions_applied": ["persistent fire 1d6"],
+        "description": "A jet of magical flame shoots from the nearest pillar."
+      },
+      "reset": {
+        "automatic": true,
+        "reset_time_minutes": 60,
+        "conditions": "Resets 1 hour after being disabled or destroyed."
+      },
+      "hexes_affected": [
+        { "q": 2, "r": -1 },
+        { "q": 3, "r": -1 },
+        { "q": 2, "r": 0 },
+        { "q": 3, "r": 0 }
+      ],
+      "is_active": true,
+      "is_detected": false,
+      "is_triggered": false,
+      "is_disabled": false,
+      "is_destroyed": false,
+      "xp_reward": 60,
+      "created_at": "2026-02-17T12:00:00Z",
+      "updated_at": "2026-02-17T12:00:00Z"
+    }
+  ]
+}

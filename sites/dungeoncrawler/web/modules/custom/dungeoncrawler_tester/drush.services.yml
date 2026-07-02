@@ -1,0 +1,24 @@
+services:
+  dungeoncrawler_tester.open_issues_import.commands:
+    class: Drupal\dungeoncrawler_tester\Commands\OpenIssuesImportCommands
+    arguments: ['@state']
+    tags:
+      - { name: drush.command }
+
+  dungeoncrawler_tester.commands:
+    class: Drupal\dungeoncrawler_tester\Commands\TestingQueueCommands
+    arguments: ['@queue', '@plugin.manager.queue_worker', '@lock', '@logger.factory', '@state']
+    tags:
+      - { name: drush.command }
+
+  dungeoncrawler_tester.stage_control.commands:
+    class: Drupal\dungeoncrawler_tester\Commands\StageControlCommands
+    arguments: ['@state', '@dungeoncrawler_tester.stage_issue_sync', '@dungeoncrawler_tester.stage_definitions', '@logger.factory']
+    tags:
+      - { name: drush.command }
+
+  dungeoncrawler_tester.qa_user.commands:
+    class: Drupal\dungeoncrawler_tester\Commands\QaUserCommands
+    arguments: ['@entity_type.manager', '@logger.factory']
+    tags:
+      - { name: drush.command }

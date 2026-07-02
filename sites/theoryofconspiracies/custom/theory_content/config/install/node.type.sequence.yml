@@ -1,0 +1,12 @@
+langcode: en
+status: true
+dependencies:
+  module:
+    - node
+name: sequence
+type: sequence
+description: 'Story sequences from Theory of Conspiracies screenplay'
+help: 'Create detailed sequence breakdowns with scenes and character interactions'
+new_revision: true
+preview_mode: 1
+display_submitted: false

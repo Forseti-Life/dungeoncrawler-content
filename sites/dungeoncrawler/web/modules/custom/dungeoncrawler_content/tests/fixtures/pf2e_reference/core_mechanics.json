@@ -1,0 +1,206 @@
+{
+  "description": "PF2e ability score reference data from Core Rulebook",
+  "ability_scores": {
+    "minimum": 1,
+    "maximum": 30,
+    "starting_range": {
+      "minimum": 8,
+      "maximum": 18
+    },
+    "modifiers": {
+      "1": -5,
+      "2-3": -4,
+      "4-5": -3,
+      "6-7": -2,
+      "8-9": -1,
+      "10-11": 0,
+      "12-13": 1,
+      "14-15": 2,
+      "16-17": 3,
+      "18-19": 4,
+      "20-21": 5,
+      "22-23": 6,
+      "24-25": 7
+    },
+    "boost_rules": {
+      "description": "An ability boost increases a score by 2 if it's below 18, or by 1 if it's 18 or higher",
+      "below_18": 2,
+      "at_or_above_18": 1
+    },
+    "flaw_rules": {
+      "description": "An ability flaw decreases a score by 2",
+      "penalty": -2
+    }
+  },
+  "proficiency_ranks": {
+    "untrained": {
+      "bonus": 0,
+      "description": "You have no training"
+    },
+    "trained": {
+      "bonus": 2,
+      "description": "You have basic training"
+    },
+    "expert": {
+      "bonus": 4,
+      "description": "You have considerable expertise"
+    },
+    "master": {
+      "bonus": 6,
+      "description": "You are highly skilled"
+    },
+    "legendary": {
+      "bonus": 8,
+      "description": "You are world-class"
+    },
+    "formula": "proficiency_bonus + level + ability_modifier + item_bonus + circumstance_bonus"
+  },
+  "hp_calculation": {
+    "formula": "(class_hp * level) + (con_modifier * level) + ancestry_hp_bonus + other_bonuses",
+    "per_level": "class_hp + con_modifier",
+    "examples": [
+      {
+        "class": "fighter",
+        "class_hp": 10,
+        "level": 1,
+        "con_modifier": 3,
+        "ancestry_bonus": 0,
+        "total_hp": 13,
+        "calculation": "10 + 3 + 0 = 13"
+      },
+      {
+        "class": "wizard",
+        "class_hp": 6,
+        "level": 1,
+        "con_modifier": 1,
+        "ancestry_bonus": 0,
+        "total_hp": 7,
+        "calculation": "6 + 1 + 0 = 7"
+      },
+      {
+        "class": "rogue",
+        "class_hp": 8,
+        "level": 5,
+        "con_modifier": 2,
+        "ancestry_bonus": 0,
+        "total_hp": 50,
+        "calculation": "(8 * 5) + (2 * 5) + 0 = 50"
+      }
+    ]
+  },
+  "ac_calculation": {
+    "formula": "10 + dex_modifier + armor_bonus + shield_bonus + proficiency_bonus + level + other_bonuses",
+    "base": 10,
+    "examples": [
+      {
+        "character": "unarmored wizard",
+        "dex_modifier": 2,
+        "armor_bonus": 0,
+        "proficiency": "trained",
+        "proficiency_bonus": 2,
+        "level": 1,
+        "total_ac": 15,
+        "calculation": "10 + 2 + 0 + 2 + 1 = 15"
+      },
+      {
+        "character": "fighter in scale mail with shield",
+        "dex_modifier": 2,
+        "armor_bonus": 4,
+        "shield_bonus": 2,
+        "proficiency": "trained",
+        "proficiency_bonus": 2,
+        "level": 1,
+        "total_ac": 21,
+        "calculation": "10 + 2 + 4 + 2 + 2 + 1 = 21"
+      }
+    ]
+  },
+  "attack_bonus_calculation": {
+    "formula": "ability_modifier + proficiency_bonus + level + item_bonus + other_bonuses",
+    "examples": [
+      {
+        "attack_type": "melee (STR)",
+        "ability_modifier": 4,
+        "proficiency": "trained",
+        "proficiency_bonus": 2,
+        "level": 1,
+        "weapon_bonus": 0,
+        "total": 7,
+        "calculation": "4 + 2 + 1 + 0 = 7"
+      },
+      {
+        "attack_type": "spell attack (INT)",
+        "ability_modifier": 4,
+        "proficiency": "trained",
+        "proficiency_bonus": 2,
+        "level": 1,
+        "item_bonus": 0,
+        "total": 7,
+        "calculation": "4 + 2 + 1 + 0 = 7"
+      }
+    ]
+  },
+  "multiple_attack_penalty": {
+    "description": "Each attack after the first on your turn has a penalty",
+    "normal_weapons": {
+      "first_attack": 0,
+      "second_attack": -5,
+      "third_plus_attacks": -10
+    },
+    "agile_weapons": {
+      "first_attack": 0,
+      "second_attack": -4,
+      "third_plus_attacks": -8
+    }
+  },
+  "degrees_of_success": {
+    "critical_success": {
+      "condition": "Result exceeds DC by 10 or more, or natural 20",
+      "description": "Your result is far better than expected"
+    },
+    "success": {
+      "condition": "Result meets or exceeds DC",
+      "description": "You accomplish what you set out to do"
+    },
+    "failure": {
+      "condition": "Result is less than DC",
+      "description": "You fail to accomplish your goal"
+    },
+    "critical_failure": {
+      "condition": "Result is 10 or more below DC, or natural 1",
+      "description": "Your result is far worse than expected"
+    }
+  },
+  "difficulty_classes": {
+    "simple_dcs": {
+      "untrained": 10,
+      "trained": 15,
+      "expert": 20,
+      "master": 30,
+      "legendary": 40
+    },
+    "level_based_dcs": {
+      "description": "DC = 14 + level + adjustment",
+      "adjustments": {
+        "incredibly_easy": -10,
+        "very_easy": -5,
+        "easy": -2,
+        "normal": 0,
+        "hard": 2,
+        "very_hard": 5,
+        "incredibly_hard": 10
+      }
+    }
+  },
+  "source": "Pathfinder 2e Core Rulebook",
+  "reference_page_numbers": {
+    "ability_scores": "pp. 20-21",
+    "proficiency": "pp. 13-14",
+    "hit_points": "p. 26",
+    "armor_class": "pp. 274-275",
+    "attack_rolls": "pp. 446-447",
+    "multiple_attack_penalty": "p. 446",
+    "degrees_of_success": "p. 445",
+    "difficulty_classes": "pp. 503-504"
+  }
+}

@@ -1,0 +1,114 @@
+{% if stats and stats.total_messages > 0 %}
+<div class="ai-conversation-stats">
+  <h3>{{ 'Conversation Statistics'|t }}</h3>
+  <div class="stats-grid">
+    <div class="stat-item">
+      <strong>{{ 'Total Messages'|t }}:</strong> {{ stats.total_messages }}
+    </div>
+    <div class="stat-item">
+      <strong>{{ 'Recent Messages'|t }}:</strong> {{ stats.recent_messages }}
+    </div>
+    <div class="stat-item">
+      <strong>{{ 'Total Tokens'|t }}:</strong> {{ stats.total_tokens|number_format }}
+    </div>
+    <div class="stat-item">
+      <strong>{{ 'Has Summary'|t }}:</strong> 
+      {% if stats.has_summary %}
+        <span class="status-yes">{{ 'Yes'|t }}</span>
+      {% else %}
+        <span class="status-no">{{ 'No'|t }}</span>
+      {% endif %}
+    </div>
+    {% if stats.summary_updated %}
+    <div class="stat-item">
+      <strong>{{ 'Summary Updated'|t }}:</strong> {{ stats.summary_updated|date('M j, Y - H:i') }}
+    </div>
+    {% endif %}
+    <div class="stat-item">
+      <strong>{{ 'Context Tokens'|t }}:</strong> {{ stats.estimated_tokens|number_format }}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="ai-conversation-chat">
+  <div class="chat-header">
+    <h2>{{ conversation.label }}</h2>
+    {% if conversation.field_context.value %}
+      <div class="context-info">
+        <strong>{{ 'Context'|t }}:</strong> {{ conversation.field_context.value|striptags|slice(0, 100) }}{% if conversation.field_context.value|striptags|length > 100 %}...{% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="chat-messages" id="chat-messages">
+    {% if stats and stats.has_summary %}
+      <div class="summary-indicator">
+        <em>{{ 'This conversation has been summarized. Showing recent 20 messages.'|t }}</em>
+      </div>
+    {% endif %}
+    
+    {# Show introduction message for new conversations #}
+    {% if not messages or messages|length == 0 %}
+      <div class="message message--assistant message--introduction">
+        <div class="message-content">
+          <h3>Welcome, Adventurer — Forseti the Game Master Awaits</h3>
+          <p><strong>The world is live.</strong> I’m Forseti, your Game Master for the Dungeoncrawler universe. I can narrate scenes, clarify tactical choices, help with encounters, and keep your campaign momentum strong.</p>
+
+          <p><strong>What can I help you with right now?</strong> Ask for quest hooks, room narration, encounter strategy, build guidance, or next-step recommendations for your party.</p>
+
+          <p><strong>Want to improve the universe?</strong> Share feature ideas, lore additions, and gameplay feedback—I can package your suggestions for review.</p>
+          
+          <div class="transparency-note">
+            <em><strong>Transparency:</strong> This Game Master assistant is powered by Anthropic.</em>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+    
+    {% for message in messages %}
+      <div class="message message--{{ message.role }}">
+        <div class="message-content">
+          {{ message.content|nl2br }}
+        </div>
+        {% if message.timestamp %}
+          <div class="message-timestamp">
+            {{ message.timestamp|date('M j, H:i') }}
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="chat-input-container">
+    <div class="input-group">
+      <textarea 
+        id="message-input" 
+        class="form-control" 
+        placeholder="{{ 'Ask Forseti about your next move...'|t }}"
+        rows="3"
+      ></textarea>
+      <button id="send-button" class="btn btn-primary" type="button">
+        {{ 'Send'|t }}
+      </button>
+    </div>
+    
+    <div class="chat-controls">
+      <button id="clear-input" class="btn btn-secondary btn-sm" type="button">
+        {{ 'Clear'|t }}
+      </button>
+      {% if stats and stats.total_messages > 20 %}
+        <button id="trigger-summary" class="btn btn-info btn-sm" type="button">
+          {{ 'Update Summary'|t }}
+        </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div id="loading-indicator" class="loading-indicator is-hidden">
+    <div class="spinner"></div>
+    <span>{{ 'Forseti is planning the next move...'|t }}</span>
+  </div>
+</div>
+
+{# Styles moved to css/chat-interface.css #}

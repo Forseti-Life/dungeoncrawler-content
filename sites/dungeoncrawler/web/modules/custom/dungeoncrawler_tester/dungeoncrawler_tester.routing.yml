@@ -1,0 +1,248 @@
+dungeoncrawler_tester.dashboard:
+  path: '/dungeoncrawler/testing'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardController::dashboard'
+    _title: 'Dungeon Crawler Testing Dashboard'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.thetest:
+  path: '/dungeoncrawler/testing/thetest'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardController::dashboard'
+    _title: 'Dungeon Crawler Testing Dashboard'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.import_open_issues:
+  path: '/dungeoncrawler/testing/import-open-issues'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardIssueAutomationController::importOpenIssuesPage'
+    _title: 'Import Open Issues from Tracker'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.issue_pr_report:
+  path: '/dungeoncrawler/testing/import-open-issues/issue-pr-report'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardIssueAutomationController::issuePrReport'
+    _title: 'Open Issues and PR Report'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.import_open_issues_reconcile_start:
+  path: '/dungeoncrawler/testing/import-open-issues/reconcile/start'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardIssueAutomationController::startImportOpenIssuesReconcileAjax'
+  methods: [POST]
+  requirements:
+    _csrf_token: 'TRUE'
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.import_open_issues_reconcile_tick:
+  path: '/dungeoncrawler/testing/import-open-issues/reconcile/tick'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardIssueAutomationController::tickImportOpenIssuesReconcileAjax'
+  methods: [POST]
+  requirements:
+    _csrf_token: 'TRUE'
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.import_open_issues_reconcile_status:
+  path: '/dungeoncrawler/testing/import-open-issues/reconcile/status'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardIssueAutomationController::getImportOpenIssuesReconcileStatusAjax'
+  methods: [GET]
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.import_open_issues_reconcile_logs:
+  path: '/dungeoncrawler/testing/import-open-issues/reconcile/logs'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardIssueAutomationController::getImportOpenIssuesReconcileLogsAjax'
+  methods: [GET]
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.dead_value_close:
+  path: '/dungeoncrawler/testing/import-open-issues/issue-pr-report/dead-value-close'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardIssueAutomationController::closeDeadValueAjax'
+  methods: [POST]
+  requirements:
+    _csrf_token: 'TRUE'
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.bulk_close_query_run:
+  path: '/dungeoncrawler/testing/import-open-issues/issue-pr-report/bulk-close-query-run'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardIssueAutomationController::runBulkCloseQueryAjax'
+  methods: [POST]
+  requirements:
+    _csrf_token: 'TRUE'
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.documentation_home:
+  path: '/dungeoncrawler/testing/documentation-home'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::documentationHome'
+    _title: 'Tester Documentation Home'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_getting_started:
+  path: '/dungeoncrawler/testing/documentation/getting-started'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsGettingStarted'
+    _title: 'Getting Started'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_execution_playbook:
+  path: '/dungeoncrawler/testing/documentation/execution-playbook'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsExecutionPlaybook'
+    _title: 'Test Execution Playbook'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_failure_triage:
+  path: '/dungeoncrawler/testing/documentation/failure-triage'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsFailureTriage'
+    _title: 'Failure Triage and Issue Workflow'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_process_flow:
+  path: '/dungeoncrawler/testing/documentation/process-flow'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsProcessFlow'
+    _title: 'Automated Testing Process Flow'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_sdlc_process_flow:
+  path: '/dungeoncrawler/testing/documentation/sdlc-process-flow'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsSdlcProcessFlow'
+    _title: 'SDLC Process Flow'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_release_process_flow:
+  path: '/dungeoncrawler/testing/documentation/release-process-flow'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsReleaseProcessFlow'
+    _title: 'Release Process Flow'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_module_readme:
+  path: '/dungeoncrawler/testing/documentation/module-readme'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsModuleReadme'
+    _title: 'Module README'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_testing_module_readme:
+  path: '/dungeoncrawler/testing/documentation/testing-module-readme'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsTestingModuleReadme'
+    _title: 'Testing Module README'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_tests_readme:
+  path: '/dungeoncrawler/testing/documentation/tests-readme'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsTestsReadme'
+    _title: 'Tests README'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_strategy_design:
+  path: '/dungeoncrawler/testing/documentation/strategy-design'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsStrategyDesign'
+    _title: 'Testing Strategy Design'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_quick_start:
+  path: '/dungeoncrawler/testing/documentation/quick-start'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsQuickStart'
+    _title: 'Testing Quick Start Guide'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_issues_directory:
+  path: '/dungeoncrawler/testing/documentation/issues-directory'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsIssuesDirectory'
+    _title: 'Testing Issues Directory'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.docs_issue_automation:
+  path: '/dungeoncrawler/testing/documentation/issue-automation'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\TestingDashboardDocsController::docsIssueAutomation'
+    _title: 'Copilot Issue Automation'
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.queue_run:
+  path: '/dungeoncrawler/testing/queue/run'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\QueueManagementController::runQueueAjax'
+  methods: [POST]
+  requirements:
+    _csrf_token: 'TRUE'
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.queue_status:
+  path: '/dungeoncrawler/testing/queue/status'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\QueueManagementController::getQueueStatusAjax'
+  methods: [GET]
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.queue_logs:
+  path: '/dungeoncrawler/testing/queue/logs'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\QueueManagementController::getQueueLogsAjax'
+  methods: [GET]
+  requirements:
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.queue_item_delete:
+  path: '/dungeoncrawler/testing/queue/item/delete'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\QueueManagementController::deleteQueueItemAjax'
+  methods: [POST]
+  requirements:
+    _csrf_token: 'TRUE'
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.queue_item_rerun:
+  path: '/dungeoncrawler/testing/queue/item/rerun'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_tester\Controller\QueueManagementController::rerunQueueItemAjax'
+  methods: [POST]
+  requirements:
+    _csrf_token: 'TRUE'
+    _permission: 'administer site configuration'
+
+dungeoncrawler_tester.settings:
+  path: '/admin/config/development/dungeoncrawler-tester'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_tester\Form\TesterSettingsForm'
+    _title: 'Dungeon Crawler tester settings'
+  requirements:
+    _permission: 'administer site configuration'
+
+

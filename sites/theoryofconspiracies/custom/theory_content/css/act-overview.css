@@ -1,0 +1,364 @@
+/* Act Overview Page Styles */
+.act-overview {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.page-header {
+  text-align: center;
+  margin-bottom: 4rem;
+  position: relative;
+}
+
+.page-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 3.5rem;
+  color: #00ffff;
+  text-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+  margin-bottom: 2rem;
+  letter-spacing: 4px;
+}
+
+.page-description {
+  font-family: 'Rajdhani', sans-serif;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 1.3rem;
+  line-height: 1.7;
+  max-width: 900px;
+  margin: 0 auto;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2rem;
+  border: 1px solid rgba(0, 255, 255, 0.3);
+  border-radius: 8px;
+}
+
+/* Timeline Sections */
+.timeline-section {
+  margin: 4rem 0;
+}
+
+.section-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 2.5rem;
+  color: #00ffff;
+  text-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+  text-align: center;
+  margin-bottom: 3rem;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.timeline-container {
+  position: relative;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 2rem 0;
+}
+
+.timeline-bar {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #00ffff, #ff00ff, #00ff41);
+  transform: translateX(-50%);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
+}
+
+.timeline-item {
+  position: relative;
+  margin: 3rem 0;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.timeline-item:nth-child(odd) .timeline-content {
+  margin-right: 60%;
+  text-align: right;
+}
+
+.timeline-item:nth-child(even) .timeline-content {
+  margin-left: 60%;
+  text-align: left;
+}
+
+.timeline-marker {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #00ffff, #0080ff);
+  border: 3px solid rgba(0, 255, 255, 0.8);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Orbitron', monospace;
+  font-weight: bold;
+  color: #000;
+  font-size: 1.1rem;
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+  z-index: 10;
+}
+
+.timeline-content {
+  background: linear-gradient(135deg, rgba(26, 26, 26, 0.95), rgba(17, 17, 17, 0.9));
+  border: 2px solid rgba(0, 255, 255, 0.3);
+  padding: 2rem;
+  border-radius: 8px;
+  position: relative;
+  transition: all 0.4s ease;
+  max-width: 400px;
+}
+
+.timeline-content::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 50px,
+    rgba(0, 255, 255, 0.02) 50px,
+    rgba(0, 255, 255, 0.02) 100px
+  );
+  pointer-events: none;
+  border-radius: 6px;
+}
+
+.timeline-content:hover {
+  border-color: rgba(255, 0, 255, 0.6);
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px rgba(0, 255, 255, 0.3);
+}
+
+/* Theme Cards */
+.theme-title {
+  font-family: 'Orbitron', monospace;
+  color: #00ff41;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  text-shadow: 0 0 10px rgba(0, 255, 65, 0.6);
+}
+
+.theme-description {
+  font-family: 'Rajdhani', sans-serif;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Story Progression Cards */
+.progression-title {
+  font-family: 'Orbitron', monospace;
+  color: #ff00ff;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  text-shadow: 0 0 10px rgba(255, 0, 255, 0.6);
+}
+
+.progression-description {
+  font-family: 'Rajdhani', sans-serif;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* World Building Cards */
+.worldbuilding-title {
+  font-family: 'Orbitron', monospace;
+  color: #ffff00;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  text-shadow: 0 0 10px rgba(255, 255, 0, 0.6);
+}
+
+.worldbuilding-description {
+  font-family: 'Rajdhani', sans-serif;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Navigation */
+.act-navigation {
+  text-align: center;
+  margin: 4rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Cyberpunk Button Styles */
+.cyberpunk-btn {
+  background: linear-gradient(45deg, #000000, #1a1a1a);
+  border: 3px solid #00ffff;
+  color: #00ffff;
+  padding: 1.5rem 3rem;
+  text-decoration: none;
+  font-family: 'Orbitron', monospace;
+  font-weight: bold;
+  font-size: 1.2rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  transition: all 0.4s ease;
+  display: inline-block;
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  min-width: 200px;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+}
+
+.cyberpunk-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.4), transparent);
+  transition: left 0.5s;
+  z-index: 1;
+}
+
+.cyberpunk-btn:hover {
+  color: #ffffff;
+  background: linear-gradient(45deg, #003333, #006666);
+  border-color: #ffffff;
+  text-shadow: 0 0 15px rgba(255, 255, 255, 1);
+  box-shadow: 0 0 30px rgba(0, 255, 255, 0.6), inset 0 0 20px rgba(0, 255, 255, 0.1);
+  transform: translateY(-3px);
+}
+
+.cyberpunk-btn:hover::before {
+  left: 100%;
+}
+
+.cyberpunk-btn:active {
+  transform: translateY(0);
+}
+
+/* Glitch Text Effect */
+.glitch-text {
+  position: relative;
+  animation: glitch 3s infinite;
+}
+
+.glitch-text::before,
+.glitch-text::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.glitch-text::before {
+  animation: glitch-1 2s infinite;
+  color: #ff00ff;
+  z-index: -1;
+}
+
+.glitch-text::after {
+  animation: glitch-2 2s infinite;
+  color: #00ff41;
+  z-index: -2;
+}
+
+@keyframes glitch {
+  0%, 100% { transform: translate(0); }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(-2px, -2px); }
+  60% { transform: translate(2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+}
+
+@keyframes glitch-1 {
+  0%, 100% { transform: translate(0); }
+  10% { transform: translate(-2px, -2px); }
+  20% { transform: translate(2px, 2px); }
+  30% { transform: translate(-2px, 2px); }
+  40% { transform: translate(2px, -2px); }
+  50% { transform: translate(-2px, -2px); }
+  60% { transform: translate(2px, 2px); }
+  70% { transform: translate(-2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+  90% { transform: translate(-2px, -2px); }
+}
+
+@keyframes glitch-2 {
+  0%, 100% { transform: translate(0); }
+  15% { transform: translate(2px, 2px); }
+  25% { transform: translate(-2px, -2px); }
+  35% { transform: translate(2px, -2px); }
+  45% { transform: translate(-2px, 2px); }
+  55% { transform: translate(2px, 2px); }
+  65% { transform: translate(-2px, -2px); }
+  75% { transform: translate(2px, -2px); }
+  85% { transform: translate(-2px, 2px); }
+  95% { transform: translate(2px, 2px); }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .act-overview {
+    padding: 1rem;
+  }
+  
+  .page-title {
+    font-size: 2.5rem;
+    letter-spacing: 2px;
+  }
+  
+  .page-description {
+    font-size: 1.1rem;
+    padding: 1.5rem;
+  }
+  
+  .section-title {
+    font-size: 2rem;
+  }
+  
+  .timeline-bar {
+    left: 2rem;
+  }
+  
+  .timeline-marker {
+    left: 2rem;
+  }
+  
+  .timeline-item:nth-child(odd) .timeline-content,
+  .timeline-item:nth-child(even) .timeline-content {
+    margin-left: 5rem;
+    margin-right: 0;
+    text-align: left;
+    max-width: calc(100% - 6rem);
+  }
+  
+  .timeline-content {
+    padding: 1.5rem;
+  }
+  
+  .act-navigation {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  
+  .cyberpunk-btn {
+    padding: 1.2rem 2rem;
+    font-size: 1rem;
+    min-width: 180px;
+  }
+}

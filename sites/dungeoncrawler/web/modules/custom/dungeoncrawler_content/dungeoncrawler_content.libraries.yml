@@ -1,0 +1,174 @@
+style:
+  css:
+    theme:
+      css/dungeoncrawler-content.css: {}
+  dependencies:
+    - core/drupal
+
+game-cards:
+  css:
+    theme:
+      css/game-cards.css: {}
+  js:
+    js/game-cards.js: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+
+character-sheet:
+  css:
+    theme:
+      css/character-sheet.css: {}
+  js:
+    js/character-sheet.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
+# Base library for character creation steps with shared dependencies
+character-step-base:
+  css:
+    theme:
+      css/character-steps.css: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/once
+
+character-creation:
+  css:
+    theme:
+      css/character-creation.css: {}
+  js:
+    js/character-creation-schema.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+character-creation-style:
+  css:
+    theme:
+      css/character-creation.css: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+# Pathbuilder-style ability score boost selector
+ability-boost-selector:
+  js:
+    js/ability-boost-selector.js: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/once
+    - core/drupalSettings
+
+ability-widget:
+  css:
+    theme:
+      css/character-ability-widget.css: {}
+  dependencies:
+    - core/drupal
+
+# Individual step libraries - now depend on character-step-base
+character-step-1:
+  js:
+    js/character-step-1.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+character-step-2:
+  js:
+    js/character-step-2.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+character-step-3:
+  js:
+    js/character-step-3.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+character-step-4:
+  js:
+    js/character-step-4.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+character-step-5:
+  js:
+    js/character-step-5.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+character-step-6:
+  js:
+    js/character-step-6.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+character-step-7:
+  js:
+    js/character-step-7.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+character-step-8:
+  js:
+    js/character-step-8.js: {}
+  dependencies:
+    - dungeoncrawler_content/character-step-base
+
+# Hex Map with PixiJS + ECS
+hexmap:
+  js:
+    # PixiJS CDN (version locked for stability)
+    https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
+    # ECS Core (loaded before hexmap.js)
+    js/ecs/Component.js: { attributes: { type: module } }
+    js/ecs/Entity.js: { attributes: { type: module } }
+    js/ecs/System.js: { attributes: { type: module } }
+    js/ecs/EntityManager.js: { attributes: { type: module } }
+    # ECS Components
+    js/ecs/components/PositionComponent.js: { attributes: { type: module } }
+    js/ecs/components/RenderComponent.js: { attributes: { type: module } }
+    js/ecs/components/IdentityComponent.js: { attributes: { type: module } }
+    js/ecs/components/MovementComponent.js: { attributes: { type: module } }
+    js/ecs/components/StatsComponent.js: { attributes: { type: module } }
+    js/ecs/components/ActionsComponent.js: { attributes: { type: module } }
+    js/ecs/components/CombatComponent.js: { attributes: { type: module } }
+    # ECS Systems
+    js/ecs/systems/RenderSystem.js: { attributes: { type: module } }
+    js/ecs/systems/MovementSystem.js: { attributes: { type: module } }
+    js/ecs/systems/TurnManagementSystem.js: { attributes: { type: module } }
+    js/ecs/systems/CombatSystem.js: { attributes: { type: module } }
+    # ECS Index
+    js/ecs/index.js: { attributes: { type: module } }
+    # Main hexmap (loads ECS as module)
+    js/SpriteService.js: { attributes: { type: module } }
+    js/hexmap.js: { attributes: { type: module } }
+  css:
+    theme:
+      css/hexmap.css: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
+credits:
+  css:
+    theme:
+      css/credits.css: {}
+  dependencies:
+    - core/drupal
+
+architecture:
+  css:
+    theme:
+      css/architecture.css: {}
+  dependencies:
+    - core/drupal
+
+dungeoncrawler_roadmap:
+  css:
+    theme:
+      css/roadmap.css: {}
+  dependencies:
+    - core/drupal

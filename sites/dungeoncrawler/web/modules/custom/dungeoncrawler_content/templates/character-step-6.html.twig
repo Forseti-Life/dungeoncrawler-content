@@ -1,0 +1,84 @@
+{#
+/**
+ * @file
+ * Character Creation Step 6: Alignment & Personality
+ */
+#}
+
+<div class="character-creation-container">
+  <div class="step-header">
+    <h1>Define Your Character</h1>
+    <p class="step-description">Choose your alignment and describe your character's personality</p>
+  </div>
+
+  {# Progress Bar #}
+  <div class="progress-container">
+    <div class="progress-bar">
+      <div class="progress-fill progress-step-6"></div>
+    </div>
+    <div class="progress-text">Step 6 of 8</div>
+  </div>
+
+  <form id="step-6-form" method="post" action="/characters/create/step/6/save?character_id={{ character_id }}">
+    
+    {# Alignment Selection #}
+    <div class="selection-section">
+      <label class="section-label">Alignment</label>
+      <p class="help-text">Your alignment represents your moral and ethical outlook</p>
+      
+      <div class="alignments-grid">
+        {% for alignment in alignments %}
+          <div class="alignment-card" data-alignment="{{ alignment.id }}">
+            <h3>{{ alignment.name }}</h3>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Character Details #}
+    <div class="form-section">
+      <div class="form-group">
+        <label for="deity">Deity (Optional)</label>
+        <input type="text" id="deity" name="deity" class="form-control" 
+               value="{{ character.deity|default('') }}" 
+               placeholder="e.g., Sarenrae, Desna, None">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="age">Age (Optional)</label>
+          <input type="text" id="age" name="age" class="form-control" 
+                 value="{{ character.age|default('') }}" 
+                 maxlength="50"
+                 placeholder="e.g., 25, young adult, ancient">
+          <small class="form-text text-muted">Can be numeric or descriptive. Different ancestries age differently.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="gender">Gender / Pronouns (Optional)</label>
+          <input type="text" id="gender" name="gender" class="form-control" 
+                 value="{{ character.gender|default('') }}" 
+                 maxlength="100"
+                 placeholder="e.g., she/her, he/him, they/them">
+        </div>
+      </div>
+    </div>
+
+    {# Hidden Fields #}
+    <input type="hidden" name="alignment" id="selected-alignment" value="{{ character.alignment|default('') }}">
+    <input type="hidden" name="step" value="6">
+
+    {# Navigation Buttons #}
+    <div class="button-group">
+      <a href="/characters/create/step/5?character_id={{ character_id }}" class="btn btn-secondary">
+        ← Previous
+      </a>
+      <button type="submit" class="btn btn-primary" id="next-button">
+        Next Step →
+      </button>
+    </div>
+
+    {# Error Messages #}
+    <div id="error-message" class="error-message hidden"></div>
+  </form>
+</div>

@@ -1,0 +1,206 @@
+/* Tailor Resume Styles */
+
+/* Utility Classes */
+.hidden {
+  display: none;
+}
+
+.tailor-resume {
+  padding: 20px 0;
+}
+
+.current-resume {
+  margin-bottom: 20px;
+}
+
+.current-resume h5 {
+  color: #495057;
+  font-weight: 600;
+  margin-bottom: 15px;
+}
+
+.resume-content {
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 5px;
+  border-left: 4px solid #28a745;
+  max-height: 400px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.resume-content h1, .resume-content h2, .resume-content h3, 
+.resume-content h4, .resume-content h5, .resume-content h6 {
+  color: #2c3e50;
+  margin-top: 15px;
+  margin-bottom: 10px;
+}
+
+.resume-content h1 {
+  font-size: 1.5rem;
+}
+
+.resume-content h2 {
+  font-size: 1.3rem;
+}
+
+.resume-content h3 {
+  font-size: 1.1rem;
+}
+
+.resume-content p {
+  margin-bottom: 10px;
+}
+
+.resume-content ul, .resume-content ol {
+  margin-bottom: 15px;
+  padding-left: 20px;
+}
+
+.resume-content li {
+  margin-bottom: 5px;
+}
+
+.tailor-resume-header {
+  margin-bottom: 30px;
+}
+
+.tailor-resume-header h1 {
+  color: #2c3e50;
+  margin-bottom: 15px;
+}
+
+.breadcrumb {
+  background-color: #f8f9fa;
+  padding: 10px 15px;
+  border-radius: 5px;
+}
+
+.card {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+
+.card-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  padding: 15px 20px;
+}
+
+.card-header h3 {
+  margin: 0;
+  color: #495057;
+  font-size: 1.25rem;
+}
+
+.card-body {
+  padding: 20px;
+}
+
+.job-description,
+.job-requirements,
+.skills-required {
+  margin-bottom: 20px;
+}
+
+.job-description h5,
+.job-requirements h5,
+.skills-required h5 {
+  color: #495057;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.description-content,
+.requirements-content,
+.skills-content {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 5px;
+  border-left: 4px solid #007bff;
+}
+
+.tailoring-options {
+  margin-bottom: 20px;
+}
+
+.tailoring-options h5 {
+  color: #495057;
+  font-weight: 600;
+  margin-bottom: 15px;
+}
+
+.form-check {
+  margin-bottom: 10px;
+}
+
+.form-check-label {
+  color: #495057;
+}
+
+.tailoring-actions button {
+  width: 100%;
+}
+
+#tailoring-status .alert {
+  margin-bottom: 0;
+}
+
+.tailored-resume-preview {
+  margin-top: 20px;
+}
+
+.tailored-resume-preview h6 {
+  color: #495057;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+#resume-content {
+  min-height: 200px;
+  font-family: 'Times New Roman', serif;
+  line-height: 1.6;
+}
+
+.resume-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.resume-actions button {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .tailor-resume {
+    padding: 10px;
+  }
+  
+  .resume-actions {
+    flex-direction: column;
+  }
+  
+  .resume-actions button {
+    width: 100%;
+    margin-bottom: 10px;
+  }
+}
+
+/* Loading animation */
+.fa-spinner.fa-spin {
+  animation: fa-spin 2s infinite linear;
+}
+
+@keyframes fa-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(359deg);
+  }
+}

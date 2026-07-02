@@ -1,0 +1,12 @@
+/.editorconfig
+/.gitattributes
+/.phpunit.cache
+/vendor
+/phpunit.xml
+*.phar
+/phpunit.phar
+
+# Drupal managed files — never commit generated/uploaded content
+web/sites/default/files/generated-images/
+web/sites/default/files/private/
+web/sites/default/files/tmp/

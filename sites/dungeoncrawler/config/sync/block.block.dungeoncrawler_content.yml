@@ -1,0 +1,22 @@
+uuid: 40cbcd83-ee69-4434-b59e-4b6d3e00c4d9
+langcode: en
+status: true
+dependencies:
+  module:
+    - system
+  theme:
+    - dungeoncrawler
+_core:
+  default_config_hash: twJjLkHFnsqLKzPscbsBs0qBG22aQO8NihNStbY2CZk
+id: dungeoncrawler_content
+theme: dungeoncrawler
+region: content
+weight: -5
+provider: null
+plugin: system_main_block
+settings:
+  id: system_main_block
+  label: 'Main page content'
+  label_display: '0'
+  provider: system
+visibility: {  }

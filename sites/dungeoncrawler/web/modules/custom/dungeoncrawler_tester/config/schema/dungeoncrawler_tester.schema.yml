@@ -1,0 +1,16 @@
+dungeoncrawler_tester.settings:
+  type: config_object
+  label: 'Dungeon Crawler tester settings'
+  mapping:
+    github_repo:
+      type: string
+      label: 'GitHub repository'
+    github_token:
+      type: string
+      label: 'GitHub token'
+    copilot_assignment_max_open:
+      type: integer
+      label: 'Max open Copilot-assigned issues for auto-assignment'
+    cron_agents_enabled:
+      type: boolean
+      label: 'Enable tester cron agents'

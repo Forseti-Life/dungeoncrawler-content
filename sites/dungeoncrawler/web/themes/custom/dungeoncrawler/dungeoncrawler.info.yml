@@ -1,0 +1,52 @@
+name: Dungeon Crawler
+description: "Dungeon Crawler Life - An AI-generated procedurally growing dungeon crawl RPG theme"
+screenshot: screenshot.png
+logo: images/logos/dungeoncrawler_navbar.png
+'alt text': 'Dungeon Crawler Life - AI Generated Living Dungeon'
+core_version_requirement: ^10.3 || ^11
+# version: '1.0'
+engine: twig
+type: theme
+base theme: radix
+starterkit: true
+
+'interface translation project': dungeoncrawler
+'interface translation server pattern': 'themes/custom/dungeoncrawler/translations/%language.po'
+
+regions:
+  navbar_branding: Navbar branding
+  navbar_left: Navbar left
+  navbar_right: Navbar right
+  header: Header
+  breadcrumb: Breadcrumb
+  tabs: Tabs
+  content: Content
+  page_bottom: Page bottom
+  footer: Footer
+
+libraries:
+  - dungeoncrawler/style
+
+ckeditor5-stylesheets:
+  - build/css/main.style.css
+
+libraries-extend:
+  core/drupal.ajax:
+    - dungeoncrawler/drupal.ajax
+  core/drupal.checkbox:
+    - dungeoncrawler/drupal.checkbox
+  # core/drupal.dialog:
+  #   - dungeoncrawler/drupal.dialog
+  # core/drupal.dialog.ajax:
+  #   - dungeoncrawler/drupal.dialog.ajax
+  core/drupal.message:
+    - dungeoncrawler/drupal.message
+  core/drupal.progress:
+    - dungeoncrawler/drupal.progress
+  clientside_validation_jquery/cv.jquery.validate:
+    - dungeoncrawler/jquery.validate
+
+# Information added by Drupal.org packaging script on 2025-05-08
+version: '6.0.2'
+project: 'radix'
+datestamp: 1746711574

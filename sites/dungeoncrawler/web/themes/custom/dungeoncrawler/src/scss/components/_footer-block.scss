@@ -1,0 +1,98 @@
+// Footer block layout styles migrated from src/css/footer.css
+// -----------------------------------------------------------------------------
+
+.footer-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+@media (max-width: 768px) {
+  .footer-content {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+}
+
+.footer-section {
+  h3 {
+    color: var(--dc-accent-cyan);
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+  }
+
+  h4 {
+    color: var(--dc-accent-cyan);
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  p {
+    color: var(--dc-text-soft);
+    line-height: 1.6;
+    margin-bottom: 0.5rem;
+  }
+}
+
+.footer-tagline {
+  color: var(--dc-accent-cyan);
+  font-style: italic;
+  opacity: 0.8;
+}
+
+.footer-menu {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+
+  li {
+    margin-bottom: 0.5rem;
+  }
+
+  a {
+    color: var(--dc-text-soft);
+    text-decoration: none;
+    transition: all 0.3s ease;
+    display: inline-block;
+
+    &:hover {
+      color: var(--dc-accent-cyan);
+      padding-left: 0.5rem;
+    }
+  }
+}
+
+.footer-bottom {
+  text-align: center;
+  padding-top: 1.5rem;
+  color: var(--dc-text-secondary);
+  font-size: 0.9rem;
+
+  p {
+    margin: 0.25rem 0;
+  }
+}
+
+.footer-tech {
+  color: var(--dc-accent-cyan);
+  opacity: 0.6;
+  font-size: 0.85rem;
+}
+
+.footer-cta-link {
+  color: var(--dc-link-primary);
+  text-decoration: none;
+
+  &:hover,
+  &:focus {
+    color: var(--dc-link-hover);
+    text-decoration: underline;
+  }
+}

@@ -1,0 +1,12 @@
+# DungeonCrawler-specific AI Conversation Configuration
+# This overlay disables user provider selection and uses campaign context
+
+default_provider: bedrock
+enable_user_provider_selection: false
+context_provider: campaign
+available_contexts:
+  - campaign
+  - rules_assistance
+  - tactical_advice
+_core:
+  default_config_hash: user_provider_disabled_for_dungeoncrawler

@@ -1,0 +1,27 @@
+uuid: 1b6c1cf5-0ab9-40a3-9d4b-a00387654692
+langcode: en
+status: true
+dependencies:
+  module:
+    - ai_conversation
+    - comment
+    - copilot_agent_tracker
+    - dungeoncrawler_content
+    - node
+    - system
+id: dc_playwright_admin
+label: 'DC Playwright Admin'
+weight: 5
+is_admin: false
+permissions:
+  - 'access administration pages'
+  - 'access comments'
+  - 'access content'
+  - 'access content overview'
+  - 'access dungeoncrawler characters'
+  - 'administer ai conversation'
+  - 'administer copilot agent tracker'
+  - 'administer dungeoncrawler content'
+  - 'administer site configuration'
+  - 'create dungeoncrawler characters'
+  - 'use ai conversation'

@@ -1,0 +1,11 @@
+uuid: c97041f1-be81-4b4c-b259-618049af1e94
+langcode: en
+status: true
+dependencies: {  }
+name: 'AI Conversation'
+type: ai_conversation
+description: 'A conversation with an AI model'
+help: null
+new_revision: true
+preview_mode: 1
+display_submitted: true

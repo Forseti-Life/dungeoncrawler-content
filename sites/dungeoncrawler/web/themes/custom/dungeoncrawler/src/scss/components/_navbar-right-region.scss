@@ -1,0 +1,23 @@
+// Navbar right region layout migrated from src/css/navbar-right.css
+// -----------------------------------------------------------------------------
+
+.region-navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
+
+  > * {
+    margin: 0;
+  }
+
+  .block {
+    display: inline-block;
+  }
+}
+
+#block-socialauth-authgoogle,
+#block-useraccountmenu {
+  display: inline-block;
+  vertical-align: middle;
+}

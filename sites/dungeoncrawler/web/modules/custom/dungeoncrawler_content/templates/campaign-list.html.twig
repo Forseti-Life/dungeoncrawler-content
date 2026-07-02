@@ -1,0 +1,77 @@
+{#
+ # Campaign List — /campaigns page
+ # Campaign hub for returning and new users.
+ #}
+<div class="dc-character-list">
+  <div class="dc-character-list__header">
+    <h1 class="dc-character-list__title">🏰 My Legacy Campaigns</h1>
+    <div class="dc-sheet__nav-actions">
+      <a href="{{ characters_url }}" class="dc-btn dc-btn-secondary">⚔️ My Characters</a>
+      {% if archived_url %}
+        <a href="{{ archived_url }}" class="dc-btn dc-btn-secondary">🗄️ Archived Campaigns</a>
+      {% endif %}
+      <a href="{{ create_url }}" class="dc-btn dc-btn-primary">
+        <span class="dc-btn__icon">+</span> Create New Legacy Campaign
+      </a>
+    </div>
+  </div>
+
+  {% if campaigns|length > 0 %}
+    <div class="dc-character-grid">
+      {% for campaign in campaigns %}
+        <div class="dc-character-card dc-character-card--{{ campaign.status }}">
+          {% if campaign.archive_url %}
+            <a href="{{ campaign.archive_url }}" class="dc-character-card__archive-btn" title="Archive {{ campaign.name }}">
+              🗄️
+            </a>
+          {% endif %}
+
+          <a href="{{ campaign.url }}" class="dc-character-card__main-link">
+            <div class="dc-character-card__portrait">
+              <div class="dc-character-card__portrait-placeholder">
+                <span class="dc-character-card__initial">{{ campaign.name|first|upper }}</span>
+              </div>
+            </div>
+
+            <div class="dc-character-card__info">
+              <h3 class="dc-character-card__name">{{ campaign.name }}</h3>
+              <div class="dc-character-card__subtitle">
+                {{ campaign.theme }} · {{ campaign.difficulty }}
+              </div>
+
+              <div class="dc-character-card__stats">
+                <div class="dc-character-card__stat">
+                  <span class="dc-character-card__stat-label">Party</span>
+                  <span class="dc-character-card__stat-value">{{ campaign.character_count }}</span>
+                </div>
+                <div class="dc-character-card__stat">
+                  <span class="dc-character-card__stat-label">Active</span>
+                  <span class="dc-character-card__stat-value">{{ campaign.active_character }}</span>
+                </div>
+              </div>
+
+              <div class="dc-character-card__meta">
+                <span>{{ campaign.status_label }}</span>
+                <span>Updated {{ campaign.changed }}</span>
+              </div>
+
+              <div class="dc-character-card__meta dc-character-card__meta--campaign-state">
+                <span class="dc-btn dc-btn-success">{{ campaign.action_label }}</span>
+                <span>Created {{ campaign.created }}</span>
+              </div>
+            </div>
+
+            <div class="dc-character-card__arrow">›</div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="dc-character-list__empty">
+      <div class="dc-character-list__empty-icon">🧭</div>
+      <h2>No Campaigns Yet</h2>
+      <p>Create your first campaign home, then choose a character to begin a long-term story.</p>
+      <a href="{{ create_url }}" class="dc-btn dc-btn-primary">Create Your First Legacy Campaign</a>
+    </div>
+  {% endif %}
+</div>

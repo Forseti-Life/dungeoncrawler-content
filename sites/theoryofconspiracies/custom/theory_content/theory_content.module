@@ -1,0 +1,172 @@
+<?php
+
+/**
+ * @file
+ * Theory of Conspiracies content module.
+ */
+
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
+use Drupal\node\NodeInterface;
+
+/**
+ * Implements hook_theme().
+ */
+function theory_content_theme($existing, $type, $theme, $path) {
+  return [
+    'node__character' => [
+      'template' => 'node--character',
+      'base hook' => 'node',
+    ],
+    'node__sequence' => [
+      'template' => 'node--sequence',
+      'base hook' => 'node',
+    ],
+    'node__production_note' => [
+      'template' => 'node--production-note',
+      'base hook' => 'node',
+    ],
+    'character_profile' => [
+      'variables' => [
+        'character' => NULL,
+        'relationships' => [],
+        'trust_levels' => [],
+      ],
+      'template' => 'character-profile',
+    ],
+    'sequence_timeline' => [
+      'variables' => [
+        'sequences' => [],
+        'act' => NULL,
+      ],
+      'template' => 'sequence-timeline',
+    ],
+    'character_page' => [
+      'variables' => [
+        'character' => NULL,
+      ],
+      'template' => 'character-page',
+    ],
+    'characters_overview' => [
+      'variables' => [
+        'characters' => [],
+      ],
+      'template' => 'characters-overview',
+    ],
+    'act_overview' => [
+      'variables' => [
+        'act' => NULL,
+      ],
+      'template' => 'act-overview',
+    ],
+    'setting_page' => [
+      'variables' => [
+        'setting' => NULL,
+      ],
+      'template' => 'setting-page',
+    ],
+    'sequence_page' => [
+      'variables' => [
+        'sequence' => NULL,
+      ],
+      'template' => 'sequence_page',
+    ],
+    'theory_home' => [
+      'variables' => [
+        'movie_data' => NULL,
+        'featured_characters' => NULL,
+        'nav_sections' => NULL,
+        'updates' => NULL,
+      ],
+      'template' => 'theory-home',
+    ],
+    'legal_page' => [
+      'variables' => [
+        'page_type' => NULL,
+        'title' => NULL,
+        'content' => NULL,
+      ],
+      'template' => 'legal-page',
+    ],
+    'site_footer_block' => [
+      'variables' => [],
+      'template' => 'block--site-footer-block',
+    ],
+    'footer_bottom_block' => [
+      'variables' => [],
+      'template' => 'block--footer-bottom-block',
+    ],
+  ];
+}
+
+/**
+ * Implements hook_entity_extra_field_info().
+ */
+function theory_content_entity_extra_field_info() {
+  $extra = [];
+
+  // Add cyberpunk styling fields to Character content type
+  if (\Drupal::moduleHandler()->moduleExists('node')) {
+    $extra['node']['character']['display']['cyberpunk_profile'] = [
+      'label' => t('Cyberpunk Character Profile'),
+      'description' => t('Enhanced character display with cyberpunk styling'),
+      'weight' => 0,
+      'visible' => TRUE,
+    ];
+    
+    $extra['node']['sequence']['display']['cyberpunk_sequence'] = [
+      'label' => t('Cyberpunk Sequence Display'),
+      'description' => t('Enhanced sequence display with cyberpunk styling'),
+      'weight' => 0,
+      'visible' => TRUE,
+    ];
+  }
+
+  return $extra;
+}
+
+/**
+ * Implements hook_node_view().
+ */
+function theory_content_node_view(array &$build, EntityInterface $entity, EntityViewDisplayInterface $display, $view_mode) {
+  if ($entity->bundle() == 'character' && $display->getComponent('cyberpunk_profile')) {
+    $build['cyberpunk_profile'] = [
+      '#theme' => 'character_profile',
+      '#character' => $entity,
+      '#relationships' => _theory_content_get_character_relationships($entity),
+      '#trust_levels' => _theory_content_get_trust_levels($entity),
+      '#attached' => [
+        'library' => ['theory_content/character-display'],
+      ],
+    ];
+  }
+  
+  if ($entity->bundle() == 'sequence' && $display->getComponent('cyberpunk_sequence')) {
+    $build['cyberpunk_sequence'] = [
+      '#theme' => 'sequence_timeline',
+      '#sequences' => [$entity],
+      '#act' => $entity->get('field_act')->value ?? 1,
+      '#attached' => [
+        'library' => ['theory_content/sequence-display'],
+      ],
+    ];
+  }
+}
+
+/**
+ * Helper function to get character relationships.
+ */
+function _theory_content_get_character_relationships(NodeInterface $character) {
+  // This would query for related characters and their relationships
+  // For now, return empty array - implement based on field structure
+  return [];
+}
+
+/**
+ * Helper function to get trust levels for a character.
+ */
+function _theory_content_get_trust_levels(NodeInterface $character) {
+  // This would extract trust level data from the screenplay
+  // For now, return empty array - implement based on field structure
+  return [];
+}

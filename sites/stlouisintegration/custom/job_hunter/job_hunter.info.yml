@@ -1,0 +1,26 @@
+name: 'Job Hunter'
+type: module
+description: 'AI-powered job application automation with comprehensive job tracking, application workflow, and external service integration. SAFE UNINSTALL: Preserves all content and fields during uninstallation.'
+core_version_requirement: ^10 || ^11
+version: '1.0.0'
+package: 'St. Louis Integration'
+
+dependencies:
+  - drupal:node
+  - drupal:user
+  - drupal:field
+  - drupal:system
+  - drupal:views
+  - drupal:datetime
+  - drupal:options
+  - drupal:link
+  - drupal:file
+  - drupal:image
+  - drupal:text
+  - ai_conversation:ai_conversation
+  - professional_website_content:professional_website_content
+
+# Module maintainer information
+author: 'St. Louis Integration Development Team'
+homepage: 'https://stlouisintegration.com'
+support: 'https://github.com/keithaumiller/stlouisintegration.com'

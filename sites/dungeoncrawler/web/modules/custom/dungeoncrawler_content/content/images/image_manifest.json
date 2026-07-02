@@ -1,0 +1,3792 @@
+[
+    {
+        "image": {
+            "image_uuid": "5edfd8fe-8948-47e8-aaf5-33ef9e9afb8b",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772499486-3033",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "729803",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/5edfd8fe-8948-47e8-aaf5-33ef9e9afb8b.png",
+            "public_url": null,
+            "sha256": "a9ce824e908cab06dc9932db7ac7846716f446eacbc4186b34dfcf44f11722dc",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Tavern Door\nCategory: door\nDescription: Heavy wooden door between tavern and dungeon room\nSize: large\nDominant color: #8B4513\nShow as a door viewed from above: a rectangular wooden or metal panel with a visible handle/knob. Clear directional orientation.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772499494",
+            "updated": "1772499494",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "17",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "door_wood_tavern",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772499494",
+                "updated": "1772499494"
+            }
+        ],
+        "seed_filename": "5edfd8fe-8948-47e8-aaf5-33ef9e9afb8b.png"
+    },
+    {
+        "image": {
+            "image_uuid": "cfb9c792-99ca-46e3-bef2-127395a8cd23",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772501913-9290",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1140746",
+            "storage_scheme": "temporary",
+            "file_uri": "temporary://generated-images/2026/03/cfb9c792-99ca-46e3-bef2-127395a8cd23.png",
+            "public_url": null,
+            "sha256": "4a61e7f259aaee0ec284666d392aab5b14260a582cb91b04ad65cdffd4578d58",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter A\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the left section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772501919",
+            "updated": "1772501919",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "17",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_left",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772501919",
+                "updated": "1772501919"
+            }
+        ]
+    },
+    {
+        "image": {
+            "image_uuid": "10db4187-7186-4adc-a5b9-9398e77840c4",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772501919-6557",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "798513",
+            "storage_scheme": "temporary",
+            "file_uri": "temporary://generated-images/2026/03/10db4187-7186-4adc-a5b9-9398e77840c4.png",
+            "public_url": null,
+            "sha256": "158f6de67304499b99a61094bcf1f12b34327b6411a738939c46623d9db461ae",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter B\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the middle section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772501927",
+            "updated": "1772501927",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "17",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_middle",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772501927",
+                "updated": "1772501927"
+            }
+        ]
+    },
+    {
+        "image": {
+            "image_uuid": "60abe3e5-8980-4c79-9d83-1674e4f5fb48",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772501927-4541",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1142166",
+            "storage_scheme": "temporary",
+            "file_uri": "temporary://generated-images/2026/03/60abe3e5-8980-4c79-9d83-1674e4f5fb48.png",
+            "public_url": null,
+            "sha256": "81746917cd7e6d05681f7596c5fa6acb4b175f40d7c7cc6965b61aa60e21157d",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter C\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the right section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772501934",
+            "updated": "1772501934",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "17",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_right",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772501934",
+                "updated": "1772501934"
+            }
+        ]
+    },
+    {
+        "image": {
+            "image_uuid": "9c9b5b41-fe9b-470a-88a4-22789c425794",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772501934-2278",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1054480",
+            "storage_scheme": "temporary",
+            "file_uri": "temporary://generated-images/2026/03/9c9b5b41-fe9b-470a-88a4-22789c425794.png",
+            "public_url": null,
+            "sha256": "b4ec3e3e4d1ce15ed5370df3de5e41fa287cf58f125f5ebc508ef9d68c3e8b86",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Round Table A\nCategory: table\nDescription: Movable round tavern table suitable for small gatherings. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.\nSize: medium\nDominant color: #8B4513\nShow as a table from above: a round or rectangular wooden surface, possibly with items on it. Woodgrain or cloth texture.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772501939",
+            "updated": "1772501939",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "17",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_round_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772501939",
+                "updated": "1772501939"
+            }
+        ]
+    },
+    {
+        "image": {
+            "image_uuid": "cc232174-d619-4579-bbf7-8d66cd61a583",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772501939-3747",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1197496",
+            "storage_scheme": "temporary",
+            "file_uri": "temporary://generated-images/2026/03/cc232174-d619-4579-bbf7-8d66cd61a583.png",
+            "public_url": null,
+            "sha256": "5cedfe893dd9e50647788ab9029ea7309be9ba30b5e0ea4e67be496a294c16d6",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Long Table A\nCategory: table\nDescription: Movable long wooden table for larger groups or feasts. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.\nSize: large\nDominant color: #8B4513\nShow as a table from above: a round or rectangular wooden surface, possibly with items on it. Woodgrain or cloth texture.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772501947",
+            "updated": "1772501947",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "17",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_long_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772501947",
+                "updated": "1772501947"
+            }
+        ]
+    },
+    {
+        "image": {
+            "image_uuid": "ae03f146-9f53-4f72-9ff0-bef6d9a2ec99",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772501947-3329",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1108073",
+            "storage_scheme": "temporary",
+            "file_uri": "temporary://generated-images/2026/03/ae03f146-9f53-4f72-9ff0-bef6d9a2ec99.png",
+            "public_url": null,
+            "sha256": "2b19d2b5274bd6e12a1f9976633b196b8a84d1f668a45901e5669889c574565d",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Stool Stack\nCategory: stool\nDescription: Stack of lightweight tavern stools. Entities can share hexes with these stools, and multiple stools can occupy the same space, allowing flexible positioning around tables. Can be kicked aside or us...\nSize: small\nDominant color: #A0522D\nShow as a small round seat from above: a circular wooden stool or chair with visible seat and maybe legs peeking out.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772501955",
+            "updated": "1772501955",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "17",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "stool_stack_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772501955",
+                "updated": "1772501955"
+            }
+        ]
+    },
+    {
+        "image": {
+            "image_uuid": "163cf73a-a13b-47f7-88a4-4e645847de8c",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772501955-8078",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1024558",
+            "storage_scheme": "temporary",
+            "file_uri": "temporary://generated-images/2026/03/163cf73a-a13b-47f7-88a4-4e645847de8c.png",
+            "public_url": null,
+            "sha256": "cfa0b8a6fd5cedf97fc64ddcb7aeca18edd3904b5fac217712afb068b02fe28b",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Crate Stack\nCategory: crate\nDescription: Stack of supply crates used for tavern storage. Blocks hex occupancy but can be pushed to create temporary barriers or clear pathways. Multiple crates can be stacked in the same location. Provides ...\nSize: medium\nDominant color: #8B7355\nShow as a crate or barrel from above: square wooden planks with cross-bracing for a crate, or a round top with metal bands for a barrel.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772501961",
+            "updated": "1772501961",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "17",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "crate_stack_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772501961",
+                "updated": "1772501961"
+            }
+        ]
+    },
+    {
+        "image": {
+            "image_uuid": "aae2fa4f-e1bb-4553-9c92-ceae072b55ac",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772553101-7843",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1336280",
+            "storage_scheme": "temporary",
+            "file_uri": "temporary://generated-images/2026/03/aae2fa4f-e1bb-4553-9c92-ceae072b55ac.png",
+            "public_url": null,
+            "sha256": "6815aef21b4994a50439b4cc915fe7871f24dddb4431a46fd59c0de28e5333a9",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Burasco\n- Ancestry: human\n- Class: wizard\n- Background: criminal\n- Alignment: CG\n- Age: 18\n- Gender/Pronouns: He/Him\n- Concept: An frustrated Wizard that is tired of the world.\n- Appearance: Dark hair, bad attitude\n- Personality: generally looks condescending and skeptical\n- Backstory: Lowborn with a chip on his shoulder.\n- Abilities: STR 10, DEX 14, CON 12, INT 16, WIS 10, CHA 12\nUser direction:\nA sleezy wizard",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "character_creation",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772553107",
+            "updated": "1772553107",
+            "deleted": "0"
+        },
+        "links": []
+    },
+    {
+        "image": {
+            "image_uuid": "1ccd05e2-334d-475b-8bd3-1331f4640b26",
+            "owner_uid": "0",
+            "provider": "smoke-test",
+            "provider_request_id": "smoke-1772553749",
+            "provider_model": "",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1",
+            "height": "1",
+            "bytes": "68",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/1ccd05e2-334d-475b-8bd3-1331f4640b26.png",
+            "public_url": null,
+            "sha256": "942a43899d1d89c459006962f5edf96a1f7ae8e4334a5b8a839b8c7cfbdc46ab",
+            "prompt_text": "smoke test",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": null,
+                "aspect_ratio": null,
+                "campaign_context": null,
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772553749",
+            "updated": "1772553749",
+            "deleted": "0"
+        },
+        "links": [],
+        "seed_filename": "1ccd05e2-334d-475b-8bd3-1331f4640b26.png"
+    },
+    {
+        "image": {
+            "image_uuid": "943217be-321f-4c11-b2ba-9ae0f7b4750e",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-9",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1336280",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/943217be-321f-4c11-b2ba-9ae0f7b4750e.png",
+            "public_url": null,
+            "sha256": "6815aef21b4994a50439b4cc915fe7871f24dddb4431a46fd59c0de28e5333a9",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Burasco\n- Ancestry: human\n- Class: wizard\n- Background: criminal\n- Alignment: CG\n- Age: 18\n- Gender/Pronouns: He/Him\n- Concept: An frustrated Wizard that is tired of the world.\n- Appearance: Dark hair, bad attitude\n- Personality: generally looks condescending and skeptical\n- Backstory: Lowborn with a chip on his shoulder.\n- Abilities: STR 10, DEX 14, CON 12, INT 16, WIS 10, CHA 12\nUser direction:\nA sleezy wizard",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "character_regeneration",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772553919",
+            "updated": "1772553919",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_campaign_characters",
+                "object_id": "76",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772553919",
+                "updated": "1772553919"
+            }
+        ],
+        "seed_filename": "943217be-321f-4c11-b2ba-9ae0f7b4750e.png"
+    },
+    {
+        "image": {
+            "image_uuid": "738658e6-73e4-4374-b462-a5b110710c18",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772556780-2685",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1378511",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/738658e6-73e4-4374-b462-a5b110710c18.png",
+            "public_url": null,
+            "sha256": "372def6bcf6eb165fe337b9072c435a92954cab49f0463e84582c2eba777e019",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Eldric\n- Ancestry: Human\n- Class: Tavern Keeper",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "npc_portrait_generation",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772556786",
+            "updated": "1772556786",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_campaign_characters",
+                "object_id": "74",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772556786",
+                "updated": "1772556786"
+            },
+            {
+                "scope_type": "global",
+                "campaign_id": null,
+                "table_name": "dungeoncrawler_content_characters",
+                "object_id": "11",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772556943",
+                "updated": "1772556943"
+            }
+        ],
+        "seed_filename": "738658e6-73e4-4374-b462-a5b110710c18.png"
+    },
+    {
+        "image": {
+            "image_uuid": "a65b5ddb-2331-4aa8-8cf3-73f419c62f09",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772556786-3749",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1378143",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/a65b5ddb-2331-4aa8-8cf3-73f419c62f09.png",
+            "public_url": null,
+            "sha256": "39b3aa9962451b3b7044cc02c4c476b53671ed708a3962a7e519c948fe853e69",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Gribbles Rindsworth the Magnificent\n- Ancestry: Goblin\n- Class: Rogue\n- Background: street-urchin\n- Alignment: CN\n- Deity: None (worships cheese conceptually)\n- Age: Adult (exact age uncertain)\n- Gender/Pronouns: Male\n- Concept: Cheese-obsessed goblin rogue with a rat intelligence network, on a quest for the Legendary Cheese\n- Appearance: Small goblin with oversized ears that perk up at the word 'cheese'. Wears a distinctive hat made from aged cheese wrappers. His studded leather armor features tiny brass buttons shaped like cheese wheels. Always carries himself with unwarranted confidence and gesticulates wildly when speaking. Bright, intelligent eyes constantly dart about, assessing threats and opportunities.\n- Personality: Silly and whimsical but genuinely confident. Talks fast and gesticulates wildly. Unshakably loyal once bribed with snacks. Refers to himself in third person when excited. Has an intelligence network of rats, led by 'Eduardo'. Deep and abiding fear of spiders. Considers cheese a spiritual experience.\n- Backstory: Gribbles grew up in the undercity, scavenging and developing an improbably refined palate for cheese. He built a small intelligence network of rats led by his most trusted associate, Eduardo, who tipped him off about a Legendary Cheese aged in the Fungal Pantry deep within the dungeon. Gribbles' cousin Blemish was flattened by a trap and now serves as a bookmark \u2014 he's fine with it, mostly. Gribbles is on a sacred quest to find the cheese, and he'll partner with any adventurer willing to share a pickle and tolerate his enthusiasm.\n- Abilities: STR 10, DEX 18, CON 14, INT 12, WIS 12, CHA 14\nUser direction:\nvillainous goblin tavern/dungeon antagonist portrait",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "npc_portrait_generation",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772556793",
+            "updated": "1772556793",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "gribbles_rindsworth",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772556793",
+                "updated": "1772556793"
+            },
+            {
+                "scope_type": "global",
+                "campaign_id": null,
+                "table_name": "dungeoncrawler_content_characters",
+                "object_id": "12",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772556943",
+                "updated": "1772556943"
+            }
+        ],
+        "seed_filename": "a65b5ddb-2331-4aa8-8cf3-73f419c62f09.png"
+    },
+    {
+        "image": {
+            "image_uuid": "0b3c6c66-7765-4fff-a7c3-af563080330d",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-2",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1140746",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/0b3c6c66-7765-4fff-a7c3-af563080330d.png",
+            "public_url": null,
+            "sha256": "4a61e7f259aaee0ec284666d392aab5b14260a582cb91b04ad65cdffd4578d58",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter A\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the left section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559381",
+            "updated": "1772559381",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_left",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559381",
+                "updated": "1772559381"
+            }
+        ],
+        "seed_filename": "0b3c6c66-7765-4fff-a7c3-af563080330d.png"
+    },
+    {
+        "image": {
+            "image_uuid": "2f9f780a-2ed1-4cf4-85b3-48adf753ff74",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-3",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "798513",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/2f9f780a-2ed1-4cf4-85b3-48adf753ff74.png",
+            "public_url": null,
+            "sha256": "158f6de67304499b99a61094bcf1f12b34327b6411a738939c46623d9db461ae",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter B\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the middle section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559381",
+            "updated": "1772559381",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_middle",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559381",
+                "updated": "1772559381"
+            }
+        ],
+        "seed_filename": "2f9f780a-2ed1-4cf4-85b3-48adf753ff74.png"
+    },
+    {
+        "image": {
+            "image_uuid": "b0aa8e16-e872-4f4c-9e78-10d14662c3f9",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-4",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1142166",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/b0aa8e16-e872-4f4c-9e78-10d14662c3f9.png",
+            "public_url": null,
+            "sha256": "81746917cd7e6d05681f7596c5fa6acb4b175f40d7c7cc6965b61aa60e21157d",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter C\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the right section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559381",
+            "updated": "1772559381",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_right",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559381",
+                "updated": "1772559381"
+            }
+        ],
+        "seed_filename": "b0aa8e16-e872-4f4c-9e78-10d14662c3f9.png"
+    },
+    {
+        "image": {
+            "image_uuid": "acd15492-8ed6-4c5a-9aba-68109d9eec08",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-6",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1197496",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/acd15492-8ed6-4c5a-9aba-68109d9eec08.png",
+            "public_url": null,
+            "sha256": "5cedfe893dd9e50647788ab9029ea7309be9ba30b5e0ea4e67be496a294c16d6",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Long Table A\nCategory: table\nDescription: Movable long wooden table for larger groups or feasts. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.\nSize: large\nDominant color: #8B4513\nShow as a table from above: a round or rectangular wooden surface, possibly with items on it. Woodgrain or cloth texture.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559381",
+            "updated": "1772559381",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_long_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559381",
+                "updated": "1772559381"
+            }
+        ],
+        "seed_filename": "acd15492-8ed6-4c5a-9aba-68109d9eec08.png"
+    },
+    {
+        "image": {
+            "image_uuid": "941a8165-3c7b-4b89-b860-46328c5a5a4b",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-2",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1140746",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/941a8165-3c7b-4b89-b860-46328c5a5a4b.png",
+            "public_url": null,
+            "sha256": "4a61e7f259aaee0ec284666d392aab5b14260a582cb91b04ad65cdffd4578d58",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter A\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the left section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559416",
+            "updated": "1772559416",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_left",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559416",
+                "updated": "1772559416"
+            }
+        ],
+        "seed_filename": "941a8165-3c7b-4b89-b860-46328c5a5a4b.png"
+    },
+    {
+        "image": {
+            "image_uuid": "d0edb61a-31b6-4e4c-bd07-48202f38a98a",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-3",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "798513",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/d0edb61a-31b6-4e4c-bd07-48202f38a98a.png",
+            "public_url": null,
+            "sha256": "158f6de67304499b99a61094bcf1f12b34327b6411a738939c46623d9db461ae",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter B\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the middle section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559416",
+            "updated": "1772559416",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_middle",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559416",
+                "updated": "1772559416"
+            }
+        ],
+        "seed_filename": "d0edb61a-31b6-4e4c-bd07-48202f38a98a.png"
+    },
+    {
+        "image": {
+            "image_uuid": "d0952550-c8e4-42a1-967e-79cfe797e8e9",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-4",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1142166",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/d0952550-c8e4-42a1-967e-79cfe797e8e9.png",
+            "public_url": null,
+            "sha256": "81746917cd7e6d05681f7596c5fa6acb4b175f40d7c7cc6965b61aa60e21157d",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter C\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the right section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559417",
+            "updated": "1772559417",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_right",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559417",
+                "updated": "1772559417"
+            }
+        ],
+        "seed_filename": "d0952550-c8e4-42a1-967e-79cfe797e8e9.png"
+    },
+    {
+        "image": {
+            "image_uuid": "4fd15f5e-fd0a-4f0e-8e3f-ab93135eba66",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-6",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1197496",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/4fd15f5e-fd0a-4f0e-8e3f-ab93135eba66.png",
+            "public_url": null,
+            "sha256": "5cedfe893dd9e50647788ab9029ea7309be9ba30b5e0ea4e67be496a294c16d6",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Long Table A\nCategory: table\nDescription: Movable long wooden table for larger groups or feasts. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.\nSize: large\nDominant color: #8B4513\nShow as a table from above: a round or rectangular wooden surface, possibly with items on it. Woodgrain or cloth texture.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559417",
+            "updated": "1772559417",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_long_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559417",
+                "updated": "1772559417"
+            }
+        ],
+        "seed_filename": "4fd15f5e-fd0a-4f0e-8e3f-ab93135eba66.png"
+    },
+    {
+        "image": {
+            "image_uuid": "d8cd3839-cc9d-4d45-a690-13ebc4e606f8",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772559417-2078",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1201228",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/d8cd3839-cc9d-4d45-a690-13ebc4e606f8.png",
+            "public_url": null,
+            "sha256": "fa3580eda2b8e716787b1662c95e349b4955fee8851a2b7d51e3d43ffb919c29",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Long Table Center\nCategory: table\nDescription: Center extension segment for a composed long wooden table.\nSize: large\nDominant color: #8B4513\nShow as a table from above: a round or rectangular wooden surface, possibly with items on it. Woodgrain or cloth texture.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772559427",
+            "updated": "1772559427",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_long_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559427",
+                "updated": "1772559427"
+            }
+        ],
+        "seed_filename": "d8cd3839-cc9d-4d45-a690-13ebc4e606f8.png"
+    },
+    {
+        "image": {
+            "image_uuid": "b2bbabf0-cc99-4f20-9a37-13a4f78d5923",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772559427-9947",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1343836",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/b2bbabf0-cc99-4f20-9a37-13a4f78d5923.png",
+            "public_url": null,
+            "sha256": "da305644a64e499ab15dfdf22623ab24c730e940e6fe16884774485765248967",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Long Table B\nCategory: table\nDescription: Second end-cap segment for a composed long wooden table.\nSize: large\nDominant color: #8B4513\nShow as a table from above: a round or rectangular wooden surface, possibly with items on it. Woodgrain or cloth texture.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772559453",
+            "updated": "1772559453",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_long_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559453",
+                "updated": "1772559453"
+            }
+        ],
+        "seed_filename": "b2bbabf0-cc99-4f20-9a37-13a4f78d5923.png"
+    },
+    {
+        "image": {
+            "image_uuid": "ec747bc7-9664-4040-a037-318c4d1facb6",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-5",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1054480",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/ec747bc7-9664-4040-a037-318c4d1facb6.png",
+            "public_url": null,
+            "sha256": "b4ec3e3e4d1ce15ed5370df3de5e41fa287cf58f125f5ebc508ef9d68c3e8b86",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Round Table A\nCategory: table\nDescription: Movable round tavern table suitable for small gatherings. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.\nSize: medium\nDominant color: #8B4513\nShow as a table from above: a round or rectangular wooden surface, possibly with items on it. Woodgrain or cloth texture.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559453",
+            "updated": "1772559453",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_round_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559453",
+                "updated": "1772559453"
+            }
+        ],
+        "seed_filename": "ec747bc7-9664-4040-a037-318c4d1facb6.png"
+    },
+    {
+        "image": {
+            "image_uuid": "e3c425b1-fa5a-49e5-9665-85a16f0fa9ec",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-8",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1024558",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/e3c425b1-fa5a-49e5-9665-85a16f0fa9ec.png",
+            "public_url": null,
+            "sha256": "cfa0b8a6fd5cedf97fc64ddcb7aeca18edd3904b5fac217712afb068b02fe28b",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Crate Stack\nCategory: crate\nDescription: Stack of supply crates used for tavern storage. Blocks hex occupancy but can be pushed to create temporary barriers or clear pathways. Multiple crates can be stacked in the same location. Provides ...\nSize: medium\nDominant color: #8B7355\nShow as a crate or barrel from above: square wooden planks with cross-bracing for a crate, or a round top with metal bands for a barrel.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559453",
+            "updated": "1772559453",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "crate_stack_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559453",
+                "updated": "1772559453"
+            }
+        ],
+        "seed_filename": "e3c425b1-fa5a-49e5-9665-85a16f0fa9ec.png"
+    },
+    {
+        "image": {
+            "image_uuid": "890dfb21-1583-4eb4-a9fd-c9acc01c6908",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-5",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1054480",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/890dfb21-1583-4eb4-a9fd-c9acc01c6908.png",
+            "public_url": null,
+            "sha256": "b4ec3e3e4d1ce15ed5370df3de5e41fa287cf58f125f5ebc508ef9d68c3e8b86",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Round Table A\nCategory: table\nDescription: Movable round tavern table suitable for small gatherings. Can be pushed by players to rearrange the tavern space or create barriers during combat. Provides light cover when used defensively.\nSize: medium\nDominant color: #8B4513\nShow as a table from above: a round or rectangular wooden surface, possibly with items on it. Woodgrain or cloth texture.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559454",
+            "updated": "1772559454",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_round_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559454",
+                "updated": "1772559454"
+            }
+        ],
+        "seed_filename": "890dfb21-1583-4eb4-a9fd-c9acc01c6908.png"
+    },
+    {
+        "image": {
+            "image_uuid": "4873cbb3-eeb7-4f56-af48-cfdd08313acd",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-8",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1024558",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/4873cbb3-eeb7-4f56-af48-cfdd08313acd.png",
+            "public_url": null,
+            "sha256": "cfa0b8a6fd5cedf97fc64ddcb7aeca18edd3904b5fac217712afb068b02fe28b",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Crate Stack\nCategory: crate\nDescription: Stack of supply crates used for tavern storage. Blocks hex occupancy but can be pushed to create temporary barriers or clear pathways. Multiple crates can be stacked in the same location. Provides ...\nSize: medium\nDominant color: #8B7355\nShow as a crate or barrel from above: square wooden planks with cross-bracing for a crate, or a round top with metal bands for a barrel.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772559454",
+            "updated": "1772559454",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "crate_stack_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772559454",
+                "updated": "1772559454"
+            }
+        ],
+        "seed_filename": "4873cbb3-eeb7-4f56-af48-cfdd08313acd.png"
+    },
+    {
+        "image": {
+            "image_uuid": "c193abdd-6d5e-406b-b564-8ee54ab27ebb",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772560207-6561",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "599785",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/c193abdd-6d5e-406b-b564-8ee54ab27ebb.png",
+            "public_url": null,
+            "sha256": "d5a1f87839585e4388d5fe4d0564ee6b887a137182cd5acd155e669fbfc5db46",
+            "prompt_text": "A top-down orthographic map tile of the end of a long, rectangular medieval wooden banquet table. Dark oak wood grain, heavy carved legs visible at one end, clean white background, high-quality 2D digital art style. The table should occupy exactly half the frame, cut off cleanly at the midpoint. No chairs, no shadows, flat lighting.",
+            "negative_prompt": "chairs, people, characters, shadows, dramatic lighting, perspective angle, watermark, text, logo, signature, cluttered background",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772560213",
+            "updated": "1772560213",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "table_long_wood_end",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772560213",
+                "updated": "1772560213"
+            }
+        ],
+        "seed_filename": "c193abdd-6d5e-406b-b564-8ee54ab27ebb.png"
+    },
+    {
+        "image": {
+            "image_uuid": "dfdd4fb4-a7f0-496c-9e55-4cae7b2e1f0b",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772561588-3375",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "839235",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/dfdd4fb4-a7f0-496c-9e55-4cae7b2e1f0b.png",
+            "public_url": null,
+            "sha256": "d2687b5cbd22fb81e217ba2f237501f663281795d30968a4f77f292bea88802e",
+            "prompt_text": "A top-down orthographic 2D map tile of a thick wooden log wall cutting through the center of a hexagonal frame. The wall is made of vertical sharpened timber poles lashed together with rope. The ground is a neutral dirt texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772561594",
+            "updated": "1772561594",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_log_flat",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772561594",
+                "updated": "1772561594"
+            }
+        ],
+        "seed_filename": "dfdd4fb4-a7f0-496c-9e55-4cae7b2e1f0b.png"
+    },
+    {
+        "image": {
+            "image_uuid": "f4ca8f93-7211-4d32-906c-f5ac6703fd34",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772561594-4468",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1225783",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/f4ca8f93-7211-4d32-906c-f5ac6703fd34.png",
+            "public_url": null,
+            "sha256": "57d6a3d84d68951d0916cb7e763abf4447416c81993006f835857cfe16d30538",
+            "prompt_text": "A top-down orthographic 2D map tile of a thick wooden log wall turning through an acute corner inside a hexagonal frame. The wall is made of vertical sharpened timber poles lashed together with rope. The ground is a neutral dirt texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772561601",
+            "updated": "1772561601",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_log_corner_acute",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772561601",
+                "updated": "1772561601"
+            }
+        ],
+        "seed_filename": "f4ca8f93-7211-4d32-906c-f5ac6703fd34.png"
+    },
+    {
+        "image": {
+            "image_uuid": "cccc01d3-1c3e-4582-8108-df941fa1d8b9",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772561601-7776",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "971548",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/cccc01d3-1c3e-4582-8108-df941fa1d8b9.png",
+            "public_url": null,
+            "sha256": "a305c7750fde411625f8d81fb0d86245643ad203c757c27ff66d961a9aa3b898",
+            "prompt_text": "A top-down orthographic 2D map tile of a thick wooden log wall turning through an obtuse corner inside a hexagonal frame. The wall is made of vertical sharpened timber poles lashed together with rope. The ground is a neutral dirt texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772561607",
+            "updated": "1772561607",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_log_corner_obtuse",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772561607",
+                "updated": "1772561607"
+            }
+        ],
+        "seed_filename": "cccc01d3-1c3e-4582-8108-df941fa1d8b9.png"
+    },
+    {
+        "image": {
+            "image_uuid": "36800f87-e075-47ed-beb2-249e6d4d6788",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772561607-5399",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1359906",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/36800f87-e075-47ed-beb2-249e6d4d6788.png",
+            "public_url": null,
+            "sha256": "fe9368b6cef9fec7afbca016b252bcfca5308cefab4feaba2b5b68fe2be1acff",
+            "prompt_text": "A top-down orthographic 2D map tile of a sturdy grey stone fortress wall cutting through the center of a hexagonal frame. The wall is made of heavy weathered masonry blocks with visible mortar and crenellations. The ground is a neutral stone floor texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772561613",
+            "updated": "1772561613",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772561613",
+                "updated": "1772562309"
+            }
+        ],
+        "seed_filename": "36800f87-e075-47ed-beb2-249e6d4d6788.png"
+    },
+    {
+        "image": {
+            "image_uuid": "c5980d5c-5a4d-4e35-8225-91aac73c94f1",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772561613-3108",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "965416",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/c5980d5c-5a4d-4e35-8225-91aac73c94f1.png",
+            "public_url": null,
+            "sha256": "0791d09b26a564f7a4803c77e040831794c5a7bfca812060a98dca1347cc46d6",
+            "prompt_text": "A top-down orthographic 2D map tile of a sturdy grey stone fortress wall turning through an acute corner inside a hexagonal frame. The wall is made of heavy weathered masonry blocks with visible mortar and crenellations. The ground is a neutral stone floor texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772561619",
+            "updated": "1772561619",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_corner_acute",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772561619",
+                "updated": "1772562785"
+            }
+        ],
+        "seed_filename": "c5980d5c-5a4d-4e35-8225-91aac73c94f1.png"
+    },
+    {
+        "image": {
+            "image_uuid": "902c9743-8c7c-4c21-a121-4ca33721691c",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772561619-6688",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1231889",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/902c9743-8c7c-4c21-a121-4ca33721691c.png",
+            "public_url": null,
+            "sha256": "8e9c9d490bcddec7de2da69d52cd192d81eadb82298fa8d6b62bd3f4063a004c",
+            "prompt_text": "A top-down orthographic 2D map tile of a sturdy grey stone fortress wall turning through an obtuse corner inside a hexagonal frame. The wall is made of heavy weathered masonry blocks with visible mortar and crenellations. The ground is a neutral stone floor texture. Clean hexagonal border, tabletop RPG style, flat lighting, high detail, white background.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772561624",
+            "updated": "1772561624",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_corner_obtuse",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772561624",
+                "updated": "1772562785"
+            }
+        ],
+        "seed_filename": "902c9743-8c7c-4c21-a121-4ca33721691c.png"
+    },
+    {
+        "image": {
+            "image_uuid": "e9af5077-bcf3-47c1-83fc-a2e8a7434bf2",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-1772562309",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/jpeg",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "203165",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/e9af5077-bcf3-47c1-83fc-a2e8a7434bf2.jpg",
+            "public_url": null,
+            "sha256": "37b927019256ec3059f18c9dc09d05ede99c327cffd24477009c2d7cb39a2d8b",
+            "prompt_text": "User uploaded flat stone wall tile",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562309",
+            "updated": "1772562309",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562309",
+                "updated": "1772562309"
+            }
+        ],
+        "seed_filename": "e9af5077-bcf3-47c1-83fc-a2e8a7434bf2.jpg"
+    },
+    {
+        "image": {
+            "image_uuid": "c43289ed-380c-450b-90b6-d40d643552a1",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-1772562445-wall_stone_flat_ew",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "768",
+            "height": "768",
+            "bytes": "292036",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/c43289ed-380c-450b-90b6-d40d643552a1.png",
+            "public_url": null,
+            "sha256": "0905e7cdafcd0352d71a135b80cd5ea975c6cbe75a8a20a4df53d1072b12fc12",
+            "prompt_text": "User uploaded processed wall tile (wall_stone_flat_ew)",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562445",
+            "updated": "1772562445",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ew",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562445",
+                "updated": "1772564407"
+            }
+        ],
+        "seed_filename": "c43289ed-380c-450b-90b6-d40d643552a1.png"
+    },
+    {
+        "image": {
+            "image_uuid": "3497ba70-fa44-4b8d-9416-560febd994f8",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-1772562445-wall_stone_flat_ns",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "768",
+            "height": "768",
+            "bytes": "313857",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/3497ba70-fa44-4b8d-9416-560febd994f8.png",
+            "public_url": null,
+            "sha256": "91a2b18448ae8fbfc3984475c3f61a73541ea05f0ff139104c614b56a075708c",
+            "prompt_text": "User uploaded processed wall tile (wall_stone_flat_ns)",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562445",
+            "updated": "1772562445",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ns",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562445",
+                "updated": "1772563691"
+            }
+        ],
+        "seed_filename": "3497ba70-fa44-4b8d-9416-560febd994f8.png"
+    },
+    {
+        "image": {
+            "image_uuid": "2fc6a26a-637f-4e99-a145-cf690786d54a",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-tight-1772562549-wall_stone_flat_ew",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "650",
+            "height": "241",
+            "bytes": "282961",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/2fc6a26a-637f-4e99-a145-cf690786d54a.png",
+            "public_url": null,
+            "sha256": "a04cf8b645e1c6dd31a0c5df577f140952482485858975cb67296e33675bf244",
+            "prompt_text": "User uploaded tight-cropped wall tile (wall_stone_flat_ew)",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562549",
+            "updated": "1772562549",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ew",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562549",
+                "updated": "1772564407"
+            }
+        ],
+        "seed_filename": "2fc6a26a-637f-4e99-a145-cf690786d54a.png"
+    },
+    {
+        "image": {
+            "image_uuid": "f68069ce-bf5c-41df-8927-55c251137df8",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-tight-1772562549-wall_stone_flat_ns",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "241",
+            "height": "650",
+            "bytes": "287218",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/f68069ce-bf5c-41df-8927-55c251137df8.png",
+            "public_url": null,
+            "sha256": "6486768552a7dd6d04bf552cc02c8bbf356672337613c86b569985bf9f6b6293",
+            "prompt_text": "User uploaded tight-cropped wall tile (wall_stone_flat_ns)",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562549",
+            "updated": "1772562549",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ns",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562549",
+                "updated": "1772563691"
+            }
+        ],
+        "seed_filename": "f68069ce-bf5c-41df-8927-55c251137df8.png"
+    },
+    {
+        "image": {
+            "image_uuid": "e031e4ca-6cf4-475f-8f3f-f6eea49d56f6",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-ew-rot30-1772562652",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "658",
+            "height": "508",
+            "bytes": "352528",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/e031e4ca-6cf4-475f-8f3f-f6eea49d56f6.png",
+            "public_url": null,
+            "sha256": "823c501e6bee2679e2fdd2fa93bb13ab19bcf40d0dcfb44f917c9459485dbaf9",
+            "prompt_text": "User uploaded EW wall tile rotated 30 degrees clockwise",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562652",
+            "updated": "1772562652",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ew",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562652",
+                "updated": "1772564407"
+            }
+        ],
+        "seed_filename": "e031e4ca-6cf4-475f-8f3f-f6eea49d56f6.png"
+    },
+    {
+        "image": {
+            "image_uuid": "ac4862c8-eafd-43b5-b7d3-5b315b58ae77",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-plus10-1772562785-wall_stone_flat_ew",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "724",
+            "height": "559",
+            "bytes": "420541",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/ac4862c8-eafd-43b5-b7d3-5b315b58ae77.png",
+            "public_url": null,
+            "sha256": "6e42d25ef46c97e1c9f6fb93747d43c1905004958191ef4c58c77f37610826c9",
+            "prompt_text": "Scaled +10% wall image for wall_stone_flat_ew",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562785",
+            "updated": "1772562785",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ew",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562785",
+                "updated": "1772564407"
+            }
+        ],
+        "seed_filename": "ac4862c8-eafd-43b5-b7d3-5b315b58ae77.png"
+    },
+    {
+        "image": {
+            "image_uuid": "f1e640cc-1c98-4a77-b2c9-5673d77e5b43",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-plus10-1772562785-wall_stone_flat_ns",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "265",
+            "height": "715",
+            "bytes": "343054",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/f1e640cc-1c98-4a77-b2c9-5673d77e5b43.png",
+            "public_url": null,
+            "sha256": "8ddf5b444fb94a0078779287732310fd2ee1589caa52e464bac33d9fd84abf21",
+            "prompt_text": "Scaled +10% wall image for wall_stone_flat_ns",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562785",
+            "updated": "1772562785",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ns",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562785",
+                "updated": "1772563691"
+            }
+        ],
+        "seed_filename": "f1e640cc-1c98-4a77-b2c9-5673d77e5b43.png"
+    },
+    {
+        "image": {
+            "image_uuid": "9d1d1504-d497-4935-b3c9-d469c307b8aa",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-plus10-1772562785-wall_stone_corner_acute",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1126",
+            "height": "1126",
+            "bytes": "1271831",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/9d1d1504-d497-4935-b3c9-d469c307b8aa.png",
+            "public_url": null,
+            "sha256": "e2b5de5f0e473002d6d4c47788653b6488ffe588d4c8ccbeefbc46776279837d",
+            "prompt_text": "Scaled +10% wall image for wall_stone_corner_acute",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562785",
+            "updated": "1772562785",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_corner_acute",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562785",
+                "updated": "1772562785"
+            }
+        ],
+        "seed_filename": "9d1d1504-d497-4935-b3c9-d469c307b8aa.png"
+    },
+    {
+        "image": {
+            "image_uuid": "7d69019e-35df-4552-9a1d-0139844a8aa1",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-plus10-1772562785-wall_stone_corner_obtuse",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1126",
+            "height": "1126",
+            "bytes": "1637420",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/7d69019e-35df-4552-9a1d-0139844a8aa1.png",
+            "public_url": null,
+            "sha256": "7c6be8265a425aa70d07ec3b0384353ace8f07d73903c5f8d537bc4d1210f691",
+            "prompt_text": "Scaled +10% wall image for wall_stone_corner_obtuse",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772562785",
+            "updated": "1772562785",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_corner_obtuse",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772562785",
+                "updated": "1772562785"
+            }
+        ],
+        "seed_filename": "7d69019e-35df-4552-9a1d-0139844a8aa1.png"
+    },
+    {
+        "image": {
+            "image_uuid": "74d876af-a962-4404-90f8-7c7b469729d0",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-ns-plus10-more-1772563691",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "292",
+            "height": "787",
+            "bytes": "407355",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/74d876af-a962-4404-90f8-7c7b469729d0.png",
+            "public_url": null,
+            "sha256": "98ccb1d465a34e3b1b667201dfab10898e76949a7ce131efd3a379562248562a",
+            "prompt_text": "Scaled +10% additional NS wall image",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772563691",
+            "updated": "1772563691",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ns",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772563691",
+                "updated": "1772563691"
+            }
+        ],
+        "seed_filename": "74d876af-a962-4404-90f8-7c7b469729d0.png"
+    },
+    {
+        "image": {
+            "image_uuid": "6cfcb15f-bf75-4b38-bd5a-5872b8f22b64",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-ew-from-ns-rot30-1772563871",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "615",
+            "height": "798",
+            "bytes": "492892",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/6cfcb15f-bf75-4b38-bd5a-5872b8f22b64.png",
+            "public_url": null,
+            "sha256": "86d21866c8a7c5fc76192f90ee17fad8a8075815efc7791abb0e0b7a3230a505",
+            "prompt_text": "EW wall from NS source rotated 30 degrees clockwise",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772563871",
+            "updated": "1772563871",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ew",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772563871",
+                "updated": "1772564407"
+            }
+        ],
+        "seed_filename": "6cfcb15f-bf75-4b38-bd5a-5872b8f22b64.png"
+    },
+    {
+        "image": {
+            "image_uuid": "0ec777de-4ca5-4d7a-9b71-0597abc32d74",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-ew-plus90-1772563945",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "798",
+            "height": "615",
+            "bytes": "496003",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/0ec777de-4ca5-4d7a-9b71-0597abc32d74.png",
+            "public_url": null,
+            "sha256": "0f98e4c277e96b6c51e0c85403c8dd21e012758514cc1c997666a32d92c8fa6d",
+            "prompt_text": "EW wall rotated additional 90 degrees clockwise",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772563945",
+            "updated": "1772563945",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ew",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772563945",
+                "updated": "1772564407"
+            }
+        ],
+        "seed_filename": "0ec777de-4ca5-4d7a-9b71-0597abc32d74.png"
+    },
+    {
+        "image": {
+            "image_uuid": "8e9c50af-38fa-4c9c-aebc-82a90c98865e",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-ew-x2-1772564255",
+            "provider_model": "user-supplied",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1596",
+            "height": "1230",
+            "bytes": "1473551",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/8e9c50af-38fa-4c9c-aebc-82a90c98865e.png",
+            "public_url": null,
+            "sha256": "1af8e7ccd7febc1193a23417196b180c73c6ef26df0242ec5e947934ff2cbbe5",
+            "prompt_text": "EW wall image scaled 2x",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "tabletop-rpg",
+                "aspect_ratio": "1:1",
+                "campaign_context": {
+                    "campaign_id": 18
+                },
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772564255",
+            "updated": "1772564255",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wall_stone_flat_ew",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "0",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772564255",
+                "updated": "1772564407"
+            }
+        ],
+        "seed_filename": "8e9c50af-38fa-4c9c-aebc-82a90c98865e.png"
+    },
+    {
+        "image": {
+            "image_uuid": "8ec76ff6-0974-4005-ae01-4f1677352c37",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-compass1",
+            "provider_model": "local-file",
+            "status": "ready",
+            "mime_type": "image/jpeg",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "513008",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/8ec76ff6-0974-4005-ae01-4f1677352c37.jpg",
+            "public_url": null,
+            "sha256": "376801a13c48a0811c655fde861a7de1e4726b13d10313191d2ae181d2436f59",
+            "prompt_text": "Manual compass1 upload",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "reference",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772570543",
+            "updated": "1772570543",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "compass1",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772570543",
+                "updated": "1772570543"
+            }
+        ],
+        "seed_filename": "8ec76ff6-0974-4005-ae01-4f1677352c37.jpg"
+    },
+    {
+        "image": {
+            "image_uuid": "f9eae357-dbcb-4cf7-b255-dacad258cd05",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-compass2",
+            "provider_model": "local-file",
+            "status": "ready",
+            "mime_type": "image/jpeg",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "441299",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/f9eae357-dbcb-4cf7-b255-dacad258cd05.jpg",
+            "public_url": null,
+            "sha256": "f7cdeb44946a9e5e189979eb88da1dfccb74e3e0f02680a2b93b485412bd732d",
+            "prompt_text": "Manual compass2 upload",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "reference",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772570594",
+            "updated": "1772570594",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "compass2",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772570594",
+                "updated": "1772570594"
+            }
+        ],
+        "seed_filename": "f9eae357-dbcb-4cf7-b255-dacad258cd05.jpg"
+    },
+    {
+        "image": {
+            "image_uuid": "93048ec2-5f30-4879-93fb-023a12941577",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-compass3",
+            "provider_model": "local-file",
+            "status": "ready",
+            "mime_type": "image/jpeg",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "403335",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/93048ec2-5f30-4879-93fb-023a12941577.jpg",
+            "public_url": null,
+            "sha256": "c7dc56c3b66b0634ce39914cba9a7c2f3d38b56c26b467fe9540afd808c1aeba",
+            "prompt_text": "Manual compass3 upload",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "reference",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772570594",
+            "updated": "1772570594",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "compass3",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772570594",
+                "updated": "1772570594"
+            }
+        ],
+        "seed_filename": "93048ec2-5f30-4879-93fb-023a12941577.jpg"
+    },
+    {
+        "image": {
+            "image_uuid": "67c096f5-6951-46a4-9818-357e3b03e8f2",
+            "owner_uid": "1",
+            "provider": "manual_upload",
+            "provider_request_id": "manual-compass4",
+            "provider_model": "local-file",
+            "status": "ready",
+            "mime_type": "image/jpeg",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "542837",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/67c096f5-6951-46a4-9818-357e3b03e8f2.jpg",
+            "public_url": null,
+            "sha256": "eb6d0c2b273b82e76a6769fa736e6593271caf00bfd30f9b245af8253b97807c",
+            "prompt_text": "Manual compass4 upload",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": "reference",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772570594",
+            "updated": "1772570594",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "compass4",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772570594",
+                "updated": "1772570594"
+            }
+        ],
+        "seed_filename": "67c096f5-6951-46a4-9818-357e3b03e8f2.jpg"
+    },
+    {
+        "image": {
+            "image_uuid": "917022e4-cd70-413e-bc96-ad822c4aa607",
+            "owner_uid": "1",
+            "provider": "local_upload",
+            "provider_request_id": "manual-compass1-rot90-transparency",
+            "provider_model": "manual-transform",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1542457",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/917022e4-cd70-413e-bc96-ad822c4aa607.png",
+            "public_url": null,
+            "sha256": "80cd66bbeee502f6af8f16169a5c1f4f6550bf9d5075a4985a5996fdcc12906a",
+            "prompt_text": "rotate 90 cw and make white transparent",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": null,
+                "aspect_ratio": null,
+                "campaign_context": null,
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772570784",
+            "updated": "1772570784",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "compass1",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772570784",
+                "updated": "1772570784"
+            }
+        ],
+        "seed_filename": "917022e4-cd70-413e-bc96-ad822c4aa607.png"
+    },
+    {
+        "image": {
+            "image_uuid": "33afa5fb-ea40-4fef-962a-c8a5e07bf81a",
+            "owner_uid": "1",
+            "provider": "local_upload",
+            "provider_request_id": "manual-compass1-rot0-ccw",
+            "provider_model": "manual-transform",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1531060",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/33afa5fb-ea40-4fef-962a-c8a5e07bf81a.png",
+            "public_url": null,
+            "sha256": "816c757b4ed610ce14eb0b058e05fc6039efa49cb454f61744cddfbbad4fbee0",
+            "prompt_text": "rotate 90 ccw from current to return compass to 0 degrees",
+            "negative_prompt": "",
+            "generation_params": {
+                "style": null,
+                "aspect_ratio": null,
+                "campaign_context": null,
+                "mode": null
+            },
+            "safety_metadata": null,
+            "created": "1772572338",
+            "updated": "1772572338",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "compass1",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772572338",
+                "updated": "1772572338"
+            }
+        ],
+        "seed_filename": "33afa5fb-ea40-4fef-962a-c8a5e07bf81a.png"
+    },
+    {
+        "image": {
+            "image_uuid": "e5f9bbae-55e7-4dbd-8b1a-ee3d854290c5",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-7",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1108073",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/e5f9bbae-55e7-4dbd-8b1a-ee3d854290c5.png",
+            "public_url": null,
+            "sha256": "2b19d2b5274bd6e12a1f9976633b196b8a84d1f668a45901e5669889c574565d",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Stool Stack\nCategory: stool\nDescription: Stack of lightweight tavern stools. Entities can share hexes with these stools, and multiple stools can occupy the same space, allowing flexible positioning around tables. Can be kicked aside or us...\nSize: small\nDominant color: #A0522D\nShow as a small round seat from above: a circular wooden stool or chair with visible seat and maybe legs peeking out.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772638108",
+            "updated": "1772638108",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "18",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "stool_stack_wood",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772638108",
+                "updated": "1772638108"
+            }
+        ],
+        "seed_filename": "e5f9bbae-55e7-4dbd-8b1a-ee3d854290c5.png"
+    },
+    {
+        "image": {
+            "image_uuid": "0227a68a-1432-4d81-8c9e-51b010a216f4",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-29",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1342688",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/0227a68a-1432-4d81-8c9e-51b010a216f4.png",
+            "public_url": null,
+            "sha256": "1eff9a45682a0ef0fc2b5041bc7fad6e51ad2c498b61194616cf587fd5337f6a",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Burasco\n- Ancestry: human\n- Class: wizard\n- Background: acolyte\n- Alignment: LE\n- Concept: Sly Wizard\n- Abilities: STR 10, DEX 14, CON 10, INT 16, WIS 12, CHA 12\nUser direction:\nSly Wizard",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "character_creation",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772755904",
+            "updated": "1772755904",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "32",
+                "table_name": "dc_campaign_characters",
+                "object_id": "117",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772755904",
+                "updated": "1772755904"
+            }
+        ],
+        "seed_filename": "0227a68a-1432-4d81-8c9e-51b010a216f4.png"
+    },
+    {
+        "image": {
+            "image_uuid": "1d8040dc-f77c-4b45-bfc3-5eb9bcb952dc",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772804111-2300",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1388691",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/1d8040dc-f77c-4b45-bfc3-5eb9bcb952dc.png",
+            "public_url": null,
+            "sha256": "61f00126d9e67f151eb991fb477638ba47f06aefdf9adfcdbe99da06092bd76e",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Eldric\n- Ancestry: Human\n- Class: NPC\nUser direction:\nA stout, friendly man with a bushy beard who runs a tavern. He is a barkeep in a fantasy setting, wearing an apron. Warm, inviting expression.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "character_creation",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772804117",
+            "updated": "1772804117",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "32",
+                "table_name": "dc_campaign_characters",
+                "object_id": "115",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772804117",
+                "updated": "1772804117"
+            }
+        ],
+        "seed_filename": "1d8040dc-f77c-4b45-bfc3-5eb9bcb952dc.png"
+    },
+    {
+        "image": {
+            "image_uuid": "3a06ab53-1124-4c4d-b6df-c2d2ae3462bb",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-31",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1309424",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/3a06ab53-1124-4c4d-b6df-c2d2ae3462bb.png",
+            "public_url": null,
+            "sha256": "d042cbc6824e4581cb7f50882647121b01fd164ebd90f42689d1a2f02f84e94f",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Marta the Scholar\n- Ancestry: Human\n- Class: NPC\nUser direction:\nA scholarly woman in a fantasy tavern setting. She wears simple robes, has spectacles perched on her nose, ink-stained fingers, and carries scrolls. Warm lantern light. Intelligent, curious expression. Medieval fantasy portrait style.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "character_creation",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772806780",
+            "updated": "1772806780",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "32",
+                "table_name": "dc_campaign_characters",
+                "object_id": "116",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772806780",
+                "updated": "1772806780"
+            }
+        ],
+        "seed_filename": "3a06ab53-1124-4c4d-b6df-c2d2ae3462bb.png"
+    },
+    {
+        "image": {
+            "image_uuid": "4f2df76c-490d-4393-82a1-410d275659eb",
+            "owner_uid": "2",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-32",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1299701",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/4f2df76c-490d-4393-82a1-410d275659eb.png",
+            "public_url": null,
+            "sha256": "606a8703a50622e94f57bbfa5b7a8f812f2b861ae37d0f6e895fa93dcaeb0233",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Burasco\n- Ancestry: human\n- Class: wizard\n- Background: acolyte\n- Alignment: CN\n- Age: 24\n- Gender/Pronouns: He/Him\n- Concept: smirking wizard\n- Abilities: STR 10, DEX 14, CON 12, INT 16, WIS 10, CHA 12\nUser direction:\nSmirking wizard, young,",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "character_creation",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772895372",
+            "updated": "1772895372",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "35",
+                "table_name": "dc_campaign_characters",
+                "object_id": "126",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772895372",
+                "updated": "1772895372"
+            }
+        ],
+        "seed_filename": "4f2df76c-490d-4393-82a1-410d275659eb.png"
+    },
+    {
+        "image": {
+            "image_uuid": "7b8511f6-c9a7-4542-a51c-98d419f0822b",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-41",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1396810",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/7b8511f6-c9a7-4542-a51c-98d419f0822b.png",
+            "public_url": null,
+            "sha256": "feb388ba51732b10e6195a6b3b94ea2a9febde5902a34be12ece2279b1484798",
+            "prompt_text": "Create a high-fantasy character portrait for a tabletop RPG.\nNo text, logos, watermarks, or copyrighted characters.\nKeep a clear silhouette, consistent lighting, and game-ready detail.\nPortrait framing: head and shoulders, neutral background.\nCharacter attributes:\n- Name: Keith Aumiller\n- Ancestry: human\n- Class: fighter\n- Background: noble\n- Alignment: NG\n- Deity: adf\n- Concept: asdfasdf\n- Abilities: STR 14, DEX 16, CON 12, INT 10, WIS 10, CHA 12",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "character_creation",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900747",
+            "updated": "1772900747",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_campaign_characters",
+                "object_id": "133",
+                "slot": "portrait",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "owner",
+                "created": "1772900747",
+                "updated": "1772900747"
+            }
+        ],
+        "seed_filename": "7b8511f6-c9a7-4542-a51c-98d419f0822b.png"
+    },
+    {
+        "image": {
+            "image_uuid": "0882f2a8-db47-4d81-bdc9-3edfa975d10f",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-2",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1140746",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/0882f2a8-db47-4d81-bdc9-3edfa975d10f.png",
+            "public_url": null,
+            "sha256": "4a61e7f259aaee0ec284666d392aab5b14260a582cb91b04ad65cdffd4578d58",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter A\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the left section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_a",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "0882f2a8-db47-4d81-bdc9-3edfa975d10f.png"
+    },
+    {
+        "image": {
+            "image_uuid": "802ad91f-7ec4-49a1-ad34-04bf9245933d",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-3",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "798513",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/802ad91f-7ec4-49a1-ad34-04bf9245933d.png",
+            "public_url": null,
+            "sha256": "158f6de67304499b99a61094bcf1f12b34327b6411a738939c46623d9db461ae",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter B\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the middle section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_b",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "802ad91f-7ec4-49a1-ad34-04bf9245933d.png"
+    },
+    {
+        "image": {
+            "image_uuid": "cf19a97d-f748-4405-8dbb-1e055f64a8f5",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-4",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1142166",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/cf19a97d-f748-4405-8dbb-1e055f64a8f5.png",
+            "public_url": null,
+            "sha256": "81746917cd7e6d05681f7596c5fa6acb4b175f40d7c7cc6965b61aa60e21157d",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Bar Counter C\nCategory: bar\nDescription: Fixed wooden bar counter segment forming the right section of the tavern's main bar. Provides a physical barrier for drink service and can provide cover during combat.\nSize: large\nDominant color: #654321\nShow as a bar counter section from above: a long rectangular wooden counter surface. Polished wood grain visible.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "bar_counter_wood_c",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "cf19a97d-f748-4405-8dbb-1e055f64a8f5.png"
+    },
+    {
+        "image": {
+            "image_uuid": "e23f9765-125e-47dc-a7a5-4f43eb82fd9a",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-33",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "803973",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/e23f9765-125e-47dc-a7a5-4f43eb82fd9a.png",
+            "public_url": null,
+            "sha256": "c4303859208a4d4da190a2fb9df66d44184afaba314541e8f8c5614bfcbc2399",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Wine Bottle\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wine_bottle_1",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "e23f9765-125e-47dc-a7a5-4f43eb82fd9a.png"
+    },
+    {
+        "image": {
+            "image_uuid": "58f08c45-132a-4b3a-9497-658e88efc89d",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-33",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "803973",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/58f08c45-132a-4b3a-9497-658e88efc89d.png",
+            "public_url": null,
+            "sha256": "c4303859208a4d4da190a2fb9df66d44184afaba314541e8f8c5614bfcbc2399",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Wine Bottle\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wine_bottle_2",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "58f08c45-132a-4b3a-9497-658e88efc89d.png"
+    },
+    {
+        "image": {
+            "image_uuid": "512d44c5-7914-4a55-9e7e-f87475b7d44d",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-33",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "803973",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/512d44c5-7914-4a55-9e7e-f87475b7d44d.png",
+            "public_url": null,
+            "sha256": "c4303859208a4d4da190a2fb9df66d44184afaba314541e8f8c5614bfcbc2399",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Wine Bottle\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wine_bottle_3",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "512d44c5-7914-4a55-9e7e-f87475b7d44d.png"
+    },
+    {
+        "image": {
+            "image_uuid": "c1b33339-20ff-4d36-8e20-5ce716733b76",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-33",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "803973",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/c1b33339-20ff-4d36-8e20-5ce716733b76.png",
+            "public_url": null,
+            "sha256": "c4303859208a4d4da190a2fb9df66d44184afaba314541e8f8c5614bfcbc2399",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Wine Bottle\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wine_bottle_4",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "c1b33339-20ff-4d36-8e20-5ce716733b76.png"
+    },
+    {
+        "image": {
+            "image_uuid": "b93a351a-0d42-46fc-a3c8-640e94532f27",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-33",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "803973",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/b93a351a-0d42-46fc-a3c8-640e94532f27.png",
+            "public_url": null,
+            "sha256": "c4303859208a4d4da190a2fb9df66d44184afaba314541e8f8c5614bfcbc2399",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Wine Bottle\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "wine_bottle_5",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "b93a351a-0d42-46fc-a3c8-640e94532f27.png"
+    },
+    {
+        "image": {
+            "image_uuid": "5397be0e-e08d-43ee-9a6f-de4a5727c332",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-34",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1039919",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/5397be0e-e08d-43ee-9a6f-de4a5727c332.png",
+            "public_url": null,
+            "sha256": "87881ca7494c45c80b163f80e69b178e92e684967d1ae02a180feb87a7a50c2d",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Ancient Spellbook\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "spellbook_1",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "5397be0e-e08d-43ee-9a6f-de4a5727c332.png"
+    },
+    {
+        "image": {
+            "image_uuid": "3f1a7acb-cf85-4d44-a259-048ad34f47f4",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-35",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "742746",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/3f1a7acb-cf85-4d44-a259-048ad34f47f4.png",
+            "public_url": null,
+            "sha256": "f9f2eaf0e0cf9fb53ecb4f2371f08f356a47dae420904a68c54223761ff224d4",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Mystical Tome\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "spellbook_2",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "3f1a7acb-cf85-4d44-a259-048ad34f47f4.png"
+    },
+    {
+        "image": {
+            "image_uuid": "0adf73a6-8b26-4e56-b158-c3e8b2a41871",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-36",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "684494",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/0adf73a6-8b26-4e56-b158-c3e8b2a41871.png",
+            "public_url": null,
+            "sha256": "86ff5772e67fc2440391b50d283c25ea14980a7e3808b624468195d8b2946be0",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Faded Journal\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "spellbook_3",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "0adf73a6-8b26-4e56-b158-c3e8b2a41871.png"
+    },
+    {
+        "image": {
+            "image_uuid": "416b0d86-ca15-49f5-b6c5-d0dc52fb81d7",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-37",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "795108",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/416b0d86-ca15-49f5-b6c5-d0dc52fb81d7.png",
+            "public_url": null,
+            "sha256": "0ce0d6fc18c31ec4ae3ae522e4c42f96c98c9ae6cbd477ebdd9a55cbd5a6709e",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Crystal-Bound Codex\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "spellbook_4",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "416b0d86-ca15-49f5-b6c5-d0dc52fb81d7.png"
+    },
+    {
+        "image": {
+            "image_uuid": "74b79710-387c-4c43-8307-b158b7da8778",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-38",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1133713",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/74b79710-387c-4c43-8307-b158b7da8778.png",
+            "public_url": null,
+            "sha256": "97e2681c43103b8c8ee0761a6b09cffa2e59a65da9283c88e65c83d9b2d77498",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Torch Rod\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "torch_component_1",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "74b79710-387c-4c43-8307-b158b7da8778.png"
+    },
+    {
+        "image": {
+            "image_uuid": "b43a97f1-fcfe-4606-9430-d838fb81ca80",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-39",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "944552",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/b43a97f1-fcfe-4606-9430-d838fb81ca80.png",
+            "public_url": null,
+            "sha256": "d8e93c8a50216ca6ed00c5ffdce12c3af05b11349ba079c987fcdbd944805d8a",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Cloth Wrapping\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "torch_component_2",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "b43a97f1-fcfe-4606-9430-d838fb81ca80.png"
+    },
+    {
+        "image": {
+            "image_uuid": "94edc874-c08a-4899-a23b-42242970c8ac",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-38",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "1133713",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/94edc874-c08a-4899-a23b-42242970c8ac.png",
+            "public_url": null,
+            "sha256": "97e2681c43103b8c8ee0761a6b09cffa2e59a65da9283c88e65c83d9b2d77498",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Torch Rod\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "torch_component_3",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "94edc874-c08a-4899-a23b-42242970c8ac.png"
+    },
+    {
+        "image": {
+            "image_uuid": "0b26c807-e68a-4d5b-9d41-d36efacda7de",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-40",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "775097",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/0b26c807-e68a-4d5b-9d41-d36efacda7de.png",
+            "public_url": null,
+            "sha256": "581591e222ad30b8fad50f4b41c156f950a93023ed85a9526b555368972a02cb",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Flint Stone\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "torch_component_4",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "0b26c807-e68a-4d5b-9d41-d36efacda7de.png"
+    },
+    {
+        "image": {
+            "image_uuid": "af1a290f-9f7d-4215-9be7-0d3a0d72f1e7",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-39",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "944552",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/af1a290f-9f7d-4215-9be7-0d3a0d72f1e7.png",
+            "public_url": null,
+            "sha256": "d8e93c8a50216ca6ed00c5ffdce12c3af05b11349ba079c987fcdbd944805d8a",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Cloth Wrapping\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "torch_component_5",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "af1a290f-9f7d-4215-9be7-0d3a0d72f1e7.png"
+    },
+    {
+        "image": {
+            "image_uuid": "9939c3cc-a60e-4a72-b803-5cc6f9c8cc82",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-40",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "775097",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/9939c3cc-a60e-4a72-b803-5cc6f9c8cc82.png",
+            "public_url": null,
+            "sha256": "581591e222ad30b8fad50f4b41c156f950a93023ed85a9526b555368972a02cb",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Flint Stone\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772900831",
+            "updated": "1772900831",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "torch_component_6",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772900831",
+                "updated": "1772900831"
+            }
+        ],
+        "seed_filename": "9939c3cc-a60e-4a72-b803-5cc6f9c8cc82.png"
+    },
+    {
+        "image": {
+            "image_uuid": "9d50fe9f-5f79-4e36-a670-fcf816de51ba",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772904648-4762",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "707044",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/9d50fe9f-5f79-4e36-a670-fcf816de51ba.png",
+            "public_url": null,
+            "sha256": "69312d0256932eaf156a00db2c4472d08c4760956ed7209b5c4b7d6202369951",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Room Supply Bundle\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772904652",
+            "updated": "1772904652",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "room_supply_1",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772904652",
+                "updated": "1772904652"
+            }
+        ],
+        "seed_filename": "9d50fe9f-5f79-4e36-a670-fcf816de51ba.png"
+    },
+    {
+        "image": {
+            "image_uuid": "354240e1-04cc-4406-859d-735e95eceaee",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-cache-42",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "707044",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/354240e1-04cc-4406-859d-735e95eceaee.png",
+            "public_url": null,
+            "sha256": "69312d0256932eaf156a00db2c4472d08c4760956ed7209b5c4b7d6202369951",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Room Supply Bundle\nCategory: quest_item",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "cache"
+            },
+            "safety_metadata": null,
+            "created": "1772904652",
+            "updated": "1772904652",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "37",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "room_supply_2",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772904652",
+                "updated": "1772904652"
+            }
+        ],
+        "seed_filename": "354240e1-04cc-4406-859d-735e95eceaee.png"
+    },
+    {
+        "image": {
+            "image_uuid": "de66f271-1c8b-4be8-bfb9-9adc72b04c02",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772919446-9788",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "812271",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/de66f271-1c8b-4be8-bfb9-9adc72b04c02.png",
+            "public_url": null,
+            "sha256": "406bad5d453030df0826697b5fc193c88545012202d1c2d4ea9ae2cda8964ca7",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Torch\nCategory: item\nDescription: Temporary stacked torch item for crowded-hex testing.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772919455",
+            "updated": "1772919455",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "39",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "torch_rod",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772919455",
+                "updated": "1772919455"
+            }
+        ],
+        "seed_filename": "de66f271-1c8b-4be8-bfb9-9adc72b04c02.png"
+    },
+    {
+        "image": {
+            "image_uuid": "c4aedff6-d9f2-47bd-8957-b8b260f74cad",
+            "owner_uid": "1",
+            "provider": "vertex",
+            "provider_request_id": "vertex-live-1772919452-6086",
+            "provider_model": "imagen-3.0-fast-generate-001",
+            "status": "ready",
+            "mime_type": "image/png",
+            "width": "1024",
+            "height": "1024",
+            "bytes": "822256",
+            "storage_scheme": "public",
+            "file_uri": "public://generated-images/2026/03/c4aedff6-d9f2-47bd-8957-b8b260f74cad.png",
+            "public_url": null,
+            "sha256": "fac4d8671fd9ae8844bd9f22f07d33a1b86cadba65d8e4e946fa24f07fcbca3f",
+            "prompt_text": "Create a top-down sprite token for a hexmap tactical RPG.\nThe image should be a single game object viewed from above, suitable for placement on a hex grid.\nStyle: high-fantasy hand-painted token art with clean edges.\nRequirements: transparent background (PNG), strong silhouette at 64x64 to 128x128 pixels, no text or labels.\nObject: Torch\nCategory: item\nDescription: Temporary stacked torch item for crowded-hex testing.",
+            "negative_prompt": "text, watermark, logo, signature, blurry, low quality, deformed, 3D render, photograph, realistic photo",
+            "generation_params": {
+                "style": "fantasy",
+                "aspect_ratio": "1:1",
+                "campaign_context": "dungeon_sprite",
+                "mode": "live"
+            },
+            "safety_metadata": null,
+            "created": "1772919460",
+            "updated": "1772919460",
+            "deleted": "0"
+        },
+        "links": [
+            {
+                "scope_type": "campaign",
+                "campaign_id": "39",
+                "table_name": "dc_dungeon_sprites",
+                "object_id": "torch_rod",
+                "slot": "sprite",
+                "variant": "original",
+                "is_primary": "1",
+                "sort_weight": "0",
+                "visibility": "public",
+                "created": "1772919460",
+                "updated": "1772919460"
+            }
+        ],
+        "seed_filename": "c4aedff6-d9f2-47bd-8957-b8b260f74cad.png"
+    }
+]

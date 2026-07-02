@@ -1,0 +1,72 @@
+<div class="dc-architecture">
+  <header class="dc-architecture__header">
+    <h2>System Architecture Hub</h2>
+    <p>{{ intro }}</p>
+  </header>
+
+  <section class="dc-architecture__section">
+    <h3>Architecture and Runtime Map</h3>
+    <table class="dc-architecture__table">
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Owner</th>
+          <th>Entry Route</th>
+          <th>Source of Truth</th>
+          <th>Flow</th>
+          <th>Sequence</th>
+          <th>Controller/API Mapping</th>
+          <th>Guardrails</th>
+          <th>Drill-Down</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in architecture_map %}
+          <tr>
+            <td>{{ row.domain }}</td>
+            <td>{{ row.owner }}</td>
+            <td><a href="{{ row.entry_route }}">{{ row.entry_route }}</a></td>
+            <td>{{ row.source_of_truth }}</td>
+            <td>{{ row.flow }}</td>
+            <td>{{ row.sequence }}</td>
+            <td>{{ row.controllers_apis }}</td>
+            <td>{{ row.guardrails }}</td>
+            <td>
+              <a href="{{ row.drill_url }}">{{ row.drill_label }}</a>
+              <span>{{ row.drill_description }}</span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="dc-architecture__section">
+    <h3>Live Feature Index (HQ Sync)</h3>
+    <table class="dc-architecture__table">
+      <thead>
+        <tr>
+          <th>Feature ID</th>
+          <th>Status</th>
+          <th>Priority</th>
+          <th>Release</th>
+          <th>Acceptance Criteria</th>
+          <th>Implementation Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for feature in feature_index %}
+          <tr>
+            <td>{{ feature.feature_id }}</td>
+            <td>{{ feature.status }}</td>
+            <td>{{ feature.priority }}</td>
+            <td>{{ feature.release }}</td>
+            <td>{{ feature.acceptance }}</td>
+            <td>{{ feature.implementation }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+</div>

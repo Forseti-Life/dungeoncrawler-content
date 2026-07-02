@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "studded_leather_armor",
+  "name": "Studded Leather Armor",
+  "item_type": "armor",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "Leather armor reinforced with metal studs or rivets, providing improved protection while maintaining much of the flexibility of standard leather armor.",
+  "price": {
+    "cp": 0,
+    "sp": 0,
+    "gp": 3,
+    "pp": 0
+  },
+  "bulk": "1",
+  "hands": null,
+  "armor_stats": {
+    "category": "light",
+    "group": "leather",
+    "ac_bonus": 2,
+    "dex_cap": 3,
+    "check_penalty": -1,
+    "speed_penalty": 0,
+    "strength": 12
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "armor"
+}

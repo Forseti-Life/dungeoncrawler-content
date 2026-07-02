@@ -1,0 +1,22 @@
+uuid: eb8534fb-f765-4e9b-9c20-68ff88d09e55
+langcode: en
+status: true
+dependencies:
+  module:
+    - system
+  theme:
+    - dungeoncrawler
+_core:
+  default_config_hash: Z5jd1C3zwhKrBn8QAw1o2KQh5IQXvtAIFRCNp8O6Fho
+id: dungeoncrawler_breadcrumbs
+theme: dungeoncrawler
+region: breadcrumb
+weight: 0
+provider: null
+plugin: system_breadcrumb_block
+settings:
+  id: system_breadcrumb_block
+  label: Breadcrumbs
+  label_display: '0'
+  provider: system
+visibility: {  }

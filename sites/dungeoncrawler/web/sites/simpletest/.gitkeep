@@ -1,0 +1,2 @@
+# This file ensures the simpletest directory exists for Drupal functional tests
+# Test site directories will be created here at runtime but won't be tracked in git

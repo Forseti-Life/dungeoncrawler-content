@@ -1,0 +1,19 @@
+uuid: b7b81e86-e469-4b52-8b43-aa1213e96258
+langcode: en
+status: true
+dependencies:
+  module:
+    - ai_conversation
+    - comment
+    - dungeoncrawler_content
+    - system
+id: dc_playwright_player
+label: 'DC Playwright Player'
+weight: 4
+is_admin: false
+permissions:
+  - 'access comments'
+  - 'access content'
+  - 'access dungeoncrawler characters'
+  - 'create dungeoncrawler characters'
+  - 'use ai conversation'

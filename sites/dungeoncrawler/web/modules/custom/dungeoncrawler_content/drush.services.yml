@@ -1,0 +1,31 @@
+services:
+  dungeoncrawler_content.commands.quest_template:
+    class: Drupal\dungeoncrawler_content\Commands\QuestTemplateCommands
+    arguments:
+      - '@database'
+      - '@logger.factory'
+    tags:
+      - { name: drush.command }
+
+  dungeoncrawler_content.commands.initial_game_content:
+    class: Drupal\dungeoncrawler_content\Commands\InitialGameContentCommands
+    arguments:
+      - '@database'
+      - '@logger.factory'
+    tags:
+      - { name: drush.command }
+
+  dungeoncrawler_content.commands.content_seeder:
+    class: Drupal\dungeoncrawler_content\Commands\ContentSeederCommands
+    arguments:
+      - '@dungeoncrawler_content.content_seeder'
+      - '@dungeoncrawler_content.content_registry'
+    tags:
+      - { name: drush.command }
+
+  dungeoncrawler_content.commands.requirements_import:
+    class: Drupal\dungeoncrawler_content\Commands\RequirementsImportCommands
+    arguments:
+      - '@database'
+    tags:
+      - { name: drush.command }

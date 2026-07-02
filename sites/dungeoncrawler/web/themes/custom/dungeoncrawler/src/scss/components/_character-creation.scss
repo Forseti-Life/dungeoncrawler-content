@@ -1,0 +1,443 @@
+// =============================================================================
+// Character Creation Components
+// =============================================================================
+// Styles for character creation wizard, steps, and character sheets
+// Following Pathfinder 2e theme and dungeon crawler aesthetic
+
+// -----------------------------------------------------------------------------
+// Character Creation Step
+// -----------------------------------------------------------------------------
+.character-creation-step {
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 1rem;
+
+  .creation-container {
+    background: var(--dc-card-bg, #2a2a2a);
+    border: 2px solid var(--dc-border-color, #444);
+    border-radius: 8px;
+    padding: 2rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  // Progress Bar
+  .progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--dc-progress-bg, #1a1a1a);
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .progress-indicator {
+    height: 100%;
+    background: linear-gradient(90deg, 
+      var(--dc-primary, #d97706) 0%, 
+      var(--dc-primary-light, #f59e0b) 100%
+    );
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    width: var(--progress-width, 0%);
+  }
+
+  .progress-text {
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--dc-text-secondary, #999);
+    margin-bottom: 1.5rem;
+  }
+
+  // Step Content
+  .step-content {
+    h2 {
+      font-size: 1.75rem;
+      color: var(--dc-heading, #f5f5f5);
+      margin-bottom: 0.5rem;
+      font-family: var(--dc-font-heading, 'Cinzel', serif);
+    }
+
+    .step-description {
+      color: var(--dc-text-secondary, #ccc);
+      margin-bottom: 1.5rem;
+      line-height: 1.6;
+    }
+  }
+
+  // Tips Section
+  .tips-section {
+    background: var(--dc-tip-bg, rgba(217, 119, 6, 0.1));
+    border-left: 3px solid var(--dc-primary, #d97706);
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border-radius: 4px;
+
+    details {
+      cursor: pointer;
+
+      summary {
+        font-weight: 600;
+        color: var(--dc-primary, #d97706);
+        user-select: none;
+        
+        &::-webkit-details-marker {
+          display: none;
+        }
+      }
+    }
+
+    .tips-list {
+      margin-top: 0.75rem;
+      padding-left: 1.5rem;
+
+      li {
+        color: var(--dc-text, #e5e5e5);
+        margin-bottom: 0.5rem;
+        line-height: 1.5;
+      }
+    }
+  }
+
+  // Form Fields
+  .form-fields {
+    margin-top: 1.5rem;
+  }
+
+  // Navigation Buttons
+  .form-navigation {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2rem;
+    gap: 1rem;
+
+    .dc-btn {
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      min-width: 120px;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Character Creation Wizard
+// -----------------------------------------------------------------------------
+.character-creation-wizard {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 1rem;
+
+  // Progress Tracker
+  .creation-progress {
+    background: var(--dc-card-bg, #2a2a2a);
+    border: 2px solid var(--dc-border-color, #444);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .progress-steps {
+    display: flex;
+    justify-content: space-between;
+    position: relative;
+    
+    // Connecting line between steps
+    &::before {
+      content: '';
+      position: absolute;
+      top: 20px;
+      left: 40px;
+      right: 40px;
+      height: 2px;
+      background: var(--dc-border-color, #444);
+      z-index: 0;
+    }
+  }
+
+  .progress-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    max-width: 100px;
+
+    .step-number {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--dc-step-inactive, #1a1a1a);
+      border: 2px solid var(--dc-border-color, #444);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: var(--dc-text-secondary, #999);
+      margin-bottom: 0.5rem;
+      transition: all 0.3s ease;
+    }
+
+    .step-label {
+      font-size: 0.75rem;
+      text-align: center;
+      color: var(--dc-text-secondary, #999);
+      transition: color 0.3s ease;
+    }
+
+    // Active step
+    &.active {
+      .step-number {
+        background: var(--dc-primary, #d97706);
+        border-color: var(--dc-primary, #d97706);
+        color: white;
+        box-shadow: 0 0 12px rgba(217, 119, 6, 0.6);
+      }
+
+      .step-label {
+        color: var(--dc-primary, #d97706);
+        font-weight: 600;
+      }
+    }
+
+    // Completed step
+    &.completed {
+      .step-number {
+        background: var(--dc-success, #10b981);
+        border-color: var(--dc-success, #10b981);
+        color: white;
+
+        &::after {
+          content: '✓';
+        }
+      }
+
+      .step-label {
+        color: var(--dc-success, #10b981);
+      }
+    }
+  }
+
+  // Wizard content area
+  .wizard-content {
+    background: var(--dc-card-bg, #2a2a2a);
+    border: 2px solid var(--dc-border-color, #444);
+    border-radius: 8px;
+    padding: 2rem;
+    min-height: 400px;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Character Sheet
+// -----------------------------------------------------------------------------
+.dc-character-sheet {
+  max-width: 1400px;
+  margin: 2rem auto;
+  padding: 1rem;
+
+  // Navigation
+  .dc-sheet__nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+
+    .dc-sheet__nav-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+  }
+
+  // Character Header
+  .dc-sheet__header {
+    display: flex;
+    gap: 2rem;
+    background: var(--dc-card-bg, #2a2a2a);
+    border: 2px solid var(--dc-border-color, #444);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    align-items: flex-start;
+  }
+
+  .dc-sheet__portrait-wrap {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .dc-sheet__portrait,
+  .dc-sheet__portrait-placeholder {
+    width: 150px;
+    height: 150px;
+    border-radius: 8px;
+    border: 3px solid var(--dc-border-color, #444);
+    object-fit: cover;
+  }
+
+  .dc-sheet__portrait-placeholder {
+    background: linear-gradient(135deg, #444 0%, #2a2a2a 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--dc-text-secondary, #999);
+  }
+
+  .dc-sheet__status-incomplete,
+  .dc-sheet__status-dead {
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .dc-sheet__status-incomplete {
+    background: var(--dc-warning, #f59e0b);
+    color: black;
+  }
+
+  .dc-sheet__status-dead {
+    background: var(--dc-danger, #dc2626);
+    color: white;
+  }
+
+  // Identity Section
+  .dc-sheet__identity {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .dc-sheet__name {
+    font-size: 2.25rem;
+    color: var(--dc-heading, #f5f5f5);
+    margin-bottom: 0.5rem;
+    font-family: var(--dc-font-heading, 'Cinzel', serif);
+    line-height: 1.2;
+  }
+
+  .dc-sheet__subtitle,
+  .dc-sheet__background,
+  .dc-sheet__alignment {
+    color: var(--dc-text-secondary, #ccc);
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .dc-sheet__subtitle {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--dc-primary, #d97706);
+  }
+
+  // Stats Grid
+  .dc-sheet__stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .dc-stat-block {
+    background: var(--dc-card-bg, #2a2a2a);
+    border: 2px solid var(--dc-border-color, #444);
+    border-radius: 8px;
+    padding: 1rem;
+
+    h3 {
+      font-size: 1rem;
+      color: var(--dc-primary, #d97706);
+      margin-bottom: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--dc-border-color, #444);
+      padding-bottom: 0.5rem;
+    }
+  }
+
+  // Ability Scores
+  .dc-abilities {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .dc-ability {
+    text-align: center;
+    padding: 0.75rem;
+    background: var(--dc-ability-bg, #1a1a1a);
+    border-radius: 6px;
+    border: 1px solid var(--dc-border-color, #444);
+
+    .dc-ability__label {
+      font-size: 0.75rem;
+      color: var(--dc-text-secondary, #999);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+
+    .dc-ability__score {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--dc-heading, #f5f5f5);
+    }
+
+    .dc-ability__modifier {
+      font-size: 1rem;
+      color: var(--dc-primary, #d97706);
+      font-weight: 600;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Responsive Design
+// -----------------------------------------------------------------------------
+@media (max-width: 768px) {
+  .character-creation-wizard {
+    .progress-steps {
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1rem;
+
+      &::before {
+        display: none;
+      }
+    }
+
+    .progress-step {
+      flex: 0 0 auto;
+    }
+  }
+
+  .dc-character-sheet {
+    .dc-sheet__header {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .dc-sheet__nav {
+      flex-direction: column;
+      align-items: stretch;
+
+      .dc-sheet__nav-actions {
+        justify-content: center;
+      }
+    }
+
+    .dc-sheet__stats {
+      grid-template-columns: 1fr;
+    }
+  }
+}

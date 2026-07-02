@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "lantern",
+  "name": "Hooded Lantern",
+  "item_type": "adventuring_gear",
+  "level": 0,
+  "rarity": "common",
+  "traits": [],
+  "description": "A metal lantern with a hood that can be lowered to dim or extinguish the light without putting out the flame. Burns oil to shed bright light in a 30-foot radius and dim light for an additional 30 feet. A single flask of oil fuels a hooded lantern for 6 hours.",
+  "price": {
+    "cp": 0,
+    "sp": 7,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": "1",
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "adventuring_gear"
+}

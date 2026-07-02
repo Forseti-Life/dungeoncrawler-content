@@ -1,0 +1,229 @@
+.dc-architecture {
+  --arch-surface: var(--dc-surface-primary, var(--bs-body-bg));
+  --arch-surface-muted: var(--dc-surface-elevated, var(--bs-tertiary-bg));
+  --arch-surface-deep: var(--dc-surface-abyss, var(--bs-secondary-bg));
+  --arch-border: var(--bs-border-color);
+  --arch-text: var(--dc-text-primary, var(--bs-body-color));
+  --arch-text-muted: var(--dc-text-secondary, var(--bs-secondary-color));
+  --arch-accent: var(--dc-link-primary, var(--bs-primary));
+  --arch-link: var(--dc-link-primary, var(--bs-link-color));
+  --arch-link-hover: var(--dc-link-hover, var(--bs-link-hover-color));
+
+  color: var(--arch-text);
+  display: grid;
+  gap: 1rem;
+}
+
+.dc-architecture__header,
+.dc-architecture__section {
+  background: var(--arch-surface);
+  border: 1px solid var(--arch-border);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+}
+
+.dc-architecture__header h2,
+.dc-architecture__section h3,
+.dc-architecture__card h4,
+.dc-architecture__row h4 {
+  margin-top: 0;
+}
+
+.dc-architecture__header p,
+.dc-architecture__card p,
+.dc-architecture__row p {
+  color: var(--arch-text-muted);
+}
+
+.dc-architecture__header,
+.dc-architecture__section,
+.dc-architecture__card,
+.dc-architecture__row,
+.dc-architecture__table th,
+.dc-architecture__table td {
+  color: var(--arch-text);
+}
+
+.dc-architecture__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.8rem;
+}
+
+.dc-architecture__card {
+  background: var(--arch-surface-muted);
+  border: 1px solid var(--arch-border);
+  border-radius: 8px;
+  padding: 0.8rem;
+}
+
+.dc-architecture__card ul,
+.dc-architecture__links {
+  margin: 0.6rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.dc-architecture__stack {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.dc-architecture__row {
+  background: var(--arch-surface-muted);
+  border-left: 4px solid var(--arch-accent);
+  border-radius: 6px;
+  padding: 0.7rem 0.8rem;
+}
+
+.dc-architecture__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--arch-surface);
+}
+
+.dc-architecture__table th,
+.dc-architecture__table td {
+  border: 1px solid var(--arch-border);
+  background: var(--arch-surface);
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.dc-architecture__table thead {
+  background: var(--arch-surface-muted);
+}
+
+.dc-architecture__table thead th {
+  background: var(--arch-surface-muted);
+}
+
+.dc-architecture__table tbody tr:nth-child(even) td {
+  background: var(--arch-surface-deep);
+}
+
+.dc-architecture__links li {
+  margin-bottom: 0.5rem;
+}
+
+.dc-architecture__links a {
+  color: var(--arch-link);
+  display: inline-block;
+  font-weight: 600;
+  margin-right: 0.4rem;
+  word-break: break-word;
+}
+
+.dc-architecture__links a:hover,
+.dc-architecture__links a:focus {
+  color: var(--arch-link-hover);
+}
+
+.dc-architecture__links span {
+  color: var(--arch-text-muted);
+}
+
+.controller-architecture-doc,
+.encounter-ai-integration-doc {
+  --arch-surface: var(--dc-surface-primary, var(--bs-body-bg));
+  --arch-surface-muted: var(--dc-surface-elevated, var(--bs-tertiary-bg));
+  --arch-surface-deep: var(--dc-surface-abyss, var(--bs-secondary-bg));
+  --arch-border: var(--bs-border-color);
+  --arch-text: var(--dc-text-primary, var(--bs-body-color));
+  --arch-text-muted: var(--dc-text-secondary, var(--bs-secondary-color));
+  --arch-link: var(--dc-link-primary, var(--bs-link-color));
+  --arch-link-hover: var(--dc-link-hover, var(--bs-link-hover-color));
+
+  color: var(--arch-text);
+  display: grid;
+  gap: 1rem;
+}
+
+.controller-architecture-doc > h2,
+.encounter-ai-integration-doc > h2,
+.controller-architecture-doc h2,
+.encounter-ai-integration-doc h2,
+.controller-architecture-doc h3,
+.encounter-ai-integration-doc h3,
+.controller-architecture-doc h4,
+.encounter-ai-integration-doc h4 {
+  color: var(--arch-text);
+}
+
+.controller-architecture-doc p,
+.encounter-ai-integration-doc p,
+.controller-architecture-doc li,
+.encounter-ai-integration-doc li,
+.controller-architecture-doc summary,
+.encounter-ai-integration-doc summary,
+.controller-architecture-doc td,
+.encounter-ai-integration-doc td,
+.controller-architecture-doc th,
+.encounter-ai-integration-doc th {
+  color: var(--arch-text);
+}
+
+.controller-architecture-doc > p,
+.encounter-ai-integration-doc > p {
+  color: var(--arch-text-muted);
+}
+
+.controller-architecture-doc details,
+.encounter-ai-integration-doc details {
+  background: var(--arch-surface);
+  border: 1px solid var(--arch-border);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+
+.controller-architecture-doc details + details,
+.encounter-ai-integration-doc details + details {
+  margin-top: 0.8rem;
+}
+
+.controller-architecture-doc summary,
+.encounter-ai-integration-doc summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.controller-architecture-doc table,
+.encounter-ai-integration-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.6rem;
+  background: var(--arch-surface);
+}
+
+.controller-architecture-doc th,
+.encounter-ai-integration-doc th,
+.controller-architecture-doc td,
+.encounter-ai-integration-doc td {
+  border: 1px solid var(--arch-border);
+  background: var(--arch-surface);
+  padding: 0.5rem 0.6rem;
+  vertical-align: top;
+}
+
+.controller-architecture-doc thead th,
+.encounter-ai-integration-doc thead th {
+  background: var(--arch-surface-muted);
+}
+
+.controller-architecture-doc tbody tr:nth-child(even) td,
+.encounter-ai-integration-doc tbody tr:nth-child(even) td {
+  background: var(--arch-surface-deep);
+}
+
+.controller-architecture-doc a,
+.encounter-ai-integration-doc a {
+  color: var(--arch-link);
+}
+
+.controller-architecture-doc a:hover,
+.controller-architecture-doc a:focus,
+.encounter-ai-integration-doc a:hover,
+.encounter-ai-integration-doc a:focus {
+  color: var(--arch-link-hover);
+}

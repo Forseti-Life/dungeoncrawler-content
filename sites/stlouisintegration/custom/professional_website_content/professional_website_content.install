@@ -1,0 +1,122 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the professional_website_content module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function professional_website_content_install() {
+  // Place the professional navigation block
+  _professional_website_content_place_navigation_block();
+
+  // Set the home page route as the front page
+  \Drupal::configFactory()->getEditable('system.site')
+    ->set('page.front', '/home')
+    ->save();
+
+  \Drupal::messenger()->addStatus(t('Professional website content module installed successfully. All content is now managed through routes.'));
+}
+
+/**
+ * Place the professional navigation block in the navbar_left region.
+ */
+function _professional_website_content_place_navigation_block() {
+  $theme = 'stlouisintegration';
+  
+  // Check if block already exists
+  $block_storage = \Drupal::entityTypeManager()->getStorage('block');
+  $existing_blocks = $block_storage->loadByProperties([
+    'plugin' => 'professional_navigation_block',
+    'theme' => $theme,
+  ]);
+  
+  if (empty($existing_blocks)) {
+    $block = $block_storage->create([
+      'id' => 'professional_navigation_block',
+      'theme' => $theme,
+      'region' => 'navbar_left',
+      'plugin' => 'professional_navigation_block',
+      'weight' => 0,
+      'settings' => [
+        'id' => 'professional_navigation_block',
+        'label' => 'Professional Website Navigation',
+        'label_display' => FALSE,
+      ],
+      'visibility' => [],
+    ]);
+    $block->save();
+  }
+}
+
+/**
+ * Implements hook_requirements().
+ */
+function professional_website_content_requirements($phase) {
+  $requirements = [];
+
+  if ($phase == 'runtime') {
+    // Check if services.yml exists and has CORS configured
+    $services_file = DRUPAL_ROOT . '/sites/default/services.yml';
+    
+    if (file_exists($services_file)) {
+      $services_content = file_get_contents($services_file);
+      
+      if (strpos($services_content, 'cors.config:') !== FALSE && 
+          strpos($services_content, 'enabled: true') !== FALSE) {
+        $requirements['professional_website_cors'] = [
+          'title' => t('CORS Configuration for Mobile Apps'),
+          'value' => t('Enabled'),
+          'description' => t('CORS is properly configured for mobile app authentication.'),
+          'severity' => REQUIREMENT_OK,
+        ];
+      } else {
+        $requirements['professional_website_cors'] = [
+          'title' => t('CORS Configuration for Mobile Apps'),
+          'value' => t('Not enabled'),
+          'description' => t('CORS should be enabled in sites/default/services.yml for mobile app authentication. Set cors.config.enabled to true.'),
+          'severity' => REQUIREMENT_WARNING,
+        ];
+      }
+    } else {
+      $requirements['professional_website_cors'] = [
+        'title' => t('CORS Configuration for Mobile Apps'),
+        'value' => t('Services file missing'),
+        'description' => t('Copy sites/default/default.services.yml to sites/default/services.yml and configure CORS for mobile app access.'),
+        'severity' => REQUIREMENT_WARNING,
+      ];
+    }
+
+    // Check if REST and JSON:API modules are enabled
+    $moduleHandler = \Drupal::service('module_handler');
+    if ($moduleHandler->moduleExists('rest') && 
+        $moduleHandler->moduleExists('jsonapi') && 
+        $moduleHandler->moduleExists('basic_auth')) {
+      $requirements['professional_website_api'] = [
+        'title' => t('Mobile App API Authentication'),
+        'value' => t('Ready'),
+        'description' => t('REST API, JSON:API, and Basic Authentication are enabled for mobile app access.'),
+        'severity' => REQUIREMENT_OK,
+      ];
+    } else {
+      $requirements['professional_website_api'] = [
+        'title' => t('Mobile App API Authentication'),
+        'value' => t('Incomplete'),
+        'description' => t('Enable rest, jsonapi, and basic_auth modules for mobile app authentication.'),
+        'severity' => REQUIREMENT_ERROR,
+      ];
+    }
+  }
+
+  return $requirements;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function professional_website_content_uninstall() {
+  // Log uninstall
+  \Drupal::logger('professional_website_content')->info('Module uninstalled.');
+}

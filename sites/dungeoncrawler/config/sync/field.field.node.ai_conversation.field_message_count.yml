@@ -1,0 +1,25 @@
+uuid: 2992185a-ef71-4dc5-997f-d5e0a953986c
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_message_count
+    - node.type.ai_conversation
+id: node.ai_conversation.field_message_count
+field_name: field_message_count
+entity_type: node
+bundle: ai_conversation
+label: 'Message Count'
+description: 'Total number of messages in this conversation'
+required: false
+translatable: true
+default_value:
+  -
+    value: 0
+default_value_callback: ''
+settings:
+  min: null
+  max: null
+  prefix: ''
+  suffix: ''
+field_type: integer

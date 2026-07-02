@@ -1,0 +1,83 @@
+<div class="job-seeker-profile">
+  <h2>Job Seeker Profile</h2>
+  
+  {% if profile %}
+    <div class="profile-section">
+      <h3>Personal Information</h3>
+      <p><strong>User:</strong> {{ user.getDisplayName() }}</p>
+      <p><strong>Email:</strong> {{ user.getEmail() }}</p>
+    </div>
+    
+    {% if profile.skills %}
+      <div class="profile-section">
+        <h3>Skills</h3>
+        <ul>
+          {% for skill in profile.skills %}
+            <li>{{ skill }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    
+    {% if profile.experience_years %}
+      <div class="profile-section">
+        <h3>Experience</h3>
+        <p>{{ profile.experience_years }} years of professional experience</p>
+      </div>
+    {% endif %}
+    
+    {% if profile.job_titles %}
+      <div class="profile-section">
+        <h3>Target Job Titles</h3>
+        <ul>
+          {% for title in profile.job_titles %}
+            <li>{{ title }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    
+    {% if profile.preferred_locations %}
+      <div class="profile-section">
+        <h3>Preferred Locations</h3>
+        <ul>
+          {% for location in profile.preferred_locations %}
+            <li>{{ location }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    
+    {% if profile.salary_expectation %}
+      <div class="profile-section">
+        <h3>Salary Expectation</h3>
+        <p>{{ profile.salary_expectation }}</p>
+      </div>
+    {% endif %}
+    
+    {% if profile.availability %}
+      <div class="profile-section">
+        <h3>Availability</h3>
+        <p>{{ profile.availability }}</p>
+      </div>
+    {% endif %}
+    
+    {% if profile.linkedin_url or profile.portfolio_url %}
+      <div class="profile-section">
+        <h3>Links</h3>
+        {% if profile.linkedin_url %}
+          <p><a href="{{ profile.linkedin_url }}" target="_blank">LinkedIn Profile</a></p>
+        {% endif %}
+        {% if profile.portfolio_url %}
+          <p><a href="{{ profile.portfolio_url }}" target="_blank">Portfolio/Website</a></p>
+        {% endif %}
+      </div>
+    {% endif %}
+    
+    <div class="profile-actions">
+      <a href="/jobseeker/{{ profile.id }}/edit" class="button">Edit Profile</a>
+    </div>
+  {% else %}
+    <p>No profile found.</p>
+  {% endif %}
+</div>

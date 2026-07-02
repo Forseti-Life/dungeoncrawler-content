@@ -1,0 +1,20 @@
+uuid: 3ce54c82-353e-4a20-bdb5-373b34a95e57
+langcode: en
+status: true
+dependencies:
+  theme:
+    - dungeoncrawler
+_core:
+  default_config_hash: DAv9uHWyj__ZowmUEunNtJNHEjbFaI8tPTy2OoVMJgw
+id: dungeoncrawler_page_title
+theme: dungeoncrawler
+region: header
+weight: -2
+provider: null
+plugin: page_title_block
+settings:
+  id: page_title_block
+  label: 'Page title'
+  label_display: '0'
+  provider: core
+visibility: {  }

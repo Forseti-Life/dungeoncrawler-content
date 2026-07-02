@@ -1,0 +1,133 @@
+{% if stats and stats.total_messages > 0 %}
+<div class="ai-conversation-stats">
+  <h3>{{ 'Conversation Statistics'|t }}</h3>
+  <div class="stats-grid">
+    <div class="stat-item">
+      <strong>{{ 'Total Messages'|t }}:</strong> {{ stats.total_messages }}
+    </div>
+    <div class="stat-item">
+      <strong>{{ 'Recent Messages'|t }}:</strong> {{ stats.recent_messages }}
+    </div>
+    <div class="stat-item">
+      <strong>{{ 'Total Tokens'|t }}:</strong> {{ stats.total_tokens|number_format }}
+    </div>
+    <div class="stat-item">
+      <strong>{{ 'Has Summary'|t }}:</strong> 
+      {% if stats.has_summary %}
+        <span class="status-yes">{{ 'Yes'|t }}</span>
+      {% else %}
+        <span class="status-no">{{ 'No'|t }}</span>
+      {% endif %}
+    </div>
+    {% if stats.summary_updated %}
+    <div class="stat-item">
+      <strong>{{ 'Summary Updated'|t }}:</strong> {{ stats.summary_updated|date('M j, Y - H:i') }}
+    </div>
+    {% endif %}
+    <div class="stat-item">
+      <strong>{{ 'Context Tokens'|t }}:</strong> {{ stats.estimated_tokens|number_format }}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="ai-conversation-chat">
+  <div class="chat-header">
+    <h2>{{ conversation.label }}</h2>
+    {% if conversation.field_context.value %}
+      <div class="context-info">
+        <strong>{{ 'Context'|t }}:</strong> {{ conversation.field_context.value|striptags|slice(0, 100) }}{% if conversation.field_context.value|striptags|length > 100 %}...{% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="chat-messages" id="chat-messages">
+    {% if stats and stats.has_summary %}
+      <div class="summary-indicator">
+        <em>{{ 'This conversation has been summarized. Showing recent 20 messages.'|t }}</em>
+      </div>
+    {% endif %}
+    
+    {# Show introduction message for new conversations #}
+    {% if not messages or messages|length == 0 %}
+      <div class="message message--assistant message--introduction">
+        <div class="message-content">
+          <h3>Welcome to the St. Louis Integration AI Demo!</h3>
+          <p><strong>Hello! I'm Keith Aumiller</strong>, Founder and Principal Consultant at St. Louis Integration. This AI-powered chat demonstrates our expertise in implementing cutting-edge conversational AI solutions.</p>
+          
+          <div class="demo-highlights">
+            <p><strong>🎯 What This Demo Showcases:</strong></p>
+            <ul>
+              <li><strong>Enterprise AI Integration:</strong> AWS Bedrock with Claude 3.5 Sonnet</li>
+              <li><strong>Professional Context Awareness:</strong> AI configured with my background and our company expertise</li>
+              <li><strong>Custom Implementation:</strong> Built on Drupal with our proprietary conversation management system</li>
+              <li><strong>Scalable Architecture:</strong> Production-ready design for enterprise deployment</li>
+              <li><strong>Additional Demo Site:</strong> Check out <a href="https://thetruthperspective.org/" target="_blank" rel="noopener">TheTruthPerspective.org</a> - our web scraping and GenAI content generation automation demo</li>
+            </ul>
+          </div>
+          
+          <div class="demo-purpose">
+            <p><strong>💬 Try asking me about:</strong></p>
+            <ul>
+              <li>St. Louis Integration's services and expertise</li>
+              <li>Our successful client implementations (Citigroup, MasterCard, etc.)</li>
+              <li>AI/ML solutions for Financial Services, Healthcare, or Energy sectors</li>
+              <li>How we can help solve your organization's data and AI challenges</li>
+            </ul>
+          </div>
+          
+          <p><strong>Ready to experience our AI capabilities?</strong> Ask me anything about our services, my background, or how we can help transform your business with AI!</p>
+          
+          <div class="transparency-note">
+            <em><strong>Transparency:</strong> This chat is powered by Anthropic's Claude 3.5 Sonnet through AWS Bedrock, demonstrating the enterprise AI solutions we implement for our clients.</em>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+    
+    {% for message in messages %}
+      <div class="message message--{{ message.role }}">
+        <div class="message-content">
+          {{ message.content|nl2br }}
+        </div>
+        {% if message.timestamp %}
+          <div class="message-timestamp">
+            {{ message.timestamp|date('M j, H:i') }}
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="chat-input-container">
+    <div class="input-group">
+      <textarea 
+        id="message-input" 
+        class="form-control" 
+        placeholder="{{ 'Type your message...'|t }}"
+        rows="3"
+      ></textarea>
+      <button id="send-button" class="btn btn-primary" type="button">
+        {{ 'Send'|t }}
+      </button>
+    </div>
+    
+    <div class="chat-controls">
+      <button id="clear-input" class="btn btn-secondary btn-sm" type="button">
+        {{ 'Clear'|t }}
+      </button>
+      {% if stats and stats.total_messages > 20 %}
+        <button id="trigger-summary" class="btn btn-info btn-sm" type="button">
+          {{ 'Update Summary'|t }}
+        </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div id="loading-indicator" class="loading-indicator" style="display: none;">
+    <div class="spinner"></div>
+    <span>{{ 'AI is thinking...'|t }}</span>
+  </div>
+</div>
+
+{# Styles moved to css/chat-interface.css #}

@@ -1,0 +1,134 @@
+{#
+/**
+ * @file
+ * Character profile template with cyberpunk styling
+ *
+ * Available variables:
+ * - character: The character node entity
+ * - relationships: Array of character relationships
+ * - trust_levels: Array of trust level data
+ */
+#}
+
+<div class="character-profile" data-character-id="{{ character.id }}">
+  
+  {# Character Header #}
+  <div class="character-header">
+    <h1 class="character-name glitch-text" data-text="{{ character.title.value }}">
+      {{ character.title.value }}
+    </h1>
+    
+    {% if character.field_character_role.value %}
+      <div class="character-role">
+        {{ character.field_character_role.value }}
+      </div>
+    {% endif %}
+  </div>
+
+  {# Character Image #}
+  {% if character.field_character_image %}
+    <div class="character-image">
+      {{ character.field_character_image }}
+    </div>
+  {% endif %}
+
+  {# Character Description #}
+  {% if character.field_character_description.value %}
+    <div class="character-description typewriter">
+      {{ character.field_character_description.value|raw }}
+    </div>
+  {% endif %}
+
+  {# Character Traits Grid #}
+  <div class="character-traits">
+    
+    {% if character.field_character_type.value %}
+      <div class="trait-item">
+        <div class="trait-label">Type</div>
+        <div class="trait-value">{{ character.field_character_type.value }}</div>
+      </div>
+    {% endif %}
+    
+    {% if character.field_affiliation.value %}
+      <div class="trait-item">
+        <div class="trait-label">Affiliation</div>
+        <div class="trait-value">{{ character.field_affiliation.value }}</div>
+      </div>
+    {% endif %}
+    
+    {% if character.field_first_appearance.value %}
+      <div class="trait-item">
+        <div class="trait-label">First Appearance</div>
+        <div class="trait-value">{{ character.field_first_appearance.value }}</div>
+      </div>
+    {% endif %}
+    
+    {% if character.field_character_status.value %}
+      <div class="trait-item">
+        <div class="trait-label">Status</div>
+        <div class="trait-value">{{ character.field_character_status.value }}</div>
+      </div>
+    {% endif %}
+    
+  </div>
+
+  {# Trust Network Visualization #}
+  {% if trust_levels %}
+    <div class="trust-network">
+      <h3>Relationship Network</h3>
+      
+      {% for relationship in trust_levels %}
+        <div class="trust-connection trust-{{ relationship.level|lower }}" 
+             data-trust-level="{{ relationship.value }}">
+          <span class="relationship-character">{{ relationship.character }}</span>
+          <span class="relationship-status">{{ relationship.status }}</span>
+          <div class="trust-bar" style="width: 0%; background: 
+            {% if relationship.value > 70 %}#00ff41
+            {% elseif relationship.value > 40 %}#ffff00
+            {% else %}#ff0040{% endif %};">
+          </div>
+        </div>
+      {% endfor %}
+      
+      {# D3.js network visualization will be inserted here #}
+    </div>
+  {% endif %}
+
+  {# Character Actions #}
+  <div class="character-actions">
+    <button class="cyberpunk-btn" data-action="view-sequences">
+      View Sequences
+    </button>
+    <button class="cyberpunk-btn" data-action="character-arc">
+      Character Arc
+    </button>
+    {% if character.field_related_characters %}
+      <button class="cyberpunk-btn" data-action="view-relationships">
+        Relationships
+      </button>
+    {% endif %}
+  </div>
+
+  {# Related Content #}
+  {% if character.field_related_sequences %}
+    <div class="character-sequences">
+      <h3>Appears In</h3>
+      <div class="sequence-list">
+        {% for sequence in character.field_related_sequences %}
+          <div class="sequence-item">
+            <a href="{{ path('entity.node.canonical', {'node': sequence.target_id}) }}">
+              {{ sequence.entity.title.value }}
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+</div>
+
+{# Attach JavaScript libraries #}
+{{ attach_library('theory_content/character-display') }}
+{% if trust_levels %}
+  {{ attach_library('theory_content/trust-network') }}
+{% endif %}

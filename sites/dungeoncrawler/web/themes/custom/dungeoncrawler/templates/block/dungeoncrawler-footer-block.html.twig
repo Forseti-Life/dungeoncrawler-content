@@ -1,0 +1,44 @@
+{#
+/**
+ * @file
+ * Template for Dungeon Crawler Footer Block - RPG Theme.
+ *
+ * Available variables:
+ * - menu_items: Array of menu items from main menu.
+ * - current_year: Current year for copyright.
+ */
+#}
+{{ attach_library('dungeoncrawler/footer') }}
+
+<div class="footer-content">
+  <div class="footer-section footer-brand">
+    <h3>⚔️ Dungeon Crawler Life</h3>
+    <p>An AI-generated, procedurally growing dungeon crawl</p>
+    <p class="footer-tagline">Every room is permanent. Every monster has a soul.</p>
+  </div>
+
+  <div class="footer-section footer-links">
+    <h4>Navigation</h4>
+    {% if menu_items %}
+      <ul class="footer-menu">
+        {% for item in menu_items %}
+          <li>
+            <a href="{{ item.url }}">{{ item.title }}</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+
+  <div class="footer-section footer-info">
+    <h4>Adventurer's Hub</h4>
+    <p><a href="/user/login" class="footer-cta-link">🗡️ Enter the Dungeon</a></p>
+    <p><a href="/user/register" class="footer-cta-link">📜 Join the Guild</a></p>
+    <p><a href="/contact" class="footer-cta-link">🏰 Contact the Guild Master</a></p>
+  </div>
+</div>
+
+<div class="footer-bottom">
+  <p>&copy; {{ current_year }} Dungeon Crawler Life. All rights reserved.</p>
+  <p class="footer-tech">Powered by AI. Shaped by adventurers.</p>
+</div>

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit Configuration for Dungeon Crawler Module
+  
+  Based on design document:
+  @see docs/dungeoncrawler/issues/issue-testing-strategy-design.md
+  @see docs/dungeoncrawler/testing/examples/phpunit.xml.example
+  
+  Usage:
+    cd sites/dungeoncrawler
+    ./vendor/bin/phpunit -c web/modules/custom/dungeoncrawler_content/phpunit.xml
+  
+  Test Suites:
+    - unit: Fast isolated tests (80% of suite, 90% coverage target)
+    - kernel: Integration tests (15% of suite)
+    - functional: Browser tests (5% of suite)
+  
+  Groups:
+    - pf2e-rules: PF2e rules validation tests
+    - character-creation: Character creation tests
+    - combat: Combat system tests
+  
+  TODO: Adjust paths and settings based on actual Drupal installation
+
+  Note: failOnPhpunitDeprecation is set to false to allow tests to pass
+  despite PHPUnit 11 deprecation warnings. These warnings should be addressed
+  in a future update when migrating to newer PHPUnit/Drupal versions.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
+         bootstrap="../../../core/tests/bootstrap.php"
+         colors="true"
+         failOnPhpunitDeprecation="false"
+         failOnWarning="false"
+         failOnDeprecation="false"
+         failOnNotice="false"
+         failOnRisky="false"
+         failOnIncomplete="false">
+  
+  <!-- Test Suites -->
+  <testsuites>
+    <testsuite name="unit">
+      <directory>tests/src/Unit</directory>
+      <exclude>tests/src/Unit/Traits</exclude>
+    </testsuite>
+    
+    <testsuite name="kernel">
+      <directory>tests/src/Kernel</directory>
+    </testsuite>
+    
+    <testsuite name="functional">
+      <directory>tests/src/Functional</directory>
+    </testsuite>
+  </testsuites>
+
+  <source>
+    <include>
+      <directory suffix=".php">src</directory>
+    </include>
+    <exclude>
+      <directory>tests</directory>
+    </exclude>
+  </source>
+  
+  <!-- PHP Environment -->
+  <php>
+    <!-- Drupal test database -->
+    <env name="SIMPLETEST_DB" value="mysql://drupal_user:drupal_secure_password@127.0.0.1:3306/dungeoncrawler_dev"/>
+    
+    <!-- Base URL for functional tests -->
+    <env name="SIMPLETEST_BASE_URL" value="http://localhost:8080"/>
+    
+    <!-- Simpletest file storage -->
+    <env name="SIMPLETEST_FILE" value="/tmp/dungeoncrawler-simpletest"/>
+    <env name="SIMPLETEST_FILES" value="/tmp/dungeoncrawler-simpletest"/>
+    <env name="SIMPLETEST_FILES_DIRECTORY" value="/tmp/dungeoncrawler-simpletest"/>
+    
+    <!-- Browser output directory -->
+    <env name="BROWSERTEST_OUTPUT_DIRECTORY" value="/tmp/dungeoncrawler-simpletest/browser_output"/>
+    
+    <!-- Memory limit -->
+    <ini name="memory_limit" value="512M"/>
+  </php>
+  
+</phpunit>

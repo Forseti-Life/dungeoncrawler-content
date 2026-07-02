@@ -1,0 +1,5 @@
+# Schema for the configuration files of the dungeoncrawler theme.
+
+dungeoncrawler.settings:
+  type: theme_settings
+  label: 'dungeoncrawler settings'

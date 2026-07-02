@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "item_id": "dagger",
+  "name": "Dagger",
+  "item_type": "weapon",
+  "level": 0,
+  "rarity": "common",
+  "traits": [
+    "simple",
+    "knife"
+  ],
+  "description": "A small, easily concealed blade useful as both a melee weapon and a thrown weapon. Daggers are among the most common weapons found throughout the world.",
+  "price": {
+    "cp": 0,
+    "sp": 2,
+    "gp": 0,
+    "pp": 0
+  },
+  "bulk": "L",
+  "hands": "1",
+  "weapon_stats": {
+    "category": "simple",
+    "group": "knife",
+    "damage": {
+      "dice_count": 1,
+      "die_size": "d4",
+      "damage_type": "piercing"
+    },
+    "range": "10 ft.",
+    "reload": null,
+    "weapon_traits": [
+      "agile",
+      "finesse",
+      "thrown 10 ft.",
+      "versatile S"
+    ]
+  },
+  "created_at": "2026-03-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "item_category": "weapon"
+}

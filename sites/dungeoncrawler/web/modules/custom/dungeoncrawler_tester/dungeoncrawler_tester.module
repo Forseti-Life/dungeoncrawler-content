@@ -1,0 +1,33 @@
+<?php
+
+/**
+ * Implements hook_theme().
+ */
+function dungeoncrawler_tester_theme($existing, $type, $theme, $path) {
+  return [
+    'dungeoncrawler_tester_queue_management' => [
+      'variables' => [
+        'queue_items' => [],
+        'queue_status' => [],
+      ],
+      'template' => 'dungeoncrawler-tester-queue-management',
+      'path' => $path . '/templates',
+    ],
+  ];
+}
+
+/**
+ * Implements hook_cron().
+ */
+function dungeoncrawler_tester_cron() {
+  $cronAgentsEnabled = (bool) \Drupal::config('dungeoncrawler_tester.settings')->get('cron_agents_enabled');
+  if (!$cronAgentsEnabled) {
+    \Drupal::logger('dungeoncrawler_tester')->notice('Tester cron agents are paused by configuration; skipping issue sync and auto-enqueue.');
+    return;
+  }
+
+  // Auto-resume and unlink tests whose attached issue is closed.
+  \Drupal::service('dungeoncrawler_tester.stage_issue_sync')->syncIssues(TRUE, TRUE);
+  // Auto-enqueue active stages hourly if not already queued.
+  \Drupal::service('dungeoncrawler_tester.stage_auto_enqueue')->enqueueDueStages(3600);
+}

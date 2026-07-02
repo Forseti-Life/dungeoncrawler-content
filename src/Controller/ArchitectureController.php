@@ -144,8 +144,8 @@ class ArchitectureController extends ControllerBase {
       [
         'name' => $this->t('Dungeon Creation and Management'),
         'steps' => $this->t('Dungeon generation/load request → dungeon payload retrieval/update → hexmap runtime exploration/combat actions'),
-        'controllers_apis' => $this->t('DungeonController (generate/get level/update state endpoints), HexMapController (hexmap payload/render orchestration), CombatEncounterApiController (/api/combat/start, /api/combat/action, /api/combat/end-turn, /api/combat/end).'),
-        'guardrails' => $this->t('Server-authoritative dungeon/encounter state; deterministic fallback behavior when generation provider responses are rejected/unavailable; route-level access and CSRF protections on mutation actions.'),
+        'controllers_apis' => $this->t('DungeonGeneratorController (generate/get level/update state endpoints), HexMapController (hexmap payload/render orchestration), CombatEncounterApiController (/api/combat/start, /api/combat/action, /api/combat/end-turn, /api/combat/end).'),
+        'guardrails' => $this->t('Server-authoritative dungeon/encounter state; hard-fail behavior when generation provider responses are rejected/unavailable; route-level access and CSRF protections on mutation actions.'),
       ],
     ];
 
@@ -203,8 +203,8 @@ class ArchitectureController extends ControllerBase {
         'source_of_truth' => $this->t('CombatEncounterApiController server state'),
         'flow' => $this->t('Dungeon Creation and Management'),
         'sequence' => $this->t('Dungeon generation/load request → dungeon payload retrieval/update → hexmap runtime exploration/combat actions'),
-        'controllers_apis' => $this->t('DungeonController (generate/get level/update state endpoints), HexMapController (hexmap payload/render orchestration), CombatEncounterApiController (/api/combat/start, /api/combat/action, /api/combat/end-turn, /api/combat/end).'),
-        'guardrails' => $this->t('Server-authoritative dungeon/encounter state; deterministic fallback behavior when generation provider responses are rejected/unavailable; route-level access and CSRF protections on mutation actions.'),
+        'controllers_apis' => $this->t('DungeonGeneratorController (generate/get level/update state endpoints), HexMapController (hexmap payload/render orchestration), CombatEncounterApiController (/api/combat/start, /api/combat/action, /api/combat/end-turn, /api/combat/end).'),
+        'guardrails' => $this->t('Server-authoritative dungeon/encounter state; hard-fail behavior when generation provider responses are rejected/unavailable; route-level access and CSRF protections on mutation actions.'),
         'drill_label' => $this->t('Controller architecture map'),
         'drill_url' => Url::fromRoute('dungeoncrawler_content.controller_architecture')->toString(),
         'drill_description' => $this->t('Current backend controller responsibilities and boundaries (includes Encounter algorithm integration architecture: phase status, safeguards, and orchestration integration).'),

@@ -1,0 +1,11 @@
+uuid: 595c6aff-f1a9-4403-9763-7af110e83576
+langcode: en
+status: true
+dependencies: {  }
+name: Ancestry
+type: ancestry
+description: 'PF2E ancestry definitions (dwarf, elf, gnome, goblin, halfling, human, etc.).'
+help: null
+new_revision: true
+preview_mode: 1
+display_submitted: true

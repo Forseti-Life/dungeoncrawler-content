@@ -1,0 +1,5 @@
+name: 'St. Louis Integration Site Customizations'
+description: 'Custom site modifications for St. Louis Integration website'
+type: module
+core_version_requirement: ^11
+package: 'St. Louis Integration'

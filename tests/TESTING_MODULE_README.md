@@ -47,7 +47,7 @@ Controller tests validate the behavior of individual controllers:
 13. **CombatControllerTest** - Tests combat functionality
 14. **CombatActionControllerTest** - Tests combat actions
 15. **CombatEncounterApiControllerTest** - Tests combat encounter API
-16. **DungeonControllerTest** - Tests dungeon functionality
+16. **DungeonGeneratorControllerTest** - Tests dungeon generation functionality
 17. **HexMapControllerTest** - Tests hex map demo
 18. **TestingPageControllerTest** - Tests the testing page itself
 

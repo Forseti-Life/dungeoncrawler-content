@@ -1,0 +1,22 @@
+uuid: b9464e72-54c4-412e-9394-01128a29275b
+langcode: en
+status: true
+dependencies:
+  module:
+    - system
+  theme:
+    - dungeoncrawler
+_core:
+  default_config_hash: j3JWcn5LDD6lUsQfG4FfFQQUMcQGCXGlFghY9Mcfz9E
+id: dungeoncrawler_messages
+theme: dungeoncrawler
+region: header
+weight: -3
+provider: null
+plugin: system_messages_block
+settings:
+  id: system_messages_block
+  label: 'Status messages'
+  label_display: '0'
+  provider: system
+visibility: {  }

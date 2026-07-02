@@ -1,0 +1,54 @@
+max_level: 100
+difficulty_levels: |-
+  Shallow Halls
+  Twisting Corridors
+  Deep Caverns
+  The Underdark
+  The Abyss
+rarity_tiers: |-
+  Common
+  Uncommon
+  Rare
+  Epic
+  Legendary
+room_persistence: true
+monster_permadeath: true
+encounter_ai_npc_autoplay_enabled: false
+encounter_ai_narration_enabled: false
+encounter_ai_retry_attempts: 2
+encounter_ai_recommendation_max_tokens: 800
+encounter_ai_narration_max_tokens: 500
+ai_gm_narration_enabled: false
+ai_gm_narration_max_tokens: 300
+ai_gm_trigger_room_entry: true
+ai_gm_trigger_encounter_start: true
+ai_gm_trigger_encounter_end: true
+ai_gm_trigger_round_start: true
+ai_gm_trigger_entity_defeated: true
+ai_gm_trigger_phase_transition: true
+items_per_page: 12
+show_game_stats: true
+generated_image_provider: gemini
+gemini_image_enabled: false
+gemini_image_model: gemini-2.0-flash-exp
+gemini_image_endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
+gemini_image_timeout: 30
+gemini_image_api_key: ''
+gemini_system_context_prompt: |-
+  You are a production token-art generator for a hexmap tactical RPG client.
+
+  Generate original, non-infringing high-fantasy token images for: character, creature, item, obstacle, floortile.
+
+  Requirements:
+  - No copyrighted characters, logos, text labels, or watermarks.
+  - Strong silhouette readability at small sizes.
+  - Maintain consistent style and lighting.
+  - Transparent PNG output for non-floortile tokens unless requested otherwise.
+  - Center subject with clean composition and game-ready legibility.
+vertex_image_enabled: false
+vertex_image_project_id: ''
+vertex_image_location: us-central1
+vertex_image_model: imagen-3.0-generate-002
+vertex_image_endpoint: 'https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:predict'
+vertex_image_timeout: 30
+vertex_image_api_key: ''

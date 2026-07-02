@@ -1,0 +1,100 @@
+{#
+/**
+ * @file
+ * Template for the adventurer's guild dashboard.
+ *
+ * Available variables:
+ * - header: Page header content
+ * - completeness: Profile completeness widget
+ * - stats: Profile statistics
+ * - sections: Profile sections summary
+ * - actions: Action buttons
+ */
+#}
+
+<div class="user-profile-page">
+  <div class="container">
+    {# Adventurer header #}
+    <div class="row mb-4">
+      <div class="col-12">
+        <div class="user-profile-header">
+          <div class="profile-avatar">
+            <i class="fas fa-hat-wizard fa-4x dc-auth-icon"></i>
+          </div>
+          <div class="profile-name-info">
+            <h1 class="profile-name dc-heading-accent">Adventurer's Guild Profile</h1>
+            <p class="profile-subtitle dc-auth-subtitle">Manage your character sheet and quest preferences</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      {# Left Column - Character Summary #}
+      <div class="col-lg-4">
+        {# Character Completeness Card #}
+        <div class="user-info-card">
+          <h3 class="card-title">
+            <i class="fas fa-chart-pie"></i>
+            Character Completeness
+          </h3>
+          <div class="user-info-content">
+            {{ completeness }}
+          </div>
+        </div>
+
+        {# Adventure Stats Card #}
+        <div class="user-info-card">
+          <h3 class="card-title">
+            <i class="fas fa-scroll"></i>
+            Adventure Overview
+          </h3>
+          <div class="user-info-content">
+            {{ stats }}
+          </div>
+        </div>
+      </div>
+
+      {# Right Column - Character Sections & Actions #}
+      <div class="col-lg-8">
+        {# Character Sections Card #}
+        <div class="user-info-card">
+          <h3 class="card-title">
+            <i class="fas fa-list-check"></i>
+            Character Sections
+          </h3>
+          <div class="user-info-content">
+            {{ sections }}
+          </div>
+        </div>
+
+        {# Quick Actions Card #}
+        <div class="user-info-card">
+          <h3 class="card-title">
+            <i class="fas fa-wand-magic-sparkles"></i>
+            Quick Actions
+          </h3>
+          <div class="user-info-content">
+            <div class="profile-actions-grid">
+              {{ actions }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# Action Buttons #}
+    <div class="row mt-5">
+      <div class="col-12 text-center">
+        <a href="{{ path('job_application_automation.user_profile_edit', {'user': user.id()}) }}" class="btn btn-warning btn-lg">
+          <i class="fas fa-edit"></i>
+          Edit Character Sheet
+        </a>
+        <a href="{{ path('job_application_automation.dashboard') }}" class="btn btn-outline-light btn-lg">
+          <i class="fas fa-dungeon"></i>
+          View Quest Log
+        </a>
+      </div>
+    </div>
+  </div>
+</div>

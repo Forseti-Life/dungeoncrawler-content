@@ -1,0 +1,154 @@
+.issue-import-page {
+  color: var(--bs-body-color);
+  display: grid;
+  gap: 1rem;
+}
+
+.issue-import-page .issue-import-page-header h2 {
+  margin: 0;
+}
+
+.issue-import-page .issue-import-page-header p {
+  margin: 0.4rem 0 0;
+}
+
+.import-workflow-commentary {
+  border-left: 4px solid var(--bs-info);
+}
+
+.import-workflow-commentary h3 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.import-muted-text {
+  color: var(--bs-secondary-color);
+  margin-bottom: 0.5rem;
+}
+
+.import-workflow-commentary .item-list ul {
+  margin-bottom: 0.5rem;
+}
+
+.import-throttle-warning {
+  margin-bottom: 0;
+  font-weight: 600;
+  color: var(--bs-warning-text-emphasis);
+}
+
+.issue-import-page .import-open-issues-top-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(520px, 2fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.issue-import-page .import-open-issues-metrics .item-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.issue-import-page .import-open-issues-metrics .item-list__item {
+  margin-bottom: 0.3rem;
+}
+
+.issue-import-page .import-open-issues-form-card h3 {
+  margin: 0;
+}
+
+.issue-import-page .import-open-issues-form-card > p {
+  margin: 0.4rem 0 0.9rem;
+}
+
+.issue-import-page .open-issues-import-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.issue-import-page .open-issues-import-form .import-form-summary,
+.issue-import-page .open-issues-import-form .import-form-last-runs {
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 8px;
+  background: var(--bs-tertiary-bg);
+}
+
+.issue-import-page .open-issues-import-form .import-form-summary .form-item,
+.issue-import-page .open-issues-import-form .import-form-last-runs .form-item {
+  margin: 0;
+}
+
+.issue-import-page .open-issues-import-form .form-item {
+  margin-top: 0;
+  margin-bottom: 0.65rem;
+}
+
+.issue-import-page .open-issues-import-form .form-item:last-child {
+  margin-bottom: 0;
+}
+
+.issue-import-page .open-issues-import-form label {
+  font-weight: 600;
+}
+
+.issue-import-page .open-issues-import-form input[type="text"],
+.issue-import-page .open-issues-import-form input[type="number"],
+.issue-import-page .open-issues-import-form select,
+.issue-import-page .open-issues-import-form textarea {
+  width: 100%;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  background: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+
+.issue-import-page .open-issues-import-form .description {
+  color: var(--bs-secondary-color);
+}
+
+.issue-import-page .open-issues-import-form .import-form-actions {
+  margin-top: 0.35rem;
+}
+
+.issue-import-page .open-issues-import-form .import-form-actions .button {
+  border-radius: 6px;
+}
+
+.issue-import-page .issue-card,
+.issue-import-page .issue-report-item {
+  color: var(--bs-body-color);
+  background-color: var(--bs-body-bg);
+}
+
+.issue-import-page h3,
+.issue-import-page h4,
+.issue-import-page label,
+.issue-import-page .log-entry,
+.issue-import-page .count-pill,
+.issue-import-page .refresh-meta,
+.issue-import-page .status-pill,
+.issue-import-page .dc-reconcile-status-summary {
+  color: var(--bs-body-color);
+}
+
+.issue-import-page .import-muted-text,
+.issue-import-page .text-muted-light {
+  color: var(--bs-secondary-color);
+}
+
+.issue-import-page .log-panel,
+.issue-import-page .queue-controls {
+  background-color: var(--bs-tertiary-bg);
+}
+
+.issue-import-page .log-entries {
+  background-color: var(--bs-body-bg);
+}
+
+@media (max-width: 1024px) {
+  .issue-import-page .import-open-issues-top-grid {
+    grid-template-columns: 1fr;
+  }
+}

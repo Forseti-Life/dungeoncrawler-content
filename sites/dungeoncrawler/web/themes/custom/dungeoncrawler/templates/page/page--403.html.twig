@@ -1,0 +1,38 @@
+{#
+/**
+ * @file
+ * Dungeon Crawler 403 page - Locked Door
+ */
+#}
+<div class="dungeon-error-page">
+  <div class="container py-5">
+    <div class="text-center">
+
+      <div class="mb-4">
+        <i class="fas fa-lock fa-5x dc-error-icon-danger"></i>
+      </div>
+
+      <h1 class="mb-3 dc-error-code dc-error-code--danger">403</h1>
+      <h2 class="mb-4 dc-error-subtitle">The Door Is Sealed</h2>
+
+      <div class="mb-5 mx-auto dc-error-copy-wrap">
+        <p class="lead dc-error-copy">
+          Ancient runes glow along the doorframe — this chamber is warded against intruders.
+          You'll need proper credentials to pass through. Perhaps the Guild Master can help.
+        </p>
+      </div>
+
+      <div class="d-flex justify-content-center gap-3 flex-wrap mt-5">
+        <a href="/user/register" class="btn btn-warning btn-lg"><i class="fas fa-scroll me-2"></i>Join the Guild</a>
+        <a href="/user/login" class="btn btn-outline-light btn-lg"><i class="fas fa-key me-2"></i>Present Credentials</a>
+        <a href="{{ path('<front>') }}" class="btn btn-outline-light btn-lg"><i class="fas fa-campground me-2"></i>Return to Camp</a>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{# Footer #}
+{% if page.footer %}
+  {{ page.footer }}
+{% endif %}

@@ -1,0 +1,14 @@
+uuid: 8c21bc2c-5ebe-45b8-b305-fc173910d13f
+langcode: en
+status: true
+dependencies:
+  config:
+    - user.role.dc_playwright_player
+  module:
+    - user
+id: user_remove_role_action.dc_playwright_player
+label: 'Remove the DC Playwright Player role from the selected user(s)'
+type: user
+plugin: user_remove_role_action
+configuration:
+  rid: dc_playwright_player

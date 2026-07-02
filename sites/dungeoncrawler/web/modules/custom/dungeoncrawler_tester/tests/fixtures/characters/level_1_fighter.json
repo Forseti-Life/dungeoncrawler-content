@@ -1,0 +1,100 @@
+{
+  "name": "Test Fighter",
+  "level": 1,
+  "ancestry": {
+    "id": "human",
+    "name": "Human",
+    "hp_bonus": 0,
+    "size": "Medium",
+    "speed": 25
+  },
+  "background": {
+    "id": "warrior",
+    "name": "Warrior",
+    "ability_boosts": ["STR", "CON"]
+  },
+  "class": {
+    "id": "fighter",
+    "name": "Fighter",
+    "hp": 10,
+    "key_abilities": ["STR", "DEX"]
+  },
+  "ability_scores": {
+    "strength": 18,
+    "dexterity": 14,
+    "constitution": 16,
+    "intelligence": 10,
+    "wisdom": 12,
+    "charisma": 8
+  },
+  "ability_modifiers": {
+    "strength": 4,
+    "dexterity": 2,
+    "constitution": 3,
+    "intelligence": 0,
+    "wisdom": 1,
+    "charisma": -1
+  },
+  "calculated_stats": {
+    "max_hp": 13,
+    "hp_breakdown": {
+      "class_base": 10,
+      "con_modifier": 3,
+      "ancestry_bonus": 0,
+      "other": 0
+    },
+    "armor_class": 21,
+    "ac_breakdown": {
+      "base": 10,
+      "dex_modifier": 2,
+      "armor": 4,
+      "shield": 2,
+      "proficiency": 2,
+      "level": 1,
+      "other": 0
+    }
+  },
+  "proficiencies": {
+    "perception": "trained",
+    "fortitude": "expert",
+    "reflex": "trained",
+    "will": "trained"
+  },
+  "skills": {
+    "athletics": "trained",
+    "intimidation": "trained"
+  },
+  "equipment": [
+    {
+      "name": "Scale Mail",
+      "type": "armor",
+      "ac_bonus": 4
+    },
+    {
+      "name": "Steel Shield",
+      "type": "shield",
+      "ac_bonus": 2
+    },
+    {
+      "name": "Longsword",
+      "type": "weapon",
+      "damage": "1d8",
+      "traits": ["versatile P"]
+    }
+  ],
+  "description": "Standard level 1 fighter for testing HP and AC calculations",
+  "test_cases": {
+    "hp_calculation": {
+      "expected": 13,
+      "formula": "10 (class) + 3 (CON mod) + 0 (ancestry)"
+    },
+    "ac_calculation": {
+      "expected": 21,
+      "formula": "10 + 2 (DEX) + 4 (armor) + 2 (shield) + 2 (proficiency) + 1 (level)"
+    },
+    "attack_bonus": {
+      "melee": 8,
+      "formula": "4 (STR) + 2 (trained) + 1 (level) + 1 (weapon)"
+    }
+  }
+}

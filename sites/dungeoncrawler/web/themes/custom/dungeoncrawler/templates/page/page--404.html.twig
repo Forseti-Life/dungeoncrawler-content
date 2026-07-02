@@ -1,0 +1,37 @@
+{#
+/**
+ * @file
+ * Dungeon Crawler 404 page - Lost in the Dungeon
+ */
+#}
+<div class="dungeon-error-page">
+  <div class="container py-5">
+    <div class="text-center">
+
+      <div class="mb-4">
+        <i class="fas fa-compass fa-5x dc-error-icon-warning"></i>
+      </div>
+
+      <h1 class="mb-3 dc-error-code dc-error-code--warning">404</h1>
+      <h2 class="mb-4 dc-error-subtitle">Lost in the Darkness</h2>
+
+      <div class="mb-5 mx-auto dc-error-copy-wrap">
+        <p class="lead dc-error-copy">
+          Your torch flickers and dies. The corridor you followed has collapsed behind you.
+          This passage leads nowhere — the dungeon has swallowed this path whole.
+        </p>
+      </div>
+
+      <div class="d-flex justify-content-center gap-3 flex-wrap mt-5">
+        <a href="{{ path('<front>') }}" class="btn btn-warning btn-lg"><i class="fas fa-campground me-2"></i>Return to Camp</a>
+        <a href="/user/login" class="btn btn-outline-light btn-lg"><i class="fas fa-scroll me-2"></i>Check Your Map</a>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{# Footer #}
+{% if page.footer %}
+  {{ page.footer }}
+{% endif %}

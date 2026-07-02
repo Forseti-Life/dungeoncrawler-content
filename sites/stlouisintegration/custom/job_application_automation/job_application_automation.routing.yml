@@ -1,0 +1,283 @@
+# Job Application Automation Routes
+# Complete routing configuration for job application automation module
+# ALL ROUTES RESTRICTED TO ADMINISTRATOR ROLE
+
+# Job Hunter Dashboard (Main Landing Page)
+job_application_automation.dashboard:
+  path: '/jobhunter'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\JobApplicationController::dashboard'
+    _title: 'Job Hunter Dashboard'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Module Settings
+job_application_automation.settings:
+  path: '/jobhunter/settings'
+  defaults:
+    _form: '\Drupal\job_application_automation\Form\SettingsForm'
+    _title: 'Job Application Automation Settings'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Documentation Home
+job_application_automation.documentation:
+  path: '/jobhunter/documentation'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\DocumentationController::index'
+    _title: 'Documentation'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Documentation - README
+job_application_automation.documentation.readme:
+  path: '/jobhunter/documentation/readme'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\DocumentationController::viewDocument'
+    _title: 'Documentation Home'
+    file: 'README.md'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Documentation - Architecture
+job_application_automation.documentation.architecture:
+  path: '/jobhunter/documentation/architecture'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\DocumentationController::viewDocument'
+    _title: 'Architecture'
+    file: 'ARCHITECTURE.md'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Documentation - Process Flow
+job_application_automation.documentation.process_flow:
+  path: '/jobhunter/documentation/process-flow'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\DocumentationController::viewDocument'
+    _title: 'Process Flows'
+    file: 'PROCESS_FLOW.md'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Documentation - FAQ
+job_application_automation.documentation.faq:
+  path: '/jobhunter/documentation/faq'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\DocumentationController::viewDocument'
+    _title: 'FAQ'
+    file: 'FAQ.md'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Job Seeker Profile Add
+job_application_automation.job_seeker_add:
+  path: '/jobseeker/add'
+  defaults:
+    _form: '\Drupal\job_application_automation\Form\JobSeekerForm'
+    _title: 'Create Job Seeker Profile'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Job Seeker Profile Edit
+job_application_automation.job_seeker_edit:
+  path: '/jobseeker/{job_seeker_id}/edit'
+  defaults:
+    _form: '\Drupal\job_application_automation\Form\JobSeekerForm'
+    _title: 'Edit Job Seeker Profile'
+  requirements:
+    _permission: 'administer job application automation'
+    job_seeker_id: \d+
+
+# Job Seeker Profile View
+job_application_automation.user_job_seeker_view:
+  path: '/jobhunter/profile'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::viewJobSeekerProfile'
+    _title: 'Job Seeker Profile'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Job Discovery - Company Selection Page
+job_application_automation.start_job_discovery:
+  path: '/jobhunter/job-discovery/start'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::startJobDiscovery'
+    _title: 'Job Discovery - Select Company'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Job Discovery - Company-Specific Discovery Page
+job_application_automation.company_job_discovery:
+  path: '/jobhunter/job-discovery/company/{company}'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::companyJobDiscovery'
+    _title: 'Job Discovery'
+  requirements:
+    _permission: 'administer job application automation'
+    company: \d+
+
+# Job Discovery - AJAX Search Endpoint
+job_application_automation.job_discovery_search:
+  path: '/jobhunter/job-discovery/search'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::jobDiscoverySearch'
+  requirements:
+    _permission: 'administer job application automation'
+  methods: [POST]
+  options:
+    _csrf_token: FALSE
+
+# Job Discovery - Save Job Endpoint
+job_application_automation.save_job:
+  path: '/jobhunter/job-discovery/save'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::saveJob'
+  requirements:
+    _permission: 'administer job application automation'
+  methods: [POST]
+  options:
+    _csrf_token: FALSE
+
+# Target Companies Management
+job_application_automation.manage_target_companies:
+  path: '/jobhunter/target-companies'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\JobApplicationController::manageTargetCompanies'
+    _title: 'Manage Target Companies'
+  requirements:
+    _permission: 'administer job application automation'
+
+job_application_automation.save_target_companies:
+  path: '/jobhunter/target-companies/save'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\JobApplicationController::saveTargetCompanies'
+  requirements:
+    _permission: 'administer job application automation'
+  methods: [POST]
+
+# Bulk Company Import
+job_application_automation.bulk_import_companies:
+  path: '/jobhunter/bulk-import-companies'
+  defaults:
+    _form: '\Drupal\job_application_automation\Form\BulkCompanyImportForm'
+    _title: 'Bulk Import Companies'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Companies Overview
+job_application_automation.companies_overview:
+  path: '/jobhunter/companies'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\JobApplicationController::companiesOverview'
+    _title: 'Companies Overview'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Application Management Routes
+job_application_automation.add:
+  path: '/jobhunter/applications/add'
+  defaults:
+    _form: '\Drupal\job_application_automation\Form\JobApplicationForm'
+    _title: 'Add Job Application'
+  requirements:
+    _permission: 'administer job application automation'
+
+job_application_automation.edit:
+  path: '/jobhunter/applications/{job_application}/edit'
+  defaults:
+    _form: '\Drupal\job_application_automation\Form\JobApplicationForm'
+    _title: 'Edit Job Application'
+  requirements:
+    _permission: 'administer job application automation'
+    _entity_access: 'job_application.update'
+
+job_application_automation.view:
+  path: '/jobhunter/applications/{job_application}'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\JobApplicationController::view'
+    _title_callback: '\Drupal\job_application_automation\Controller\JobApplicationController::getTitle'
+  requirements:
+    _permission: 'administer job application automation'
+    _entity_access: 'job_application.view'
+
+# Workflow Management Routes
+job_application_automation.workflow:
+  path: '/jobhunter/applications/{job_application}/workflow'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\WorkflowController::manage'
+    _title: 'Manage Application Workflow'
+  requirements:
+    _permission: 'administer job application automation'
+    _entity_access: 'job_application.update'
+
+job_application_automation.bulk_actions:
+  path: '/jobhunter/bulk-actions'
+  defaults:
+    _form: '\Drupal\job_application_automation\Form\BulkActionsForm'
+    _title: 'Bulk Actions'
+  requirements:
+    _permission: 'administer job application automation'
+
+# User Profile Management Routes
+job_application_automation.user_profile_dashboard:
+  path: '/jobhunter/profile/dashboard'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::dashboard'
+    _title: 'Job Application Profile'
+  requirements:
+    _permission: 'administer job application automation'
+
+job_application_automation.user_profile_edit:
+  path: '/jobhunter/profile/edit'
+  defaults:
+    _form: '\Drupal\job_application_automation\Form\UserProfileForm'
+    _title: 'Edit Job Application Profile'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Current User Profile Shortcuts
+job_application_automation.my_profile:
+  path: '/jobhunter/my-profile'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::myProfile'
+    _title: 'My Job Application Profile'
+  requirements:
+    _permission: 'administer job application automation'
+
+job_application_automation.my_profile_edit:
+  path: '/jobhunter/my-profile/edit'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::myProfileEdit'
+    _title: 'Edit My Job Application Profile'
+  requirements:
+    _permission: 'administer job application automation'
+
+# Tailor Resume for Specific Job
+job_application_automation.tailor_resume:
+  path: '/jobhunter/tailor-resume/{job}'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::tailorResume'
+    _title: 'Tailor Resume for Job'
+  requirements:
+    _permission: 'administer job application automation'
+    job: \d+
+
+# AJAX endpoint for resume tailoring
+job_application_automation.tailor_resume_ajax:
+  path: '/jobhunter/tailor-resume/ajax'
+  defaults:
+    _controller: '\Drupal\job_application_automation\Controller\UserProfileController::tailorResumeAjax'
+  requirements:
+    _permission: 'administer job application automation'
+  methods: [POST]
+  options:
+    _csrf_token: FALSE
+
+# 6. Future Routes (Commented Out)
+# job_application_automation.settings:
+#   path: '/admin/config/services/job-application-automation'
+#   defaults:
+#     _form: '\Drupal\job_application_automation\Form\SettingsForm'
+#     _title: 'Job Application Automation Settings'
+#   requirements:
+#     _permission: 'administer job application automation'

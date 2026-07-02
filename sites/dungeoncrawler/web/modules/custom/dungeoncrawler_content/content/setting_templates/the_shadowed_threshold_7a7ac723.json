@@ -1,0 +1,127 @@
+{
+    "template_id": "the_shadowed_threshold_7a7ac723",
+    "name": "The Shadowed Threshold",
+    "description": "A chill air wafts from the yawning entrance of this ancient stone chamber. Flickering torchlight casts dancing shadows on weathered walls adorned with faded glyphs. The sound of distant dripping water echoes ominously from deeper within.",
+    "setting_type": "dungeon",
+    "size": "medium",
+    "lighting": "dim_light",
+    "setting_data": {
+        "theme_tags": [
+            "ancient",
+            "mysterious",
+            "foreboding"
+        ],
+        "atmosphere": "An oppressive sense of age and forgotten secrets permeates the air, setting nerves on edge.",
+        "npcs": [
+            {
+                "name": "Vex the Scout",
+                "content_id": "vex_dungeon_scout",
+                "ancestry": "Half-Elf",
+                "class": "Rogue",
+                "role": "neutral",
+                "team": "neutral",
+                "occupation": "Dungeon scout",
+                "description": "A lithe figure in dark leather armor, with sharp eyes and a wary expression. A collection of lockpicks and small knives adorns their belt.",
+                "backstory": "Vex makes a living guiding adventurers through dangerous ruins. They've seen many groups enter this dungeon, but few return.",
+                "attitude": "indifferent",
+                "stats": {
+                    "maxHp": 16,
+                    "currentHp": 16,
+                    "ac": 16,
+                    "speed": 30,
+                    "perception": 6,
+                    "initiative_bonus": 6
+                },
+                "equipment": [
+                    "shortbow",
+                    "shortsword",
+                    "thieves' tools"
+                ]
+            }
+        ],
+        "objects": [
+            {
+                "object_id": "ancient_stone_door",
+                "label": "Ancient Stone Door",
+                "category": "door",
+                "description": "A massive stone door covered in intricate, worn carvings.",
+                "passable": false,
+                "interactable": true
+            },
+            {
+                "object_id": "flickering_torch",
+                "label": "Flickering Torch",
+                "category": "decor",
+                "description": "A torch mounted on the wall, its flame casting eerie shadows.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "crumbling_pillar",
+                "label": "Crumbling Pillar",
+                "category": "custom",
+                "description": "A partially collapsed stone pillar, once ornate but now worn by time.",
+                "passable": false,
+                "interactable": false
+            },
+            {
+                "object_id": "mysterious_glyph",
+                "label": "Mysterious Glyph",
+                "category": "decor",
+                "description": "A faintly glowing symbol etched into the stone wall.",
+                "passable": true,
+                "interactable": true
+            },
+            {
+                "object_id": "discarded_backpack",
+                "label": "Discarded Backpack",
+                "category": "custom",
+                "description": "A worn leather backpack, seemingly abandoned by a previous explorer.",
+                "passable": true,
+                "interactable": true
+            }
+        ]
+    },
+    "search_tags": [
+        "dimly",
+        "lit",
+        "stone",
+        "chamber",
+        "marking",
+        "entrance",
+        "mysterious",
+        "dungeon",
+        "ancient",
+        "foreboding",
+        "medium",
+        "shadowed",
+        "threshold",
+        "chill",
+        "air",
+        "wafts",
+        "yawning",
+        "flickering",
+        "torchlight",
+        "casts",
+        "dancing",
+        "shadows",
+        "weathered",
+        "walls",
+        "adorned",
+        "faded",
+        "glyphs",
+        "sound",
+        "distant",
+        "dripping",
+        "water",
+        "echoes",
+        "ominously",
+        "deeper",
+        "within"
+    ],
+    "level_min": "1",
+    "level_max": "4",
+    "usage_count": "1",
+    "quality_score": "0.5",
+    "source": "ai_generated"
+}

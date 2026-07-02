@@ -1,0 +1,100 @@
+/**
+ * Variables
+ * Variables should follow the $component-state-property-size formula for
+ * consistent naming. Examples:
+ * $nav-link-disabled-color
+ * $modal-content-box-shadow-xs
+ *
+ * Customization:
+ * To customize Bootstrap variables:
+ * Copy the desired variable from node_modules/bootstrap/scss/_variables.scss
+ * @see https://github.com/twbs/bootstrap/blob/main/scss/_variables.scss
+ * Change the value and remove the !default flag.
+ * Examples:
+ * $body-bg: #000;
+ * $body-color: $gray-100;
+ */
+
+// Dungeon Crawler RPG Brand Colors
+// -----------------------------------------------------------------------------
+
+// Primary Dungeon Colors
+$dc-dungeon-stone: #2d2d3d;          // Deep dungeon stone walls
+$dc-torch-gold: #f59e0b;             // Warm torchlight glow
+$dc-mystic-purple: #7c3aed;          // Arcane magic energy
+$dc-blood-red: #dc2626;              // Danger / combat / health
+$dc-shadow-slate: #374151;           // Shadows and depth
+
+// Secondary Colors
+$dc-parchment: #fef3c7;              // Parchment / scroll background
+$dc-deep-cavern: #1a1a2e;            // Deep cavern darkness
+$dc-bone-white: #f5f5f0;             // Bone / clean surfaces
+$dc-abyss-dark: #0f0f1a;             // The abyss - darkest dark
+
+// Functional Colors
+$dc-mana-blue: #3b82f6;              // Mana / information
+$dc-health-green: #10b981;           // Health / success / healing
+$dc-fire-orange: #f97316;            // Fire / warning
+$dc-poison-red: #ef4444;             // Poison / error / critical
+
+// Rarity Colors
+$dc-rarity-common: #9ca3af;          // Common items
+$dc-rarity-uncommon: #22c55e;        // Uncommon items
+$dc-rarity-rare: #3b82f6;            // Rare items
+$dc-rarity-epic: #a855f7;            // Epic items
+$dc-rarity-legendary: #f59e0b;       // Legendary items
+
+// Text Colors
+$dc-text-primary: #e2e8f0;           // Primary text (light on dark)
+$dc-text-secondary: #94a3b8;         // Secondary text
+$dc-text-muted: #7b8da6;             // Muted text (AA-safe on deep cavern)
+$dc-text-inverse: #1e293b;           // Inverse text (dark on light)
+
+// Bootstrap Variable Overrides
+// -----------------------------------------------------------------------------
+
+// Brand Colors
+$primary: $dc-mystic-purple;
+$secondary: $dc-shadow-slate;
+$success: $dc-health-green;
+$info: $dc-mana-blue;
+$warning: $dc-torch-gold;
+$danger: $dc-blood-red;
+
+// Body - Dark dungeon theme
+$body-bg: $dc-deep-cavern;
+$body-color: $dc-text-primary;
+
+// Links
+$link-color: $dc-torch-gold;
+$link-hover-color: lighten($dc-torch-gold, 15%);
+
+// Typography - RPG-style fonts
+$font-family-sans-serif: 'Cinzel', 'Georgia', 'Times New Roman', serif;
+$font-family-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+$headings-font-weight: 700;
+$headings-color: $dc-torch-gold;
+
+// Spacing
+$spacer: 1.25rem;
+
+// Borders
+$border-radius: 0.375rem;
+$border-radius-lg: 0.5rem;
+$border-radius-sm: 0.25rem;
+
+// Shadows (dungeon atmosphere)
+$box-shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+$box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+$box-shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.5), 0 4px 10px -2px rgba(0, 0, 0, 0.3);
+
+// Components
+$card-border-radius: $border-radius;
+$card-box-shadow: $box-shadow;
+$card-bg: $dc-dungeon-stone;
+$card-border-color: rgba($dc-torch-gold, 0.2);
+
+// Navbar
+$navbar-dark-bg: $dc-abyss-dark;
+$navbar-light-bg: $dc-dungeon-stone;
+$navbar-padding-y: 1rem;

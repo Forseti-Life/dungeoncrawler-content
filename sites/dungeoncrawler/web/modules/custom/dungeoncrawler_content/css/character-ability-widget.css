@@ -1,0 +1,326 @@
+.ability-score-widget {
+  --aw-surface: var(--bs-body-bg);
+  --aw-surface-muted: var(--bs-tertiary-bg);
+  --aw-border: var(--bs-border-color);
+  --aw-text: var(--bs-body-color);
+  --aw-text-muted: var(--bs-secondary-color);
+  --aw-primary: var(--bs-primary);
+  --aw-success: var(--bs-success);
+  --aw-danger: var(--bs-danger);
+  --aw-warning: var(--bs-warning);
+  --aw-light: var(--bs-light);
+}
+
+.ability-score-widget {
+  width: 100%;
+  margin: 1rem 0;
+}
+
+.abilities-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.ability-card {
+  background: linear-gradient(135deg, var(--aw-surface-muted) 0%, color-mix(in srgb, var(--aw-surface-muted) 80%, var(--aw-border)) 100%);
+  border: 2px solid var(--aw-border);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+  transition: all 0.3s ease;
+  position: relative;
+  box-shadow: var(--bs-box-shadow-sm);
+}
+
+.ability-card:hover {
+  border-color: var(--aw-text-muted);
+  box-shadow: var(--bs-box-shadow);
+  transform: translateY(-2px);
+}
+
+.ability-card--boosted {
+  border-color: var(--aw-success);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--aw-success) 15%, var(--aw-surface)) 0%, color-mix(in srgb, var(--aw-success) 22%, var(--aw-surface)) 100%);
+}
+
+.ability-card--flawed {
+  border-color: var(--aw-danger);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--aw-danger) 15%, var(--aw-surface)) 0%, color-mix(in srgb, var(--aw-danger) 22%, var(--aw-surface)) 100%);
+}
+
+.ability-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.ability-name {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.5rem 0;
+  color: var(--aw-text);
+}
+
+.score-display {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.score-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--aw-text);
+  line-height: 1;
+}
+
+.modifier-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.modifier-positive {
+  color: var(--aw-success);
+}
+
+.modifier-negative {
+  color: var(--aw-danger);
+}
+
+.score-display--changed .score-value {
+  animation: scoreChange 0.5s ease;
+}
+
+@keyframes scoreChange {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+    color: var(--aw-warning);
+  }
+}
+
+.ability-sources {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.source-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: help;
+}
+
+.source-badge--boost {
+  background: var(--aw-success);
+  color: var(--aw-light);
+}
+
+.source-badge--flaw {
+  background: var(--aw-danger);
+  color: var(--aw-light);
+}
+
+.ability-sources-detail {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--aw-surface);
+  border: 1px solid var(--aw-border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  box-shadow: var(--bs-box-shadow);
+  z-index: 100;
+  min-width: 200px;
+  text-align: left;
+}
+
+.source-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0 0;
+}
+
+.source-item {
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+}
+
+.source-change {
+  font-weight: 700;
+  margin-right: 0.5rem;
+}
+
+.source-item--boost .source-change {
+  color: var(--aw-success);
+}
+
+.source-item--flaw .source-change {
+  color: var(--aw-danger);
+}
+
+.abilities-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: var(--dc-card-bg);
+  border: 1px solid var(--dc-border-light);
+  border-radius: 8px;
+}
+
+.ability-compact-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  background: var(--dc-card-bg-light);
+}
+
+.ability-abbr {
+  font-weight: 700;
+  color: var(--dc-text-muted);
+  font-size: 0.875rem;
+}
+
+.ability-score {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--dc-text-light);
+}
+
+.ability-modifier {
+  font-size: 0.875rem;
+  color: var(--dc-text-muted);
+}
+
+.ability-modifier.positive {
+  color: var(--dc-success);
+}
+
+.ability-modifier.negative {
+  color: var(--dc-danger);
+}
+
+.ability-card--selectable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ability-card--selectable:focus {
+  outline: 2px solid var(--aw-primary);
+  outline-offset: 2px;
+}
+
+.ability-card--selected {
+  border-color: var(--aw-primary);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--aw-primary) 20%, var(--aw-surface)) 0%, color-mix(in srgb, var(--aw-primary) 35%, var(--aw-surface)) 100%);
+}
+
+.ability-card--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.selection-indicator {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+}
+
+.ability-checkbox {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.checkmark {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--aw-text-muted);
+  border-radius: 4px;
+  background: var(--aw-surface);
+  position: relative;
+}
+
+.ability-card--selected .checkmark {
+  background: var(--aw-primary);
+  border-color: var(--aw-primary);
+}
+
+.ability-card--selected .checkmark::after {
+  content: '✓';
+  position: absolute;
+  color: var(--aw-light);
+  font-size: 18px;
+  font-weight: bold;
+  top: -2px;
+  left: 3px;
+}
+
+.score-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.arrow-icon {
+  color: var(--aw-text-muted);
+}
+
+.preview-score {
+  color: var(--aw-success);
+}
+
+.boost-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: var(--aw-surface-muted);
+  border-radius: 8px;
+}
+
+.boost-counter {
+  font-size: 1.25rem;
+}
+
+.boosts-remaining {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--aw-primary);
+}
+
+.ability-widget-empty {
+  text-align: center;
+  padding: 2rem;
+  background: var(--aw-surface-muted);
+  border-radius: 8px;
+  border: 2px dashed var(--aw-border);
+}
+
+.empty-message {
+  color: var(--aw-text-muted);
+  margin: 0;
+}

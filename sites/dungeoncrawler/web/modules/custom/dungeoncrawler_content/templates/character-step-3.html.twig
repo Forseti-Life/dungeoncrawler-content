@@ -1,0 +1,94 @@
+{#
+/**
+ * @file
+ * Character Creation Step 3: Background Selection
+ */
+#}
+
+<div class="character-creation-container">
+  <div class="step-header">
+    <h1>Choose Your Background</h1>
+    <p class="step-description">Your background represents your life before becoming an adventurer</p>
+  </div>
+
+  {# Progress Bar #}
+  <div class="progress-container">
+    <div class="progress-bar">
+      <div class="progress-fill progress-step-3"></div>
+    </div>
+    <div class="progress-text">Step 3 of 8</div>
+  </div>
+
+  <form id="step-3-form" method="post" action="/characters/create/step/3/save?character_id={{ character_id }}" data-backgrounds="{{ backgrounds|json_encode }}">
+    
+    {# Background Selection Grid #}
+    <div class="selection-section">
+      <label class="section-label">Select Background</label>
+      <div class="backgrounds-grid">
+        {% for id, background in backgrounds %}
+          <div class="selection-card background-card" data-background="{{ id }}">
+            <h3>{{ background.name }}</h3>
+            <p class="card-description">{{ background.description }}</p>
+            <div class="background-mechanics">
+              <div class="mechanic-item"><strong>Skill:</strong> {{ background.skill }}</div>
+              <div class="mechanic-item"><strong>Feat:</strong> {{ background.feat }}</div>
+              <div class="mechanic-item"><strong>Lore:</strong> {{ background.lore }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Ability Boost Selection (shown after background selected) #}
+    <div class="selection-section hidden" id="ability-boost-section">
+      <label class="section-label">Choose 2 Ability Boosts <span class="help-text">(from your background)</span></label>
+      <p class="section-instructions">Your background grants you two free ability boosts. Select any two abilities to increase.</p>
+      <div class="ability-grid">
+        <div class="ability-card" data-ability="strength">
+          <h4>Strength</h4>
+          <p>Physical power</p>
+        </div>
+        <div class="ability-card" data-ability="dexterity">
+          <h4>Dexterity</h4>
+          <p>Agility and reflexes</p>
+        </div>
+        <div class="ability-card" data-ability="constitution">
+          <h4>Constitution</h4>
+          <p>Health and stamina</p>
+        </div>
+        <div class="ability-card" data-ability="intelligence">
+          <h4>Intelligence</h4>
+          <p>Reasoning and memory</p>
+        </div>
+        <div class="ability-card" data-ability="wisdom">
+          <h4>Wisdom</h4>
+          <p>Awareness and insight</p>
+        </div>
+        <div class="ability-card" data-ability="charisma">
+          <h4>Charisma</h4>
+          <p>Charm and presence</p>
+        </div>
+      </div>
+      <p class="boost-counter"><span id="boost-count">0</span> of 2 ability boosts selected</p>
+    </div>
+
+    {# Hidden Fields #}
+    <input type="hidden" name="background" id="selected-background" value="{{ character.background|default('') }}">
+    <input type="hidden" name="ability_boosts[]" id="ability-boost-1" value="">
+    <input type="hidden" name="ability_boosts[]" id="ability-boost-2" value="">
+    <input type="hidden" name="step" value="3">
+
+    {# Navigation Buttons #}
+    <div class="button-group">
+      <a href="/characters/create/step/2?character_id={{ character_id }}" class="btn btn-secondary">
+        ← Previous
+      </a>
+      <button type="submit" class="btn btn-primary" id="next-button" disabled>
+        Next Step →
+      </button>
+    </div>
+
+    {# Error Messages #}
+    <div id="error-message" class="error-message hidden"></div>
+  </form>
+</div>
