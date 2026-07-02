@@ -201,12 +201,14 @@ class StorylineRealizationService {
         if ($room_id === '') {
           continue;
         }
+        $room_role = (string) ($room['room_role'] ?? 'room');
+        $room_display_name = $this->resolveRoomDisplayName($room, $dungeon, $room_id);
 
         $layout_data = [
           'source' => 'storyline_generation',
           'storyline_id' => $storyline_id,
           'dungeon_id' => $dungeon_id,
-          'room_role' => (string) ($room['room_role'] ?? 'room'),
+          'room_role' => $room_role,
           'style' => (string) ($room['style'] ?? ''),
         ];
         $contents_data = [
@@ -235,7 +237,7 @@ class StorylineRealizationService {
         $environment_tags = json_encode([
           'storyline',
           'generated',
-          (string) ($room['room_role'] ?? 'room'),
+          $room_role,
           (string) ($dungeon['style'] ?? 'generated'),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $encoded_layout = json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -246,7 +248,7 @@ class StorylineRealizationService {
             'room_id' => $room_id,
           ])
           ->fields([
-            'name' => (string) ($room['name'] ?? $room_id),
+            'name' => $room_display_name,
             'description' => (string) ($room['summary'] ?? ''),
             'environment_tags' => $environment_tags,
             'layout_data' => $encoded_layout,
@@ -263,7 +265,7 @@ class StorylineRealizationService {
             'room_id' => $room_id,
           ])
           ->fields([
-            'name' => (string) ($room['name'] ?? $room_id),
+            'name' => $room_display_name,
             'description' => (string) ($room['summary'] ?? ''),
             'environment_tags' => $environment_tags,
             'layout_data' => $encoded_layout,
@@ -777,6 +779,111 @@ class StorylineRealizationService {
   }
 
   /**
+   * Resolve a readable room display name and avoid role-only placeholders.
+   */
+  protected function resolveRoomDisplayName(array $room, array $dungeon, string $room_id): string {
+    $raw_name = trim((string) ($room['name'] ?? ''));
+    if ($raw_name !== '' && !$this->isGenericRoomName($raw_name)) {
+      return $raw_name;
+    }
+
+    $room_role = trim((string) ($room['room_role'] ?? ''));
+    if ($room_role === '') {
+      $room_role = $this->inferRoomRoleFromRoomId($room_id);
+    }
+    $role_label = $this->humanizeRoomRoleLabel($room_role);
+    $dungeon_label = $this->resolveDungeonDisplayName($dungeon, $room_id);
+
+    if ($dungeon_label !== '') {
+      return $dungeon_label . ' — ' . $role_label;
+    }
+
+    if ($raw_name !== '') {
+      return $raw_name;
+    }
+
+    return $this->humanizeGeneratedIdentifier($room_id);
+  }
+
+  /**
+   * Return TRUE when room name is an unhelpful role placeholder.
+   */
+  protected function isGenericRoomName(string $name): bool {
+    $normalized = strtolower(trim($name));
+    return in_array($normalized, [
+      '',
+      'room',
+      'unknown room',
+      'dungeon entrance',
+      'entrance',
+      'gauntlet',
+      'sanctum',
+      'lieutenant',
+      'boss',
+    ], TRUE);
+  }
+
+  /**
+   * Resolve a readable dungeon label for room naming.
+   */
+  protected function resolveDungeonDisplayName(array $dungeon, string $room_id): string {
+    $dungeon_name = trim((string) ($dungeon['name'] ?? ''));
+    if ($dungeon_name !== '') {
+      return $dungeon_name;
+    }
+
+    $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+    if ($dungeon_id === '') {
+      $dungeon_id = preg_replace('/-(room-\d+|entrance)$/', '', $room_id) ?: $room_id;
+    }
+
+    $normalized_id = preg_replace('/-entry-dungeon$/', '', $dungeon_id) ?: $dungeon_id;
+    $normalized_id = preg_replace('/^i-want-a-new-storyline-about-/', '', $normalized_id) ?: $normalized_id;
+    $normalized_id = preg_replace('/^storyline-bootstrap-([a-z0-9]+)$/i', 'bootstrap-$1-storyline', $normalized_id) ?: $normalized_id;
+
+    return $this->humanizeGeneratedIdentifier($normalized_id);
+  }
+
+  /**
+   * Map room role to user-facing label.
+   */
+  protected function humanizeRoomRoleLabel(string $room_role): string {
+    $normalized = strtolower(trim($room_role));
+    return match ($normalized) {
+      'entrance' => 'Entrance',
+      'gauntlet' => 'Gauntlet',
+      'sanctum' => 'Sanctum',
+      'lieutenant' => 'Lieutenant Chamber',
+      'boss' => 'Boss Chamber',
+      default => $normalized !== '' ? $this->humanizeGeneratedIdentifier($normalized) : 'Room',
+    };
+  }
+
+  /**
+   * Infer room role from canonical room_id conventions.
+   */
+  protected function inferRoomRoleFromRoomId(string $room_id): string {
+    $trimmed_id = trim($room_id);
+    if ($trimmed_id === '') {
+      return 'room';
+    }
+    if (str_ends_with($trimmed_id, '-entrance')) {
+      return 'entrance';
+    }
+    if (preg_match('/-room-(\d+)$/', $trimmed_id, $matches)) {
+      return match ((int) $matches[1]) {
+        1 => 'entrance',
+        2 => 'gauntlet',
+        3 => 'sanctum',
+        4 => 'lieutenant',
+        5 => 'boss',
+        default => 'room',
+      };
+    }
+    return 'room';
+  }
+
+  /**
    * Build a canonical generated item contract.
    */
   protected function buildGeneratedItemContract(string $content_id, array $item): array {
@@ -792,7 +899,7 @@ class StorylineRealizationService {
     ];
 
     if ($this->stateValidationService !== NULL) {
-      $validation = $this->stateValidationService->validateItemDefinition($contract);
+      $validation = $this->stateValidationService->validateItemDefinitionStructure($contract);
       if (!($validation['valid'] ?? FALSE)) {
         throw new \RuntimeException('Generated item contract violation: ' . implode('; ', $validation['errors'] ?? []));
       }

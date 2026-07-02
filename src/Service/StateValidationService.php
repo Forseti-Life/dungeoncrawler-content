@@ -2,23 +2,26 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Psr\Log\LoggerInterface;
 
 /**
- * Validates state payloads against JSON schemas.
+ * Validates state payloads against canonical contracts.
  */
 class StateValidationService {
 
   private LoggerInterface $logger;
+  private ?Connection $database;
   private string $schemaBasePath;
   private ?array $contractRegistry = NULL;
 
   /**
    * Constructor.
    */
-  public function __construct(LoggerChannelFactoryInterface $logger_factory) {
+  public function __construct(LoggerChannelFactoryInterface $logger_factory, ?Connection $database = NULL) {
     $this->logger = $logger_factory->get('dungeoncrawler');
+    $this->database = $database;
     $this->schemaBasePath = dirname(__DIR__) . '/../config/schemas';
   }
 
@@ -170,7 +173,673 @@ class StateValidationService {
    * Validate a canonical item definition against the contract schema.
    */
   public function validateItemDefinition(array $item): array {
-    return $this->validateAgainstContract($item, 'item_definition');
+    $errors = $this->validateCanonicalItemDefinition($item);
+    $item_id = trim((string) ($item['item_id'] ?? $item['content_id'] ?? ''));
+    $item_type = strtolower(trim((string) ($item['item_type'] ?? $item['type'] ?? '')));
+
+    $errors = array_merge($errors, $this->validateItemDefinitionAgainstDatabase($item, $item_id, $item_type));
+
+    return ['valid' => $errors === [], 'errors' => $errors];
+  }
+
+  /**
+   * Validate item payload against canonical structural rules only.
+   *
+   * This excludes DB-authority checks and is intended for pre-persist
+   * generation workflows that are still assembling a canonical contract.
+   */
+  public function validateItemDefinitionStructure(array $item): array {
+    $errors = $this->validateCanonicalItemDefinition($item);
+    return ['valid' => $errors === [], 'errors' => $errors];
+  }
+
+  /**
+   * Validate canonical template/library item contracts from the DB registry.
+   *
+   * Campaign/runtime instances are intentionally excluded from this report.
+   *
+   * @return array<string, mixed>
+   *   Validation report with aggregate summary and per-item diagnostics.
+   */
+  public function validateCanonicalItemLibraryContracts(): array {
+    $report = [
+      'valid' => FALSE,
+      'errors' => [],
+      'summary' => [
+        'total_items' => 0,
+        'valid_items' => 0,
+        'invalid_items' => 0,
+      ],
+      'items' => [],
+    ];
+
+    if ($this->database === NULL) {
+      $report['errors'][] = 'Canonical item validation requires database access.';
+      return $report;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_registry')) {
+      $report['errors'][] = 'Canonical content registry table dungeoncrawler_content_registry is unavailable.';
+      return $report;
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'name', 'level', 'rarity', 'source_file', 'schema_data'])
+      ->condition('content_type', 'item')
+      ->condition('source_file', 'items/%', 'LIKE')
+      ->orderBy('content_id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($rows) || $rows === []) {
+      $report['errors'][] = 'Canonical content registry contains no item records.';
+      return $report;
+    }
+
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+
+      $content_id = trim((string) ($row['content_id'] ?? ''));
+      $schema_data_raw = (string) ($row['schema_data'] ?? '');
+      $item_errors = [];
+      $schema_data = json_decode($schema_data_raw, TRUE);
+
+      if (!is_array($schema_data)) {
+        $item_errors[] = 'schema_data must be a valid JSON object.';
+        $schema_data = [];
+      }
+
+      $schema_item_id = trim((string) ($schema_data['item_id'] ?? $schema_data['content_id'] ?? ''));
+      if ($schema_item_id !== '' && $content_id !== '' && $schema_item_id !== $content_id) {
+        $item_errors[] = "schema_data item_id/content_id '{$schema_item_id}' must match registry content_id '{$content_id}'.";
+      }
+
+      if ($schema_data !== []) {
+        $validation = $this->validateItemDefinition($schema_data);
+        foreach (array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))) as $validation_error) {
+          $item_errors[] = $validation_error;
+        }
+      }
+
+      $item_errors = array_values(array_unique($item_errors));
+      $item_valid = $item_errors === [];
+      $report['items'][] = [
+        'content_id' => $content_id,
+        'item_id' => $schema_item_id,
+        'name' => trim((string) ($schema_data['name'] ?? $row['name'] ?? '')),
+        'item_type' => strtolower(trim((string) ($schema_data['item_type'] ?? $schema_data['type'] ?? ''))),
+        'level' => $schema_data['level'] ?? $row['level'] ?? NULL,
+        'rarity' => strtolower(trim((string) ($schema_data['rarity'] ?? $row['rarity'] ?? ''))),
+        'source_file' => trim((string) ($row['source_file'] ?? '')),
+        'contract' => $schema_data,
+        'valid' => $item_valid,
+        'errors' => $item_errors,
+      ];
+    }
+
+    $report['summary']['total_items'] = count($report['items']);
+    $report['summary']['valid_items'] = count(array_filter($report['items'], static fn(array $item): bool => !empty($item['valid'])));
+    $report['summary']['invalid_items'] = $report['summary']['total_items'] - $report['summary']['valid_items'];
+    $report['valid'] = $report['errors'] === [] && $report['summary']['invalid_items'] === 0;
+
+    return $report;
+  }
+
+  /**
+   * Validate canonical actor contracts from dc_campaign_characters.
+   *
+   * @return array<string, mixed>
+   *   Validation report with aggregate summary and per-actor diagnostics.
+   */
+  public function validateCanonicalActorLibraryContracts(): array {
+    $report = [
+      'valid' => FALSE,
+      'errors' => [],
+      'summary' => [
+        'total_items' => 0,
+        'valid_items' => 0,
+        'invalid_items' => 0,
+      ],
+      'items' => [],
+    ];
+
+    if ($this->database === NULL) {
+      $report['errors'][] = 'Canonical actor validation requires database access.';
+      return $report;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dc_campaign_characters')) {
+      $report['errors'][] = 'Canonical actor table dc_campaign_characters is unavailable.';
+      return $report;
+    }
+
+    $rows = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', [
+        'id',
+        'campaign_id',
+        'character_id',
+        'source_character_id',
+        'name',
+        'level',
+        'instance_id',
+        'type',
+        'lifecycle_state',
+        'location_type',
+        'location_ref',
+        'status',
+        'character_data',
+      ])
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($rows) || $rows === []) {
+      $report['errors'][] = 'Canonical actor store contains no records.';
+      return $report;
+    }
+
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+
+      $actor_id = (int) ($row['id'] ?? 0);
+      $campaign_id = (int) ($row['campaign_id'] ?? 0);
+      $source_character_id = isset($row['source_character_id']) && is_numeric($row['source_character_id'])
+        ? (int) $row['source_character_id']
+        : NULL;
+      $name = trim((string) ($row['name'] ?? ''));
+      $level = (int) ($row['level'] ?? 0);
+      $instance_id = trim((string) ($row['instance_id'] ?? ''));
+      $actor_type = strtolower(trim((string) ($row['type'] ?? '')));
+      $lifecycle_state = strtolower(trim((string) ($row['lifecycle_state'] ?? '')));
+      $location_type = strtolower(trim((string) ($row['location_type'] ?? '')));
+      $location_ref = trim((string) ($row['location_ref'] ?? ''));
+      $status = isset($row['status']) && is_numeric($row['status']) ? (int) $row['status'] : NULL;
+      $actor_errors = [];
+
+      if ($actor_id <= 0) {
+        $actor_errors[] = 'actor id must be a positive integer.';
+      }
+      if ($name === '') {
+        $actor_errors[] = 'name is required.';
+      }
+      if ($level < 1 || $level > 25) {
+        $actor_errors[] = 'level must be between 1 and 25.';
+      }
+      if ($instance_id === '') {
+        $actor_errors[] = 'instance_id is required.';
+      }
+      if ($actor_type === '') {
+        $actor_errors[] = 'type is required.';
+      }
+      if ($lifecycle_state === '') {
+        $actor_errors[] = 'lifecycle_state is required.';
+      }
+      if ($location_type === '') {
+        $actor_errors[] = 'location_type is required.';
+      }
+      $location_ref_optional_types = ['global', 'roster'];
+      if ($location_ref === '' && !in_array($location_type, $location_ref_optional_types, TRUE)) {
+        $actor_errors[] = 'location_ref is required for location_type values outside global/roster.';
+      }
+      if ($status === NULL || !in_array($status, [-1, 0, 1, 2], TRUE)) {
+        $actor_errors[] = 'status must be one of: -1, 0, 1, 2.';
+      }
+      if ($campaign_id > 0 && $actor_type === 'pc' && ($source_character_id === NULL || $source_character_id <= 0)) {
+        $actor_errors[] = 'pc actor rows must define source_character_id when campaign_id is non-zero.';
+      }
+
+      $character_data_raw = trim((string) ($row['character_data'] ?? ''));
+      $character_data = [];
+      if ($character_data_raw === '') {
+        $actor_errors[] = 'character_data contract is required.';
+      }
+      else {
+        $decoded = json_decode($character_data_raw, TRUE);
+        if (!is_array($decoded) || $decoded === []) {
+          $actor_errors[] = 'character_data must decode to a non-empty JSON object/array.';
+        }
+        else {
+          $character_data = $decoded;
+        }
+      }
+
+      $actor_errors = array_values(array_unique($actor_errors));
+      $actor_valid = $actor_errors === [];
+
+      $report['items'][] = [
+        'content_id' => (string) $actor_id,
+        'item_id' => $instance_id,
+        'name' => $name,
+        'item_type' => $actor_type,
+        'level' => $level,
+        'rarity' => $lifecycle_state,
+        'source_file' => 'campaign:' . $campaign_id,
+        'contract' => [
+          'actor' => [
+            'id' => $actor_id,
+            'campaign_id' => $campaign_id,
+            'character_id' => (int) ($row['character_id'] ?? 0),
+            'source_character_id' => $source_character_id,
+            'instance_id' => $instance_id,
+            'name' => $name,
+            'type' => $actor_type,
+            'level' => $level,
+            'status' => $status,
+            'lifecycle_state' => $lifecycle_state,
+            'location_type' => $location_type,
+            'location_ref' => $location_ref,
+          ],
+          'character_data' => $character_data,
+        ],
+        'valid' => $actor_valid,
+        'errors' => $actor_errors,
+      ];
+    }
+
+    $report['summary']['total_items'] = count($report['items']);
+    $report['summary']['valid_items'] = count(array_filter($report['items'], static fn(array $item): bool => !empty($item['valid'])));
+    $report['summary']['invalid_items'] = $report['summary']['total_items'] - $report['summary']['valid_items'];
+    $report['valid'] = $report['errors'] === [] && $report['summary']['invalid_items'] === 0;
+
+    return $report;
+  }
+
+  /**
+   * Validate item payload against the canonical runtime contract.
+   *
+   * This path intentionally avoids file-backed schema references so item
+   * validation can run from database-authoritative runtime rules.
+   *
+   * @param array<string, mixed> $item
+   *   Item payload.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateCanonicalItemDefinition(array $item): array {
+    $errors = [];
+    $allowed_fields = [
+      'schema_version',
+      'item_id',
+      'content_id',
+      'name',
+      'item_type',
+      'type',
+      'level',
+      'rarity',
+      'traits',
+      'description',
+      'price',
+      'bulk',
+      'hands',
+      'weapon_stats',
+      'armor_stats',
+      'shield_stats',
+      'consumable_stats',
+      'container_stats',
+      'inventory_metadata',
+      'magic_properties',
+      'ai_generation',
+      'created_at',
+      'updated_at',
+      'item_category',
+      'ancestry_granted',
+      'sell_taboo',
+      'sell_taboo_message',
+    ];
+
+    foreach (array_keys($item) as $key) {
+      if (!in_array((string) $key, $allowed_fields, TRUE)) {
+        $errors[] = 'Unknown property: ' . $key;
+      }
+    }
+
+    $schema_version = trim((string) ($item['schema_version'] ?? ''));
+    if ($schema_version === '') {
+      $errors[] = 'Missing required field: schema_version';
+    }
+    elseif (!preg_match('/^\d+\.\d+\.\d+$/', $schema_version)) {
+      $errors[] = "Field 'schema_version' does not match required pattern";
+    }
+
+    $item_id = trim((string) ($item['item_id'] ?? $item['content_id'] ?? ''));
+    if ($item_id === '') {
+      $errors[] = 'Missing required field: item_id';
+    }
+    elseif (!preg_match('/^[a-z0-9]+(?:[_-][a-z0-9]+)*$/', $item_id)) {
+      $errors[] = "Field 'item_id' does not match required pattern";
+    }
+
+    $name = $item['name'] ?? NULL;
+    if (!is_string($name) || trim($name) === '') {
+      $errors[] = 'Missing required field: name';
+    }
+    elseif (strlen($name) > 200) {
+      $errors[] = "Field 'name' is too long (maximum 200 characters)";
+    }
+
+    $item_type = strtolower(trim((string) ($item['item_type'] ?? $item['type'] ?? '')));
+    $allowed_item_types = [
+      'weapon',
+      'armor',
+      'shield',
+      'consumable',
+      'alchemical',
+      'potion',
+      'scroll',
+      'wand',
+      'talisman',
+      'worn_item',
+      'held_item',
+      'material',
+      'adventuring_gear',
+      'relic',
+      'artifact',
+    ];
+    if ($item_type === '') {
+      $errors[] = 'Missing required field: item_type';
+    }
+    elseif (!in_array($item_type, $allowed_item_types, TRUE)) {
+      $errors[] = "Field 'item_type' must be one of: " . implode(', ', $allowed_item_types);
+    }
+
+    if (!array_key_exists('level', $item)) {
+      $errors[] = 'Missing required field: level';
+    }
+    elseif (!is_int($item['level'])) {
+      $errors[] = "Field 'level' has invalid type. Expected integer, got " . $this->resolveJsonType($item['level']);
+    }
+    elseif ($item['level'] < 0) {
+      $errors[] = "Field 'level' is below minimum value 0";
+    }
+    elseif ($item['level'] > 25) {
+      $errors[] = "Field 'level' is above maximum value 25";
+    }
+
+    $rarity = strtolower(trim((string) ($item['rarity'] ?? '')));
+    $allowed_rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+    if ($rarity === '') {
+      $errors[] = 'Missing required field: rarity';
+    }
+    elseif (!in_array($rarity, $allowed_rarities, TRUE)) {
+      $errors[] = "Field 'rarity' must be one of: " . implode(', ', $allowed_rarities);
+    }
+
+    if (array_key_exists('traits', $item)) {
+      if (!is_array($item['traits'])) {
+        $errors[] = "Field 'traits' has invalid type. Expected array, got " . $this->resolveJsonType($item['traits']);
+      }
+      else {
+        $seen_traits = [];
+        foreach ($item['traits'] as $index => $trait) {
+          if (!is_string($trait) || trim($trait) === '') {
+            $errors[] = "Field 'traits[{$index}]' has invalid type. Expected string, got " . $this->resolveJsonType($trait);
+            continue;
+          }
+          $canonical_trait = trim($trait);
+          if (isset($seen_traits[$canonical_trait])) {
+            $errors[] = "Field 'traits' must contain unique items";
+            break;
+          }
+          $seen_traits[$canonical_trait] = TRUE;
+        }
+        if (count($item['traits']) > 20) {
+          $errors[] = "Field 'traits' has too many items (maximum 20)";
+        }
+      }
+    }
+
+    if (array_key_exists('description', $item)) {
+      if (!is_string($item['description'])) {
+        $errors[] = "Field 'description' has invalid type. Expected string, got " . $this->resolveJsonType($item['description']);
+      }
+      elseif (strlen($item['description']) > 2000) {
+        $errors[] = "Field 'description' is too long (maximum 2000 characters)";
+      }
+    }
+
+    if (array_key_exists('price', $item)) {
+      if (!is_array($item['price'])) {
+        $errors[] = "Field 'price' has invalid type. Expected object, got " . $this->resolveJsonType($item['price']);
+      }
+      else {
+        $errors = array_merge($errors, $this->validateItemPrice($item['price']));
+      }
+    }
+
+    if (array_key_exists('bulk', $item)) {
+      if (!is_string($item['bulk'])) {
+        $errors[] = "Field 'bulk' has invalid type. Expected string, got " . $this->resolveJsonType($item['bulk']);
+      }
+      elseif (!preg_match('/^(\d+(\.\d+)?|L|-)$/', $item['bulk'])) {
+        $errors[] = "Field 'bulk' does not match required pattern";
+      }
+    }
+
+    if (array_key_exists('hands', $item)) {
+      if ($item['hands'] === NULL) {
+        // Canonical template/library records may use null to represent 0 hands.
+      }
+      elseif (is_int($item['hands'])) {
+        if (!in_array($item['hands'], [0, 1, 2], TRUE)) {
+          $errors[] = "Field 'hands' must be one of: 0, 1, 1+, 2";
+        }
+      }
+      elseif (!is_string($item['hands'])) {
+        $errors[] = "Field 'hands' has invalid type. Expected string|integer|null, got " . $this->resolveJsonType($item['hands']);
+      }
+      elseif (!in_array($item['hands'], ['0', '1', '1+', '2'], TRUE)) {
+        $errors[] = "Field 'hands' must be one of: 0, 1, 1+, 2";
+      }
+    }
+
+    foreach (['weapon_stats', 'armor_stats', 'shield_stats', 'consumable_stats', 'container_stats', 'inventory_metadata', 'magic_properties'] as $stats_field) {
+      if (array_key_exists($stats_field, $item) && $item[$stats_field] !== NULL && !is_array($item[$stats_field])) {
+        $errors[] = "Field '{$stats_field}' has invalid type. Expected object|null, got " . $this->resolveJsonType($item[$stats_field]);
+      }
+    }
+
+    if (array_key_exists('ai_generation', $item) && !is_array($item['ai_generation'])) {
+      $errors[] = "Field 'ai_generation' has invalid type. Expected object, got " . $this->resolveJsonType($item['ai_generation']);
+    }
+
+    foreach (['created_at', 'updated_at'] as $datetime_field) {
+      if (!array_key_exists($datetime_field, $item)) {
+        continue;
+      }
+      if (!is_string($item[$datetime_field])) {
+        $errors[] = "Field '{$datetime_field}' has invalid type. Expected string, got " . $this->resolveJsonType($item[$datetime_field]);
+        continue;
+      }
+      if (!$this->validateDateTimeString($item[$datetime_field])) {
+        $errors[] = "Field '{$datetime_field}' must be a valid date-time string";
+      }
+    }
+
+    if ($item_type !== '') {
+      $errors = array_merge($errors, $this->validateItemSpecificContractFields($item, $item_type));
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Validate item-type-specific required structures.
+   *
+   * @param array<string, mixed> $item
+   *   Item payload.
+   * @param string $item_type
+   *   Canonical item type.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateItemSpecificContractFields(array $item, string $item_type): array {
+    $errors = [];
+
+    if ($item_type === 'weapon' && (!isset($item['weapon_stats']) || !is_array($item['weapon_stats']))) {
+      $errors[] = "Missing required field: weapon_stats when item_type is weapon";
+    }
+
+    if ($item_type === 'armor' && (!isset($item['armor_stats']) || !is_array($item['armor_stats']))) {
+      $errors[] = "Missing required field: armor_stats when item_type is armor";
+    }
+
+    if ($item_type === 'shield') {
+      if (!isset($item['shield_stats']) || !is_array($item['shield_stats'])) {
+        $errors[] = "Missing required field: shield_stats when item_type is shield";
+      }
+      else {
+        foreach (['ac_bonus', 'hardness', 'hp', 'bt'] as $required_field) {
+          if (!array_key_exists($required_field, $item['shield_stats'])) {
+            $errors[] = "Missing required field: shield_stats.{$required_field}";
+            continue;
+          }
+          if (!is_int($item['shield_stats'][$required_field])) {
+            $errors[] = "Field 'shield_stats.{$required_field}' has invalid type. Expected integer, got " . $this->resolveJsonType($item['shield_stats'][$required_field]);
+          }
+        }
+      }
+    }
+
+    if (in_array($item_type, ['potion', 'scroll', 'talisman'], TRUE)) {
+      if (!isset($item['consumable_stats']) || !is_array($item['consumable_stats'])) {
+        $errors[] = "Missing required field: consumable_stats when item_type is {$item_type}";
+      }
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Validate canonical price object.
+   *
+   * @param array<string, mixed> $price
+   *   Price payload.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateItemPrice(array $price): array {
+    $errors = [];
+    $allowed_fields = ['cp', 'sp', 'gp', 'pp'];
+
+    foreach (array_keys($price) as $field) {
+      if (!in_array((string) $field, $allowed_fields, TRUE)) {
+        $errors[] = 'Unknown property: price.' . $field;
+      }
+    }
+
+    foreach ($allowed_fields as $field) {
+      if (!array_key_exists($field, $price)) {
+        continue;
+      }
+      if (!is_int($price[$field])) {
+        $errors[] = "Field 'price.{$field}' has invalid type. Expected integer, got " . $this->resolveJsonType($price[$field]);
+        continue;
+      }
+      if ($price[$field] < 0) {
+        $errors[] = "Field 'price.{$field}' is below minimum value 0";
+      }
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Validate RFC3339 timestamp strings.
+   */
+  private function validateDateTimeString(string $value): bool {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/', $value)) {
+      return FALSE;
+    }
+
+    return strtotime($value) !== FALSE;
+  }
+
+  /**
+   * Validate canonical item fields against DB registry content when present.
+   *
+   * @param array<string, mixed> $item
+   *   Item payload.
+   * @param string $item_id
+   *   Canonical item identifier.
+   * @param string $item_type
+   *   Canonical item type.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateItemDefinitionAgainstDatabase(array $item, string $item_id, string $item_type): array {
+    if ($this->database === NULL) {
+      return ['Item validation requires database authority but database service is unavailable.'];
+    }
+
+    if ($item_id === '') {
+      return ['Item validation requires canonical item_id/content_id for DB authority lookup.'];
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_registry')) {
+      return ['Item validation requires canonical registry table dungeoncrawler_content_registry.'];
+    }
+
+    try {
+      $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+        ->fields('r', ['content_id', 'name', 'level', 'rarity', 'schema_data'])
+        ->condition('content_type', 'item')
+        ->condition('content_id', $item_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+
+      if (!is_array($row)) {
+        return ["Canonical DB contract not found for item '{$item_id}'."];
+      }
+
+      $schema_data = json_decode((string) ($row['schema_data'] ?? ''), TRUE);
+      if (!is_array($schema_data)) {
+        return ["Canonical DB item '{$item_id}' has invalid schema_data JSON"];
+      }
+
+      $errors = [];
+      $db_item_type = strtolower(trim((string) ($schema_data['item_type'] ?? $schema_data['type'] ?? '')));
+      if ($db_item_type !== '' && $db_item_type !== $item_type) {
+        $errors[] = "Field 'item_type' does not match canonical DB contract for item '{$item_id}'";
+      }
+
+      $db_level = $schema_data['level'] ?? $row['level'] ?? NULL;
+      if (is_numeric($db_level) && (int) $db_level !== (int) ($item['level'] ?? 0)) {
+        $errors[] = "Field 'level' does not match canonical DB contract for item '{$item_id}'";
+      }
+
+      $db_rarity = strtolower(trim((string) ($schema_data['rarity'] ?? $row['rarity'] ?? '')));
+      $item_rarity = strtolower(trim((string) ($item['rarity'] ?? '')));
+      if ($db_rarity !== '' && $db_rarity !== $item_rarity) {
+        $errors[] = "Field 'rarity' does not match canonical DB contract for item '{$item_id}'";
+      }
+
+      $db_name = trim((string) ($schema_data['name'] ?? $row['name'] ?? ''));
+      $item_name = trim((string) ($item['name'] ?? ''));
+      if ($db_name !== '' && $db_name !== $item_name) {
+        $errors[] = "Field 'name' does not match canonical DB contract for item '{$item_id}'";
+      }
+
+      return $errors;
+    }
+    catch (\Throwable $exception) {
+      $this->logger->error('Item DB contract lookup failed for {item_id}: {message}', [
+        'item_id' => $item_id,
+        'message' => $exception->getMessage(),
+      ]);
+      return ["Item DB contract lookup failed for '{$item_id}': " . $exception->getMessage()];
+    }
   }
 
   /**
@@ -311,6 +980,9 @@ class StateValidationService {
   public function getContractSchemaPath(string $contract_id): ?string {
     $registry = $this->getContractRegistry();
     $entry = is_array($registry[$contract_id] ?? NULL) ? $registry[$contract_id] : NULL;
+    if (is_array($entry) && trim((string) ($entry['validator'] ?? '')) !== '') {
+      return NULL;
+    }
     $schema_filename = trim((string) ($entry['schema'] ?? ''));
     if ($schema_filename === '') {
       return NULL;
@@ -320,9 +992,45 @@ class StateValidationService {
   }
 
   /**
+   * Resolve a registered validator method for a contract id.
+   */
+  public function getContractValidator(string $contract_id): ?string {
+    $registry = $this->getContractRegistry();
+    $entry = is_array($registry[$contract_id] ?? NULL) ? $registry[$contract_id] : NULL;
+    $validator = trim((string) ($entry['validator'] ?? ''));
+    if ($validator === '') {
+      return NULL;
+    }
+
+    return $validator;
+  }
+
+  /**
    * Validate data against a registered contract id.
    */
   private function validateAgainstContract(array $data, string $contract_id): array {
+    $validator = $this->getContractValidator($contract_id);
+    if ($validator !== NULL) {
+      if (!method_exists($this, $validator)) {
+        $this->logger->error('Unknown contract validator for {contract_id}: {validator}', [
+          'contract_id' => $contract_id,
+          'validator' => $validator,
+        ]);
+        return ['valid' => FALSE, 'errors' => ["Unknown contract validator: {$contract_id}.{$validator}"]];
+      }
+
+      $result = $this->{$validator}($data);
+      if (!is_array($result) || !array_key_exists('valid', $result) || !array_key_exists('errors', $result)) {
+        $this->logger->error('Invalid contract validator result for {contract_id}: {validator}', [
+          'contract_id' => $contract_id,
+          'validator' => $validator,
+        ]);
+        return ['valid' => FALSE, 'errors' => ["Invalid contract validator result: {$contract_id}.{$validator}"]];
+      }
+
+      return $result;
+    }
+
     $schema_path = $this->getContractSchemaPath($contract_id);
     if ($schema_path === NULL) {
       $this->logger->error('Unknown contract id: {contract_id}', ['contract_id' => $contract_id]);

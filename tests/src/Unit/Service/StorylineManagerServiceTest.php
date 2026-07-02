@@ -963,6 +963,72 @@ class StorylineManagerServiceTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::validateReferencedDungeonEntityContractStub
+   */
+  public function testValidateReferencedDungeonEntityContractStubValidatesEachDungeonRoomContract(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+
+    $service = new class($this->createMock(Connection::class), $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class)) extends StorylineManagerService {
+      public array $validatedRooms = [];
+
+      protected function loadCanonicalDungeonEntity(string $dungeon_id): ?array {
+        return [
+          'dungeon_id' => $dungeon_id,
+          'name' => 'Test Dungeon',
+          'dungeon_data' => json_encode([
+            'entry_room' => 'room-a',
+            'rooms' => ['room-a', 'room-b'],
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+      }
+
+      protected function validateReferencedLocationEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+        $this->validatedRooms[] = [
+          'entity_type' => $entity_type,
+          'entity_id' => $entity_id,
+          'path' => (string) ($context['path'] ?? ''),
+        ];
+
+        if ($entity_id === 'room-b') {
+          return [
+            $this->formatEntityTypeContractError(
+              $entity_type,
+              $entity_id,
+              $context,
+              'room contents_data contract is required.'
+            ),
+          ];
+        }
+
+        return [];
+      }
+
+      public function exposeValidateReferencedDungeonEntityContractStub(string $entity_type, string $entity_id, array $context): array {
+        return $this->validateReferencedDungeonEntityContractStub($entity_type, $entity_id, $context);
+      }
+    };
+
+    $errors = $service->exposeValidateReferencedDungeonEntityContractStub('dungeon', 'test-dungeon', [
+      'path' => 'asset_references[0]',
+      'source' => 'asset_reference',
+    ]);
+
+    $this->assertSame(
+      ['room-a', 'room-b'],
+      array_values(array_map(static fn(array $call): string => $call['entity_id'], $service->validatedRooms))
+    );
+    $this->assertSame(
+      ['asset_references[0].dungeon_data.entry_room', 'asset_references[0].dungeon_data.rooms[1]'],
+      array_values(array_map(static fn(array $call): string => $call['path'], $service->validatedRooms))
+    );
+    $this->assertStringContainsString(
+      '[entity_type_contracts:room] asset_references[0].dungeon_data.rooms[1] (room-b): room contents_data contract is required.',
+      implode('; ', $errors)
+    );
+  }
+
+  /**
    * @covers ::validateStorylineEndToEndContract
    */
   public function testValidateStorylineEndToEndContractRejectsUnknownCurrentScenePointer(): void {

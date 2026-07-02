@@ -352,6 +352,42 @@ dungeoncrawler_content.storyline_explorer:
   requirements:
     _permission: 'access dungeoncrawler characters'
 
+dungeoncrawler_content.analysis_explorer_home:
+  path: '/analysis/explorer'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AnalysisExplorerPageController::home'
+    _title: 'Analysis Explorer'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.analysis_explorer_items:
+  path: '/analysis/explorer/items'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AnalysisExplorerPageController::items'
+    _title: 'Item Explorer'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.analysis_explorer_actors:
+  path: '/analysis/explorer/actors'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AnalysisExplorerPageController::actors'
+    _title: 'Actor Explorer'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
+dungeoncrawler_content.analysis_explorer_rooms:
+  path: '/analysis/explorer/rooms'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\AnalysisExplorerPageController::rooms'
+    _title: 'Room Explorer'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
 dungeoncrawler_content.campaign_delete:
   path: '/campaigns/{campaign_id}/delete'
   defaults:
@@ -824,6 +860,19 @@ dungeoncrawler_content.api.room_state_get:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomStateController::getState'
   methods: [GET]
   requirements:
+    _permission: 'access dungeoncrawler characters'
+    dungeon_id: '[A-Za-z0-9_-]+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.room_state_set:
+  path: '/api/dungeon/{dungeon_id}/room/{room_id}/state'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomStateController::setState'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
     _permission: 'access dungeoncrawler characters'
     dungeon_id: '[A-Za-z0-9_-]+'
     room_id: '[A-Za-z0-9_-]+'

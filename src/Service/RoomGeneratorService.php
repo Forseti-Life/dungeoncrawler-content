@@ -204,33 +204,41 @@ class RoomGeneratorService {
       $context['seed'] = $this->numberGeneration->rollRange(1, 2147483647);
     }
 
+    $should_persist_room = empty($context['defer_room_persistence']);
+    $cached_room_id = $this->buildRoomId($context);
+
     // Step 1: Check campaign-scoped cache
     $cached = $this->getRoomFromCache($context);
     if ($cached) {
-      return $cached;
+      return $this->ensureCanonicalContracts($cached, $cached_room_id);
     }
+
+    $library_room_id = $this->buildRoomId($context);
 
     // Step 1b: Check the room template library for a reusable match
     $library_room = $this->findAndInstantiateFromLibrary($context);
     if ($library_room) {
-      // Persist the library instance to the campaign cache
-      try {
-        $db_id = $this->persistRoom($context, $library_room);
-        if ($db_id) {
-          $library_room['db_id'] = $db_id;
+      $library_room = $this->ensureCanonicalContracts($library_room, $library_room_id);
+      if ($should_persist_room) {
+        // Persist the library instance to the campaign cache.
+        try {
+          $db_id = $this->persistRoom($context, $library_room);
+          if ($db_id) {
+            $library_room['db_id'] = $db_id;
+          }
+          // Update source_room_id link.
+          if (!empty($library_room['_library_source'])) {
+            $this->database->update('dc_campaign_rooms')
+              ->fields(['source_room_id' => $library_room['_library_source']])
+              ->condition('id', $db_id)
+              ->execute();
+          }
         }
-        // Update source_room_id link
-        if (!empty($library_room['_library_source'])) {
-          $this->database->update('dc_campaign_rooms')
-            ->fields(['source_room_id' => $library_room['_library_source']])
-            ->condition('id', $db_id)
-            ->execute();
+        catch (\Exception $e) {
+          $this->logger->warning('Failed to persist library room: @error', [
+            '@error' => $e->getMessage(),
+          ]);
         }
-      }
-      catch (\Exception $e) {
-        $this->logger->warning('Failed to persist library room: @error', [
-          '@error' => $e->getMessage(),
-        ]);
       }
       $this->prefetchRoomViewImage($library_room, $context);
       $library_room['from_library'] = TRUE;
@@ -296,6 +304,13 @@ class RoomGeneratorService {
       ],
       'hex_manifest' => $this->generateHexManifest($enriched_hexes, $entities, $terrain_type),
     ];
+    $room_data['exits'] = $this->normalizeCanonicalExits(
+      is_array($room_data['exits'] ?? NULL) ? $room_data['exits'] : [],
+      $room_id,
+      is_array($room_data['exit_points'] ?? NULL) ? $room_data['exit_points'] : []
+    );
+    $room_data['exit_points'] = $room_data['exits'];
+    $room_data = $this->ensureCanonicalContracts($room_data, $room_id);
 
     // Step 6: Validate against room.schema.json
     try {
@@ -315,18 +330,20 @@ class RoomGeneratorService {
       ]);
     }
 
-    // Step 7: Persist to database
-    try {
-      $db_id = $this->persistRoom($context, $room_data);
-      if ($db_id) {
-        $room_data['db_id'] = $db_id;
+    // Step 7: Persist to database unless deferred to dungeon-level transaction.
+    if ($should_persist_room) {
+      try {
+        $db_id = $this->persistRoom($context, $room_data);
+        if ($db_id) {
+          $room_data['db_id'] = $db_id;
+        }
       }
-    }
-    catch (\Exception $e) {
-      $this->logger->error('Failed to persist room @name: @error', [
-        '@name' => $room_data['name'],
-        '@error' => $e->getMessage(),
-      ]);
+      catch (\Exception $e) {
+        $this->logger->error('Failed to persist room @name: @error', [
+          '@name' => $room_data['name'],
+          '@error' => $e->getMessage(),
+        ]);
+      }
     }
 
     // Step 8: Catalogue into the room library for future reuse
@@ -1455,6 +1472,141 @@ class RoomGeneratorService {
   }
 
   /**
+   * Enforce canonical room contracts (objects + exits) for generated payloads.
+   */
+  protected function ensureCanonicalContracts(array $room_data, string $room_id): array {
+    $resolved_room_id = trim($room_id);
+    if ($resolved_room_id === '') {
+      $resolved_room_id = trim((string) ($room_data['room_id'] ?? ''));
+    }
+    if ($resolved_room_id === '') {
+      throw new \InvalidArgumentException('Room canonical contract enforcement requires room_id.');
+    }
+    $room_data['room_id'] = $resolved_room_id;
+
+    $room_data['exits'] = $this->normalizeCanonicalExits(
+      is_array($room_data['exits'] ?? NULL) ? $room_data['exits'] : [],
+      $resolved_room_id,
+      is_array($room_data['exit_points'] ?? NULL) ? $room_data['exit_points'] : []
+    );
+    $room_data['exit_points'] = $room_data['exits'];
+
+    $normalized_hexes = [];
+    $hexes = is_array($room_data['hexes'] ?? NULL) ? $room_data['hexes'] : [];
+    foreach ($hexes as $hex_index => $hex) {
+      if (!is_array($hex)) {
+        $normalized_hexes[] = $hex;
+        continue;
+      }
+      $q = (int) ($hex['q'] ?? 0);
+      $r = (int) ($hex['r'] ?? 0);
+
+      $objects = is_array($hex['objects'] ?? NULL) ? $hex['objects'] : [];
+      $normalized_objects = [];
+      foreach ($objects as $object_index => $object) {
+        if (!is_array($object)) {
+          $normalized_objects[] = $object;
+          continue;
+        }
+        $object_id = trim((string) ($object['object_id'] ?? $object['id'] ?? $object['type'] ?? $object['name'] ?? ''));
+        if ($object_id === '') {
+          $object_id = sprintf('object-%d-%d-%d', $q, $r, $object_index);
+        }
+        $instance_id = trim((string) ($object['object_instance_id'] ?? $object['instance_id'] ?? ''));
+        if ($instance_id === '') {
+          $instance_id = sprintf('%s-object-%d-%d-%d', $resolved_room_id, $q, $r, $object_index);
+        }
+
+        $existing_placement = is_array($object['placement'] ?? NULL) ? $object['placement'] : [];
+        $existing_hex = is_array($existing_placement['hex'] ?? NULL) ? $existing_placement['hex'] : [];
+        $blocks_movement = array_key_exists('blocks_movement', $object)
+          ? (bool) $object['blocks_movement']
+          : (array_key_exists('blocking', $object)
+            ? (bool) $object['blocking']
+            : (array_key_exists('passable', $object) ? !(bool) $object['passable'] : FALSE));
+        $passable = array_key_exists('passable', $object) ? (bool) $object['passable'] : !$blocks_movement;
+
+        $normalized_objects[] = array_merge($object, [
+          'object_id' => $object_id,
+          'object_instance_id' => $instance_id,
+          'name' => trim((string) ($object['name'] ?? $object_id)),
+          'type' => trim((string) ($object['type'] ?? $object_id)),
+          'blocking' => array_key_exists('blocking', $object) ? (bool) $object['blocking'] : $blocks_movement,
+          'blocks_movement' => $blocks_movement,
+          'passable' => $passable,
+          'placement' => [
+            ...$existing_placement,
+            'hex' => [
+              'q' => (int) ($existing_hex['q'] ?? $q),
+              'r' => (int) ($existing_hex['r'] ?? $r),
+            ],
+            'anchor' => trim((string) ($existing_placement['anchor'] ?? 'center')) ?: 'center',
+          ],
+        ]);
+      }
+
+      $hex['objects'] = $normalized_objects;
+      $normalized_hexes[] = $hex;
+    }
+    $room_data['hexes'] = $normalized_hexes;
+
+    return $room_data;
+  }
+
+  /**
+   * Normalize room exits into one canonical exit contract.
+   *
+   * @param array<int, array<string, mixed>> $primary_exits
+   *   Preferred exits payload.
+   * @param string $room_id
+   *   Owning room identifier.
+   * @param array<int, array<string, mixed>> $fallback_exit_points
+   *   Legacy exit_points payload when canonical exits are not present.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Canonical exits payload.
+   */
+  protected function normalizeCanonicalExits(array $primary_exits, string $room_id, array $fallback_exit_points = []): array {
+    $source_exits = $primary_exits !== [] ? $primary_exits : $fallback_exit_points;
+    $normalized = [];
+    $seen_exit_ids = [];
+
+    foreach ($source_exits as $index => $exit) {
+      if (!is_array($exit)) {
+        continue;
+      }
+      $hex = is_array($exit['hex'] ?? NULL) ? $exit['hex'] : [];
+      $q = (int) ($hex['q'] ?? $exit['q'] ?? 0);
+      $r = (int) ($hex['r'] ?? $exit['r'] ?? 0);
+      $exit_id = trim((string) ($exit['exit_id'] ?? $exit['connection_id'] ?? ''));
+      if ($exit_id === '') {
+        $exit_id = sprintf('%s-exit-%d', $room_id, $index);
+      }
+      if (isset($seen_exit_ids[$exit_id])) {
+        $exit_id = sprintf('%s-%d', $exit_id, $index);
+      }
+      $seen_exit_ids[$exit_id] = TRUE;
+
+      $target_room_id = trim((string) ($exit['target_room_id'] ?? $exit['leads_to'] ?? $exit['destination_id'] ?? ''));
+
+      $normalized[] = [
+        'exit_id' => $exit_id,
+        'connection_id' => $exit_id,
+        'room_id' => $room_id,
+        'hex' => ['q' => $q, 'r' => $r],
+        'direction' => trim((string) ($exit['direction'] ?? 'north')) ?: 'north',
+        'type' => trim((string) ($exit['type'] ?? 'door')) ?: 'door',
+        'locked' => !empty($exit['locked']),
+        'hidden' => !empty($exit['hidden']),
+        'target_room_id' => $target_room_id !== '' ? $target_room_id : NULL,
+        'leads_to' => $target_room_id !== '' ? $target_room_id : NULL,
+      ];
+    }
+
+    return $normalized;
+  }
+
+  /**
    * Convert facing degrees to compass direction.
    *
    * Hex directions:
@@ -1497,6 +1649,7 @@ class RoomGeneratorService {
       'hex_manifest' => $room_data['hex_manifest'] ?? [],
       'entry_points' => $room_data['entry_points'] ?? [],
       'exit_points' => $room_data['exit_points'] ?? [],
+      'exits' => $room_data['exits'] ?? [],
       'terrain' => $room_data['terrain'] ?? [],
       'lighting' => $room_data['lighting'] ?? [],
     ]);

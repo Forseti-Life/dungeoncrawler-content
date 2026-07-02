@@ -61,6 +61,41 @@ class StorylineManagerService {
   }
 
   /**
+   * Returns canonical quest template ids from DB-authoritative storage.
+   *
+   * @return array<int, string>
+   *   Sorted quest template ids.
+   */
+  public function listCanonicalQuestTemplateIds(): array {
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_quest_templates')) {
+      throw new \RuntimeException(
+        'Canonical quest template table dungeoncrawler_content_quest_templates is required to load quest template ids.'
+      );
+    }
+    if (!$schema->fieldExists('dungeoncrawler_content_quest_templates', 'template_id')) {
+      throw new \RuntimeException(
+        'Canonical quest template table dungeoncrawler_content_quest_templates is missing required template_id column.'
+      );
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+      ->fields('t', ['template_id'])
+      ->orderBy('template_id', 'ASC')
+      ->execute()
+      ->fetchCol();
+
+    $ids = array_values(array_filter(
+      array_map(static fn($value): string => trim((string) $value), is_array($rows) ? $rows : []),
+      static fn(string $id): bool => $id !== ''
+    ));
+    $ids = array_values(array_unique($ids));
+    sort($ids, SORT_NATURAL | SORT_FLAG_CASE);
+
+    return $ids;
+  }
+
+  /**
    * Loads a single storyline template.
    */
   public function getTemplate(string $template_id): ?array {
@@ -302,6 +337,26 @@ class StorylineManagerService {
    */
   public function getCanonicalQuestTemplateObjectivePhases(string $template_id): ?array {
     return $this->loadQuestTemplateObjectivePhases($template_id);
+  }
+
+  /**
+   * Load one canonical dungeon template row by dungeon id.
+   *
+   * @return array<string, mixed>|null
+   *   Canonical dungeon row or NULL when missing.
+   */
+  public function getCanonicalDungeonTemplate(string $dungeon_id): ?array {
+    return $this->loadCanonicalDungeonEntity($dungeon_id);
+  }
+
+  /**
+   * Load one canonical room template row by room id.
+   *
+   * @return array<string, mixed>|null
+   *   Canonical room row or NULL when missing.
+   */
+  public function getCanonicalRoomTemplate(string $room_id): ?array {
+    return $this->loadCanonicalRoomEntity($room_id);
   }
 
   /**
@@ -746,6 +801,41 @@ class StorylineManagerService {
       }
       elseif ($rooms !== [] && !in_array($entry_room, $rooms, TRUE)) {
         $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, "dungeon_data.entry_room '{$entry_room}' must be listed in dungeon_data.rooms.");
+      }
+
+      $room_contract_refs = [];
+      if ($entry_room !== '') {
+        $room_contract_refs[] = [
+          'room_id' => $entry_room,
+          'path' => 'dungeon_data.entry_room',
+        ];
+      }
+      foreach ($rooms as $index => $room_id) {
+        $room_contract_refs[] = [
+          'room_id' => $room_id,
+          'path' => "dungeon_data.rooms[{$index}]",
+        ];
+      }
+
+      $validated_room_ids = [];
+      $base_path = trim((string) ($context['path'] ?? 'entity_reference'));
+      foreach ($room_contract_refs as $room_ref) {
+        $room_id = trim((string) ($room_ref['room_id'] ?? ''));
+        if ($room_id === '' || isset($validated_room_ids[$room_id])) {
+          continue;
+        }
+        $validated_room_ids[$room_id] = TRUE;
+
+        $room_context = $context;
+        $room_path = trim((string) ($room_ref['path'] ?? ''));
+        $room_context['path'] = $base_path !== '' && $room_path !== ''
+          ? "{$base_path}.{$room_path}"
+          : ($room_path !== '' ? $room_path : $base_path);
+
+        $errors = array_merge(
+          $errors,
+          $this->validateReferencedLocationEntityContractStub('room', $room_id, $room_context)
+        );
       }
 
       return $errors;

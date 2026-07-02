@@ -98,4 +98,53 @@ class StorylineRealizationServiceTest extends UnitTestCase {
     );
   }
 
+  /**
+   * Verifies generic role-only room names are promoted to dungeon-qualified labels.
+   */
+  public function testResolveRoomDisplayNameQualifiesGenericRoleName(): void {
+    $service = new class($this->createMock(Connection::class)) extends StorylineRealizationService {
+      public function exposeResolveRoomDisplayName(array $room, array $dungeon, string $room_id): string {
+        return $this->resolveRoomDisplayName($room, $dungeon, $room_id);
+      }
+    };
+
+    $name = $service->exposeResolveRoomDisplayName(
+      [
+        'name' => 'Gauntlet',
+        'room_role' => 'gauntlet',
+      ],
+      [
+        'dungeon_id' => 'i-want-a-new-storyline-about-recovering-a-stolen-catacomb-of-echoes',
+        'name' => 'Catacomb of Echoes',
+      ],
+      'i-want-a-new-storyline-about-recovering-a-stolen-catacomb-of-echoes-room-2'
+    );
+
+    $this->assertSame('Catacomb of Echoes — Gauntlet', $name);
+  }
+
+  /**
+   * Verifies role-only fallback names derived from noisy generated IDs are cleaned.
+   */
+  public function testResolveRoomDisplayNameCleansGeneratedDungeonIdentifierFallback(): void {
+    $service = new class($this->createMock(Connection::class)) extends StorylineRealizationService {
+      public function exposeResolveRoomDisplayName(array $room, array $dungeon, string $room_id): string {
+        return $this->resolveRoomDisplayName($room, $dungeon, $room_id);
+      }
+    };
+
+    $name = $service->exposeResolveRoomDisplayName(
+      [
+        'name' => 'Entrance',
+        'room_role' => 'entrance',
+      ],
+      [
+        'dungeon_id' => 'i-want-a-new-storyline-about-recovering-a-stolen-necklace-entry-dungeon',
+      ],
+      'i-want-a-new-storyline-about-recovering-a-stolen-necklace-entry-dungeon-entrance'
+    );
+
+    $this->assertSame('Recovering A Stolen Necklace — Entrance', $name);
+  }
+
 }

@@ -626,7 +626,7 @@ services:
 
   dungeoncrawler_content.state_validation_service:
     class: Drupal\dungeoncrawler_content\Service\StateValidationService
-    arguments: ['@logger.factory']
+    arguments: ['@logger.factory', '@database']
 
   dungeoncrawler_content.navigation_road_graph_service:
     class: Drupal\dungeoncrawler_content\Service\NavigationRoadGraphService
@@ -692,7 +692,7 @@ services:
       - '@dungeoncrawler_content.npc_psychology_service'
       - '@dungeoncrawler_content.room_state_service'
       - '@dungeoncrawler_content.npc_sheet_generation'
-      - '@?dungeoncrawler_content.state_validation_service'
+      - '@dungeoncrawler_content.state_validation_service'
       - '@?dungeoncrawler_content.navigation_service'
 
   dungeoncrawler_content.entity_placer:
@@ -740,6 +740,9 @@ services:
   dungeoncrawler_content.objective_type:
     class: Drupal\dungeoncrawler_content\Service\ObjectiveTypeService
 
+  dungeoncrawler_content.quest_destination_validator:
+    class: Drupal\dungeoncrawler_content\Service\QuestDestinationValidatorService
+
   dungeoncrawler_content.quest_generator:
     class: Drupal\dungeoncrawler_content\Service\QuestGeneratorService
     arguments:
@@ -749,6 +752,7 @@ services:
       - '@?dungeoncrawler_content.state_validation_service'
       - '@dungeoncrawler_content.objective_type'
       - '@?dungeoncrawler_content.storyline_manager'
+      - '@dungeoncrawler_content.quest_destination_validator'
 
   dungeoncrawler_content.quest_tracker:
     class: Drupal\dungeoncrawler_content\Service\QuestTrackerService

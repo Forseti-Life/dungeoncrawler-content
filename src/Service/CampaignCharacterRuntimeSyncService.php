@@ -1503,7 +1503,7 @@ class CampaignCharacterRuntimeSyncService {
         'instance_id' => $instance_id,
         'type' => 'npc',
         'state_data' => json_encode($minimal_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        'location_type' => 'room',
+        'location_type' => 'global',
         'location_ref' => '',
         'updated' => $now,
         'name' => $display_name,

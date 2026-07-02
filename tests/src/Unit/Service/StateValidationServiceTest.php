@@ -2,6 +2,10 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\SelectInterface;
+use Drupal\Core\Database\Schema;
+use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\Tests\UnitTestCase;
@@ -324,7 +328,8 @@ class StateValidationServiceTest extends UnitTestCase {
     $this->assertArrayHasKey('storyline_definition', $registry);
     $this->assertSame('storyline_definition.schema.json', $registry['storyline_definition']['schema'] ?? NULL);
     $this->assertArrayHasKey('item_definition', $registry);
-    $this->assertSame('item.schema.json', $registry['item_definition']['schema'] ?? NULL);
+    $this->assertSame('validateItemDefinition', $registry['item_definition']['validator'] ?? NULL);
+    $this->assertSame('database', $registry['item_definition']['authority'] ?? NULL);
     $this->assertArrayHasKey('quest_update', $registry);
     $this->assertSame('quest_update.schema.json', $registry['quest_update']['schema'] ?? NULL);
     $this->assertArrayHasKey('objective_type_options', $registry);
@@ -363,6 +368,39 @@ class StateValidationServiceTest extends UnitTestCase {
    * Verifies canonical generated item payloads pass validation.
    */
   public function testValidateItemDefinitionAcceptsCanonicalPayload(): void {
+    $row = [
+      'content_id' => 'storyline-relic',
+      'name' => 'Storyline Relic',
+      'level' => 1,
+      'rarity' => 'common',
+      'schema_data' => json_encode([
+        'item_id' => 'storyline-relic',
+        'item_type' => 'artifact',
+        'name' => 'Storyline Relic',
+        'level' => 1,
+        'rarity' => 'common',
+      ]),
+    ];
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAssoc')->willReturn($row);
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('range')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_registry');
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dungeoncrawler_content_registry', 'r')
+      ->willReturn($query);
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
     $payload = [
       'schema_version' => '1.0.0',
       'item_id' => 'storyline-relic',
@@ -374,8 +412,449 @@ class StateValidationServiceTest extends UnitTestCase {
       'traits' => ['storyline', 'generated'],
     ];
 
-    $result = $this->service->validateItemDefinition($payload);
+    $result = $service->validateItemDefinition($payload);
     $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies item_type-specific required contracts are enforced.
+   */
+  public function testValidateItemDefinitionRejectsWeaponWithoutWeaponStats(): void {
+    $row = [
+      'content_id' => 'broken-longsword',
+      'name' => 'Broken Longsword',
+      'level' => 1,
+      'rarity' => 'common',
+      'schema_data' => json_encode([
+        'item_id' => 'broken-longsword',
+        'item_type' => 'weapon',
+        'name' => 'Broken Longsword',
+        'level' => 1,
+        'rarity' => 'common',
+      ]),
+    ];
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAssoc')->willReturn($row);
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('range')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_registry');
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dungeoncrawler_content_registry', 'r')
+      ->willReturn($query);
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $payload = [
+      'schema_version' => '1.0.0',
+      'item_id' => 'broken-longsword',
+      'name' => 'Broken Longsword',
+      'item_type' => 'weapon',
+      'level' => 1,
+      'rarity' => 'common',
+    ];
+
+    $result = $service->validateItemDefinition($payload);
+    $this->assertFalse($result['valid']);
+    $this->assertContains('Missing required field: weapon_stats when item_type is weapon', $result['errors']);
+  }
+
+  /**
+   * Verifies DB-backed canonical contracts remain authoritative for existing IDs.
+   */
+  public function testValidateItemDefinitionRejectsDatabaseContractMismatch(): void {
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAssoc')->willReturn([
+      'content_id' => 'storyline-relic',
+      'name' => 'Canonical Storyline Relic',
+      'level' => 2,
+      'rarity' => 'rare',
+      'schema_data' => json_encode([
+        'item_type' => 'weapon',
+        'name' => 'Canonical Storyline Relic',
+        'level' => 2,
+        'rarity' => 'rare',
+      ]),
+    ]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('range')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $database = $this->createMock(Connection::class);
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_registry');
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dungeoncrawler_content_registry', 'r')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $payload = [
+      'schema_version' => '1.0.0',
+      'item_id' => 'storyline-relic',
+      'name' => 'Storyline Relic',
+      'item_type' => 'artifact',
+      'level' => 1,
+      'rarity' => 'common',
+    ];
+
+    $result = $service->validateItemDefinition($payload);
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString('does not match canonical DB contract', implode('; ', $result['errors']));
+  }
+
+  /**
+   * Verifies DB-authoritative item validation rejects missing canonical rows.
+   */
+  public function testValidateItemDefinitionRejectsWhenCanonicalRowMissing(): void {
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAssoc')->willReturn(FALSE);
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('range')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_registry');
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dungeoncrawler_content_registry', 'r')
+      ->willReturn($query);
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $payload = [
+      'schema_version' => '1.0.0',
+      'item_id' => 'missing-item',
+      'name' => 'Missing Item',
+      'item_type' => 'artifact',
+      'level' => 1,
+      'rarity' => 'common',
+    ];
+
+    $result = $service->validateItemDefinition($payload);
+    $this->assertFalse($result['valid']);
+    $this->assertContains("Canonical DB contract not found for item 'missing-item'.", $result['errors']);
+  }
+
+  /**
+   * Verifies canonical library item validation passes for valid registry rows.
+   */
+  public function testValidateCanonicalItemLibraryContractsAcceptsCanonicalRows(): void {
+    $row = [
+      'content_id' => 'storyline-relic',
+      'name' => 'Storyline Relic',
+      'level' => 1,
+      'rarity' => 'common',
+      'schema_data' => json_encode([
+        'schema_version' => '1.0.0',
+        'item_id' => 'storyline-relic',
+        'name' => 'Storyline Relic',
+        'item_type' => 'artifact',
+        'level' => 1,
+        'rarity' => 'common',
+      ]),
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+    $statement->method('fetchAssoc')->willReturn($row);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('range')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_registry');
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dungeoncrawler_content_registry', 'r')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalItemLibraryContracts();
+    $this->assertTrue($result['valid']);
+    $this->assertSame(1, $result['summary']['total_items']);
+    $this->assertSame(1, $result['summary']['valid_items']);
+    $this->assertSame(0, $result['summary']['invalid_items']);
+    $this->assertSame('storyline-relic', $result['items'][0]['content_id'] ?? NULL);
+  }
+
+  /**
+   * Verifies canonical library item validation fails when registry table is missing.
+   */
+  public function testValidateCanonicalItemLibraryContractsFailsWhenRegistryTableMissing(): void {
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')->willReturn(FALSE);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalItemLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertContains('Canonical content registry table dungeoncrawler_content_registry is unavailable.', $result['errors']);
+  }
+
+  /**
+   * Verifies schema item_id/content_id mismatches fail canonical library validation.
+   */
+  public function testValidateCanonicalItemLibraryContractsRejectsSchemaIdMismatch(): void {
+    $row = [
+      'content_id' => 'canonical-item-id',
+      'name' => 'Canonical Item',
+      'level' => 1,
+      'rarity' => 'common',
+      'schema_data' => json_encode([
+        'schema_version' => '1.0.0',
+        'item_id' => 'different-item-id',
+        'name' => 'Canonical Item',
+        'item_type' => 'artifact',
+        'level' => 1,
+        'rarity' => 'common',
+      ]),
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+    $statement->method('fetchAssoc')->willReturn(FALSE);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('range')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_registry');
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dungeoncrawler_content_registry', 'r')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalItemLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString(
+      "schema_data item_id/content_id 'different-item-id' must match registry content_id 'canonical-item-id'.",
+      implode('; ', $result['items'][0]['errors'] ?? [])
+    );
+  }
+
+  /**
+   * Verifies canonical actor validation passes for valid actor rows.
+   */
+  public function testValidateCanonicalActorLibraryContractsAcceptsCanonicalRows(): void {
+    $row = [
+      'id' => 101,
+      'campaign_id' => 307,
+      'character_id' => 10,
+      'source_character_id' => 10,
+      'name' => 'Valeros',
+      'level' => 3,
+      'instance_id' => 'pc-307-valeros',
+      'type' => 'pc',
+      'lifecycle_state' => 'campaign_runtime',
+      'location_type' => 'room',
+      'location_ref' => 'vault-room-2',
+      'status' => 1,
+      'character_data' => json_encode(['ability_scores' => ['str' => 18]]),
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dc_campaign_characters');
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dc_campaign_characters', 'c')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalActorLibraryContracts();
+    $this->assertTrue($result['valid']);
+    $this->assertSame(1, $result['summary']['total_items']);
+    $this->assertSame(1, $result['summary']['valid_items']);
+    $this->assertSame(0, $result['summary']['invalid_items']);
+  }
+
+  /**
+   * Verifies archived roster rows remain valid canonical actor records.
+   */
+  public function testValidateCanonicalActorLibraryContractsAcceptsArchivedRosterRows(): void {
+    $row = [
+      'id' => 197,
+      'campaign_id' => 0,
+      'character_id' => 0,
+      'source_character_id' => NULL,
+      'name' => 'Archived Character',
+      'level' => 1,
+      'instance_id' => 'pc-library-archived-197',
+      'type' => 'pc',
+      'lifecycle_state' => 'detached_roster',
+      'location_type' => 'roster',
+      'location_ref' => '',
+      'status' => 2,
+      'character_data' => json_encode(['profile' => ['name' => 'Archived Character']]),
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dc_campaign_characters');
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dc_campaign_characters', 'c')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalActorLibraryContracts();
+    $this->assertTrue($result['valid']);
+    $this->assertSame(1, $result['summary']['total_items']);
+    $this->assertSame(1, $result['summary']['valid_items']);
+    $this->assertSame(0, $result['summary']['invalid_items']);
+  }
+
+  /**
+   * Verifies room-scoped actors still require a location reference.
+   */
+  public function testValidateCanonicalActorLibraryContractsRejectsRoomWithoutLocationRef(): void {
+    $row = [
+      'id' => 1175,
+      'campaign_id' => 296,
+      'character_id' => 0,
+      'source_character_id' => 1033,
+      'name' => 'Mimi',
+      'level' => 1,
+      'instance_id' => 'familiar-1033',
+      'type' => 'npc',
+      'lifecycle_state' => 'campaign_npc',
+      'location_type' => 'room',
+      'location_ref' => '',
+      'status' => 1,
+      'character_data' => json_encode(['follower_kind' => 'familiar']),
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dc_campaign_characters');
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dc_campaign_characters', 'c')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalActorLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString(
+      'location_ref is required for location_type values outside global/roster.',
+      implode('; ', $result['items'][0]['errors'] ?? [])
+    );
+  }
+
+  /**
+   * Verifies canonical actor validation fails when actor table is missing.
+   */
+  public function testValidateCanonicalActorLibraryContractsFailsWhenTableMissing(): void {
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')->willReturn(FALSE);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalActorLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertContains('Canonical actor table dc_campaign_characters is unavailable.', $result['errors']);
   }
 
   /**

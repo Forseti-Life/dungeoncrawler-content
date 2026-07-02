@@ -258,3 +258,13 @@ dungeon-analysis:
     - core/drupal
     - core/drupalSettings
     - core/once
+
+item-explorer:
+  css:
+    theme:
+      css/item-explorer.css: {}
+  js:
+    js/item-explorer.js: {}
+  dependencies:
+    - core/drupal
+    - core/once

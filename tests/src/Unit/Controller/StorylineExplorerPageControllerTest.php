@@ -64,6 +64,40 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::loadCanonicalQuestTemplateIds
+   */
+  public function testLoadCanonicalQuestTemplateIdsUsesStorylineManager(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('listCanonicalQuestTemplateIds')
+      ->willReturn(['quest-alpha', 'quest-beta']);
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeLoadCanonicalQuestTemplateIds(): array {
+        return $this->loadCanonicalQuestTemplateIds();
+      }
+    };
+
+    $ids = $controller->exposeLoadCanonicalQuestTemplateIds();
+    $this->assertSame(['quest-alpha', 'quest-beta'], $ids);
+  }
+
+  /**
+   * @covers ::loadCanonicalQuestTemplateIds
+   */
+  public function testLoadCanonicalQuestTemplateIdsFailsWithoutStorylineManager(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeLoadCanonicalQuestTemplateIds(): array {
+        return $this->loadCanonicalQuestTemplateIds();
+      }
+    };
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('Storyline explorer requires StorylineManagerService');
+    $controller->exposeLoadCanonicalQuestTemplateIds();
+  }
+
+  /**
    * @covers ::buildPlayerPartyMermaidDiagram
    */
   public function testBuildPlayerPartyMermaidDiagramAvoidsMarkdownListPrefix(): void {

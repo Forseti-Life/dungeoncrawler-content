@@ -1358,7 +1358,7 @@ function dungeoncrawler_content_schema() {
         'size' => 'tiny',
         'not null' => TRUE,
         'default' => 0,
-        'description' => '0 = draft/inactive, 1 = active, -1 = retired/dead.',
+        'description' => '0 = draft/inactive, 1 = active, 2 = archived, -1 = retired/dead.',
       ],
       'uid' => [
         'type' => 'int',

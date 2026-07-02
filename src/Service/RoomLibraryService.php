@@ -101,6 +101,7 @@ class RoomLibraryService {
       'hex_manifest' => $room_data['hex_manifest'] ?? [],
       'entry_points' => $room_data['entry_points'] ?? [],
       'exit_points' => $room_data['exit_points'] ?? [],
+      'exits' => $room_data['exits'] ?? [],
       'terrain' => $room_data['terrain'] ?? [],
       'lighting' => $room_data['lighting'] ?? [],
     ]);
@@ -322,6 +323,7 @@ class RoomLibraryService {
       'lighting' => $layout['lighting'] ?? [],
       'entry_points' => $layout['entry_points'] ?? [],
       'exit_points' => $layout['exit_points'] ?? [],
+      'exits' => $layout['exits'] ?? [],
       'environmental_effects' => json_decode($template['environment_tags'] ?? '[]', TRUE) ?: [],
       'creatures' => $creatures,
       'items' => $contents['items'] ?? [],

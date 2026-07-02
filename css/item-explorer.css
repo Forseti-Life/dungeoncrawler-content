@@ -1,0 +1,43 @@
+.dc-item-explorer__table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.dc-item-explorer__table {
+  width: 100%;
+  table-layout: auto;
+  min-width: 760px;
+}
+
+.dc-item-explorer__table th,
+.dc-item-explorer__table td {
+  white-space: normal;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+.dc-item-explorer__item-cell .fw-semibold {
+  line-height: 1.25;
+}
+
+.dc-item-explorer__item-cell .small,
+.dc-item-explorer__profile-cell .small {
+  line-height: 1.35;
+}
+
+.dc-item-explorer__row-selected td {
+  border-top: 2px solid var(--bs-primary);
+}
+
+.dc-item-explorer__fields-table th,
+.dc-item-explorer__fields-table td {
+  white-space: normal;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+.dc-item-explorer__fields-table td:first-child {
+  width: 34%;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.875rem;
+}

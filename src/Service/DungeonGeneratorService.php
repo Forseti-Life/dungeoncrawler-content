@@ -245,10 +245,8 @@ class DungeonGeneratorService {
 
     // Step 7: Persist complete dungeon to database.
     $db_dungeon_id = $this->persistDungeon($context, $levels);
-    if ($db_dungeon_id) {
-      $dungeon_data['persisted'] = TRUE;
-      $dungeon_data['dungeon_id'] = $db_dungeon_id;
-    }
+    $dungeon_data['persisted'] = TRUE;
+    $dungeon_data['dungeon_id'] = $db_dungeon_id;
 
     $this->logger->info('Dungeon generation complete: @name with @depth levels', [
       '@name' => $dungeon_data['name'],
@@ -298,6 +296,7 @@ class DungeonGeneratorService {
       $room_context = array_merge($context, [
         'room_index' => $i,
         'dungeon_id' => $context['campaign_id'],
+        'defer_room_persistence' => TRUE,
         'terrain_type' => $this->selectTerrainType($context['theme']),
         'room_type' => ($i === 0 && !empty($context['landing_room_type']))
           ? (string) $context['landing_room_type']
@@ -590,7 +589,10 @@ class DungeonGeneratorService {
     $theme = $context['theme'] ?? 'dungeon';
     $name = $this->generateDungeonName($theme, $context);
 
+    $transaction = NULL;
     try {
+      $transaction = $this->database->startTransaction();
+
       // Upsert dungeon record (may already exist from prior generation).
       $this->database->merge('dc_campaign_dungeons')
         ->keys([
@@ -616,6 +618,7 @@ class DungeonGeneratorService {
             'hex_manifest' => $room['hex_manifest'] ?? [],
             'entry_points' => $room['entry_points'] ?? [],
             'exit_points' => $room['exit_points'] ?? [],
+            'exits' => $room['exits'] ?? [],
             'terrain' => $room['terrain'] ?? [],
             'lighting' => $room['lighting'] ?? [],
           ]);
@@ -639,6 +642,7 @@ class DungeonGeneratorService {
             ->fields([
               'name' => $room['name'] ?? 'Unknown Room',
               'description' => $room['description'] ?? '',
+              'source_room_id' => !empty($room['_library_source']) ? (string) $room['_library_source'] : NULL,
               'environment_tags' => $env_tags,
               'layout_data' => $layout_data,
               'contents_data' => $contents_data,
@@ -662,48 +666,40 @@ class DungeonGeneratorService {
             $ac = $creature['state']['metadata']['stats']['ac'] ?? 10;
             $hex = $creature['placement']['hex'] ?? [];
 
-            try {
-              $this->database->merge('dc_campaign_characters')
-                ->keys([
-                  'campaign_id' => $campaign_id,
-                  'instance_id' => $instance_id,
-                ])
-                ->fields([
-                  'character_id' => 0,
-                  'source_character_id' => NULL,
-                  'name' => $display_name,
-                  'level' => $creature_level,
-                  'ancestry' => '',
-                  'class' => $content_id,
-                  'hp_current' => $hp_current,
-                  'hp_max' => $hp_max,
-                  'armor_class' => $ac,
-                  'experience_points' => 0,
-                  'position_q' => $hex['q'] ?? 0,
-                  'position_r' => $hex['r'] ?? 0,
-                  'last_room_id' => $room_id,
-                  'type' => 'npc',
-                  'lifecycle_state' => 'campaign_entity',
-                  'status' => 1,
-                  'uid' => 0,
-                  'role' => 'creature',
-                  'location_type' => 'room',
-                  'location_ref' => $room_id,
-                  'is_active' => 1,
-                  'joined' => $now,
-                  'created' => $now,
-                  'changed' => $now,
-                  'updated' => $now,
-                  'version' => 0,
-                ])
-                ->execute();
-            }
-            catch (\Exception $e) {
-              $this->logger->warning('Failed to persist creature @id: @error', [
-                '@id' => $instance_id,
-                '@error' => $e->getMessage(),
-              ]);
-            }
+            $this->database->merge('dc_campaign_characters')
+              ->keys([
+                'campaign_id' => $campaign_id,
+                'instance_id' => $instance_id,
+              ])
+              ->fields([
+                'character_id' => 0,
+                'source_character_id' => NULL,
+                'name' => $display_name,
+                'level' => $creature_level,
+                'ancestry' => '',
+                'class' => $content_id,
+                'hp_current' => $hp_current,
+                'hp_max' => $hp_max,
+                'armor_class' => $ac,
+                'experience_points' => 0,
+                'position_q' => $hex['q'] ?? 0,
+                'position_r' => $hex['r'] ?? 0,
+                'last_room_id' => $room_id,
+                'type' => 'npc',
+                'lifecycle_state' => 'campaign_entity',
+                'status' => 1,
+                'uid' => 0,
+                'role' => 'creature',
+                'location_type' => 'room',
+                'location_ref' => $room_id,
+                'is_active' => 1,
+                'joined' => $now,
+                'created' => $now,
+                'changed' => $now,
+                'updated' => $now,
+                'version' => 0,
+              ])
+              ->execute();
           }
         }
       }
@@ -716,10 +712,13 @@ class DungeonGeneratorService {
       return $dungeon_id;
     }
     catch (\Exception $e) {
+      if (isset($transaction)) {
+        $transaction->rollBack();
+      }
       $this->logger->error('Failed to persist dungeon: @error', [
         '@error' => $e->getMessage(),
       ]);
-      return '';
+      throw new \RuntimeException('Failed to persist dungeon: ' . $e->getMessage(), 0, $e);
     }
   }
 

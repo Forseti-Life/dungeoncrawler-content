@@ -1247,6 +1247,27 @@ class StorylineExplorerPageController extends ControllerBase {
         (string) ((int) ($row['error_count'] ?? 0)),
       ];
     }
+    $dungeon_room_rows = [];
+    foreach (($diagnostics['dungeon_room_validation'] ?? []) as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $status = strtoupper(trim((string) ($row['status'] ?? 'UNKNOWN')));
+      $badge_class = $status === 'PASS' ? 'text-bg-success' : ($status === 'FAIL' ? 'text-bg-danger' : 'text-bg-secondary');
+      $errors = array_values(array_filter(
+        array_map('strval', is_array($row['errors'] ?? NULL) ? $row['errors'] : []),
+        static fn(string $error): bool => trim($error) !== ''
+      ));
+      $dungeon_room_rows[] = [
+        (string) ($row['dungeon_id'] ?? ''),
+        Markup::create('<span class="badge ' . $badge_class . '">' . Html::escape($status) . '</span>'),
+        (string) ($row['entry_room'] ?? ''),
+        (string) ((int) ($row['room_count'] ?? 0)),
+        (string) ((int) ($row['validated_room_count'] ?? 0)),
+        (string) count($errors),
+        $errors === [] ? '-' : implode('; ', $errors),
+      ];
+    }
     $quest_template_rows = [];
     foreach (($diagnostics['quest_template_validation'] ?? []) as $row) {
       if (!is_array($row)) {
@@ -1350,6 +1371,18 @@ class StorylineExplorerPageController extends ControllerBase {
           '#rows' => $entity_type_rows,
           '#empty' => $this->t('No entity-type references detected in this storyline template.'),
         ],
+        'dungeon_room_validation_title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h3',
+          '#attributes' => ['class' => ['h6', 'mt-3', 'mb-2']],
+          '#value' => (string) $this->t('Dungeon room contract validation'),
+        ],
+        'dungeon_room_validation' => [
+          '#type' => 'table',
+          '#header' => ['Dungeon ID', 'Status', 'Entry room', 'Rooms', 'Validated rooms', 'Errors', 'Details'],
+          '#rows' => $dungeon_room_rows,
+          '#empty' => $this->t('No dungeon assets are referenced in this storyline template.'),
+        ],
         'quest_template_validation_title' => [
           '#type' => 'html_tag',
           '#tag' => 'h3',
@@ -1406,6 +1439,7 @@ class StorylineExplorerPageController extends ControllerBase {
    *   stages: array<string, array{valid: bool, errors: array<int, string>}>,
    *   graph_errors: array<int, string>,
    *   entity_type_verification: array<int, array{entity_type: string, reference_count: int, stage_status: string}>,
+   *   dungeon_room_validation: array<int, array{dungeon_id: string, status: string, entry_room: string, room_count: int, validated_room_count: int, errors: array<int, string>}>,
    *   quest_template_validation: array<int, array{quest_id: string, status: string, phase_count: int, objective_count: int, errors: array<int, string>}>,
    *   raw_definition_error_count: int,
    *   runtime_instance_count: int
@@ -1415,6 +1449,7 @@ class StorylineExplorerPageController extends ControllerBase {
     $validator_status = 'unavailable';
     $validator_errors = [];
     $stages = [];
+    $dungeon_room_validation = [];
     $quest_template_validation = [];
     $runtime_instance_count = 0;
     $selected_quest_id = trim($selected_quest_id);
@@ -1467,6 +1502,26 @@ class StorylineExplorerPageController extends ControllerBase {
           $validator_status = 'fail';
           foreach ($entity_errors as $error) {
             $validator_errors[] = '[entity_linkage] ' . $error;
+          }
+        }
+
+        // Stage 7b — dungeon->room contract coverage for referenced dungeon assets.
+        $dungeon_room_diagnostics = $this->collectDungeonRoomDiagnostics($template_data);
+        $dungeon_room_validation = is_array($dungeon_room_diagnostics['rows'] ?? NULL)
+          ? $dungeon_room_diagnostics['rows']
+          : [];
+        $dungeon_room_errors = array_values(array_filter(
+          array_map('strval', is_array($dungeon_room_diagnostics['errors'] ?? NULL) ? $dungeon_room_diagnostics['errors'] : []),
+          static fn(string $error): bool => trim($error) !== ''
+        ));
+        $stages['dungeon_room_contracts'] = [
+          'valid' => $dungeon_room_errors === [],
+          'errors' => $dungeon_room_errors,
+        ];
+        if ($dungeon_room_errors !== []) {
+          $validator_status = 'fail';
+          foreach ($dungeon_room_errors as $error) {
+            $validator_errors[] = '[dungeon_room_contracts] ' . $error;
           }
         }
 
@@ -1580,6 +1635,7 @@ class StorylineExplorerPageController extends ControllerBase {
       'stages' => $stages,
       'graph_errors' => array_values(array_unique($graph_errors)),
       'entity_type_verification' => $this->buildEntityTypeVerificationRows($template_data, $stages),
+      'dungeon_room_validation' => $dungeon_room_validation,
       'quest_template_validation' => $quest_template_validation,
       'raw_definition_error_count' => count((array) ($stages['raw_definition_contract']['errors'] ?? [])),
       'runtime_instance_count' => $runtime_instance_count > 0 ? $runtime_instance_count : $this->countRuntimeInstancesForTemplate($template_data),
@@ -1794,6 +1850,176 @@ class StorylineExplorerPageController extends ControllerBase {
     $quest_ids = array_values(array_unique(array_merge($linked_quest_ids, $scene_quest_ids)));
     sort($quest_ids);
     return $quest_ids;
+  }
+
+  /**
+   * Collect per-dungeon room-contract diagnostics for referenced dungeon assets.
+   *
+   * @return array{
+   *   rows: array<int, array{dungeon_id: string, status: string, entry_room: string, room_count: int, validated_room_count: int, errors: array<int, string>}>,
+   *   errors: array<int, string>
+   * }
+   *   Dungeon validation rows and aggregate errors.
+   */
+  protected function collectDungeonRoomDiagnostics(array $template_data): array {
+    if (!($this->storylineManager instanceof StorylineManagerService)) {
+      return ['rows' => [], 'errors' => []];
+    }
+
+    $dungeon_ids = $this->extractReferencedDungeonIds($template_data);
+    $rows = [];
+    $aggregate_errors = [];
+    foreach ($dungeon_ids as $dungeon_id) {
+      $errors = [];
+      $entry_room = '';
+      $room_ids = [];
+      $validated_room_count = 0;
+
+      try {
+        $dungeon_row = $this->storylineManager->getCanonicalDungeonTemplate($dungeon_id);
+      }
+      catch (\Throwable $e) {
+        $errors[] = 'failed to load canonical dungeon row — ' . $e->getMessage();
+        $dungeon_row = NULL;
+      }
+
+      if (!is_array($dungeon_row)) {
+        $errors[] = 'canonical dungeon template row not found in dungeoncrawler_content_dungeons.';
+      }
+      else {
+        $dungeon_data = $this->decodeJsonObject($dungeon_row['dungeon_data'] ?? NULL);
+        if ($dungeon_data === []) {
+          $errors[] = 'dungeon_data contract is required.';
+        }
+        else {
+          $entry_room = trim((string) ($dungeon_data['entry_room'] ?? ''));
+          $room_ids = array_values(array_filter(array_map(
+            'strval',
+            is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []
+          ), static fn(string $id): bool => trim($id) !== ''));
+          $room_ids = array_values(array_unique($room_ids));
+          if ($room_ids === []) {
+            $errors[] = 'dungeon_data.rooms must define at least one room.';
+          }
+          if ($entry_room === '') {
+            $errors[] = 'dungeon_data.entry_room is required.';
+          }
+          elseif ($room_ids !== [] && !in_array($entry_room, $room_ids, TRUE)) {
+            $errors[] = "dungeon_data.entry_room '{$entry_room}' must be listed in dungeon_data.rooms.";
+          }
+
+          foreach ($room_ids as $room_id) {
+            try {
+              $room_row = $this->storylineManager->getCanonicalRoomTemplate($room_id);
+            }
+            catch (\Throwable $e) {
+              $errors[] = "room '{$room_id}': failed to load canonical room row — " . $e->getMessage();
+              continue;
+            }
+
+            if (!is_array($room_row)) {
+              $errors[] = "room '{$room_id}' is missing from canonical room templates.";
+              continue;
+            }
+
+            $layout_data = $this->decodeJsonObject($room_row['layout_data'] ?? NULL);
+            $contents_data = $this->decodeJsonObject($room_row['contents_data'] ?? NULL);
+            if ($layout_data === []) {
+              $errors[] = "room '{$room_id}' layout_data contract is required.";
+            }
+            if ($contents_data === []) {
+              $errors[] = "room '{$room_id}' contents_data contract is required.";
+            }
+            $validated_room_count++;
+          }
+        }
+      }
+
+      foreach ($errors as $error) {
+        $aggregate_errors[] = "dungeon '{$dungeon_id}': {$error}";
+      }
+      $rows[] = [
+        'dungeon_id' => $dungeon_id,
+        'status' => $errors === [] ? 'PASS' : 'FAIL',
+        'entry_room' => $entry_room,
+        'room_count' => count($room_ids),
+        'validated_room_count' => $validated_room_count,
+        'errors' => array_values(array_unique($errors)),
+      ];
+    }
+
+    usort($rows, static fn(array $a, array $b): int => strcasecmp(
+      (string) ($a['dungeon_id'] ?? ''),
+      (string) ($b['dungeon_id'] ?? '')
+    ));
+
+    return [
+      'rows' => $rows,
+      'errors' => array_values(array_unique($aggregate_errors)),
+    ];
+  }
+
+  /**
+   * Extract referenced dungeon ids from storyline definition payload.
+   *
+   * @return array<int, string>
+   *   Sorted dungeon ids.
+   */
+  protected function extractReferencedDungeonIds(array $template_data): array {
+    $dungeon_ids = [];
+    foreach ((array) ($template_data['asset_references'] ?? []) as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      if (strtolower(trim((string) ($reference['asset_type'] ?? ''))) !== 'dungeon') {
+        continue;
+      }
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_id !== '') {
+        $dungeon_ids[$asset_id] = $asset_id;
+      }
+    }
+
+    $outline = is_array($template_data['metadata']['generated_outline'] ?? NULL)
+      ? $template_data['metadata']['generated_outline']
+      : [];
+    $entry_dungeon_id = trim((string) ($outline['entry_dungeon']['dungeon_id'] ?? ''));
+    if ($entry_dungeon_id !== '') {
+      $dungeon_ids[$entry_dungeon_id] = $entry_dungeon_id;
+    }
+    foreach ((array) ($outline['dungeons'] ?? []) as $dungeon) {
+      if (!is_array($dungeon)) {
+        continue;
+      }
+      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      if ($dungeon_id !== '') {
+        $dungeon_ids[$dungeon_id] = $dungeon_id;
+      }
+    }
+
+    $ids = array_values($dungeon_ids);
+    sort($ids);
+    return $ids;
+  }
+
+  /**
+   * Decode JSON/object-ish values to arrays.
+   *
+   * @param mixed $value
+   *   Value to decode.
+   *
+   * @return array<string, mixed>
+   *   Decoded array or [] when unavailable.
+   */
+  protected function decodeJsonObject(mixed $value): array {
+    if (is_array($value)) {
+      return $value;
+    }
+    if (!is_string($value) || trim($value) === '') {
+      return [];
+    }
+    $decoded = json_decode($value, TRUE);
+    return is_array($decoded) ? $decoded : [];
   }
 
   /**

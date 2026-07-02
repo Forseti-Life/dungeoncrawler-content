@@ -79,11 +79,54 @@ dungeoncrawler_content.menu.campaigns:
   weight: 20
 
 dungeoncrawler_content.menu.storyline_explorer:
+  title: 'Explorer Hub'
+  description: 'Open explorer and analysis surfaces across storyline, dungeon, room, item, and actor layers'
+  route_name: dungeoncrawler_content.analysis_explorer_home
+  menu_name: main
+  expanded: true
+  weight: 21
+
+dungeoncrawler_content.menu.explorer_hub_home:
+  title: 'Explorer Hub'
+  description: 'Open the analysis and explorer landing page'
+  route_name: dungeoncrawler_content.analysis_explorer_home
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 0
+
+dungeoncrawler_content.menu.explorer_hub_storyline:
   title: 'Storyline Explorer'
   description: 'Inspect storyline nodes, edges, and campaign runtime pointers'
   route_name: dungeoncrawler_content.storyline_explorer
-  menu_name: main
-  weight: 21
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 1
+
+dungeoncrawler_content.menu.explorer_hub_dungeon_analysis:
+  title: 'Dungeon Analysis'
+  description: 'Inspect canonical dungeon topology and edge connectivity'
+  route_name: dungeoncrawler_content.dungeon_analysis
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 2
+
+dungeoncrawler_content.menu.explorer_hub_room_explorer:
+  title: 'Room Explorer'
+  description: 'Room-layer explorer surface and diagnostics'
+  route_name: dungeoncrawler_content.analysis_explorer_rooms
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 3
+
+dungeoncrawler_content.menu.explorer_hub_item_explorer:
+  title: 'Item Explorer'
+  description: 'Item-layer explorer surface and diagnostics'
+  route_name: dungeoncrawler_content.analysis_explorer_items
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 4
+
+dungeoncrawler_content.menu.explorer_hub_actor_explorer:
+  title: 'Actor Explorer'
+  description: 'Actor-layer validator surface and diagnostics'
+  route_name: dungeoncrawler_content.analysis_explorer_actors
+  parent: dungeoncrawler_content.menu.storyline_explorer
+  weight: 5
 
 dungeoncrawler_content.menu.character_setup:
   title: 'Character Setup'

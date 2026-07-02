@@ -18,8 +18,9 @@
       "description": "Canonical generated NPC sheet payload."
     },
     "item_definition": {
-      "schema": "item.schema.json",
-      "description": "Canonical item definition payload."
+      "validator": "validateItemDefinition",
+      "authority": "database",
+      "description": "Canonical item definition payload validated by DB-authoritative item contracts."
     },
     "storyline_definition": {
       "schema": "storyline_definition.schema.json",

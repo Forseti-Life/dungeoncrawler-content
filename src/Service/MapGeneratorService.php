@@ -29,7 +29,7 @@ class MapGeneratorService {
   protected NpcPsychologyService $psychologyService;
   protected RoomStateService $roomStateService;
   protected NpcSheetGenerationService $npcSheetGenerationService;
-  protected ?StateValidationService $stateValidationService;
+  protected StateValidationService $stateValidationService;
   protected ?NavigationService $navigationService;
   protected const NAVIGATION_RECEIPT_SCHEMA_VERSION = 'navigation-receipt-v1';
 
@@ -99,7 +99,7 @@ class MapGeneratorService {
     NpcPsychologyService $psychology_service,
     RoomStateService $room_state_service,
     NpcSheetGenerationService $npc_sheet_generation_service,
-    ?StateValidationService $state_validation_service = NULL,
+    StateValidationService $state_validation_service,
     ?NavigationService $navigation_service = NULL
   ) {
     $this->database = $database;
@@ -513,10 +513,6 @@ class MapGeneratorService {
    * Enforce the canonical navigation receipt contract.
    */
   protected function validateNavigationReceiptPayload(array $payload): void {
-    if (!$this->stateValidationService) {
-      return;
-    }
-
     $validation = $this->stateValidationService->validateNavigationReceipt($payload);
     if (!empty($validation['valid'])) {
       return;
@@ -1020,6 +1016,7 @@ class MapGeneratorService {
       $instance_id = $this->buildGeneratedNpcInstanceId((string) $content_id);
       $inventory = is_array($npc['inventory'] ?? NULL) ? $npc['inventory'] : [];
       $equipment_labels = is_array($npc['equipment'] ?? NULL) ? $npc['equipment'] : [];
+      $npc_level = max(1, (int) ($npc['level'] ?? ($npc['stats']['level'] ?? 1)));
 
       $this->registerGeneratedEquipmentItems($campaign_id, $equipment_labels);
 
@@ -1038,7 +1035,7 @@ class MapGeneratorService {
         'inventory'   => $inventory,
         'equipment_labels' => $equipment_labels,
         'source'      => 'ai_generated',
-      ]);
+      ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
 
       $tags = json_encode(array_filter([
         $npc['role'] ?? NULL,
@@ -1054,7 +1051,7 @@ class MapGeneratorService {
             'content_type' => 'npc',
             'content_id'   => $content_id,
             'name'         => $name,
-            'level'        => 0,
+            'level'        => $npc_level,
             'rarity'       => 'common',
             'tags'         => $tags,
             'schema_data'  => $schema_data,
@@ -1079,7 +1076,7 @@ class MapGeneratorService {
             'content_type'     => 'npc',
             'content_id'       => $content_id,
             'name'             => $name,
-            'level'            => 0,
+            'level'            => $npc_level,
             'rarity'           => 'common',
             'tags'             => $tags,
             'schema_data'      => $schema_data,
@@ -1111,10 +1108,11 @@ class MapGeneratorService {
             'content_id'  => $content_id,
             'role'        => $npc['role'] ?? 'neutral',
             'description' => $npc['description'] ?? '',
+            'level'       => $npc_level,
             'stats'       => $npc['stats'] ?? [],
             'inventory'   => $inventory,
             'attitude'    => $npc['attitude'] ?? 'indifferent',
-          ]);
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
 
           $this->database->insert('dc_campaign_characters')
             ->fields([
@@ -1135,7 +1133,7 @@ class MapGeneratorService {
               'location_ref'  => $room_id,
               'updated'       => $now,
               'name'          => $name,
-              'level'         => 0,
+              'level'         => $npc_level,
               'ancestry'      => $npc['ancestry'] ?? 'humanoid',
               'class'         => 'npc',
               'status'        => 1,
@@ -1393,12 +1391,11 @@ PROMPT;
     }
     catch (\Exception $e) {
       $this->logger->error('AI setting generation failed: @err', ['@err' => $e->getMessage()]);
-      return $this->generateFallbackSetting($destination);
+      throw new \RuntimeException('AI setting generation failed: ' . $e->getMessage(), 0, $e);
     }
 
     if (empty($result['success']) || empty($result['response'])) {
-      $this->logger->warning('AI returned empty response for setting generation');
-      return $this->generateFallbackSetting($destination);
+      throw new \RuntimeException('AI returned empty response for setting generation.');
     }
 
     $response = trim($result['response']);
@@ -1409,32 +1406,14 @@ PROMPT;
 
     $setting = json_decode($response, TRUE);
     if (!is_array($setting) || empty($setting['name'])) {
-      $this->logger->warning('Failed to parse AI setting response: @resp', [
+      $this->logger->error('Failed to parse AI setting response: @resp', [
         '@resp' => substr($response, 0, 500),
       ]);
-      return $this->generateFallbackSetting($destination);
+      throw new \RuntimeException('Failed to parse AI setting response.');
     }
 
     // Validate and normalize.
     return $this->normalizeSetting($setting);
-  }
-
-  /**
-   * Fallback setting when AI generation fails.
-   */
-  protected function generateFallbackSetting(string $destination): array {
-    $name = ucwords(trim($destination));
-    return [
-      'name' => $name ?: 'Unknown Location',
-      'description' => "You arrive at {$name}. The area is unremarkable but serviceable.",
-      'setting_type' => 'street',
-      'size' => 'medium',
-      'lighting' => 'normal_light',
-      'theme_tags' => ['explored'],
-      'atmosphere' => 'The air is still.',
-      'npcs' => [],
-      'objects' => [],
-    ];
   }
 
   /**
