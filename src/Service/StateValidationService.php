@@ -59,6 +59,11 @@ class StateValidationService {
    */
   private const ROOM_HEX_NEIGHBOR_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
 
+  /**
+   * Required layout field for explicit room-to-room linkage definitions.
+   */
+  private const ROOM_LAYOUT_EXIT_LINK_FIELD = 'exits';
+
   private LoggerInterface $logger;
   private ?Connection $database;
   private string $schemaBasePath;
@@ -622,6 +627,7 @@ class StateValidationService {
       }
       else {
         $room_errors = array_merge($room_errors, $this->validateCanonicalRoomLayoutContract($layout_data));
+        $room_errors = array_merge($room_errors, $this->validateCanonicalRoomExitLinkContract($layout_data, $room_id, $canonical_room_ids));
       }
 
       $contents_data = json_decode((string) ($row['contents_data'] ?? ''), TRUE);
@@ -831,6 +837,72 @@ class StateValidationService {
       if ($entry_keys !== [] && $exit_keys !== [] && !$this->hasTraversableRoomPath($entry_keys, $exit_keys, $traversable_hexes)) {
         $errors[] = 'layout_data must provide at least one traversable path from an entry point to an exit point.';
       }
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Validate explicit room-to-room exit linkage definitions.
+   *
+   * @param array<string, mixed> $layout_data
+   *   Room layout payload.
+   * @param string $room_id
+   *   Room ID under validation.
+   * @param array<string, bool> $canonical_room_ids
+   *   Canonical room IDs available in the dataset.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateCanonicalRoomExitLinkContract(array $layout_data, string $room_id, array $canonical_room_ids): array {
+    $errors = [];
+    $exit_links = $layout_data[self::ROOM_LAYOUT_EXIT_LINK_FIELD] ?? NULL;
+    if (!is_array($exit_links) || $exit_links === []) {
+      $errors[] = 'layout_data.exits must define at least one linked target_room_id.';
+      return $errors;
+    }
+
+    $valid_links = 0;
+    $seen_targets = [];
+    foreach ($exit_links as $index => $link) {
+      if (!is_array($link)) {
+        $errors[] = "layout_data.exits[{$index}] must be an object with target_room_id.";
+        continue;
+      }
+
+      $target_room_id = trim((string) ($link['target_room_id'] ?? ''));
+      if ($target_room_id === '') {
+        $errors[] = "layout_data.exits[{$index}].target_room_id is required.";
+        continue;
+      }
+      if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $target_room_id)) {
+        $errors[] = "layout_data.exits[{$index}].target_room_id '{$target_room_id}' does not match canonical id pattern.";
+        continue;
+      }
+      if ($this->isBlockedPromptDerivedRoomId($target_room_id)) {
+        $errors[] = "layout_data.exits[{$index}].target_room_id '{$target_room_id}' uses a blocked prompt-derived prefix.";
+        continue;
+      }
+      if ($target_room_id === $room_id) {
+        $errors[] = "layout_data.exits[{$index}].target_room_id must reference another room (self-link is not allowed).";
+        continue;
+      }
+      if (!isset($canonical_room_ids[$target_room_id])) {
+        $errors[] = "layout_data.exits[{$index}].target_room_id '{$target_room_id}' does not resolve to a canonical room_id.";
+        continue;
+      }
+
+      if (isset($seen_targets[$target_room_id])) {
+        $errors[] = "layout_data.exits contains duplicate target_room_id '{$target_room_id}'.";
+        continue;
+      }
+      $seen_targets[$target_room_id] = TRUE;
+      $valid_links++;
+    }
+
+    if ($valid_links === 0) {
+      $errors[] = 'layout_data.exits must include at least one valid link to another canonical room.';
     }
 
     return $errors;

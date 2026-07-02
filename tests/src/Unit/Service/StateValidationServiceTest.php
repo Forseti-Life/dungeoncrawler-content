@@ -930,6 +930,7 @@ class StateValidationServiceTest extends UnitTestCase {
         ],
         'entry_points' => [['q' => 0, 'r' => 0, 'label' => 'Entry']],
         'exit_points' => [['q' => 1, 'r' => 0, 'label' => 'Exit']],
+        'exits' => [['target_room_id' => 'tpl_room_tavern_backroom']],
       ]),
       'contents_data' => json_encode([
         'npcs' => [
@@ -943,9 +944,53 @@ class StateValidationServiceTest extends UnitTestCase {
       ]),
       'source_room_id' => 'tpl_room_tavern_entrance',
     ];
+    $linked_row = [
+      'room_id' => 'tpl_room_tavern_backroom',
+      'name' => 'The Gilded Tankard Backroom',
+      'description' => 'Linked room.',
+      'environment_tags' => json_encode(['urban', 'tavern']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'wooden_floor',
+            'lighting' => 'bright',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'wooden_floor',
+            'lighting' => 'bright',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0, 'label' => 'Entry']],
+        'exit_points' => [['q' => 1, 'r' => 0, 'label' => 'Exit']],
+        'exits' => [['target_room_id' => 'tpl_room_tavern_entrance']],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_tavern_backroom',
+    ];
 
     $statement = $this->createMock(StatementInterface::class);
-    $statement->method('fetchAll')->willReturn([$row]);
+    $statement->method('fetchAll')->willReturn([$row, $linked_row]);
 
     $query = $this->createMock(SelectInterface::class);
     $query->method('fields')->willReturnSelf();
@@ -988,8 +1033,8 @@ class StateValidationServiceTest extends UnitTestCase {
 
     $result = $service->validateCanonicalRoomLibraryContracts();
     $this->assertTrue($result['valid']);
-    $this->assertSame(1, $result['summary']['total_items']);
-    $this->assertSame(1, $result['summary']['valid_items']);
+    $this->assertSame(2, $result['summary']['total_items']);
+    $this->assertSame(2, $result['summary']['valid_items']);
     $this->assertSame(0, $result['summary']['invalid_items']);
     $this->assertSame('tpl_room_tavern_entrance', $result['items'][0]['content_id'] ?? NULL);
   }
@@ -1083,6 +1128,146 @@ class StateValidationServiceTest extends UnitTestCase {
     $this->assertFalse($result['valid']);
     $this->assertStringContainsString(
       'layout_data.hexes must define at least one hex.',
+      implode('; ', $result['items'][0]['errors'] ?? [])
+    );
+  }
+
+  /**
+   * Verifies canonical room validation requires explicit links to another room.
+   */
+  public function testValidateCanonicalRoomLibraryContractsRejectsMissingRoomExitLinks(): void {
+    $row = [
+      'room_id' => 'tpl_room_missing_links',
+      'name' => 'Missing Link Room',
+      'description' => 'Missing linked exits.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 1, 'r' => 0]],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_missing_links',
+    ];
+    $linked_row = [
+      'room_id' => 'tpl_room_missing_links_peer',
+      'name' => 'Peer Room',
+      'description' => 'Peer room for linkage checks.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 1, 'r' => 0]],
+        'exits' => [['target_room_id' => 'tpl_room_missing_links']],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_missing_links_peer',
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row, $linked_row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $registry_statement = $this->createMock(StatementInterface::class);
+    $registry_statement->method('fetchAll')->willReturn([]);
+
+    $registry_query = $this->createMock(SelectInterface::class);
+    $registry_query->method('fields')->willReturnSelf();
+    $registry_query->method('condition')->willReturnSelf();
+    $registry_query->method('orderBy')->willReturnSelf();
+    $registry_query->method('execute')->willReturn($registry_statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry'], TRUE));
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query): SelectInterface {
+        if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
+          return $query;
+        }
+        if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
+          return $registry_query;
+        }
+        throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
+      });
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString(
+      'layout_data.exits must define at least one linked target_room_id.',
       implode('; ', $result['items'][0]['errors'] ?? [])
     );
   }
@@ -1315,6 +1500,7 @@ class StateValidationServiceTest extends UnitTestCase {
         ],
         'entry_points' => [['q' => 0, 'r' => 0]],
         'exit_points' => [['q' => 1, 'r' => 0]],
+        'exits' => [['target_room_id' => 'tpl_room_local_obstacle_linked']],
       ]),
       'contents_data' => json_encode([
         'npcs' => [],
@@ -1328,9 +1514,53 @@ class StateValidationServiceTest extends UnitTestCase {
       ]),
       'source_room_id' => 'tpl_room_local_obstacle',
     ];
+    $linked_row = [
+      'room_id' => 'tpl_room_local_obstacle_linked',
+      'name' => 'Linked Local Obstacle Room',
+      'description' => 'Linked room.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 1, 'r' => 0]],
+        'exits' => [['target_room_id' => 'tpl_room_local_obstacle']],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_local_obstacle_linked',
+    ];
 
     $statement = $this->createMock(StatementInterface::class);
-    $statement->method('fetchAll')->willReturn([$row]);
+    $statement->method('fetchAll')->willReturn([$row, $linked_row]);
 
     $query = $this->createMock(SelectInterface::class);
     $query->method('fields')->willReturnSelf();
@@ -1428,6 +1658,7 @@ class StateValidationServiceTest extends UnitTestCase {
         ],
         'entry_points' => [['q' => 0, 'r' => 0]],
         'exit_points' => [['q' => 1, 'r' => 0]],
+        'exits' => [['target_room_id' => 'tpl_room_boundary_door_linked']],
       ]),
       'contents_data' => json_encode([
         'npcs' => [],
@@ -1439,9 +1670,53 @@ class StateValidationServiceTest extends UnitTestCase {
       ]),
       'source_room_id' => 'tpl_room_boundary_door_entry',
     ];
+    $linked_row = [
+      'room_id' => 'tpl_room_boundary_door_linked',
+      'name' => 'Boundary Door Linked Room',
+      'description' => 'Linked room.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 1, 'r' => 0]],
+        'exits' => [['target_room_id' => 'tpl_room_boundary_door_entry']],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_boundary_door_linked',
+    ];
 
     $statement = $this->createMock(StatementInterface::class);
-    $statement->method('fetchAll')->willReturn([$row]);
+    $statement->method('fetchAll')->willReturn([$row, $linked_row]);
 
     $query = $this->createMock(SelectInterface::class);
     $query->method('fields')->willReturnSelf();
