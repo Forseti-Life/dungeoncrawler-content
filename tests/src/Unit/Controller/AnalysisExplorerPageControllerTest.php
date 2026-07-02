@@ -145,6 +145,82 @@ class AnalysisExplorerPageControllerTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::resolveRoomFilters
+   */
+  public function testResolveRoomFiltersSupportsSelectionWithoutServerSideFiltering(): void {
+    $controller = new class(NULL) extends AnalysisExplorerPageController {
+      public function exposeResolveRoomFilters(array $report, Request $request): array {
+        return $this->resolveRoomFilters($report, $request);
+      }
+    };
+
+    $report = [
+      'items' => [
+        [
+          'content_id' => 'room-alpha',
+          'item_id' => 'room-alpha',
+          'name' => 'Alpha Room',
+          'valid' => TRUE,
+          'errors' => [],
+        ],
+        [
+          'content_id' => 'room-beta',
+          'item_id' => 'room-beta',
+          'name' => 'Beta Room',
+          'valid' => FALSE,
+          'errors' => ['layout_data.hexes must define at least one hex.'],
+        ],
+      ],
+    ];
+
+    $request = Request::create('/analysis/explorer/rooms', 'GET', [
+      'q' => 'beta',
+      'status' => 'fail',
+      'selected' => 'room-beta',
+    ]);
+
+    $state = $controller->exposeResolveRoomFilters($report, $request);
+
+    $this->assertSame('beta', $state['search_term']);
+    $this->assertSame('room-beta', $state['selected_room']);
+    $this->assertSame('fail', $state['selected_status']);
+    $this->assertCount(2, $state['filtered_items']);
+    $this->assertSame('room-beta', $state['selected_room_record']['content_id'] ?? NULL);
+  }
+
+  /**
+   * @covers ::buildFilteredRoomReport
+   */
+  public function testBuildFilteredRoomReportRecomputesSummaryForFilterScope(): void {
+    $controller = new class(NULL) extends AnalysisExplorerPageController {
+      public function exposeBuildFilteredRoomReport(array $report, array $filtered_items): array {
+        return $this->buildFilteredRoomReport($report, $filtered_items);
+      }
+    };
+
+    $report = [
+      'valid' => FALSE,
+      'errors' => [],
+      'summary' => [
+        'total_items' => 3,
+        'valid_items' => 2,
+        'invalid_items' => 1,
+      ],
+      'items' => [],
+    ];
+    $filtered_rooms = [
+      ['content_id' => 'one', 'valid' => TRUE, 'errors' => []],
+      ['content_id' => 'two', 'valid' => FALSE, 'errors' => ['x']],
+    ];
+
+    $filtered_report = $controller->exposeBuildFilteredRoomReport($report, $filtered_rooms);
+    $this->assertSame(2, $filtered_report['summary']['total_items']);
+    $this->assertSame(1, $filtered_report['summary']['valid_items']);
+    $this->assertSame(1, $filtered_report['summary']['invalid_items']);
+    $this->assertFalse($filtered_report['valid']);
+  }
+
+  /**
    * @covers ::resolveItemFilters
    */
   public function testResolveItemFiltersSupportsSelectionWithoutServerSideFiltering(): void {

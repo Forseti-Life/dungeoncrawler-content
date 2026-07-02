@@ -289,17 +289,22 @@ class AnalysisExplorerPageController extends ControllerBase {
   /**
    * Render the room explorer with canonical room contract diagnostics.
    */
-  public function rooms(): array {
+  public function rooms(Request $request): array {
     $report = $this->loadCanonicalRoomValidationReport();
-    $summary = is_array($report['summary'] ?? NULL) ? $report['summary'] : [];
-    $items = array_values(array_filter((array) ($report['items'] ?? []), 'is_array'));
+    $filter_state = $this->resolveRoomFilters($report, $request);
+    $filtered_report = $this->buildFilteredRoomReport($report, $filter_state['filtered_items']);
 
     $build = [
       '#type' => 'container',
       '#attributes' => ['class' => ['container', 'py-4', 'py-lg-5']],
+      '#attached' => [
+        'library' => [
+          'dungeoncrawler_content/item-explorer',
+        ],
+      ],
       '#cache' => [
         'max-age' => 0,
-        'contexts' => ['user'],
+        'contexts' => ['user', 'url.query_args'],
       ],
     ];
 
@@ -319,117 +324,26 @@ class AnalysisExplorerPageController extends ControllerBase {
           '#type' => 'html_tag',
           '#tag' => 'p',
           '#attributes' => ['class' => ['mb-0']],
-          '#value' => (string) $this->t('Canonical room contract validation from dungeoncrawler_content_rooms. This surface checks room identity, layout_data, and contents_data contract presence/shape.'),
+          '#value' => (string) $this->t('Canonical room contract validation from dungeoncrawler_content_rooms. Filters apply to room rows, and selecting a row shows full contract fields for that room.'),
         ],
       ],
     ];
 
-    $build['summary'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['card', 'mb-4']],
-      'body' => [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['card-body']],
-        'title' => [
-          '#type' => 'html_tag',
-          '#tag' => 'h2',
-          '#attributes' => ['class' => ['h5', 'mb-3']],
-          '#value' => (string) $this->t('Canonical Room Contract Status'),
-        ],
-        'metrics' => [
-          '#type' => 'html_tag',
-          '#tag' => 'p',
-          '#attributes' => ['class' => ['mb-0']],
-          '#value' => (string) $this->t(
-            'Status: @status | Total: @total | Valid: @valid | Invalid: @invalid',
-            [
-              '@status' => !empty($report['valid']) ? 'PASS' : 'FAIL',
-              '@total' => (string) ((int) ($summary['total_items'] ?? 0)),
-              '@valid' => (string) ((int) ($summary['valid_items'] ?? 0)),
-              '@invalid' => (string) ((int) ($summary['invalid_items'] ?? 0)),
-            ]
-          ),
-        ],
-      ],
-    ];
+    $build['filters'] = $this->buildRoomFilterCard(
+      $filter_state['search_term'],
+      $filter_state['selected_status']
+    );
+    $build['room_overview'] = $this->buildSelectedRoomOverviewCard($filter_state['selected_room_record']);
+    $build['summary'] = $this->buildRoomValidationSummaryCard($filtered_report);
+    $build['table'] = $this->buildRoomValidationTable(
+      $filtered_report,
+      $filter_state['search_term'],
+      $filter_state['selected_room']
+    );
 
-    $rows = [];
-    foreach ($items as $item) {
-      $errors = array_values(array_filter(array_map('strval', (array) ($item['errors'] ?? []))));
-      $rows[] = [
-        (string) ($item['name'] ?? ''),
-        (string) ($item['content_id'] ?? ''),
-        [
-          'data' => [
-            '#type' => 'html_tag',
-            '#tag' => 'span',
-            '#attributes' => ['class' => ['badge', !empty($item['valid']) ? 'text-bg-success' : 'text-bg-danger']],
-            '#value' => !empty($item['valid']) ? 'PASS' : 'FAIL',
-          ],
-        ],
-        (string) count($errors),
-      ];
-    }
-
-    $build['table'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['card', 'mb-4']],
-      'body' => [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['card-body']],
-        'title' => [
-          '#type' => 'html_tag',
-          '#tag' => 'h2',
-          '#attributes' => ['class' => ['h5', 'mb-3']],
-          '#value' => (string) $this->t('Canonical Room Validation Results'),
-        ],
-        'table' => [
-          '#type' => 'table',
-          '#header' => [
-            (string) $this->t('Name'),
-            (string) $this->t('Room ID'),
-            (string) $this->t('Status'),
-            (string) $this->t('Errors'),
-          ],
-          '#rows' => $rows,
-          '#empty' => (string) $this->t('No canonical room records found.'),
-        ],
-      ],
-    ];
-
-    $error_rows = array_values(array_filter(array_map('strval', (array) ($report['errors'] ?? []))));
-    foreach ($items as $item) {
-      if (!empty($item['valid'])) {
-        continue;
-      }
-      $identifier = trim((string) ($item['content_id'] ?? 'unknown-room'));
-      foreach ((array) ($item['errors'] ?? []) as $error) {
-        $message = trim((string) $error);
-        if ($message !== '') {
-          $error_rows[] = $identifier . ': ' . $message;
-        }
-      }
-    }
-
-    if ($error_rows !== []) {
-      $build['errors'] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['card', 'mb-4']],
-        'body' => [
-          '#type' => 'container',
-          '#attributes' => ['class' => ['card-body']],
-          'title' => [
-            '#type' => 'html_tag',
-            '#tag' => 'h2',
-            '#attributes' => ['class' => ['h5', 'mb-3']],
-            '#value' => (string) $this->t('Canonical Room Contract Errors'),
-          ],
-          'list' => [
-            '#theme' => 'item_list',
-            '#items' => $error_rows,
-          ],
-        ],
-      ];
+    $errors_card = $this->buildRoomValidationErrorsCard($filtered_report);
+    if ($errors_card !== NULL) {
+      $build['errors'] = $errors_card;
     }
 
     $build['actions'] = [
@@ -568,6 +482,524 @@ class AnalysisExplorerPageController extends ControllerBase {
     }
 
     return $this->stateValidationService->validateCanonicalRoomLibraryContracts();
+  }
+
+  /**
+   * Resolve room filters from request query args.
+   *
+   * @param array<string, mixed> $report
+   *   Canonical room validation report.
+   *
+   * @return array<string, mixed>
+   *   Filter state including selected values and filtered records.
+   */
+  protected function resolveRoomFilters(array $report, Request $request): array {
+    $rooms = array_values(array_filter((array) ($report['items'] ?? []), 'is_array'));
+    $selected_room = trim((string) $request->query->get('selected', ''));
+    $search_term = trim((string) $request->query->get('q', ''));
+    $selected_status = $this->normalizeItemStatusFilter(
+      trim((string) $request->query->get('status', 'all'))
+    );
+
+    $filtered_rooms = $rooms;
+    $selected_room_record = NULL;
+    if ($selected_room !== '') {
+      foreach ($filtered_rooms as $room) {
+        if ($this->resolveRoomIdentifier($room) === $selected_room) {
+          $selected_room_record = $room;
+          break;
+        }
+      }
+      if ($selected_room_record === NULL) {
+        $selected_room = '';
+      }
+    }
+
+    return [
+      'search_term' => $search_term,
+      'selected_room' => $selected_room,
+      'selected_status' => $selected_status,
+      'filtered_items' => $filtered_rooms,
+      'selected_room_record' => is_array($selected_room_record) ? $selected_room_record : NULL,
+    ];
+  }
+
+  /**
+   * Build a filtered room report projection for current filter scope.
+   *
+   * @param array<string, mixed> $report
+   *   Canonical room validation report.
+   * @param array<int, array<string, mixed>> $filtered_rooms
+   *   Filtered room records.
+   *
+   * @return array<string, mixed>
+   *   Filtered report projection.
+   */
+  protected function buildFilteredRoomReport(array $report, array $filtered_rooms): array {
+    $filtered_report = $report;
+    $filtered_report['items'] = $filtered_rooms;
+    $total_items = count($filtered_rooms);
+    $valid_items = count(array_filter($filtered_rooms, static fn(array $room): bool => !empty($room['valid'])));
+    $invalid_items = $total_items - $valid_items;
+    $filtered_report['summary'] = [
+      'total_items' => $total_items,
+      'valid_items' => $valid_items,
+      'invalid_items' => $invalid_items,
+    ];
+    $filtered_report['valid'] = ((array) ($filtered_report['errors'] ?? [])) === [] && $invalid_items === 0;
+
+    return $filtered_report;
+  }
+
+  /**
+   * Build room filter controls for room-focused exploration.
+   */
+  private function buildRoomFilterCard(string $search_term, string $selected_status): array {
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-3']],
+          '#value' => (string) $this->t('Filters'),
+        ],
+        'controls' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['row', 'g-3', 'align-items-end']],
+          'search_col' => [
+            '#type' => 'container',
+            '#attributes' => ['class' => ['col-12', 'col-lg-6']],
+            'search' => [
+              '#type' => 'textfield',
+              '#title' => (string) $this->t('Search Room Name'),
+              '#default_value' => $search_term,
+              '#attributes' => [
+                'id' => 'dc-item-filter-search',
+                'placeholder' => (string) $this->t('Type room name or room ID'),
+                'class' => ['form-control'],
+              ],
+            ],
+          ],
+          'status_col' => [
+            '#type' => 'container',
+            '#attributes' => ['class' => ['col-12', 'col-lg-3']],
+            'status' => [
+              '#type' => 'select',
+              '#title' => (string) $this->t('Validation Status'),
+              '#options' => self::ITEM_STATUS_FILTER_OPTIONS,
+              '#default_value' => $selected_status,
+              '#attributes' => [
+                'id' => 'dc-item-filter-status',
+                'class' => ['form-select'],
+              ],
+            ],
+          ],
+          'actions_col' => [
+            '#type' => 'container',
+            '#attributes' => ['class' => ['col-12', 'col-lg-3', 'd-flex', 'gap-2']],
+            'reset' => [
+              '#type' => 'html_tag',
+              '#tag' => 'button',
+              '#attributes' => [
+                'id' => 'dc-item-filter-reset',
+                'type' => 'button',
+                'class' => ['btn', 'btn-outline-secondary', 'btn-sm'],
+              ],
+              '#value' => (string) $this->t('Reset'),
+            ],
+          ],
+        ],
+        'hint' => [
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#attributes' => ['class' => ['mb-0', 'mt-2', 'text-muted']],
+          '#value' => (string) $this->t('Filters apply immediately to the table below. Use View on a row to load the selected-room summary.'),
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Build the canonical room validation summary card.
+   *
+   * @param array<string, mixed> $report
+   *   Validation report.
+   */
+  private function buildRoomValidationSummaryCard(array $report): array {
+    $summary = is_array($report['summary'] ?? NULL) ? $report['summary'] : [];
+    $total_items = (int) ($summary['total_items'] ?? 0);
+    $valid_items = (int) ($summary['valid_items'] ?? 0);
+    $invalid_items = (int) ($summary['invalid_items'] ?? 0);
+    $status_text = !empty($report['valid']) ? 'PASS' : 'FAIL';
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-3']],
+          '#value' => (string) $this->t('Canonical Room Contract Status'),
+        ],
+        'metrics' => [
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#attributes' => ['class' => ['mb-0']],
+          '#value' => (string) $this->t(
+            'Status: @status | Total: @total | Valid: @valid | Invalid: @invalid',
+            [
+              '@status' => $status_text,
+              '@total' => (string) $total_items,
+              '@valid' => (string) $valid_items,
+              '@invalid' => (string) $invalid_items,
+            ]
+          ),
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Build canonical room validation results table.
+   *
+   * @param array<string, mixed> $report
+   *   Validation report.
+   */
+  private function buildRoomValidationTable(array $report, string $search_term, string $selected_room): array {
+    $items = is_array($report['items'] ?? NULL) ? $report['items'] : [];
+    $rows = [];
+    foreach ($items as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $errors = is_array($item['errors'] ?? NULL) ? $item['errors'] : [];
+      $room_id = $this->resolveRoomIdentifier($item);
+      $select_url = $this->buildRoomSelectionUrl($room_id, $search_term);
+      $is_selected = $room_id !== '' && $room_id === $selected_room;
+      $status_text = !empty($item['valid']) ? 'PASS' : 'FAIL';
+      $name = trim((string) ($item['name'] ?? $room_id));
+      $canonical_room_id = trim((string) ($item['content_id'] ?? ''));
+      $template_room_id = trim((string) ($item['item_id'] ?? ''));
+      $contract = is_array($item['contract'] ?? NULL) ? $item['contract'] : [];
+      $layout_data = is_array($contract['layout_data'] ?? NULL) ? $contract['layout_data'] : [];
+      $contents_data = is_array($contract['contents_data'] ?? NULL) ? $contract['contents_data'] : [];
+      $hex_count = is_array($layout_data['hexes'] ?? NULL) ? count($layout_data['hexes']) : 0;
+      $contents_sections = array_keys($contents_data);
+
+      $item_cell = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['dc-item-explorer__item-cell']],
+        'name' => [
+          '#type' => 'html_tag',
+          '#tag' => 'div',
+          '#attributes' => ['class' => ['fw-semibold']],
+          '#value' => $name,
+        ],
+        'ids' => [
+          '#type' => 'html_tag',
+          '#tag' => 'div',
+          '#attributes' => ['class' => ['small', 'text-muted']],
+          '#value' => (string) $this->t('Room ID: @room | Template: @template', [
+            '@room' => $canonical_room_id !== '' ? $canonical_room_id : 'n/a',
+            '@template' => $template_room_id !== '' ? $template_room_id : 'n/a',
+          ]),
+        ],
+      ];
+
+      $profile_cell = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['dc-item-explorer__profile-cell']],
+        'hexes' => [
+          '#type' => 'html_tag',
+          '#tag' => 'div',
+          '#attributes' => ['class' => ['small']],
+          '#value' => (string) $this->t('Layout Hexes: @value', ['@value' => (string) $hex_count]),
+        ],
+        'sections' => [
+          '#type' => 'html_tag',
+          '#tag' => 'div',
+          '#attributes' => ['class' => ['small']],
+          '#value' => (string) $this->t(
+            'Contents Sections: @value',
+            ['@value' => $contents_sections !== [] ? implode(', ', $contents_sections) : 'n/a']
+          ),
+        ],
+      ];
+
+      $rows[] = [
+        'class' => $is_selected ? ['table-active', 'dc-item-explorer__row-selected'] : [],
+        'data' => [
+          ['data' => $item_cell],
+          ['data' => $profile_cell],
+          [
+            'data' => [
+              '#type' => 'html_tag',
+              '#tag' => 'span',
+              '#attributes' => ['class' => ['dc-item-row-status', 'badge', !empty($item['valid']) ? 'text-bg-success' : 'text-bg-danger']],
+              '#value' => $status_text,
+            ],
+          ],
+          (string) count($errors),
+          [
+            'data' => [
+              '#type' => 'link',
+              '#title' => $is_selected ? (string) $this->t('Selected') : (string) $this->t('View'),
+              '#url' => $select_url,
+              '#attributes' => ['class' => ['btn', 'btn-outline-primary', 'btn-sm']],
+            ],
+          ],
+        ],
+      ];
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-3']],
+          '#value' => (string) $this->t('Canonical Room Validation Results'),
+        ],
+        'table_wrap' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['dc-item-explorer__table-wrap']],
+          'table' => [
+            '#type' => 'table',
+            '#attributes' => [
+              'id' => 'dc-item-validation-table',
+              'class' => ['dc-item-explorer__table'],
+            ],
+            '#header' => [
+              (string) $this->t('Name'),
+              (string) $this->t('Profile'),
+              (string) $this->t('Status'),
+              (string) $this->t('Errors'),
+              (string) $this->t('Select'),
+            ],
+            '#rows' => $rows,
+            '#empty' => (string) $this->t('No canonical room records found.'),
+          ],
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Build a user-friendly selected room overview card.
+   *
+   * @param array<string, mixed>|null $room
+   *   Selected room record.
+   */
+  private function buildSelectedRoomOverviewCard(?array $room): array {
+    if ($room === NULL) {
+      return [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card', 'mb-4']],
+        'body' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['card-body']],
+          'title' => [
+            '#type' => 'html_tag',
+            '#tag' => 'h2',
+            '#attributes' => ['class' => ['h5', 'mb-2']],
+            '#value' => (string) $this->t('Selected Room'),
+          ],
+          'summary' => [
+            '#type' => 'html_tag',
+            '#tag' => 'p',
+            '#attributes' => ['class' => ['mb-0']],
+            '#value' => (string) $this->t('Select a room from the filtered table to view its summary and contract details.'),
+          ],
+        ],
+      ];
+    }
+
+    $status = !empty($room['valid']) ? 'PASS' : 'FAIL';
+    $identifier = $this->resolveRoomIdentifier($room);
+    $name = trim((string) ($room['name'] ?? $identifier));
+    $errors = array_values(array_filter(array_map('strval', (array) ($room['errors'] ?? []))));
+    $contract = is_array($room['contract'] ?? NULL) ? $room['contract'] : [];
+    $layout_data = is_array($contract['layout_data'] ?? NULL) ? $contract['layout_data'] : [];
+    $contents_data = is_array($contract['contents_data'] ?? NULL) ? $contract['contents_data'] : [];
+    $room_contract = is_array($contract['room'] ?? NULL) ? $contract['room'] : [];
+    $hex_count = is_array($layout_data['hexes'] ?? NULL) ? count($layout_data['hexes']) : 0;
+    $environment_tags = is_array($room_contract['environment_tags'] ?? NULL) ? $room_contract['environment_tags'] : [];
+
+    $details = [
+      (string) $this->t('Name: @value', ['@value' => $name]),
+      (string) $this->t('Room ID: @value', ['@value' => trim((string) ($room['content_id'] ?? ''))]),
+      (string) $this->t('Template ID: @value', ['@value' => trim((string) ($room['item_id'] ?? ''))]),
+      (string) $this->t('Layout Hexes: @value', ['@value' => (string) $hex_count]),
+      (string) $this->t('Environment Tags: @value', ['@value' => $environment_tags !== [] ? implode(', ', array_map('strval', $environment_tags)) : 'n/a']),
+      (string) $this->t('Validation Status: @value', ['@value' => $status]),
+    ];
+
+    if ($errors !== []) {
+      $details[] = (string) $this->t('Validation Errors: @count', ['@count' => (string) count($errors)]);
+    }
+
+    $full_field_payload = [
+      'room' => [
+        'id' => trim((string) ($room['content_id'] ?? '')),
+        'template_id' => trim((string) ($room['item_id'] ?? '')),
+        'name' => trim((string) ($room['name'] ?? '')),
+        'source' => trim((string) ($room['source_file'] ?? '')),
+      ],
+      'contract' => $contract,
+      'validation' => [
+        'status' => $status,
+        'error_count' => count($errors),
+        'errors' => $errors,
+      ],
+    ];
+    $field_rows = $this->flattenItemFieldRows($full_field_payload);
+
+    $card = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-2']],
+          '#value' => (string) $this->t('Selected Canonical Room'),
+        ],
+        'subtitle' => [
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#attributes' => ['class' => ['mb-3']],
+          '#value' => (string) $this->t('@name (@status)', ['@name' => $name, '@status' => $status]),
+        ],
+        'details' => [
+          '#theme' => 'item_list',
+          '#items' => $details,
+        ],
+        'all_fields_title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h3',
+          '#attributes' => ['class' => ['h6', 'mt-3', 'mb-2']],
+          '#value' => (string) $this->t('All Fields'),
+        ],
+        'all_fields_table' => [
+          '#type' => 'table',
+          '#attributes' => ['class' => ['dc-item-explorer__fields-table']],
+          '#header' => [
+            (string) $this->t('Field Path'),
+            (string) $this->t('Value'),
+          ],
+          '#rows' => array_map(static function (array $row): array {
+            return ['data' => [$row['path'] ?? '', $row['value'] ?? '']];
+          }, $field_rows),
+        ],
+      ],
+    ];
+
+    if ($errors !== []) {
+      $card['body']['errors_title'] = [
+        '#type' => 'html_tag',
+        '#tag' => 'h3',
+        '#attributes' => ['class' => ['h6', 'mt-3', 'mb-2']],
+        '#value' => (string) $this->t('Contract Errors'),
+      ];
+      $card['body']['errors'] = [
+        '#theme' => 'item_list',
+        '#items' => $errors,
+      ];
+    }
+
+    return $card;
+  }
+
+  /**
+   * Build canonical room validation error details card.
+   *
+   * @param array<string, mixed> $report
+   *   Validation report.
+   */
+  private function buildRoomValidationErrorsCard(array $report): ?array {
+    $global_errors = is_array($report['errors'] ?? NULL) ? $report['errors'] : [];
+    $items = is_array($report['items'] ?? NULL) ? $report['items'] : [];
+    $error_rows = [];
+
+    foreach ($global_errors as $error) {
+      $message = trim((string) $error);
+      if ($message !== '') {
+        $error_rows[] = 'global: ' . $message;
+      }
+    }
+
+    foreach ($items as $item) {
+      if (!is_array($item) || !empty($item['valid'])) {
+        continue;
+      }
+      $identifier = trim((string) ($item['content_id'] ?? $item['item_id'] ?? 'unknown-room'));
+      foreach ((array) ($item['errors'] ?? []) as $error) {
+        $message = trim((string) $error);
+        if ($message !== '') {
+          $error_rows[] = $identifier . ': ' . $message;
+        }
+      }
+    }
+
+    if ($error_rows === []) {
+      return NULL;
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-3']],
+          '#value' => (string) $this->t('Canonical Room Contract Errors'),
+        ],
+        'errors' => [
+          '#theme' => 'item_list',
+          '#items' => $error_rows,
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Resolve canonical room identifier for filtering.
+   *
+   * @param array<string, mixed> $room
+   *   Room record.
+   */
+  protected function resolveRoomIdentifier(array $room): string {
+    return trim((string) ($room['content_id'] ?? $room['item_id'] ?? ''));
+  }
+
+  /**
+   * Build the table row selection URL for a room.
+   */
+  protected function buildRoomSelectionUrl(string $room_id, string $search_term): Url {
+    $query = [
+      'selected' => $room_id,
+    ];
+    if ($search_term !== '') {
+      $query['q'] = $search_term;
+    }
+
+    return Url::fromRoute('dungeoncrawler_content.analysis_explorer_rooms', [], ['query' => $query]);
   }
 
   /**
