@@ -498,6 +498,41 @@ class StateValidationService {
       return $report;
     }
 
+    $canonical_room_ids = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $candidate_room_id = trim((string) ($row['room_id'] ?? ''));
+      if ($candidate_room_id !== '') {
+        $canonical_room_ids[$candidate_room_id] = TRUE;
+      }
+    }
+
+    if (!$schema->tableExists('dungeoncrawler_content_registry')) {
+      $report['errors'][] = 'Canonical content registry table dungeoncrawler_content_registry is unavailable.';
+      return $report;
+    }
+
+    $registry_rows = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id'])
+      ->orderBy('content_id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $registry_content_id_map = [];
+    if (is_array($registry_rows)) {
+      foreach ($registry_rows as $registry_row) {
+        if (!is_array($registry_row)) {
+          continue;
+        }
+        $registry_content_id = trim((string) ($registry_row['content_id'] ?? ''));
+        if ($registry_content_id !== '') {
+          $registry_content_id_map[$registry_content_id] = TRUE;
+        }
+      }
+    }
+
     foreach ($rows as $row) {
       if (!is_array($row)) {
         continue;
@@ -515,9 +550,21 @@ class StateValidationService {
       elseif (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $room_id)) {
         $room_errors[] = "room_id '{$room_id}' does not match canonical id pattern.";
       }
+      elseif ($this->isBlockedPromptDerivedRoomId($room_id)) {
+        $room_errors[] = "room_id '{$room_id}' uses a blocked prompt-derived prefix.";
+      }
 
       if ($name === '') {
         $room_errors[] = 'name is required.';
+      }
+
+      if ($source_room_id !== '') {
+        if ($this->isBlockedPromptDerivedRoomId($source_room_id)) {
+          $room_errors[] = "source_room_id '{$source_room_id}' uses a blocked prompt-derived prefix.";
+        }
+        if (!isset($canonical_room_ids[$source_room_id])) {
+          $room_errors[] = "source_room_id '{$source_room_id}' does not resolve to a canonical room_id.";
+        }
       }
 
       $layout_data = json_decode((string) ($row['layout_data'] ?? ''), TRUE);
@@ -525,8 +572,8 @@ class StateValidationService {
         $room_errors[] = 'layout_data contract is required.';
         $layout_data = [];
       }
-      elseif (!is_array($layout_data['hexes'] ?? NULL) || $layout_data['hexes'] === []) {
-        $room_errors[] = 'layout_data.hexes must define at least one hex.';
+      else {
+        $room_errors = array_merge($room_errors, $this->validateCanonicalRoomLayoutContract($layout_data));
       }
 
       $contents_data = json_decode((string) ($row['contents_data'] ?? ''), TRUE);
@@ -534,10 +581,36 @@ class StateValidationService {
         $room_errors[] = 'contents_data contract is required.';
         $contents_data = [];
       }
+      else {
+        $room_errors = array_merge($room_errors, $this->validateCanonicalRoomContentsContract($contents_data, $registry_content_id_map));
+      }
 
       $environment_tags = json_decode((string) ($row['environment_tags'] ?? ''), TRUE);
-      if (!is_array($environment_tags)) {
+      if (!is_array($environment_tags) || $environment_tags === []) {
+        $room_errors[] = 'environment_tags must be a non-empty array.';
         $environment_tags = [];
+      }
+      else {
+        $normalized_tags = [];
+        $seen_tags = [];
+        foreach ($environment_tags as $index => $tag) {
+          if (!is_string($tag) || trim($tag) === '') {
+            $room_errors[] = "environment_tags[{$index}] must be a non-empty string.";
+            continue;
+          }
+          $normalized_tag = trim($tag);
+          $dedupe_key = strtolower($normalized_tag);
+          if (isset($seen_tags[$dedupe_key])) {
+            $room_errors[] = "environment_tags contains duplicate value '{$normalized_tag}'.";
+            continue;
+          }
+          $seen_tags[$dedupe_key] = TRUE;
+          $normalized_tags[] = $normalized_tag;
+        }
+        $environment_tags = $normalized_tags;
+        if ($environment_tags === []) {
+          $room_errors[] = 'environment_tags must include at least one valid tag.';
+        }
       }
 
       $room_errors = array_values(array_unique($room_errors));
@@ -573,6 +646,378 @@ class StateValidationService {
     $report['valid'] = $report['errors'] === [] && $report['summary']['invalid_items'] === 0;
 
     return $report;
+  }
+
+  /**
+   * Validate canonical room layout contract shape and playability.
+   *
+   * @param array<string, mixed> $layout_data
+   *   Room layout payload.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateCanonicalRoomLayoutContract(array $layout_data): array {
+    $errors = [];
+    $hexes = $layout_data['hexes'] ?? NULL;
+    if (!is_array($hexes) || $hexes === []) {
+      $errors[] = 'layout_data.hexes must define at least one hex.';
+      return $errors;
+    }
+
+    $entry_points = $layout_data['entry_points'] ?? NULL;
+    if (!is_array($entry_points) || $entry_points === []) {
+      $errors[] = 'layout_data.entry_points must define at least one entry point.';
+      $entry_points = [];
+    }
+
+    $exit_points = $layout_data['exit_points'] ?? NULL;
+    if (!is_array($exit_points) || $exit_points === []) {
+      $errors[] = 'layout_data.exit_points must define at least one exit point.';
+      $exit_points = [];
+    }
+
+    $hex_coordinate_map = [];
+    $traversable_hexes = [];
+    $entry_hex_flags = [];
+    foreach ($hexes as $index => $hex) {
+      if (!is_array($hex)) {
+        $errors[] = "layout_data.hexes[{$index}] must be an object.";
+        continue;
+      }
+
+      $q = $hex['q'] ?? NULL;
+      $r = $hex['r'] ?? NULL;
+      if (!is_int($q) || !is_int($r)) {
+        $errors[] = "layout_data.hexes[{$index}] must include integer q/r coordinates.";
+        continue;
+      }
+      $coord_key = $q . ':' . $r;
+      if (isset($hex_coordinate_map[$coord_key])) {
+        $errors[] = "layout_data.hexes contains duplicate coordinate '{$coord_key}'.";
+      }
+      $hex_coordinate_map[$coord_key] = ['q' => $q, 'r' => $r];
+
+      if (!array_key_exists('terrain_type', $hex) || !is_string($hex['terrain_type']) || trim($hex['terrain_type']) === '') {
+        $errors[] = "layout_data.hexes[{$index}].terrain_type must be a non-empty string.";
+      }
+      if (!array_key_exists('lighting', $hex) || !is_string($hex['lighting']) || trim($hex['lighting']) === '') {
+        $errors[] = "layout_data.hexes[{$index}].lighting must be a non-empty string.";
+      }
+      if (!array_key_exists('is_discovered', $hex) || !is_bool($hex['is_discovered'])) {
+        $errors[] = "layout_data.hexes[{$index}].is_discovered must be a boolean.";
+      }
+      if (!array_key_exists('is_visible', $hex) || !is_bool($hex['is_visible'])) {
+        $errors[] = "layout_data.hexes[{$index}].is_visible must be a boolean.";
+      }
+      if (!array_key_exists('is_entry', $hex) || !is_bool($hex['is_entry'])) {
+        $errors[] = "layout_data.hexes[{$index}].is_entry must be a boolean.";
+      }
+      if (!array_key_exists('elevation_ft', $hex) || (!is_int($hex['elevation_ft']) && !is_float($hex['elevation_ft']))) {
+        $errors[] = "layout_data.hexes[{$index}].elevation_ft must be numeric.";
+      }
+
+      $objects = $hex['objects'] ?? NULL;
+      if (!is_array($objects)) {
+        $errors[] = "layout_data.hexes[{$index}].objects must be an array.";
+        $objects = [];
+      }
+
+      $hex_is_blocked = FALSE;
+      foreach ($objects as $object_index => $object) {
+        if (!is_array($object)) {
+          $errors[] = "layout_data.hexes[{$index}].objects[{$object_index}] must be an object.";
+          continue;
+        }
+        $errors = array_merge($errors, $this->validateCanonicalRoomHexObjectContract($object, $index, $object_index));
+        if (
+          (isset($object['blocks_movement']) && is_bool($object['blocks_movement']) && $object['blocks_movement']) ||
+          (isset($object['passable']) && is_bool($object['passable']) && !$object['passable'])
+        ) {
+          $hex_is_blocked = TRUE;
+        }
+      }
+
+      if (!$hex_is_blocked) {
+        $traversable_hexes[$coord_key] = TRUE;
+      }
+      if (!empty($hex['is_entry'])) {
+        $entry_hex_flags[$coord_key] = TRUE;
+      }
+    }
+
+    if ($entry_hex_flags === []) {
+      $errors[] = 'layout_data.hexes must flag at least one hex with is_entry=true.';
+    }
+
+    $entry_points_valid = $this->validateCanonicalRoomLayoutPoints($entry_points, 'entry_points', $hex_coordinate_map, $errors);
+    $exit_points_valid = $this->validateCanonicalRoomLayoutPoints($exit_points, 'exit_points', $hex_coordinate_map, $errors);
+
+    if ($entry_points_valid !== [] && $exit_points_valid !== [] && $traversable_hexes !== []) {
+      $entry_keys = [];
+      foreach ($entry_points_valid as $point) {
+        $point_key = $point['q'] . ':' . $point['r'];
+        if (!isset($traversable_hexes[$point_key])) {
+          $errors[] = "layout_data.entry_points coordinate '{$point_key}' is blocked and not traversable.";
+        }
+        else {
+          $entry_keys[] = $point_key;
+        }
+      }
+
+      $exit_keys = [];
+      foreach ($exit_points_valid as $point) {
+        $point_key = $point['q'] . ':' . $point['r'];
+        if (!isset($traversable_hexes[$point_key])) {
+          $errors[] = "layout_data.exit_points coordinate '{$point_key}' is blocked and not traversable.";
+        }
+        else {
+          $exit_keys[] = $point_key;
+        }
+      }
+
+      if ($entry_keys !== [] && $exit_keys !== [] && !$this->hasTraversableRoomPath($entry_keys, $exit_keys, $traversable_hexes)) {
+        $errors[] = 'layout_data must provide at least one traversable path from an entry point to an exit point.';
+      }
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Validate canonical room contents contract shape and references.
+   *
+   * @param array<string, mixed> $contents_data
+   *   Room contents payload.
+   * @param array<string, bool> $registry_content_id_map
+   *   Canonical registry content IDs keyed by ID.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateCanonicalRoomContentsContract(array $contents_data, array $registry_content_id_map): array {
+    $errors = [];
+    $required_buckets = ['npcs', 'items', 'entities', 'obstacles', 'hazards', 'interactables'];
+    foreach ($required_buckets as $bucket) {
+      if (!array_key_exists($bucket, $contents_data)) {
+        $errors[] = "contents_data.{$bucket} is required and must be an array.";
+        continue;
+      }
+      if (!is_array($contents_data[$bucket])) {
+        $errors[] = "contents_data.{$bucket} must be an array.";
+      }
+    }
+
+    foreach ($contents_data as $bucket => $entries) {
+      if (!is_array($entries)) {
+        continue;
+      }
+      foreach ($entries as $index => $entry) {
+        $path = "contents_data.{$bucket}[{$index}]";
+        if (in_array((string) $bucket, ['npcs', 'items', 'entities'], TRUE)) {
+          if (!is_array($entry)) {
+            $errors[] = "{$path} must be an object with content_id.";
+            continue;
+          }
+          $content_id = trim((string) ($entry['content_id'] ?? ''));
+          if ($content_id === '') {
+            $errors[] = "{$path}.content_id is required.";
+            continue;
+          }
+          if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $content_id)) {
+            $errors[] = "{$path}.content_id '{$content_id}' does not match canonical id pattern.";
+            continue;
+          }
+          if (!isset($registry_content_id_map[$content_id])) {
+            $errors[] = "{$path}.content_id '{$content_id}' does not resolve in canonical content registry.";
+          }
+          continue;
+        }
+
+        if (is_string($entry)) {
+          if (trim($entry) === '') {
+            $errors[] = "{$path} must not be empty.";
+          }
+          continue;
+        }
+
+        if (is_array($entry)) {
+          if (array_key_exists('content_id', $entry)) {
+            $content_id = trim((string) $entry['content_id']);
+            if ($content_id === '') {
+              $errors[] = "{$path}.content_id must not be empty.";
+              continue;
+            }
+            if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $content_id)) {
+              $errors[] = "{$path}.content_id '{$content_id}' does not match canonical id pattern.";
+              continue;
+            }
+            if (!isset($registry_content_id_map[$content_id])) {
+              $errors[] = "{$path}.content_id '{$content_id}' does not resolve in canonical content registry.";
+            }
+            continue;
+          }
+          $label = trim((string) ($entry['label'] ?? $entry['name'] ?? ''));
+          if ($label === '') {
+            $errors[] = "{$path} must provide a non-empty string, name, label, or content_id.";
+          }
+          continue;
+        }
+
+        $errors[] = "{$path} must be a string or object.";
+      }
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Validate room layout point arrays against known coordinates.
+   *
+   * @param array<int, mixed> $points
+   *   Layout points.
+   * @param string $path
+   *   Point path name.
+   * @param array<string, array{q:int,r:int}> $hex_coordinate_map
+   *   Coordinate map from layout hexes.
+   * @param array<int, string> $errors
+   *   Error collection (mutated by reference).
+   *
+   * @return array<int, array{q:int,r:int}>
+   *   Validated points.
+   */
+  private function validateCanonicalRoomLayoutPoints(array $points, string $path, array $hex_coordinate_map, array &$errors): array {
+    $validated = [];
+    foreach ($points as $index => $point) {
+      if (!is_array($point)) {
+        $errors[] = "layout_data.{$path}[{$index}] must be an object with q/r coordinates.";
+        continue;
+      }
+      $q = $point['q'] ?? NULL;
+      $r = $point['r'] ?? NULL;
+      if (!is_int($q) || !is_int($r)) {
+        $errors[] = "layout_data.{$path}[{$index}] must include integer q/r coordinates.";
+        continue;
+      }
+      $key = $q . ':' . $r;
+      if (!isset($hex_coordinate_map[$key])) {
+        $errors[] = "layout_data.{$path}[{$index}] coordinate '{$key}' does not map to any layout hex.";
+        continue;
+      }
+      $validated[] = ['q' => $q, 'r' => $r];
+    }
+
+    return $validated;
+  }
+
+  /**
+   * Validate canonical hex object contract.
+   *
+   * @param array<string, mixed> $object
+   *   Hex object payload.
+   * @param int $hex_index
+   *   Parent hex index.
+   * @param int $object_index
+   *   Object index within hex.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateCanonicalRoomHexObjectContract(array $object, int $hex_index, int $object_index): array {
+    $errors = [];
+    $path = "layout_data.hexes[{$hex_index}].objects[{$object_index}]";
+    $category = trim((string) ($object['category'] ?? ''));
+    $allowed_categories = [
+      'wall',
+      'door',
+      'hazard',
+      'feature',
+      'npc',
+      'item',
+      'entity',
+      'obstacle',
+      'interactable',
+      'trap',
+      'cover',
+      'terrain',
+      'entry',
+      'exit',
+    ];
+    if ($category === '') {
+      $errors[] = "{$path}.category is required.";
+    }
+    elseif (!in_array($category, $allowed_categories, TRUE)) {
+      $errors[] = "{$path}.category '{$category}' is not allowed.";
+    }
+    if (!array_key_exists('passable', $object) || !is_bool($object['passable'])) {
+      $errors[] = "{$path}.passable must be a boolean.";
+    }
+    if (!array_key_exists('blocks_movement', $object) || !is_bool($object['blocks_movement'])) {
+      $errors[] = "{$path}.blocks_movement must be a boolean.";
+    }
+    if (!array_key_exists('label', $object) || !is_string($object['label']) || trim($object['label']) === '') {
+      $errors[] = "{$path}.label must be a non-empty string.";
+    }
+    if (!array_key_exists('object_id', $object) || !is_string($object['object_id']) || trim($object['object_id']) === '') {
+      $errors[] = "{$path}.object_id must be a non-empty string.";
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Determine whether any entry point can reach any exit point.
+   *
+   * @param array<int, string> $entry_keys
+   *   Entry coordinate keys.
+   * @param array<int, string> $exit_keys
+   *   Exit coordinate keys.
+   * @param array<string, bool> $traversable_hexes
+   *   Traversable coordinate map.
+   */
+  private function hasTraversableRoomPath(array $entry_keys, array $exit_keys, array $traversable_hexes): bool {
+    $exit_set = array_fill_keys($exit_keys, TRUE);
+    $queue = [];
+    $visited = [];
+    foreach ($entry_keys as $entry_key) {
+      if (!isset($traversable_hexes[$entry_key])) {
+        continue;
+      }
+      $queue[] = $entry_key;
+      $visited[$entry_key] = TRUE;
+    }
+    if ($queue === []) {
+      return FALSE;
+    }
+
+    $offsets = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+    while ($queue !== []) {
+      $current = array_shift($queue);
+      if ($current === NULL) {
+        continue;
+      }
+      if (isset($exit_set[$current])) {
+        return TRUE;
+      }
+      [$q, $r] = array_map('intval', explode(':', $current, 2));
+      foreach ($offsets as $offset) {
+        $neighbor_key = ($q + $offset[0]) . ':' . ($r + $offset[1]);
+        if (!isset($traversable_hexes[$neighbor_key]) || isset($visited[$neighbor_key])) {
+          continue;
+        }
+        $visited[$neighbor_key] = TRUE;
+        $queue[] = $neighbor_key;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Determine whether a room ID is from blocked prompt-derived prefixes.
+   */
+  private function isBlockedPromptDerivedRoomId(string $room_id): bool {
+    return preg_match('/^(i-want|hello)-/i', $room_id) === 1;
   }
 
   /**

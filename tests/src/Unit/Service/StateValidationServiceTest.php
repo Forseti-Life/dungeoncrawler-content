@@ -905,13 +905,41 @@ class StateValidationServiceTest extends UnitTestCase {
       'environment_tags' => json_encode(['urban', 'tavern']),
       'layout_data' => json_encode([
         'hexes' => [
-          ['q' => 0, 'r' => 0],
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'wooden_floor',
+            'lighting' => 'bright',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'wooden_floor',
+            'lighting' => 'bright',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
         ],
+        'entry_points' => [['q' => 0, 'r' => 0, 'label' => 'Entry']],
+        'exit_points' => [['q' => 1, 'r' => 0, 'label' => 'Exit']],
       ]),
       'contents_data' => json_encode([
         'npcs' => [
           ['content_id' => 'npc_tavern_keeper'],
         ],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
       ]),
       'source_room_id' => 'tpl_room_tavern_entrance',
     ];
@@ -925,15 +953,33 @@ class StateValidationServiceTest extends UnitTestCase {
     $query->method('orderBy')->willReturnSelf();
     $query->method('execute')->willReturn($statement);
 
+    $registry_statement = $this->createMock(StatementInterface::class);
+    $registry_statement->method('fetchAll')->willReturn([
+      ['content_id' => 'npc_tavern_keeper'],
+    ]);
+
+    $registry_query = $this->createMock(SelectInterface::class);
+    $registry_query->method('fields')->willReturnSelf();
+    $registry_query->method('condition')->willReturnSelf();
+    $registry_query->method('orderBy')->willReturnSelf();
+    $registry_query->method('execute')->willReturn($registry_statement);
+
     $schema = $this->createMock(Schema::class);
     $schema->method('tableExists')
-      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_rooms');
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry'], TRUE));
 
     $database = $this->createMock(Connection::class);
     $database->method('schema')->willReturn($schema);
     $database->method('select')
-      ->with('dungeoncrawler_content_rooms', 'r')
-      ->willReturn($query);
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query): SelectInterface {
+        if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
+          return $query;
+        }
+        if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
+          return $registry_query;
+        }
+        throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
+      });
 
     $logger = $this->createMock(LoggerInterface::class);
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
@@ -975,11 +1021,22 @@ class StateValidationServiceTest extends UnitTestCase {
     $row = [
       'room_id' => 'tpl_room_incomplete',
       'name' => 'Incomplete Room',
-      'description' => '',
-      'environment_tags' => json_encode([]),
-      'layout_data' => json_encode(['hexes' => []]),
-      'contents_data' => json_encode(['npcs' => []]),
-      'source_room_id' => '',
+      'description' => 'Incomplete room.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 1, 'r' => 0]],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_incomplete',
     ];
 
     $statement = $this->createMock(StatementInterface::class);
@@ -991,15 +1048,31 @@ class StateValidationServiceTest extends UnitTestCase {
     $query->method('orderBy')->willReturnSelf();
     $query->method('execute')->willReturn($statement);
 
+    $registry_statement = $this->createMock(StatementInterface::class);
+    $registry_statement->method('fetchAll')->willReturn([]);
+
+    $registry_query = $this->createMock(SelectInterface::class);
+    $registry_query->method('fields')->willReturnSelf();
+    $registry_query->method('condition')->willReturnSelf();
+    $registry_query->method('orderBy')->willReturnSelf();
+    $registry_query->method('execute')->willReturn($registry_statement);
+
     $schema = $this->createMock(Schema::class);
     $schema->method('tableExists')
-      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_rooms');
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry'], TRUE));
 
     $database = $this->createMock(Connection::class);
     $database->method('schema')->willReturn($schema);
     $database->method('select')
-      ->with('dungeoncrawler_content_rooms', 'r')
-      ->willReturn($query);
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query): SelectInterface {
+        if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
+          return $query;
+        }
+        if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
+          return $registry_query;
+        }
+        throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
+      });
 
     $logger = $this->createMock(LoggerInterface::class);
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
@@ -1010,6 +1083,198 @@ class StateValidationServiceTest extends UnitTestCase {
     $this->assertFalse($result['valid']);
     $this->assertStringContainsString(
       'layout_data.hexes must define at least one hex.',
+      implode('; ', $result['items'][0]['errors'] ?? [])
+    );
+  }
+
+  /**
+   * Verifies canonical room validation rejects blocked prompt-derived room IDs.
+   */
+  public function testValidateCanonicalRoomLibraryContractsRejectsBlockedPromptDerivedRoomId(): void {
+    $row = [
+      'room_id' => 'i-want-prompt-room',
+      'name' => 'Prompt Room',
+      'description' => 'Prompt room.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 1,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 1, 'r' => 0]],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'i-want-prompt-room',
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $registry_statement = $this->createMock(StatementInterface::class);
+    $registry_statement->method('fetchAll')->willReturn([]);
+
+    $registry_query = $this->createMock(SelectInterface::class);
+    $registry_query->method('fields')->willReturnSelf();
+    $registry_query->method('condition')->willReturnSelf();
+    $registry_query->method('orderBy')->willReturnSelf();
+    $registry_query->method('execute')->willReturn($registry_statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry'], TRUE));
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query): SelectInterface {
+        if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
+          return $query;
+        }
+        if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
+          return $registry_query;
+        }
+        throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
+      });
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString(
+      'uses a blocked prompt-derived prefix',
+      implode('; ', $result['items'][0]['errors'] ?? [])
+    );
+  }
+
+  /**
+   * Verifies canonical room validation rejects disconnected entry/exit paths.
+   */
+  public function testValidateCanonicalRoomLibraryContractsRejectsDisconnectedPath(): void {
+    $row = [
+      'room_id' => 'tpl_room_disconnected_path',
+      'name' => 'Disconnected Path Room',
+      'description' => 'Disconnected path room.',
+      'environment_tags' => json_encode(['test']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          [
+            'q' => 0,
+            'r' => 0,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => TRUE,
+          ],
+          [
+            'q' => 5,
+            'r' => 5,
+            'elevation_ft' => 0,
+            'objects' => [],
+            'terrain_type' => 'stone_floor',
+            'lighting' => 'dim',
+            'is_discovered' => TRUE,
+            'is_visible' => TRUE,
+            'is_entry' => FALSE,
+          ],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0]],
+        'exit_points' => [['q' => 5, 'r' => 5]],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [],
+        'items' => [],
+        'entities' => [],
+        'obstacles' => [],
+        'hazards' => [],
+        'interactables' => [],
+      ]),
+      'source_room_id' => 'tpl_room_disconnected_path',
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $registry_statement = $this->createMock(StatementInterface::class);
+    $registry_statement->method('fetchAll')->willReturn([]);
+
+    $registry_query = $this->createMock(SelectInterface::class);
+    $registry_query->method('fields')->willReturnSelf();
+    $registry_query->method('condition')->willReturnSelf();
+    $registry_query->method('orderBy')->willReturnSelf();
+    $registry_query->method('execute')->willReturn($registry_statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry'], TRUE));
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query): SelectInterface {
+        if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
+          return $query;
+        }
+        if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
+          return $registry_query;
+        }
+        throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
+      });
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString(
+      'must provide at least one traversable path from an entry point to an exit point.',
       implode('; ', $result['items'][0]['errors'] ?? [])
     );
   }
