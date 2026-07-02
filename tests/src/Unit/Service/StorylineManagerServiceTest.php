@@ -8,6 +8,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignStateService;
 use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
+use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\Tests\UnitTestCase;
 
@@ -604,7 +605,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
       ->willReturn(['state' => []]);
 
     $uuid = $this->createMock(UuidInterface::class);
-    $service = new class($database, $this->buildLoggerFactory(), $uuid, $campaign_state) extends StorylineManagerService {
+    $service = new class($database, $this->buildLoggerFactory(), $uuid, $campaign_state, $this->buildStateValidationServiceMock()) extends StorylineManagerService {
       public array $finalizedStorylines = [];
 
       protected function assertStorylineStorageReady(): void {}
@@ -723,7 +724,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
       ->willReturn($update);
 
     $uuid = $this->createMock(UuidInterface::class);
-    $service = new class($database, $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class)) extends StorylineManagerService {
+    $service = new class($database, $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class), $this->buildStateValidationServiceMock()) extends StorylineManagerService {
       public array $finalizedStorylines = [];
 
       protected function assertStorylineStorageReady(): void {}
@@ -836,7 +837,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
       ->method('update');
 
     $uuid = $this->createMock(UuidInterface::class);
-    $service = new class($database, $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class)) extends StorylineManagerService {
+    $service = new class($database, $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class), $this->buildStateValidationServiceMock()) extends StorylineManagerService {
       protected function assertStorylineStorageReady(): void {}
 
       protected function synchronizeStorylineProgress(array $row): array {
@@ -969,7 +970,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $uuid = $this->createMock(UuidInterface::class);
     $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
 
-    $service = new class($this->createMock(Connection::class), $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class)) extends StorylineManagerService {
+    $service = new class($this->createMock(Connection::class), $this->buildLoggerFactory(), $uuid, $this->createMock(CampaignStateService::class), $this->buildStateValidationServiceMock()) extends StorylineManagerService {
       public array $validatedRooms = [];
 
       protected function loadCanonicalDungeonEntity(string $dungeon_id): ?array {
@@ -1604,13 +1605,75 @@ class StorylineManagerServiceTest extends UnitTestCase {
   private function buildService(): StorylineManagerService {
     $uuid = $this->createMock(UuidInterface::class);
     $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $state_validation = $this->buildStateValidationServiceMock();
 
-    return new StorylineManagerService(
+    return new class(
       $this->createMock(Connection::class),
       $this->buildLoggerFactory(),
       $uuid,
-      $this->createMock(CampaignStateService::class)
-    );
+      $this->createMock(CampaignStateService::class),
+      $state_validation
+    ) extends StorylineManagerService {
+      protected function loadCanonicalCharacterEntityByInstanceId(string $instance_id): ?array {
+        if (str_starts_with($instance_id, 'missing-') || str_starts_with($instance_id, 'unknown-')) {
+          return NULL;
+        }
+
+        return [
+          'instance_id' => $instance_id,
+          'state_data' => json_encode([
+            'name' => 'Known NPC',
+            'class' => 'fighter',
+            'level' => 1,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+      }
+
+      protected function loadCanonicalRegistryEntity(string $content_type, string $content_id): ?array {
+        if (str_starts_with($content_id, 'missing-') || str_starts_with($content_id, 'unknown-')) {
+          return NULL;
+        }
+
+        return [
+          'content_id' => $content_id,
+          'content_type' => $content_type,
+          'name' => 'Known Entity',
+          'schema_data' => json_encode([
+            'name' => 'Known Entity',
+            'content_id' => $content_id,
+            'type' => $content_type,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+      }
+
+      protected function loadCanonicalRoomEntity(string $room_id): ?array {
+        if (str_starts_with($room_id, 'missing-') || str_starts_with($room_id, 'unknown-')) {
+          return NULL;
+        }
+
+        return [
+          'room_id' => $room_id,
+          'name' => 'Known Room',
+          'layout_data' => json_encode(['hexes' => []], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'contents_data' => json_encode(['objects' => []], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+      }
+
+      protected function loadCanonicalDungeonEntity(string $dungeon_id): ?array {
+        if (str_starts_with($dungeon_id, 'missing-') || str_starts_with($dungeon_id, 'unknown-')) {
+          return NULL;
+        }
+
+        return [
+          'dungeon_id' => $dungeon_id,
+          'name' => 'Known Dungeon',
+          'dungeon_data' => json_encode([
+            'entry_room' => 'tavern_entrance',
+            'rooms' => ['tavern_entrance'],
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+      }
+    };
   }
 
   /**
@@ -1619,17 +1682,39 @@ class StorylineManagerServiceTest extends UnitTestCase {
   private function buildServiceWithObjectiveType(): StorylineManagerService {
     $uuid = $this->createMock(UuidInterface::class);
     $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $state_validation = $this->buildStateValidationServiceMock();
 
     return new StorylineManagerService(
       $this->createMock(Connection::class),
       $this->buildLoggerFactory(),
       $uuid,
       $this->createMock(CampaignStateService::class),
-      NULL,
+      $state_validation,
       NULL,
       new ObjectiveTypeService(),
       NULL
     );
+  }
+
+  /**
+   * Builds a validator mock for storyline contract stages.
+   */
+  private function buildStateValidationServiceMock(): StateValidationService {
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateStorylineDefinition')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+    $state_validation->method('validateStorylineRuntime')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+    $state_validation->method('validateItemDefinition')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+
+    return $state_validation;
   }
 
   /**

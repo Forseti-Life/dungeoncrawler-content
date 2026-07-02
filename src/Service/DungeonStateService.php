@@ -13,12 +13,12 @@ class DungeonStateService {
 
   private Connection $database;
   private LoggerInterface $logger;
-  private ?StateValidationService $stateValidationService;
+  private StateValidationService $stateValidationService;
 
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
-    ?StateValidationService $state_validation_service = NULL
+    StateValidationService $state_validation_service
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -194,19 +194,13 @@ class DungeonStateService {
       throw new \InvalidArgumentException('Dungeon state contains unknown properties: ' . implode(', ', $unknown_keys), 400);
     }
 
-    return $this->stateValidationService !== NULL
-      ? $this->stateValidationService->normalizeDungeonState($state)
-      : $this->normalizeDungeonStateFallback($state);
+    return $this->stateValidationService->normalizeDungeonState($state);
   }
 
   /**
    * Validate dungeon runtime payload against the canonical level-state contract.
    */
   private function assertValidDungeonStatePayload(array $state): void {
-    if ($this->stateValidationService === NULL) {
-      return;
-    }
-
     $validation = $this->stateValidationService->validateDungeonState($state);
     if (!($validation['valid'] ?? FALSE)) {
       throw new \InvalidArgumentException('Dungeon state failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
@@ -232,53 +226,6 @@ class DungeonStateService {
         $state[$alias] = $state[$canonical];
       }
     }
-  }
-
-  /**
-   * Local fallback normalization when schema services are unavailable.
-   */
-  private function normalizeDungeonStateFallback(array $state): array {
-    $normalized = [];
-    foreach ([
-      'is_fully_generated' => ['is_fully_generated', 'isFullyGenerated'],
-      'boss_defeated' => ['boss_defeated', 'bossDefeated'],
-    ] as $target => $sources) {
-      foreach ($sources as $source) {
-        if (array_key_exists($source, $state)) {
-          $normalized[$target] = (bool) $state[$source];
-          break;
-        }
-      }
-    }
-    foreach ([
-      'rooms_generated' => ['rooms_generated', 'roomsGenerated'],
-      'rooms_explored' => ['rooms_explored', 'roomsExplored'],
-      'times_visited' => ['times_visited', 'timesVisited'],
-    ] as $target => $sources) {
-      foreach ($sources as $source) {
-        if (array_key_exists($source, $state)) {
-          $normalized[$target] = (int) $state[$source];
-          break;
-        }
-      }
-    }
-    if (array_key_exists('completion_percent', $state) || array_key_exists('completionPercent', $state)) {
-      $normalized['completion_percent'] = (float) ($state['completion_percent'] ?? $state['completionPercent']);
-    }
-    foreach ([
-      'first_entered_at' => ['first_entered_at', 'firstEnteredAt'],
-      'last_visited_at' => ['last_visited_at', 'lastVisitedAt'],
-    ] as $target => $sources) {
-      foreach ($sources as $source) {
-        if (array_key_exists($source, $state)) {
-          $value = $state[$source];
-          $normalized[$target] = $value === NULL ? NULL : trim((string) $value);
-          break;
-        }
-      }
-    }
-
-    return $normalized;
   }
 
 }

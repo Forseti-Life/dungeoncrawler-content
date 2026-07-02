@@ -195,6 +195,22 @@ class StateValidationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies room runtime date-time fields enforce canonical format constraints.
+   */
+  public function testValidateRoomStateRejectsInvalidExploredAtFormat(): void {
+    $payload = [
+      'explored' => TRUE,
+      'exploredAt' => 'not-a-date',
+      'visibility' => 'visible',
+    ];
+
+    $result = $this->service->validateRoomState($payload);
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString('explored_at', implode('; ', $result['errors'] ?? []));
+    $this->assertStringContainsString('valid date-time value', implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
    * Verifies navigation receipts accept canonical room hex metadata.
    */
   public function testValidateNavigationReceiptAcceptsHexElevationAndObjects(): void {
@@ -296,6 +312,27 @@ class StateValidationServiceTest extends UnitTestCase {
 
     $result = $this->service->validateDungeonState($payload);
     $this->assertTrue($result['valid'], implode('; ', $result['errors'] ?? []));
+  }
+
+  /**
+   * Verifies dungeon runtime date-time fields enforce canonical format constraints.
+   */
+  public function testValidateDungeonStateRejectsInvalidFirstEnteredAtFormat(): void {
+    $payload = [
+      'isFullyGenerated' => TRUE,
+      'roomsGenerated' => 8,
+      'roomsExplored' => 3,
+      'bossDefeated' => FALSE,
+      'completionPercent' => 37.5,
+      'firstEnteredAt' => 'bad-date',
+      'lastVisitedAt' => '2026-05-20T17:15:00+00:00',
+      'timesVisited' => 2,
+    ];
+
+    $result = $this->service->validateDungeonState($payload);
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString('first_entered_at', implode('; ', $result['errors'] ?? []));
+    $this->assertStringContainsString('valid date-time value', implode('; ', $result['errors'] ?? []));
   }
 
   /**

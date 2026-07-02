@@ -1274,12 +1274,16 @@ class StateValidationService {
       if (isset($schema['maxLength']) && strlen($value) > $schema['maxLength']) {
         $errors[] = "Field '{$field_name}' is too long (maximum {$schema['maxLength']} characters)";
       }
+      if (isset($schema['format']) && is_string($schema['format']) && !$this->validateStringFormat($value, $schema['format'])) {
+        $errors[] = "Field '{$field_name}' must be a valid {$schema['format']} value";
+      }
     }
 
     if ($json_type === 'array') {
       if (isset($schema['minItems']) && count($value) < $schema['minItems']) {
         $errors[] = "Field '{$field_name}' has too few items (minimum {$schema['minItems']})";
       }
+
       if (isset($schema['maxItems']) && count($value) > $schema['maxItems']) {
         $errors[] = "Field '{$field_name}' has too many items (maximum {$schema['maxItems']})";
       }
@@ -1292,6 +1296,17 @@ class StateValidationService {
     }
 
     return $errors;
+  }
+
+  /**
+   * Validate JSON-schema string format constraints used by canonical contracts.
+   */
+  private function validateStringFormat(string $value, string $format): bool {
+    return match ($format) {
+      'date-time' => $this->validateDateTimeString($value),
+      'uuid' => (bool) preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/', $value),
+      default => TRUE,
+    };
   }
 
   /**

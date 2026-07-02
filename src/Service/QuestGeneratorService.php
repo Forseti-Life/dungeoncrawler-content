@@ -44,7 +44,7 @@ class QuestGeneratorService {
   /**
    * State validation service.
    */
-  protected ?StateValidationService $stateValidationService;
+  protected StateValidationService $stateValidationService;
 
   /**
    * Cached quest-giver policy registry payload.
@@ -82,7 +82,7 @@ class QuestGeneratorService {
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
     NumberGenerationService $number_generation,
-    ?StateValidationService $state_validation_service = NULL,
+    StateValidationService $state_validation_service,
     ?ObjectiveTypeService $objective_type_service = NULL,
     ?StorylineManagerService $storyline_manager = NULL,
     ?QuestDestinationValidatorService $quest_destination_validator = NULL
@@ -826,11 +826,9 @@ class QuestGeneratorService {
       ],
     ];
 
-    if ($this->stateValidationService !== NULL) {
-      $validation = $this->stateValidationService->validateQuestSummary($payload);
-      if (!($validation['valid'] ?? FALSE)) {
-        throw new \InvalidArgumentException('Quest summary failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
-      }
+    $validation = $this->stateValidationService->validateQuestSummary($payload);
+    if (!($validation['valid'] ?? FALSE)) {
+      throw new \InvalidArgumentException('Quest summary failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
     }
 
     return $payload;
@@ -865,8 +863,7 @@ class QuestGeneratorService {
 
     $path = dirname(__DIR__) . '/../config/npc_quest_giver_policies.json';
     if (!is_file($path)) {
-      $this->questGiverPolicyRegistry = ['schema_version' => 'npc-quest-giver-policies-v1', 'policies' => []];
-      return $this->questGiverPolicyRegistry;
+      throw new \UnexpectedValueException('NPC quest-giver policy registry file is missing: ' . $path);
     }
 
     $payload = json_decode((string) file_get_contents($path), TRUE);
@@ -874,11 +871,9 @@ class QuestGeneratorService {
       throw new \UnexpectedValueException('NPC quest-giver policy registry is not valid JSON.');
     }
 
-    if ($this->stateValidationService !== NULL) {
-      $validation = $this->stateValidationService->validateNpcQuestGiverPolicies($payload);
-      if (!($validation['valid'] ?? FALSE)) {
-        throw new \InvalidArgumentException('NPC quest-giver policies failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
-      }
+    $validation = $this->stateValidationService->validateNpcQuestGiverPolicies($payload);
+    if (!($validation['valid'] ?? FALSE)) {
+      throw new \InvalidArgumentException('NPC quest-giver policies failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
     }
 
     $this->questGiverPolicyRegistry = $payload;

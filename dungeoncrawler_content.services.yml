@@ -749,7 +749,7 @@ services:
       - '@database'
       - '@logger.factory'
       - '@dungeoncrawler_content.number_generation'
-      - '@?dungeoncrawler_content.state_validation_service'
+      - '@dungeoncrawler_content.state_validation_service'
       - '@dungeoncrawler_content.objective_type'
       - '@?dungeoncrawler_content.storyline_manager'
       - '@dungeoncrawler_content.quest_destination_validator'

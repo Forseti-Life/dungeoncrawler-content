@@ -359,11 +359,17 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $logger = $this->createMock(LoggerInterface::class);
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($logger);
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
 
     $service = new class(
       $this->createMock(Connection::class),
       $logger_factory,
-      $this->createMock(NumberGenerationService::class)
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
     ) extends QuestGeneratorService {
       protected function resolveObjectiveReferenceLabel(array $quest_row, string $value): string {
         return match ($value) {
@@ -403,11 +409,17 @@ class QuestGeneratorServiceTest extends UnitTestCase {
     $logger = $this->createMock(LoggerInterface::class);
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($logger);
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->method('validateQuestSummary')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
 
     $service = new class(
       $this->createMock(Connection::class),
       $logger_factory,
-      $this->createMock(NumberGenerationService::class)
+      $this->createMock(NumberGenerationService::class),
+      $state_validation
     ) extends QuestGeneratorService {
       protected function loadCanonicalObjectiveMapForTemplate(?string $template_id): array {
         if ($template_id !== 'ltba-clear-the-tomb') {

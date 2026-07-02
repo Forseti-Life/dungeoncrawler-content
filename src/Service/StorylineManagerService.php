@@ -19,7 +19,7 @@ class StorylineManagerService {
   protected LoggerInterface $logger;
   protected UuidInterface $uuid;
   protected CampaignStateService $campaignStateService;
-  protected ?StateValidationService $stateValidationService;
+  protected StateValidationService $stateValidationService;
   protected ?ContentRegistry $contentRegistry;
   protected ?StorylineRealizationService $storylineRealizationService;
   protected ?ObjectiveTypeService $objectiveTypeService;
@@ -30,7 +30,7 @@ class StorylineManagerService {
     LoggerChannelFactoryInterface $logger_factory,
     UuidInterface $uuid,
     CampaignStateService $campaign_state_service,
-    ?StateValidationService $state_validation_service = NULL,
+    StateValidationService $state_validation_service,
     ?StorylineRealizationService $storyline_realization_service = NULL,
     ?ObjectiveTypeService $objective_type_service = NULL,
     ?ContentRegistry $content_registry = NULL
@@ -711,12 +711,10 @@ class StorylineManagerService {
       }
 
       $errors = [];
-      if ($this->stateValidationService !== NULL) {
-        $validation = $this->stateValidationService->validateItemDefinition($schema_data);
-        if (empty($validation['valid'])) {
-          foreach (array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))) as $error) {
-            $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $error);
-          }
+      $validation = $this->stateValidationService->validateItemDefinition($schema_data);
+      if (empty($validation['valid'])) {
+        foreach (array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))) as $error) {
+          $errors[] = $this->formatEntityTypeContractError($entity_type, $entity_id, $context, $error);
         }
       }
 
@@ -2399,10 +2397,6 @@ class StorylineManagerService {
    * Validate storyline runtime data when schema validation is wired.
    */
   protected function validateRuntimeStorylineData(array $storyline_data): array {
-    if ($this->stateValidationService === NULL) {
-      return ['valid' => TRUE, 'errors' => []];
-    }
-
     return $this->stateValidationService->validateStorylineRuntime($storyline_data);
   }
 
@@ -2413,10 +2407,6 @@ class StorylineManagerService {
    *   Validation errors for this stage.
    */
   protected function validateStorylineSchemaStage(array $storyline_data, string $payload_type): array {
-    if ($this->stateValidationService === NULL) {
-      return [];
-    }
-
     if ($payload_type === 'definition') {
       $validation = $this->stateValidationService->validateStorylineDefinition($storyline_data);
     }

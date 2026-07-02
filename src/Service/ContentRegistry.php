@@ -46,7 +46,7 @@ class ContentRegistry {
    * @var string
    */
   protected $contentPath;
-  protected ?StateValidationService $stateValidationService;
+  protected StateValidationService $stateValidationService;
 
   /**
    * Constructs a ContentRegistry object.
@@ -59,7 +59,7 @@ class ContentRegistry {
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
-    ?StateValidationService $state_validation_service = NULL
+    StateValidationService $state_validation_service
   ) {
     $this->database = $database;
     $this->loggerFactory = $logger_factory;
@@ -484,22 +484,23 @@ class ContentRegistry {
   public function validateContent(string $content_type, array $content_data): array {
     $errors = [];
     
-    // Basic validation - check required fields
-    // Support both old (content_id) and new schema (creature_id, item_id, etc.)
-    $id_field = $content_type . '_id';
-    if (empty($content_data['content_id']) && empty($content_data[$id_field])) {
-      $errors[] = 'Missing required field: content_id or ' . $id_field;
+    // Basic validation - check canonical required fields.
+    if (empty($content_data['content_id'])) {
+      $errors[] = 'Missing required field: content_id';
     }
     
     if (empty($content_data['name'])) {
       $errors[] = 'Missing required field: name';
     }
     
-    // Support both old (type) and new schema (creature_type, item_type, etc.)
-    $type_field = $content_type . '_type';
-    $type_value = $content_data['type'] ?? $content_data[$type_field] ?? NULL;
-    if (empty($type_value)) {
-      $errors[] = 'Missing required field: type or ' . $type_field;
+    $type_field = match ($content_type) {
+      'creature' => 'creature_type',
+      'item' => 'item_type',
+      'spell' => 'spell_type',
+      default => 'type',
+    };
+    if (empty($content_data[$type_field])) {
+      $errors[] = 'Missing required field: ' . $type_field;
     }
     
     // Type-specific validation
@@ -509,13 +510,8 @@ class ContentRegistry {
         break;
         
       case 'item':
-        if ($this->stateValidationService === NULL) {
-          $errors[] = 'Item contract validator service is not available';
-        }
-        else {
-          $validation = $this->stateValidationService->validateItemDefinition($content_data);
-          $errors = array_merge($errors, array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))));
-        }
+        $validation = $this->stateValidationService->validateItemDefinition($content_data);
+        $errors = array_merge($errors, array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))));
         break;
         
       case 'trap':

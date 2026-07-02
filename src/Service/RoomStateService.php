@@ -16,13 +16,13 @@ class RoomStateService {
   private Connection $database;
   private LoggerInterface $logger;
   private EventDispatcherInterface $eventDispatcher;
-  private ?StateValidationService $stateValidationService;
+  private StateValidationService $stateValidationService;
 
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
     EventDispatcherInterface $event_dispatcher,
-    ?StateValidationService $state_validation_service = NULL
+    StateValidationService $state_validation_service
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -310,9 +310,7 @@ class RoomStateService {
       throw new \InvalidArgumentException('Room state contains unknown properties: ' . implode(', ', $unknown_keys), 400);
     }
 
-    $normalized = $this->stateValidationService !== NULL
-      ? $this->stateValidationService->normalizeRoomState($state)
-      : $this->normalizeRoomStateFallback($state);
+    $normalized = $this->stateValidationService->normalizeRoomState($state);
 
     if (isset($state['visible_hex_ids']) || isset($state['visibleHexIds'])) {
       $visible_hex_ids = $state['visible_hex_ids'] ?? $state['visibleHexIds'];
@@ -329,56 +327,10 @@ class RoomStateService {
    * Validate room runtime payload against the canonical room state contract.
    */
   private function assertValidRoomStatePayload(array $state): void {
-    if ($this->stateValidationService === NULL) {
-      return;
-    }
-
     $validation = $this->stateValidationService->validateRoomState($state);
     if (!($validation['valid'] ?? FALSE)) {
       throw new \InvalidArgumentException('Room state failed validation: ' . implode('; ', $validation['errors'] ?? []), 400);
     }
-  }
-
-  /**
-   * Local fallback normalization when schema services are unavailable.
-   */
-  private function normalizeRoomStateFallback(array $state): array {
-    $normalized = [];
-    if (array_key_exists('explored', $state)) {
-      $normalized['explored'] = (bool) $state['explored'];
-    }
-    foreach ([
-      'explored_at' => ['explored_at', 'exploredAt'],
-      'explored_by_party' => ['explored_by_party', 'exploredByParty'],
-    ] as $target => $sources) {
-      foreach ($sources as $source) {
-        if (array_key_exists($source, $state)) {
-          $value = $state[$source];
-          $normalized[$target] = $value === NULL ? NULL : trim((string) $value);
-          break;
-        }
-      }
-    }
-    foreach ([
-      'cleared' => ['cleared', 'isCleared', 'is_cleared'],
-      'looted' => ['looted'],
-      'traps_disarmed' => ['traps_disarmed', 'trapsDisarmed'],
-    ] as $target => $sources) {
-      foreach ($sources as $source) {
-        if (array_key_exists($source, $state)) {
-          $normalized[$target] = (bool) $state[$source];
-          break;
-        }
-      }
-    }
-    if (array_key_exists('visibility', $state)) {
-      $normalized['visibility'] = trim((string) $state['visibility']);
-    }
-    if (array_key_exists('notes', $state) && is_array($state['notes'])) {
-      $normalized['notes'] = $state['notes'];
-    }
-
-    return $normalized;
   }
 
   /**
