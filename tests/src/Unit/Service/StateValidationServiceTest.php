@@ -895,6 +895,126 @@ class StateValidationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies canonical room validation passes for valid room rows.
+   */
+  public function testValidateCanonicalRoomLibraryContractsAcceptsCanonicalRows(): void {
+    $row = [
+      'room_id' => 'tpl_room_tavern_entrance',
+      'name' => 'The Gilded Tankard',
+      'description' => 'Entry room.',
+      'environment_tags' => json_encode(['urban', 'tavern']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          ['q' => 0, 'r' => 0],
+        ],
+      ]),
+      'contents_data' => json_encode([
+        'npcs' => [
+          ['content_id' => 'npc_tavern_keeper'],
+        ],
+      ]),
+      'source_room_id' => 'tpl_room_tavern_entrance',
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_rooms');
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dungeoncrawler_content_rooms', 'r')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertTrue($result['valid']);
+    $this->assertSame(1, $result['summary']['total_items']);
+    $this->assertSame(1, $result['summary']['valid_items']);
+    $this->assertSame(0, $result['summary']['invalid_items']);
+    $this->assertSame('tpl_room_tavern_entrance', $result['items'][0]['content_id'] ?? NULL);
+  }
+
+  /**
+   * Verifies canonical room validation fails when room table is missing.
+   */
+  public function testValidateCanonicalRoomLibraryContractsFailsWhenTableMissing(): void {
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')->willReturn(FALSE);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertContains('Canonical room table dungeoncrawler_content_rooms is unavailable.', $result['errors']);
+  }
+
+  /**
+   * Verifies canonical room validation rejects rows missing required layout hexes.
+   */
+  public function testValidateCanonicalRoomLibraryContractsRejectsMissingLayoutHexes(): void {
+    $row = [
+      'room_id' => 'tpl_room_incomplete',
+      'name' => 'Incomplete Room',
+      'description' => '',
+      'environment_tags' => json_encode([]),
+      'layout_data' => json_encode(['hexes' => []]),
+      'contents_data' => json_encode(['npcs' => []]),
+      'source_room_id' => '',
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dungeoncrawler_content_rooms');
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dungeoncrawler_content_rooms', 'r')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString(
+      'layout_data.hexes must define at least one hex.',
+      implode('; ', $result['items'][0]['errors'] ?? [])
+    );
+  }
+
+  /**
    * Verifies generated storyline definitions pass validation.
    */
   public function testValidateStorylineDefinitionAcceptsCanonicalPayload(): void {

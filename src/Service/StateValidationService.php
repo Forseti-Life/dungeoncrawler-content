@@ -451,6 +451,131 @@ class StateValidationService {
   }
 
   /**
+   * Validate canonical room contracts from dungeoncrawler_content_rooms.
+   *
+   * @return array<string, mixed>
+   *   Validation report with aggregate summary and per-room diagnostics.
+   */
+  public function validateCanonicalRoomLibraryContracts(): array {
+    $report = [
+      'valid' => FALSE,
+      'errors' => [],
+      'summary' => [
+        'total_items' => 0,
+        'valid_items' => 0,
+        'invalid_items' => 0,
+      ],
+      'items' => [],
+    ];
+
+    if ($this->database === NULL) {
+      $report['errors'][] = 'Canonical room validation requires database access.';
+      return $report;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_rooms')) {
+      $report['errors'][] = 'Canonical room table dungeoncrawler_content_rooms is unavailable.';
+      return $report;
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', [
+        'room_id',
+        'name',
+        'description',
+        'environment_tags',
+        'layout_data',
+        'contents_data',
+        'source_room_id',
+      ])
+      ->orderBy('room_id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($rows) || $rows === []) {
+      $report['errors'][] = 'Canonical room table contains no records.';
+      return $report;
+    }
+
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+
+      $room_id = trim((string) ($row['room_id'] ?? ''));
+      $name = trim((string) ($row['name'] ?? ''));
+      $description = trim((string) ($row['description'] ?? ''));
+      $source_room_id = trim((string) ($row['source_room_id'] ?? ''));
+      $room_errors = [];
+
+      if ($room_id === '') {
+        $room_errors[] = 'room_id is required.';
+      }
+      elseif (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $room_id)) {
+        $room_errors[] = "room_id '{$room_id}' does not match canonical id pattern.";
+      }
+
+      if ($name === '') {
+        $room_errors[] = 'name is required.';
+      }
+
+      $layout_data = json_decode((string) ($row['layout_data'] ?? ''), TRUE);
+      if (!is_array($layout_data) || $layout_data === []) {
+        $room_errors[] = 'layout_data contract is required.';
+        $layout_data = [];
+      }
+      elseif (!is_array($layout_data['hexes'] ?? NULL) || $layout_data['hexes'] === []) {
+        $room_errors[] = 'layout_data.hexes must define at least one hex.';
+      }
+
+      $contents_data = json_decode((string) ($row['contents_data'] ?? ''), TRUE);
+      if (!is_array($contents_data) || $contents_data === []) {
+        $room_errors[] = 'contents_data contract is required.';
+        $contents_data = [];
+      }
+
+      $environment_tags = json_decode((string) ($row['environment_tags'] ?? ''), TRUE);
+      if (!is_array($environment_tags)) {
+        $environment_tags = [];
+      }
+
+      $room_errors = array_values(array_unique($room_errors));
+      $room_valid = $room_errors === [];
+
+      $report['items'][] = [
+        'content_id' => $room_id,
+        'item_id' => $source_room_id !== '' ? $source_room_id : $room_id,
+        'name' => $name,
+        'item_type' => 'room_template',
+        'level' => NULL,
+        'rarity' => '',
+        'source_file' => 'dungeoncrawler_content_rooms',
+        'contract' => [
+          'room' => [
+            'room_id' => $room_id,
+            'name' => $name,
+            'description' => $description,
+            'source_room_id' => $source_room_id,
+            'environment_tags' => $environment_tags,
+          ],
+          'layout_data' => $layout_data,
+          'contents_data' => $contents_data,
+        ],
+        'valid' => $room_valid,
+        'errors' => $room_errors,
+      ];
+    }
+
+    $report['summary']['total_items'] = count($report['items']);
+    $report['summary']['valid_items'] = count(array_filter($report['items'], static fn(array $item): bool => !empty($item['valid'])));
+    $report['summary']['invalid_items'] = $report['summary']['total_items'] - $report['summary']['valid_items'];
+    $report['valid'] = $report['errors'] === [] && $report['summary']['invalid_items'] === 0;
+
+    return $report;
+  }
+
+  /**
    * Validate item payload against the canonical runtime contract.
    *
    * This path intentionally avoids file-backed schema references so item

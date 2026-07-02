@@ -101,6 +101,50 @@ class AnalysisExplorerPageControllerTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::loadCanonicalRoomValidationReport
+   */
+  public function testLoadCanonicalRoomValidationReportUsesStateValidationService(): void {
+    $report = [
+      'valid' => TRUE,
+      'errors' => [],
+      'summary' => [
+        'total_items' => 1,
+        'valid_items' => 1,
+        'invalid_items' => 0,
+      ],
+      'items' => [],
+    ];
+
+    $state_validation_service = $this->createMock(StateValidationService::class);
+    $state_validation_service->expects($this->once())
+      ->method('validateCanonicalRoomLibraryContracts')
+      ->willReturn($report);
+
+    $controller = new class($state_validation_service) extends AnalysisExplorerPageController {
+      public function exposeLoadCanonicalRoomValidationReport(): array {
+        return $this->loadCanonicalRoomValidationReport();
+      }
+    };
+
+    $this->assertSame($report, $controller->exposeLoadCanonicalRoomValidationReport());
+  }
+
+  /**
+   * @covers ::loadCanonicalRoomValidationReport
+   */
+  public function testLoadCanonicalRoomValidationReportFailsWithoutStateValidationService(): void {
+    $controller = new class(NULL) extends AnalysisExplorerPageController {
+      public function exposeLoadCanonicalRoomValidationReport(): array {
+        return $this->loadCanonicalRoomValidationReport();
+      }
+    };
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('Room explorer requires StateValidationService');
+    $controller->exposeLoadCanonicalRoomValidationReport();
+  }
+
+  /**
    * @covers ::resolveItemFilters
    */
   public function testResolveItemFiltersSupportsSelectionWithoutServerSideFiltering(): void {

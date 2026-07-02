@@ -55,8 +55,8 @@ class AnalysisExplorerPageController extends ControllerBase {
         'route' => 'dungeoncrawler_content.dungeon_analysis',
       ],
       [
-        'title' => (string) $this->t('Room Explorer (stub)'),
-        'summary' => (string) $this->t('Planned room-layer analysis and contract diagnostics.'),
+        'title' => (string) $this->t('Room Explorer'),
+        'summary' => (string) $this->t('Canonical room contract diagnostics from dungeoncrawler_content_rooms.'),
         'route' => 'dungeoncrawler_content.analysis_explorer_rooms',
       ],
       [
@@ -287,18 +287,163 @@ class AnalysisExplorerPageController extends ControllerBase {
   }
 
   /**
-   * Render the room explorer stub page.
+   * Render the room explorer with canonical room contract diagnostics.
    */
   public function rooms(): array {
-    return $this->buildLayerStubPage(
-      (string) $this->t('Room Explorer'),
-      (string) $this->t('Stub page for room-layer analysis.'),
-      [
-        (string) $this->t('Planned canonical room contract diagnostics.'),
-        (string) $this->t('Planned room connectivity and exit validation view.'),
-        (string) $this->t('Planned room-level entity and state integrity checks.'),
-      ]
-    );
+    $report = $this->loadCanonicalRoomValidationReport();
+    $summary = is_array($report['summary'] ?? NULL) ? $report['summary'] : [];
+    $items = array_values(array_filter((array) ($report['items'] ?? []), 'is_array'));
+
+    $build = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['container', 'py-4', 'py-lg-5']],
+      '#cache' => [
+        'max-age' => 0,
+        'contexts' => ['user'],
+      ],
+    ];
+
+    $build['hero'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h1',
+          '#attributes' => ['class' => ['h3', 'mb-2']],
+          '#value' => (string) $this->t('Room Explorer'),
+        ],
+        'summary' => [
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#attributes' => ['class' => ['mb-0']],
+          '#value' => (string) $this->t('Canonical room contract validation from dungeoncrawler_content_rooms. This surface checks room identity, layout_data, and contents_data contract presence/shape.'),
+        ],
+      ],
+    ];
+
+    $build['summary'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-3']],
+          '#value' => (string) $this->t('Canonical Room Contract Status'),
+        ],
+        'metrics' => [
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#attributes' => ['class' => ['mb-0']],
+          '#value' => (string) $this->t(
+            'Status: @status | Total: @total | Valid: @valid | Invalid: @invalid',
+            [
+              '@status' => !empty($report['valid']) ? 'PASS' : 'FAIL',
+              '@total' => (string) ((int) ($summary['total_items'] ?? 0)),
+              '@valid' => (string) ((int) ($summary['valid_items'] ?? 0)),
+              '@invalid' => (string) ((int) ($summary['invalid_items'] ?? 0)),
+            ]
+          ),
+        ],
+      ],
+    ];
+
+    $rows = [];
+    foreach ($items as $item) {
+      $errors = array_values(array_filter(array_map('strval', (array) ($item['errors'] ?? []))));
+      $rows[] = [
+        (string) ($item['name'] ?? ''),
+        (string) ($item['content_id'] ?? ''),
+        [
+          'data' => [
+            '#type' => 'html_tag',
+            '#tag' => 'span',
+            '#attributes' => ['class' => ['badge', !empty($item['valid']) ? 'text-bg-success' : 'text-bg-danger']],
+            '#value' => !empty($item['valid']) ? 'PASS' : 'FAIL',
+          ],
+        ],
+        (string) count($errors),
+      ];
+    }
+
+    $build['table'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-3']],
+          '#value' => (string) $this->t('Canonical Room Validation Results'),
+        ],
+        'table' => [
+          '#type' => 'table',
+          '#header' => [
+            (string) $this->t('Name'),
+            (string) $this->t('Room ID'),
+            (string) $this->t('Status'),
+            (string) $this->t('Errors'),
+          ],
+          '#rows' => $rows,
+          '#empty' => (string) $this->t('No canonical room records found.'),
+        ],
+      ],
+    ];
+
+    $error_rows = array_values(array_filter(array_map('strval', (array) ($report['errors'] ?? []))));
+    foreach ($items as $item) {
+      if (!empty($item['valid'])) {
+        continue;
+      }
+      $identifier = trim((string) ($item['content_id'] ?? 'unknown-room'));
+      foreach ((array) ($item['errors'] ?? []) as $error) {
+        $message = trim((string) $error);
+        if ($message !== '') {
+          $error_rows[] = $identifier . ': ' . $message;
+        }
+      }
+    }
+
+    if ($error_rows !== []) {
+      $build['errors'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card', 'mb-4']],
+        'body' => [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['card-body']],
+          'title' => [
+            '#type' => 'html_tag',
+            '#tag' => 'h2',
+            '#attributes' => ['class' => ['h5', 'mb-3']],
+            '#value' => (string) $this->t('Canonical Room Contract Errors'),
+          ],
+          'list' => [
+            '#theme' => 'item_list',
+            '#items' => $error_rows,
+          ],
+        ],
+      ];
+    }
+
+    $build['actions'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['d-flex', 'gap-2']],
+      'hub' => [
+        '#type' => 'link',
+        '#title' => (string) $this->t('Back to Analysis Hub'),
+        '#url' => Url::fromRoute('dungeoncrawler_content.analysis_explorer_home'),
+        '#attributes' => ['class' => ['btn', 'btn-outline-secondary', 'btn-sm']],
+      ],
+    ];
+
+    return $build;
   }
 
   /**
@@ -407,6 +552,22 @@ class AnalysisExplorerPageController extends ControllerBase {
     }
 
     return $this->stateValidationService->validateCanonicalActorLibraryContracts();
+  }
+
+  /**
+   * Load canonical room validation diagnostics.
+   *
+   * @return array<string, mixed>
+   *   Validation report.
+   */
+  protected function loadCanonicalRoomValidationReport(): array {
+    if (!($this->stateValidationService instanceof StateValidationService)) {
+      throw new \RuntimeException(
+        'Room explorer requires StateValidationService for canonical room contract validation.'
+      );
+    }
+
+    return $this->stateValidationService->validateCanonicalRoomLibraryContracts();
   }
 
   /**
