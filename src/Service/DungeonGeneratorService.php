@@ -77,6 +77,7 @@ class DungeonGeneratorService {
    * @var \Drupal\dungeoncrawler_content\Service\SeededRandomSequence|null
    */
   protected ?SeededRandomSequence $rng = NULL;
+  protected const MIN_ROOM_SPACING_HEXES = 5;
 
   /**
    * Constructs a DungeonGeneratorService object.
@@ -310,6 +311,8 @@ class DungeonGeneratorService {
       $rooms[] = $room;
     }
 
+    $room_anchors = $this->applyMinimumRoomSpacing($rooms, self::MIN_ROOM_SPACING_HEXES);
+
     // Step 3: Connect rooms (basic linear for now, Delaunay later)
     $connections = $this->connectRoomsInLevel($rooms, $context);
 
@@ -323,6 +326,10 @@ class DungeonGeneratorService {
       'theme' => $context['theme'],
       'name' => sprintf('Level %d - %s', $context['depth'], ucfirst($context['theme'])),
       'room_count' => count($rooms),
+      'hex_map' => [
+        'room_anchors' => $room_anchors,
+        'minimum_room_spacing_hexes' => self::MIN_ROOM_SPACING_HEXES,
+      ],
       'rooms' => $rooms,
       'connections' => $connections,
       'generation_rules' => [
@@ -854,6 +861,256 @@ class DungeonGeneratorService {
     }
 
     return $connections;
+  }
+
+  /**
+   * Repositions room coordinates so generated rooms keep minimum spacing.
+   *
+   * @param array $rooms
+   *   Room payloads generated for one level (modified in place).
+   * @param int $minimum_gap_hexes
+   *   Minimum required inter-room gap measured in empty hexes.
+   *
+   * @return array<int, array<string, int|string>>
+   *   Room anchor metadata for hex_map export.
+   */
+  protected function applyMinimumRoomSpacing(array &$rooms, int $minimum_gap_hexes): array {
+    if ($rooms === []) {
+      return [];
+    }
+
+    $anchors = [];
+    $cursor_q = 0;
+    $cursor_r = 0;
+    $current_row_height = 0;
+    $row_wrap_width = 220;
+
+    foreach ($rooms as $index => &$room) {
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        throw new \RuntimeException('Dungeon level generation produced a room without room_id.');
+      }
+
+      $bounds = $this->calculateRoomBounds($room);
+      $room_width = $bounds['max_q'] - $bounds['min_q'] + 1;
+      $room_height = $bounds['max_r'] - $bounds['min_r'] + 1;
+
+      if ($index > 0 && ($cursor_q + $room_width) > $row_wrap_width) {
+        $cursor_q = 0;
+        $cursor_r += $current_row_height + $minimum_gap_hexes;
+        $current_row_height = 0;
+      }
+
+      $target_min_q = $cursor_q;
+      $target_min_r = $cursor_r;
+      $offset_q = $target_min_q - $bounds['min_q'];
+      $offset_r = $target_min_r - $bounds['min_r'];
+
+      if ($offset_q !== 0 || $offset_r !== 0) {
+        $room = $this->offsetRoomCoordinates($room, $offset_q, $offset_r);
+      }
+
+      $shifted_bounds = [
+        'min_q' => $bounds['min_q'] + $offset_q,
+        'max_q' => $bounds['max_q'] + $offset_q,
+        'min_r' => $bounds['min_r'] + $offset_r,
+        'max_r' => $bounds['max_r'] + $offset_r,
+      ];
+
+      $entry_point = (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL))
+        ? $room['entry_points'][0]
+        : NULL;
+      $anchor_q = is_array($entry_point) && is_numeric($entry_point['q'] ?? NULL)
+        ? (int) $entry_point['q']
+        : $shifted_bounds['min_q'];
+      $anchor_r = is_array($entry_point) && is_numeric($entry_point['r'] ?? NULL)
+        ? (int) $entry_point['r']
+        : $shifted_bounds['min_r'];
+
+      $room['placement'] = [
+        'anchor_q' => $anchor_q,
+        'anchor_r' => $anchor_r,
+        'offset_q' => $offset_q,
+        'offset_r' => $offset_r,
+        'minimum_gap_hexes' => $minimum_gap_hexes,
+      ];
+
+      $anchors[] = [
+        'room_id' => $room_id,
+        'anchor_q' => $anchor_q,
+        'anchor_r' => $anchor_r,
+        'min_q' => $shifted_bounds['min_q'],
+        'max_q' => $shifted_bounds['max_q'],
+        'min_r' => $shifted_bounds['min_r'],
+        'max_r' => $shifted_bounds['max_r'],
+      ];
+
+      $cursor_q += $room_width + $minimum_gap_hexes;
+      $current_row_height = max($current_row_height, $room_height);
+    }
+    unset($room);
+
+    return $anchors;
+  }
+
+  /**
+   * Computes room hex bounds from room payload.
+   *
+   * @return array{min_q:int,max_q:int,min_r:int,max_r:int}
+   *   Bounding box over room hex coordinates.
+   */
+  protected function calculateRoomBounds(array $room): array {
+    $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf('Room %s must define non-empty hexes for placement.', (string) ($room['room_id'] ?? 'unknown')));
+    }
+
+    $min_q = NULL;
+    $max_q = NULL;
+    $min_r = NULL;
+    $max_r = NULL;
+    foreach ($hexes as $hex_index => $hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf(
+          'Room %s hexes[%d] must include numeric q/r coordinates.',
+          (string) ($room['room_id'] ?? 'unknown'),
+          $hex_index
+        ));
+      }
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $min_q = $min_q === NULL ? $q : min($min_q, $q);
+      $max_q = $max_q === NULL ? $q : max($max_q, $q);
+      $min_r = $min_r === NULL ? $r : min($min_r, $r);
+      $max_r = $max_r === NULL ? $r : max($max_r, $r);
+    }
+
+    return [
+      'min_q' => (int) $min_q,
+      'max_q' => (int) $max_q,
+      'min_r' => (int) $min_r,
+      'max_r' => (int) $max_r,
+    ];
+  }
+
+  /**
+   * Applies one axial offset to all room coordinate payloads.
+   */
+  protected function offsetRoomCoordinates(array $room, int $offset_q, int $offset_r): array {
+    $room['hexes'] = $this->offsetHexCoordinates(
+      is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [],
+      $offset_q,
+      $offset_r
+    );
+    $room['entry_points'] = $this->offsetCoordinatePoints(
+      is_array($room['entry_points'] ?? NULL) ? $room['entry_points'] : [],
+      $offset_q,
+      $offset_r
+    );
+    $room['exit_points'] = $this->offsetCoordinatePoints(
+      is_array($room['exit_points'] ?? NULL) ? $room['exit_points'] : [],
+      $offset_q,
+      $offset_r
+    );
+    $room['exits'] = $this->offsetCoordinatePoints(
+      is_array($room['exits'] ?? NULL) ? $room['exits'] : [],
+      $offset_q,
+      $offset_r
+    );
+
+    foreach (['creatures', 'items', 'traps', 'hazards', 'obstacles', 'interactables'] as $entity_key) {
+      if (!is_array($room[$entity_key] ?? NULL)) {
+        continue;
+      }
+      $room[$entity_key] = $this->offsetEntityPlacements($room[$entity_key], $offset_q, $offset_r);
+    }
+
+    $hex_manifest = is_array($room['hex_manifest'] ?? NULL) ? $room['hex_manifest'] : [];
+    $manifest_by_hex = is_array($hex_manifest['by_hex'] ?? NULL) ? $hex_manifest['by_hex'] : [];
+    if ($manifest_by_hex !== []) {
+      $shifted_manifest = [];
+      foreach ($manifest_by_hex as $manifest_hex) {
+        if (!is_array($manifest_hex) || !is_numeric($manifest_hex['q'] ?? NULL) || !is_numeric($manifest_hex['r'] ?? NULL)) {
+          continue;
+        }
+        $q = (int) $manifest_hex['q'] + $offset_q;
+        $r = (int) $manifest_hex['r'] + $offset_r;
+        $manifest_hex['q'] = $q;
+        $manifest_hex['r'] = $r;
+        $shifted_manifest[$q . ',' . $r] = $manifest_hex;
+      }
+      $hex_manifest['by_hex'] = $shifted_manifest;
+      $room['hex_manifest'] = $hex_manifest;
+    }
+
+    return $room;
+  }
+
+  /**
+   * Offsets one list of q/r hex coordinates.
+   */
+  protected function offsetHexCoordinates(array $hexes, int $offset_q, int $offset_r): array {
+    $shifted = [];
+    foreach ($hexes as $hex) {
+      if (!is_array($hex)) {
+        $shifted[] = $hex;
+        continue;
+      }
+      if (!is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        throw new \RuntimeException('Hex payload missing numeric q/r while applying room spacing.');
+      }
+      $hex['q'] = (int) $hex['q'] + $offset_q;
+      $hex['r'] = (int) $hex['r'] + $offset_r;
+      $shifted[] = $hex;
+    }
+    return $shifted;
+  }
+
+  /**
+   * Offsets q/r and nested hex.q/hex.r coordinates in one point list.
+   */
+  protected function offsetCoordinatePoints(array $points, int $offset_q, int $offset_r): array {
+    $shifted = [];
+    foreach ($points as $point) {
+      if (!is_array($point)) {
+        $shifted[] = $point;
+        continue;
+      }
+      if (is_numeric($point['q'] ?? NULL) && is_numeric($point['r'] ?? NULL)) {
+        $point['q'] = (int) $point['q'] + $offset_q;
+        $point['r'] = (int) $point['r'] + $offset_r;
+      }
+      if (is_array($point['hex'] ?? NULL) && is_numeric($point['hex']['q'] ?? NULL) && is_numeric($point['hex']['r'] ?? NULL)) {
+        $point['hex']['q'] = (int) $point['hex']['q'] + $offset_q;
+        $point['hex']['r'] = (int) $point['hex']['r'] + $offset_r;
+      }
+      $shifted[] = $point;
+    }
+    return $shifted;
+  }
+
+  /**
+   * Offsets nested entity placement hex coordinates for one entity list.
+   */
+  protected function offsetEntityPlacements(array $entities, int $offset_q, int $offset_r): array {
+    $shifted = [];
+    foreach ($entities as $entity) {
+      if (!is_array($entity)) {
+        $shifted[] = $entity;
+        continue;
+      }
+      if (
+        is_array($entity['placement'] ?? NULL)
+        && is_array($entity['placement']['hex'] ?? NULL)
+        && is_numeric($entity['placement']['hex']['q'] ?? NULL)
+        && is_numeric($entity['placement']['hex']['r'] ?? NULL)
+      ) {
+        $entity['placement']['hex']['q'] = (int) $entity['placement']['hex']['q'] + $offset_q;
+        $entity['placement']['hex']['r'] = (int) $entity['placement']['hex']['r'] + $offset_r;
+      }
+      $shifted[] = $entity;
+    }
+    return $shifted;
   }
 
   /**

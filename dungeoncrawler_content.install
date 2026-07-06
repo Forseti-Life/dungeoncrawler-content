@@ -75,6 +75,7 @@
  * - 10139: Delete Public Bathhouse room and retarget canonical references
  * - 10140: Rebuild Public Sanatorium room as rectangle 50x60 to Absalom Streets
  * - 10141: Rebuild all Absalom corridor rooms as rectangle 8x8
+ * - 10142: Reposition Absalom room footprints to enforce minimum five-hex spacing
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -21086,6 +21087,392 @@ function dungeoncrawler_content_update_10141() {
       '@rooms' => implode(', ', $updated_rooms),
     ]
   );
+}
+
+/**
+ * Reposition Absalom room footprints to enforce minimum five-hex spacing.
+ */
+function dungeoncrawler_content_update_10142() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $time = \Drupal::time()->getRequestTime();
+
+  foreach (['dungeoncrawler_content_rooms', 'dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $table) {
+    if (!$schema_handler->tableExists($table)) {
+      throw new \RuntimeException(sprintf('Required table %s is missing for Absalom spacing refactor.', $table));
+    }
+  }
+
+  $dungeon_id = 'tpl_dungeon_absalom_city';
+  $anchor_room_id = 'tpl_room_tavern_entrance';
+  $target_resolution = 14;
+  $minimum_gap_hexes = 5;
+
+  $anchor_rows = $database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+    ->fields('a', ['room_id', 'reference_q', 'reference_r', 'hex_size_meters', 'metadata', 'center_latitude', 'center_longitude'])
+    ->condition('a.dungeon_id', $dungeon_id)
+    ->orderBy('a.room_id', 'ASC')
+    ->execute()
+    ->fetchAllAssoc('room_id', \PDO::FETCH_ASSOC);
+  if (!is_array($anchor_rows) || $anchor_rows === []) {
+    throw new \RuntimeException(sprintf('No sparse room anchors found for dungeon %s.', $dungeon_id));
+  }
+  if (!isset($anchor_rows[$anchor_room_id])) {
+    throw new \RuntimeException(sprintf('Anchor room %s is missing from sparse room anchors for dungeon %s.', $anchor_room_id, $dungeon_id));
+  }
+
+  $room_ids = array_keys($anchor_rows);
+  sort($room_ids, SORT_STRING);
+  $room_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id', 'layout_data'])
+    ->condition('r.room_id', $room_ids, 'IN')
+    ->execute()
+    ->fetchAllAssoc('room_id', \PDO::FETCH_ASSOC);
+  if (!is_array($room_rows) || $room_rows === []) {
+    throw new \RuntimeException(sprintf('No canonical room rows found for anchored dungeon %s rooms.', $dungeon_id));
+  }
+
+  $room_layout_by_room = [];
+  $room_profile_by_room = [];
+  foreach ($room_ids as $room_id) {
+    if (!isset($room_rows[$room_id])) {
+      throw new \RuntimeException(sprintf('Anchored room %s is missing from canonical room table.', $room_id));
+    }
+    $layout_data = json_decode((string) ($room_rows[$room_id]['layout_data'] ?? ''), TRUE);
+    if (!is_array($layout_data)) {
+      throw new \RuntimeException(sprintf('Room %s has invalid layout_data JSON.', $room_id));
+    }
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf('Room %s must define non-empty layout_data.hexes.', $room_id));
+    }
+
+    $min_q = NULL;
+    $max_q = NULL;
+    $min_r = NULL;
+    $max_r = NULL;
+    foreach ($hexes as $hex_index => $hex) {
+      if (!is_array($hex) || !array_key_exists('q', $hex) || !array_key_exists('r', $hex) || !is_numeric($hex['q']) || !is_numeric($hex['r'])) {
+        throw new \RuntimeException(sprintf('Room %s has invalid q/r in layout_data.hexes[%d].', $room_id, $hex_index));
+      }
+      $local_q = (int) $hex['q'];
+      $local_r = (int) $hex['r'];
+      $min_q = $min_q === NULL ? $local_q : min($min_q, $local_q);
+      $max_q = $max_q === NULL ? $local_q : max($max_q, $local_q);
+      $min_r = $min_r === NULL ? $local_r : min($min_r, $local_r);
+      $max_r = $max_r === NULL ? $local_r : max($max_r, $local_r);
+    }
+    if ($min_q === NULL || $max_q === NULL || $min_r === NULL || $max_r === NULL) {
+      throw new \RuntimeException(sprintf('Room %s could not derive local layout bounds.', $room_id));
+    }
+
+    $entry_points = $layout_data['entry_points'] ?? NULL;
+    if (!is_array($entry_points) || $entry_points === [] || !is_array($entry_points[0] ?? NULL)) {
+      throw new \RuntimeException(sprintf('Room %s must define entry_points[0] for spacing refactor.', $room_id));
+    }
+    $entry_q = $entry_points[0]['q'] ?? NULL;
+    $entry_r = $entry_points[0]['r'] ?? NULL;
+    if (!is_numeric($entry_q) || !is_numeric($entry_r)) {
+      throw new \RuntimeException(sprintf('Room %s entry_points[0] must include numeric q/r.', $room_id));
+    }
+
+    $room_layout_by_room[$room_id] = $layout_data;
+    $room_profile_by_room[$room_id] = [
+      'local_min_q' => (int) $min_q,
+      'local_max_q' => (int) $max_q,
+      'local_min_r' => (int) $min_r,
+      'local_max_r' => (int) $max_r,
+      'width' => ((int) $max_q - (int) $min_q + 1),
+      'height' => ((int) $max_r - (int) $min_r + 1),
+      'entry_local_q' => (int) $entry_q,
+      'entry_local_r' => (int) $entry_r,
+    ];
+  }
+
+  $anchor_reference_q = (int) ($anchor_rows[$anchor_room_id]['reference_q'] ?? 0);
+  $anchor_reference_r = (int) ($anchor_rows[$anchor_room_id]['reference_r'] ?? 0);
+  $anchor_profile = $room_profile_by_room[$anchor_room_id];
+  $anchor_global_entry_q = $anchor_reference_q + (int) $anchor_profile['entry_local_q'];
+  $anchor_global_entry_r = $anchor_reference_r + (int) $anchor_profile['entry_local_r'];
+  $anchor_global_bounds = [
+    'min_q' => $anchor_reference_q + (int) $anchor_profile['local_min_q'],
+    'max_q' => $anchor_reference_q + (int) $anchor_profile['local_max_q'],
+    'min_r' => $anchor_reference_r + (int) $anchor_profile['local_min_r'],
+    'max_r' => $anchor_reference_r + (int) $anchor_profile['local_max_r'],
+  ];
+
+  $anchor_latitude = isset($anchor_rows[$anchor_room_id]['center_latitude']) && is_numeric($anchor_rows[$anchor_room_id]['center_latitude'])
+    ? (float) $anchor_rows[$anchor_room_id]['center_latitude']
+    : 39.952394444444444;
+  $anchor_longitude = isset($anchor_rows[$anchor_room_id]['center_longitude']) && is_numeric($anchor_rows[$anchor_room_id]['center_longitude'])
+    ? (float) $anchor_rows[$anchor_room_id]['center_longitude']
+    : -75.16359722222222;
+  $default_hex_size_meters = isset($anchor_rows[$anchor_room_id]['hex_size_meters']) && is_numeric($anchor_rows[$anchor_room_id]['hex_size_meters'])
+    ? (float) $anchor_rows[$anchor_room_id]['hex_size_meters']
+    : 0.0;
+  if ($default_hex_size_meters <= 0.0) {
+    $default_hex_size_meters = 1.524;
+  }
+
+  $planned_reference_by_room = [
+    $anchor_room_id => ['q' => $anchor_reference_q, 'r' => $anchor_reference_r],
+  ];
+  $planned_bounds_by_room = [
+    $anchor_room_id => $anchor_global_bounds,
+  ];
+
+  $column_min_q = (int) $anchor_global_bounds['max_q'] + $minimum_gap_hexes + 1;
+  $cursor_r = (int) $anchor_global_bounds['min_r'];
+  foreach ($room_ids as $room_id) {
+    if ($room_id === $anchor_room_id) {
+      continue;
+    }
+    $profile = $room_profile_by_room[$room_id];
+    $target_min_q = $column_min_q;
+    $target_min_r = $cursor_r;
+
+    $new_reference_q = $target_min_q - (int) $profile['local_min_q'];
+    $new_reference_r = $target_min_r - (int) $profile['local_min_r'];
+    $planned_reference_by_room[$room_id] = ['q' => $new_reference_q, 'r' => $new_reference_r];
+    $planned_bounds_by_room[$room_id] = [
+      'min_q' => $new_reference_q + (int) $profile['local_min_q'],
+      'max_q' => $new_reference_q + (int) $profile['local_max_q'],
+      'min_r' => $new_reference_r + (int) $profile['local_min_r'],
+      'max_r' => $new_reference_r + (int) $profile['local_max_r'],
+    ];
+
+    $cursor_r += (int) $profile['height'] + $minimum_gap_hexes;
+  }
+
+  $planned_room_ids = array_keys($planned_bounds_by_room);
+  sort($planned_room_ids, SORT_STRING);
+  for ($i = 0; $i < count($planned_room_ids); $i++) {
+    for ($j = $i + 1; $j < count($planned_room_ids); $j++) {
+      $room_a = $planned_room_ids[$i];
+      $room_b = $planned_room_ids[$j];
+      $bounds_a = $planned_bounds_by_room[$room_a];
+      $bounds_b = $planned_bounds_by_room[$room_b];
+
+      $q_gap = max(
+        0,
+        (int) $bounds_b['min_q'] - (int) $bounds_a['max_q'] - 1,
+        (int) $bounds_a['min_q'] - (int) $bounds_b['max_q'] - 1
+      );
+      $r_gap = max(
+        0,
+        (int) $bounds_b['min_r'] - (int) $bounds_a['max_r'] - 1,
+        (int) $bounds_a['min_r'] - (int) $bounds_b['max_r'] - 1
+      );
+      if ($q_gap < $minimum_gap_hexes && $r_gap < $minimum_gap_hexes) {
+        throw new \RuntimeException(sprintf(
+          'Spacing contract violated between %s and %s (q_gap=%d, r_gap=%d, minimum=%d).',
+          $room_a,
+          $room_b,
+          $q_gap,
+          $r_gap,
+          $minimum_gap_hexes
+        ));
+      }
+    }
+  }
+
+  $transaction = $database->startTransaction();
+  try {
+    $movable_room_ids = array_values(array_filter(
+      $room_ids,
+      static fn(string $room_id): bool => $room_id !== $anchor_room_id
+    ));
+    $staging_offset_q = 500000;
+    if ($movable_room_ids !== []) {
+      $database->update('dungeoncrawler_content_h3_room_cells')
+        ->expression('source_q', 'source_q + :staging_offset_q', [':staging_offset_q' => $staging_offset_q])
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('room_id', $movable_room_ids, 'IN')
+        ->condition('h3_resolution', $target_resolution)
+        ->condition('cell_role', 'room_hex')
+        ->execute();
+    }
+
+    $moved_rooms = 0;
+    $updated_cells = 0;
+    foreach ($room_ids as $room_id) {
+      if ($room_id === $anchor_room_id) {
+        continue;
+      }
+
+      $old_reference_q = (int) ($anchor_rows[$room_id]['reference_q'] ?? 0);
+      $old_reference_r = (int) ($anchor_rows[$room_id]['reference_r'] ?? 0);
+      $new_reference_q = (int) ($planned_reference_by_room[$room_id]['q'] ?? $old_reference_q);
+      $new_reference_r = (int) ($planned_reference_by_room[$room_id]['r'] ?? $old_reference_r);
+      if ($new_reference_q === $old_reference_q && $new_reference_r === $old_reference_r) {
+        continue;
+      }
+
+      $room_hex_size_meters = isset($anchor_rows[$room_id]['hex_size_meters']) && is_numeric($anchor_rows[$room_id]['hex_size_meters'])
+        ? (float) $anchor_rows[$room_id]['hex_size_meters']
+        : 0.0;
+      if ($room_hex_size_meters <= 0.0) {
+        $room_hex_size_meters = $default_hex_size_meters;
+      }
+
+      $anchor_metadata = [];
+      $anchor_metadata_raw = trim((string) ($anchor_rows[$room_id]['metadata'] ?? ''));
+      if ($anchor_metadata_raw !== '') {
+        $anchor_metadata = json_decode($anchor_metadata_raw, TRUE);
+        if (!is_array($anchor_metadata)) {
+          throw new \RuntimeException(sprintf('Sparse H3 anchor metadata is invalid JSON for room %s.', $room_id));
+        }
+      }
+      $anchor_metadata['global_offset_q'] = $new_reference_q;
+      $anchor_metadata['global_offset_r'] = $new_reference_r;
+      $anchor_metadata['placement_model'] = 'minimum_hex_gap_v1';
+      $anchor_metadata['placement_min_gap_hexes'] = $minimum_gap_hexes;
+      $anchor_metadata['normalization'] = 'global_non_overlapping_axial';
+      $anchor_metadata['normalization_version'] = '10142';
+      $anchor_metadata['note'] = sprintf(
+        'Room footprint repositioned to enforce minimum %d-hex inter-room spacing.',
+        $minimum_gap_hexes
+      );
+      $anchor_metadata = dungeoncrawler_content_normalize_sparse_hex_metadata($anchor_metadata, $room_layout_by_room[$room_id], NULL);
+
+      $anchor_projection = dungeoncrawler_content_project_relative_axial_from_entrance(
+        $anchor_latitude,
+        $anchor_longitude,
+        $new_reference_q - $anchor_global_entry_q,
+        $new_reference_r - $anchor_global_entry_r,
+        $room_hex_size_meters
+      );
+
+      $database->update('dungeoncrawler_content_h3_room_anchors')
+        ->fields([
+          'reference_q' => $new_reference_q,
+          'reference_r' => $new_reference_r,
+          'hex_size_meters' => $room_hex_size_meters,
+          'center_latitude' => $anchor_projection['latitude'],
+          'center_longitude' => $anchor_projection['longitude'],
+          'metadata' => json_encode($anchor_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'updated' => $time,
+        ])
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('room_id', $room_id)
+        ->execute();
+
+      $cell_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+        ->fields('c', ['id', 'source_q', 'source_r', 'metadata'])
+        ->condition('c.dungeon_id', $dungeon_id)
+        ->condition('c.room_id', $room_id)
+        ->condition('c.h3_resolution', $target_resolution)
+        ->condition('c.cell_role', 'room_hex')
+        ->orderBy('c.id', 'ASC')
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC);
+      if (!is_array($cell_rows) || $cell_rows === []) {
+        throw new \RuntimeException(sprintf('Room %s has no res%d sparse cells to reposition.', $room_id, $target_resolution));
+      }
+
+      $profile = $room_profile_by_room[$room_id];
+      $planned_entry_q = $new_reference_q + (int) $profile['entry_local_q'];
+      $planned_entry_r = $new_reference_r + (int) $profile['entry_local_r'];
+      $entry_row_count = 0;
+      foreach ($cell_rows as $cell_row) {
+        if (!is_array($cell_row)) {
+          continue;
+        }
+        $cell_id = isset($cell_row['id']) ? (int) $cell_row['id'] : 0;
+        $source_q = isset($cell_row['source_q']) ? (int) $cell_row['source_q'] : 0;
+        $source_r = isset($cell_row['source_r']) ? (int) $cell_row['source_r'] : 0;
+
+        $cell_metadata = [];
+        $cell_metadata_raw = trim((string) ($cell_row['metadata'] ?? ''));
+        if ($cell_metadata_raw !== '') {
+          $cell_metadata = json_decode($cell_metadata_raw, TRUE);
+          if (!is_array($cell_metadata)) {
+            throw new \RuntimeException(sprintf('Sparse H3 cell %d metadata is invalid JSON for room %s.', $cell_id, $room_id));
+          }
+        }
+
+        $local_source_q = array_key_exists('local_source_q', $cell_metadata) && is_numeric($cell_metadata['local_source_q'])
+          ? (int) $cell_metadata['local_source_q']
+          : ($source_q - $old_reference_q - $staging_offset_q);
+        $local_source_r = array_key_exists('local_source_r', $cell_metadata) && is_numeric($cell_metadata['local_source_r'])
+          ? (int) $cell_metadata['local_source_r']
+          : ($source_r - $old_reference_r);
+        $new_source_q = $new_reference_q + $local_source_q;
+        $new_source_r = $new_reference_r + $local_source_r;
+        if ($new_source_q === $planned_entry_q && $new_source_r === $planned_entry_r) {
+          $entry_row_count++;
+        }
+        $layout_hex = dungeoncrawler_content_find_layout_hex_by_coordinates(
+          $room_layout_by_room[$room_id],
+          $local_source_q,
+          $local_source_r
+        );
+
+        $cell_projection = dungeoncrawler_content_project_relative_axial_from_entrance(
+          $anchor_latitude,
+          $anchor_longitude,
+          $new_source_q - $anchor_global_entry_q,
+          $new_source_r - $anchor_global_entry_r,
+          $room_hex_size_meters
+        );
+
+        $cell_metadata['local_source_q'] = $local_source_q;
+        $cell_metadata['local_source_r'] = $local_source_r;
+        $cell_metadata['global_source_q'] = $new_source_q;
+        $cell_metadata['global_source_r'] = $new_source_r;
+        $cell_metadata['global_offset_q'] = $new_reference_q;
+        $cell_metadata['global_offset_r'] = $new_reference_r;
+        $cell_metadata['room_entrance_global_q'] = $planned_entry_q;
+        $cell_metadata['room_entrance_global_r'] = $planned_entry_r;
+        $cell_metadata['placement_model'] = 'minimum_hex_gap_v1';
+        $cell_metadata['placement_min_gap_hexes'] = $minimum_gap_hexes;
+        $cell_metadata['normalization'] = 'global_non_overlapping_axial';
+        $cell_metadata['normalization_version'] = '10142';
+        $cell_metadata = dungeoncrawler_content_normalize_sparse_hex_metadata($cell_metadata, $room_layout_by_room[$room_id], $layout_hex);
+
+        $database->update('dungeoncrawler_content_h3_room_cells')
+          ->fields([
+            'source_q' => $new_source_q,
+            'source_r' => $new_source_r,
+            'center_latitude' => $cell_projection['latitude'],
+            'center_longitude' => $cell_projection['longitude'],
+            'metadata' => json_encode($cell_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated' => $time,
+          ])
+          ->condition('id', $cell_id)
+          ->execute();
+        $updated_cells++;
+      }
+
+      if ($entry_row_count !== 1) {
+        throw new \RuntimeException(sprintf(
+          'Room %s expected exactly one res%d entrance row at (%d,%d), found %d.',
+          $room_id,
+          $target_resolution,
+          $planned_entry_q,
+          $planned_entry_r,
+          $entry_row_count
+        ));
+      }
+
+      $moved_rooms++;
+    }
+
+    return t(
+      'Repositioned @rooms Absalom room footprints with minimum @gap-hex spacing and updated @cells res14 sparse room cells.',
+      [
+        '@rooms' => (string) $moved_rooms,
+        '@gap' => (string) $minimum_gap_hexes,
+        '@cells' => (string) $updated_cells,
+      ]
+    );
+  }
+  catch (\Exception $e) {
+    if (isset($transaction)) {
+      $transaction->rollBack();
+    }
+    throw $e;
+  }
 }
 
 /**
