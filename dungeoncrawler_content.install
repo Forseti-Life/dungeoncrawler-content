@@ -41,6 +41,7 @@
  * - 10105: Repair missing Absalom canonical room exit links
  * - 10106: Canonicalize Administrative Palace foyer and add Palace Streets room
  * - 10107: Rebuild Alchemist room as 7x15 rectangle linked to Absalom Streets
+ * - 10108: Rename Aqueducts room with _entrance and link to Absalom Streets
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -13565,6 +13566,76 @@ function dungeoncrawler_content_update_10107() {
       '@height' => (string) $rectangle_height,
       '@target' => $exit_target_room_id,
       '@cells' => (string) $synced_cells,
+    ]
+  );
+}
+
+/**
+ * Rename Aqueducts room with _entrance and link to Absalom Streets.
+ */
+function dungeoncrawler_content_update_10108() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $time = \Drupal::time()->getRequestTime();
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_rooms')) {
+    throw new \RuntimeException('Required table dungeoncrawler_content_rooms is missing.');
+  }
+
+  $room_id = 'tpl_room_absalom_aqueducts_pumping_stations';
+  $target_room_id = 'tpl_room_absalom_streets';
+
+  $target_exists = (bool) $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id'])
+    ->condition('room_id', $target_room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchField();
+  if (!$target_exists) {
+    throw new \RuntimeException(sprintf('Target room %s was not found for %s exit-link update.', $target_room_id, $room_id));
+  }
+
+  $room_row = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['name', 'layout_data'])
+    ->condition('room_id', $room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($room_row)) {
+    throw new \RuntimeException(sprintf('Canonical room %s was not found.', $room_id));
+  }
+
+  $name = trim((string) ($room_row['name'] ?? ''));
+  if ($name === '') {
+    $name = 'The Aqueducts & Pumping Stations';
+  }
+  if (!str_ends_with($name, '_entrance')) {
+    $name .= '_entrance';
+  }
+
+  $layout_data = json_decode((string) ($room_row['layout_data'] ?? ''), TRUE);
+  if (!is_array($layout_data)) {
+    throw new \RuntimeException(sprintf('Canonical room %s has invalid layout_data JSON.', $room_id));
+  }
+  $layout_data['exits'] = [
+    ['target_room_id' => $target_room_id],
+  ];
+
+  $database->update('dungeoncrawler_content_rooms')
+    ->fields([
+      'name' => $name,
+      'layout_data' => json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated' => $time,
+    ])
+    ->condition('room_id', $room_id)
+    ->execute();
+
+  return t(
+    'Updated @room name to @name and linked layout_data.exits to @target.',
+    [
+      '@room' => $room_id,
+      '@name' => $name,
+      '@target' => $target_room_id,
     ]
   );
 }
