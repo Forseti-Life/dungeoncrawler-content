@@ -39,6 +39,7 @@
  * - 10093: Seed sparse H3 rows for remaining Absalom canonical rooms
  * - 10104: Backfill sparse hex metadata with elevation/ceiling-height fields
  * - 10105: Repair missing Absalom canonical room exit links
+ * - 10106: Canonicalize Administrative Palace foyer and add Palace Streets room
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -12851,6 +12852,447 @@ function dungeoncrawler_content_update_10105() {
     [
       '@updated' => (string) $updated_rooms,
       '@dungeon' => $dungeon_id,
+    ]
+  );
+}
+
+/**
+ * Canonicalize Administrative Palace foyer and add Palace Streets room.
+ */
+function dungeoncrawler_content_update_10106() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $time = \Drupal::time()->getRequestTime();
+
+  foreach (['dungeoncrawler_content_dungeons', 'dungeoncrawler_content_rooms', 'dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $table) {
+    if (!$schema_handler->tableExists($table)) {
+      throw new \RuntimeException(sprintf('Required table %s is missing for Administrative Palace foyer canonicalization.', $table));
+    }
+  }
+
+  $dungeon_id = 'tpl_dungeon_absalom_city';
+  $tankard_room_id = 'tpl_room_tavern_entrance';
+  $foyer_room_id = 'tpl_room_absalom_administrative_palace';
+  $streets_room_id = 'tpl_room_absalom_palace_streets';
+  $target_distance_west_m = 2000.0;
+
+  $dungeon_row = $database->select('dungeoncrawler_content_dungeons', 'd')
+    ->fields('d', ['dungeon_data'])
+    ->condition('dungeon_id', $dungeon_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($dungeon_row)) {
+    throw new \RuntimeException(sprintf('Canonical dungeon %s was not found.', $dungeon_id));
+  }
+  $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? ''), TRUE);
+  if (!is_array($dungeon_data)) {
+    throw new \RuntimeException(sprintf('Canonical dungeon %s has invalid dungeon_data JSON.', $dungeon_id));
+  }
+
+  $tankard_layout_raw = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['layout_data'])
+    ->condition('room_id', $tankard_room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchField();
+  $tankard_layout = json_decode((string) $tankard_layout_raw, TRUE);
+  if (!is_array($tankard_layout)) {
+    throw new \RuntimeException(sprintf('Room %s has invalid layout_data JSON.', $tankard_room_id));
+  }
+  if (!is_array($tankard_layout['entry_points'] ?? NULL) || !is_array($tankard_layout['entry_points'][0] ?? NULL)) {
+    throw new \RuntimeException(sprintf('Room %s must define entry_points[0] for west-offset placement.', $tankard_room_id));
+  }
+  $tankard_entry_q = $tankard_layout['entry_points'][0]['q'] ?? NULL;
+  $tankard_entry_r = $tankard_layout['entry_points'][0]['r'] ?? NULL;
+  if (!is_numeric($tankard_entry_q) || !is_numeric($tankard_entry_r)) {
+    throw new \RuntimeException(sprintf('Room %s entry_points[0] must include numeric q/r.', $tankard_room_id));
+  }
+  $tankard_entry_q = (int) $tankard_entry_q;
+  $tankard_entry_r = (int) $tankard_entry_r;
+
+  $tankard_anchor = $database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+    ->fields('a', ['reference_q', 'reference_r', 'hex_size_meters', 'center_latitude', 'center_longitude'])
+    ->condition('room_id', $tankard_room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($tankard_anchor)) {
+    throw new \RuntimeException(sprintf('Sparse H3 anchor row is missing for room %s.', $tankard_room_id));
+  }
+
+  $hex_size_meters = isset($tankard_anchor['hex_size_meters']) && is_numeric($tankard_anchor['hex_size_meters'])
+    ? (float) $tankard_anchor['hex_size_meters']
+    : 0.0;
+  if ($hex_size_meters <= 0.0) {
+    $hex_size_meters = 1.524;
+  }
+  $tankard_anchor_latitude = isset($tankard_anchor['center_latitude']) && is_numeric($tankard_anchor['center_latitude'])
+    ? (float) $tankard_anchor['center_latitude']
+    : 39.952394444444444;
+  $tankard_anchor_longitude = isset($tankard_anchor['center_longitude']) && is_numeric($tankard_anchor['center_longitude'])
+    ? (float) $tankard_anchor['center_longitude']
+    : -75.16359722222222;
+  $tankard_global_entry_q = (int) ($tankard_anchor['reference_q'] ?? 0) + $tankard_entry_q;
+  $tankard_global_entry_r = (int) ($tankard_anchor['reference_r'] ?? 0) + $tankard_entry_r;
+
+  $build_room_hex = static function (int $q, int $r, bool $is_entry = FALSE): array {
+    return [
+      'q' => $q,
+      'r' => $r,
+      'elevation_ft' => 0,
+      'objects' => [],
+      'terrain_type' => 'cobblestone',
+      'lighting' => 'daylight',
+      'is_discovered' => TRUE,
+      'is_visible' => TRUE,
+      'is_entry' => $is_entry,
+    ];
+  };
+
+  $foyer_hexes = [];
+  $foyer_seen_coords = [];
+  for ($q = -3; $q <= 3; $q++) {
+    $r_min = max(-3, -$q - 3);
+    $r_max = min(3, -$q + 3);
+    for ($r = $r_min; $r <= $r_max; $r++) {
+      $coord_key = $q . ':' . $r;
+      if (isset($foyer_seen_coords[$coord_key])) {
+        continue;
+      }
+      $foyer_seen_coords[$coord_key] = TRUE;
+      $foyer_hexes[] = $build_room_hex($q, $r, $q === 0 && $r === 0);
+    }
+  }
+  foreach ([[-4, 0], [-4, 1], [-4, 2]] as $extra_coord) {
+    $extra_q = (int) $extra_coord[0];
+    $extra_r = (int) $extra_coord[1];
+    $coord_key = $extra_q . ':' . $extra_r;
+    if (isset($foyer_seen_coords[$coord_key])) {
+      continue;
+    }
+    $foyer_seen_coords[$coord_key] = TRUE;
+    $foyer_hexes[] = $build_room_hex($extra_q, $extra_r, FALSE);
+  }
+  if (count($foyer_hexes) !== 40) {
+    throw new \RuntimeException(sprintf('Administrative Palace foyer must define exactly 40 hexes; generated %d.', count($foyer_hexes)));
+  }
+
+  $foyer_row = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['name', 'description', 'environment_tags', 'contents_data'])
+    ->condition('room_id', $foyer_room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($foyer_row)) {
+    throw new \RuntimeException(sprintf('Canonical room %s was not found.', $foyer_room_id));
+  }
+
+  $foyer_name = trim((string) ($foyer_row['name'] ?? ''));
+  if ($foyer_name === '') {
+    $foyer_name = 'The Administrative Palace';
+  }
+  if (!str_ends_with($foyer_name, '_foyer')) {
+    $foyer_name .= '_foyer';
+  }
+
+  $foyer_environment_tags = json_decode((string) ($foyer_row['environment_tags'] ?? ''), TRUE);
+  if (!is_array($foyer_environment_tags) || $foyer_environment_tags === []) {
+    $foyer_environment_tags = ['absalom', 'city', 'civic', 'power', 'political'];
+  }
+  $foyer_contents_data = json_decode((string) ($foyer_row['contents_data'] ?? ''), TRUE);
+  if (!is_array($foyer_contents_data) || $foyer_contents_data === []) {
+    throw new \RuntimeException(sprintf('Canonical room %s has invalid contents_data JSON.', $foyer_room_id));
+  }
+
+  $foyer_layout_data = [
+    'shape' => 'circle',
+    'width' => 9,
+    'height' => 9,
+    'hexes' => $foyer_hexes,
+    'entry_points' => [
+      ['q' => 0, 'r' => 0, 'label' => 'Entry'],
+    ],
+    'exit_points' => [
+      ['q' => 3, 'r' => 0, 'label' => 'Palace Exit'],
+      ['q' => -4, 'r' => 1, 'label' => 'Street Exit'],
+    ],
+    'exits' => [
+      ['target_room_id' => $streets_room_id],
+    ],
+  ];
+
+  $database->update('dungeoncrawler_content_rooms')
+    ->fields([
+      'name' => $foyer_name,
+      'layout_data' => json_encode($foyer_layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated' => $time,
+    ])
+    ->condition('room_id', $foyer_room_id)
+    ->execute();
+
+  $streets_hexes = [];
+  for ($q = 0; $q < 12; $q++) {
+    $streets_hexes[] = $build_room_hex($q, 0, $q === 0);
+  }
+  $streets_layout_data = [
+    'shape' => 'corridor',
+    'width' => 12,
+    'height' => 1,
+    'hexes' => $streets_hexes,
+    'entry_points' => [
+      ['q' => 0, 'r' => 0, 'label' => 'Palace Entry'],
+    ],
+    'exit_points' => [
+      ['q' => 11, 'r' => 0, 'label' => 'West Street Exit'],
+    ],
+    'exits' => [
+      ['target_room_id' => $foyer_room_id],
+    ],
+  ];
+  $streets_contents_data = [
+    'npcs' => [],
+    'items' => [],
+    'entities' => [],
+    'obstacles' => [],
+    'hazards' => [],
+    'interactables' => [],
+  ];
+  $streets_environment_tags = ['absalom', 'city', 'street', 'palace'];
+
+  $database->merge('dungeoncrawler_content_rooms')
+    ->keys(['room_id' => $streets_room_id])
+    ->fields([
+      'name' => 'Absalom Palace Streets',
+      'description' => 'A westbound palace-adjacent boulevard network connecting the Administrative Palace foyer to surrounding city streets.',
+      'environment_tags' => json_encode($streets_environment_tags, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'layout_data' => json_encode($streets_layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'contents_data' => json_encode($streets_contents_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'source_room_id' => $streets_room_id,
+      'created' => $time,
+      'updated' => $time,
+    ])
+    ->execute();
+
+  $dungeon_rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+  $has_streets_room = FALSE;
+  foreach ($dungeon_rooms as $room_entry) {
+    $room_id = '';
+    if (is_array($room_entry)) {
+      $room_id = trim((string) ($room_entry['room_id'] ?? ''));
+    }
+    else {
+      $room_id = trim((string) $room_entry);
+    }
+    if ($room_id === $streets_room_id) {
+      $has_streets_room = TRUE;
+      break;
+    }
+  }
+  if (!$has_streets_room) {
+    $dungeon_rooms[] = $streets_room_id;
+    $dungeon_data['rooms'] = $dungeon_rooms;
+    $database->update('dungeoncrawler_content_dungeons')
+      ->fields([
+        'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => $time,
+      ])
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute();
+  }
+
+  $foyer_anchor = $database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+    ->fields('a', ['reference_q', 'reference_r', 'metadata'])
+    ->condition('room_id', $foyer_room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($foyer_anchor)) {
+    throw new \RuntimeException(sprintf('Sparse H3 anchor row is missing for room %s.', $foyer_room_id));
+  }
+  $foyer_reference_q = (int) ($foyer_anchor['reference_q'] ?? 0);
+  $foyer_reference_r = (int) ($foyer_anchor['reference_r'] ?? 0);
+  $foyer_anchor_metadata = [];
+  if (trim((string) ($foyer_anchor['metadata'] ?? '')) !== '') {
+    $foyer_anchor_metadata = json_decode((string) $foyer_anchor['metadata'], TRUE);
+    if (!is_array($foyer_anchor_metadata)) {
+      throw new \RuntimeException(sprintf('Sparse H3 anchor metadata is invalid JSON for room %s.', $foyer_room_id));
+    }
+  }
+  $foyer_anchor_metadata['status'] = 'geo_anchor_pending';
+  $foyer_anchor_metadata['note'] = 'Administrative Palace foyer canonicalized to circular 40-hex footprint.';
+  $foyer_anchor_metadata = dungeoncrawler_content_normalize_sparse_hex_metadata($foyer_anchor_metadata, $foyer_layout_data, NULL);
+  $foyer_anchor_projection = dungeoncrawler_content_project_relative_axial_from_entrance(
+    $tankard_anchor_latitude,
+    $tankard_anchor_longitude,
+    $foyer_reference_q - $tankard_global_entry_q,
+    $foyer_reference_r - $tankard_global_entry_r,
+    $hex_size_meters
+  );
+  $database->update('dungeoncrawler_content_h3_room_anchors')
+    ->fields([
+      'center_latitude' => $foyer_anchor_projection['latitude'],
+      'center_longitude' => $foyer_anchor_projection['longitude'],
+      'hex_size_meters' => $hex_size_meters,
+      'metadata' => json_encode($foyer_anchor_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated' => $time,
+    ])
+    ->condition('room_id', $foyer_room_id)
+    ->execute();
+
+  $west_steps = max(1, (int) round($target_distance_west_m / $hex_size_meters));
+  $streets_reference_q = $tankard_global_entry_q - $west_steps;
+  $streets_reference_r = $tankard_global_entry_r;
+  $streets_anchor_projection = dungeoncrawler_content_project_relative_axial_from_entrance(
+    $tankard_anchor_latitude,
+    $tankard_anchor_longitude,
+    $streets_reference_q - $tankard_global_entry_q,
+    $streets_reference_r - $tankard_global_entry_r,
+    $hex_size_meters
+  );
+  $streets_anchor_metadata = dungeoncrawler_content_normalize_sparse_hex_metadata([
+    'seed_source' => 'manual_room_canonicalization',
+    'status' => 'geo_anchor_pending',
+    'note' => 'Palace Streets room placed west of Gilded Tankard by target distance.',
+    'placement_direction' => 'west',
+    'placement_distance_m' => $target_distance_west_m,
+  ], $streets_layout_data, NULL);
+  $database->merge('dungeoncrawler_content_h3_room_anchors')
+    ->keys(['room_id' => $streets_room_id])
+    ->fields([
+      'dungeon_id' => $dungeon_id,
+      'h3_resolution' => 13,
+      'h3_index' => '',
+      'center_latitude' => $streets_anchor_projection['latitude'],
+      'center_longitude' => $streets_anchor_projection['longitude'],
+      'reference_q' => $streets_reference_q,
+      'reference_r' => $streets_reference_r,
+      'hex_size_meters' => $hex_size_meters,
+      'metadata' => json_encode($streets_anchor_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'created' => $time,
+      'updated' => $time,
+    ])
+    ->execute();
+
+  $sync_res14_cells = static function (
+    $database,
+    string $room_id,
+    array $layout_data,
+    int $reference_q,
+    int $reference_r,
+    string $dungeon_id,
+    int $time,
+    float $tankard_anchor_latitude,
+    float $tankard_anchor_longitude,
+    int $tankard_global_entry_q,
+    int $tankard_global_entry_r,
+    float $hex_size_meters,
+    string $normalization_version
+  ): int {
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if (count($hexes) < 4) {
+      throw new \RuntimeException(sprintf('Room %s must provide at least four layout hexes for sparse H3 synchronization.', $room_id));
+    }
+
+    $database->delete('dungeoncrawler_content_h3_room_cells')
+      ->condition('dungeon_id', $dungeon_id)
+      ->condition('room_id', $room_id)
+      ->condition('h3_resolution', 14)
+      ->condition('cell_role', 'room_hex')
+      ->execute();
+
+    $inserted_cells = 0;
+    foreach ($hexes as $hex_index => $hex) {
+      if (!is_array($hex) || !array_key_exists('q', $hex) || !array_key_exists('r', $hex) || !is_numeric($hex['q']) || !is_numeric($hex['r'])) {
+        throw new \RuntimeException(sprintf('Room %s layout_data.hexes[%d] must include numeric q/r values.', $room_id, $hex_index));
+      }
+      $local_q = (int) $hex['q'];
+      $local_r = (int) $hex['r'];
+      $global_q = $reference_q + $local_q;
+      $global_r = $reference_r + $local_r;
+      $projection = dungeoncrawler_content_project_relative_axial_from_entrance(
+        $tankard_anchor_latitude,
+        $tankard_anchor_longitude,
+        $global_q - $tankard_global_entry_q,
+        $global_r - $tankard_global_entry_r,
+        $hex_size_meters
+      );
+
+      $metadata = dungeoncrawler_content_normalize_sparse_hex_metadata([
+        'seed_source' => 'layout_data.hexes',
+        'status' => 'h3_index_pending',
+        'local_source_q' => $local_q,
+        'local_source_r' => $local_r,
+        'global_source_q' => $global_q,
+        'global_source_r' => $global_r,
+        'global_offset_q' => $reference_q,
+        'global_offset_r' => $reference_r,
+        'mapping_resolution' => 14,
+        'mapping_parent_resolution' => 13,
+        'normalization' => 'global_non_overlapping_axial',
+        'normalization_version' => $normalization_version,
+      ], $layout_data, $hex);
+
+      $database->insert('dungeoncrawler_content_h3_room_cells')
+        ->fields([
+          'dungeon_id' => $dungeon_id,
+          'room_id' => $room_id,
+          'cell_role' => 'room_hex',
+          'h3_resolution' => 14,
+          'h3_index' => '',
+          'source_q' => $global_q,
+          'source_r' => $global_r,
+          'center_latitude' => $projection['latitude'],
+          'center_longitude' => $projection['longitude'],
+          'metadata' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'created' => $time,
+          'updated' => $time,
+        ])
+        ->execute();
+      $inserted_cells++;
+    }
+
+    return $inserted_cells;
+  };
+
+  $foyer_cells_synced = $sync_res14_cells(
+    $database,
+    $foyer_room_id,
+    $foyer_layout_data,
+    $foyer_reference_q,
+    $foyer_reference_r,
+    $dungeon_id,
+    $time,
+    $tankard_anchor_latitude,
+    $tankard_anchor_longitude,
+    $tankard_global_entry_q,
+    $tankard_global_entry_r,
+    $hex_size_meters,
+    '10106'
+  );
+  $streets_cells_synced = $sync_res14_cells(
+    $database,
+    $streets_room_id,
+    $streets_layout_data,
+    $streets_reference_q,
+    $streets_reference_r,
+    $dungeon_id,
+    $time,
+    $tankard_anchor_latitude,
+    $tankard_anchor_longitude,
+    $tankard_global_entry_q,
+    $tankard_global_entry_r,
+    $hex_size_meters,
+    '10106'
+  );
+
+  return t(
+    'Canonicalized Administrative Palace foyer and added Palace Streets room: foyer hexes=@foyer_hexes, streets distance=@distance_m m west, synced res14 cells foyer=@foyer_cells streets=@streets_cells.',
+    [
+      '@foyer_hexes' => (string) count($foyer_hexes),
+      '@distance_m' => (string) $target_distance_west_m,
+      '@foyer_cells' => (string) $foyer_cells_synced,
+      '@streets_cells' => (string) $streets_cells_synced,
     ]
   );
 }
