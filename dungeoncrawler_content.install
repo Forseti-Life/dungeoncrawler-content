@@ -69,6 +69,8 @@
  * - 10133: Delete Market Square room and retarget canonical references
  * - 10134: Delete Merchant Guildhall room and retarget canonical references
  * - 10135: Delete Mid-Range Inn room and retarget canonical references
+ * - 10136: Delete Palace Streets room and retarget canonical references
+ * - 10137: Repair Administrative Palace exit-link after Palace Streets deletion
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -19920,6 +19922,255 @@ function dungeoncrawler_content_update_10135() {
       '@entry_retargeted' => $entry_room_retargeted ? 'yes' : 'no',
       '@anchors' => (string) $deleted_anchors,
       '@cells' => (string) $deleted_cells,
+    ]
+  );
+}
+
+/**
+ * Delete Palace Streets room and clean canonical references.
+ */
+function dungeoncrawler_content_update_10136() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $time = \Drupal::time()->getRequestTime();
+
+  foreach (['dungeoncrawler_content_rooms', 'dungeoncrawler_content_dungeons', 'dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $table) {
+    if (!$schema_handler->tableExists($table)) {
+      throw new \RuntimeException(sprintf('Required table %s is missing for Palace Streets deletion.', $table));
+    }
+  }
+
+  $dungeon_id = 'tpl_dungeon_absalom_city';
+  $room_id = 'tpl_room_absalom_palace_streets';
+  $replacement_room_id = 'tpl_room_absalom_administrative_palace';
+
+  $room_exists = (bool) $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id'])
+    ->condition('room_id', $room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchField();
+  if (!$room_exists) {
+    throw new \RuntimeException(sprintf('Canonical room %s was not found for deletion.', $room_id));
+  }
+
+  $replacement_exists = (bool) $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id'])
+    ->condition('room_id', $replacement_room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchField();
+  if (!$replacement_exists) {
+    throw new \RuntimeException(sprintf('Required replacement room %s was not found.', $replacement_room_id));
+  }
+
+  $retargeted_rooms = 0;
+  $retargeted_exits = 0;
+  $source_refs_rewritten = 0;
+  $absalom_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id', 'source_room_id', 'layout_data'])
+    ->condition('room_id', 'tpl_room_absalom_%', 'LIKE')
+    ->execute()
+    ->fetchAllAssoc('room_id');
+  foreach ($absalom_rows as $candidate_room_id => $row) {
+    if (!is_object($row) || trim((string) $candidate_room_id) === $room_id) {
+      continue;
+    }
+
+    $updated = FALSE;
+
+    $layout_data = json_decode((string) ($row->layout_data ?? ''), TRUE);
+    if (!is_array($layout_data)) {
+      throw new \RuntimeException(sprintf('Canonical room %s has invalid layout_data JSON while retargeting exits.', $candidate_room_id));
+    }
+    $exits = is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [];
+    foreach ($exits as $exit_index => $exit_link) {
+      if (!is_array($exit_link)) {
+        continue;
+      }
+      $target_room_id = trim((string) ($exit_link['target_room_id'] ?? ''));
+      if ($target_room_id !== $room_id) {
+        continue;
+      }
+      $exits[$exit_index]['target_room_id'] = $replacement_room_id;
+      $updated = TRUE;
+      $retargeted_exits++;
+    }
+    if ($updated) {
+      $layout_data['exits'] = array_values($exits);
+    }
+
+    $fields = [];
+    if ($updated) {
+      $fields['layout_data'] = json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      $retargeted_rooms++;
+    }
+
+    $candidate_source_room_id = trim((string) ($row->source_room_id ?? ''));
+    if ($candidate_source_room_id === $room_id) {
+      $fields['source_room_id'] = (string) $candidate_room_id;
+      $source_refs_rewritten++;
+    }
+
+    if ($fields !== []) {
+      $fields['updated'] = $time;
+      $database->update('dungeoncrawler_content_rooms')
+        ->fields($fields)
+        ->condition('room_id', (string) $candidate_room_id)
+        ->execute();
+    }
+  }
+
+  $dungeon_row = $database->select('dungeoncrawler_content_dungeons', 'd')
+    ->fields('d', ['dungeon_data'])
+    ->condition('dungeon_id', $dungeon_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($dungeon_row)) {
+    throw new \RuntimeException(sprintf('Canonical dungeon %s was not found for room deletion.', $dungeon_id));
+  }
+  $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? ''), TRUE);
+  if (!is_array($dungeon_data)) {
+    throw new \RuntimeException(sprintf('Canonical dungeon %s has invalid dungeon_data JSON.', $dungeon_id));
+  }
+
+  $removed_from_dungeon_rooms = 0;
+  $existing_dungeon_rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+  $updated_dungeon_rooms = [];
+  foreach ($existing_dungeon_rooms as $room_entry) {
+    $entry_room_id = '';
+    if (is_array($room_entry)) {
+      $entry_room_id = trim((string) ($room_entry['room_id'] ?? ''));
+    }
+    else {
+      $entry_room_id = trim((string) $room_entry);
+    }
+    if ($entry_room_id === $room_id) {
+      $removed_from_dungeon_rooms++;
+      continue;
+    }
+    $updated_dungeon_rooms[] = $room_entry;
+  }
+
+  $entry_room_retargeted = FALSE;
+  if (trim((string) ($dungeon_data['entry_room'] ?? '')) === $room_id) {
+    $dungeon_data['entry_room'] = $replacement_room_id;
+    $entry_room_retargeted = TRUE;
+  }
+  $dungeon_data['rooms'] = array_values($updated_dungeon_rooms);
+  $database->update('dungeoncrawler_content_dungeons')
+    ->fields([
+      'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated' => $time,
+    ])
+    ->condition('dungeon_id', $dungeon_id)
+    ->execute();
+
+  $deleted_cells = (int) $database->delete('dungeoncrawler_content_h3_room_cells')
+    ->condition('room_id', $room_id)
+    ->execute();
+  $deleted_anchors = (int) $database->delete('dungeoncrawler_content_h3_room_anchors')
+    ->condition('room_id', $room_id)
+    ->execute();
+  $deleted_rooms = (int) $database->delete('dungeoncrawler_content_rooms')
+    ->condition('room_id', $room_id)
+    ->execute();
+  if ($deleted_rooms !== 1) {
+    throw new \RuntimeException(sprintf('Expected to delete one room row for %s; deleted %d.', $room_id, $deleted_rooms));
+  }
+
+  return t(
+    'Deleted @room from canonical library. Removed from dungeon rooms list entries=@removed, retargeted exits=@retargeted_exits across @retargeted_rooms rooms to @replacement, rewritten source_room_id refs=@source_refs, retargeted dungeon entry_room=@entry_retargeted, deleted anchors=@anchors and cells=@cells.',
+    [
+      '@room' => $room_id,
+      '@removed' => (string) $removed_from_dungeon_rooms,
+      '@retargeted_exits' => (string) $retargeted_exits,
+      '@retargeted_rooms' => (string) $retargeted_rooms,
+      '@replacement' => $replacement_room_id,
+      '@source_refs' => (string) $source_refs_rewritten,
+      '@entry_retargeted' => $entry_room_retargeted ? 'yes' : 'no',
+      '@anchors' => (string) $deleted_anchors,
+      '@cells' => (string) $deleted_cells,
+    ]
+  );
+}
+
+/**
+ * Repair Administrative Palace exit-link after Palace Streets deletion.
+ */
+function dungeoncrawler_content_update_10137() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $time = \Drupal::time()->getRequestTime();
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_rooms')) {
+    throw new \RuntimeException('Required table dungeoncrawler_content_rooms is missing for Administrative Palace exit repair.');
+  }
+
+  $room_id = 'tpl_room_absalom_administrative_palace';
+  $replacement_target_room_id = 'tpl_room_absalom_private_salon_exclusive_festhall';
+
+  $room_row = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['layout_data'])
+    ->condition('room_id', $room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($room_row)) {
+    throw new \RuntimeException(sprintf('Canonical room %s was not found for exit repair.', $room_id));
+  }
+
+  $replacement_exists = (bool) $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id'])
+    ->condition('room_id', $replacement_target_room_id)
+    ->range(0, 1)
+    ->execute()
+    ->fetchField();
+  if (!$replacement_exists) {
+    throw new \RuntimeException(sprintf('Required replacement target room %s was not found.', $replacement_target_room_id));
+  }
+
+  $layout_data = json_decode((string) ($room_row['layout_data'] ?? ''), TRUE);
+  if (!is_array($layout_data)) {
+    throw new \RuntimeException(sprintf('Canonical room %s has invalid layout_data JSON.', $room_id));
+  }
+  $exits = is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [];
+  if ($exits === []) {
+    throw new \RuntimeException(sprintf('Canonical room %s must define at least one exit-link.', $room_id));
+  }
+
+  $rewritten = 0;
+  foreach ($exits as $index => $exit_link) {
+    if (!is_array($exit_link)) {
+      continue;
+    }
+    $target_room_id = trim((string) ($exit_link['target_room_id'] ?? ''));
+    if ($target_room_id !== $room_id) {
+      continue;
+    }
+    $exits[$index]['target_room_id'] = $replacement_target_room_id;
+    $rewritten++;
+  }
+  if ($rewritten === 0) {
+    throw new \RuntimeException(sprintf('No self-link exits were found on %s to repair.', $room_id));
+  }
+
+  $layout_data['exits'] = array_values($exits);
+  $database->update('dungeoncrawler_content_rooms')
+    ->fields([
+      'layout_data' => json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated' => $time,
+    ])
+    ->condition('room_id', $room_id)
+    ->execute();
+
+  return t(
+    'Repaired @room exit-links by retargeting @count self-link(s) to @target.',
+    [
+      '@room' => $room_id,
+      '@count' => (string) $rewritten,
+      '@target' => $replacement_target_room_id,
     ]
   );
 }
