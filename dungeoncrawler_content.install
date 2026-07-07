@@ -22896,6 +22896,163 @@ function dungeoncrawler_content_update_10148() {
 }
 
 /**
+ * Enforce bidirectional Absalom streets linkage for every canonical room.
+ */
+function dungeoncrawler_content_update_10149() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $time = \Drupal::time()->getRequestTime();
+  $dungeon_id = 'tpl_dungeon_absalom_city';
+  $streets_room_id = 'tpl_room_absalom_streets';
+
+  foreach (['dungeoncrawler_content_dungeons', 'dungeoncrawler_content_rooms'] as $table) {
+    if (!$schema_handler->tableExists($table)) {
+      throw new \RuntimeException(sprintf('Required table %s is missing for Absalom street-link normalization.', $table));
+    }
+  }
+
+  $transaction = $database->startTransaction();
+  try {
+    $dungeon_row = $database->select('dungeoncrawler_content_dungeons', 'd')
+      ->fields('d', ['dungeon_data'])
+      ->condition('dungeon_id', $dungeon_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($dungeon_row)) {
+      throw new \RuntimeException(sprintf('Canonical dungeon row %s is missing.', $dungeon_id));
+    }
+
+    $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? ''), TRUE);
+    if (!is_array($dungeon_data)) {
+      throw new \RuntimeException(sprintf('Dungeon %s has invalid dungeon_data JSON.', $dungeon_id));
+    }
+    $raw_rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    if ($raw_rooms === []) {
+      throw new \RuntimeException(sprintf('Dungeon %s must define dungeon_data.rooms.', $dungeon_id));
+    }
+
+    $room_ids = [];
+    foreach ($raw_rooms as $room_entry) {
+      $room_id = '';
+      if (is_string($room_entry)) {
+        $room_id = trim($room_entry);
+      }
+      elseif (is_array($room_entry)) {
+        $room_id = trim((string) ($room_entry['room_id'] ?? ''));
+      }
+      if ($room_id === '') {
+        continue;
+      }
+      if (!isset($room_ids[$room_id])) {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+    if ($room_ids === []) {
+      throw new \RuntimeException(sprintf('Dungeon %s has no valid canonical room ids.', $dungeon_id));
+    }
+    if (!isset($room_ids[$streets_room_id])) {
+      $room_ids[$streets_room_id] = TRUE;
+    }
+    $room_id_list = array_keys($room_ids);
+
+    $room_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'layout_data'])
+      ->condition('room_id', $room_id_list, 'IN')
+      ->execute()
+      ->fetchAllAssoc('room_id', \PDO::FETCH_ASSOC);
+    if (!is_array($room_rows) || count($room_rows) !== count($room_id_list)) {
+      throw new \RuntimeException(sprintf('Canonical room table rows are missing for dungeon %s room membership.', $dungeon_id));
+    }
+
+    $dungeon_updated = FALSE;
+    if (count($room_id_list) !== count($raw_rooms) || !in_array($streets_room_id, $raw_rooms, TRUE)) {
+      $dungeon_data['rooms'] = $room_id_list;
+      $database->update('dungeoncrawler_content_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'updated' => $time,
+        ])
+        ->condition('dungeon_id', $dungeon_id)
+        ->execute();
+      $dungeon_updated = TRUE;
+    }
+
+    $rooms_updated = 0;
+    $links_added_room_to_streets = 0;
+    $links_added_streets_to_rooms = 0;
+    foreach ($room_id_list as $room_id) {
+      $layout_data = json_decode((string) ($room_rows[$room_id]['layout_data'] ?? ''), TRUE);
+      if (!is_array($layout_data)) {
+        throw new \RuntimeException(sprintf('Room %s has invalid layout_data JSON.', $room_id));
+      }
+
+      $exits = is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [];
+      $existing_targets = [];
+      foreach ($exits as $index => $exit_entry) {
+        if (!is_array($exit_entry)) {
+          throw new \RuntimeException(sprintf('Room %s has invalid layout_data.exits[%d] payload.', $room_id, $index));
+        }
+        $target_room_id = trim((string) ($exit_entry['target_room_id'] ?? ''));
+        if ($target_room_id !== '') {
+          $existing_targets[$target_room_id] = TRUE;
+        }
+      }
+
+      $required_targets = $room_id === $streets_room_id
+        ? array_values(array_filter(
+          $room_id_list,
+          static fn(string $target_room_id): bool => $target_room_id !== $streets_room_id
+        ))
+        : [$streets_room_id];
+
+      $changed = FALSE;
+      foreach ($required_targets as $target_room_id) {
+        if (!isset($existing_targets[$target_room_id])) {
+          $exits[] = ['target_room_id' => $target_room_id];
+          $existing_targets[$target_room_id] = TRUE;
+          $changed = TRUE;
+          if ($room_id === $streets_room_id) {
+            $links_added_streets_to_rooms++;
+          }
+          else {
+            $links_added_room_to_streets++;
+          }
+        }
+      }
+
+      if ($changed) {
+        $layout_data['exits'] = $exits;
+        $database->update('dungeoncrawler_content_rooms')
+          ->fields([
+            'layout_data' => json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated' => $time,
+          ])
+          ->condition('room_id', $room_id)
+          ->execute();
+        $rooms_updated++;
+      }
+    }
+
+    return t(
+      'Normalized Absalom street links: dungeon_updated=@dungeon, rooms_updated=@rooms, room_to_streets_links_added=@outbound, streets_to_rooms_links_added=@inbound.',
+      [
+        '@dungeon' => $dungeon_updated ? '1' : '0',
+        '@rooms' => (string) $rooms_updated,
+        '@outbound' => (string) $links_added_room_to_streets,
+        '@inbound' => (string) $links_added_streets_to_rooms,
+      ]
+    );
+  }
+  catch (\Exception $e) {
+    if (isset($transaction)) {
+      $transaction->rollBack();
+    }
+    throw $e;
+  }
+}
+
+/**
  * Normalize sparse-hex metadata to include elevation and ceiling-height fields.
  *
  * @param array $metadata
