@@ -107,3 +107,304 @@
   fill: var(--analysis-text) !important;
   color: var(--analysis-text) !important;
 }
+
+.dc-dungeon-analysis .dc-dungeon-analysis__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  background: var(--analysis-surface-muted);
+  border: 1px solid var(--analysis-border);
+  border-radius: 8px;
+}
+
+.dc-dungeon-analysis .dc-dungeon-analysis__toolbar .btn {
+  min-height: 32px;
+  line-height: 1.1;
+}
+
+.dc-dungeon-analysis .dc-dungeon-analysis__toolbar .form-select {
+  min-height: 32px;
+  border-color: var(--analysis-border);
+  background-color: var(--analysis-surface);
+  color: var(--analysis-text);
+}
+
+.dc-dungeon-analysis__granularity-select,
+.dc-dungeon-analysis__toolbar-granularity-select {
+  width: auto !important;
+  min-width: 132px;
+  max-width: 220px;
+}
+
+.dc-dungeon-analysis__toolbar-room-select {
+  width: auto !important;
+  min-width: 260px;
+  max-width: 520px;
+}
+
+.dc-dungeon-analysis__zoom-readout {
+  font-size: 0.92rem;
+  color: var(--analysis-text);
+  white-space: nowrap;
+}
+
+.dc-dungeon-analysis__separator {
+  color: var(--analysis-text-muted);
+  opacity: 0.8;
+}
+
+.dc-dungeon-analysis__scale-label {
+  font-size: 0.82rem;
+  color: var(--analysis-text-muted);
+  white-space: nowrap;
+}
+
+.dc-dungeon-analysis__toolbar-help {
+  font-size: 0.8rem;
+  color: var(--analysis-text-muted);
+  margin-left: auto;
+}
+
+.dc-dungeon-analysis__safetymap-shell {
+  border: 1px solid var(--analysis-border);
+  border-radius: 8px;
+  background: var(--analysis-surface-muted);
+  min-height: 360px;
+  overflow: hidden;
+}
+
+.dc-dungeon-analysis__safetymap {
+  width: 100%;
+  height: clamp(360px, 52vh, 760px);
+  position: relative;
+}
+
+.dc-dungeon-analysis__safetymap > canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.dc-dungeon-analysis__safetymap svg {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  display: block;
+}
+
+.dc-dungeon-analysis__safetymap-bg {
+  fill: #101828;
+}
+
+.dc-dungeon-analysis__safetymap-meta {
+  fill: #d0d5dd;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dc-dungeon-analysis__safetymap-edge {
+  stroke: #98a2b3;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+.dc-dungeon-analysis__safetymap-edge--exit {
+  stroke: #f59e0b;
+  stroke-width: 2.2;
+}
+
+.dc-dungeon-analysis__safetymap-cell {
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+
+.dc-dungeon-analysis__safetymap-cell--hovered,
+.dc-dungeon-analysis__safetymap-cell:hover {
+  filter: brightness(1.12);
+}
+
+.dc-dungeon-analysis__safetymap-cell--selected {
+  filter: brightness(1.22);
+}
+
+.dc-dungeon-analysis__safetymap-cell-outline {
+  fill: none;
+  pointer-events: none;
+}
+
+.dc-dungeon-analysis__safetymap-cell-outline--anchor {
+  stroke: #fbbf24;
+  stroke-width: 1.8;
+}
+
+.dc-dungeon-analysis__safetymap-cell-outline--exit-gateway {
+  stroke: #60a5fa;
+  stroke-width: 1.6;
+}
+
+.dc-dungeon-analysis__safetymap-cell-outline--external {
+  stroke: #c084fc;
+  stroke-width: 1.6;
+}
+
+.dc-dungeon-analysis__safetymap-label {
+  fill: #f8fafc;
+  font-size: 10px;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
+  pointer-events: none;
+}
+
+.dc-dungeon-analysis__safetymap-feature-label {
+  fill: #cbd5e1;
+  font-size: 9px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
+  pointer-events: none;
+}
+
+.dc-dungeon-analysis__safetymap-badge text {
+  font-size: 8px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.dc-dungeon-analysis__roombar-track {
+  fill: rgb(255 255 255 / 14%);
+  stroke: rgb(255 255 255 / 28%);
+  stroke-width: 0.4;
+}
+
+.dc-dungeon-analysis__map-overlays {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.dc-dungeon-analysis__map-hover {
+  background: var(--analysis-surface-muted);
+  border: 1px solid var(--analysis-border);
+  border-radius: 8px;
+  color: var(--analysis-text);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.dc-dungeon-analysis__map-hover-title {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.dc-dungeon-analysis__map-hover-line {
+  margin: 0.1rem 0;
+  word-break: break-word;
+}
+
+.dc-dungeon-analysis__map-metrics {
+  margin: 0.45rem 0;
+  display: grid;
+  gap: 0.24rem;
+}
+
+.dc-dungeon-analysis__map-metric {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dc-dungeon-analysis__map-metric-label {
+  font-size: 0.75rem;
+  color: var(--analysis-text-muted);
+}
+
+.dc-dungeon-analysis__map-metric-track {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: rgb(148 163 184 / 22%);
+  overflow: hidden;
+}
+
+.dc-dungeon-analysis__map-metric-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.dc-dungeon-analysis__summary-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.dc-dungeon-analysis__summary,
+.dc-dungeon-analysis__exits,
+.dc-dungeon-analysis__edges {
+  color: var(--analysis-text);
+}
+
+.dc-dungeon-analysis__details {
+  background: var(--analysis-surface-muted);
+  border: 1px solid var(--analysis-border);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+}
+
+.dc-dungeon-analysis__details summary {
+  cursor: pointer;
+  color: var(--analysis-text);
+}
+
+.dc-dungeon-analysis__edges table,
+.dc-dungeon-analysis__exits table {
+  margin-bottom: 0;
+}
+
+.dc-dungeon-analysis__edge-row--exit td {
+  background: rgb(245 158 11 / 10%);
+}
+
+.dc-dungeon-analysis .hexmap-legend {
+  background: var(--analysis-surface-muted);
+  border: 1px solid var(--analysis-border);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+}
+
+.dc-dungeon-analysis .hexmap-legend__title {
+  color: var(--analysis-text);
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+
+.dc-dungeon-analysis .hexmap-legend__items {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.dc-dungeon-analysis .hexmap-legend__item {
+  color: var(--analysis-text-muted);
+  font-size: 0.81rem;
+}
+
+@media (max-width: 992px) {
+  .dc-dungeon-analysis__toolbar-help {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .dc-dungeon-analysis__toolbar-room-select,
+  .dc-dungeon-analysis__toolbar-granularity-select,
+  .dc-dungeon-analysis__granularity-select {
+    max-width: 100%;
+    width: 100% !important;
+  }
+
+  .dc-dungeon-analysis__safetymap {
+    height: clamp(320px, 48vh, 640px);
+  }
+}
