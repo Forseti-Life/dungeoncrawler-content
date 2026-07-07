@@ -2563,9 +2563,16 @@ class HexMapController extends ControllerBase {
 
     $connections = is_array($decoded['hex_map']['connections'] ?? NULL) ? $decoded['hex_map']['connections'] : [];
     $connections = $this->ensureRoomsHaveAtLeastOneExit($rooms, $connections, $active_room_id);
+    $dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $decoded['hex_map']['map_id'] ?? $launch_context['map_id'] ?? ''));
+    $authoritative_h3 = $this->loadAuthoritativeSparseH3Payload($dungeon_id, array_keys($rooms));
     $placement_surface = is_array($decoded['hex_map']['placement_surface'] ?? NULL)
       ? $decoded['hex_map']['placement_surface']
       : (is_array($decoded['placement_surface'] ?? NULL) ? $decoded['placement_surface'] : []);
+    $placement_surface = $this->reconcilePlacementSurfaceWithAuthoritativeH3(
+      $placement_surface,
+      is_array($authoritative_h3['cells'] ?? NULL) ? $authoritative_h3['cells'] : [],
+      $dungeon_id
+    );
     $placement_surfaces_by_level = is_array($decoded['hex_map']['placement_surfaces_by_level'] ?? NULL)
       ? $decoded['hex_map']['placement_surfaces_by_level']
       : [];
@@ -2584,13 +2591,16 @@ class HexMapController extends ControllerBase {
       'rooms' => $rooms,
       'connections' => $connections,
       'hex_map' => [
-        'map_id' => (string) ($decoded['hex_map']['map_id'] ?? ''),
+        'map_id' => $dungeon_id,
         'connections' => $connections,
         'placement_surface' => $placement_surface,
         'placement_surfaces_by_level' => $placement_surfaces_by_level,
+        'h3' => $authoritative_h3,
       ],
+      'dungeon_id' => $dungeon_id,
       'placement_surface' => $placement_surface,
       'placement_surfaces_by_level' => $placement_surfaces_by_level,
+      'h3' => $authoritative_h3,
       'room_road_anchors' => $room_road_anchors,
       'road_anchors' => $room_road_anchors,
       'road_graph' => [
@@ -2613,6 +2623,257 @@ class HexMapController extends ControllerBase {
     }
 
     return $this->ensurePayloadObjectOrientations($normalized_payload);
+  }
+
+  /**
+   * Load authoritative sparse H3 anchor/cell payload from DB system-of-record.
+   *
+   * @param string $dungeon_id
+   *   Dungeon id.
+   * @param array<int, string> $room_ids
+   *   Rooms present in runtime payload.
+   *
+   * @return array<string, mixed>
+   *   Normalized H3 payload.
+   */
+  protected function loadAuthoritativeSparseH3Payload(string $dungeon_id, array $room_ids): array {
+    $dungeon_id = trim($dungeon_id);
+    if ($dungeon_id === '') {
+      throw new \RuntimeException('H3 system-of-record contract violation: dungeon_id is required for sparse H3 lookup.');
+    }
+
+    $schema = $this->database->schema();
+    foreach (['dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $table) {
+      if (!$schema->tableExists($table)) {
+        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: required table %s is missing.', $table));
+      }
+    }
+
+    $room_ids = array_values(array_unique(array_filter(array_map('strval', $room_ids), static fn(string $room_id): bool => trim($room_id) !== '')));
+    $anchor_query = $this->database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+      ->fields('a', [
+        'room_id',
+        'h3_resolution',
+        'h3_index',
+        'center_latitude',
+        'center_longitude',
+        'reference_q',
+        'reference_r',
+      ])
+      ->condition('a.dungeon_id', $dungeon_id);
+    if ($room_ids !== []) {
+      $anchor_query->condition('a.room_id', $room_ids, 'IN');
+    }
+    $anchor_rows = $anchor_query->execute()->fetchAllAssoc('room_id', \PDO::FETCH_ASSOC);
+
+    $cell_query = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', [
+        'room_id',
+        'cell_role',
+        'h3_resolution',
+        'h3_index',
+        'source_q',
+        'source_r',
+        'center_latitude',
+        'center_longitude',
+      ])
+      ->condition('c.dungeon_id', $dungeon_id);
+    if ($room_ids !== []) {
+      $cell_query->condition('c.room_id', $room_ids, 'IN');
+    }
+    $cell_rows = $cell_query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($anchor_rows) || $anchor_rows === []) {
+      throw new \RuntimeException(sprintf('H3 system-of-record contract violation: no sparse room-anchor rows found for dungeon %s.', $dungeon_id));
+    }
+    if (!is_array($cell_rows) || $cell_rows === []) {
+      throw new \RuntimeException(sprintf('H3 system-of-record contract violation: no sparse room-cell rows found for dungeon %s.', $dungeon_id));
+    }
+
+    $anchors = [];
+    $max_resolution = 0;
+    foreach ($anchor_rows as $room_id => $anchor_row) {
+      if (!is_array($anchor_row)) {
+        continue;
+      }
+      $room_id = trim((string) $room_id);
+      if ($room_id === '') {
+        continue;
+      }
+      $resolution = isset($anchor_row['h3_resolution']) ? (int) $anchor_row['h3_resolution'] : 0;
+      $max_resolution = max($max_resolution, $resolution);
+      $anchors[] = [
+        'room_id' => $room_id,
+        'anchor_q' => isset($anchor_row['reference_q']) ? (int) $anchor_row['reference_q'] : 0,
+        'anchor_r' => isset($anchor_row['reference_r']) ? (int) $anchor_row['reference_r'] : 0,
+        'h3_resolution' => $resolution,
+        'h3_index' => trim((string) ($anchor_row['h3_index'] ?? '')),
+        'center_latitude' => isset($anchor_row['center_latitude']) && is_numeric($anchor_row['center_latitude']) ? (float) $anchor_row['center_latitude'] : NULL,
+        'center_longitude' => isset($anchor_row['center_longitude']) && is_numeric($anchor_row['center_longitude']) ? (float) $anchor_row['center_longitude'] : NULL,
+      ];
+    }
+
+    $cells = [];
+    foreach ($cell_rows as $cell_row) {
+      if (!is_array($cell_row)) {
+        continue;
+      }
+      $room_id = trim((string) ($cell_row['room_id'] ?? ''));
+      $role = $this->normalizePlacementSurfaceRole(trim((string) ($cell_row['cell_role'] ?? '')));
+      if ($room_id === '' || $role === '') {
+        continue;
+      }
+      $resolution = isset($cell_row['h3_resolution']) ? (int) $cell_row['h3_resolution'] : 0;
+      $max_resolution = max($max_resolution, $resolution);
+      $cells[] = [
+        'room_id' => $room_id,
+        'role' => $role,
+        'q' => isset($cell_row['source_q']) ? (int) $cell_row['source_q'] : 0,
+        'r' => isset($cell_row['source_r']) ? (int) $cell_row['source_r'] : 0,
+        'h3_resolution' => $resolution,
+        'h3_index' => trim((string) ($cell_row['h3_index'] ?? '')),
+        'center_latitude' => isset($cell_row['center_latitude']) && is_numeric($cell_row['center_latitude']) ? (float) $cell_row['center_latitude'] : NULL,
+        'center_longitude' => isset($cell_row['center_longitude']) && is_numeric($cell_row['center_longitude']) ? (float) $cell_row['center_longitude'] : NULL,
+      ];
+    }
+
+    usort($anchors, static fn(array $a, array $b): int => strcmp((string) ($a['room_id'] ?? ''), (string) ($b['room_id'] ?? '')));
+
+    return [
+      'dungeon_id' => $dungeon_id,
+      'resolution' => $max_resolution,
+      'anchors' => $anchors,
+      'cells' => $cells,
+    ];
+  }
+
+  /**
+   * Reconcile placement surface room_hex ownership with authoritative H3 cells.
+   *
+   * @param array<string, mixed> $placement_surface
+   *   Existing placement-surface payload.
+   * @param array<int, array<string, mixed>> $h3_cells
+   *   Authoritative H3 cell rows.
+   * @param string $dungeon_id
+   *   Dungeon id for diagnostics.
+   *
+   * @return array<string, mixed>
+   *   Placement surface with room_hex cells sourced from H3 tables.
+   */
+  protected function reconcilePlacementSurfaceWithAuthoritativeH3(array $placement_surface, array $h3_cells, string $dungeon_id): array {
+    $existing_cell_roles = is_array($placement_surface['cell_roles'] ?? NULL) ? $placement_surface['cell_roles'] : [];
+    $existing_non_room_cells = [];
+    $existing_room_cells = [];
+    foreach ($existing_cell_roles as $cell_role) {
+      if (!is_array($cell_role) || !is_numeric($cell_role['q'] ?? NULL) || !is_numeric($cell_role['r'] ?? NULL)) {
+        continue;
+      }
+      $q = (int) $cell_role['q'];
+      $r = (int) $cell_role['r'];
+      $role = $this->normalizePlacementSurfaceRole(trim((string) ($cell_role['role'] ?? '')));
+      if ($role === '') {
+        continue;
+      }
+      $cell_key = $q . ':' . $r;
+      if ($role === 'room_hex') {
+        $existing_room_cells[$cell_key] = TRUE;
+      }
+      else {
+        $existing_non_room_cells[$cell_key . '|' . $role] = [
+          'q' => $q,
+          'r' => $r,
+          'role' => $role,
+          'room_id' => trim((string) ($cell_role['room_id'] ?? '')),
+        ];
+      }
+    }
+
+    $authoritative_room_cells = [];
+    foreach ($h3_cells as $h3_cell) {
+      if (!is_array($h3_cell)) {
+        continue;
+      }
+      $role = $this->normalizePlacementSurfaceRole(trim((string) ($h3_cell['role'] ?? '')));
+      if ($role !== 'room_hex' || !is_numeric($h3_cell['q'] ?? NULL) || !is_numeric($h3_cell['r'] ?? NULL)) {
+        continue;
+      }
+      $q = (int) $h3_cell['q'];
+      $r = (int) $h3_cell['r'];
+      $cell_key = $q . ':' . $r;
+      $authoritative_room_cells[$cell_key] = [
+        'q' => $q,
+        'r' => $r,
+        'role' => 'room_hex',
+        'room_id' => trim((string) ($h3_cell['room_id'] ?? '')),
+      ];
+    }
+
+    if ($authoritative_room_cells === []) {
+      throw new \RuntimeException(sprintf('H3 system-of-record contract violation: dungeon %s has no room_hex cells in sparse H3 payload.', $dungeon_id));
+    }
+
+    if ($existing_room_cells !== []) {
+      $existing_keys = array_keys($existing_room_cells);
+      $authoritative_keys = array_keys($authoritative_room_cells);
+      sort($existing_keys, SORT_STRING);
+      sort($authoritative_keys, SORT_STRING);
+      if ($existing_keys !== $authoritative_keys) {
+        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: dungeon %s placement_surface room_hex cells do not match authoritative sparse H3 table rows.', $dungeon_id));
+      }
+    }
+
+    $final_cells = array_values($existing_non_room_cells);
+    foreach ($authoritative_room_cells as $room_cell) {
+      $final_cells[] = $room_cell;
+    }
+
+    $summary = [
+      'room_hex_cells' => 0,
+      'street_cells' => 0,
+      'intersection_cells' => 0,
+      'buffer_reserved_cells' => 0,
+      'expansion_reserved_cells' => 0,
+    ];
+    foreach ($final_cells as $cell) {
+      $role = (string) ($cell['role'] ?? '');
+      if ($role === 'room_hex') {
+        $summary['room_hex_cells']++;
+      }
+      elseif ($role === 'street') {
+        $summary['street_cells']++;
+      }
+      elseif ($role === 'intersection') {
+        $summary['intersection_cells']++;
+      }
+      elseif ($role === 'buffer_reserved') {
+        $summary['buffer_reserved_cells']++;
+      }
+      elseif ($role === 'expansion_reserved') {
+        $summary['expansion_reserved_cells']++;
+      }
+    }
+
+    $placement_surface['cell_roles'] = $final_cells;
+    $placement_surface['summary'] = $summary;
+    if (!isset($placement_surface['street_segments']) || !is_array($placement_surface['street_segments'])) {
+      $placement_surface['street_segments'] = [];
+    }
+    if (!isset($placement_surface['intersections']) || !is_array($placement_surface['intersections'])) {
+      $placement_surface['intersections'] = [];
+    }
+    return $placement_surface;
+  }
+
+  /**
+   * Normalize one sparse cell role into placement-surface semantics.
+   */
+  protected function normalizePlacementSurfaceRole(string $role): string {
+    $role = strtolower(trim($role));
+    return match ($role) {
+      'room_hex', 'street', 'intersection', 'buffer_reserved', 'expansion_reserved' => $role,
+      'room_anchor', 'entry_gateway', 'exit_gateway', 'poi' => 'room_hex',
+      default => '',
+    };
   }
 
   /**

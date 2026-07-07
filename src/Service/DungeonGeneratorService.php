@@ -79,6 +79,9 @@ class DungeonGeneratorService {
   protected ?SeededRandomSequence $rng = NULL;
   protected const MIN_ROOM_SPACING_HEXES = 5;
   protected const PLACEMENT_ALGORITHM_VERSION = 'minimum_hex_gap_v2';
+  protected const H3_ACTIVE_RESOLUTION = 14;
+  protected const H3_HEX_SIZE_METERS = 2.2;
+  protected const METERS_PER_DEGREE_LATITUDE = 111320.0;
   protected const AXIAL_NEIGHBOR_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
 
   /**
@@ -182,6 +185,11 @@ class DungeonGeneratorService {
       $context['party_level']
     );
     $context['theme'] = $theme;
+    $context['dungeon_id'] = sprintf('dungeon_%d_%d_%d',
+      $context['campaign_id'],
+      $context['location_x'],
+      $context['location_y']
+    );
 
     // Step 4: Determine dungeon depth
     $depth = isset($context['depth_override'])
@@ -216,11 +224,10 @@ class DungeonGeneratorService {
     $topology_payload = $this->buildDungeonTopologyPayload($levels, $all_connections);
 
     $first_level = $levels[0] ?? [];
-    $dungeon_id = sprintf('dungeon_%d_%d_%d',
-      $context['campaign_id'],
-      $context['location_x'],
-      $context['location_y']
-    );
+    $dungeon_id = (string) ($context['dungeon_id'] ?? '');
+    if ($dungeon_id === '') {
+      throw new \RuntimeException('Dungeon generation contract violation: dungeon_id was not resolved before payload assembly.');
+    }
 
     $dungeon_data = [
       'schema_version' => '1.0.0',
@@ -307,7 +314,7 @@ class DungeonGeneratorService {
     for ($i = 0; $i < $room_count; $i++) {
       $room_context = array_merge($context, [
         'room_index' => $i,
-        'dungeon_id' => $context['campaign_id'],
+        'dungeon_id' => $context['dungeon_id'] ?? $context['campaign_id'],
         'defer_room_persistence' => TRUE,
         'terrain_type' => $this->selectTerrainType($context['theme']),
         'room_type' => ($i === 0 && !empty($context['landing_room_type']))
@@ -562,11 +569,14 @@ class DungeonGeneratorService {
     $campaign_id = $context['campaign_id'];
 
     // Build dungeon_id.
-    $dungeon_id = sprintf('dungeon_%d_%d_%d',
-      $campaign_id,
-      $context['location_x'] ?? 0,
-      $context['location_y'] ?? 0
-    );
+    $dungeon_id = trim((string) ($context['dungeon_id'] ?? ''));
+    if ($dungeon_id === '') {
+      $dungeon_id = sprintf('dungeon_%d_%d_%d',
+        $campaign_id,
+        $context['location_x'] ?? 0,
+        $context['location_y'] ?? 0
+      );
+    }
 
     // Build dungeon_data JSON in normalizer-compatible format.
     // normalizeDungeonPayload() expects: rooms[], entities[], hex_map, level_id
@@ -637,6 +647,7 @@ class DungeonGeneratorService {
           'updated' => $now,
         ])
         ->execute();
+      $this->persistAuthoritativeSparseH3Mappings($dungeon_id, $levels, $now);
 
       // Persist each room from each level.
       foreach ($levels as $level) {
@@ -1706,6 +1717,326 @@ class DungeonGeneratorService {
     $dq = $q1 - $q2;
     $dr = $r1 - $r2;
     return (int) ((abs($dq) + abs($dr) + abs($dq + $dr)) / 2);
+  }
+
+  /**
+   * Persist authoritative sparse H3 anchor/cell mappings for one dungeon.
+   *
+   * H3 tables are the system-of-record for geospatial room ownership metadata.
+   *
+   * @param string $dungeon_id
+   *   Persisted dungeon id.
+   * @param array $levels
+   *   Generated levels.
+   * @param int $timestamp
+   *   Unix timestamp for created/updated fields.
+   */
+  protected function persistAuthoritativeSparseH3Mappings(string $dungeon_id, array $levels, int $timestamp): void {
+    $schema = $this->database->schema();
+    foreach (['dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $table) {
+      if (!$schema->tableExists($table)) {
+        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: required table %s is missing.', $table));
+      }
+    }
+    if ($levels === []) {
+      throw new \RuntimeException(sprintf('H3 system-of-record contract violation: cannot persist sparse mappings for dungeon %s without generated levels.', $dungeon_id));
+    }
+
+    $this->database->delete('dungeoncrawler_content_h3_room_cells')
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute();
+    $this->database->delete('dungeoncrawler_content_h3_room_anchors')
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute();
+
+    $room_anchor_by_room = [];
+    $room_entry_by_room = [];
+    foreach ($levels as $level_index => $level) {
+      if (!is_array($level)) {
+        continue;
+      }
+      $level_id = trim((string) ($level['level_id'] ?? ''));
+      if ($level_id === '') {
+        $level_id = 'level_' . ((int) $level_index + 1);
+      }
+      $rooms = is_array($level['rooms'] ?? NULL) ? $level['rooms'] : [];
+      foreach ($rooms as $room) {
+        if (!is_array($room)) {
+          continue;
+        }
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id === '') {
+          throw new \RuntimeException(sprintf('H3 system-of-record contract violation: room entry in %s is missing room_id.', $level_id));
+        }
+        $entry = $this->resolveRoomEntryCoordinate($room, $room_id, $level_id);
+        $room_entry_by_room[$room_id] = $entry;
+        if (!isset($room_anchor_by_room[$room_id])) {
+          $room_anchor_by_room[$room_id] = [
+            'reference_q' => $entry['q'],
+            'reference_r' => $entry['r'],
+            'level_id' => $level_id,
+            'anchor_type' => 'derived',
+            'anchor_priority' => 1,
+            'placement_wave_index' => 0,
+            'placement_seed' => 0,
+            'algorithm_version' => self::PLACEMENT_ALGORITHM_VERSION,
+            'buffer_ring_size' => self::MIN_ROOM_SPACING_HEXES,
+          ];
+        }
+      }
+
+      $room_anchors = is_array($level['hex_map']['room_anchors'] ?? NULL) ? $level['hex_map']['room_anchors'] : [];
+      foreach ($room_anchors as $room_anchor) {
+        if (!is_array($room_anchor)) {
+          continue;
+        }
+        $room_id = trim((string) ($room_anchor['room_id'] ?? ''));
+        if ($room_id === '') {
+          throw new \RuntimeException(sprintf('H3 system-of-record contract violation: room anchor in %s is missing room_id.', $level_id));
+        }
+        if (!is_numeric($room_anchor['anchor_q'] ?? NULL) || !is_numeric($room_anchor['anchor_r'] ?? NULL)) {
+          throw new \RuntimeException(sprintf('H3 system-of-record contract violation: room anchor %s in %s must include numeric anchor_q/anchor_r.', $room_id, $level_id));
+        }
+        $room_anchor_by_room[$room_id] = [
+          'reference_q' => (int) $room_anchor['anchor_q'],
+          'reference_r' => (int) $room_anchor['anchor_r'],
+          'level_id' => $level_id,
+          'anchor_type' => trim((string) ($room_anchor['anchor_type'] ?? '')) ?: 'derived',
+          'anchor_priority' => is_numeric($room_anchor['anchor_priority'] ?? NULL) ? (int) $room_anchor['anchor_priority'] : 1,
+          'placement_wave_index' => is_numeric($room_anchor['placement_wave_index'] ?? NULL) ? (int) $room_anchor['placement_wave_index'] : 0,
+          'placement_seed' => is_numeric($room_anchor['placement_seed'] ?? NULL) ? (int) $room_anchor['placement_seed'] : 0,
+          'algorithm_version' => trim((string) ($room_anchor['algorithm_version'] ?? '')) ?: self::PLACEMENT_ALGORITHM_VERSION,
+          'buffer_ring_size' => is_numeric($room_anchor['buffer_ring_size'] ?? NULL) ? max(1, (int) $room_anchor['buffer_ring_size']) : self::MIN_ROOM_SPACING_HEXES,
+        ];
+      }
+    }
+
+    if ($room_anchor_by_room === []) {
+      throw new \RuntimeException(sprintf('H3 system-of-record contract violation: no room anchors resolved for dungeon %s.', $dungeon_id));
+    }
+
+    foreach ($room_anchor_by_room as $room_id => $anchor) {
+      $reference_q = (int) ($anchor['reference_q'] ?? 0);
+      $reference_r = (int) ($anchor['reference_r'] ?? 0);
+      $latlng = $this->projectAxialHexToLatLng($dungeon_id, $reference_q, $reference_r);
+      $h3_index = $this->buildSparseRes14AnchorIndex(
+        $dungeon_id,
+        (string) $room_id,
+        $reference_q,
+        $reference_r,
+        (float) $latlng['latitude'],
+        (float) $latlng['longitude']
+      );
+      $entry = $room_entry_by_room[$room_id] ?? ['q' => $reference_q, 'r' => $reference_r];
+      $metadata = [
+        'status' => 'h3_index_assigned',
+        'normalization' => 'global_non_overlapping_axial',
+        'normalization_version' => 'runtime-persist-v1',
+        'placement_model' => self::PLACEMENT_ALGORITHM_VERSION,
+        'placement_min_gap_hexes' => self::MIN_ROOM_SPACING_HEXES,
+        'global_offset_q' => 0,
+        'global_offset_r' => 0,
+        'room_entrance_global_q' => (int) ($entry['q'] ?? $reference_q),
+        'room_entrance_global_r' => (int) ($entry['r'] ?? $reference_r),
+        'anchor_type' => (string) ($anchor['anchor_type'] ?? 'derived'),
+        'anchor_priority' => (int) ($anchor['anchor_priority'] ?? 1),
+        'placement_wave_index' => (int) ($anchor['placement_wave_index'] ?? 0),
+        'placement_seed' => (int) ($anchor['placement_seed'] ?? 0),
+        'algorithm_version' => (string) ($anchor['algorithm_version'] ?? self::PLACEMENT_ALGORITHM_VERSION),
+        'buffer_ring_size' => (int) ($anchor['buffer_ring_size'] ?? self::MIN_ROOM_SPACING_HEXES),
+        'level_id' => (string) ($anchor['level_id'] ?? ''),
+      ];
+
+      $this->database->insert('dungeoncrawler_content_h3_room_anchors')
+        ->fields([
+          'dungeon_id' => $dungeon_id,
+          'room_id' => (string) $room_id,
+          'h3_resolution' => self::H3_ACTIVE_RESOLUTION,
+          'h3_index' => $h3_index,
+          'center_latitude' => $latlng['latitude'],
+          'center_longitude' => $latlng['longitude'],
+          'reference_q' => $reference_q,
+          'reference_r' => $reference_r,
+          'hex_size_meters' => self::H3_HEX_SIZE_METERS,
+          'metadata' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'created' => $timestamp,
+          'updated' => $timestamp,
+        ])
+        ->execute();
+    }
+
+    $room_hex_owner_by_key = [];
+    $h3_owner_by_index = [];
+    foreach ($levels as $level_index => $level) {
+      if (!is_array($level)) {
+        continue;
+      }
+      $level_id = trim((string) ($level['level_id'] ?? ''));
+      if ($level_id === '') {
+        $level_id = 'level_' . ((int) $level_index + 1);
+      }
+      $rooms = is_array($level['rooms'] ?? NULL) ? $level['rooms'] : [];
+      foreach ($rooms as $room) {
+        if (!is_array($room)) {
+          continue;
+        }
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id === '') {
+          throw new \RuntimeException(sprintf('H3 system-of-record contract violation: room entry in %s is missing room_id during cell persistence.', $level_id));
+        }
+        $entry = $room_entry_by_room[$room_id] ?? $this->resolveRoomEntryCoordinate($room, $room_id, $level_id);
+        $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+        if ($hexes === []) {
+          throw new \RuntimeException(sprintf('H3 system-of-record contract violation: room %s in %s has no hexes for sparse cell persistence.', $room_id, $level_id));
+        }
+
+        foreach ($hexes as $hex_index => $hex) {
+          if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+            throw new \RuntimeException(sprintf('H3 system-of-record contract violation: room %s hexes[%d] in %s must include numeric q/r.', $room_id, $hex_index, $level_id));
+          }
+          $q = (int) $hex['q'];
+          $r = (int) $hex['r'];
+          $hex_key = $q . ':' . $r;
+          $existing_owner = trim((string) ($room_hex_owner_by_key[$hex_key] ?? ''));
+          if ($existing_owner !== '' && $existing_owner !== $room_id) {
+            throw new \RuntimeException(sprintf('H3 system-of-record contract violation: overlapping room hex %s between %s and %s in dungeon %s.', $hex_key, $existing_owner, $room_id, $dungeon_id));
+          }
+          $room_hex_owner_by_key[$hex_key] = $room_id;
+
+          $latlng = $this->projectAxialHexToLatLng($dungeon_id, $q, $r);
+          $h3_index = $this->buildSparseRes14CellIndex(
+            $dungeon_id,
+            $room_id,
+            $q,
+            $r,
+            (float) $latlng['latitude'],
+            (float) $latlng['longitude']
+          );
+          $h3_owner = trim((string) ($h3_owner_by_index[$h3_index] ?? ''));
+          if ($h3_owner !== '' && $h3_owner !== $room_id) {
+            throw new \RuntimeException(sprintf('H3 system-of-record contract violation: Res14 h3_index collision %s between rooms %s and %s in dungeon %s.', $h3_index, $h3_owner, $room_id, $dungeon_id));
+          }
+          $h3_owner_by_index[$h3_index] = $room_id;
+
+          $cell_metadata = [
+            'status' => 'h3_index_assigned',
+            'normalization' => 'global_non_overlapping_axial',
+            'normalization_version' => 'runtime-persist-v1',
+            'placement_model' => self::PLACEMENT_ALGORITHM_VERSION,
+            'placement_min_gap_hexes' => self::MIN_ROOM_SPACING_HEXES,
+            'local_source_q' => $q,
+            'local_source_r' => $r,
+            'global_source_q' => $q,
+            'global_source_r' => $r,
+            'global_offset_q' => 0,
+            'global_offset_r' => 0,
+            'room_entrance_global_q' => (int) ($entry['q'] ?? $q),
+            'room_entrance_global_r' => (int) ($entry['r'] ?? $r),
+            'level_id' => $level_id,
+          ];
+
+          $this->database->insert('dungeoncrawler_content_h3_room_cells')
+            ->fields([
+              'dungeon_id' => $dungeon_id,
+              'room_id' => $room_id,
+              'cell_role' => 'room_hex',
+              'h3_resolution' => self::H3_ACTIVE_RESOLUTION,
+              'h3_index' => $h3_index,
+              'source_q' => $q,
+              'source_r' => $r,
+              'center_latitude' => $latlng['latitude'],
+              'center_longitude' => $latlng['longitude'],
+              'metadata' => json_encode($cell_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+              'created' => $timestamp,
+              'updated' => $timestamp,
+            ])
+            ->execute();
+        }
+      }
+    }
+  }
+
+  /**
+   * Resolve one canonical room entry coordinate for sparse H3 metadata.
+   *
+   * @return array{q:int,r:int}
+   *   Entry coordinate.
+   */
+  protected function resolveRoomEntryCoordinate(array $room, string $room_id, string $level_id): array {
+    $entry_points = is_array($room['entry_points'] ?? NULL) ? $room['entry_points'] : [];
+    if (is_array($entry_points[0] ?? NULL) && is_numeric($entry_points[0]['q'] ?? NULL) && is_numeric($entry_points[0]['r'] ?? NULL)) {
+      return [
+        'q' => (int) $entry_points[0]['q'],
+        'r' => (int) $entry_points[0]['r'],
+      ];
+    }
+
+    $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    if (is_array($hexes[0] ?? NULL) && is_numeric($hexes[0]['q'] ?? NULL) && is_numeric($hexes[0]['r'] ?? NULL)) {
+      return [
+        'q' => (int) $hexes[0]['q'],
+        'r' => (int) $hexes[0]['r'],
+      ];
+    }
+
+    throw new \RuntimeException(sprintf('H3 system-of-record contract violation: room %s in %s must define at least one numeric entry/hex coordinate.', $room_id, $level_id));
+  }
+
+  /**
+   * Deterministically project one axial coordinate into WGS84 lat/lng.
+   *
+   * @return array{latitude: float, longitude: float}
+   *   Projected coordinates.
+   */
+  protected function projectAxialHexToLatLng(string $dungeon_id, int $q, int $r): array {
+    $hash = sprintf('%u', crc32($dungeon_id));
+    $origin_lat = ((int) $hash % 1000) / 1000000.0;
+    $origin_lng = ((int) floor(((int) $hash / 1000) % 1000)) / 1000000.0;
+
+    $x_meters = 1.5 * self::H3_HEX_SIZE_METERS * $q;
+    $y_meters = sqrt(3.0) * self::H3_HEX_SIZE_METERS * ($r + ($q / 2.0));
+
+    $latitude = $origin_lat + ($y_meters / self::METERS_PER_DEGREE_LATITUDE);
+    $cos_lat = cos(deg2rad(max(min($origin_lat, 89.9999), -89.9999)));
+    $meters_per_degree_lng = self::METERS_PER_DEGREE_LATITUDE * ($cos_lat === 0.0 ? 0.000001 : $cos_lat);
+    $longitude = $origin_lng + ($x_meters / $meters_per_degree_lng);
+
+    return [
+      'latitude' => round($latitude, 8),
+      'longitude' => round($longitude, 8),
+    ];
+  }
+
+  /**
+   * Build deterministic Res14 sparse cell index from room/cell coordinates.
+   */
+  protected function buildSparseRes14CellIndex(string $dungeon_id, string $room_id, int $source_q, int $source_r, float $latitude, float $longitude): string {
+    $payload = implode('|', [
+      $dungeon_id,
+      $room_id,
+      (string) self::H3_ACTIVE_RESOLUTION,
+      (string) $source_q,
+      (string) $source_r,
+      number_format($latitude, 8, '.', ''),
+      number_format($longitude, 8, '.', ''),
+    ]);
+    return 'r14c_' . substr(sha1($payload), 0, 24);
+  }
+
+  /**
+   * Build deterministic Res14 sparse anchor index from room anchor data.
+   */
+  protected function buildSparseRes14AnchorIndex(string $dungeon_id, string $room_id, int $reference_q, int $reference_r, float $latitude, float $longitude): string {
+    $payload = implode('|', [
+      $dungeon_id,
+      $room_id,
+      (string) self::H3_ACTIVE_RESOLUTION,
+      (string) $reference_q,
+      (string) $reference_r,
+      number_format($latitude, 8, '.', ''),
+      number_format($longitude, 8, '.', ''),
+    ]);
+    return 'r14a_' . substr(sha1($payload), 0, 24);
   }
 
   /**
