@@ -219,12 +219,12 @@ class DungeonAnalysisController extends ControllerBase {
       'safety_map' => [
         '#type' => 'inline_template',
         '#template' => '<div class="card dc-dungeon-analysis__card mb-3"><div class="card-body">'
-          . '<div class="dc-dungeon-analysis__toolbar mb-2" role="group" aria-label="Safety map zoom controls">'
-          . '<span class="badge text-bg-light">Safety map equivalent</span>'
+          . '<div class="dc-dungeon-analysis__toolbar mb-2" role="group" aria-label="Dungeon analysis map zoom controls">'
+          . '<span class="badge text-bg-light">Dungeon Analysis Map</span>'
           . '<span class="dc-dungeon-analysis__zoom-readout">Anchor: <strong id="dc-analysis-safetymap-anchor">-</strong></span>'
           . '<span class="dc-dungeon-analysis__separator">|</span>'
-          . '<label class="visually-hidden" for="dc-safetymap-granularity-select">Safety map H3 resolution</label>'
-          . '<select id="dc-safetymap-granularity-select" class="form-select form-select-sm dc-dungeon-analysis__toolbar-granularity-select" aria-label="Safety map H3 resolution">'
+          . '<label class="visually-hidden" for="dc-safetymap-granularity-select">Dungeon analysis map H3 resolution</label>'
+          . '<select id="dc-safetymap-granularity-select" class="form-select form-select-sm dc-dungeon-analysis__toolbar-granularity-select" aria-label="Dungeon analysis map H3 resolution">'
           . $granularity_toolbar_options
           . '</select>'
           . '<span class="dc-dungeon-analysis__zoom-readout">Map H3: <strong id="dc-analysis-safetymap-granularity">' . $default_granularity . '</strong></span>'
@@ -234,7 +234,7 @@ class DungeonAnalysisController extends ControllerBase {
           . '<button type="button" class="btn btn-sm btn-outline-secondary" data-dc-safetymap-zoom="in">Zoom in</button>'
           . '<button type="button" class="btn btn-sm btn-outline-secondary" data-dc-safetymap-zoom="fit">Fit</button>'
           . '<button type="button" class="btn btn-sm btn-outline-secondary" data-dc-safetymap-zoom="reset">Reset</button>'
-          . '<span class="dc-dungeon-analysis__toolbar-help text-muted">H3 selector controls this safety hexmap rendering (Res 5-15)</span>'
+          . '<span class="dc-dungeon-analysis__toolbar-help text-muted">H3 selector controls this dungeon analysis map rendering (Res 5-15)</span>'
           . '</div>'
           . '<div class="dc-dungeon-analysis__safetymap-shell"><div id="dc-dungeon-analysis-safetymap" class="dc-dungeon-analysis__safetymap"></div></div>'
           . '<div class="dc-dungeon-analysis__map-overlays mt-2">'

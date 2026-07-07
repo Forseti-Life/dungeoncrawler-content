@@ -1468,7 +1468,7 @@
       })
       .join('');
 
-    const svg = `<svg class="dc-dungeon-analysis__safetymap-svg" viewBox="0 0 ${width.toFixed(2)} ${height.toFixed(2)}" role="img" aria-label="Dungeon safety map">
+    const svg = `<svg class="dc-dungeon-analysis__safetymap-svg" viewBox="0 0 ${width.toFixed(2)} ${height.toFixed(2)}" role="img" aria-label="Dungeon analysis map">
       <rect class="dc-dungeon-analysis__safetymap-bg" x="0" y="0" width="${width.toFixed(2)}" height="${height.toFixed(2)}"></rect>
       <text class="dc-dungeon-analysis__safetymap-meta" x="14" y="20">H3 review resolution: ${selectedGranularity} • overlap resolutions applied: ${overlapResolvedCount} • unique hexes: ${occupiedGlobalCells.size}</text>
       <g class="dc-dungeon-analysis__safetymap-edges">${edgeLines.join('')}</g>
@@ -1476,6 +1476,7 @@
     </svg>`;
 
     const anchorLabel = toRoomLabel(nodeById.get(anchorRoomId) || { room_id: anchorRoomId, label: anchorRoomId });
+    const isWholeDungeonView = nodeById.size > 1;
     return {
       svg,
       anchorRoomId,
@@ -1484,8 +1485,12 @@
       overlapResolvedCount,
       canvasRoom: {
         room_id: `analysis_${normalizedDungeonId}_${anchorRoomId || 'room'}`,
-        name: `${anchorLabel || normalizedDungeonId} (Analysis)`,
-        subtitle: `H3 ${selectedGranularity}`,
+        name: isWholeDungeonView
+          ? `${normalizedDungeonId} (Dungeon Analysis Map)`
+          : `${anchorLabel || normalizedDungeonId} (Analysis)`,
+        subtitle: isWholeDungeonView
+          ? `H3 ${selectedGranularity} • ${nodeById.size} rooms`
+          : `H3 ${selectedGranularity}`,
         hexes: canvasHexes,
       },
     };
@@ -1619,7 +1624,7 @@
     }
     const rendered = buildSafetyMapSvg(graph, selectedGranularityLevel, dungeonId);
     if (!rendered.svg || !rendered.canvasRoom) {
-      safetyMapEl.innerHTML = '<div class="alert alert-warning mb-0">No room graph available for safety map rendering.</div>';
+      safetyMapEl.innerHTML = '<div class="alert alert-warning mb-0">No room graph available for dungeon analysis map rendering.</div>';
       if (safetyMapAnchorEl) {
         safetyMapAnchorEl.textContent = '-';
       }
@@ -2533,7 +2538,7 @@
         diagramEl.innerHTML = '';
         destroyPanZoom();
         if (safetyMapEl) {
-          safetyMapEl.innerHTML = '<div class="text-muted">Loading safety map…</div>';
+          safetyMapEl.innerHTML = '<div class="text-muted">Loading dungeon analysis map…</div>';
         }
         if (safetyMapAnchorEl) {
           safetyMapAnchorEl.textContent = '-';
@@ -2664,7 +2669,7 @@
           setStatus(statusEl, String(error?.message || 'Failed to render dungeon graph.'), true);
           clearGraphReview(summaryEl, exitsEl, edgesEl);
           if (safetyMapEl) {
-            safetyMapEl.innerHTML = '<div class="alert alert-warning mb-0">Safety map failed to load for this dungeon.</div>';
+            safetyMapEl.innerHTML = '<div class="alert alert-warning mb-0">Dungeon analysis map failed to load for this dungeon.</div>';
           }
           if (safetyMapAnchorEl) {
             safetyMapAnchorEl.textContent = '-';
