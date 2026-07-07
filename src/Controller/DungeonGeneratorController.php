@@ -178,6 +178,8 @@ class DungeonGeneratorController extends ControllerBase {
       'party_size' => (int) ($data['party_size'] ?? 4),
       'party_composition' => $data['party_composition'] ?? [],
       'theme' => $data['theme'] ?? NULL,
+      'dungeon_type' => $data['dungeon_type'] ?? NULL,
+      'layout_algorithm' => $data['layout_algorithm'] ?? NULL,
     ];
 
     // 5. Generate the dungeon.
