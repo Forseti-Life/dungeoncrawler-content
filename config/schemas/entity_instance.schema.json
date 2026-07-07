@@ -94,6 +94,12 @@
           "maximum": 5,
           "description": "Direction the entity is facing (0-5 for hexagonal directions: 0=E, 1=NE, 2=NW, 3=W, 4=SW, 5=SE). Used for vision cones, facing-dependent mechanics, and rendering."
         },
+        "h3_index_res14": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "Authoritative Res14 H3 index for the entity's current placement hex."
+        },
         "spawn_type": {
           "type": ["string", "null"],
           "enum": ["permanent", "respawning", "wandering", "summoned", "quest", null],

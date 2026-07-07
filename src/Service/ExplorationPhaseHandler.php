@@ -2910,10 +2910,20 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     // Move the actor entity to the destination room's entry hex.
     $entry_hex = $params['entry_hex'] ?? ['q' => 0, 'r' => 0];
+    $entry_facing = isset($params['entry_facing']) ? (int) $params['entry_facing'] : 0;
     $entity = &$this->findEntityInDungeon($actor_id, $dungeon_data, TRUE);
     if ($entity) {
-      $entity['placement']['hex'] = $entry_hex;
+      $entity['placement']['hex'] = [
+        'q' => (int) ($entry_hex['q'] ?? 0),
+        'r' => (int) ($entry_hex['r'] ?? 0),
+      ];
       $entity['placement']['room_id'] = $target_room_id;
+      $entity['placement']['facing'] = $this->normalizeFacingDirection($entry_facing);
+      $entity['placement']['h3_index_res14'] = $this->resolveRoomHexH3IndexRes14(
+        $dungeon_data,
+        $target_room_id,
+        is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0]
+      );
     }
 
     $auto_sensory_reveal = $this->resolveAutomaticRoomEntrySensoryReveal($actor_id, $dungeon_data);
@@ -2955,8 +2965,72 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'sensory_narration' => $this->buildRoomEntrySensoryNarration($auto_sensory_reveal),
       'mutations' => [
         ['entity' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
+        ['entity' => $actor_id, 'field' => 'placement.hex', 'to' => [
+          'q' => (int) ($entry_hex['q'] ?? 0),
+          'r' => (int) ($entry_hex['r'] ?? 0),
+        ]],
+        ['entity' => $actor_id, 'field' => 'placement.facing', 'to' => $this->normalizeFacingDirection($entry_facing)],
+        ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14(
+          $dungeon_data,
+          $target_room_id,
+          is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0]
+        )],
       ],
     ];
+  }
+
+  /**
+   * Normalize one facing direction into canonical [0..5] range.
+   */
+  protected function normalizeFacingDirection(int $facing): int {
+    $facing = $facing % 6;
+    if ($facing < 0) {
+      $facing += 6;
+    }
+
+    return $facing;
+  }
+
+  /**
+   * Resolve Res14 H3 index for a room hex coordinate.
+   */
+  protected function resolveRoomHexH3IndexRes14(array $dungeon_data, string $room_id, array $hex): string {
+    $room = $this->findRoomInDungeon($room_id, $dungeon_data);
+    if (!is_array($room)) {
+      throw new \RuntimeException(sprintf(
+        'Exploration transition contract violation: room %s not found while resolving placement H3 index.',
+        $room_id
+      ));
+    }
+
+    $target_q = (int) ($hex['q'] ?? 0);
+    $target_r = (int) ($hex['r'] ?? 0);
+    foreach ((array) ($room['hexes'] ?? []) as $room_hex) {
+      if (!is_array($room_hex)) {
+        continue;
+      }
+      if ((int) ($room_hex['q'] ?? 0) !== $target_q || (int) ($room_hex['r'] ?? 0) !== $target_r) {
+        continue;
+      }
+      $h3_index = trim((string) ($room_hex['h3_index_res14'] ?? $room_hex['h3_index'] ?? ''));
+      if ($h3_index === '') {
+        throw new \RuntimeException(sprintf(
+          'Exploration transition contract violation: room %s hex (%d,%d) missing h3_index_res14.',
+          $room_id,
+          $target_q,
+          $target_r
+        ));
+      }
+
+      return strtolower($h3_index);
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Exploration transition contract violation: room %s missing placement hex (%d,%d).',
+      $room_id,
+      $target_q,
+      $target_r
+    ));
   }
 
   /**

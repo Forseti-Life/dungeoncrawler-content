@@ -3654,8 +3654,15 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $game_state['exploration']['previous_room'] = $from_room;
 
     $entry_hex = $params['entry_hex'] ?? ($params['target_hex'] ?? ['q' => 0, 'r' => 0]);
+    $entry_facing = isset($params['entry_facing']) ? (int) $params['entry_facing'] : 0;
     if ($actor_id) {
-      $this->moveEntityToRoom($dungeon_data, $actor_id, $target_room_id, is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0]);
+      $this->moveEntityToRoom(
+        $dungeon_data,
+        $actor_id,
+        $target_room_id,
+        is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0],
+        $entry_facing
+      );
     }
 
     $events = [];
@@ -3692,6 +3699,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'time_effects' => $this->buildTransitionTimeEffects($actor_id, $from_room, $target_room_id, $capability, $params),
       'mutations' => $actor_id ? [
         ['entity' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
+        ['entity' => $actor_id, 'field' => 'placement.hex', 'to' => is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0]],
+        ['entity' => $actor_id, 'field' => 'placement.facing', 'to' => $this->normalizeFacingDirection($entry_facing)],
+        ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14($dungeon_data, $target_room_id, is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0])],
       ] : [],
     ];
   }
@@ -8465,7 +8475,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   /**
    * Moves an entity placement into a room.
    */
-  protected function moveEntityToRoom(array &$dungeon_data, string $actor_id, string $room_id, array $hex): void {
+  protected function moveEntityToRoom(array &$dungeon_data, string $actor_id, string $room_id, array $hex, int $facing = 0): void {
+    $h3_index_res14 = $this->resolveRoomHexH3IndexRes14($dungeon_data, $room_id, $hex);
     foreach ($dungeon_data['entities'] ?? [] as &$entity) {
       $entity_id = (string) ($entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? '')));
       if ($entity_id !== $actor_id) {
@@ -8479,9 +8490,65 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'q' => (int) ($hex['q'] ?? 0),
         'r' => (int) ($hex['r'] ?? 0),
       ];
+      $entity['placement']['facing'] = $this->normalizeFacingDirection($facing);
+      $entity['placement']['h3_index_res14'] = $h3_index_res14;
       break;
     }
     unset($entity);
+  }
+
+  /**
+   * Normalize one facing direction into canonical [0..5] range.
+   */
+  protected function normalizeFacingDirection(int $facing): int {
+    $facing = $facing % 6;
+    if ($facing < 0) {
+      $facing += 6;
+    }
+
+    return $facing;
+  }
+
+  /**
+   * Resolve Res14 H3 index for a room hex coordinate.
+   */
+  protected function resolveRoomHexH3IndexRes14(array $dungeon_data, string $room_id, array $hex): string {
+    $room = $this->findRoomById($dungeon_data, $room_id);
+    if ($room === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Encounter transition contract violation: room %s not found while resolving placement H3 index.',
+        $room_id
+      ));
+    }
+
+    $target_q = (int) ($hex['q'] ?? 0);
+    $target_r = (int) ($hex['r'] ?? 0);
+    foreach ((array) ($room['hexes'] ?? []) as $room_hex) {
+      if (!is_array($room_hex)) {
+        continue;
+      }
+      if ((int) ($room_hex['q'] ?? 0) !== $target_q || (int) ($room_hex['r'] ?? 0) !== $target_r) {
+        continue;
+      }
+      $h3_index = trim((string) ($room_hex['h3_index_res14'] ?? $room_hex['h3_index'] ?? ''));
+      if ($h3_index === '') {
+        throw new \RuntimeException(sprintf(
+          'Encounter transition contract violation: room %s hex (%d,%d) missing h3_index_res14.',
+          $room_id,
+          $target_q,
+          $target_r
+        ));
+      }
+
+      return strtolower($h3_index);
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Encounter transition contract violation: room %s missing placement hex (%d,%d).',
+      $room_id,
+      $target_q,
+      $target_r
+    ));
   }
 
   /**

@@ -5,11 +5,11 @@
   "description": "Canonical client-facing navigation payload for room transitions.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "target_room_id", "destination", "room", "entities", "connections", "navigation_capabilities", "entry_hex"],
+  "required": ["schema_version", "target_room_id", "destination", "authority", "route", "placement_contract", "capabilities", "room", "entities", "connections", "navigation_capabilities", "entry_hex"],
   "properties": {
     "schema_version": {
       "type": "string",
-      "enum": ["navigation-receipt-v1"]
+      "enum": ["navigation-receipt-v2"]
     },
     "target_room_id": {
       "type": "string",
@@ -43,6 +43,80 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 64
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "resolution"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["canonical_db"]
+        },
+        "resolution": {
+          "type": "integer",
+          "enum": [14]
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_room_id", "target_room_id", "segments"],
+      "properties": {
+        "source_room_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "target_room_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from_room_id", "to_room_id", "entry_h3_index_res14", "exit_h3_index_res14", "street_path_h3_indexes", "traversal_cost", "blocked"],
+            "properties": {
+              "from_room_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+              "to_room_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+              "entry_h3_index_res14": { "type": "string", "minLength": 1, "maxLength": 32 },
+              "exit_h3_index_res14": { "type": "string", "minLength": 1, "maxLength": 32 },
+              "street_path_h3_indexes": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1, "maxLength": 32 }
+              },
+              "traversal_cost": { "type": "integer", "minimum": 0 },
+              "blocked": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "placement_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalization", "active_anchor_resolution", "room_anchor_h3_indexes_res14"],
+      "properties": {
+        "normalization": { "type": "string", "enum": ["global_non_overlapping_axial"] },
+        "active_anchor_resolution": { "type": "integer", "enum": [14] },
+        "room_anchor_h3_indexes_res14": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["in_session_transition", "server_authoritative", "supports_res15"],
+      "properties": {
+        "in_session_transition": { "type": "boolean", "enum": [true] },
+        "server_authoritative": { "type": "boolean", "enum": [true] },
+        "supports_res15": { "type": "boolean", "enum": [false] }
+      }
     },
     "template_id": {
       "type": ["string", "null"],

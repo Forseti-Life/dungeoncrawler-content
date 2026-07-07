@@ -121,6 +121,8 @@ class CampaignCharacterRuntimeSyncService {
         'placement' => [
           'room_id' => $room_id,
           'hex' => $placement,
+          'facing' => 0,
+          'h3_index_res14' => $this->resolvePlacementH3IndexRes14($dungeon_payload, $room_id, $placement),
         ],
         'state' => [
           'metadata' => [
@@ -455,6 +457,8 @@ class CampaignCharacterRuntimeSyncService {
         'placement' => [
           'room_id' => $active_room_id,
           'hex' => $placement,
+          'facing' => 0,
+          'h3_index_res14' => $this->resolvePlacementH3IndexRes14($dungeon_payload, $active_room_id, $placement),
           'spawn_type' => 'npc',
         ],
         'state' => [
@@ -1206,6 +1210,41 @@ class CampaignCharacterRuntimeSyncService {
   }
 
   /**
+   * Resolve the canonical Res14 H3 index for a placement coordinate.
+   */
+  protected function resolvePlacementH3IndexRes14(array $dungeon_payload, string $room_id, array $placement): string {
+    $room_hexes = $this->getRoomHexes($dungeon_payload, $room_id);
+    $q = (int) ($placement['q'] ?? 0);
+    $r = (int) ($placement['r'] ?? 0);
+    foreach ($room_hexes as $hex) {
+      if (!is_array($hex)) {
+        continue;
+      }
+      if ((int) ($hex['q'] ?? 0) !== $q || (int) ($hex['r'] ?? 0) !== $r) {
+        continue;
+      }
+      $h3_index = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+      if ($h3_index === '') {
+        throw new \RuntimeException(sprintf(
+          'Campaign runtime sync contract violation: room %s hex (%d,%d) missing h3_index_res14.',
+          $room_id,
+          $q,
+          $r
+        ));
+      }
+
+      return strtolower($h3_index);
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Campaign runtime sync contract violation: room %s missing placement hex (%d,%d).',
+      $room_id,
+      $q,
+      $r
+    ));
+  }
+
+  /**
    * Inject owner-linked runtime followers as ally NPC entities.
    */
   protected function injectOwnedRuntimeFollowerEntities(array &$dungeon_payload, int $campaign_id, array $record, array $char_data, string $room_id, int $owner_q, int $owner_r, array &$occupied): void {
@@ -1314,6 +1353,14 @@ class CampaignCharacterRuntimeSyncService {
         if (!is_array($existing_entity['placement']['hex'] ?? NULL)) {
           $existing_entity['placement']['hex'] = ['q' => $owner_q, 'r' => $owner_r];
         }
+        $existing_entity['placement']['facing'] = isset($existing_entity['placement']['facing'])
+          ? ((int) $existing_entity['placement']['facing'] % 6 + 6) % 6
+          : 0;
+        $existing_entity['placement']['h3_index_res14'] = $this->resolvePlacementH3IndexRes14(
+          $dungeon_payload,
+          $room_id,
+          $existing_entity['placement']['hex']
+        );
         $existing_entity['state'] = is_array($existing_entity['state'] ?? NULL) ? $existing_entity['state'] : [];
         $existing_entity['state']['active'] = TRUE;
         $existing_entity['state']['metadata'] = $follower_metadata;
@@ -1334,6 +1381,8 @@ class CampaignCharacterRuntimeSyncService {
         'placement' => [
           'room_id' => $room_id,
           'hex' => $placement,
+          'facing' => 0,
+          'h3_index_res14' => $this->resolvePlacementH3IndexRes14($dungeon_payload, $room_id, $placement),
           'spawn_type' => 'npc',
         ],
         'state' => [

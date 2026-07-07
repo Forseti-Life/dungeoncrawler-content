@@ -31,7 +31,7 @@ class MapGeneratorService {
   protected NpcSheetGenerationService $npcSheetGenerationService;
   protected StateValidationService $stateValidationService;
   protected ?NavigationService $navigationService;
-  protected const NAVIGATION_RECEIPT_SCHEMA_VERSION = 'navigation-receipt-v1';
+  protected const NAVIGATION_RECEIPT_SCHEMA_VERSION = 'navigation-receipt-v2';
   protected const MIN_ROOM_GAP_HEXES = 5;
 
   /**
@@ -462,6 +462,7 @@ class MapGeneratorService {
     }
 
     $entry_hex = ['q' => 0, 'r' => 0];
+    $source_hex = NULL;
     foreach ($connections as $connection) {
       $from_room_id = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
       $to_room_id = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
@@ -473,6 +474,12 @@ class MapGeneratorService {
           'q' => (int) ($to_hex['q'] ?? 0),
           'r' => (int) ($to_hex['r'] ?? 0),
         ];
+        if (is_array($from_hex)) {
+          $source_hex = [
+            'q' => (int) ($from_hex['q'] ?? 0),
+            'r' => (int) ($from_hex['r'] ?? 0),
+          ];
+        }
         break;
       }
       if ($from_room_id === $room_id && is_array($from_hex)) {
@@ -480,6 +487,12 @@ class MapGeneratorService {
           'q' => (int) ($from_hex['q'] ?? 0),
           'r' => (int) ($from_hex['r'] ?? 0),
         ];
+        if (is_array($to_hex)) {
+          $source_hex = [
+            'q' => (int) ($to_hex['q'] ?? 0),
+            'r' => (int) ($to_hex['r'] ?? 0),
+          ];
+        }
         break;
       }
     }
@@ -491,6 +504,26 @@ class MapGeneratorService {
       ];
     }
 
+    $origin_room_id = trim((string) ($navigation['origin_room_id'] ?? ''));
+    if ($source_hex === NULL && $origin_room_id !== '') {
+      $source_hex = $this->resolveDefaultRoomHex($dungeon_data, $origin_room_id);
+    }
+    $entry_h3_index_res14 = $this->resolveRoomHexH3IndexRes14($dungeon_data, $room_id, $entry_hex);
+    $exit_h3_index_res14 = $origin_room_id !== '' && is_array($source_hex)
+      ? $this->resolveRoomHexH3IndexRes14($dungeon_data, $origin_room_id, $source_hex)
+      : $entry_h3_index_res14;
+    $route_source_room_id = $origin_room_id !== '' ? $origin_room_id : $room_id;
+    $route_street_path = [$entry_h3_index_res14];
+    if ($exit_h3_index_res14 !== $entry_h3_index_res14) {
+      $route_street_path = [$exit_h3_index_res14, $entry_h3_index_res14];
+    }
+    $room_anchor_h3_indexes = [
+      $room_id => $entry_h3_index_res14,
+    ];
+    if ($origin_room_id !== '') {
+      $room_anchor_h3_indexes[$origin_room_id] = $exit_h3_index_res14;
+    }
+
     $payload = [
       'schema_version' => self::NAVIGATION_RECEIPT_SCHEMA_VERSION,
       'target_room_id' => $room_id,
@@ -499,6 +532,33 @@ class MapGeneratorService {
       'travel_type' => (string) ($navigation['travel_type'] ?? 'walk'),
       'estimated_distance' => (string) ($navigation['estimated_distance'] ?? 'short'),
       'source' => (string) ($navigation['source'] ?? 'unknown'),
+      'authority' => [
+        'source' => 'canonical_db',
+        'resolution' => 14,
+      ],
+      'route' => [
+        'source_room_id' => $route_source_room_id,
+        'target_room_id' => $room_id,
+        'segments' => [[
+          'from_room_id' => $route_source_room_id,
+          'to_room_id' => $room_id,
+          'entry_h3_index_res14' => $entry_h3_index_res14,
+          'exit_h3_index_res14' => $exit_h3_index_res14,
+          'street_path_h3_indexes' => $route_street_path,
+          'traversal_cost' => max(1, count($route_street_path) - 1),
+          'blocked' => FALSE,
+        ]],
+      ],
+      'placement_contract' => [
+        'normalization' => 'global_non_overlapping_axial',
+        'active_anchor_resolution' => 14,
+        'room_anchor_h3_indexes_res14' => $room_anchor_h3_indexes,
+      ],
+      'capabilities' => [
+        'in_session_transition' => TRUE,
+        'server_authoritative' => TRUE,
+        'supports_res15' => FALSE,
+      ],
       'template_id' => array_key_exists('template_id', $navigation) && $navigation['template_id'] !== NULL
         ? (string) $navigation['template_id']
         : NULL,
@@ -512,7 +572,6 @@ class MapGeneratorService {
       'entry_hex' => $entry_hex,
     ];
 
-    $origin_room_id = trim((string) ($navigation['origin_room_id'] ?? ''));
     if ($origin_room_id !== '') {
       $payload['origin_room_id'] = $origin_room_id;
     }
@@ -531,6 +590,71 @@ class MapGeneratorService {
     }
 
     throw new \RuntimeException('Navigation receipt contract violation: ' . implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * Resolve one default room hex coordinate.
+   */
+  protected function resolveDefaultRoomHex(array $dungeon_data, string $room_id): ?array {
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (!is_array($room) || (string) ($room['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      foreach ((array) ($room['hexes'] ?? []) as $hex) {
+        if (!is_array($hex)) {
+          continue;
+        }
+        if (array_key_exists('q', $hex) && array_key_exists('r', $hex)) {
+          return [
+            'q' => (int) $hex['q'],
+            'r' => (int) $hex['r'],
+          ];
+        }
+      }
+      break;
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Resolve Res14 H3 index for a room hex coordinate.
+   */
+  protected function resolveRoomHexH3IndexRes14(array $dungeon_data, string $room_id, array $hex): string {
+    $q = (int) ($hex['q'] ?? 0);
+    $r = (int) ($hex['r'] ?? 0);
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (!is_array($room) || (string) ($room['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      foreach ((array) ($room['hexes'] ?? []) as $room_hex) {
+        if (!is_array($room_hex)) {
+          continue;
+        }
+        if ((int) ($room_hex['q'] ?? 0) !== $q || (int) ($room_hex['r'] ?? 0) !== $r) {
+          continue;
+        }
+        $h3_index = trim((string) ($room_hex['h3_index_res14'] ?? $room_hex['h3_index'] ?? ''));
+        if ($h3_index === '') {
+          throw new \RuntimeException(sprintf(
+            'Navigation receipt contract violation: room %s hex (%d,%d) is missing h3_index_res14.',
+            $room_id,
+            $q,
+            $r
+          ));
+        }
+
+        return strtolower($h3_index);
+      }
+      break;
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Navigation receipt contract violation: room %s missing hex (%d,%d) required for Res14 route authority.',
+      $room_id,
+      $q,
+      $r
+    ));
   }
 
   // =========================================================================

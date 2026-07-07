@@ -5,11 +5,37 @@
   "description": "Canonical navigate_to_location action payload after server normalization.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "type", "name", "details", "state_changes"],
+  "required": ["schema_version", "campaign_id", "actor_id", "source_room_id", "target_room_id", "transition_mode", "type", "name", "details", "state_changes"],
   "properties": {
     "schema_version": {
       "type": "string",
-      "enum": ["navigation-action-v1"]
+      "enum": ["navigation-action-v2"]
+    },
+    "campaign_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "actor_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "source_room_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+    },
+    "target_room_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+    },
+    "transition_mode": {
+      "type": "string",
+      "enum": ["in_session"]
     },
     "type": {
       "type": "string",

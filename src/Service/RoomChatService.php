@@ -44,7 +44,7 @@ class RoomChatService {
   protected const ROOM_CHAT_RESPONSE_SCHEMA_VERSION = 'room-chat-response-v1';
   protected const QUEUED_ROOM_CONTINUATION_SCHEMA_VERSION = 'queued-room-continuation-v1';
   protected const QUEST_UPDATE_SCHEMA_VERSION = 'quest-update-v1';
-  protected const NAVIGATION_ACTION_SCHEMA_VERSION = 'navigation-action-v1';
+  protected const NAVIGATION_ACTION_SCHEMA_VERSION = 'navigation-action-v2';
   protected const QUEST_UPDATE_ALLOWED_SOURCES = ['available_quest', 'brokered_storyline'];
   protected const AMBIENT_INTERJECTION_CHARISMA_MULTIPLIER = 4;
   protected const AMBIENT_INTERJECTION_PERCENT_CAP = 100;
@@ -2514,7 +2514,11 @@ class RoomChatService {
 
     // Use the first navigation action (shouldn't be multiple).
     $nav = reset($nav_actions);
-    $nav_payload = $this->buildCanonicalNavigationActionPayload(is_array($nav) ? $nav : []);
+    $nav_payload = $this->buildCanonicalNavigationActionPayload(
+      is_array($nav) ? $nav : [],
+      $campaign_id,
+      $origin_room_id
+    );
     $this->validateNavigationActionPayload($nav_payload);
     $details = $nav_payload['details'];
     $destination = $details['destination'];
@@ -2600,30 +2604,53 @@ class RoomChatService {
   /**
    * Normalize a navigation action into the canonical navigation contract.
    */
-  protected function buildCanonicalNavigationActionPayload(array $action): array {
+  protected function buildCanonicalNavigationActionPayload(
+    array $action,
+    int $campaign_id = 0,
+    string $source_room_id = '',
+    ?string $actor_id = NULL
+  ): array {
     $details = is_array($action['details'] ?? NULL) ? $action['details'] : [];
     $state_changes = is_array($action['state_changes'] ?? NULL) ? $action['state_changes'] : [];
+    $destination = trim((string) ($details['destination'] ?? ''));
+    $normalized_source_room_id = $this->normalizeNavigationRoomId(
+      $source_room_id !== '' ? $source_room_id : (string) ($details['source_room_id'] ?? $action['source_room_id'] ?? '')
+    );
+    $target_room_id = $this->normalizeNavigationRoomId(
+      (string) ($details['destination_room_id'] ?? $details['target_room_id'] ?? $action['target_room_id'] ?? '')
+    );
+    if ($target_room_id === '') {
+      $target_room_id = $this->buildNavigationRoomIdFromDestination($destination);
+    }
+    $resolved_actor_id = $this->normalizeNavigationActorId(
+      $actor_id
+      ?? (string) ($action['actor_id'] ?? $details['actor_id'] ?? ($state_changes['character']['actor_id'] ?? ''))
+    );
+    if ($resolved_actor_id === '') {
+      $resolved_actor_id = 'party_lead';
+    }
 
     $payload = [
       'schema_version' => self::NAVIGATION_ACTION_SCHEMA_VERSION,
+      'campaign_id' => max(1, $campaign_id),
+      'actor_id' => $resolved_actor_id,
+      'source_room_id' => $normalized_source_room_id,
+      'target_room_id' => $target_room_id,
+      'transition_mode' => 'in_session',
       'type' => 'navigate_to_location',
       'name' => trim((string) ($action['name'] ?? 'Travel')),
       'details' => [
-        'destination' => trim((string) ($details['destination'] ?? '')),
+        'destination' => $destination,
         'destination_description' => trim((string) ($details['destination_description'] ?? '')),
         'travel_type' => trim((string) ($details['travel_type'] ?? 'walk')),
         'estimated_distance' => trim((string) ($details['estimated_distance'] ?? 'short')),
+        'destination_room_id' => $target_room_id,
       ],
       'state_changes' => [
         'character' => is_array($state_changes['character'] ?? NULL) ? $state_changes['character'] : [],
         'room' => is_array($state_changes['room'] ?? NULL) ? $state_changes['room'] : [],
       ],
     ];
-
-    $destination_room_id = trim((string) ($details['destination_room_id'] ?? ''));
-    if ($destination_room_id !== '') {
-      $payload['details']['destination_room_id'] = $destination_room_id;
-    }
 
     if ($payload['details']['destination_description'] === '') {
       $payload['details']['destination_description'] = $payload['details']['destination'];
@@ -2634,6 +2661,53 @@ class RoomChatService {
     }
 
     return $payload;
+  }
+
+  /**
+   * Normalize actor identity used by navigation contracts.
+   */
+  protected function normalizeNavigationActorId(string $actor_id): string {
+    $actor_id = trim($actor_id);
+    if ($actor_id === '') {
+      return '';
+    }
+
+    $normalized = strtolower($actor_id);
+    $normalized = preg_replace('/[^a-z0-9_-]+/', '_', $normalized) ?? '';
+    $normalized = trim($normalized, '_');
+
+    return $normalized;
+  }
+
+  /**
+   * Normalize room identity used by navigation contracts.
+   */
+  protected function normalizeNavigationRoomId(string $room_id): string {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return '';
+    }
+    if (preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]*$/', $room_id)) {
+      return $room_id;
+    }
+
+    $normalized = strtolower($room_id);
+    $normalized = preg_replace('/[^a-z0-9_-]+/', '_', $normalized) ?? '';
+    $normalized = trim($normalized, '_');
+
+    return $normalized;
+  }
+
+  /**
+   * Build a deterministic room identifier when only destination text is provided.
+   */
+  protected function buildNavigationRoomIdFromDestination(string $destination): string {
+    $candidate = $this->normalizeNavigationRoomId($destination);
+    if ($candidate !== '') {
+      return $candidate;
+    }
+
+    throw new \RuntimeException('Navigation action contract violation: unable to derive target_room_id from destination text.');
   }
 
   /**
@@ -5699,7 +5773,14 @@ PROMPT;
     }
 
     if ($intent === 'navigation_travel') {
-      $navigation_action = $this->buildDeterministicNavigationAction($player_message, $room_meta, $room_id, $dungeon_data);
+      $navigation_action = $this->buildDeterministicNavigationAction(
+        $campaign_id,
+        $character_id,
+        $player_message,
+        $room_meta,
+        $room_id,
+        $dungeon_data
+      );
       if ($navigation_action !== NULL) {
         return [
           'narrative' => $navigation_action['narrative'],
@@ -6487,7 +6568,14 @@ PROMPT;
   /**
    * Build a deterministic navigation action from a travel-style player turn.
    */
-  protected function buildDeterministicNavigationAction(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?array {
+  protected function buildDeterministicNavigationAction(
+    int $campaign_id,
+    ?int $character_id,
+    string $player_message,
+    array $room_meta = [],
+    string $room_id = '',
+    array $dungeon_data = []
+  ): ?array {
     $this->logger->notice('Deterministic navigation entry: room_id=@room_id room_name=@room_name player_message=@player_message room_count=@room_count', [
       '@room_id' => $room_id,
       '@room_name' => (string) ($room_meta['name'] ?? ''),
@@ -6534,23 +6622,29 @@ PROMPT;
       '@door_move' => $door_move ? 'yes' : 'no',
     ]);
 
-      return [
-        'narrative' => $narrative,
-        'action' => [
-          'schema_version' => self::NAVIGATION_ACTION_SCHEMA_VERSION,
-          'type' => 'navigate_to_location',
-          'name' => 'Travel to ' . $destination,
-          'details' => [
+    $action_payload = $this->buildCanonicalNavigationActionPayload(
+      [
+        'name' => 'Travel to ' . $destination,
+        'details' => [
           'destination' => $destination,
           'destination_description' => $destination_description,
           'travel_type' => 'walk',
           'estimated_distance' => 'short',
+          'source_room_id' => $room_id,
         ],
         'state_changes' => [
           'character' => [],
           'room' => [],
         ],
       ],
+      $campaign_id,
+      $room_id,
+      $character_id !== NULL ? 'pc_' . $character_id : NULL
+    );
+
+    return [
+      'narrative' => $narrative,
+      'action' => $action_payload,
     ];
   }
 
