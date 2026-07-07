@@ -77,6 +77,7 @@ class DungeonGeneratorService {
    * @var \Drupal\dungeoncrawler_content\Service\SeededRandomSequence|null
    */
   protected ?SeededRandomSequence $rng = NULL;
+  protected ?\FFI $h3Ffi = NULL;
   protected const MIN_ROOM_SPACING_HEXES = 5;
   protected const PLACEMENT_ALGORITHM_VERSION = 'minimum_hex_gap_v2';
   protected const H3_ACTIVE_RESOLUTION = 14;
@@ -1830,6 +1831,7 @@ class DungeonGeneratorService {
       $entry = $room_entry_by_room[$room_id] ?? ['q' => $reference_q, 'r' => $reference_r];
       $metadata = [
         'status' => 'h3_index_assigned',
+        'h3_index_source' => 'libh3',
         'normalization' => 'global_non_overlapping_axial',
         'normalization_version' => 'runtime-persist-v1',
         'placement_model' => self::PLACEMENT_ALGORITHM_VERSION,
@@ -1916,10 +1918,14 @@ class DungeonGeneratorService {
           if ($h3_owner !== '' && $h3_owner !== $room_id) {
             throw new \RuntimeException(sprintf('H3 system-of-record contract violation: Res14 h3_index collision %s between rooms %s and %s in dungeon %s.', $h3_index, $h3_owner, $room_id, $dungeon_id));
           }
+          if ($h3_owner === $room_id) {
+            continue;
+          }
           $h3_owner_by_index[$h3_index] = $room_id;
 
           $cell_metadata = [
             'status' => 'h3_index_assigned',
+            'h3_index_source' => 'libh3',
             'normalization' => 'global_non_overlapping_axial',
             'normalization_version' => 'runtime-persist-v1',
             'placement_model' => self::PLACEMENT_ALGORITHM_VERSION,
@@ -2008,35 +2014,81 @@ class DungeonGeneratorService {
   }
 
   /**
-   * Build deterministic Res14 sparse cell index from room/cell coordinates.
+   * Resolve one shared libh3 FFI handle.
    */
-  protected function buildSparseRes14CellIndex(string $dungeon_id, string $room_id, int $source_q, int $source_r, float $latitude, float $longitude): string {
-    $payload = implode('|', [
-      $dungeon_id,
-      $room_id,
-      (string) self::H3_ACTIVE_RESOLUTION,
-      (string) $source_q,
-      (string) $source_r,
-      number_format($latitude, 8, '.', ''),
-      number_format($longitude, 8, '.', ''),
-    ]);
-    return 'r14c_' . substr(sha1($payload), 0, 24);
+  protected function getH3Ffi(): \FFI {
+    if ($this->h3Ffi instanceof \FFI) {
+      return $this->h3Ffi;
+    }
+    if (!extension_loaded('ffi')) {
+      throw new \RuntimeException('True H3 index generation requires PHP FFI extension (ext-ffi).');
+    }
+
+    try {
+      $this->h3Ffi = \FFI::cdef(
+        'typedef unsigned long long H3Index;
+         typedef int H3Error;
+         typedef struct { double lat; double lng; } LatLng;
+         H3Error latLngToCell(const LatLng* g, int res, H3Index* out);',
+        'libh3.so.1'
+      );
+    }
+    catch (\Throwable $e) {
+      throw new \RuntimeException('True H3 index generation requires libh3.so.1 to be installed and loadable.', 0, $e);
+    }
+
+    return $this->h3Ffi;
   }
 
   /**
-   * Build deterministic Res14 sparse anchor index from room anchor data.
+   * Convert one WGS84 coordinate pair (degrees) to canonical H3 index string.
+   */
+  protected function latLngToH3Index(float $latitude, float $longitude, int $resolution): string {
+    if ($resolution < 0 || $resolution > 15) {
+      throw new \RuntimeException(sprintf('H3 resolution %d is out of range (expected 0-15).', $resolution));
+    }
+
+    $ffi = $this->getH3Ffi();
+    $coord = $ffi->new('LatLng');
+    $coord->lat = deg2rad($latitude);
+    $coord->lng = deg2rad($longitude);
+    $out = $ffi->new('H3Index[1]');
+    $error = (int) $ffi->latLngToCell(\FFI::addr($coord), $resolution, $out);
+    if ($error !== 0) {
+      throw new \RuntimeException(sprintf(
+        'libh3 latLngToCell failed with error code %d for lat=%0.8f lng=%0.8f res=%d.',
+        $error,
+        $latitude,
+        $longitude,
+        $resolution
+      ));
+    }
+
+    $raw = \FFI::string(\FFI::cast('char *', \FFI::addr($out[0])), 8);
+    $hex = ltrim(bin2hex(strrev($raw)), '0');
+    if ($hex === '') {
+      throw new \RuntimeException(sprintf(
+        'libh3 returned empty H3 index for lat=%0.8f lng=%0.8f res=%d.',
+        $latitude,
+        $longitude,
+        $resolution
+      ));
+    }
+    return strtolower($hex);
+  }
+
+  /**
+   * Build Res14 sparse cell index from room/cell coordinates.
+   */
+  protected function buildSparseRes14CellIndex(string $dungeon_id, string $room_id, int $source_q, int $source_r, float $latitude, float $longitude): string {
+    return $this->latLngToH3Index($latitude, $longitude, self::H3_ACTIVE_RESOLUTION);
+  }
+
+  /**
+   * Build Res14 sparse anchor index from room anchor data.
    */
   protected function buildSparseRes14AnchorIndex(string $dungeon_id, string $room_id, int $reference_q, int $reference_r, float $latitude, float $longitude): string {
-    $payload = implode('|', [
-      $dungeon_id,
-      $room_id,
-      (string) self::H3_ACTIVE_RESOLUTION,
-      (string) $reference_q,
-      (string) $reference_r,
-      number_format($latitude, 8, '.', ''),
-      number_format($longitude, 8, '.', ''),
-    ]);
-    return 'r14a_' . substr(sha1($payload), 0, 24);
+    return $this->latLngToH3Index($latitude, $longitude, self::H3_ACTIVE_RESOLUTION);
   }
 
   /**

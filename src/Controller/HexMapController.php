@@ -2813,12 +2813,10 @@ class HexMapController extends ControllerBase {
     }
 
     if ($existing_room_cells !== []) {
-      $existing_keys = array_keys($existing_room_cells);
-      $authoritative_keys = array_keys($authoritative_room_cells);
-      sort($existing_keys, SORT_STRING);
-      sort($authoritative_keys, SORT_STRING);
-      if ($existing_keys !== $authoritative_keys) {
-        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: dungeon %s placement_surface room_hex cells do not match authoritative sparse H3 table rows.', $dungeon_id));
+      foreach (array_keys($authoritative_room_cells) as $authoritative_key) {
+        if (!isset($existing_room_cells[$authoritative_key])) {
+          throw new \RuntimeException(sprintf('H3 system-of-record contract violation: dungeon %s placement_surface is missing authoritative room_hex cell %s from sparse H3 tables.', $dungeon_id, $authoritative_key));
+        }
       }
     }
 
