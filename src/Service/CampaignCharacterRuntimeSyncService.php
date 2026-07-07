@@ -1143,9 +1143,16 @@ class CampaignCharacterRuntimeSyncService {
       'q' => (int) ($record['position_q'] ?? 0),
       'r' => (int) ($record['position_r'] ?? 0),
     ];
+    if ($room_hexes === []) {
+      $sparse_fallback = $this->resolveRoomHexPlacementFromSparseStorage($dungeon_payload, $room_id, $preferred, $occupied);
+      if (is_array($sparse_fallback)) {
+        return $sparse_fallback;
+      }
+    }
     $preferred_key = $preferred['q'] . ',' . $preferred['r'];
 
     if (($room_hexes === [] || $this->roomContainsHex($room_hexes, $preferred['q'], $preferred['r']))
+      && $this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, $preferred['q'], $preferred['r'])
       && !isset($occupied[$preferred_key])) {
       return $preferred;
     }
@@ -1159,9 +1166,25 @@ class CampaignCharacterRuntimeSyncService {
         'r' => (int) $hex['r'],
       ];
       $candidate_key = $candidate['q'] . ',' . $candidate['r'];
-      if (!isset($occupied[$candidate_key])) {
+      if (
+        !isset($occupied[$candidate_key])
+        && $this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, $candidate['q'], $candidate['r'])
+      ) {
         return $candidate;
       }
+    }
+
+    foreach ($room_hexes as $hex) {
+      if (!isset($hex['q'], $hex['r'])) {
+        continue;
+      }
+      if (!$this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, (int) $hex['q'], (int) $hex['r'])) {
+        continue;
+      }
+      return [
+        'q' => (int) $hex['q'],
+        'r' => (int) $hex['r'],
+      ];
     }
 
     return $preferred;
@@ -1176,8 +1199,15 @@ class CampaignCharacterRuntimeSyncService {
       'r' => (int) ($record['position_r'] ?? 0),
     ];
     $room_hexes = $this->getRoomHexes($dungeon_payload, $room_id);
+    if ($room_hexes === []) {
+      $sparse_fallback = $this->resolveRoomHexPlacementFromSparseStorage($dungeon_payload, $room_id, $preferred, $occupied);
+      if (is_array($sparse_fallback)) {
+        return $sparse_fallback;
+      }
+    }
     $preferred_key = $preferred['q'] . ',' . $preferred['r'];
     if (($room_hexes === [] || $this->roomContainsHex($room_hexes, $preferred['q'], $preferred['r']))
+      && $this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, $preferred['q'], $preferred['r'])
       && !isset($occupied[$preferred_key])) {
       return $preferred;
     }
@@ -1191,12 +1221,103 @@ class CampaignCharacterRuntimeSyncService {
         'r' => (int) $hex['r'],
       ];
       $candidate_key = $candidate['q'] . ',' . $candidate['r'];
-      if (!isset($occupied[$candidate_key])) {
+      if (
+        !isset($occupied[$candidate_key])
+        && $this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, $candidate['q'], $candidate['r'])
+      ) {
         return $candidate;
       }
     }
 
+    foreach ($room_hexes as $hex) {
+      if (!isset($hex['q'], $hex['r'])) {
+        continue;
+      }
+      if (!$this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, (int) $hex['q'], (int) $hex['r'])) {
+        continue;
+      }
+      return [
+        'q' => (int) $hex['q'],
+        'r' => (int) $hex['r'],
+      ];
+    }
+
     return $preferred;
+  }
+
+  /**
+   * Resolve one valid room hex placement from canonical sparse storage.
+   */
+  protected function resolveRoomHexPlacementFromSparseStorage(
+    array $dungeon_payload,
+    string $room_id,
+    array $preferred,
+    array $occupied
+  ): ?array {
+    $dungeon_id = trim((string) ($dungeon_payload['dungeon_id'] ?? ''));
+    if ($dungeon_id === '' || $room_id === '') {
+      return NULL;
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['source_q', 'source_r'])
+      ->condition('c.dungeon_id', $dungeon_id)
+      ->condition('c.room_id', $room_id)
+      ->condition('c.h3_resolution', 14)
+      ->condition('c.cell_role', 'room_hex')
+      ->orderBy('c.id', 'ASC')
+      ->range(0, 256)
+      ->execute()
+      ->fetchAllAssoc(NULL, \PDO::FETCH_ASSOC) ?: [];
+
+    if ($rows === []) {
+      return NULL;
+    }
+
+    $preferred_q = (int) ($preferred['q'] ?? 0);
+    $preferred_r = (int) ($preferred['r'] ?? 0);
+    foreach ($rows as $row) {
+      $q = (int) ($row['source_q'] ?? 0);
+      $r = (int) ($row['source_r'] ?? 0);
+      if ($q === $preferred_q && $r === $preferred_r && !isset($occupied[$q . ',' . $r])) {
+        return ['q' => $q, 'r' => $r];
+      }
+    }
+
+    foreach ($rows as $row) {
+      $q = (int) ($row['source_q'] ?? 0);
+      $r = (int) ($row['source_r'] ?? 0);
+      if (!isset($occupied[$q . ',' . $r])) {
+        return ['q' => $q, 'r' => $r];
+      }
+    }
+
+    $first = reset($rows);
+    return is_array($first)
+      ? ['q' => (int) ($first['source_q'] ?? 0), 'r' => (int) ($first['source_r'] ?? 0)]
+      : NULL;
+  }
+
+  /**
+   * Determine whether a room placement can resolve a canonical Res14 H3 index.
+   */
+  protected function canResolvePlacementH3FromPayloadOrSparse(array $dungeon_payload, string $room_id, int $q, int $r): bool {
+    $room_hexes = $this->getRoomHexes($dungeon_payload, $room_id);
+    foreach ($room_hexes as $hex) {
+      if (!is_array($hex)) {
+        continue;
+      }
+      if ((int) ($hex['q'] ?? 0) !== $q || (int) ($hex['r'] ?? 0) !== $r) {
+        continue;
+      }
+      $h3_index = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+      if ($h3_index !== '') {
+        return TRUE;
+      }
+      break;
+    }
+
+    return $this->resolvePlacementH3IndexRes14FromSparseStorage($dungeon_payload, $room_id, $q, $r) !== '';
   }
 
   /**
@@ -1403,6 +1524,16 @@ class CampaignCharacterRuntimeSyncService {
         $existing_entity = is_array($dungeon_payload['entities'][$existing_entity_index] ?? NULL)
           ? $dungeon_payload['entities'][$existing_entity_index]
           : [];
+        $placement_record = [
+          'position_q' => (int) ($existing_entity['placement']['hex']['q'] ?? $owner_q),
+          'position_r' => (int) ($existing_entity['placement']['hex']['r'] ?? $owner_r),
+        ];
+        $resolved_placement = $this->resolveRoomNpcPlacement(
+          $dungeon_payload,
+          $room_id,
+          $placement_record,
+          $occupied[$room_id] ?? []
+        );
         $existing_entity['entity_type'] = 'npc';
         $existing_entity['instance_id'] = $instance_id;
         $existing_entity['entity_instance_id'] = $instance_id;
@@ -1411,9 +1542,7 @@ class CampaignCharacterRuntimeSyncService {
         $existing_entity['entity_ref']['content_id'] = (string) ($profile['content_id'] ?? ($existing_entity['entity_ref']['content_id'] ?? ''));
         $existing_entity['placement'] = is_array($existing_entity['placement'] ?? NULL) ? $existing_entity['placement'] : [];
         $existing_entity['placement']['room_id'] = $room_id;
-        if (!is_array($existing_entity['placement']['hex'] ?? NULL)) {
-          $existing_entity['placement']['hex'] = ['q' => $owner_q, 'r' => $owner_r];
-        }
+        $existing_entity['placement']['hex'] = $resolved_placement;
         $existing_entity['placement']['facing'] = isset($existing_entity['placement']['facing'])
           ? ((int) $existing_entity['placement']['facing'] % 6 + 6) % 6
           : 0;
@@ -1422,6 +1551,7 @@ class CampaignCharacterRuntimeSyncService {
           $room_id,
           $existing_entity['placement']['hex']
         );
+        $occupied[$room_id][$resolved_placement['q'] . ',' . $resolved_placement['r']] = TRUE;
         $existing_entity['state'] = is_array($existing_entity['state'] ?? NULL) ? $existing_entity['state'] : [];
         $existing_entity['state']['active'] = TRUE;
         $existing_entity['state']['metadata'] = $follower_metadata;
@@ -1748,7 +1878,24 @@ class CampaignCharacterRuntimeSyncService {
       if (($room_lookup !== [] && !isset($room_lookup[$key])) || isset($occupied[$key])) {
         continue;
       }
+      if (!$this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, $candidate['q'], $candidate['r'])) {
+        continue;
+      }
       return $candidate;
+    }
+
+    if ($this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, $owner_q, $owner_r)) {
+      return ['q' => $owner_q, 'r' => $owner_r];
+    }
+
+    $fallback = $this->resolveRoomHexPlacementFromSparseStorage(
+      $dungeon_payload,
+      $room_id,
+      ['q' => $owner_q, 'r' => $owner_r],
+      $occupied
+    );
+    if (is_array($fallback)) {
+      return $fallback;
     }
 
     return ['q' => $owner_q, 'r' => $owner_r];

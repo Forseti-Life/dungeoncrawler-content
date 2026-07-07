@@ -889,7 +889,7 @@ class GameCoordinatorService {
   protected function loadDungeonData(int $campaign_id, ?string $preferred_actor_id = NULL): ?array {
     try {
       $row = $this->database->select('dc_campaign_dungeons', 'd')
-        ->fields('d', ['id', 'dungeon_data'])
+        ->fields('d', ['id', 'dungeon_id', 'dungeon_data'])
         ->condition('d.campaign_id', $campaign_id)
         ->execute()
         ->fetchAssoc();
@@ -897,6 +897,9 @@ class GameCoordinatorService {
       if (!empty($row['dungeon_data'])) {
         $decoded = json_decode($row['dungeon_data'], TRUE) ?: NULL;
         if (is_array($decoded)) {
+          if (trim((string) ($decoded['dungeon_id'] ?? '')) === '') {
+            $decoded['dungeon_id'] = trim((string) ($row['dungeon_id'] ?? ''));
+          }
           if (empty($decoded['active_room_id'])) {
             $this->resolveStartupRoomId($decoded);
           }
