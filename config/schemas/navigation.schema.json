@@ -49,7 +49,7 @@
     "details": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["destination", "destination_description", "travel_type", "estimated_distance"],
+      "required": ["destination", "destination_room_id", "destination_description", "travel_type", "estimated_distance"],
       "properties": {
         "destination": {
           "type": "string",

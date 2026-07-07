@@ -3650,6 +3650,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
     $from_room = $dungeon_data['active_room_id'] ?? NULL;
     $dungeon_data['active_room_id'] = $target_room_id;
+    $dungeon_data['current_room_id'] = $target_room_id;
     $game_state['phase'] = 'encounter';
     $game_state['exploration']['previous_room'] = $from_room;
 

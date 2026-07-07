@@ -2907,6 +2907,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
     // Update active room.
     $dungeon_data['active_room_id'] = $target_room_id;
+    $dungeon_data['current_room_id'] = $target_room_id;
 
     // Move the actor entity to the destination room's entry hex.
     $entry_hex = $params['entry_hex'] ?? ['q' => 0, 'r' => 0];

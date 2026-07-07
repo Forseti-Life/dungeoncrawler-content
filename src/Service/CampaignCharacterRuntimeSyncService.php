@@ -416,12 +416,39 @@ class CampaignCharacterRuntimeSyncService {
           || ($same_room_scope && $content_id !== '' && $entity_content_id === $content_id)
           || ($same_room_scope && $record_display_name !== '' && $entity_display_name === $record_display_name)
         ) {
+          $resolved_room_id = $entity_room_id !== '' ? $entity_room_id : $active_room_id;
+          if ($resolved_room_id === '') {
+            throw new \RuntimeException(sprintf(
+              'Campaign runtime sync contract violation: NPC %d cannot resolve placement room_id.',
+              (int) ($record['id'] ?? 0)
+            ));
+          }
+          $placement = $this->resolveRoomNpcPlacement(
+            $dungeon_payload,
+            $resolved_room_id,
+            $record,
+            $occupied[$resolved_room_id] ?? []
+          );
           $entity['instance_id'] = $instance_id;
           $entity['entity_instance_id'] = $instance_id;
           if (!isset($entity['entity_ref']) || !is_array($entity['entity_ref'])) {
             $entity['entity_ref'] = [];
           }
           $entity['entity_ref']['content_id'] = $content_id;
+          if (!isset($entity['placement']) || !is_array($entity['placement'])) {
+            $entity['placement'] = [];
+          }
+          $entity['placement']['room_id'] = $resolved_room_id;
+          $entity['placement']['hex'] = $placement;
+          $entity['placement']['facing'] = isset($entity['placement']['facing'])
+            ? ((int) $entity['placement']['facing'] % 6 + 6) % 6
+            : 0;
+          $entity['placement']['h3_index_res14'] = $this->resolvePlacementH3IndexRes14(
+            $dungeon_payload,
+            $resolved_room_id,
+            $placement
+          );
+          $occupied[$resolved_room_id][$placement['q'] . ',' . $placement['r']] = TRUE;
           $entity['state']['metadata']['display_name'] = $name !== '' ? $name : ($entity['state']['metadata']['display_name'] ?? '');
           $entity['state']['metadata']['name'] = $name !== '' ? $name : ($entity['state']['metadata']['name'] ?? '');
           $entity['state']['metadata']['character_id'] = (int) ($record['id'] ?? 0);

@@ -563,10 +563,12 @@ class MapGeneratorService {
         ? (string) $navigation['template_id']
         : NULL,
       'room' => $normalized_room,
-      'entities' => array_values(array_filter(
+      'entities' => $this->normalizeNavigationEntitiesForReceipt(
         is_array($navigation['entities'] ?? NULL) ? $navigation['entities'] : [],
-        static fn($entity) => is_array($entity)
-      )),
+        $dungeon_data,
+        $room_id,
+        $entry_hex
+      ),
       'connections' => $connections,
       'navigation_capabilities' => $this->navigationService?->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id) ?? [],
       'entry_hex' => $entry_hex,
@@ -627,6 +629,7 @@ class MapGeneratorService {
       if (!is_array($room) || (string) ($room['room_id'] ?? '') !== $room_id) {
         continue;
       }
+
       foreach ((array) ($room['hexes'] ?? []) as $room_hex) {
         if (!is_array($room_hex)) {
           continue;
@@ -655,6 +658,61 @@ class MapGeneratorService {
       $q,
       $r
     ));
+  }
+
+  /**
+   * Normalize navigation receipt entities to canonical placement state.
+   *
+   * Receipt entities are destination-scoped. Each entity must carry canonical
+   * placement metadata for room, axial hex, orientation, and Res14 H3 index.
+   *
+   * @param array<int, mixed> $entities
+   *   Raw entities from navigation result payload.
+   * @param array<string, mixed> $dungeon_data
+   *   Full dungeon payload for H3 resolution.
+   * @param string $room_id
+   *   Destination room id for the navigation receipt.
+   * @param array<string, int> $entry_hex
+   *   Destination entry hex fallback.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Canonicalized destination entities.
+   */
+  protected function normalizeNavigationEntitiesForReceipt(
+    array $entities,
+    array $dungeon_data,
+    string $room_id,
+    array $entry_hex
+  ): array {
+    $normalized_entities = [];
+    foreach ($entities as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $placement = is_array($entity['placement'] ?? NULL) ? $entity['placement'] : [];
+      $placement_hex = is_array($placement['hex'] ?? NULL) ? $placement['hex'] : [];
+      $resolved_hex = [
+        'q' => (int) ($placement_hex['q'] ?? $entry_hex['q'] ?? 0),
+        'r' => (int) ($placement_hex['r'] ?? $entry_hex['r'] ?? 0),
+      ];
+      $facing = isset($placement['facing']) ? (int) $placement['facing'] : 0;
+      $facing = $facing % 6;
+      if ($facing < 0) {
+        $facing += 6;
+      }
+      $entity['placement'] = $placement;
+      $entity['placement']['room_id'] = $room_id;
+      $entity['placement']['hex'] = $resolved_hex;
+      $entity['placement']['facing'] = $facing;
+      $entity['placement']['h3_index_res14'] = $this->resolveRoomHexH3IndexRes14(
+        $dungeon_data,
+        $room_id,
+        $resolved_hex
+      );
+      $normalized_entities[] = $entity;
+    }
+
+    return $normalized_entities;
   }
 
   // =========================================================================
