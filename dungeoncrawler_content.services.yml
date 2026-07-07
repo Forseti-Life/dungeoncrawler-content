@@ -626,7 +626,7 @@ services:
 
   dungeoncrawler_content.state_validation_service:
     class: Drupal\dungeoncrawler_content\Service\StateValidationService
-    arguments: ['@logger.factory', '@database']
+    arguments: ['@logger.factory', '@database', '@?ai_conversation.ai_api_service']
 
   dungeoncrawler_content.navigation_road_graph_service:
     class: Drupal\dungeoncrawler_content\Service\NavigationRoadGraphService
@@ -672,6 +672,15 @@ services:
       - '@database'
       - '@dungeoncrawler_content.number_generation'
 
+  dungeoncrawler_content.dungeon_layout_profile_resolver:
+    class: Drupal\dungeoncrawler_content\Service\DungeonLayoutProfileResolver
+
+  dungeoncrawler_content.dungeon_anchor_placement_planner:
+    class: Drupal\dungeoncrawler_content\Service\DungeonAnchorPlacementPlanner
+
+  dungeoncrawler_content.dungeon_room_connection_planner:
+    class: Drupal\dungeoncrawler_content\Service\DungeonRoomConnectionPlanner
+
   dungeoncrawler_content.dungeon_generator:
     class: Drupal\dungeoncrawler_content\Service\DungeonGeneratorService
     arguments:
@@ -682,6 +691,9 @@ services:
       - '@dungeoncrawler_content.room_connection'
       - '@dungeoncrawler_content.encounter_balancer'
       - '@dungeoncrawler_content.number_generation'
+      - '@dungeoncrawler_content.dungeon_layout_profile_resolver'
+      - '@dungeoncrawler_content.dungeon_anchor_placement_planner'
+      - '@dungeoncrawler_content.dungeon_room_connection_planner'
 
   dungeoncrawler_content.map_generator:
     class: Drupal\dungeoncrawler_content\Service\MapGeneratorService

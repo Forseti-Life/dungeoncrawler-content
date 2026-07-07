@@ -73,6 +73,27 @@ class DungeonGeneratorService {
   protected NumberGenerationService $numberGeneration;
 
   /**
+   * Layout profile resolver.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\DungeonLayoutProfileResolver
+   */
+  protected DungeonLayoutProfileResolver $layoutProfileResolver;
+
+  /**
+   * Room-anchor placement planner.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\DungeonAnchorPlacementPlanner
+   */
+  protected DungeonAnchorPlacementPlanner $anchorPlacementPlanner;
+
+  /**
+   * Room connection planner.
+   *
+   * @var \Drupal\dungeoncrawler_content\Service\DungeonRoomConnectionPlanner
+   */
+  protected DungeonRoomConnectionPlanner $roomConnectionPlanner;
+
+  /**
    * Active deterministic RNG sequence for current generation pass.
    *
    * @var \Drupal\dungeoncrawler_content\Service\SeededRandomSequence|null
@@ -80,48 +101,6 @@ class DungeonGeneratorService {
   protected ?SeededRandomSequence $rng = NULL;
   protected const MIN_ROOM_SPACING_HEXES = 5;
   protected const MIN_ANCHOR_DISTANCE_RES14_HEXES = 200;
-  protected const PLACEMENT_ALGORITHM_VERSION = 'minimum_hex_gap_v2';
-  protected const CITY_PLACEMENT_ALGORITHM_VERSION = 'city_center_cluster_v1';
-  protected const DUNGEON_TYPE_GENERIC = 'generic';
-  protected const DUNGEON_TYPE_CITY = 'city';
-  protected const DUNGEON_TYPE_CAVERN = 'cavern';
-  protected const DUNGEON_TYPE_FORTRESS = 'fortress';
-  protected const DUNGEON_TYPE_UNDERWORLD = 'underworld';
-  protected const DUNGEON_TYPE_RUINS = 'ruins';
-  protected const DUNGEON_TYPE_OUTPOST = 'outpost';
-  protected const SUPPORTED_DUNGEON_TYPES = [
-    self::DUNGEON_TYPE_GENERIC,
-    self::DUNGEON_TYPE_CITY,
-    self::DUNGEON_TYPE_CAVERN,
-    self::DUNGEON_TYPE_FORTRESS,
-    self::DUNGEON_TYPE_UNDERWORLD,
-    self::DUNGEON_TYPE_RUINS,
-    self::DUNGEON_TYPE_OUTPOST,
-  ];
-  protected const DUNGEON_LAYOUT_ALGORITHM_BY_TYPE = [
-    self::DUNGEON_TYPE_GENERIC => self::PLACEMENT_ALGORITHM_VERSION,
-    self::DUNGEON_TYPE_CITY => self::CITY_PLACEMENT_ALGORITHM_VERSION,
-    self::DUNGEON_TYPE_CAVERN => self::PLACEMENT_ALGORITHM_VERSION,
-    self::DUNGEON_TYPE_FORTRESS => self::PLACEMENT_ALGORITHM_VERSION,
-    self::DUNGEON_TYPE_UNDERWORLD => self::PLACEMENT_ALGORITHM_VERSION,
-    self::DUNGEON_TYPE_RUINS => self::PLACEMENT_ALGORITHM_VERSION,
-    self::DUNGEON_TYPE_OUTPOST => self::PLACEMENT_ALGORITHM_VERSION,
-  ];
-  protected const DUNGEON_TYPE_BY_THEME = [
-    'urban' => self::DUNGEON_TYPE_CITY,
-    'city' => self::DUNGEON_TYPE_CITY,
-    'metropolis' => self::DUNGEON_TYPE_CITY,
-    'settlement' => self::DUNGEON_TYPE_CITY,
-    'cave' => self::DUNGEON_TYPE_CAVERN,
-    'underground' => self::DUNGEON_TYPE_CAVERN,
-    'crypt' => self::DUNGEON_TYPE_UNDERWORLD,
-    'underdark' => self::DUNGEON_TYPE_UNDERWORLD,
-    'demonic' => self::DUNGEON_TYPE_UNDERWORLD,
-    'ruins' => self::DUNGEON_TYPE_RUINS,
-    'fortress' => self::DUNGEON_TYPE_FORTRESS,
-    'outpost' => self::DUNGEON_TYPE_OUTPOST,
-    'dungeon' => self::DUNGEON_TYPE_GENERIC,
-  ];
   protected const H3_ACTIVE_RESOLUTION = 14;
   protected const AXIAL_NEIGHBOR_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
 
@@ -140,6 +119,14 @@ class DungeonGeneratorService {
    *   The room connection algorithm service.
    * @param \Drupal\dungeoncrawler_content\Service\EncounterBalancer $encounter_balancer
    *   The encounter balancer service.
+   * @param \Drupal\dungeoncrawler_content\Service\NumberGenerationService $number_generation
+   *   Number generation service.
+   * @param \Drupal\dungeoncrawler_content\Service\DungeonLayoutProfileResolver $layout_profile_resolver
+   *   Dungeon type/layout profile resolver.
+   * @param \Drupal\dungeoncrawler_content\Service\DungeonAnchorPlacementPlanner $anchor_placement_planner
+   *   Anchor placement strategy planner.
+   * @param \Drupal\dungeoncrawler_content\Service\DungeonRoomConnectionPlanner $room_connection_planner
+   *   Room connection strategy planner.
    */
   public function __construct(
     Connection $database,
@@ -147,8 +134,11 @@ class DungeonGeneratorService {
     SchemaLoader $schema_loader,
     RoomGeneratorService $room_generator,
     RoomConnectionAlgorithm $room_connector,
-      EncounterBalancer $encounter_balancer,
-      NumberGenerationService $number_generation
+    EncounterBalancer $encounter_balancer,
+    NumberGenerationService $number_generation,
+    DungeonLayoutProfileResolver $layout_profile_resolver,
+    DungeonAnchorPlacementPlanner $anchor_placement_planner,
+    DungeonRoomConnectionPlanner $room_connection_planner
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -157,6 +147,9 @@ class DungeonGeneratorService {
     $this->roomConnector = $room_connector;
     $this->encounterBalancer = $encounter_balancer;
     $this->numberGeneration = $number_generation;
+    $this->layoutProfileResolver = $layout_profile_resolver;
+    $this->anchorPlacementPlanner = $anchor_placement_planner;
+    $this->roomConnectionPlanner = $room_connection_planner;
   }
 
   /**
@@ -225,7 +218,7 @@ class DungeonGeneratorService {
       $context['location_y'],
       $context['party_level']
     );
-    $layout_profile = $this->resolveDungeonLayoutProfile($context + ['theme' => $theme]);
+    $layout_profile = $this->layoutProfileResolver->resolveProfile($context + ['theme' => $theme]);
     $context['theme'] = $theme;
     $context['dungeon_type'] = $layout_profile['dungeon_type'];
     $context['layout_algorithm'] = $layout_profile['layout_algorithm'];
@@ -351,7 +344,7 @@ class DungeonGeneratorService {
       '@depth' => $context['depth'],
       '@theme' => $context['theme'],
     ]);
-    $layout_profile = $this->resolveDungeonLayoutProfile($context);
+    $layout_profile = $this->layoutProfileResolver->resolveProfile($context);
     $context['dungeon_type'] = $layout_profile['dungeon_type'];
     $context['layout_algorithm'] = $layout_profile['layout_algorithm'];
 
@@ -608,26 +601,7 @@ class DungeonGeneratorService {
     if ($context['party_size'] < 1 || $context['party_size'] > 20) {
       throw new \InvalidArgumentException('party_size must be 1-20');
     }
-    if (array_key_exists('dungeon_type', $context) && trim((string) $context['dungeon_type']) !== '') {
-      $dungeon_type = strtolower(trim((string) $context['dungeon_type']));
-      if (!in_array($dungeon_type, self::SUPPORTED_DUNGEON_TYPES, TRUE)) {
-        throw new \InvalidArgumentException(sprintf(
-          "dungeon_type '%s' is unsupported; allowed values: %s",
-          $dungeon_type,
-          implode(', ', self::SUPPORTED_DUNGEON_TYPES)
-        ));
-      }
-    }
-    if (array_key_exists('layout_algorithm', $context) && trim((string) $context['layout_algorithm']) !== '') {
-      $layout_algorithm = trim((string) $context['layout_algorithm']);
-      if (!in_array($layout_algorithm, array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE), TRUE)) {
-        throw new \InvalidArgumentException(sprintf(
-          "layout_algorithm '%s' is unsupported; allowed values: %s",
-          $layout_algorithm,
-          implode(', ', array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE))
-        ));
-      }
-    }
+    $this->layoutProfileResolver->validateContext($context);
   }
 
   /**
@@ -698,8 +672,8 @@ class DungeonGeneratorService {
         'party_level' => $context['party_level'],
         'party_size' => $context['party_size'] ?? 4,
         'seed' => $context['seed'] ?? 0,
-        'dungeon_type' => (string) ($context['dungeon_type'] ?? self::DUNGEON_TYPE_GENERIC),
-        'layout_algorithm' => (string) ($context['layout_algorithm'] ?? self::PLACEMENT_ALGORITHM_VERSION),
+        'dungeon_type' => (string) ($context['dungeon_type'] ?? DungeonLayoutProfileResolver::DUNGEON_TYPE_GENERIC),
+        'layout_algorithm' => (string) ($context['layout_algorithm'] ?? DungeonLayoutProfileResolver::PLACEMENT_ALGORITHM_VERSION),
         'generated_at' => date('c'),
       ],
     ]);
@@ -956,201 +930,13 @@ class DungeonGeneratorService {
    *   Room connections
    */
   protected function connectRoomsInLevel(array $rooms, array $context): array {
-    $layout_profile = $this->resolveDungeonLayoutProfile($context);
-    if ($layout_profile['layout_algorithm'] === self::CITY_PLACEMENT_ALGORITHM_VERSION) {
-      return $this->connectCityRoomsInLevel($rooms);
-    }
-    $connections = [];
-
-    for ($i = 0; $i < count($rooms) - 1; $i++) {
-      $from_room = $rooms[$i];
-      $to_room = $rooms[$i + 1];
-
-      $connections[] = [
-        'from_room_id' => $from_room['room_id'],
-        'to_room_id' => $to_room['room_id'],
-        'connection_type' => 'door',
-        'edge_kind' => 'street_path',
-        'edge_direction' => 'bidirectional',
-        'traversal_cost' => 1,
-        'blocked' => FALSE,
-        'is_locked' => $this->chance(15), // 15% locked
-        'is_trapped' => $this->chance(10), // 10% trapped
-        'is_hidden' => FALSE,
-      ];
-    }
-
-    return $connections;
-  }
-
-  /**
-   * Connect rooms using concentric-wave parent chaining for city layouts.
-   */
-  protected function connectCityRoomsInLevel(array $rooms): array {
-    if (count($rooms) < 2) {
-      return [];
-    }
-    $room_records = [];
-    foreach ($rooms as $index => $room) {
-      if (!is_array($room)) {
-        continue;
-      }
-      $room_id = trim((string) ($room['room_id'] ?? ''));
-      if ($room_id === '') {
-        throw new \RuntimeException('City room connection strategy requires room_id on every room.');
-      }
-      $anchor = $this->resolveRoomAnchorCoordinate($room, $room_id);
-      $wave_index = isset($room['placement']['placement_wave_index']) && is_numeric($room['placement']['placement_wave_index'])
-        ? (int) $room['placement']['placement_wave_index']
-        : 0;
-      $priority = isset($room['placement']['anchor_priority']) && is_numeric($room['placement']['anchor_priority'])
-        ? (int) $room['placement']['anchor_priority']
-        : ($index + 1);
-      $room_records[$room_id] = [
-        'room_id' => $room_id,
-        'wave_index' => max(0, $wave_index),
-        'anchor_priority' => max(1, $priority),
-        'anchor_q' => $anchor['q'],
-        'anchor_r' => $anchor['r'],
-      ];
-    }
-    if (count($room_records) < 2) {
-      return [];
-    }
-
-    usort($room_records, static function (array $left, array $right): int {
-      $wave_cmp = ((int) ($left['wave_index'] ?? 0)) <=> ((int) ($right['wave_index'] ?? 0));
-      if ($wave_cmp !== 0) {
-        return $wave_cmp;
-      }
-      $priority_cmp = ((int) ($left['anchor_priority'] ?? 0)) <=> ((int) ($right['anchor_priority'] ?? 0));
-      if ($priority_cmp !== 0) {
-        return $priority_cmp;
-      }
-      return strcmp((string) ($left['room_id'] ?? ''), (string) ($right['room_id'] ?? ''));
-    });
-
-    $root = $room_records[0];
-    $by_room_id = [];
-    $wave_to_room_ids = [];
-    foreach ($room_records as $record) {
-      $room_id = (string) ($record['room_id'] ?? '');
-      if ($room_id === '') {
-        continue;
-      }
-      $by_room_id[$room_id] = $record;
-      $wave = (int) ($record['wave_index'] ?? 0);
-      if (!isset($wave_to_room_ids[$wave])) {
-        $wave_to_room_ids[$wave] = [];
-      }
-      $wave_to_room_ids[$wave][] = $room_id;
-    }
-
-    ksort($wave_to_room_ids, SORT_NUMERIC);
-    $connections = [];
-    $added_edges = [];
-    $connected_by_wave = [
-      0 => [(string) ($root['room_id'] ?? '')],
-    ];
-    $known_waves = array_keys($wave_to_room_ids);
-    sort($known_waves, SORT_NUMERIC);
-
-    foreach ($known_waves as $wave) {
-      if ($wave === 0) {
-        continue;
-      }
-      $current_wave_room_ids = $wave_to_room_ids[$wave] ?? [];
-      if ($current_wave_room_ids === []) {
-        continue;
-      }
-      $parent_wave_room_ids = $connected_by_wave[$wave - 1] ?? [];
-      if ($parent_wave_room_ids === []) {
-        $parent_wave_room_ids = $connected_by_wave[0] ?? [(string) ($root['room_id'] ?? '')];
-      }
-
-      foreach ($current_wave_room_ids as $room_id) {
-        $child = $by_room_id[$room_id] ?? NULL;
-        if (!is_array($child)) {
-          continue;
-        }
-        $best_parent_id = '';
-        $best_parent_distance = NULL;
-        foreach ($parent_wave_room_ids as $candidate_parent_id) {
-          $parent = $by_room_id[$candidate_parent_id] ?? NULL;
-          if (!is_array($parent)) {
-            continue;
-          }
-          $distance = $this->axialDistanceSteps(
-            (int) $child['anchor_q'],
-            (int) $child['anchor_r'],
-            (int) $parent['anchor_q'],
-            (int) $parent['anchor_r']
-          );
-          if ($best_parent_distance === NULL || $distance < $best_parent_distance) {
-            $best_parent_distance = $distance;
-            $best_parent_id = (string) $parent['room_id'];
-          }
-        }
-        if ($best_parent_id === '') {
-          throw new \RuntimeException(sprintf('City room connection strategy failed to resolve parent room for %s in wave %d.', $room_id, $wave));
-        }
-        $edge_key = $best_parent_id . '|' . $room_id;
-        if (isset($added_edges[$edge_key])) {
-          continue;
-        }
-        $added_edges[$edge_key] = TRUE;
-        $connections[] = [
-          'from_room_id' => $best_parent_id,
-          'to_room_id' => $room_id,
-          'connection_type' => 'street',
-          'edge_kind' => 'street_path',
-          'edge_direction' => 'bidirectional',
-          'traversal_cost' => max(1, (int) ($best_parent_distance ?? 1)),
-          'blocked' => FALSE,
-          'is_locked' => $this->chance(5),
-          'is_trapped' => $this->chance(3),
-          'is_hidden' => FALSE,
-        ];
-      }
-      $connected_by_wave[$wave] = $current_wave_room_ids;
-    }
-
-    return $connections;
-  }
-
-  /**
-   * Resolve one room anchor coordinate for layout/connection topology.
-   */
-  protected function resolveRoomAnchorCoordinate(array $room, string $room_id): array {
-    if (
-      is_array($room['placement'] ?? NULL)
-      && is_numeric($room['placement']['anchor_q'] ?? NULL)
-      && is_numeric($room['placement']['anchor_r'] ?? NULL)
-    ) {
-      return [
-        'q' => (int) $room['placement']['anchor_q'],
-        'r' => (int) $room['placement']['anchor_r'],
-      ];
-    }
-    if (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL)) {
-      $entry = $room['entry_points'][0];
-      if (is_numeric($entry['q'] ?? NULL) && is_numeric($entry['r'] ?? NULL)) {
-        return [
-          'q' => (int) $entry['q'],
-          'r' => (int) $entry['r'],
-        ];
-      }
-    }
-    if (is_array($room['hexes'] ?? NULL) && is_array($room['hexes'][0] ?? NULL)) {
-      $hex = $room['hexes'][0];
-      if (is_numeric($hex['q'] ?? NULL) && is_numeric($hex['r'] ?? NULL)) {
-        return [
-          'q' => (int) $hex['q'],
-          'r' => (int) $hex['r'],
-        ];
-      }
-    }
-    throw new \RuntimeException(sprintf('Unable to resolve anchor coordinate for room %s.', $room_id));
+    $layout_profile = $this->layoutProfileResolver->resolveProfile($context);
+    return $this->roomConnectionPlanner->connectRoomsInLevel(
+      $rooms,
+      $layout_profile,
+      fn(int $percentage): bool => $this->chance($percentage),
+      fn(int $q1, int $r1, int $q2, int $r2): int => $this->axialDistanceSteps($q1, $r1, $q2, $r2)
+    );
   }
 
   /**
@@ -1167,388 +953,16 @@ class DungeonGeneratorService {
    *   Room anchor metadata for hex_map export.
    */
   protected function applyMinimumRoomSpacing(array &$rooms, int $minimum_gap_hexes, array $context): array {
-    $layout_profile = $this->resolveDungeonLayoutProfile($context);
-    if ($layout_profile['layout_algorithm'] === self::CITY_PLACEMENT_ALGORITHM_VERSION) {
-      return $this->applyCityCenteredRoomSpacing($rooms, $minimum_gap_hexes, $context, $layout_profile);
-    }
-    return $this->applyLinearRoomSpacing($rooms, $minimum_gap_hexes, $context, $layout_profile);
-  }
-
-  /**
-   * Resolve the generation layout profile from context/theme.
-   *
-   * @param array $context
-   *   Generation context.
-   *
-   * @return array{dungeon_type:string,layout_algorithm:string}
-   *   Canonical layout profile.
-   */
-  protected function resolveDungeonLayoutProfile(array $context): array {
-    $requested_dungeon_type = strtolower(trim((string) ($context['dungeon_type'] ?? '')));
-    if ($requested_dungeon_type === '') {
-      $theme_key = strtolower(trim((string) ($context['theme'] ?? '')));
-      $requested_dungeon_type = self::DUNGEON_TYPE_BY_THEME[$theme_key] ?? self::DUNGEON_TYPE_GENERIC;
-    }
-    if (!in_array($requested_dungeon_type, self::SUPPORTED_DUNGEON_TYPES, TRUE)) {
-      throw new \InvalidArgumentException(sprintf(
-        "Unsupported dungeon_type '%s'. Allowed values: %s",
-        $requested_dungeon_type,
-        implode(', ', self::SUPPORTED_DUNGEON_TYPES)
-      ));
-    }
-    $layout_algorithm = trim((string) ($context['layout_algorithm'] ?? ''));
-    if ($layout_algorithm === '') {
-      $layout_algorithm = self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE[$requested_dungeon_type] ?? self::PLACEMENT_ALGORITHM_VERSION;
-    }
-    if (!in_array($layout_algorithm, array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE), TRUE)) {
-      throw new \InvalidArgumentException(sprintf(
-        "Unsupported layout_algorithm '%s'. Allowed values: %s",
-        $layout_algorithm,
-        implode(', ', array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE))
-      ));
-    }
-    return [
-      'dungeon_type' => $requested_dungeon_type,
-      'layout_algorithm' => $layout_algorithm,
-    ];
-  }
-
-  /**
-   * Default deterministic linear placement strategy.
-   */
-  protected function applyLinearRoomSpacing(array &$rooms, int $minimum_gap_hexes, array $context, array $layout_profile): array {
-    if ($rooms === []) {
-      return [];
-    }
-
-    $anchors = [];
-    $cursor_q = 0;
-    $cursor_r = 0;
-
-    $placement_seed = isset($context['seed']) ? (int) $context['seed'] : 0;
-    $placed_anchor_points = [];
-    $layout_algorithm = (string) ($layout_profile['layout_algorithm'] ?? self::PLACEMENT_ALGORITHM_VERSION);
-    $dungeon_type = (string) ($layout_profile['dungeon_type'] ?? self::DUNGEON_TYPE_GENERIC);
-
-    foreach ($rooms as $index => &$room) {
-      $room_id = trim((string) ($room['room_id'] ?? ''));
-      if ($room_id === '') {
-        throw new \RuntimeException('Dungeon level generation produced a room without room_id.');
-      }
-
-      $bounds = $this->calculateRoomBounds($room);
-      $target_min_q = $cursor_q;
-      $target_min_r = $cursor_r;
-      $entry_point = (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL))
-        ? $room['entry_points'][0]
-        : NULL;
-      $offset_q = 0;
-      $offset_r = 0;
-      $anchor_q = 0;
-      $anchor_r = 0;
-      $shifted_bounds = [];
-      $anchor_guard = 0;
-      while (TRUE) {
-        $anchor_guard++;
-        if ($anchor_guard > 8192) {
-          throw new \RuntimeException(sprintf('Failed to place room %s while enforcing minimum anchor spacing.', $room_id));
-        }
-        $offset_q = $target_min_q - $bounds['min_q'];
-        $offset_r = $target_min_r - $bounds['min_r'];
-        $shifted_bounds = [
-          'min_q' => $bounds['min_q'] + $offset_q,
-          'max_q' => $bounds['max_q'] + $offset_q,
-          'min_r' => $bounds['min_r'] + $offset_r,
-          'max_r' => $bounds['max_r'] + $offset_r,
-        ];
-        $anchor_q = is_array($entry_point) && is_numeric($entry_point['q'] ?? NULL)
-          ? (int) $entry_point['q'] + $offset_q
-          : $shifted_bounds['min_q'];
-        $anchor_r = is_array($entry_point) && is_numeric($entry_point['r'] ?? NULL)
-          ? (int) $entry_point['r'] + $offset_r
-          : $shifted_bounds['min_r'];
-
-        $nearest_anchor_distance = NULL;
-        foreach ($placed_anchor_points as $placed_anchor) {
-          if (!is_array($placed_anchor)) {
-            continue;
-          }
-          $distance = $this->axialDistanceSteps(
-            $anchor_q,
-            $anchor_r,
-            (int) ($placed_anchor['q'] ?? 0),
-            (int) ($placed_anchor['r'] ?? 0)
-          );
-          $nearest_anchor_distance = $nearest_anchor_distance === NULL
-            ? $distance
-            : min($nearest_anchor_distance, $distance);
-        }
-        if ($nearest_anchor_distance === NULL || $nearest_anchor_distance >= self::MIN_ANCHOR_DISTANCE_RES14_HEXES) {
-          break;
-        }
-
-        $target_min_q += max(1, self::MIN_ANCHOR_DISTANCE_RES14_HEXES - $nearest_anchor_distance);
-      }
-
-      if ($offset_q !== 0 || $offset_r !== 0) {
-        $room = $this->offsetRoomCoordinates($room, $offset_q, $offset_r);
-      }
-
-      $wave_index = intdiv((int) $index, 6);
-
-      $placement_attempt_id = substr(sha1(implode('|', [
-        (string) $placement_seed,
-        (string) ($context['campaign_id'] ?? 0),
-        (string) ($context['depth'] ?? 0),
-        $room_id,
-        (string) $wave_index,
-      ])), 0, 20);
-
-      $room['placement'] = [
-        'anchor_q' => $anchor_q,
-        'anchor_r' => $anchor_r,
-        'offset_q' => $offset_q,
-        'offset_r' => $offset_r,
-        'minimum_gap_hexes' => $minimum_gap_hexes,
-        'anchor_type' => $index === 0 ? 'fixed' : 'derived',
-        'anchor_priority' => $index + 1,
-        'placement_wave_index' => $wave_index,
-        'placement_seed' => $placement_seed,
-        'algorithm_version' => $layout_algorithm,
-        'dungeon_type' => $dungeon_type,
-        'layout_algorithm' => $layout_algorithm,
-        'placement_attempt_id' => $placement_attempt_id,
-        'buffer_ring_size' => $minimum_gap_hexes,
-        'minimum_anchor_distance_hexes' => self::MIN_ANCHOR_DISTANCE_RES14_HEXES,
-        'frontage_required' => TRUE,
-        'ingress_hex_ids' => [$anchor_q . ':' . $anchor_r],
-      ];
-
-      $anchors[] = [
-        'room_id' => $room_id,
-        'anchor_q' => $anchor_q,
-        'anchor_r' => $anchor_r,
-        'min_q' => $shifted_bounds['min_q'],
-        'max_q' => $shifted_bounds['max_q'],
-        'min_r' => $shifted_bounds['min_r'],
-        'max_r' => $shifted_bounds['max_r'],
-        'anchor_type' => $index === 0 ? 'fixed' : 'derived',
-        'anchor_priority' => $index + 1,
-        'placement_wave_index' => $wave_index,
-        'placement_seed' => $placement_seed,
-        'algorithm_version' => $layout_algorithm,
-        'dungeon_type' => $dungeon_type,
-        'layout_algorithm' => $layout_algorithm,
-        'buffer_ring_size' => $minimum_gap_hexes,
-        'minimum_anchor_distance_hexes' => self::MIN_ANCHOR_DISTANCE_RES14_HEXES,
-        'frontage_required' => TRUE,
-        'ingress_hex_ids' => [$anchor_q . ':' . $anchor_r],
-      ];
-      $placed_anchor_points[] = [
-        'room_id' => $room_id,
-        'q' => $anchor_q,
-        'r' => $anchor_r,
-      ];
-      $cursor_q = (int) $shifted_bounds['max_q'] + $minimum_gap_hexes + 1;
-    }
-    unset($room);
-
-    return $anchors;
-  }
-
-  /**
-   * City layout strategy: centered clustered anchors in deterministic hex rings.
-   */
-  protected function applyCityCenteredRoomSpacing(array &$rooms, int $minimum_gap_hexes, array $context, array $layout_profile): array {
-    if ($rooms === []) {
-      return [];
-    }
-
-    $anchors = [];
-    $placement_seed = isset($context['seed']) ? (int) $context['seed'] : 0;
-    $placed_anchor_points = [];
-    $layout_algorithm = (string) ($layout_profile['layout_algorithm'] ?? self::CITY_PLACEMENT_ALGORITHM_VERSION);
-    $dungeon_type = (string) ($layout_profile['dungeon_type'] ?? self::DUNGEON_TYPE_CITY);
-    $city_anchor_targets = $this->buildCityClusterAnchorTargets(count($rooms), self::MIN_ANCHOR_DISTANCE_RES14_HEXES);
-
-    foreach ($rooms as $index => &$room) {
-      $room_id = trim((string) ($room['room_id'] ?? ''));
-      if ($room_id === '') {
-        throw new \RuntimeException('Dungeon level generation produced a room without room_id.');
-      }
-      $anchor_target = $city_anchor_targets[$index] ?? NULL;
-      if (!is_array($anchor_target)) {
-        throw new \RuntimeException(sprintf('City placement target missing for room %s at index %d.', $room_id, $index));
-      }
-
-      $bounds = $this->calculateRoomBounds($room);
-      $entry_point = (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL))
-        ? $room['entry_points'][0]
-        : NULL;
-      $entry_local_q = is_array($entry_point) && is_numeric($entry_point['q'] ?? NULL)
-        ? (int) $entry_point['q']
-        : $bounds['min_q'];
-      $entry_local_r = is_array($entry_point) && is_numeric($entry_point['r'] ?? NULL)
-        ? (int) $entry_point['r']
-        : $bounds['min_r'];
-
-      $anchor_q = (int) ($anchor_target['q'] ?? 0);
-      $anchor_r = (int) ($anchor_target['r'] ?? 0);
-      $offset_q = $anchor_q - $entry_local_q;
-      $offset_r = $anchor_r - $entry_local_r;
-
-      if ($offset_q !== 0 || $offset_r !== 0) {
-        $room = $this->offsetRoomCoordinates($room, $offset_q, $offset_r);
-      }
-
-      $shifted_bounds = [
-        'min_q' => $bounds['min_q'] + $offset_q,
-        'max_q' => $bounds['max_q'] + $offset_q,
-        'min_r' => $bounds['min_r'] + $offset_r,
-        'max_r' => $bounds['max_r'] + $offset_r,
-      ];
-
-      $nearest_anchor_distance = NULL;
-      foreach ($placed_anchor_points as $placed_anchor) {
-        if (!is_array($placed_anchor)) {
-          continue;
-        }
-        $distance = $this->axialDistanceSteps(
-          $anchor_q,
-          $anchor_r,
-          (int) ($placed_anchor['q'] ?? 0),
-          (int) ($placed_anchor['r'] ?? 0)
-        );
-        $nearest_anchor_distance = $nearest_anchor_distance === NULL
-          ? $distance
-          : min($nearest_anchor_distance, $distance);
-      }
-      if ($nearest_anchor_distance !== NULL && $nearest_anchor_distance < self::MIN_ANCHOR_DISTANCE_RES14_HEXES) {
-        throw new \RuntimeException(sprintf(
-          'City placement contract violation for room %s: nearest anchor distance %d is below required %d.',
-          $room_id,
-          $nearest_anchor_distance,
-          self::MIN_ANCHOR_DISTANCE_RES14_HEXES
-        ));
-      }
-
-      $wave_index = (int) round(
-        $this->axialDistanceSteps(0, 0, $anchor_q, $anchor_r) / max(1, self::MIN_ANCHOR_DISTANCE_RES14_HEXES)
-      );
-      $placement_attempt_id = substr(sha1(implode('|', [
-        (string) $placement_seed,
-        (string) ($context['campaign_id'] ?? 0),
-        (string) ($context['depth'] ?? 0),
-        $room_id,
-        (string) $wave_index,
-      ])), 0, 20);
-
-      $room['placement'] = [
-        'anchor_q' => $anchor_q,
-        'anchor_r' => $anchor_r,
-        'offset_q' => $offset_q,
-        'offset_r' => $offset_r,
-        'minimum_gap_hexes' => $minimum_gap_hexes,
-        'anchor_type' => $index === 0 ? 'fixed' : 'derived',
-        'anchor_priority' => $index + 1,
-        'placement_wave_index' => $wave_index,
-        'placement_seed' => $placement_seed,
-        'algorithm_version' => $layout_algorithm,
-        'dungeon_type' => $dungeon_type,
-        'layout_algorithm' => $layout_algorithm,
-        'placement_attempt_id' => $placement_attempt_id,
-        'buffer_ring_size' => $minimum_gap_hexes,
-        'minimum_anchor_distance_hexes' => self::MIN_ANCHOR_DISTANCE_RES14_HEXES,
-        'frontage_required' => TRUE,
-        'ingress_hex_ids' => [$anchor_q . ':' . $anchor_r],
-      ];
-
-      $anchors[] = [
-        'room_id' => $room_id,
-        'anchor_q' => $anchor_q,
-        'anchor_r' => $anchor_r,
-        'min_q' => $shifted_bounds['min_q'],
-        'max_q' => $shifted_bounds['max_q'],
-        'min_r' => $shifted_bounds['min_r'],
-        'max_r' => $shifted_bounds['max_r'],
-        'anchor_type' => $index === 0 ? 'fixed' : 'derived',
-        'anchor_priority' => $index + 1,
-        'placement_wave_index' => $wave_index,
-        'placement_seed' => $placement_seed,
-        'algorithm_version' => $layout_algorithm,
-        'dungeon_type' => $dungeon_type,
-        'layout_algorithm' => $layout_algorithm,
-        'buffer_ring_size' => $minimum_gap_hexes,
-        'minimum_anchor_distance_hexes' => self::MIN_ANCHOR_DISTANCE_RES14_HEXES,
-        'frontage_required' => TRUE,
-        'ingress_hex_ids' => [$anchor_q . ':' . $anchor_r],
-      ];
-      $placed_anchor_points[] = [
-        'room_id' => $room_id,
-        'q' => $anchor_q,
-        'r' => $anchor_r,
-      ];
-    }
-    unset($room);
-
-    return $anchors;
-  }
-
-  /**
-   * Build city-cluster anchor targets ordered by concentric hex rings.
-   */
-  protected function buildCityClusterAnchorTargets(int $room_count, int $anchor_step): array {
-    if ($room_count < 1) {
-      return [];
-    }
-    if ($anchor_step < 1) {
-      throw new \InvalidArgumentException('anchor_step must be >= 1 for city cluster anchor generation.');
-    }
-    $targets = [
-      ['q' => 0, 'r' => 0],
-    ];
-    $radius = 1;
-    while (count($targets) < $room_count) {
-      if ($radius > 2048) {
-        throw new \RuntimeException('City cluster anchor generation exceeded ring radius guardrail.');
-      }
-      $ring_coordinates = $this->buildHexRingUnitCoordinates($radius);
-      foreach ($ring_coordinates as $coordinate) {
-        if (!is_array($coordinate)) {
-          continue;
-        }
-        $targets[] = [
-          'q' => (int) ($coordinate['q'] ?? 0) * $anchor_step,
-          'r' => (int) ($coordinate['r'] ?? 0) * $anchor_step,
-        ];
-        if (count($targets) >= $room_count) {
-          break;
-        }
-      }
-      $radius++;
-    }
-    return array_slice($targets, 0, $room_count);
-  }
-
-  /**
-   * Build one hex-ring of unit axial coordinates around origin.
-   */
-  protected function buildHexRingUnitCoordinates(int $radius): array {
-    if ($radius < 1) {
-      return [['q' => 0, 'r' => 0]];
-    }
-    $directions = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-    $coordinates = [];
-    $q = -$radius;
-    $r = $radius;
-    foreach ($directions as $direction) {
-      for ($step = 0; $step < $radius; $step++) {
-        $coordinates[] = ['q' => $q, 'r' => $r];
-        $q += (int) $direction[0];
-        $r += (int) $direction[1];
-      }
-    }
-    return $coordinates;
+    $layout_profile = $this->layoutProfileResolver->resolveProfile($context);
+    return $this->anchorPlacementPlanner->applyMinimumRoomSpacing(
+      $rooms,
+      $minimum_gap_hexes,
+      $context,
+      $layout_profile,
+      fn(array $room): array => $this->calculateRoomBounds($room),
+      fn(array $room, int $offset_q, int $offset_r): array => $this->offsetRoomCoordinates($room, $offset_q, $offset_r),
+      fn(int $q1, int $r1, int $q2, int $r2): int => $this->axialDistanceSteps($q1, $r1, $q2, $r2)
+    );
   }
 
   /**
@@ -2309,8 +1723,8 @@ class DungeonGeneratorService {
             'anchor_priority' => 1,
             'placement_wave_index' => 0,
             'placement_seed' => 0,
-            'algorithm_version' => self::PLACEMENT_ALGORITHM_VERSION,
-            'dungeon_type' => self::DUNGEON_TYPE_GENERIC,
+            'algorithm_version' => DungeonLayoutProfileResolver::PLACEMENT_ALGORITHM_VERSION,
+            'dungeon_type' => DungeonLayoutProfileResolver::DUNGEON_TYPE_GENERIC,
             'buffer_ring_size' => self::MIN_ROOM_SPACING_HEXES,
           ];
         }
@@ -2336,8 +1750,8 @@ class DungeonGeneratorService {
           'anchor_priority' => is_numeric($room_anchor['anchor_priority'] ?? NULL) ? (int) $room_anchor['anchor_priority'] : 1,
           'placement_wave_index' => is_numeric($room_anchor['placement_wave_index'] ?? NULL) ? (int) $room_anchor['placement_wave_index'] : 0,
           'placement_seed' => is_numeric($room_anchor['placement_seed'] ?? NULL) ? (int) $room_anchor['placement_seed'] : 0,
-          'algorithm_version' => trim((string) ($room_anchor['algorithm_version'] ?? '')) ?: self::PLACEMENT_ALGORITHM_VERSION,
-          'dungeon_type' => trim((string) ($room_anchor['dungeon_type'] ?? '')) ?: self::DUNGEON_TYPE_GENERIC,
+          'algorithm_version' => trim((string) ($room_anchor['algorithm_version'] ?? '')) ?: DungeonLayoutProfileResolver::PLACEMENT_ALGORITHM_VERSION,
+          'dungeon_type' => trim((string) ($room_anchor['dungeon_type'] ?? '')) ?: DungeonLayoutProfileResolver::DUNGEON_TYPE_GENERIC,
           'buffer_ring_size' => is_numeric($room_anchor['buffer_ring_size'] ?? NULL) ? max(1, (int) $room_anchor['buffer_ring_size']) : self::MIN_ROOM_SPACING_HEXES,
         ];
       }
@@ -2375,8 +1789,8 @@ class DungeonGeneratorService {
       }
       $anchor_h3_by_room[(string) $room_id] = $h3_index;
       $entry = $room_entry_by_room[$room_id] ?? ['q' => $reference_q, 'r' => $reference_r];
-      $layout_algorithm = trim((string) ($anchor['algorithm_version'] ?? '')) ?: self::PLACEMENT_ALGORITHM_VERSION;
-      $dungeon_type = trim((string) ($anchor['dungeon_type'] ?? '')) ?: self::DUNGEON_TYPE_GENERIC;
+      $layout_algorithm = trim((string) ($anchor['algorithm_version'] ?? '')) ?: DungeonLayoutProfileResolver::PLACEMENT_ALGORITHM_VERSION;
+      $dungeon_type = trim((string) ($anchor['dungeon_type'] ?? '')) ?: DungeonLayoutProfileResolver::DUNGEON_TYPE_GENERIC;
       $metadata = [
         'status' => 'h3_index_assigned',
         'h3_index_source' => 'libh3',
@@ -2395,7 +1809,7 @@ class DungeonGeneratorService {
         'anchor_priority' => (int) ($anchor['anchor_priority'] ?? 1),
         'placement_wave_index' => (int) ($anchor['placement_wave_index'] ?? 0),
         'placement_seed' => (int) ($anchor['placement_seed'] ?? 0),
-        'algorithm_version' => (string) ($anchor['algorithm_version'] ?? self::PLACEMENT_ALGORITHM_VERSION),
+        'algorithm_version' => (string) ($anchor['algorithm_version'] ?? DungeonLayoutProfileResolver::PLACEMENT_ALGORITHM_VERSION),
         'buffer_ring_size' => (int) ($anchor['buffer_ring_size'] ?? self::MIN_ROOM_SPACING_HEXES),
         'level_id' => (string) ($anchor['level_id'] ?? ''),
       ];
@@ -2443,8 +1857,8 @@ class DungeonGeneratorService {
           throw new \RuntimeException(sprintf('H3 system-of-record contract violation: room %s in %s has no hexes for sparse cell persistence.', $room_id, $level_id));
         }
         $room_anchor_metadata = is_array($room_anchor_by_room[$room_id] ?? NULL) ? $room_anchor_by_room[$room_id] : [];
-        $layout_algorithm = trim((string) ($room_anchor_metadata['algorithm_version'] ?? '')) ?: self::PLACEMENT_ALGORITHM_VERSION;
-        $dungeon_type = trim((string) ($room_anchor_metadata['dungeon_type'] ?? '')) ?: self::DUNGEON_TYPE_GENERIC;
+        $layout_algorithm = trim((string) ($room_anchor_metadata['algorithm_version'] ?? '')) ?: DungeonLayoutProfileResolver::PLACEMENT_ALGORITHM_VERSION;
+        $dungeon_type = trim((string) ($room_anchor_metadata['dungeon_type'] ?? '')) ?: DungeonLayoutProfileResolver::DUNGEON_TYPE_GENERIC;
 
         foreach ($hexes as $hex_index => $hex) {
           if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
