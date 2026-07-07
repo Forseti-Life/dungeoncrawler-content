@@ -47,6 +47,10 @@
     lineWidth: 1,
     showCoordinates: false,
   };
+  // Simplification switch: keep one deterministic renderer path for analysis.
+  const USE_ANALYSIS_V2_RENDERER = false;
+  // Simplification switch: use topology placement for map display readability.
+  const USE_SPARSE_GLOBAL_PLACEMENT_FOR_DISPLAY = false;
 
   function escapeLabel(value) {
     return String(value || '')
@@ -573,6 +577,9 @@
   }
 
   function hasV2AnalysisRenderer() {
+    if (!USE_ANALYSIS_V2_RENDERER) {
+      return false;
+    }
     return Boolean(
       window.DCAnalysisV2Bridge
       && typeof window.DCAnalysisV2Bridge.createRenderer === 'function'
@@ -1167,25 +1174,9 @@
     });
 
     const anchorRoomId = findSafetyMapAnchor(nodes);
-    const placementsFromSparseH3 = buildPlacementsFromSparseH3(nodes, anchorRoomId);
-    const placements = placementsFromSparseH3.size > 0
-      ? placementsFromSparseH3
+    const placements = USE_SPARSE_GLOBAL_PLACEMENT_FOR_DISPLAY
+      ? buildPlacementsFromSparseH3(nodes, anchorRoomId)
       : placeRoomsForSafetyMap(graph, anchorRoomId);
-    if (placementsFromSparseH3.size > 0) {
-      const occupied = new Set();
-      placements.forEach((coord) => {
-        occupied.add(coordinateKey(coord.q, coord.r));
-      });
-      nodes.forEach((node) => {
-        const roomId = toRoomId(node);
-        if (!roomId || placements.has(roomId)) {
-          return;
-        }
-        const coord = findFirstOpenCoordinate(occupied);
-        placements.set(roomId, coord);
-        occupied.add(coordinateKey(coord.q, coord.r));
-      });
-    }
 
     const roomPlans = new Map();
     let maxRoomRadius = 0;
@@ -1232,9 +1223,7 @@
       roomPlans.set(roomId, { node, normalizedCells });
     });
 
-    const roomStride = placementsFromSparseH3.size > 0
-      ? 1
-      : Math.max(8, (maxRoomRadius * 2) + 6);
+    const roomStride = Math.max(8, (maxRoomRadius * 2) + 6);
     const occupiedGlobalCells = new Set();
     const roomCenters = new Map();
     const roomAssignedCells = new Map();
@@ -1252,9 +1241,7 @@
         plan.normalizedCells.forEach((cell, index) => {
           const targetQ = centerQ + Math.round(Number(cell.q || 0));
           const targetR = centerR + Math.round(Number(cell.r || 0));
-          const resolved = placementsFromSparseH3.size > 0
-            ? { q: targetQ, r: targetR, displaced: false }
-            : findNearestOpenCoordinate(targetQ, targetR, occupiedGlobalCells);
+          const resolved = findNearestOpenCoordinate(targetQ, targetR, occupiedGlobalCells);
           const resolvedKey = coordinateKey(resolved.q, resolved.r);
           if (occupiedGlobalCells.has(resolvedKey)) {
             throw new Error(`Safety map hex collision detected for room ${roomId} at ${resolvedKey}.`);
