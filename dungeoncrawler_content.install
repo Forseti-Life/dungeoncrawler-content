@@ -21502,8 +21502,55 @@ function dungeoncrawler_content_update_10143() {
     throw new \RuntimeException('Canonical room table contains no rows; cannot normalize sparse metadata contracts.');
   }
 
+  $dungeon_rows = $database->select('dungeoncrawler_content_dungeons', 'd')
+    ->fields('d', ['dungeon_id', 'dungeon_data'])
+    ->condition('d.dungeon_id', 'tpl\\_%', 'LIKE')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  if (!is_array($dungeon_rows) || $dungeon_rows === []) {
+    throw new \RuntimeException('Canonical dungeon table contains no template rows; cannot normalize sparse metadata contracts.');
+  }
+  $dungeon_room_membership = [];
+  foreach ($dungeon_rows as $dungeon_row) {
+    if (!is_array($dungeon_row)) {
+      continue;
+    }
+    $dungeon_id = trim((string) ($dungeon_row['dungeon_id'] ?? ''));
+    if ($dungeon_id === '') {
+      continue;
+    }
+    $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? ''), TRUE);
+    if (!is_array($dungeon_data)) {
+      throw new \RuntimeException(sprintf('Dungeon %s has invalid dungeon_data JSON.', $dungeon_id));
+    }
+    $raw_rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    if ($raw_rooms === []) {
+      throw new \RuntimeException(sprintf('Dungeon %s must define non-empty dungeon_data.rooms.', $dungeon_id));
+    }
+    $membership = [];
+    foreach ($raw_rooms as $room_entry) {
+      $room_id = '';
+      if (is_string($room_entry)) {
+        $room_id = trim($room_entry);
+      }
+      elseif (is_array($room_entry)) {
+        $room_id = trim((string) ($room_entry['room_id'] ?? ''));
+      }
+      if ($room_id === '') {
+        continue;
+      }
+      $membership[$room_id] = TRUE;
+    }
+    if ($membership === []) {
+      throw new \RuntimeException(sprintf('Dungeon %s has no valid room ids in dungeon_data.rooms.', $dungeon_id));
+    }
+    $dungeon_room_membership[$dungeon_id] = $membership;
+  }
+
   $anchor_rows = $database->select('dungeoncrawler_content_h3_room_anchors', 'a')
     ->fields('a', ['id', 'dungeon_id', 'room_id', 'h3_resolution', 'h3_index', 'reference_q', 'reference_r', 'center_latitude', 'center_longitude', 'metadata'])
+    ->condition('a.dungeon_id', 'tpl\\_%', 'LIKE')
+    ->condition('a.h3_resolution', $target_resolution)
     ->orderBy('a.id', 'ASC')
     ->execute()
     ->fetchAll(\PDO::FETCH_ASSOC);
@@ -21513,6 +21560,7 @@ function dungeoncrawler_content_update_10143() {
 
   $cell_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
     ->fields('c', ['id', 'dungeon_id', 'room_id', 'cell_role', 'h3_resolution', 'h3_index', 'source_q', 'source_r', 'center_latitude', 'center_longitude', 'metadata'])
+    ->condition('c.dungeon_id', 'tpl\\_%', 'LIKE')
     ->condition('c.h3_resolution', $target_resolution)
     ->orderBy('c.id', 'ASC')
     ->execute()
@@ -21538,16 +21586,136 @@ function dungeoncrawler_content_update_10143() {
     $cells_by_scope[$scope_key][] = $cell_row;
   }
 
+  $invalid_scope_reasons = [];
+  foreach ($anchor_rows as $anchor_row) {
+    if (!is_array($anchor_row)) {
+      continue;
+    }
+    $dungeon_id = trim((string) ($anchor_row['dungeon_id'] ?? ''));
+    $room_id = trim((string) ($anchor_row['room_id'] ?? ''));
+    if ($dungeon_id === '' || $room_id === '') {
+      continue;
+    }
+    $scope_key = $dungeon_id . '|' . $room_id;
+    if (!isset($dungeon_room_membership[$dungeon_id])) {
+      $invalid_scope_reasons[$scope_key] = sprintf('Template dungeon %s is missing from canonical membership map.', $dungeon_id);
+      continue;
+    }
+    if (!isset($room_rows[$room_id])) {
+      $invalid_scope_reasons[$scope_key] = sprintf('Sparse scope %s references room_id not present in canonical room table.', $scope_key);
+      continue;
+    }
+    if (!isset($dungeon_room_membership[$dungeon_id][$room_id])) {
+      $invalid_scope_reasons[$scope_key] = sprintf('Sparse scope %s references a room not present in dungeon_data.rooms.', $scope_key);
+      continue;
+    }
+  }
+  foreach ($cell_rows as $cell_row) {
+    if (!is_array($cell_row)) {
+      continue;
+    }
+    $dungeon_id = trim((string) ($cell_row['dungeon_id'] ?? ''));
+    $room_id = trim((string) ($cell_row['room_id'] ?? ''));
+    if ($dungeon_id === '' || $room_id === '') {
+      continue;
+    }
+    $scope_key = $dungeon_id . '|' . $room_id;
+    if (isset($invalid_scope_reasons[$scope_key])) {
+      continue;
+    }
+    if (!isset($dungeon_room_membership[$dungeon_id])) {
+      $invalid_scope_reasons[$scope_key] = sprintf('Template dungeon %s is missing from canonical membership map.', $dungeon_id);
+      continue;
+    }
+    if (!isset($room_rows[$room_id])) {
+      $invalid_scope_reasons[$scope_key] = sprintf('Sparse scope %s references room_id not present in canonical room table.', $scope_key);
+      continue;
+    }
+    if (!isset($dungeon_room_membership[$dungeon_id][$room_id])) {
+      $invalid_scope_reasons[$scope_key] = sprintf('Sparse scope %s references a room not present in dungeon_data.rooms.', $scope_key);
+      continue;
+    }
+  }
+
   $room_layout_cache = [];
   $room_entry_cache = [];
   $anchor_context_by_scope = [];
 
   $transaction = $database->startTransaction();
   try {
+    $pruned_anchor_rows = 0;
+    $pruned_cell_rows = 0;
+    $deduped_duplicate_cells = 0;
+    $pruned_orphan_cells = 0;
     $anchors_updated = 0;
     $anchors_with_assigned_index = 0;
     $cells_updated = 0;
     $cells_with_assigned_index = 0;
+    $duplicate_cell_ids_to_delete = [];
+    $orphan_cell_ids_to_delete = [];
+
+    if ($invalid_scope_reasons !== []) {
+      $valid_anchor_rows = [];
+      foreach ($anchor_rows as $anchor_row) {
+        if (!is_array($anchor_row)) {
+          continue;
+        }
+        $dungeon_id = trim((string) ($anchor_row['dungeon_id'] ?? ''));
+        $room_id = trim((string) ($anchor_row['room_id'] ?? ''));
+        $scope_key = $dungeon_id . '|' . $room_id;
+        if (isset($invalid_scope_reasons[$scope_key])) {
+          $anchor_id = isset($anchor_row['id']) ? (int) $anchor_row['id'] : 0;
+          if ($anchor_id > 0) {
+            $database->delete('dungeoncrawler_content_h3_room_anchors')
+              ->condition('id', $anchor_id)
+              ->execute();
+            $pruned_anchor_rows++;
+          }
+          continue;
+        }
+        $valid_anchor_rows[] = $anchor_row;
+      }
+      $anchor_rows = $valid_anchor_rows;
+
+      $valid_cell_rows = [];
+      foreach ($cell_rows as $cell_row) {
+        if (!is_array($cell_row)) {
+          continue;
+        }
+        $dungeon_id = trim((string) ($cell_row['dungeon_id'] ?? ''));
+        $room_id = trim((string) ($cell_row['room_id'] ?? ''));
+        $scope_key = $dungeon_id . '|' . $room_id;
+        if (isset($invalid_scope_reasons[$scope_key])) {
+          $cell_id = isset($cell_row['id']) ? (int) $cell_row['id'] : 0;
+          if ($cell_id > 0) {
+            $database->delete('dungeoncrawler_content_h3_room_cells')
+              ->condition('id', $cell_id)
+              ->execute();
+            $pruned_cell_rows++;
+          }
+          continue;
+        }
+        $valid_cell_rows[] = $cell_row;
+      }
+      $cell_rows = $valid_cell_rows;
+    }
+
+    $cells_by_scope = [];
+    foreach ($cell_rows as $cell_row) {
+      if (!is_array($cell_row)) {
+        continue;
+      }
+      $dungeon_id = trim((string) ($cell_row['dungeon_id'] ?? ''));
+      $room_id = trim((string) ($cell_row['room_id'] ?? ''));
+      if ($dungeon_id === '' || $room_id === '') {
+        continue;
+      }
+      $scope_key = $dungeon_id . '|' . $room_id;
+      if (!isset($cells_by_scope[$scope_key])) {
+        $cells_by_scope[$scope_key] = [];
+      }
+      $cells_by_scope[$scope_key][] = $cell_row;
+    }
 
     foreach ($anchor_rows as $anchor_row) {
       if (!is_array($anchor_row)) {
@@ -21565,9 +21733,6 @@ function dungeoncrawler_content_update_10143() {
         continue;
       }
 
-      if (!isset($room_rows[$room_id])) {
-        throw new \RuntimeException(sprintf('Sparse anchor room %s is missing from canonical room table.', $room_id));
-      }
       if (!isset($room_layout_cache[$room_id])) {
         $layout_data = json_decode((string) ($room_rows[$room_id]['layout_data'] ?? ''), TRUE);
         if (!is_array($layout_data)) {
@@ -21704,7 +21869,8 @@ function dungeoncrawler_content_update_10143() {
       $scope_key = $dungeon_id . '|' . $room_id;
       $anchor_context = is_array($anchor_context_by_scope[$scope_key] ?? NULL) ? $anchor_context_by_scope[$scope_key] : NULL;
       if ($anchor_context === NULL) {
-        throw new \RuntimeException(sprintf('Sparse cell #%d (%s/%s) has no updated anchor context for Res14 normalization.', $cell_id, $dungeon_id, $room_id));
+        $orphan_cell_ids_to_delete[] = $cell_id;
+        continue;
       }
 
       if (!isset($room_layout_cache[$room_id])) {
@@ -21769,7 +21935,28 @@ function dungeoncrawler_content_update_10143() {
       $dedupe_scope_key = $dungeon_id . '|' . $target_resolution;
       $dedupe_index_key = $dedupe_scope_key . '|' . $cell_h3_index;
       if (isset($cell_h3_scope_map[$dedupe_index_key]) && (int) $cell_h3_scope_map[$dedupe_index_key] !== $cell_id) {
-        throw new \RuntimeException(sprintf("Res14 sparse h3_index collision in scope %s for index '%s' between cell ids %d and %d.", $dedupe_scope_key, $cell_h3_index, (int) $cell_h3_scope_map[$dedupe_index_key], $cell_id));
+        $existing_cell_id = (int) $cell_h3_scope_map[$dedupe_index_key];
+        $existing_cell = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+          ->fields('c', ['room_id'])
+          ->condition('id', $existing_cell_id)
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc();
+        $existing_room_id = trim((string) ($existing_cell['room_id'] ?? ''));
+        if ($existing_room_id !== '' && $existing_room_id !== $room_id) {
+          throw new \RuntimeException(sprintf(
+            "Res14 sparse h3_index collision in scope %s for index '%s' between room ids %s (cell id %d) and %s (cell id %d).",
+            $dedupe_scope_key,
+            $cell_h3_index,
+            $existing_room_id,
+            $existing_cell_id,
+            $room_id,
+            $cell_id
+          ));
+        }
+        $duplicate_cell_ids_to_delete[] = $cell_id;
+        $deduped_duplicate_cells++;
+        continue;
       }
       $cell_h3_scope_map[$dedupe_index_key] = $cell_id;
 
@@ -21784,13 +21971,31 @@ function dungeoncrawler_content_update_10143() {
       $cells_updated++;
     }
 
+    if ($orphan_cell_ids_to_delete !== []) {
+      $orphan_ids = array_values(array_unique(array_map('intval', $orphan_cell_ids_to_delete)));
+      $database->delete('dungeoncrawler_content_h3_room_cells')
+        ->condition('id', $orphan_ids, 'IN')
+        ->execute();
+      $pruned_orphan_cells += count($orphan_ids);
+    }
+    if ($duplicate_cell_ids_to_delete !== []) {
+      $duplicate_ids = array_values(array_unique(array_map('intval', $duplicate_cell_ids_to_delete)));
+      $database->delete('dungeoncrawler_content_h3_room_cells')
+        ->condition('id', $duplicate_ids, 'IN')
+        ->execute();
+      $pruned_cell_rows += count($duplicate_ids);
+    }
+
     return t(
-      'Normalized Res14 sparse mapping contracts: updated @anchors anchors (@anchor_indexes indexes assigned) and @cells cells (@cell_indexes indexes assigned).',
+      'Normalized Res14 sparse mapping contracts: updated @anchors anchors (@anchor_indexes indexes assigned), updated @cells cells (@cell_indexes indexes assigned), pruned @pruned_anchors invalid anchors, pruned @pruned_cells invalid/duplicate cells, and pruned @orphan_cells orphan cells.',
       [
         '@anchors' => (string) $anchors_updated,
         '@anchor_indexes' => (string) $anchors_with_assigned_index,
         '@cells' => (string) $cells_updated,
         '@cell_indexes' => (string) $cells_with_assigned_index,
+        '@pruned_anchors' => (string) $pruned_anchor_rows,
+        '@pruned_cells' => (string) $pruned_cell_rows,
+        '@orphan_cells' => (string) $pruned_orphan_cells,
       ]
     );
   }
@@ -22100,12 +22305,14 @@ function dungeoncrawler_content_update_10146() {
 
   $anchor_rows = $database->select('dungeoncrawler_content_h3_room_anchors', 'a')
     ->fields('a', ['id', 'dungeon_id', 'room_id', 'h3_resolution', 'center_latitude', 'center_longitude', 'metadata'])
+    ->condition('a.dungeon_id', 'tpl\\_%', 'LIKE')
     ->condition('a.h3_resolution', $target_resolution)
     ->orderBy('a.id', 'ASC')
     ->execute()
     ->fetchAll(\PDO::FETCH_ASSOC);
   $cell_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
     ->fields('c', ['id', 'dungeon_id', 'room_id', 'h3_resolution', 'center_latitude', 'center_longitude', 'metadata'])
+    ->condition('c.dungeon_id', 'tpl\\_%', 'LIKE')
     ->condition('c.h3_resolution', $target_resolution)
     ->orderBy('c.id', 'ASC')
     ->execute()
@@ -23050,6 +23257,82 @@ function dungeoncrawler_content_update_10149() {
     }
     throw $e;
   }
+}
+
+/**
+ * Remove duplicate canonical Res14 room_hex rows that share dungeon/room/h3.
+ */
+function dungeoncrawler_content_update_10150() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $target_resolution = 14;
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_h3_room_cells')) {
+    throw new \RuntimeException('Required table dungeoncrawler_content_h3_room_cells is missing for Res14 canonical deduplication.');
+  }
+
+  $rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+    ->fields('c', ['id', 'dungeon_id', 'room_id', 'h3_index'])
+    ->condition('c.dungeon_id', 'tpl\\_%', 'LIKE')
+    ->condition('c.h3_resolution', $target_resolution)
+    ->condition('c.cell_role', 'room_hex')
+    ->orderBy('c.id', 'ASC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  if (!is_array($rows) || $rows === []) {
+    throw new \RuntimeException(sprintf('No canonical tpl_* Res%d room_hex rows found for deduplication.', $target_resolution));
+  }
+
+  $seen_room_h3 = [];
+  $owner_by_dungeon_h3 = [];
+  $duplicate_ids = [];
+  foreach ($rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $id = isset($row['id']) ? (int) $row['id'] : 0;
+    $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
+    $room_id = trim((string) ($row['room_id'] ?? ''));
+    $h3_index = strtolower(trim((string) ($row['h3_index'] ?? '')));
+    if ($id <= 0 || $dungeon_id === '' || $room_id === '') {
+      throw new \RuntimeException('Canonical Res14 sparse room_hex row is missing required id/dungeon_id/room_id values.');
+    }
+    if ($h3_index === '') {
+      throw new \RuntimeException(sprintf('Canonical Res14 sparse room_hex row id %d (%s/%s) is missing h3_index.', $id, $dungeon_id, $room_id));
+    }
+
+    $owner_key = $dungeon_id . '|' . $target_resolution . '|' . $h3_index;
+    if (isset($owner_by_dungeon_h3[$owner_key]) && $owner_by_dungeon_h3[$owner_key] !== $room_id) {
+      throw new \RuntimeException(sprintf(
+        "Canonical Res14 sparse collision in scope %s for h3 '%s' between rooms %s and %s.",
+        $dungeon_id . '|' . $target_resolution,
+        $h3_index,
+        $owner_by_dungeon_h3[$owner_key],
+        $room_id
+      ));
+    }
+    $owner_by_dungeon_h3[$owner_key] = $room_id;
+
+    $room_key = $dungeon_id . '|' . $room_id . '|' . $target_resolution . '|' . $h3_index;
+    if (isset($seen_room_h3[$room_key])) {
+      $duplicate_ids[] = $id;
+      continue;
+    }
+    $seen_room_h3[$room_key] = $id;
+  }
+
+  if ($duplicate_ids !== []) {
+    $database->delete('dungeoncrawler_content_h3_room_cells')
+      ->condition('id', array_values(array_unique(array_map('intval', $duplicate_ids))), 'IN')
+      ->execute();
+  }
+
+  return t(
+    'Canonical Res14 sparse deduplication removed @duplicates duplicate room_hex rows.',
+    [
+      '@duplicates' => (string) count(array_unique(array_map('intval', $duplicate_ids))),
+    ]
+  );
 }
 
 /**
