@@ -7,6 +7,8 @@
   let safetyMapV2Renderer = null;
   let roomExplorerV2Renderer = null;
   let manualGranularityLevel = null;
+  const SAFETY_MAP_READABLE_ZOOM_FLOOR = 0.35;
+  const ROOM_EXPLORER_READABLE_ZOOM_FLOOR = 0.6;
 
   const MIN_GRANULARITY = 5;
   const MAX_GRANULARITY = 15;
@@ -1538,8 +1540,8 @@
     safetyMapPanZoomInstance = window.svgPanZoom(svg, {
       zoomEnabled: true,
       controlIconsEnabled: false,
-      fit: false,
-      center: false,
+      fit: true,
+      center: true,
       minZoom: 0.2,
       maxZoom: 20,
       zoomScaleSensitivity: 0.2,
@@ -1550,8 +1552,11 @@
         updateSafetyMapZoomReadout(safetyMapZoomLevelEl);
       },
     });
-    // Start in readable local view; "Fit" remains available as an explicit action.
-    safetyMapPanZoomInstance.resetZoom();
+    // Keep full-extent fit available while preventing microscopic startup scale.
+    const initialZoom = Number(safetyMapPanZoomInstance.getZoom());
+    if (Number.isFinite(initialZoom) && initialZoom < SAFETY_MAP_READABLE_ZOOM_FLOOR) {
+      safetyMapPanZoomInstance.zoom(SAFETY_MAP_READABLE_ZOOM_FLOOR);
+    }
     safetyMapPanZoomInstance.center();
     updateSafetyMapZoomReadout(safetyMapZoomLevelEl);
     appendDebug(debugEl, 'safetymap: initialized');
@@ -1601,6 +1606,9 @@
         return true;
       case 'reset':
         safetyMapPanZoomInstance.resetZoom();
+        if (Number(safetyMapPanZoomInstance.getZoom()) < SAFETY_MAP_READABLE_ZOOM_FLOOR) {
+          safetyMapPanZoomInstance.zoom(SAFETY_MAP_READABLE_ZOOM_FLOOR);
+        }
         safetyMapPanZoomInstance.center();
         updateSafetyMapZoomReadout(safetyMapZoomLevelEl);
         return true;
@@ -1725,8 +1733,8 @@
     roomExplorerPanZoomInstance = window.svgPanZoom(svg, {
       zoomEnabled: true,
       controlIconsEnabled: false,
-      fit: false,
-      center: false,
+      fit: true,
+      center: true,
       minZoom: 0.2,
       maxZoom: 20,
       zoomScaleSensitivity: 0.2,
@@ -1737,8 +1745,11 @@
         updateRoomExplorerZoomReadout(roomExplorerZoomLevelEl);
       },
     });
-    // Start in readable local view; "Fit" remains available as an explicit action.
-    roomExplorerPanZoomInstance.resetZoom();
+    // Keep fit behavior, but avoid unreadably tiny startup scale.
+    const initialZoom = Number(roomExplorerPanZoomInstance.getZoom());
+    if (Number.isFinite(initialZoom) && initialZoom < ROOM_EXPLORER_READABLE_ZOOM_FLOOR) {
+      roomExplorerPanZoomInstance.zoom(ROOM_EXPLORER_READABLE_ZOOM_FLOOR);
+    }
     roomExplorerPanZoomInstance.center();
     updateRoomExplorerZoomReadout(roomExplorerZoomLevelEl);
     appendDebug(debugEl, 'room-explorer: initialized');
@@ -1788,6 +1799,9 @@
         return true;
       case 'reset':
         roomExplorerPanZoomInstance.resetZoom();
+        if (Number(roomExplorerPanZoomInstance.getZoom()) < ROOM_EXPLORER_READABLE_ZOOM_FLOOR) {
+          roomExplorerPanZoomInstance.zoom(ROOM_EXPLORER_READABLE_ZOOM_FLOOR);
+        }
         roomExplorerPanZoomInstance.center();
         updateRoomExplorerZoomReadout(roomExplorerZoomLevelEl);
         return true;
