@@ -1538,8 +1538,8 @@
     safetyMapPanZoomInstance = window.svgPanZoom(svg, {
       zoomEnabled: true,
       controlIconsEnabled: false,
-      fit: true,
-      center: true,
+      fit: false,
+      center: false,
       minZoom: 0.2,
       maxZoom: 20,
       zoomScaleSensitivity: 0.2,
@@ -1550,7 +1550,8 @@
         updateSafetyMapZoomReadout(safetyMapZoomLevelEl);
       },
     });
-    safetyMapPanZoomInstance.fit();
+    // Start in readable local view; "Fit" remains available as an explicit action.
+    safetyMapPanZoomInstance.resetZoom();
     safetyMapPanZoomInstance.center();
     updateSafetyMapZoomReadout(safetyMapZoomLevelEl);
     appendDebug(debugEl, 'safetymap: initialized');
@@ -1643,7 +1644,10 @@
     if (hasV2AnalysisRenderer()) {
       if (!safetyMapV2Renderer) {
         safetyMapEl.innerHTML = '';
-        safetyMapV2Renderer = window.DCAnalysisV2Bridge.createRenderer(safetyMapEl);
+        safetyMapV2Renderer = window.DCAnalysisV2Bridge.createRenderer(safetyMapEl, {
+          // Avoid microscopic initial fit for whole-dungeon sparse extents.
+          initialFitZoomFloor: 0.08,
+        });
       }
       safetyMapV2Renderer.renderRoom(rendered.canvasRoom);
       bindV2RendererHover(
@@ -1721,8 +1725,8 @@
     roomExplorerPanZoomInstance = window.svgPanZoom(svg, {
       zoomEnabled: true,
       controlIconsEnabled: false,
-      fit: true,
-      center: true,
+      fit: false,
+      center: false,
       minZoom: 0.2,
       maxZoom: 20,
       zoomScaleSensitivity: 0.2,
@@ -1733,7 +1737,8 @@
         updateRoomExplorerZoomReadout(roomExplorerZoomLevelEl);
       },
     });
-    roomExplorerPanZoomInstance.fit();
+    // Start in readable local view; "Fit" remains available as an explicit action.
+    roomExplorerPanZoomInstance.resetZoom();
     roomExplorerPanZoomInstance.center();
     updateRoomExplorerZoomReadout(roomExplorerZoomLevelEl);
     appendDebug(debugEl, 'room-explorer: initialized');
@@ -1830,7 +1835,10 @@
     if (hasV2AnalysisRenderer()) {
       if (!roomExplorerV2Renderer) {
         roomExplorerEl.innerHTML = '';
-        roomExplorerV2Renderer = window.DCAnalysisV2Bridge.createRenderer(roomExplorerEl);
+        roomExplorerV2Renderer = window.DCAnalysisV2Bridge.createRenderer(roomExplorerEl, {
+          // Single-room view can start closer while preserving fit controls.
+          initialFitZoomFloor: 0.18,
+        });
       }
       roomExplorerV2Renderer.renderRoom(rendered.canvasRoom);
       bindV2RendererHover(

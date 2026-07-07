@@ -2,8 +2,9 @@ import { GameEventBus } from './v2/GameEventBus.js';
 import { HexCanvas } from './v2/canvas/HexCanvas.js';
 
 class DungeonAnalysisHexCanvasBridge {
-  constructor(container) {
+  constructor(container, options = {}) {
     this.container = container;
+    this.options = options && typeof options === 'object' ? options : {};
     this.bus = new GameEventBus();
     this.canvas = new HexCanvas(container, this.bus, {
       hexSize: 22,
@@ -50,7 +51,8 @@ class DungeonAnalysisHexCanvasBridge {
       roomId: this.currentRoomId,
       room: normalizedRoom,
     });
-    this.fit();
+    const initialFitZoomFloor = Number(this.options.initialFitZoomFloor);
+    this.fit(Number.isFinite(initialFitZoomFloor) ? initialFitZoomFloor : null);
   }
 
   zoomIn() {
@@ -61,7 +63,7 @@ class DungeonAnalysisHexCanvasBridge {
     this.scaleBy(1 / 1.16);
   }
 
-  fit() {
+  fit(minScaleFloor = null) {
     if (!this.canvas || !this.canvas.app) {
       return;
     }
@@ -98,7 +100,10 @@ class DungeonAnalysisHexCanvasBridge {
     const fitScale = Math.min(viewportWidth / worldWidth, viewportHeight / worldHeight);
     const minZoom = Number(this.canvas.config?.minZoom ?? 0.001);
     const maxZoom = Number(this.canvas.config?.maxZoom ?? 20);
-    const scale = Math.max(minZoom, Math.min(maxZoom, fitScale));
+    const floor = Number.isFinite(Number(minScaleFloor))
+      ? Math.max(minZoom, Number(minScaleFloor))
+      : minZoom;
+    const scale = Math.max(minZoom, Math.min(maxZoom, Math.max(fitScale, floor)));
 
     const worldCenterX = (minX + maxX) / 2;
     const worldCenterY = (minY + maxY) / 2;
@@ -216,7 +221,7 @@ class DungeonAnalysisHexCanvasBridge {
 }
 
 window.DCAnalysisV2Bridge = {
-  createRenderer(container) {
-    return new DungeonAnalysisHexCanvasBridge(container);
+  createRenderer(container, options = {}) {
+    return new DungeonAnalysisHexCanvasBridge(container, options);
   },
 };
