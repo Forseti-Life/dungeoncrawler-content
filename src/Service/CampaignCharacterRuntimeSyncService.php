@@ -1243,6 +1243,7 @@ class CampaignCharacterRuntimeSyncService {
     $room_hexes = $this->getRoomHexes($dungeon_payload, $room_id);
     $q = (int) ($placement['q'] ?? 0);
     $r = (int) ($placement['r'] ?? 0);
+    $matched_hex = FALSE;
     foreach ($room_hexes as $hex) {
       if (!is_array($hex)) {
         continue;
@@ -1250,25 +1251,58 @@ class CampaignCharacterRuntimeSyncService {
       if ((int) ($hex['q'] ?? 0) !== $q || (int) ($hex['r'] ?? 0) !== $r) {
         continue;
       }
+      $matched_hex = TRUE;
       $h3_index = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
-      if ($h3_index === '') {
-        throw new \RuntimeException(sprintf(
-          'Campaign runtime sync contract violation: room %s hex (%d,%d) missing h3_index_res14.',
-          $room_id,
-          $q,
-          $r
-        ));
+      if ($h3_index !== '') {
+        return strtolower($h3_index);
       }
+    }
 
-      return strtolower($h3_index);
+    $sparse_h3_index = $this->resolvePlacementH3IndexRes14FromSparseStorage($dungeon_payload, $room_id, $q, $r);
+    if ($sparse_h3_index !== '') {
+      return $sparse_h3_index;
+    }
+
+    if ($matched_hex) {
+      throw new \RuntimeException(sprintf(
+        'Campaign runtime sync contract violation: room %s hex (%d,%d) missing h3_index_res14 in payload and sparse storage.',
+        $room_id,
+        $q,
+        $r
+      ));
     }
 
     throw new \RuntimeException(sprintf(
-      'Campaign runtime sync contract violation: room %s missing placement hex (%d,%d).',
+      'Campaign runtime sync contract violation: room %s missing placement hex (%d,%d) in payload and sparse storage.',
       $room_id,
       $q,
       $r
     ));
+  }
+
+  /**
+   * Resolve Res14 H3 index from canonical sparse storage by room/source hex.
+   */
+  protected function resolvePlacementH3IndexRes14FromSparseStorage(array $dungeon_payload, string $room_id, int $q, int $r): string {
+    $dungeon_id = trim((string) ($dungeon_payload['dungeon_id'] ?? ''));
+    if ($dungeon_id === '' || $room_id === '') {
+      return '';
+    }
+
+    $h3_index = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['h3_index'])
+      ->condition('c.dungeon_id', $dungeon_id)
+      ->condition('c.room_id', $room_id)
+      ->condition('c.h3_resolution', 14)
+      ->condition('c.source_q', $q)
+      ->condition('c.source_r', $r)
+      ->condition('c.cell_role', 'room_hex')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    $normalized = strtolower(trim((string) $h3_index));
+    return $normalized !== '' ? $normalized : '';
   }
 
   /**
