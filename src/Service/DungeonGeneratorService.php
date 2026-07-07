@@ -78,6 +78,8 @@ class DungeonGeneratorService {
    */
   protected ?SeededRandomSequence $rng = NULL;
   protected const MIN_ROOM_SPACING_HEXES = 5;
+  protected const PLACEMENT_ALGORITHM_VERSION = 'minimum_hex_gap_v2';
+  protected const AXIAL_NEIGHBOR_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
 
   /**
    * Constructs a DungeonGeneratorService object.
@@ -211,6 +213,7 @@ class DungeonGeneratorService {
         $all_connections[] = $conn;
       }
     }
+    $topology_payload = $this->buildDungeonTopologyPayload($levels, $all_connections);
 
     $first_level = $levels[0] ?? [];
     $dungeon_id = sprintf('dungeon_%d_%d_%d',
@@ -231,10 +234,18 @@ class DungeonGeneratorService {
       'hex_map' => [
         'map_id' => $dungeon_id,
         'connections' => $all_connections,
+        'placement_surface' => $topology_payload['placement_surface'],
+        'placement_surfaces_by_level' => $topology_payload['placement_surfaces_by_level'],
       ],
       'rooms' => $all_rooms,
       'entities' => $all_entities,
       'object_definitions' => [],
+      'room_road_anchors' => $topology_payload['room_road_anchors'],
+      'road_anchors' => $topology_payload['room_road_anchors'],
+      'road_graph' => [
+        'edges' => $topology_payload['road_edges'],
+      ],
+      'road_edges' => $topology_payload['road_edges'],
       'levels' => $levels,
       'generation_context' => [
         'party_level' => $context['party_level'],
@@ -311,10 +322,11 @@ class DungeonGeneratorService {
       $rooms[] = $room;
     }
 
-    $room_anchors = $this->applyMinimumRoomSpacing($rooms, self::MIN_ROOM_SPACING_HEXES);
+    $room_anchors = $this->applyMinimumRoomSpacing($rooms, self::MIN_ROOM_SPACING_HEXES, $context);
 
     // Step 3: Connect rooms (basic linear for now, Delaunay later)
     $connections = $this->connectRoomsInLevel($rooms, $context);
+    $placement_surface = $this->buildPlacementSurface($rooms, $room_anchors, $connections, self::MIN_ROOM_SPACING_HEXES);
 
     // Step 4: Build level structure
     $level_data = [
@@ -329,6 +341,7 @@ class DungeonGeneratorService {
       'hex_map' => [
         'room_anchors' => $room_anchors,
         'minimum_room_spacing_hexes' => self::MIN_ROOM_SPACING_HEXES,
+        'placement_surface' => $placement_surface,
       ],
       'rooms' => $rooms,
       'connections' => $connections,
@@ -573,6 +586,7 @@ class DungeonGeneratorService {
         $all_connections[] = $conn;
       }
     }
+    $topology_payload = $this->buildDungeonTopologyPayload($levels, $all_connections);
 
     $first_level = $levels[0] ?? [];
     $dungeon_data = json_encode([
@@ -581,10 +595,18 @@ class DungeonGeneratorService {
       'hex_map' => [
         'map_id' => $dungeon_id,
         'connections' => $all_connections,
+        'placement_surface' => $topology_payload['placement_surface'],
+        'placement_surfaces_by_level' => $topology_payload['placement_surfaces_by_level'],
       ],
       'rooms' => $all_rooms,
       'entities' => $all_entities,
       'object_definitions' => [],
+      'room_road_anchors' => $topology_payload['room_road_anchors'],
+      'road_anchors' => $topology_payload['room_road_anchors'],
+      'road_graph' => [
+        'edges' => $topology_payload['road_edges'],
+      ],
+      'road_edges' => $topology_payload['road_edges'],
       'generation_context' => [
         'party_level' => $context['party_level'],
         'party_size' => $context['party_size'] ?? 4,
@@ -854,6 +876,10 @@ class DungeonGeneratorService {
         'from_room_id' => $from_room['room_id'],
         'to_room_id' => $to_room['room_id'],
         'connection_type' => 'door',
+        'edge_kind' => 'street_path',
+        'edge_direction' => 'bidirectional',
+        'traversal_cost' => 1,
+        'blocked' => FALSE,
         'is_locked' => $this->chance(15), // 15% locked
         'is_trapped' => $this->chance(10), // 10% trapped
         'is_hidden' => FALSE,
@@ -870,11 +896,13 @@ class DungeonGeneratorService {
    *   Room payloads generated for one level (modified in place).
    * @param int $minimum_gap_hexes
    *   Minimum required inter-room gap measured in empty hexes.
+   * @param array $context
+   *   Generation context used for deterministic metadata.
    *
-   * @return array<int, array<string, int|string>>
+   * @return array<int, array<string, mixed>>
    *   Room anchor metadata for hex_map export.
    */
-  protected function applyMinimumRoomSpacing(array &$rooms, int $minimum_gap_hexes): array {
+  protected function applyMinimumRoomSpacing(array &$rooms, int $minimum_gap_hexes, array $context): array {
     if ($rooms === []) {
       return [];
     }
@@ -884,6 +912,9 @@ class DungeonGeneratorService {
     $cursor_r = 0;
     $current_row_height = 0;
     $row_wrap_width = 220;
+
+    $placement_seed = isset($context['seed']) ? (int) $context['seed'] : 0;
+    $wave_index = 0;
 
     foreach ($rooms as $index => &$room) {
       $room_id = trim((string) ($room['room_id'] ?? ''));
@@ -899,6 +930,7 @@ class DungeonGeneratorService {
         $cursor_q = 0;
         $cursor_r += $current_row_height + $minimum_gap_hexes;
         $current_row_height = 0;
+        $wave_index++;
       }
 
       $target_min_q = $cursor_q;
@@ -927,12 +959,29 @@ class DungeonGeneratorService {
         ? (int) $entry_point['r']
         : $shifted_bounds['min_r'];
 
+      $placement_attempt_id = substr(sha1(implode('|', [
+        (string) $placement_seed,
+        (string) ($context['campaign_id'] ?? 0),
+        (string) ($context['depth'] ?? 0),
+        $room_id,
+        (string) $wave_index,
+      ])), 0, 20);
+
       $room['placement'] = [
         'anchor_q' => $anchor_q,
         'anchor_r' => $anchor_r,
         'offset_q' => $offset_q,
         'offset_r' => $offset_r,
         'minimum_gap_hexes' => $minimum_gap_hexes,
+        'anchor_type' => $index === 0 ? 'fixed' : 'derived',
+        'anchor_priority' => $index + 1,
+        'placement_wave_index' => $wave_index,
+        'placement_seed' => $placement_seed,
+        'algorithm_version' => self::PLACEMENT_ALGORITHM_VERSION,
+        'placement_attempt_id' => $placement_attempt_id,
+        'buffer_ring_size' => $minimum_gap_hexes,
+        'frontage_required' => TRUE,
+        'ingress_hex_ids' => [$anchor_q . ':' . $anchor_r],
       ];
 
       $anchors[] = [
@@ -943,6 +992,14 @@ class DungeonGeneratorService {
         'max_q' => $shifted_bounds['max_q'],
         'min_r' => $shifted_bounds['min_r'],
         'max_r' => $shifted_bounds['max_r'],
+        'anchor_type' => $index === 0 ? 'fixed' : 'derived',
+        'anchor_priority' => $index + 1,
+        'placement_wave_index' => $wave_index,
+        'placement_seed' => $placement_seed,
+        'algorithm_version' => self::PLACEMENT_ALGORITHM_VERSION,
+        'buffer_ring_size' => $minimum_gap_hexes,
+        'frontage_required' => TRUE,
+        'ingress_hex_ids' => [$anchor_q . ':' . $anchor_r],
       ];
 
       $cursor_q += $room_width + $minimum_gap_hexes;
@@ -951,6 +1008,471 @@ class DungeonGeneratorService {
     unset($room);
 
     return $anchors;
+  }
+
+  /**
+   * Build one explicit placement surface with room/street/buffer reservations.
+   *
+   * @param array $rooms
+   *   Generated rooms with normalized placement coordinates.
+   * @param array $room_anchors
+   *   Anchor metadata emitted by applyMinimumRoomSpacing().
+   * @param array $connections
+   *   Connection edges generated for this level.
+   * @param int $minimum_gap_hexes
+   *   Required empty-gap size around room footprints.
+   *
+   * @return array<string, mixed>
+   *   Placement-surface payload including cell roles and street graph.
+   */
+  protected function buildPlacementSurface(array &$rooms, array $room_anchors, array $connections, int $minimum_gap_hexes): array {
+    $room_anchor_by_room = [];
+    foreach ($room_anchors as $room_anchor) {
+      if (!is_array($room_anchor)) {
+        continue;
+      }
+      $room_id = trim((string) ($room_anchor['room_id'] ?? ''));
+      if ($room_id !== '') {
+        $room_anchor_by_room[$room_id] = $room_anchor;
+      }
+    }
+
+    $room_cells_by_room = [];
+    $room_cell_owner_by_key = [];
+    $room_ingress_by_room = [];
+    foreach ($rooms as &$room) {
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        throw new \RuntimeException('Placement surface generation requires room_id for each room.');
+      }
+
+      $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+      if ($hexes === []) {
+        throw new \RuntimeException(sprintf('Placement surface generation requires non-empty hexes for room %s.', $room_id));
+      }
+
+      foreach ($hexes as $hex_index => $hex) {
+        if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+          throw new \RuntimeException(sprintf('Room %s hexes[%d] must include numeric q/r coordinates for placement surface.', $room_id, $hex_index));
+        }
+        $q = (int) $hex['q'];
+        $r = (int) $hex['r'];
+        $hex_key = $q . ':' . $r;
+        $existing_room_id = trim((string) ($room_cell_owner_by_key[$hex_key] ?? ''));
+        if ($existing_room_id !== '' && $existing_room_id !== $room_id) {
+          throw new \RuntimeException(sprintf("Room footprint conflict detected at %s between rooms '%s' and '%s'.", $hex_key, $existing_room_id, $room_id));
+        }
+        $room_cell_owner_by_key[$hex_key] = $room_id;
+        if (!isset($room_cells_by_room[$room_id])) {
+          $room_cells_by_room[$room_id] = [];
+        }
+        $room_cells_by_room[$room_id][$hex_key] = ['q' => $q, 'r' => $r];
+      }
+
+      $ingress_point = NULL;
+      $ingress_keys = is_array($room['placement']['ingress_hex_ids'] ?? NULL) ? $room['placement']['ingress_hex_ids'] : [];
+      if ($ingress_keys !== []) {
+        $candidate_key = trim((string) $ingress_keys[0]);
+        $parsed = $this->parseCoordinateKey($candidate_key);
+        if (is_array($parsed) && isset($room_cells_by_room[$room_id][$candidate_key])) {
+          $ingress_point = $parsed;
+        }
+      }
+      if ($ingress_point === NULL) {
+        $anchor = is_array($room_anchor_by_room[$room_id] ?? NULL) ? $room_anchor_by_room[$room_id] : NULL;
+        if (
+          $anchor !== NULL
+          && is_numeric($anchor['anchor_q'] ?? NULL)
+          && is_numeric($anchor['anchor_r'] ?? NULL)
+        ) {
+          $candidate_key = (int) $anchor['anchor_q'] . ':' . (int) $anchor['anchor_r'];
+          if (isset($room_cells_by_room[$room_id][$candidate_key])) {
+            $ingress_point = ['q' => (int) $anchor['anchor_q'], 'r' => (int) $anchor['anchor_r']];
+          }
+        }
+      }
+      if ($ingress_point === NULL) {
+        throw new \RuntimeException(sprintf('Placement surface requires one in-footprint ingress coordinate for room %s.', $room_id));
+      }
+      $room_ingress_by_room[$room_id] = [
+        'q' => (int) $ingress_point['q'],
+        'r' => (int) $ingress_point['r'],
+      ];
+    }
+    unset($room);
+
+    $street_segments = [];
+    $street_cells = [];
+    foreach ($connections as $index => $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($connection['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($connection['to_room_id'] ?? ''));
+      if ($from_room_id === '' || $to_room_id === '') {
+        throw new \RuntimeException('Placement surface street generation requires from_room_id/to_room_id on each connection.');
+      }
+      if (!isset($room_ingress_by_room[$from_room_id]) || !isset($room_ingress_by_room[$to_room_id])) {
+        throw new \RuntimeException(sprintf("Placement surface street generation missing ingress metadata for connection '%s' -> '%s'.", $from_room_id, $to_room_id));
+      }
+
+      $from_ingress = $room_ingress_by_room[$from_room_id];
+      $to_ingress = $room_ingress_by_room[$to_room_id];
+      $path = $this->buildAxialPath($from_ingress['q'], $from_ingress['r'], $to_ingress['q'], $to_ingress['r']);
+      if (count($path) < 2) {
+        throw new \RuntimeException(sprintf("Street segment path for '%s' -> '%s' must contain at least two nodes.", $from_room_id, $to_room_id));
+      }
+
+      $segment_id = 'street_' . strtolower(substr(sha1($from_room_id . '|' . $to_room_id . '|' . (string) $index), 0, 16));
+      foreach ($path as $path_index => $node) {
+        if (!is_array($node)) {
+          continue;
+        }
+        $q = isset($node['q']) ? (int) $node['q'] : 0;
+        $r = isset($node['r']) ? (int) $node['r'] : 0;
+        $node_key = $q . ':' . $r;
+        $owner_room_id = trim((string) ($room_cell_owner_by_key[$node_key] ?? ''));
+        if (
+          $owner_room_id !== ''
+          && $owner_room_id !== $from_room_id
+          && $owner_room_id !== $to_room_id
+        ) {
+          throw new \RuntimeException(sprintf("Street segment '%s' intersects unrelated room footprint '%s' at %s.", $segment_id, $owner_room_id, $node_key));
+        }
+        if (!isset($street_cells[$node_key])) {
+          $street_cells[$node_key] = ['q' => $q, 'r' => $r, 'segments' => []];
+        }
+        $street_cells[$node_key]['segments'][$segment_id] = TRUE;
+      }
+
+      $edge_direction = strtolower(trim((string) ($connection['edge_direction'] ?? 'bidirectional')));
+      if (!in_array($edge_direction, ['one_way', 'bidirectional'], TRUE)) {
+        $edge_direction = 'bidirectional';
+      }
+      $street_segments[] = [
+        'segment_id' => $segment_id,
+        'from_room_id' => $from_room_id,
+        'to_room_id' => $to_room_id,
+        'edge_kind' => trim((string) ($connection['edge_kind'] ?? 'street_path')) !== '' ? trim((string) ($connection['edge_kind'] ?? 'street_path')) : 'street_path',
+        'edge_direction' => $edge_direction,
+        'street_class' => 'primary',
+        'traversal_cost' => max(1, count($path) - 1),
+        'blocked' => !empty($connection['blocked']),
+        'path' => $path,
+      ];
+    }
+
+    $intersection_by_key = [];
+    $intersection_index = 1;
+    foreach ($street_cells as $street_key => $street_cell) {
+      if (!is_array($street_cell)) {
+        continue;
+      }
+      $segment_count = count((array) ($street_cell['segments'] ?? []));
+      if ($segment_count > 1) {
+        $intersection_by_key[$street_key] = [
+          'intersection_id' => 'intersection_' . $intersection_index,
+          'q' => (int) ($street_cell['q'] ?? 0),
+          'r' => (int) ($street_cell['r'] ?? 0),
+          'segment_ids' => array_keys((array) ($street_cell['segments'] ?? [])),
+        ];
+        $intersection_index++;
+      }
+    }
+
+    $street_or_intersection_by_key = [];
+    foreach ($street_cells as $street_key => $_street_cell) {
+      $street_or_intersection_by_key[$street_key] = TRUE;
+    }
+
+    $buffer_reserved = [];
+    $expansion_reserved = [];
+    foreach ($room_cells_by_room as $room_id => $room_cells) {
+      foreach ($room_cells as $room_cell) {
+        if (!is_array($room_cell)) {
+          continue;
+        }
+        $center_q = isset($room_cell['q']) ? (int) $room_cell['q'] : 0;
+        $center_r = isset($room_cell['r']) ? (int) $room_cell['r'] : 0;
+
+        for ($delta_q = -$minimum_gap_hexes; $delta_q <= $minimum_gap_hexes; $delta_q++) {
+          for ($delta_r = -$minimum_gap_hexes; $delta_r <= $minimum_gap_hexes; $delta_r++) {
+            $q = $center_q + $delta_q;
+            $r = $center_r + $delta_r;
+            $distance = $this->axialDistanceSteps($center_q, $center_r, $q, $r);
+            if ($distance === 0 || $distance > $minimum_gap_hexes) {
+              continue;
+            }
+            $hex_key = $q . ':' . $r;
+            $owner_room_id = trim((string) ($room_cell_owner_by_key[$hex_key] ?? ''));
+            if ($owner_room_id !== '') {
+              if ($owner_room_id !== $room_id && $distance <= $minimum_gap_hexes) {
+                throw new \RuntimeException(sprintf("Room spacing contract violation between rooms '%s' and '%s' at %s.", $room_id, $owner_room_id, $hex_key));
+              }
+              continue;
+            }
+            if (isset($street_or_intersection_by_key[$hex_key])) {
+              continue;
+            }
+
+            if ($distance < $minimum_gap_hexes) {
+              if (!isset($buffer_reserved[$hex_key])) {
+                $buffer_reserved[$hex_key] = ['q' => $q, 'r' => $r, 'room_ids' => [$room_id => TRUE]];
+              }
+              else {
+                $buffer_reserved[$hex_key]['room_ids'][$room_id] = TRUE;
+              }
+            }
+            elseif (!isset($buffer_reserved[$hex_key])) {
+              if (!isset($expansion_reserved[$hex_key])) {
+                $expansion_reserved[$hex_key] = ['q' => $q, 'r' => $r, 'room_ids' => [$room_id => TRUE]];
+              }
+              else {
+                $expansion_reserved[$hex_key]['room_ids'][$room_id] = TRUE;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    $cell_role_map = [];
+    foreach ($room_cells_by_room as $room_id => $room_cells) {
+      foreach ($room_cells as $hex_key => $room_cell) {
+        if (!is_array($room_cell)) {
+          continue;
+        }
+        $cell_role_map[$hex_key] = [
+          'q' => (int) ($room_cell['q'] ?? 0),
+          'r' => (int) ($room_cell['r'] ?? 0),
+          'cell_role' => 'room_hex',
+          'room_id' => $room_id,
+        ];
+      }
+    }
+
+    foreach ($street_cells as $street_key => $street_cell) {
+      if (!is_array($street_cell) || isset($cell_role_map[$street_key])) {
+        continue;
+      }
+      $is_intersection = isset($intersection_by_key[$street_key]);
+      $cell_role_map[$street_key] = [
+        'q' => (int) ($street_cell['q'] ?? 0),
+        'r' => (int) ($street_cell['r'] ?? 0),
+        'cell_role' => $is_intersection ? 'intersection' : 'street',
+        'room_id' => 'NA',
+      ];
+    }
+
+    foreach ($buffer_reserved as $buffer_key => $buffer_cell) {
+      if (!is_array($buffer_cell) || isset($cell_role_map[$buffer_key])) {
+        continue;
+      }
+      $room_ids = array_keys((array) ($buffer_cell['room_ids'] ?? []));
+      sort($room_ids, SORT_STRING);
+      $cell_role_map[$buffer_key] = [
+        'q' => (int) ($buffer_cell['q'] ?? 0),
+        'r' => (int) ($buffer_cell['r'] ?? 0),
+        'cell_role' => 'buffer_reserved',
+        'room_id' => count($room_ids) === 1 ? (string) $room_ids[0] : 'NA',
+        'shared_room_ids' => $room_ids,
+      ];
+    }
+
+    foreach ($expansion_reserved as $expansion_key => $expansion_cell) {
+      if (!is_array($expansion_cell) || isset($cell_role_map[$expansion_key])) {
+        continue;
+      }
+      $room_ids = array_keys((array) ($expansion_cell['room_ids'] ?? []));
+      sort($room_ids, SORT_STRING);
+      $cell_role_map[$expansion_key] = [
+        'q' => (int) ($expansion_cell['q'] ?? 0),
+        'r' => (int) ($expansion_cell['r'] ?? 0),
+        'cell_role' => 'expansion_reserved',
+        'room_id' => count($room_ids) === 1 ? (string) $room_ids[0] : 'NA',
+        'shared_room_ids' => $room_ids,
+      ];
+    }
+    ksort($cell_role_map, SORT_STRING);
+
+    $room_frontage_by_room = [];
+    foreach ($room_cells_by_room as $room_id => $room_cells) {
+      $frontage = [];
+      foreach ($room_cells as $room_cell) {
+        if (!is_array($room_cell)) {
+          continue;
+        }
+        $q = (int) ($room_cell['q'] ?? 0);
+        $r = (int) ($room_cell['r'] ?? 0);
+        $room_hex_key = $q . ':' . $r;
+        foreach (self::AXIAL_NEIGHBOR_OFFSETS as $offset) {
+          $neighbor_key = ($q + $offset[0]) . ':' . ($r + $offset[1]);
+          if (isset($street_or_intersection_by_key[$neighbor_key])) {
+            $frontage[$room_hex_key] = TRUE;
+            break;
+          }
+        }
+      }
+      $frontage_keys = array_keys($frontage);
+      if ($frontage_keys === []) {
+        throw new \RuntimeException(sprintf("Room '%s' has no street frontage in generated placement surface.", $room_id));
+      }
+      $room_frontage_by_room[$room_id] = $frontage_keys;
+    }
+
+    foreach ($rooms as &$room) {
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        continue;
+      }
+      $frontage_keys = (array) ($room_frontage_by_room[$room_id] ?? []);
+      if ($frontage_keys !== []) {
+        if (!is_array($room['placement'] ?? NULL)) {
+          $room['placement'] = [];
+        }
+        $room['placement']['street_frontage_hex_ids'] = $frontage_keys;
+      }
+    }
+    unset($room);
+
+    return [
+      'cell_roles' => array_values($cell_role_map),
+      'street_segments' => $street_segments,
+      'intersections' => array_values($intersection_by_key),
+      'summary' => [
+        'room_hex_cells' => count($room_cell_owner_by_key),
+        'street_cells' => count($street_cells),
+        'intersection_cells' => count($intersection_by_key),
+        'buffer_reserved_cells' => count($buffer_reserved),
+        'expansion_reserved_cells' => count($expansion_reserved),
+      ],
+    ];
+  }
+
+  /**
+   * Build persisted topology payloads for navigation + analysis read paths.
+   *
+   * @param array $levels
+   *   Generated level payloads.
+   * @param array $connections
+   *   Flattened connection list across levels.
+   *
+   * @return array<string, mixed>
+   *   Topology payload parts for dungeon_data persistence.
+   */
+  protected function buildDungeonTopologyPayload(array $levels, array $connections): array {
+    $placement_surface = [];
+    $placement_surfaces_by_level = [];
+    $room_road_anchors_by_room = [];
+
+    foreach ($levels as $level_index => $level) {
+      if (!is_array($level)) {
+        continue;
+      }
+      $hex_map = is_array($level['hex_map'] ?? NULL) ? $level['hex_map'] : [];
+      $level_id = trim((string) ($level['level_id'] ?? ''));
+      if ($level_id === '') {
+        $level_id = 'level_' . ((int) $level_index + 1);
+      }
+
+      $level_surface = is_array($hex_map['placement_surface'] ?? NULL)
+        ? $hex_map['placement_surface']
+        : [];
+      if ($level_surface !== []) {
+        $placement_surfaces_by_level[$level_id] = $level_surface;
+        if ($placement_surface === []) {
+          $placement_surface = $level_surface;
+        }
+      }
+
+      $level_room_anchors = is_array($hex_map['room_anchors'] ?? NULL)
+        ? $hex_map['room_anchors']
+        : [];
+      foreach ($level_room_anchors as $room_anchor) {
+        if (!is_array($room_anchor)) {
+          continue;
+        }
+        $room_id = trim((string) ($room_anchor['room_id'] ?? ''));
+        if ($room_id === '') {
+          continue;
+        }
+        if (isset($room_road_anchors_by_room[$room_id])) {
+          continue;
+        }
+
+        $anchor = [
+          'room_id' => $room_id,
+          'road_node_id' => 'room:' . $room_id,
+          'access_distance' => 0,
+          'level_id' => $level_id,
+        ];
+        if (is_numeric($room_anchor['anchor_q'] ?? NULL) && is_numeric($room_anchor['anchor_r'] ?? NULL)) {
+          $anchor['anchor_q'] = (int) $room_anchor['anchor_q'];
+          $anchor['anchor_r'] = (int) $room_anchor['anchor_r'];
+        }
+        $algorithm_version = trim((string) ($room_anchor['algorithm_version'] ?? ''));
+        if ($algorithm_version !== '') {
+          $anchor['algorithm_version'] = $algorithm_version;
+        }
+        $room_road_anchors_by_room[$room_id] = $anchor;
+      }
+    }
+
+    ksort($placement_surfaces_by_level, SORT_STRING);
+    ksort($room_road_anchors_by_room, SORT_STRING);
+    $room_road_anchors = array_values($room_road_anchors_by_room);
+
+    $road_edges = [];
+    $edge_seen = [];
+    foreach ($connections as $connection_index => $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($connection['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($connection['to_room_id'] ?? ''));
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      $edge_direction = strtolower(trim((string) ($connection['edge_direction'] ?? 'bidirectional')));
+      if (!in_array($edge_direction, ['one_way', 'bidirectional'], TRUE)) {
+        $edge_direction = 'bidirectional';
+      }
+      $bidirectional = $edge_direction !== 'one_way';
+      $distance = is_numeric($connection['traversal_cost'] ?? NULL)
+        ? max(1, (int) $connection['traversal_cost'])
+        : (is_numeric($connection['distance'] ?? NULL) ? max(1, (int) $connection['distance']) : 1);
+      $edge_kind = trim((string) ($connection['edge_kind'] ?? 'street_path'));
+      if ($edge_kind === '') {
+        $edge_kind = 'street_path';
+      }
+
+      $edge_key = implode('|', [
+        $from_room_id,
+        $to_room_id,
+        $bidirectional ? '1' : '0',
+        (string) $distance,
+        $edge_kind,
+      ]);
+      if (isset($edge_seen[$edge_key])) {
+        continue;
+      }
+      $edge_seen[$edge_key] = TRUE;
+      $road_edges[] = [
+        'edge_id' => 'edge_' . substr(sha1($edge_key . '|' . (string) $connection_index), 0, 16),
+        'from_node_id' => 'room:' . $from_room_id,
+        'to_node_id' => 'room:' . $to_room_id,
+        'distance' => $distance,
+        'bidirectional' => $bidirectional,
+        'edge_kind' => $edge_kind,
+      ];
+    }
+
+    return [
+      'placement_surface' => $placement_surface,
+      'placement_surfaces_by_level' => $placement_surfaces_by_level,
+      'room_road_anchors' => $room_road_anchors,
+      'road_edges' => $road_edges,
+    ];
   }
 
   /**
@@ -1111,6 +1633,79 @@ class DungeonGeneratorService {
       $shifted[] = $entity;
     }
     return $shifted;
+  }
+
+  /**
+   * Parse one axial coordinate key in "q:r" format.
+   *
+   * @return array{q:int,r:int}|null
+   *   Parsed coordinates or NULL for invalid format.
+   */
+  protected function parseCoordinateKey(string $coordinate_key): ?array {
+    if (!preg_match('/^(-?\d+):(-?\d+)$/', trim($coordinate_key), $matches)) {
+      return NULL;
+    }
+    return [
+      'q' => (int) $matches[1],
+      'r' => (int) $matches[2],
+    ];
+  }
+
+  /**
+   * Build one greedy shortest path between two axial coordinates.
+   *
+   * @return array<int, array{q:int,r:int}>
+   *   Path nodes from start to target (inclusive).
+   */
+  protected function buildAxialPath(int $from_q, int $from_r, int $to_q, int $to_r): array {
+    $path = [['q' => $from_q, 'r' => $from_r]];
+    $current_q = $from_q;
+    $current_r = $from_r;
+    $guard = 0;
+    while (($current_q !== $to_q || $current_r !== $to_r) && $guard < 8192) {
+      $guard++;
+      $current_distance = $this->axialDistanceSteps($current_q, $current_r, $to_q, $to_r);
+      $best_q = $current_q;
+      $best_r = $current_r;
+      $best_distance = $current_distance;
+      foreach (self::AXIAL_NEIGHBOR_OFFSETS as $offset) {
+        $candidate_q = $current_q + $offset[0];
+        $candidate_r = $current_r + $offset[1];
+        $candidate_distance = $this->axialDistanceSteps($candidate_q, $candidate_r, $to_q, $to_r);
+        if ($candidate_distance < $best_distance) {
+          $best_distance = $candidate_distance;
+          $best_q = $candidate_q;
+          $best_r = $candidate_r;
+        }
+      }
+      if ($best_distance >= $current_distance) {
+        throw new \RuntimeException(sprintf(
+          'Failed to build axial path from %d:%d to %d:%d (distance stalled at %d).',
+          $from_q,
+          $from_r,
+          $to_q,
+          $to_r,
+          $current_distance
+        ));
+      }
+      $current_q = $best_q;
+      $current_r = $best_r;
+      $path[] = ['q' => $current_q, 'r' => $current_r];
+    }
+
+    if ($current_q !== $to_q || $current_r !== $to_r) {
+      throw new \RuntimeException(sprintf('Failed to terminate axial path from %d:%d to %d:%d within guard.', $from_q, $from_r, $to_q, $to_r));
+    }
+    return $path;
+  }
+
+  /**
+   * Return axial hex distance in grid steps.
+   */
+  protected function axialDistanceSteps(int $q1, int $r1, int $q2, int $r2): int {
+    $dq = $q1 - $q2;
+    $dr = $r1 - $r2;
+    return (int) ((abs($dq) + abs($dr) + abs($dq + $dr)) / 2);
   }
 
   /**

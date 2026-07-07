@@ -2563,6 +2563,18 @@ class HexMapController extends ControllerBase {
 
     $connections = is_array($decoded['hex_map']['connections'] ?? NULL) ? $decoded['hex_map']['connections'] : [];
     $connections = $this->ensureRoomsHaveAtLeastOneExit($rooms, $connections, $active_room_id);
+    $placement_surface = is_array($decoded['hex_map']['placement_surface'] ?? NULL)
+      ? $decoded['hex_map']['placement_surface']
+      : (is_array($decoded['placement_surface'] ?? NULL) ? $decoded['placement_surface'] : []);
+    $placement_surfaces_by_level = is_array($decoded['hex_map']['placement_surfaces_by_level'] ?? NULL)
+      ? $decoded['hex_map']['placement_surfaces_by_level']
+      : [];
+    $room_road_anchors = is_array($decoded['room_road_anchors'] ?? NULL)
+      ? $decoded['room_road_anchors']
+      : (is_array($decoded['road_anchors'] ?? NULL) ? $decoded['road_anchors'] : []);
+    $road_edges = is_array($decoded['road_graph']['edges'] ?? NULL)
+      ? $decoded['road_graph']['edges']
+      : (is_array($decoded['road_edges'] ?? NULL) ? $decoded['road_edges'] : []);
 
     $normalized_payload = [
       'schema_version' => (string) ($decoded['schema_version'] ?? '1.0.0'),
@@ -2571,6 +2583,20 @@ class HexMapController extends ControllerBase {
       'active_room_id' => $active_room_id,
       'rooms' => $rooms,
       'connections' => $connections,
+      'hex_map' => [
+        'map_id' => (string) ($decoded['hex_map']['map_id'] ?? ''),
+        'connections' => $connections,
+        'placement_surface' => $placement_surface,
+        'placement_surfaces_by_level' => $placement_surfaces_by_level,
+      ],
+      'placement_surface' => $placement_surface,
+      'placement_surfaces_by_level' => $placement_surfaces_by_level,
+      'room_road_anchors' => $room_road_anchors,
+      'road_anchors' => $room_road_anchors,
+      'road_graph' => [
+        'edges' => $road_edges,
+      ],
+      'road_edges' => $road_edges,
       'entities' => array_values($entities),
       'object_definitions' => $object_definitions,
     ];
