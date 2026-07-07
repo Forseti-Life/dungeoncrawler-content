@@ -58,23 +58,42 @@ class DungeonLayoutProfileResolver {
    * Validate optional layout context keys.
    */
   public function validateContext(array $context): void {
-    if (array_key_exists('dungeon_type', $context) && trim((string) $context['dungeon_type']) !== '') {
-      $dungeon_type = strtolower(trim((string) $context['dungeon_type']));
-      if (!in_array($dungeon_type, self::SUPPORTED_DUNGEON_TYPES, TRUE)) {
-        throw new \InvalidArgumentException(sprintf(
-          "dungeon_type '%s' is unsupported; allowed values: %s",
-          $dungeon_type,
-          implode(', ', self::SUPPORTED_DUNGEON_TYPES)
-        ));
-      }
+    $dungeon_type = strtolower(trim((string) ($context['dungeon_type'] ?? '')));
+    $layout_algorithm = trim((string) ($context['layout_algorithm'] ?? ''));
+    $theme_key = strtolower(trim((string) ($context['theme'] ?? '')));
+
+    if ($dungeon_type !== '' && !in_array($dungeon_type, self::SUPPORTED_DUNGEON_TYPES, TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        "dungeon_type '%s' is unsupported; allowed values: %s",
+        $dungeon_type,
+        implode(', ', self::SUPPORTED_DUNGEON_TYPES)
+      ));
     }
-    if (array_key_exists('layout_algorithm', $context) && trim((string) $context['layout_algorithm']) !== '') {
-      $layout_algorithm = trim((string) $context['layout_algorithm']);
-      if (!in_array($layout_algorithm, array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE), TRUE)) {
+
+    if ($dungeon_type === '' && $theme_key !== '' && !array_key_exists($theme_key, self::DUNGEON_TYPE_BY_THEME)) {
+      throw new \InvalidArgumentException(sprintf(
+        "theme '%s' is unsupported for dungeon-type resolution; allowed values: %s",
+        $theme_key,
+        implode(', ', array_keys(self::DUNGEON_TYPE_BY_THEME))
+      ));
+    }
+
+    if ($layout_algorithm !== '' && !in_array($layout_algorithm, $this->allowedLayoutAlgorithms(), TRUE)) {
+      throw new \InvalidArgumentException(sprintf(
+        "layout_algorithm '%s' is unsupported; allowed values: %s",
+        $layout_algorithm,
+        implode(', ', $this->allowedLayoutAlgorithms())
+      ));
+    }
+
+    if ($dungeon_type !== '' && $layout_algorithm !== '') {
+      $expected_layout_algorithm = $this->expectedLayoutAlgorithmForDungeonType($dungeon_type);
+      if ($layout_algorithm !== $expected_layout_algorithm) {
         throw new \InvalidArgumentException(sprintf(
-          "layout_algorithm '%s' is unsupported; allowed values: %s",
+          "layout_algorithm '%s' is invalid for dungeon_type '%s'; required value: %s",
           $layout_algorithm,
-          implode(', ', array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE))
+          $dungeon_type,
+          $expected_layout_algorithm
         ));
       }
     }
@@ -90,7 +109,19 @@ class DungeonLayoutProfileResolver {
     $requested_dungeon_type = strtolower(trim((string) ($context['dungeon_type'] ?? '')));
     if ($requested_dungeon_type === '') {
       $theme_key = strtolower(trim((string) ($context['theme'] ?? '')));
-      $requested_dungeon_type = self::DUNGEON_TYPE_BY_THEME[$theme_key] ?? self::DUNGEON_TYPE_GENERIC;
+      if ($theme_key === '') {
+        $requested_dungeon_type = self::DUNGEON_TYPE_GENERIC;
+      }
+      elseif (!array_key_exists($theme_key, self::DUNGEON_TYPE_BY_THEME)) {
+        throw new \InvalidArgumentException(sprintf(
+          "theme '%s' is unsupported for dungeon-type resolution; allowed values: %s",
+          $theme_key,
+          implode(', ', array_keys(self::DUNGEON_TYPE_BY_THEME))
+        ));
+      }
+      else {
+        $requested_dungeon_type = self::DUNGEON_TYPE_BY_THEME[$theme_key];
+      }
     }
     if (!in_array($requested_dungeon_type, self::SUPPORTED_DUNGEON_TYPES, TRUE)) {
       throw new \InvalidArgumentException(sprintf(
@@ -100,15 +131,24 @@ class DungeonLayoutProfileResolver {
       ));
     }
 
+    $expected_layout_algorithm = $this->expectedLayoutAlgorithmForDungeonType($requested_dungeon_type);
     $layout_algorithm = trim((string) ($context['layout_algorithm'] ?? ''));
     if ($layout_algorithm === '') {
-      $layout_algorithm = self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE[$requested_dungeon_type] ?? self::PLACEMENT_ALGORITHM_VERSION;
+      $layout_algorithm = $expected_layout_algorithm;
     }
-    if (!in_array($layout_algorithm, array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE), TRUE)) {
+    if (!in_array($layout_algorithm, $this->allowedLayoutAlgorithms(), TRUE)) {
       throw new \InvalidArgumentException(sprintf(
         "Unsupported layout_algorithm '%s'. Allowed values: %s",
         $layout_algorithm,
-        implode(', ', array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE))
+        implode(', ', $this->allowedLayoutAlgorithms())
+      ));
+    }
+    if ($layout_algorithm !== $expected_layout_algorithm) {
+      throw new \InvalidArgumentException(sprintf(
+        "layout_algorithm '%s' is invalid for dungeon_type '%s'; required value: %s",
+        $layout_algorithm,
+        $requested_dungeon_type,
+        $expected_layout_algorithm
       ));
     }
 
@@ -116,6 +156,30 @@ class DungeonLayoutProfileResolver {
       'dungeon_type' => $requested_dungeon_type,
       'layout_algorithm' => $layout_algorithm,
     ];
+  }
+
+  /**
+   * Resolve the required algorithm for one dungeon type.
+   */
+  protected function expectedLayoutAlgorithmForDungeonType(string $dungeon_type): string {
+    $layout_algorithm = self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE[$dungeon_type] ?? '';
+    if ($layout_algorithm === '') {
+      throw new \InvalidArgumentException(sprintf(
+        "No layout_algorithm mapping defined for dungeon_type '%s'.",
+        $dungeon_type
+      ));
+    }
+    return $layout_algorithm;
+  }
+
+  /**
+   * Return distinct allowed layout algorithm values.
+   *
+   * @return array<int, string>
+   *   Allowed algorithms.
+   */
+  protected function allowedLayoutAlgorithms(): array {
+    return array_values(array_unique(array_values(self::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE)));
   }
 
 }

@@ -28,14 +28,20 @@ class DungeonRoomConnectionPlanner {
     callable $chance,
     callable $axial_distance_steps,
   ): array {
-    if (($layout_profile['layout_algorithm'] ?? '') === DungeonLayoutProfileResolver::CITY_PLACEMENT_ALGORITHM_VERSION) {
+    $layout_profile = $this->normalizeLayoutProfile($layout_profile);
+    if (count($rooms) < 2) {
+      return [];
+    }
+
+    if ($layout_profile['layout_algorithm'] === DungeonLayoutProfileResolver::CITY_PLACEMENT_ALGORITHM_VERSION) {
       return $this->connectCityRoomsInLevel($rooms, $chance, $axial_distance_steps);
     }
 
+    $normalized_rooms = $this->normalizeRooms($rooms, 'Linear');
     $connections = [];
-    for ($i = 0; $i < count($rooms) - 1; $i++) {
-      $from_room = $rooms[$i];
-      $to_room = $rooms[$i + 1];
+    for ($i = 0; $i < count($normalized_rooms) - 1; $i++) {
+      $from_room = $normalized_rooms[$i];
+      $to_room = $normalized_rooms[$i + 1];
       $connections[] = [
         'from_room_id' => $from_room['room_id'],
         'to_room_id' => $to_room['room_id'],
@@ -60,25 +66,26 @@ class DungeonRoomConnectionPlanner {
     callable $chance,
     callable $axial_distance_steps,
   ): array {
-    if (count($rooms) < 2) {
+    $normalized_rooms = $this->normalizeRooms($rooms, 'City');
+    if (count($normalized_rooms) < 2) {
       return [];
     }
     $room_records = [];
-    foreach ($rooms as $index => $room) {
-      if (!is_array($room)) {
-        continue;
-      }
+    foreach ($normalized_rooms as $index => $room) {
       $room_id = trim((string) ($room['room_id'] ?? ''));
-      if ($room_id === '') {
-        throw new \RuntimeException('City room connection strategy requires room_id on every room.');
+      $placement = is_array($room['placement'] ?? NULL) ? $room['placement'] : NULL;
+      if (!is_array($placement)) {
+        throw new \RuntimeException(sprintf('City room connection strategy requires placement metadata for room %s.', $room_id));
       }
       $anchor = $this->resolveRoomAnchorCoordinate($room, $room_id);
-      $wave_index = isset($room['placement']['placement_wave_index']) && is_numeric($room['placement']['placement_wave_index'])
-        ? (int) $room['placement']['placement_wave_index']
-        : 0;
-      $priority = isset($room['placement']['anchor_priority']) && is_numeric($room['placement']['anchor_priority'])
-        ? (int) $room['placement']['anchor_priority']
-        : ($index + 1);
+      if (!is_numeric($placement['placement_wave_index'] ?? NULL)) {
+        throw new \RuntimeException(sprintf('City room connection strategy requires numeric placement_wave_index for room %s.', $room_id));
+      }
+      if (!is_numeric($placement['anchor_priority'] ?? NULL)) {
+        throw new \RuntimeException(sprintf('City room connection strategy requires numeric anchor_priority for room %s.', $room_id));
+      }
+      $wave_index = (int) $placement['placement_wave_index'];
+      $priority = (int) $placement['anchor_priority'];
       $room_records[] = [
         'room_id' => $room_id,
         'wave_index' => max(0, $wave_index),
@@ -108,9 +115,6 @@ class DungeonRoomConnectionPlanner {
     $wave_to_room_ids = [];
     foreach ($room_records as $record) {
       $room_id = (string) ($record['room_id'] ?? '');
-      if ($room_id === '') {
-        continue;
-      }
       $by_room_id[$room_id] = $record;
       $wave = (int) ($record['wave_index'] ?? 0);
       if (!isset($wave_to_room_ids[$wave])) {
@@ -144,14 +148,14 @@ class DungeonRoomConnectionPlanner {
       foreach ($current_wave_room_ids as $room_id) {
         $child = $by_room_id[$room_id] ?? NULL;
         if (!is_array($child)) {
-          continue;
+          throw new \RuntimeException(sprintf('City room connection strategy could not resolve child room metadata for %s.', $room_id));
         }
         $best_parent_id = '';
         $best_parent_distance = NULL;
         foreach ($parent_wave_room_ids as $candidate_parent_id) {
           $parent = $by_room_id[$candidate_parent_id] ?? NULL;
           if (!is_array($parent)) {
-            continue;
+            throw new \RuntimeException(sprintf('City room connection strategy parent metadata is missing for room %s.', $candidate_parent_id));
           }
           $distance = $axial_distance_steps(
             (int) $child['anchor_q'],
@@ -198,35 +202,83 @@ class DungeonRoomConnectionPlanner {
    *   Anchor coordinate.
    */
   protected function resolveRoomAnchorCoordinate(array $room, string $room_id): array {
-    if (
-      is_array($room['placement'] ?? NULL)
-      && is_numeric($room['placement']['anchor_q'] ?? NULL)
-      && is_numeric($room['placement']['anchor_r'] ?? NULL)
-    ) {
-      return [
-        'q' => (int) $room['placement']['anchor_q'],
-        'r' => (int) $room['placement']['anchor_r'],
-      ];
+    $placement = is_array($room['placement'] ?? NULL) ? $room['placement'] : NULL;
+    if (!is_array($placement)) {
+      throw new \RuntimeException(sprintf('City room connection strategy requires placement metadata for room %s.', $room_id));
     }
-    if (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL)) {
-      $entry = $room['entry_points'][0];
-      if (is_numeric($entry['q'] ?? NULL) && is_numeric($entry['r'] ?? NULL)) {
-        return [
-          'q' => (int) $entry['q'],
-          'r' => (int) $entry['r'],
-        ];
+    if (!is_numeric($placement['anchor_q'] ?? NULL) || !is_numeric($placement['anchor_r'] ?? NULL)) {
+      throw new \RuntimeException(sprintf('City room connection strategy requires numeric placement anchor_q/anchor_r for room %s.', $room_id));
+    }
+    return [
+      'q' => (int) $placement['anchor_q'],
+      'r' => (int) $placement['anchor_r'],
+    ];
+  }
+
+  /**
+   * Normalize and validate room list contract for connection planning.
+   *
+   * @param array $rooms
+   *   Room payloads.
+   * @param string $strategy_name
+   *   Human-readable strategy label for errors.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Normalized room payloads.
+   */
+  protected function normalizeRooms(array $rooms, string $strategy_name): array {
+    $normalized = [];
+    foreach ($rooms as $index => $room) {
+      if (!is_array($room)) {
+        throw new \RuntimeException(sprintf('%s room connection strategy requires room payload object at index %d.', $strategy_name, $index));
       }
-    }
-    if (is_array($room['hexes'] ?? NULL) && is_array($room['hexes'][0] ?? NULL)) {
-      $hex = $room['hexes'][0];
-      if (is_numeric($hex['q'] ?? NULL) && is_numeric($hex['r'] ?? NULL)) {
-        return [
-          'q' => (int) $hex['q'],
-          'r' => (int) $hex['r'],
-        ];
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        throw new \RuntimeException(sprintf('%s room connection strategy requires room_id on every room (index %d).', $strategy_name, $index));
       }
+      $room['room_id'] = $room_id;
+      $normalized[] = $room;
     }
-    throw new \RuntimeException(sprintf('Unable to resolve anchor coordinate for room %s.', $room_id));
+    return $normalized;
+  }
+
+  /**
+   * Validate layout-profile contract.
+   *
+   * @return array{dungeon_type:string,layout_algorithm:string}
+   *   Canonical validated profile.
+   */
+  protected function normalizeLayoutProfile(array $layout_profile): array {
+    $dungeon_type = strtolower(trim((string) ($layout_profile['dungeon_type'] ?? '')));
+    $layout_algorithm = trim((string) ($layout_profile['layout_algorithm'] ?? ''));
+    if ($dungeon_type === '' || $layout_algorithm === '') {
+      throw new \RuntimeException('Room connection strategy requires non-empty dungeon_type and layout_algorithm.');
+    }
+    if (!in_array($dungeon_type, DungeonLayoutProfileResolver::SUPPORTED_DUNGEON_TYPES, TRUE)) {
+      throw new \RuntimeException(sprintf(
+        "Room connection strategy received unsupported dungeon_type '%s'.",
+        $dungeon_type
+      ));
+    }
+    $expected_algorithm = DungeonLayoutProfileResolver::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE[$dungeon_type] ?? '';
+    if ($expected_algorithm === '') {
+      throw new \RuntimeException(sprintf(
+        "Room connection strategy has no layout mapping for dungeon_type '%s'.",
+        $dungeon_type
+      ));
+    }
+    if ($layout_algorithm !== $expected_algorithm) {
+      throw new \RuntimeException(sprintf(
+        "Room connection strategy contract violation: layout_algorithm '%s' is invalid for dungeon_type '%s' (required: %s).",
+        $layout_algorithm,
+        $dungeon_type,
+        $expected_algorithm
+      ));
+    }
+    return [
+      'dungeon_type' => $dungeon_type,
+      'layout_algorithm' => $layout_algorithm,
+    ];
   }
 
 }

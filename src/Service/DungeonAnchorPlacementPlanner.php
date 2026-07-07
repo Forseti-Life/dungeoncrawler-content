@@ -39,7 +39,8 @@ class DungeonAnchorPlacementPlanner {
     callable $offset_room_coordinates,
     callable $axial_distance_steps,
   ): array {
-    if (($layout_profile['layout_algorithm'] ?? '') === DungeonLayoutProfileResolver::CITY_PLACEMENT_ALGORITHM_VERSION) {
+    $layout_profile = $this->normalizeLayoutProfile($layout_profile);
+    if ($layout_profile['layout_algorithm'] === DungeonLayoutProfileResolver::CITY_PLACEMENT_ALGORITHM_VERSION) {
       return $this->applyCityCenteredRoomSpacing(
         $rooms,
         $minimum_gap_hexes,
@@ -81,10 +82,12 @@ class DungeonAnchorPlacementPlanner {
     $cursor_q = 0;
     $cursor_r = 0;
 
-    $placement_seed = isset($context['seed']) ? (int) $context['seed'] : 0;
+    $placement_seed = $this->requireNumericContextValue($context, 'seed');
+    $campaign_id = $this->requireNumericContextValue($context, 'campaign_id');
+    $depth = $this->requireNumericContextValue($context, 'depth');
     $placed_anchor_points = [];
-    $layout_algorithm = (string) ($layout_profile['layout_algorithm'] ?? DungeonLayoutProfileResolver::PLACEMENT_ALGORITHM_VERSION);
-    $dungeon_type = (string) ($layout_profile['dungeon_type'] ?? DungeonLayoutProfileResolver::DUNGEON_TYPE_GENERIC);
+    $layout_algorithm = (string) $layout_profile['layout_algorithm'];
+    $dungeon_type = (string) $layout_profile['dungeon_type'];
 
     foreach ($rooms as $index => &$room) {
       $room_id = trim((string) ($room['room_id'] ?? ''));
@@ -95,9 +98,7 @@ class DungeonAnchorPlacementPlanner {
       $bounds = $calculate_room_bounds($room);
       $target_min_q = $cursor_q;
       $target_min_r = $cursor_r;
-      $entry_point = (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL))
-        ? $room['entry_points'][0]
-        : NULL;
+      $entry_point = $this->resolveRequiredEntryPoint($room, $room_id);
       $offset_q = 0;
       $offset_r = 0;
       $anchor_q = 0;
@@ -117,23 +118,19 @@ class DungeonAnchorPlacementPlanner {
           'min_r' => $bounds['min_r'] + $offset_r,
           'max_r' => $bounds['max_r'] + $offset_r,
         ];
-        $anchor_q = is_array($entry_point) && is_numeric($entry_point['q'] ?? NULL)
-          ? (int) $entry_point['q'] + $offset_q
-          : $shifted_bounds['min_q'];
-        $anchor_r = is_array($entry_point) && is_numeric($entry_point['r'] ?? NULL)
-          ? (int) $entry_point['r'] + $offset_r
-          : $shifted_bounds['min_r'];
+        $anchor_q = (int) $entry_point['q'] + $offset_q;
+        $anchor_r = (int) $entry_point['r'] + $offset_r;
 
         $nearest_anchor_distance = NULL;
         foreach ($placed_anchor_points as $placed_anchor) {
-          if (!is_array($placed_anchor)) {
-            continue;
+          if (!is_array($placed_anchor) || !is_numeric($placed_anchor['q'] ?? NULL) || !is_numeric($placed_anchor['r'] ?? NULL)) {
+            throw new \RuntimeException('Linear placement strategy produced malformed placed-anchor metadata.');
           }
           $distance = $axial_distance_steps(
             $anchor_q,
             $anchor_r,
-            (int) ($placed_anchor['q'] ?? 0),
-            (int) ($placed_anchor['r'] ?? 0)
+            (int) $placed_anchor['q'],
+            (int) $placed_anchor['r']
           );
           $nearest_anchor_distance = $nearest_anchor_distance === NULL
             ? $distance
@@ -154,8 +151,8 @@ class DungeonAnchorPlacementPlanner {
 
       $placement_attempt_id = substr(sha1(implode('|', [
         (string) $placement_seed,
-        (string) ($context['campaign_id'] ?? 0),
-        (string) ($context['depth'] ?? 0),
+        (string) $campaign_id,
+        (string) $depth,
         $room_id,
         (string) $wave_index,
       ])), 0, 20);
@@ -229,10 +226,12 @@ class DungeonAnchorPlacementPlanner {
     }
 
     $anchors = [];
-    $placement_seed = isset($context['seed']) ? (int) $context['seed'] : 0;
+    $placement_seed = $this->requireNumericContextValue($context, 'seed');
+    $campaign_id = $this->requireNumericContextValue($context, 'campaign_id');
+    $depth = $this->requireNumericContextValue($context, 'depth');
     $placed_anchor_points = [];
-    $layout_algorithm = (string) ($layout_profile['layout_algorithm'] ?? DungeonLayoutProfileResolver::CITY_PLACEMENT_ALGORITHM_VERSION);
-    $dungeon_type = (string) ($layout_profile['dungeon_type'] ?? DungeonLayoutProfileResolver::DUNGEON_TYPE_CITY);
+    $layout_algorithm = (string) $layout_profile['layout_algorithm'];
+    $dungeon_type = (string) $layout_profile['dungeon_type'];
     $city_anchor_targets = $this->buildCityClusterAnchorTargets(count($rooms), self::MIN_ANCHOR_DISTANCE_RES14_HEXES);
 
     foreach ($rooms as $index => &$room) {
@@ -241,23 +240,17 @@ class DungeonAnchorPlacementPlanner {
         throw new \RuntimeException('Dungeon level generation produced a room without room_id.');
       }
       $anchor_target = $city_anchor_targets[$index] ?? NULL;
-      if (!is_array($anchor_target)) {
+      if (!is_array($anchor_target) || !is_numeric($anchor_target['q'] ?? NULL) || !is_numeric($anchor_target['r'] ?? NULL)) {
         throw new \RuntimeException(sprintf('City placement target missing for room %s at index %d.', $room_id, $index));
       }
 
       $bounds = $calculate_room_bounds($room);
-      $entry_point = (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL))
-        ? $room['entry_points'][0]
-        : NULL;
-      $entry_local_q = is_array($entry_point) && is_numeric($entry_point['q'] ?? NULL)
-        ? (int) $entry_point['q']
-        : $bounds['min_q'];
-      $entry_local_r = is_array($entry_point) && is_numeric($entry_point['r'] ?? NULL)
-        ? (int) $entry_point['r']
-        : $bounds['min_r'];
+      $entry_point = $this->resolveRequiredEntryPoint($room, $room_id);
+      $entry_local_q = (int) $entry_point['q'];
+      $entry_local_r = (int) $entry_point['r'];
 
-      $anchor_q = (int) ($anchor_target['q'] ?? 0);
-      $anchor_r = (int) ($anchor_target['r'] ?? 0);
+      $anchor_q = (int) $anchor_target['q'];
+      $anchor_r = (int) $anchor_target['r'];
       $offset_q = $anchor_q - $entry_local_q;
       $offset_r = $anchor_r - $entry_local_r;
 
@@ -274,14 +267,14 @@ class DungeonAnchorPlacementPlanner {
 
       $nearest_anchor_distance = NULL;
       foreach ($placed_anchor_points as $placed_anchor) {
-        if (!is_array($placed_anchor)) {
-          continue;
+        if (!is_array($placed_anchor) || !is_numeric($placed_anchor['q'] ?? NULL) || !is_numeric($placed_anchor['r'] ?? NULL)) {
+          throw new \RuntimeException('City placement strategy produced malformed placed-anchor metadata.');
         }
         $distance = $axial_distance_steps(
           $anchor_q,
           $anchor_r,
-          (int) ($placed_anchor['q'] ?? 0),
-          (int) ($placed_anchor['r'] ?? 0)
+          (int) $placed_anchor['q'],
+          (int) $placed_anchor['r']
         );
         $nearest_anchor_distance = $nearest_anchor_distance === NULL
           ? $distance
@@ -301,8 +294,8 @@ class DungeonAnchorPlacementPlanner {
       );
       $placement_attempt_id = substr(sha1(implode('|', [
         (string) $placement_seed,
-        (string) ($context['campaign_id'] ?? 0),
-        (string) ($context['depth'] ?? 0),
+        (string) $campaign_id,
+        (string) $depth,
         $room_id,
         (string) $wave_index,
       ])), 0, 20);
@@ -378,12 +371,12 @@ class DungeonAnchorPlacementPlanner {
       }
       $ring_coordinates = $this->buildHexRingUnitCoordinates($radius);
       foreach ($ring_coordinates as $coordinate) {
-        if (!is_array($coordinate)) {
-          continue;
+        if (!is_array($coordinate) || !is_numeric($coordinate['q'] ?? NULL) || !is_numeric($coordinate['r'] ?? NULL)) {
+          throw new \RuntimeException(sprintf('City cluster anchor generation produced invalid ring coordinate at radius %d.', $radius));
         }
         $targets[] = [
-          'q' => (int) ($coordinate['q'] ?? 0) * $anchor_step,
-          'r' => (int) ($coordinate['r'] ?? 0) * $anchor_step,
+          'q' => (int) $coordinate['q'] * $anchor_step,
+          'r' => (int) $coordinate['r'] * $anchor_step,
         ];
         if (count($targets) >= $room_count) {
           break;
@@ -413,6 +406,87 @@ class DungeonAnchorPlacementPlanner {
       }
     }
     return $coordinates;
+  }
+
+  /**
+   * Validate layout-profile contract.
+   *
+   * @return array{dungeon_type:string,layout_algorithm:string}
+   *   Canonical validated profile.
+   */
+  protected function normalizeLayoutProfile(array $layout_profile): array {
+    $dungeon_type = strtolower(trim((string) ($layout_profile['dungeon_type'] ?? '')));
+    $layout_algorithm = trim((string) ($layout_profile['layout_algorithm'] ?? ''));
+    if ($dungeon_type === '' || $layout_algorithm === '') {
+      throw new \RuntimeException('Anchor placement strategy requires non-empty dungeon_type and layout_algorithm.');
+    }
+    if (!in_array($dungeon_type, DungeonLayoutProfileResolver::SUPPORTED_DUNGEON_TYPES, TRUE)) {
+      throw new \RuntimeException(sprintf(
+        "Anchor placement strategy received unsupported dungeon_type '%s'.",
+        $dungeon_type
+      ));
+    }
+    $expected_algorithm = DungeonLayoutProfileResolver::DUNGEON_LAYOUT_ALGORITHM_BY_TYPE[$dungeon_type] ?? '';
+    if ($expected_algorithm === '') {
+      throw new \RuntimeException(sprintf(
+        "Anchor placement strategy has no layout mapping for dungeon_type '%s'.",
+        $dungeon_type
+      ));
+    }
+    if ($layout_algorithm !== $expected_algorithm) {
+      throw new \RuntimeException(sprintf(
+        "Anchor placement strategy contract violation: layout_algorithm '%s' is invalid for dungeon_type '%s' (required: %s).",
+        $layout_algorithm,
+        $dungeon_type,
+        $expected_algorithm
+      ));
+    }
+    return [
+      'dungeon_type' => $dungeon_type,
+      'layout_algorithm' => $layout_algorithm,
+    ];
+  }
+
+  /**
+   * Require one numeric context field.
+   */
+  protected function requireNumericContextValue(array $context, string $key): int {
+    if (!array_key_exists($key, $context) || !is_numeric($context[$key])) {
+      throw new \RuntimeException(sprintf("Anchor placement strategy requires numeric context['%s'].", $key));
+    }
+    return (int) $context[$key];
+  }
+
+  /**
+   * Resolve required room entry coordinate.
+   *
+   * @return array{q:int,r:int}
+   *   Entry coordinate.
+   */
+  protected function resolveRequiredEntryPoint(array $room, string $room_id): array {
+    if (
+      is_array($room['entry_points'] ?? NULL)
+      && is_array($room['entry_points'][0] ?? NULL)
+      && is_numeric($room['entry_points'][0]['q'] ?? NULL)
+      && is_numeric($room['entry_points'][0]['r'] ?? NULL)
+    ) {
+      return [
+        'q' => (int) $room['entry_points'][0]['q'],
+        'r' => (int) $room['entry_points'][0]['r'],
+      ];
+    }
+    if (
+      is_array($room['hexes'] ?? NULL)
+      && is_array($room['hexes'][0] ?? NULL)
+      && is_numeric($room['hexes'][0]['q'] ?? NULL)
+      && is_numeric($room['hexes'][0]['r'] ?? NULL)
+    ) {
+      return [
+        'q' => (int) $room['hexes'][0]['q'],
+        'r' => (int) $room['hexes'][0]['r'],
+      ];
+    }
+    throw new \RuntimeException(sprintf('Anchor placement strategy requires entry_points[0] or hexes[0] numeric q/r for room %s.', $room_id));
   }
 
 }
