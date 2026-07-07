@@ -1130,8 +1130,10 @@ class DungeonAnalysisController extends ControllerBase {
       'available' => FALSE,
       'hex_count' => 0,
       'entry_point_count' => 0,
+      'entry_point_non_edge_count' => 0,
       'entry_count' => 0,
       'exit_point_count' => 0,
+      'exit_point_non_edge_count' => 0,
       'exit_link_count' => 0,
       'exit_count' => 0,
       'content_bucket_counts' => [
@@ -1280,12 +1282,7 @@ class DungeonAnalysisController extends ControllerBase {
           ));
         }
         if (!isset($hex_boundary_coord_map[$entry_coord_key])) {
-          throw new \InvalidArgumentException(sprintf(
-            'Dungeon analysis contract violation: room %s layout_data.entry_points[%d] coordinate %s must be on room edge.',
-            $room_id,
-            (int) $entry_index,
-            $entry_coord_key
-          ));
+          $summary['entry_point_non_edge_count'] = (int) ($summary['entry_point_non_edge_count'] ?? 0) + 1;
         }
         $entry_point_coord_map[$entry_coord_key] = TRUE;
       }
@@ -1311,12 +1308,7 @@ class DungeonAnalysisController extends ControllerBase {
           ));
         }
         if (!isset($hex_boundary_coord_map[$exit_coord_key])) {
-          throw new \InvalidArgumentException(sprintf(
-            'Dungeon analysis contract violation: room %s layout_data.exit_points[%d] coordinate %s must be on room edge.',
-            $room_id,
-            (int) $exit_index,
-            $exit_coord_key
-          ));
+          $summary['exit_point_non_edge_count'] = (int) ($summary['exit_point_non_edge_count'] ?? 0) + 1;
         }
         $exit_point_coord_map[$exit_coord_key] = TRUE;
       }
