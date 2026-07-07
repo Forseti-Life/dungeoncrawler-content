@@ -79,6 +79,7 @@ class DungeonGeneratorService {
    */
   protected ?SeededRandomSequence $rng = NULL;
   protected const MIN_ROOM_SPACING_HEXES = 5;
+  protected const MIN_ANCHOR_DISTANCE_RES14_HEXES = 200;
   protected const PLACEMENT_ALGORITHM_VERSION = 'minimum_hex_gap_v2';
   protected const H3_ACTIVE_RESOLUTION = 14;
   protected const AXIAL_NEIGHBOR_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
@@ -920,11 +921,9 @@ class DungeonGeneratorService {
     $anchors = [];
     $cursor_q = 0;
     $cursor_r = 0;
-    $current_row_height = 0;
-    $row_wrap_width = 220;
 
     $placement_seed = isset($context['seed']) ? (int) $context['seed'] : 0;
-    $wave_index = 0;
+    $placed_anchor_points = [];
 
     foreach ($rooms as $index => &$room) {
       $room_id = trim((string) ($room['room_id'] ?? ''));
@@ -933,41 +932,64 @@ class DungeonGeneratorService {
       }
 
       $bounds = $this->calculateRoomBounds($room);
-      $room_width = $bounds['max_q'] - $bounds['min_q'] + 1;
-      $room_height = $bounds['max_r'] - $bounds['min_r'] + 1;
-
-      if ($index > 0 && ($cursor_q + $room_width) > $row_wrap_width) {
-        $cursor_q = 0;
-        $cursor_r += $current_row_height + $minimum_gap_hexes;
-        $current_row_height = 0;
-        $wave_index++;
-      }
-
       $target_min_q = $cursor_q;
       $target_min_r = $cursor_r;
-      $offset_q = $target_min_q - $bounds['min_q'];
-      $offset_r = $target_min_r - $bounds['min_r'];
+      $entry_point = (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL))
+        ? $room['entry_points'][0]
+        : NULL;
+      $offset_q = 0;
+      $offset_r = 0;
+      $anchor_q = 0;
+      $anchor_r = 0;
+      $shifted_bounds = [];
+      $anchor_guard = 0;
+      while (TRUE) {
+        $anchor_guard++;
+        if ($anchor_guard > 8192) {
+          throw new \RuntimeException(sprintf('Failed to place room %s while enforcing minimum anchor spacing.', $room_id));
+        }
+        $offset_q = $target_min_q - $bounds['min_q'];
+        $offset_r = $target_min_r - $bounds['min_r'];
+        $shifted_bounds = [
+          'min_q' => $bounds['min_q'] + $offset_q,
+          'max_q' => $bounds['max_q'] + $offset_q,
+          'min_r' => $bounds['min_r'] + $offset_r,
+          'max_r' => $bounds['max_r'] + $offset_r,
+        ];
+        $anchor_q = is_array($entry_point) && is_numeric($entry_point['q'] ?? NULL)
+          ? (int) $entry_point['q'] + $offset_q
+          : $shifted_bounds['min_q'];
+        $anchor_r = is_array($entry_point) && is_numeric($entry_point['r'] ?? NULL)
+          ? (int) $entry_point['r'] + $offset_r
+          : $shifted_bounds['min_r'];
+
+        $nearest_anchor_distance = NULL;
+        foreach ($placed_anchor_points as $placed_anchor) {
+          if (!is_array($placed_anchor)) {
+            continue;
+          }
+          $distance = $this->axialDistanceSteps(
+            $anchor_q,
+            $anchor_r,
+            (int) ($placed_anchor['q'] ?? 0),
+            (int) ($placed_anchor['r'] ?? 0)
+          );
+          $nearest_anchor_distance = $nearest_anchor_distance === NULL
+            ? $distance
+            : min($nearest_anchor_distance, $distance);
+        }
+        if ($nearest_anchor_distance === NULL || $nearest_anchor_distance >= self::MIN_ANCHOR_DISTANCE_RES14_HEXES) {
+          break;
+        }
+
+        $target_min_q += max(1, self::MIN_ANCHOR_DISTANCE_RES14_HEXES - $nearest_anchor_distance);
+      }
 
       if ($offset_q !== 0 || $offset_r !== 0) {
         $room = $this->offsetRoomCoordinates($room, $offset_q, $offset_r);
       }
 
-      $shifted_bounds = [
-        'min_q' => $bounds['min_q'] + $offset_q,
-        'max_q' => $bounds['max_q'] + $offset_q,
-        'min_r' => $bounds['min_r'] + $offset_r,
-        'max_r' => $bounds['max_r'] + $offset_r,
-      ];
-
-      $entry_point = (is_array($room['entry_points'] ?? NULL) && is_array($room['entry_points'][0] ?? NULL))
-        ? $room['entry_points'][0]
-        : NULL;
-      $anchor_q = is_array($entry_point) && is_numeric($entry_point['q'] ?? NULL)
-        ? (int) $entry_point['q']
-        : $shifted_bounds['min_q'];
-      $anchor_r = is_array($entry_point) && is_numeric($entry_point['r'] ?? NULL)
-        ? (int) $entry_point['r']
-        : $shifted_bounds['min_r'];
+      $wave_index = intdiv((int) $index, 6);
 
       $placement_attempt_id = substr(sha1(implode('|', [
         (string) $placement_seed,
@@ -990,6 +1012,7 @@ class DungeonGeneratorService {
         'algorithm_version' => self::PLACEMENT_ALGORITHM_VERSION,
         'placement_attempt_id' => $placement_attempt_id,
         'buffer_ring_size' => $minimum_gap_hexes,
+        'minimum_anchor_distance_hexes' => self::MIN_ANCHOR_DISTANCE_RES14_HEXES,
         'frontage_required' => TRUE,
         'ingress_hex_ids' => [$anchor_q . ':' . $anchor_r],
       ];
@@ -1008,12 +1031,16 @@ class DungeonGeneratorService {
         'placement_seed' => $placement_seed,
         'algorithm_version' => self::PLACEMENT_ALGORITHM_VERSION,
         'buffer_ring_size' => $minimum_gap_hexes,
+        'minimum_anchor_distance_hexes' => self::MIN_ANCHOR_DISTANCE_RES14_HEXES,
         'frontage_required' => TRUE,
         'ingress_hex_ids' => [$anchor_q . ':' . $anchor_r],
       ];
-
-      $cursor_q += $room_width + $minimum_gap_hexes;
-      $current_row_height = max($current_row_height, $room_height);
+      $placed_anchor_points[] = [
+        'room_id' => $room_id,
+        'q' => $anchor_q,
+        'r' => $anchor_r,
+      ];
+      $cursor_q = (int) $shifted_bounds['max_q'] + $minimum_gap_hexes + 1;
     }
     unset($room);
 
@@ -1814,6 +1841,7 @@ class DungeonGeneratorService {
       throw new \RuntimeException(sprintf('H3 system-of-record contract violation: no room anchors resolved for dungeon %s.', $dungeon_id));
     }
 
+    $anchor_h3_by_room = [];
     foreach ($room_anchor_by_room as $room_id => $anchor) {
       $reference_q = (int) ($anchor['reference_q'] ?? 0);
       $reference_r = (int) ($anchor['reference_r'] ?? 0);
@@ -1826,6 +1854,20 @@ class DungeonGeneratorService {
         (float) $latlng['latitude'],
         (float) $latlng['longitude']
       );
+      foreach ($anchor_h3_by_room as $existing_room_id => $existing_h3_index) {
+        $anchor_distance = H3SpatialHelper::h3GridDistance((string) $existing_h3_index, $h3_index);
+        if ($anchor_distance < self::MIN_ANCHOR_DISTANCE_RES14_HEXES) {
+          throw new \RuntimeException(sprintf(
+            'H3 system-of-record contract violation: anchor spacing between rooms %s and %s in dungeon %s is %d res14 hexes (minimum required %d).',
+            (string) $existing_room_id,
+            (string) $room_id,
+            $dungeon_id,
+            $anchor_distance,
+            self::MIN_ANCHOR_DISTANCE_RES14_HEXES
+          ));
+        }
+      }
+      $anchor_h3_by_room[(string) $room_id] = $h3_index;
       $entry = $room_entry_by_room[$room_id] ?? ['q' => $reference_q, 'r' => $reference_r];
       $metadata = [
         'status' => 'h3_index_assigned',
@@ -1834,6 +1876,7 @@ class DungeonGeneratorService {
         'normalization_version' => 'runtime-persist-v1',
         'placement_model' => self::PLACEMENT_ALGORITHM_VERSION,
         'placement_min_gap_hexes' => self::MIN_ROOM_SPACING_HEXES,
+        'placement_min_anchor_distance_hexes' => self::MIN_ANCHOR_DISTANCE_RES14_HEXES,
         'global_offset_q' => 0,
         'global_offset_r' => 0,
         'room_entrance_global_q' => (int) ($entry['q'] ?? $reference_q),
@@ -1928,6 +1971,7 @@ class DungeonGeneratorService {
             'normalization_version' => 'runtime-persist-v1',
             'placement_model' => self::PLACEMENT_ALGORITHM_VERSION,
             'placement_min_gap_hexes' => self::MIN_ROOM_SPACING_HEXES,
+            'placement_min_anchor_distance_hexes' => self::MIN_ANCHOR_DISTANCE_RES14_HEXES,
             'local_source_q' => $q,
             'local_source_r' => $r,
             'global_source_q' => $q,

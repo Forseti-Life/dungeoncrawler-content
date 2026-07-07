@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\ai_conversation\Service\AIApiService;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -71,6 +72,11 @@ class StateValidationService {
    * Active generation H3 resolution for current validator hard gates.
    */
   private const ACTIVE_GENERATION_RESOLUTION = 14;
+
+  /**
+   * Minimum required spacing between room anchors in active res14 H3 hexes.
+   */
+  private const MIN_RES14_ANCHOR_DISTANCE_HEXES = 200;
 
   /**
    * Coordinate-frame span threshold (degrees) allowed per dungeon/resolution scope.
@@ -1586,6 +1592,7 @@ class StateValidationService {
       ->fetchAll(\PDO::FETCH_ASSOC);
 
     $anchor_by_room = [];
+    $res14_anchor_h3_by_dungeon = [];
     foreach ((array) $anchor_rows as $anchor_row) {
       if (!is_array($anchor_row)) {
         continue;
@@ -1657,6 +1664,10 @@ class StateValidationService {
           if (!is_numeric($anchor_gap) || (int) $anchor_gap < 1) {
             $result['errors'][] = "Sparse hex anchor '{$room_id}' at resolution {$resolution} must define positive metadata.placement_min_gap_hexes.";
           }
+          $anchor_min_distance = $anchor_metadata['placement_min_anchor_distance_hexes'] ?? NULL;
+          if (!is_numeric($anchor_min_distance) || (int) $anchor_min_distance < self::MIN_RES14_ANCHOR_DISTANCE_HEXES) {
+            $result['errors'][] = "Sparse hex anchor '{$room_id}' at resolution {$resolution} must define metadata.placement_min_anchor_distance_hexes >= " . self::MIN_RES14_ANCHOR_DISTANCE_HEXES . '.';
+          }
           if (!array_key_exists('global_offset_q', $anchor_metadata) || !is_numeric($anchor_metadata['global_offset_q'])) {
             $result['errors'][] = "Sparse hex anchor '{$room_id}' at resolution {$resolution} must define numeric metadata.global_offset_q.";
           }
@@ -1668,6 +1679,17 @@ class StateValidationService {
             $result['errors'][] = "Sparse hex anchor '{$room_id}' at resolution {$resolution} must define metadata.normalization='" . self::REQUIRED_SPARSE_NORMALIZATION . "'.";
           }
         }
+      }
+      if (
+        $resolution === self::ACTIVE_GENERATION_RESOLUTION
+        && $dungeon_id !== ''
+        && $h3_index !== ''
+        && preg_match(self::CANONICAL_H3_INDEX_PATTERN, strtolower($h3_index))
+      ) {
+        if (!isset($res14_anchor_h3_by_dungeon[$dungeon_id])) {
+          $res14_anchor_h3_by_dungeon[$dungeon_id] = [];
+        }
+        $res14_anchor_h3_by_dungeon[$dungeon_id][$room_id] = strtolower($h3_index);
       }
       if ($resolution === 15) {
         $result['errors'][] = "Sparse hex anchor '{$room_id}' uses resolution 15, which is out of scope for active generation validation.";
@@ -1682,6 +1704,37 @@ class StateValidationService {
         'metadata' => is_array($anchor_metadata) ? $anchor_metadata : [],
       ];
       $result['summary']['total_anchors']++;
+    }
+    foreach ($res14_anchor_h3_by_dungeon as $dungeon_id => $anchor_h3_by_room) {
+      if (!is_array($anchor_h3_by_room) || count($anchor_h3_by_room) < 2) {
+        continue;
+      }
+      $dungeon_room_ids = array_keys($anchor_h3_by_room);
+      sort($dungeon_room_ids, SORT_STRING);
+      for ($i = 0; $i < count($dungeon_room_ids); $i++) {
+        $left_room_id = $dungeon_room_ids[$i];
+        $left_h3 = (string) ($anchor_h3_by_room[$left_room_id] ?? '');
+        if ($left_h3 === '') {
+          continue;
+        }
+        for ($j = $i + 1; $j < count($dungeon_room_ids); $j++) {
+          $right_room_id = $dungeon_room_ids[$j];
+          $right_h3 = (string) ($anchor_h3_by_room[$right_room_id] ?? '');
+          if ($right_h3 === '') {
+            continue;
+          }
+          try {
+            $anchor_distance = H3SpatialHelper::h3GridDistance($left_h3, $right_h3);
+          }
+          catch (\Throwable $e) {
+            $result['errors'][] = "Sparse hex anchor spacing check failed for dungeon '{$dungeon_id}' rooms '{$left_room_id}'/'{$right_room_id}': " . $e->getMessage();
+            continue;
+          }
+          if ($anchor_distance < self::MIN_RES14_ANCHOR_DISTANCE_HEXES) {
+            $result['errors'][] = "Sparse hex anchor spacing contract violation in dungeon '{$dungeon_id}' between rooms '{$left_room_id}' and '{$right_room_id}': {$anchor_distance} < " . self::MIN_RES14_ANCHOR_DISTANCE_HEXES . ' res14 hexes.';
+          }
+        }
+      }
     }
 
     $cell_designation_map = [];
@@ -1821,6 +1874,10 @@ class StateValidationService {
             $cell_gap = $cell_metadata['placement_min_gap_hexes'] ?? NULL;
             if (!is_numeric($cell_gap) || (int) $cell_gap < 1) {
               $result['errors'][] = "Sparse hex cell #{$cell_id} ({$room_id}) at resolution {$resolution} must define positive metadata.placement_min_gap_hexes.";
+            }
+            $cell_anchor_gap = $cell_metadata['placement_min_anchor_distance_hexes'] ?? NULL;
+            if (!is_numeric($cell_anchor_gap) || (int) $cell_anchor_gap < self::MIN_RES14_ANCHOR_DISTANCE_HEXES) {
+              $result['errors'][] = "Sparse hex cell #{$cell_id} ({$room_id}) at resolution {$resolution} must define metadata.placement_min_anchor_distance_hexes >= " . self::MIN_RES14_ANCHOR_DISTANCE_HEXES . '.';
             }
             if (!array_key_exists('global_offset_q', $cell_metadata) || !is_numeric($cell_metadata['global_offset_q'])) {
               $result['errors'][] = "Sparse hex cell #{$cell_id} ({$room_id}) at resolution {$resolution} must define numeric metadata.global_offset_q.";

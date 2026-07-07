@@ -40,7 +40,8 @@ final class H3SpatialHelper {
         'typedef unsigned long long H3Index;
          typedef int H3Error;
          typedef struct { double lat; double lng; } LatLng;
-         H3Error latLngToCell(const LatLng* g, int res, H3Index* out);',
+         H3Error latLngToCell(const LatLng* g, int res, H3Index* out);
+         H3Error gridDistance(H3Index origin, H3Index h3, long long* distance);',
         'libh3.so.1'
       );
     }
@@ -90,6 +91,27 @@ final class H3SpatialHelper {
   }
 
   /**
+   * Compute grid distance between two canonical H3 indexes.
+   */
+  public static function h3GridDistance(string $origin_h3_index, string $target_h3_index): int {
+    $ffi = self::getH3Ffi();
+    $origin = self::parseCanonicalH3Index($origin_h3_index);
+    $target = self::parseCanonicalH3Index($target_h3_index);
+    $distance_out = $ffi->new('long long[1]');
+    $error = (int) $ffi->gridDistance($origin[0], $target[0], $distance_out);
+    if ($error !== 0) {
+      throw new \RuntimeException(sprintf(
+        'libh3 gridDistance failed with error code %d for origin=%s target=%s.',
+        $error,
+        $origin_h3_index,
+        $target_h3_index
+      ));
+    }
+
+    return (int) $distance_out[0];
+  }
+
+  /**
    * Deterministically project one axial coordinate into WGS84 lat/lng.
    *
    * @return array{latitude: float, longitude: float}
@@ -112,6 +134,29 @@ final class H3SpatialHelper {
       'latitude' => round($latitude, 8),
       'longitude' => round($longitude, 8),
     ];
+  }
+
+  /**
+   * Parse one canonical H3 index string into native libh3 H3Index.
+   */
+  private static function parseCanonicalH3Index(string $h3_index): \FFI\CData {
+    $normalized = strtolower(trim($h3_index));
+    if ($normalized === '' || !preg_match('/^[0-9a-f]{1,16}$/', $normalized)) {
+      throw new \RuntimeException(sprintf('Invalid canonical H3 index string: %s', $h3_index));
+    }
+
+    $normalized = str_pad($normalized, 16, '0', STR_PAD_LEFT);
+    $raw_big_endian = hex2bin($normalized);
+    if ($raw_big_endian === FALSE || strlen($raw_big_endian) !== 8) {
+      throw new \RuntimeException(sprintf('Failed to decode canonical H3 index string: %s', $h3_index));
+    }
+
+    $raw_little_endian = strrev($raw_big_endian);
+    $ffi = self::getH3Ffi();
+    $native = $ffi->new('H3Index[1]');
+    \FFI::memcpy(\FFI::addr($native[0]), $raw_little_endian, 8);
+
+    return $native;
   }
 
 }
