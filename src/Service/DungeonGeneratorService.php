@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -77,12 +78,9 @@ class DungeonGeneratorService {
    * @var \Drupal\dungeoncrawler_content\Service\SeededRandomSequence|null
    */
   protected ?SeededRandomSequence $rng = NULL;
-  protected ?\FFI $h3Ffi = NULL;
   protected const MIN_ROOM_SPACING_HEXES = 5;
   protected const PLACEMENT_ALGORITHM_VERSION = 'minimum_hex_gap_v2';
   protected const H3_ACTIVE_RESOLUTION = 14;
-  protected const H3_HEX_SIZE_METERS = 2.2;
-  protected const METERS_PER_DEGREE_LATITUDE = 111320.0;
   protected const AXIAL_NEIGHBOR_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
 
   /**
@@ -1859,7 +1857,7 @@ class DungeonGeneratorService {
           'center_longitude' => $latlng['longitude'],
           'reference_q' => $reference_q,
           'reference_r' => $reference_r,
-          'hex_size_meters' => self::H3_HEX_SIZE_METERS,
+          'hex_size_meters' => H3SpatialHelper::H3_HEX_SIZE_METERS,
           'metadata' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
           'created' => $timestamp,
           'updated' => $timestamp,
@@ -1995,100 +1993,21 @@ class DungeonGeneratorService {
    *   Projected coordinates.
    */
   protected function projectAxialHexToLatLng(string $dungeon_id, int $q, int $r): array {
-    $hash = sprintf('%u', crc32($dungeon_id));
-    $origin_lat = ((int) $hash % 1000) / 1000000.0;
-    $origin_lng = ((int) floor(((int) $hash / 1000) % 1000)) / 1000000.0;
-
-    $x_meters = 1.5 * self::H3_HEX_SIZE_METERS * $q;
-    $y_meters = sqrt(3.0) * self::H3_HEX_SIZE_METERS * ($r + ($q / 2.0));
-
-    $latitude = $origin_lat + ($y_meters / self::METERS_PER_DEGREE_LATITUDE);
-    $cos_lat = cos(deg2rad(max(min($origin_lat, 89.9999), -89.9999)));
-    $meters_per_degree_lng = self::METERS_PER_DEGREE_LATITUDE * ($cos_lat === 0.0 ? 0.000001 : $cos_lat);
-    $longitude = $origin_lng + ($x_meters / $meters_per_degree_lng);
-
-    return [
-      'latitude' => round($latitude, 8),
-      'longitude' => round($longitude, 8),
-    ];
-  }
-
-  /**
-   * Resolve one shared libh3 FFI handle.
-   */
-  protected function getH3Ffi(): \FFI {
-    if ($this->h3Ffi instanceof \FFI) {
-      return $this->h3Ffi;
-    }
-    if (!extension_loaded('ffi')) {
-      throw new \RuntimeException('True H3 index generation requires PHP FFI extension (ext-ffi).');
-    }
-
-    try {
-      $this->h3Ffi = \FFI::cdef(
-        'typedef unsigned long long H3Index;
-         typedef int H3Error;
-         typedef struct { double lat; double lng; } LatLng;
-         H3Error latLngToCell(const LatLng* g, int res, H3Index* out);',
-        'libh3.so.1'
-      );
-    }
-    catch (\Throwable $e) {
-      throw new \RuntimeException('True H3 index generation requires libh3.so.1 to be installed and loadable.', 0, $e);
-    }
-
-    return $this->h3Ffi;
-  }
-
-  /**
-   * Convert one WGS84 coordinate pair (degrees) to canonical H3 index string.
-   */
-  protected function latLngToH3Index(float $latitude, float $longitude, int $resolution): string {
-    if ($resolution < 0 || $resolution > 15) {
-      throw new \RuntimeException(sprintf('H3 resolution %d is out of range (expected 0-15).', $resolution));
-    }
-
-    $ffi = $this->getH3Ffi();
-    $coord = $ffi->new('LatLng');
-    $coord->lat = deg2rad($latitude);
-    $coord->lng = deg2rad($longitude);
-    $out = $ffi->new('H3Index[1]');
-    $error = (int) $ffi->latLngToCell(\FFI::addr($coord), $resolution, $out);
-    if ($error !== 0) {
-      throw new \RuntimeException(sprintf(
-        'libh3 latLngToCell failed with error code %d for lat=%0.8f lng=%0.8f res=%d.',
-        $error,
-        $latitude,
-        $longitude,
-        $resolution
-      ));
-    }
-
-    $raw = \FFI::string(\FFI::cast('char *', \FFI::addr($out[0])), 8);
-    $hex = ltrim(bin2hex(strrev($raw)), '0');
-    if ($hex === '') {
-      throw new \RuntimeException(sprintf(
-        'libh3 returned empty H3 index for lat=%0.8f lng=%0.8f res=%d.',
-        $latitude,
-        $longitude,
-        $resolution
-      ));
-    }
-    return strtolower($hex);
+    return H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $q, $r);
   }
 
   /**
    * Build Res14 sparse cell index from room/cell coordinates.
    */
   protected function buildSparseRes14CellIndex(string $dungeon_id, string $room_id, int $source_q, int $source_r, float $latitude, float $longitude): string {
-    return $this->latLngToH3Index($latitude, $longitude, self::H3_ACTIVE_RESOLUTION);
+    return H3SpatialHelper::latLngToH3Index($latitude, $longitude, self::H3_ACTIVE_RESOLUTION);
   }
 
   /**
    * Build Res14 sparse anchor index from room anchor data.
    */
   protected function buildSparseRes14AnchorIndex(string $dungeon_id, string $room_id, int $reference_q, int $reference_r, float $latitude, float $longitude): string {
-    return $this->latLngToH3Index($latitude, $longitude, self::H3_ACTIVE_RESOLUTION);
+    return H3SpatialHelper::latLngToH3Index($latitude, $longitude, self::H3_ACTIVE_RESOLUTION);
   }
 
   /**
