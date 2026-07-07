@@ -241,8 +241,8 @@ export class ChatPanel {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
     
-      // Prevent double submission for non-room views only.
-      if (this.activeSessionView !== 'room' && isSubmitting) {
+      // Prevent duplicate in-flight submissions across all chat views.
+      if (isSubmitting) {
         return;
       }
 
@@ -309,6 +309,13 @@ export class ChatPanel {
         return;
       }
 
+      isSubmitting = true;
+      const sendButton = this._el.chatSend;
+      const originalText = sendButton?.textContent;
+      if (sendButton) {
+        sendButton.disabled = true;
+        sendButton.textContent = 'Sending...';
+      }
       try {
         await this.submitRoomChatMessage(message, {
           speaker: characterName,
@@ -335,6 +342,12 @@ export class ChatPanel {
             messageClass: 'local_ui_notice',
           });
           input.value = message;
+        }
+      } finally {
+        isSubmitting = false;
+        if (sendButton) {
+          sendButton.disabled = false;
+          sendButton.textContent = originalText || 'Send';
         }
       }
     });
