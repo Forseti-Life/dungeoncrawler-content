@@ -1563,6 +1563,23 @@ export class ChatPanel {
         return existingByIdentity;
       }
     }
+    const isAuthoritativeTranscript = lineRecord.authority === 'authoritative'
+      && lineRecord.messageClass === 'authoritative_transcript';
+    if (!options.replaceLine && !hasAuthoritativeIdentity && !lineRecord.lineId && isAuthoritativeTranscript) {
+      const existingByTranscriptContent = Array.from(log.querySelectorAll('.chat-line'))
+        .reverse()
+        .find((candidate) => (
+          candidate?.dataset?.transient !== '1'
+          && String(candidate?.dataset?.speaker || '') === (lineRecord.speaker || '')
+          && String(candidate?.dataset?.message || '') === (displayMessage || '')
+          && String(candidate?.dataset?.type || 'npc') === (lineRecord.type || 'npc')
+          && String(candidate?.dataset?.authority || '') === 'authoritative'
+          && String(candidate?.dataset?.messageClass || '') === 'authoritative_transcript'
+        ));
+      if (existingByTranscriptContent) {
+        return existingByTranscriptContent;
+      }
+    }
     const existingLine = options.replaceLine || (lineRecord.lineId ? this.findChatLineById(lineRecord.lineId) : null);
     if (!existingLine && !lineRecord.lineId) {
       const lastLine = log.lastElementChild;
