@@ -150,7 +150,7 @@ function collectNavigateExitGroups(panel, context) {
   const exits = capabilities
     .map((capability) => {
       const targetRoomId = String(capability?.target_room_id || '').trim();
-      if (!targetRoomId || targetRoomId === activeRoomId) {
+      if (!targetRoomId) {
         return null;
       }
       const room = rooms[targetRoomId] || null;
