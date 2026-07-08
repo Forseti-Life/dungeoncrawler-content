@@ -1,5 +1,0 @@
-services:
-  resume_tailoring.manager:
-    class: 'Drupal\resume_tailoring\ResumeTailoringManager'
-    arguments: ['@logger.factory']
-

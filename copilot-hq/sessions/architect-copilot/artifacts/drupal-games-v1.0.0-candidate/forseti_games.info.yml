@@ -1,8 +1,0 @@
-name: 'Games'
-type: module
-description: 'Module for building and hosting interactive games'
-core_version_requirement: ^10 || ^11
-package: 'Game Development'
-dependencies:
-  - drupal:node
-  - drupal:user

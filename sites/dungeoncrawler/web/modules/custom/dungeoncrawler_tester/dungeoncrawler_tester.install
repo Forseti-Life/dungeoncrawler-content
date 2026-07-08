@@ -1,9 +1,0 @@
-<?php
-
-/**
- * Legacy update hook kept for compatibility.
- *
- * Tester navigation is now unified under the main menu hierarchy.
- */
-function dungeoncrawler_tester_update_11001(): void {
-}

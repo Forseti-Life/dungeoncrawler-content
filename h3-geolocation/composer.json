@@ -1,7 +1,0 @@
-{
-    "name": "stlouisintegration/h3-geolocation",
-    "description": "H3 Geolocation Data Framework",
-    "type": "project",
-    "license": "MIT",
-    "require": {}
-}

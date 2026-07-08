@@ -1,9 +1,0 @@
-# CEO priority ranking (higher = more important)
-# This is a simple ROI proxy used for triage/resource allocation.
-# Updated 2026-04-19: DungeonCrawler is the top focus on the master node.
-# JobHunter is assigned to the worker node (dev-laptop) — kept here at low
-# priority so any stray master-node items deprioritise themselves naturally.
-priorities:
-  dungeoncrawler: 300
-  agent-management: 200
-  jobhunter: 10

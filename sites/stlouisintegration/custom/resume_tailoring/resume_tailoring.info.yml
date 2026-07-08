@@ -1,8 +1,0 @@
-name: Resume Tailoring
-type: module
-description: Automatically generates tailored resumes based on job descriptions using AI.
-core_version_requirement: ^9 || ^10 || ^11
-package: Custom
-dependencies:
-  - node
-  - ai_conversation

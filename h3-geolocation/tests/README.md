@@ -1,1 +1,0 @@
-# Tests Directory\n\nTest suites for H3 framework validation.\n\n- **test_h3_framework.py** - Core framework tests\n- **test_transform_processor.py** - Data processor tests\n- **fixtures.py** - Test data fixtures\n- **data_validation/** - Data validation tests

@@ -1,6 +1,0 @@
-services:
-  ai_conversation.api_service:
-    class: Drupal\ai_conversation\Service\AIApiService
-    arguments: ['@config.factory', '@logger.factory', '@entity_type.manager']
-    tags:
-      - { name: service }

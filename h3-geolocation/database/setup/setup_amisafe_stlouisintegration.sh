@@ -1,1 +1,0 @@
-../../script/database/setup_consolidated.sh
