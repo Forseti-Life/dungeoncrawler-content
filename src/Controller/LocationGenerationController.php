@@ -305,6 +305,7 @@ class LocationGenerationController extends ControllerBase {
     try {
       $this->recordGmPrivateRequest($campaign_id, $gm_private);
       $room = $this->roomGenerator->generateRoom($context);
+      $room = $this->mapGenerator->ensureRoomHexH3Indexes((string) $dungeon_record['dungeon_id'], $room);
       $dungeon_data['rooms'][] = $room;
       $dungeon_data['entities'] = array_merge(
         is_array($dungeon_data['entities'] ?? NULL) ? $dungeon_data['entities'] : [],

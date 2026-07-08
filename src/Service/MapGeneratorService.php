@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 use Drupal\ai_conversation\Service\AIApiService;
 use Psr\Log\LoggerInterface;
 
@@ -33,6 +34,7 @@ class MapGeneratorService {
   protected ?NavigationService $navigationService;
   protected const NAVIGATION_RECEIPT_SCHEMA_VERSION = 'navigation-receipt-v2';
   protected const MIN_ROOM_GAP_HEXES = 5;
+  protected const H3_ACTIVE_RESOLUTION = 14;
 
   /**
    * Size presets: setting type => [cols, rows, hex_count_approx, size_category].
@@ -303,6 +305,7 @@ class MapGeneratorService {
       self::MIN_ROOM_GAP_HEXES
     );
     $room = $placement_result['room'];
+    $room = $this->ensureRoomHexH3Indexes($dungeon_id, $room);
 
     // Finalize generated NPC/item contracts now that the room id is known.
     $setting = $this->finalizeGeneratedSettingContracts($setting, $room['room_id']);
@@ -402,6 +405,64 @@ class MapGeneratorService {
       'source' => $source,
       'template_id' => $template_id,
     ];
+  }
+
+  /**
+   * Ensure every room hex carries canonical Res14 H3 index metadata.
+   *
+   * @param string $dungeon_id
+   *   Authoritative dungeon id used for axial->lat/lng projection.
+   * @param array $room
+   *   Room payload containing hexes.
+   *
+   * @return array
+   *   Room payload with h3_index_res14 populated on every hex.
+   */
+  public function ensureRoomHexH3Indexes(string $dungeon_id, array $room): array {
+    $dungeon_id = trim($dungeon_id);
+    if ($dungeon_id === '') {
+      throw new \RuntimeException('H3 room-index contract violation: dungeon_id is required.');
+    }
+
+    $room_id = trim((string) ($room['room_id'] ?? ''));
+    $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf(
+        'H3 room-index contract violation: room %s has no hexes to index.',
+        $room_id !== '' ? $room_id : 'unknown'
+      ));
+    }
+
+    foreach ($hexes as $index => &$hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf(
+          'H3 room-index contract violation: room %s hex[%d] must define numeric q/r.',
+          $room_id !== '' ? $room_id : 'unknown',
+          $index
+        ));
+      }
+
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $existing_h3 = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+      if ($existing_h3 === '') {
+        $latlng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $q, $r);
+        $existing_h3 = H3SpatialHelper::latLngToH3Index(
+          (float) $latlng['latitude'],
+          (float) $latlng['longitude'],
+          self::H3_ACTIVE_RESOLUTION
+        );
+      }
+
+      $hex['h3_index_res14'] = strtolower($existing_h3);
+      if (trim((string) ($hex['h3_index'] ?? '')) === '') {
+        $hex['h3_index'] = strtolower($existing_h3);
+      }
+    }
+    unset($hex);
+
+    $room['hexes'] = $hexes;
+    return $room;
   }
 
   /**

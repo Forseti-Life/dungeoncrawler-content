@@ -3654,14 +3654,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $game_state['phase'] = 'encounter';
     $game_state['exploration']['previous_room'] = $from_room;
 
-    $entry_hex = $params['entry_hex'] ?? ($params['target_hex'] ?? ['q' => 0, 'r' => 0]);
+    $entry_hex = $this->resolveTransitionEntryHex($room, $params, $capability);
     $entry_facing = isset($params['entry_facing']) ? (int) $params['entry_facing'] : 0;
     if ($actor_id) {
       $this->moveEntityToRoom(
         $dungeon_data,
         $actor_id,
         $target_room_id,
-        is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0],
+        $entry_hex,
         $entry_facing
       );
     }
@@ -3700,10 +3700,72 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'time_effects' => $this->buildTransitionTimeEffects($actor_id, $from_room, $target_room_id, $capability, $params),
       'mutations' => $actor_id ? [
         ['entity' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
-        ['entity' => $actor_id, 'field' => 'placement.hex', 'to' => is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0]],
+        ['entity' => $actor_id, 'field' => 'placement.hex', 'to' => $entry_hex],
         ['entity' => $actor_id, 'field' => 'placement.facing', 'to' => $this->normalizeFacingDirection($entry_facing)],
-        ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14($dungeon_data, $target_room_id, is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0])],
+        ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14($dungeon_data, $target_room_id, $entry_hex)],
       ] : [],
+    ];
+  }
+
+  /**
+   * Resolve canonical transition entry hex inside the destination room.
+   */
+  protected function resolveTransitionEntryHex(array $room, array $params, ?array $capability): array {
+    $room_id = trim((string) ($room['room_id'] ?? ''));
+    $room_hexes = array_values(array_filter(
+      (array) ($room['hexes'] ?? []),
+      static fn($hex): bool => is_array($hex) && isset($hex['q'], $hex['r'])
+    ));
+    if ($room_hexes === []) {
+      throw new \RuntimeException(sprintf(
+        'Encounter transition contract violation: room %s has no placement hexes.',
+        $room_id !== '' ? $room_id : 'unknown'
+      ));
+    }
+
+    $candidates = [
+      $params['entry_hex'] ?? NULL,
+      $params['target_hex'] ?? NULL,
+      $capability['target_hex'] ?? NULL,
+    ];
+    foreach ($candidates as $candidate) {
+      $normalized = $this->normalizeTransitionHexCandidate($candidate);
+      if ($normalized === NULL) {
+        continue;
+      }
+      foreach ($room_hexes as $room_hex) {
+        if ((int) $room_hex['q'] === $normalized['q'] && (int) $room_hex['r'] === $normalized['r']) {
+          return $normalized;
+        }
+      }
+    }
+
+    foreach ($room_hexes as $room_hex) {
+      if (!empty($room_hex['is_entry']) || !empty($room_hex['entry'])) {
+        return [
+          'q' => (int) $room_hex['q'],
+          'r' => (int) $room_hex['r'],
+        ];
+      }
+    }
+
+    return [
+      'q' => (int) ($room_hexes[0]['q'] ?? 0),
+      'r' => (int) ($room_hexes[0]['r'] ?? 0),
+    ];
+  }
+
+  /**
+   * Normalize one transition-hex candidate payload.
+   */
+  protected function normalizeTransitionHexCandidate(mixed $candidate): ?array {
+    if (!is_array($candidate) || !isset($candidate['q'], $candidate['r'])) {
+      return NULL;
+    }
+
+    return [
+      'q' => (int) $candidate['q'],
+      'r' => (int) $candidate['r'],
     ];
   }
 
