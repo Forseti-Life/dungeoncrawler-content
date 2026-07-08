@@ -692,7 +692,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     }
 
     $existing = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q', ['quest_id', 'status', 'completed_at'])
+      ->fields('q', ['quest_id', 'status'])
       ->condition('campaign_id', $campaign_id)
       ->condition('source_template_id', $quest_template_id)
       ->range(0, 1)
