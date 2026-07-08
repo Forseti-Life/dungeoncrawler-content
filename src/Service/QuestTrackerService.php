@@ -459,6 +459,15 @@ class QuestTrackerService {
 
       // Log if objective completed
       if ($objective_completed) {
+        if (!empty($quest)) {
+          $this->consumeTurnInCollectiblesForCompletedObjective(
+            $campaign_id,
+            $quest,
+            $objective_states,
+            $objective_id,
+            $progress_character_id
+          );
+        }
         $this->logQuestEvent(
           $campaign_id,
           $quest_id,
@@ -2310,6 +2319,232 @@ class QuestTrackerService {
       'updated' => $updated,
       'objective_completed' => $objective_completed,
     ];
+  }
+
+  /**
+   * Consume collected quest items when a turn-in interaction objective completes.
+   */
+  protected function consumeTurnInCollectiblesForCompletedObjective(
+    int $campaign_id,
+    array $quest,
+    array $objective_states,
+    string $completed_objective_id,
+    ?int $character_id
+  ): void {
+    if (
+      $campaign_id <= 0
+      || !$character_id
+      || $character_id <= 0
+      || !$this->inventoryManagementService
+      || !$this->database->schema()->tableExists('dc_campaign_item_instances')
+    ) {
+      return;
+    }
+
+    $completed_objective = $this->findObjectiveNodeById($objective_states, $completed_objective_id);
+    if (!is_array($completed_objective) || strtolower((string) ($completed_objective['type'] ?? '')) !== 'interact') {
+      return;
+    }
+
+    $depends_on = array_values(array_filter(
+      array_map(
+        static fn($value): string => trim((string) $value),
+        is_array($completed_objective['depends_on'] ?? NULL) ? $completed_objective['depends_on'] : []
+      ),
+      static fn(string $value): bool => $value !== ''
+    ));
+    if ($depends_on === []) {
+      return;
+    }
+
+    $quest_source = trim((string) ($quest['source_template_id'] ?? $quest['quest_id'] ?? ''));
+    if ($quest_source === '') {
+      $quest_source = trim((string) ($quest['quest_id'] ?? ''));
+    }
+    $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+
+    foreach ($depends_on as $dependency_objective_id) {
+      $dependency_objective = $this->findObjectiveNodeById($objective_states, $dependency_objective_id);
+      if (!is_array($dependency_objective)) {
+        continue;
+      }
+      if (strtolower((string) ($dependency_objective['type'] ?? '')) !== 'collect') {
+        continue;
+      }
+
+      $target_quantity = max(
+        1,
+        (int) ($dependency_objective['target_count'] ?? $dependency_objective['completion_criteria']['target_count'] ?? 1)
+      );
+      $item_label = trim((string) ($dependency_objective['item'] ?? ''));
+      $canonical_item_id = $item_label !== ''
+        ? $this->buildQuestCollectibleItemId($quest_source, $dependency_objective_id, $item_label)
+        : '';
+
+      $this->consumeQuestCollectibleInventoryByObjective(
+        $campaign_id,
+        (string) $character_id,
+        $quest_source,
+        $quest_id,
+        $dependency_objective_id,
+        $canonical_item_id,
+        $target_quantity
+      );
+    }
+  }
+
+  /**
+   * Consume collectible inventory rows that belong to one collect objective.
+   */
+  protected function consumeQuestCollectibleInventoryByObjective(
+    int $campaign_id,
+    string $character_id,
+    string $quest_source,
+    string $quest_id,
+    string $objective_id,
+    string $canonical_item_id,
+    int $required_quantity
+  ): void {
+    if ($required_quantity <= 0) {
+      return;
+    }
+
+    $rows = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i', ['item_instance_id', 'item_id', 'quantity', 'state_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('location_ref', $character_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $candidates = [];
+    foreach ($rows as $row) {
+      $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+      $state = is_array($state) ? $state : [];
+      $spawn = is_array($state['_spawn'] ?? NULL) ? $state['_spawn'] : [];
+      $state_objective_id = trim((string) ($state['objective_id'] ?? $spawn['objective_id'] ?? ''));
+      $state_quest_association = trim((string) ($state['quest_association'] ?? $spawn['quest_source'] ?? ''));
+      $state_spawn_quest_id = trim((string) ($spawn['quest_id'] ?? ''));
+      $item_type = strtolower(trim((string) ($state['type'] ?? '')));
+      $tags = array_map(
+        static fn($value): string => strtolower(trim((string) $value)),
+        is_array($state['tags'] ?? NULL) ? $state['tags'] : []
+      );
+
+      $is_collectible = str_contains($item_type, 'collectible')
+        || in_array('collectible', $tags, TRUE)
+        || in_array('quest_item', $tags, TRUE);
+      if (!$is_collectible) {
+        continue;
+      }
+
+      $item_id = trim((string) ($row['item_id'] ?? ''));
+      $matches_objective = $state_objective_id !== '' && $state_objective_id === $objective_id;
+      $matches_association = $state_quest_association !== '' && $state_quest_association === $quest_source;
+      $matches_quest_id = $state_spawn_quest_id !== '' && $state_spawn_quest_id === $quest_id;
+      $matches_canonical_item_id = $canonical_item_id !== '' && $item_id === $canonical_item_id;
+
+      if (!$matches_objective && !$matches_association && !$matches_quest_id && !$matches_canonical_item_id) {
+        continue;
+      }
+
+      $priority = 0;
+      if ($matches_objective) {
+        $priority += 4;
+      }
+      if ($matches_quest_id) {
+        $priority += 2;
+      }
+      if ($matches_canonical_item_id) {
+        $priority += 1;
+      }
+      if ($matches_association) {
+        $priority += 1;
+      }
+
+      $candidates[] = [
+        'item_instance_id' => (string) ($row['item_instance_id'] ?? ''),
+        'quantity' => max(0, (int) ($row['quantity'] ?? 0)),
+        'priority' => $priority,
+      ];
+    }
+
+    if ($candidates === []) {
+      return;
+    }
+
+    usort($candidates, static function (array $left, array $right): int {
+      if ($left['priority'] !== $right['priority']) {
+        return $right['priority'] <=> $left['priority'];
+      }
+      return strcmp($left['item_instance_id'], $right['item_instance_id']);
+    });
+
+    $remaining = $required_quantity;
+    foreach ($candidates as $candidate) {
+      if ($remaining <= 0) {
+        break;
+      }
+      if (($candidate['item_instance_id'] ?? '') === '' || (int) ($candidate['quantity'] ?? 0) <= 0) {
+        continue;
+      }
+
+      $consume_quantity = min($remaining, (int) $candidate['quantity']);
+      $this->inventoryManagementService->removeItemFromInventory(
+        $character_id,
+        'character',
+        $candidate['item_instance_id'],
+        $consume_quantity,
+        $campaign_id
+      );
+      $remaining -= $consume_quantity;
+    }
+  }
+
+  /**
+   * Find one objective node by objective_id from the nested phase/objective tree.
+   */
+  protected function findObjectiveNodeById(array $objective_states, string $objective_id): ?array {
+    $objective_id = trim($objective_id);
+    if ($objective_id === '') {
+      return NULL;
+    }
+
+    foreach ($objective_states as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $found = $this->findObjectiveNodeByIdInCollection((array) ($phase['objectives'] ?? []), $objective_id);
+      if (is_array($found)) {
+        return $found;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Recursively find one objective node by objective_id.
+   */
+  protected function findObjectiveNodeByIdInCollection(array $objectives, string $objective_id): ?array {
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      if (trim((string) ($objective['objective_id'] ?? '')) === $objective_id) {
+        return $objective;
+      }
+      foreach (['children', 'objectives', 'sub_objectives'] as $children_key) {
+        if (!is_array($objective[$children_key] ?? NULL)) {
+          continue;
+        }
+        $found = $this->findObjectiveNodeByIdInCollection($objective[$children_key], $objective_id);
+        if (is_array($found)) {
+          return $found;
+        }
+      }
+    }
+
+    return NULL;
   }
 
   /**
