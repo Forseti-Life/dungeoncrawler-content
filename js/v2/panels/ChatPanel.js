@@ -1688,24 +1688,7 @@ export class ChatPanel {
   }
 
   formatEncounterChatMessage(speaker, message, type = 'npc', options = {}) {
-    const rawMessage = String(message || '').trim();
-    const alreadyPrefixed = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*(?:Actor\s+)?[^:]+:/i.test(rawMessage);
-    const messageClass = String(options.messageClass || '').trim().toLowerCase();
-    const authority = String(options.authority || '').trim().toLowerCase();
-    if (messageClass !== '' && messageClass !== 'authoritative_transcript') {
-      return message || '';
-    }
-    if (authority !== '' && authority !== 'authoritative' && !options.encounterEvent) {
-      return message || '';
-    }
-    if (!rawMessage || options.encounterPrefix === false || alreadyPrefixed) {
-      return message || '';
-    }
-    const context = this.resolveEncounterChatContext(speaker, options);
-    if (!context) {
-      return message || '';
-    }
-    return `Round ${context.round}: Turn ${context.turn}: Actor ${context.actorName}: ${rawMessage}`;
+    return message || '';
   }
 
   resolveEncounterChatContext(speaker = '', options = {}) {
@@ -1980,14 +1963,8 @@ export class ChatPanel {
     const playerLineId = `chat-player-${requestId}`;
     const gmProgressLineId = `chat-gm-progress-${requestId}`;
     const gmResponseLineId = `chat-gm-${requestId}`;
-    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*(?:Actor\s+)?[^:]+:\s*/u;
     const trimmedPlayerMessage = String(message || '').trim();
-    const pendingPrefix = speaker === 'Game Master'
-      ? 'Round ?: Turn ?: Game Master: '
-      : `Round ?: Turn ?: Actor ${speaker}: `;
-    const pendingPlayerMessage = encounterPrefixRegex.test(trimmedPlayerMessage)
-      ? message
-      : `${pendingPrefix}${trimmedPlayerMessage}`;
+    const pendingPlayerMessage = trimmedPlayerMessage;
 
     if (includePlayer) {
       this.appendChatLineToTarget(target, speaker, pendingPlayerMessage, 'player', {
@@ -2416,49 +2393,7 @@ export class ChatPanel {
       }
     });
 
-    const sortedLines = normalizedLines
-      .map((line, index) => ({ ...line, __sortIndex: index }))
-      .sort((a, b) => {
-        const numeric = (value) => {
-          const n = Number(value);
-          return Number.isFinite(n) ? n : null;
-        };
-
-        const aSequenceIndex = numeric(a.sequenceIndex);
-        const bSequenceIndex = numeric(b.sequenceIndex);
-        if (aSequenceIndex !== null || bSequenceIndex !== null) {
-          if (aSequenceIndex === null) return 1;
-          if (bSequenceIndex === null) return -1;
-          if (aSequenceIndex !== bSequenceIndex) return aSequenceIndex - bSequenceIndex;
-        }
-
-        const aEventId = numeric(a.eventId);
-        const bEventId = numeric(b.eventId);
-        if (aEventId !== null || bEventId !== null) {
-          if (aEventId === null) return 1;
-          if (bEventId === null) return -1;
-          if (aEventId !== bEventId) return aEventId - bEventId;
-        }
-
-        const aMessageId = numeric(a.messageId);
-        const bMessageId = numeric(b.messageId);
-        if (aMessageId !== null || bMessageId !== null) {
-          if (aMessageId === null) return 1;
-          if (bMessageId === null) return -1;
-          if (aMessageId !== bMessageId) return aMessageId - bMessageId;
-        }
-
-        const aSourceMessageId = numeric(a.sourceMessageId);
-        const bSourceMessageId = numeric(b.sourceMessageId);
-        if (aSourceMessageId !== null || bSourceMessageId !== null) {
-          if (aSourceMessageId === null) return 1;
-          if (bSourceMessageId === null) return -1;
-          if (aSourceMessageId !== bSourceMessageId) return aSourceMessageId - bSourceMessageId;
-        }
-
-        return a.__sortIndex - b.__sortIndex;
-      })
-      .map(({ __sortIndex, ...line }) => line);
+    const sortedLines = normalizedLines;
 
     sortedLines.forEach((line) => {
       this.appendChatLine(line.speaker, line.message, line.type, {
