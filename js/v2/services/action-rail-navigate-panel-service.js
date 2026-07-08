@@ -132,6 +132,7 @@ function collectNavigateExitGroups(panel, context) {
   const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
   const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
   const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
+  const activeDungeonName = resolveActiveDungeonName(panel, context);
   const capabilitiesRaw = typeof hexmap?.resolveNavigationCapabilities === 'function'
     ? hexmap.resolveNavigationCapabilities(activeRoomId)
     : [];
@@ -150,7 +151,9 @@ function collectNavigateExitGroups(panel, context) {
   const exits = capabilities
     .map((capability) => {
       const targetRoomId = String(capability?.target_room_id || '').trim();
-      if (!targetRoomId) {
+      const connectionId = String(capability?.connection_id || '').trim().toLowerCase();
+      const isSyntheticSelfExit = targetRoomId === activeRoomId && connectionId.endsWith(':self-exit');
+      if (!targetRoomId || isSyntheticSelfExit) {
         return null;
       }
       const room = rooms[targetRoomId] || null;
@@ -202,7 +205,7 @@ function collectNavigateExitGroups(panel, context) {
   return [{
     key: 'room-exits',
     title: 'Room exits',
-    dungeonName: 'Room exits',
+    dungeonName: activeDungeonName || 'Room exits',
     mapId: currentMapId,
     dungeonLevelId: currentDungeonLevelId,
     locations: exits,
