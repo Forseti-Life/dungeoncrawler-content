@@ -2475,8 +2475,10 @@ class QuestTrackerService {
 
       $candidates[] = [
         'item_instance_id' => (string) ($row['item_instance_id'] ?? ''),
+        'item_id' => $item_id,
         'quantity' => max(0, (int) ($row['quantity'] ?? 0)),
         'priority' => $priority,
+        'state_data' => $state,
       ];
     }
 
@@ -2501,18 +2503,36 @@ class QuestTrackerService {
       }
 
       $transfer_quantity = min($remaining, (int) $candidate['quantity']);
-      $this->inventoryManagementService->transferItemTransaction(
-        [
-          'owner_id' => $character_id,
-          'owner_type' => 'character',
-          'location_type' => 'carried',
-        ],
-        [
-          'owner_id' => $target_character_id,
-          'owner_type' => 'character',
-          'location_type' => 'carried',
-        ],
+      $state_data = is_array($candidate['state_data'] ?? NULL) ? $candidate['state_data'] : [];
+      $item_id = trim((string) ($candidate['item_id'] ?? ''));
+      if ($item_id === '') {
+        $item_id = trim((string) ($state_data['id'] ?? $state_data['content_id'] ?? 'quest_item'));
+      }
+      $item_name = trim((string) ($state_data['name'] ?? $this->humanizeQuestReference($item_id) ?? 'Quest Item'));
+      if ($item_name === '') {
+        $item_name = 'Quest Item';
+      }
+      $item_type = trim((string) ($state_data['type'] ?? $state_data['item_type'] ?? 'quest_collectible_item'));
+      if ($item_type === '') {
+        $item_type = 'quest_collectible_item';
+      }
+      $transfer_payload = $state_data;
+      $transfer_payload['id'] = $item_id;
+      $transfer_payload['name'] = $item_name;
+      $transfer_payload['type'] = $item_type;
+
+      $this->inventoryManagementService->removeItemFromInventory(
+        $character_id,
+        'character',
         $candidate['item_instance_id'],
+        $transfer_quantity,
+        $campaign_id
+      );
+      $this->inventoryManagementService->addItemToInventory(
+        $target_character_id,
+        'character',
+        $transfer_payload,
+        'carried',
         $transfer_quantity,
         $campaign_id
       );
