@@ -1545,6 +1545,24 @@ export class ChatPanel {
       type,
     });
     const displayMessage = this.formatEncounterChatMessage(lineRecord.speaker, lineRecord.message, lineRecord.type, lineRecord);
+    const hasAuthoritativeIdentity = Boolean(lineRecord.messageId || lineRecord.sourceMessageId || lineRecord.eventId);
+    if (!options.replaceLine && hasAuthoritativeIdentity) {
+      const existingByIdentity = Array.from(log.querySelectorAll('.chat-line')).find((candidate) => {
+        const candidateMessageId = String(candidate?.dataset?.messageId || '').trim();
+        const candidateSourceMessageId = String(candidate?.dataset?.sourceMessageId || '').trim();
+        const candidateEventId = String(candidate?.dataset?.eventId || '').trim();
+        if (lineRecord.messageId && candidateMessageId === String(lineRecord.messageId)) {
+          return true;
+        }
+        if (lineRecord.sourceMessageId && candidateSourceMessageId === String(lineRecord.sourceMessageId)) {
+          return true;
+        }
+        return Boolean(lineRecord.eventId && candidateEventId !== '' && candidateEventId === lineRecord.eventId);
+      });
+      if (existingByIdentity) {
+        return existingByIdentity;
+      }
+    }
     const existingLine = options.replaceLine || (lineRecord.lineId ? this.findChatLineById(lineRecord.lineId) : null);
     if (!existingLine && !lineRecord.lineId) {
       const lastLine = log.lastElementChild;
