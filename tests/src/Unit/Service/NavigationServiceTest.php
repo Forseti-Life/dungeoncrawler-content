@@ -441,7 +441,10 @@ class NavigationServiceTest extends UnitTestCase {
   public function testBuildNavigationCapabilitiesRejectsDuplicateExitDestinationConflict(): void {
     $service = new NavigationService();
 
-    $capabilities = $service->buildNavigationCapabilities([
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('duplicate identity "id:north_gate" has conflicting payload contracts');
+
+    $service->buildNavigationCapabilities([
       'hex_map' => [
         'connections' => [
           [
@@ -465,12 +468,6 @@ class NavigationServiceTest extends UnitTestCase {
         ],
       ],
     ], 'hall');
-
-    $this->assertCount(2, $capabilities);
-    $this->assertFalse($capabilities[0]['available']);
-    $this->assertFalse($capabilities[1]['available']);
-    $this->assertSame('duplicate_exit_conflict', $capabilities[0]['blocked_reason']);
-    $this->assertSame('duplicate_exit_conflict', $capabilities[1]['blocked_reason']);
   }
 
   /**
@@ -479,7 +476,10 @@ class NavigationServiceTest extends UnitTestCase {
   public function testBuildNavigationCapabilitiesRejectsDuplicateExitDistanceConflict(): void {
     $service = new NavigationService();
 
-    $capabilities = $service->buildNavigationCapabilities([
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('duplicate identity "id:hall_road_gate" has conflicting payload contracts');
+
+    $service->buildNavigationCapabilities([
       'hex_map' => [
         'connections' => [
           [
@@ -514,12 +514,6 @@ class NavigationServiceTest extends UnitTestCase {
         ],
       ],
     ], 'hall');
-
-    $this->assertCount(2, $capabilities);
-    $this->assertFalse($capabilities[0]['available']);
-    $this->assertFalse($capabilities[1]['available']);
-    $this->assertSame('duplicate_exit_conflict', $capabilities[0]['blocked_reason']);
-    $this->assertSame('duplicate_exit_conflict', $capabilities[1]['blocked_reason']);
   }
 
   /**
@@ -555,11 +549,10 @@ class NavigationServiceTest extends UnitTestCase {
       ],
     ], 'hall');
 
-    $this->assertCount(2, $capabilities);
+    // Identical duplicate contracts are normalized into one canonical capability.
+    $this->assertCount(1, $capabilities);
     $this->assertTrue($capabilities[0]['available']);
-    $this->assertTrue($capabilities[1]['available']);
     $this->assertNotSame('duplicate_exit_conflict', $capabilities[0]['blocked_reason']);
-    $this->assertNotSame('duplicate_exit_conflict', $capabilities[1]['blocked_reason']);
   }
 
   /**
@@ -1106,8 +1099,8 @@ class NavigationServiceTest extends UnitTestCase {
       'tavern'
     );
 
-    // Should have market + garden via road network (no direct connections)
-    $this->assertCount(2, $capabilities);
+    // Includes one direct road capability plus market + garden synthetic road-network capabilities.
+    $this->assertCount(3, $capabilities);
 
     $road_caps = array_filter($capabilities, fn($c) => 
       ($c['is_road_network'] ?? FALSE) === TRUE

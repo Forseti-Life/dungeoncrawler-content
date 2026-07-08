@@ -554,18 +554,25 @@ class GameCoordinatorService {
         continue;
       }
 
-      $candidate_character_id = (string) (
-        $entity['state']['metadata']['campaign_character_id']
-        ?? $entity['state']['metadata']['source_character_id']
-        ?? $entity['state']['metadata']['character_id']
-        ?? $entity['character_id']
-        ?? $entity['source_character_id']
-        ?? $entity['state']['character_id']
-        ?? ($entity['entity_ref']['character_id'] ?? NULL)
-        ?? ($entity['entity_ref']['content_id'] ?? NULL)
-        ?? ''
-      );
-      if ($candidate_character_id === '' || (int) $candidate_character_id !== $character_id) {
+      $candidate_character_ids = [
+        $entity['state']['metadata']['campaign_character_id'] ?? NULL,
+        $entity['state']['metadata']['source_character_id'] ?? NULL,
+        $entity['state']['metadata']['character_id'] ?? NULL,
+        $entity['character_id'] ?? NULL,
+        $entity['source_character_id'] ?? NULL,
+        $entity['state']['character_id'] ?? NULL,
+        $entity['entity_ref']['character_id'] ?? NULL,
+        $entity['entity_ref']['content_id'] ?? NULL,
+      ];
+      $matches_character = FALSE;
+      foreach ($candidate_character_ids as $candidate_character_id) {
+        $candidate_character_id = trim((string) $candidate_character_id);
+        if ($candidate_character_id !== '' && (int) $candidate_character_id === $character_id) {
+          $matches_character = TRUE;
+          break;
+        }
+      }
+      if (!$matches_character) {
         continue;
       }
 

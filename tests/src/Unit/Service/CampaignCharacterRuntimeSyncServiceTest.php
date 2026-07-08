@@ -72,8 +72,8 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       'rooms' => [
         'room-bazaar' => [
           'hexes' => [
-            ['q' => -4, 'r' => -3],
-            ['q' => -3, 'r' => -3],
+            ['q' => -4, 'r' => -3, 'h3_index_res14' => '842a10000000001'],
+            ['q' => -3, 'r' => -3, 'h3_index_res14' => '842a10000000002'],
           ],
         ],
       ],
@@ -175,8 +175,8 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       'rooms' => [
         'room-tavern' => [
           'hexes' => [
-            ['q' => 0, 'r' => 0],
-            ['q' => 1, 'r' => 0],
+            ['q' => 0, 'r' => 0, 'h3_index_res14' => '842a10000000003'],
+            ['q' => 1, 'r' => 0, 'h3_index_res14' => '842a10000000004'],
           ],
         ],
       ],
@@ -252,7 +252,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
     $empty_statement = $this->createMock(StatementInterface::class);
     $empty_statement->method('fetchField')->willReturn(FALSE);
     $link_statement = $this->createMock(StatementInterface::class);
-    $link_statement->method('fetchField')->willReturn(9021);
+    $link_statement->method('fetchField')->willReturn(FALSE);
     $library_select = $this->createSelectMock($empty_statement);
     $campaign_portrait_select = $this->createSelectMock($link_statement);
     $existing_library_link_select = $this->createSelectMock($empty_statement);
@@ -301,8 +301,8 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       'rooms' => [
         'room-tavern' => [
           'hexes' => [
-            ['q' => 0, 'r' => 0],
-            ['q' => 1, 'r' => 0],
+            ['q' => 0, 'r' => 0, 'h3_index_res14' => '842a10000000005'],
+            ['q' => 1, 'r' => 0, 'h3_index_res14' => '842a10000000006'],
           ],
         ],
       ],
@@ -404,8 +404,8 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       'rooms' => [
         'room-tavern' => [
           'hexes' => [
-            ['q' => 2, 'r' => 1],
-            ['q' => 1, 'r' => 1],
+            ['q' => 2, 'r' => 1, 'h3_index_res14' => '842a10000000007'],
+            ['q' => 1, 'r' => 1, 'h3_index_res14' => '842a10000000008'],
           ],
         ],
       ],
@@ -513,8 +513,8 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
           'room_id' => '7f2f1051-5f88-45a2-a66a-0f7063900001',
           'name' => 'The Gilded Tankard',
           'hexes' => [
-            ['q' => 0, 'r' => 0],
-            ['q' => 1, 'r' => 0],
+            ['q' => 0, 'r' => 0, 'h3_index_res14' => '842a10000000009'],
+            ['q' => 1, 'r' => 0, 'h3_index_res14' => '842a1000000000a'],
           ],
         ],
       ],
@@ -586,7 +586,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
     $empty_statement = $this->createMock(StatementInterface::class);
     $empty_statement->method('fetchField')->willReturn(FALSE);
     $link_statement = $this->createMock(StatementInterface::class);
-    $link_statement->method('fetchField')->willReturn(9021);
+    $link_statement->method('fetchField')->willReturn(FALSE);
     $library_select = $this->createSelectMock($empty_statement);
     $campaign_portrait_select = $this->createSelectMock($link_statement);
     $existing_library_link_select = $this->createSelectMock($empty_statement);
@@ -655,7 +655,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       'rooms' => [
         'market_building' => [
           'hexes' => [
-            ['q' => 0, 'r' => 0],
+            ['q' => 0, 'r' => 0, 'h3_index_res14' => '842a1000000000b'],
           ],
         ],
       ],
@@ -724,7 +724,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
     $empty_statement = $this->createMock(StatementInterface::class);
     $empty_statement->method('fetchField')->willReturn(FALSE);
     $link_statement = $this->createMock(StatementInterface::class);
-    $link_statement->method('fetchField')->willReturn(9101);
+    $link_statement->method('fetchField')->willReturn(FALSE);
     $library_select = $this->createSelectMock($empty_statement);
     $campaign_portrait_select = $this->createSelectMock($link_statement);
     $existing_library_link_select = $this->createSelectMock($empty_statement);
@@ -800,7 +800,7 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       'rooms' => [
         'room-entry' => [
           'hexes' => [
-            ['q' => 0, 'r' => 0],
+            ['q' => 0, 'r' => 0, 'h3_index_res14' => '842a1000000000c'],
           ],
         ],
       ],
@@ -815,8 +815,17 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
    */
   protected function createSelectMock(StatementInterface $statement): Select {
     $select = $this->createMock(Select::class);
+    $or_condition = new class() {
+      public function condition(string $field, mixed $value, ?string $operator = NULL): self {
+        return $this;
+      }
+      public function isNull(string $field): self {
+        return $this;
+      }
+    };
     $select->method('fields')->willReturnSelf();
     $select->method('condition')->willReturnSelf();
+    $select->method('orConditionGroup')->willReturn($or_condition);
     $select->method('orderBy')->willReturnSelf();
     $select->method('range')->willReturnSelf();
     $select->method('execute')->willReturn($statement);
