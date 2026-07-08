@@ -866,6 +866,65 @@ export class GameShell {
     return chatPanel.fetchSessionViewData(view, options);
   }
 
+  async fetchRoomChatHistoryForContext(context = {}, options = {}) {
+    const chatPanel = this.panels?.chat || null;
+    if (chatPanel && typeof chatPanel.fetchRoomChatHistoryForContext === 'function') {
+      return chatPanel.fetchRoomChatHistoryForContext(context, options);
+    }
+
+    const campaignId = Number(context?.campaignId || 0);
+    const roomId = String(context?.roomId || '').trim();
+    const characterId = Number(context?.characterId || 0) || null;
+    const channelKey = String(options?.channelKey || 'room').trim() || 'room';
+    if (!campaignId || !roomId) {
+      return null;
+    }
+
+    let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat?channel=${encodeURIComponent(channelKey)}`;
+    if (characterId) {
+      url += `&character_id=${characterId}`;
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      credentials: 'same-origin',
+    });
+    if (response.status === 403) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async fetchRoomViewPayload(campaignId, roomId, options = {}) {
+    const numericCampaignId = Number(campaignId || 0);
+    const normalizedRoomId = String(roomId || '').trim();
+    if (!numericCampaignId || !normalizedRoomId) {
+      return null;
+    }
+
+    const response = await fetch(
+      `/api/campaign/${encodeURIComponent(numericCampaignId)}/room/${encodeURIComponent(normalizedRoomId)}/view-image`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      },
+    );
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.success || !result?.data) {
+      throw new Error(result?.error || result?.message || `Room view unavailable (${response.status})`);
+    }
+    return result.data;
+  }
+
   /**
    * Fetch room view images and emit room:changed with sceneImageUrl.
    * @private
