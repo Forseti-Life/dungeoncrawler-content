@@ -116,7 +116,8 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
       if ($available_quest_offer !== NULL) {
         $this->applyDirectQuestgiverDialogueQuestState($campaign_id, $character_id, $entity_ref, $display_name, $room_id, $dungeon_data);
-        return $available_quest_offer;
+        $refreshed_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+        return $refreshed_quest_offer ?? $available_quest_offer;
       }
 
       $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message);
