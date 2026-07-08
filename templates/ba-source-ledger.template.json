@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "system_of_record": "BA source-document traceability ledger",
+  "product": "<product-id>",
+  "updated_at": "YYYY-MM-DD",
+  "status_legend": {
+    "requirements_status": ["pending", "in_progress", "complete", "skipped"],
+    "issue_mapping_status": ["unmapped", "partial", "mapped"],
+    "feature_mapping_status": ["unmapped", "partial", "mapped"],
+    "release_handoff_status": ["pending", "submitted", "triaged", "activated", "released"]
+  },
+  "source_documents": [
+    {
+      "source_id": "<source-id>",
+      "label": "<human-readable source title>",
+      "kind": "rulebook",
+      "source_object_kind": "chapters",
+      "source_path": "<repo-relative source path>",
+      "outline_path": "<repo-relative outline path or empty string>",
+      "tracker_path": "<repo-relative source-object tracker path>",
+      "audit_path": "<repo-relative audit worksheet path>",
+      "reference_prefix": "<repo-relative artifact prefix>",
+      "feature_prefixes": ["<feature-prefix>"],
+      "requirements_coverage": {
+        "total_objects": 0,
+        "complete_objects": 0,
+        "skipped_objects": 0,
+        "pending_objects": 0
+      },
+      "traceability": {
+        "requirements_status": "pending",
+        "issue_mapping_status": "unmapped",
+        "feature_mapping_status": "unmapped",
+        "release_handoff_status": "pending"
+      },
+      "gaps": []
+    }
+  ]
+}

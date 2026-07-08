@@ -1,0 +1,60 @@
+{#
+ # Archived Characters — /characters/archived page
+ # Browse, unarchive, or permanently delete archived characters.
+ #}
+<div class="dc-character-list">
+  <div class="dc-character-list__header">
+    <h1 class="dc-character-list__title">🗄️ Archived Characters</h1>
+    <div class="dc-sheet__nav-actions">
+      <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Characters</a>
+    </div>
+  </div>
+
+  {% if characters|length > 0 %}
+    <div class="dc-character-grid">
+      {% for char in characters %}
+        <div class="dc-character-card dc-character-card--archived">
+          <div class="dc-character-card__main-link dc-character-card__main-link--no-hover">
+            <div class="dc-character-card__portrait">
+              {% if char.portrait %}
+                <img src="{{ char.portrait }}" alt="{{ char.name }}" />
+              {% else %}
+                <div class="dc-character-card__portrait-placeholder dc-character-card__portrait-placeholder--archived">
+                  <span class="dc-character-card__initial">{{ char.name|first|upper }}</span>
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="dc-character-card__info">
+              <h3 class="dc-character-card__name">{{ char.name }}</h3>
+              <div class="dc-character-card__subtitle">
+                Level {{ char.level }} {{ char.ancestry }} {{ char.class }}
+              </div>
+
+              <div class="dc-character-card__meta">
+                <span>Created {{ char.created }}</span>
+                <span>Archived {{ char.archived_at }}</span>
+              </div>
+
+              <div class="dc-character-card__actions">
+                <a href="{{ char.unarchive_url }}" class="dc-btn dc-btn-secondary dc-btn--sm" title="Restore this character to your active roster">
+                  ♻️ Unarchive
+                </a>
+                <a href="{{ char.delete_url }}" class="dc-btn dc-btn-danger dc-btn--sm" title="Permanently delete this character">
+                  ☠️ Delete Forever
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="dc-character-list__empty">
+      <div class="dc-character-list__empty-icon">📦</div>
+      <h2>No Archived Characters</h2>
+      <p>Characters you archive from your roster will appear here. You can restore or permanently delete them.</p>
+      <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Characters</a>
+    </div>
+  {% endif %}
+</div>

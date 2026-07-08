@@ -1,0 +1,27 @@
+{
+  "feature_id": "<feature-id>",
+  "product_id": "<product>",
+  "owner_seat": "qa-<product>",
+  "status": "ready",
+  "test_plan": "features/<feature-id>/03-test-plan.md",
+  "suites": [
+    {
+      "id": "<feature-id>-unit",
+      "feature_id": "<feature-id>",
+      "label": "Feature-scoped unit or functional coverage",
+      "type": "unit",
+      "command": "cd /path/to/repo && ./vendor/bin/phpunit path/to/test --testdox",
+      "artifacts": [
+        "sessions/qa-<product>/artifacts/<feature-id>/latest/"
+      ],
+      "required_for_release": true,
+      "owner_seat": "qa-<product>",
+      "source_path": "sites/<site>/web/modules/custom/<module>/tests/src/Unit/<TestFile>.php",
+      "env_requirements": [
+        "local-dev-site",
+        "phpunit"
+      ],
+      "release_checkpoint": "final-pre-ship"
+    }
+  ]
+}

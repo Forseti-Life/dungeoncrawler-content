@@ -1,0 +1,115 @@
+{
+  "template_id": "investigate_ruins",
+  "name": "Investigate the Ancient Ruins",
+  "description": "Strange lights have been seen emanating from the {location}. Investigate the ruins and report back on what you find.",
+  "quest_type": "exploration",
+  "level_min": 3,
+  "level_max": 6,
+  "tags": [
+    "exploration",
+    "mystery",
+    "dungeon"
+  ],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "find_ruins",
+          "type": "explore",
+          "description": "Locate the {location}",
+          "location": "{location}",
+          "next_step": "Travel to {location} and reveal the ruins location on the map.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "discovered",
+            "required_value": true,
+            "description": "Discover {location}."
+          }
+        },
+        {
+          "objective_id": "explore_chambers",
+          "type": "explore",
+          "description": "Explore the inner chambers",
+          "location": "{location}_inner",
+          "next_step": "Enter the inner chambers of {location} and reveal the chamber area.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "discovered",
+            "required_value": true,
+            "description": "Discover the inner chambers."
+          }
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "collect_artifact",
+          "type": "collect",
+          "item": "ancient_artifact",
+          "target_count": 1,
+          "description": "Retrieve the mysterious artifact",
+          "next_step": "Search the ruins for the mysterious artifact and pick it up.",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Recover the mysterious artifact."
+          }
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "objectives": [
+        {
+          "objective_id": "return_report",
+          "type": "interact",
+          "target": "quest_giver",
+          "description": "Report your findings",
+          "next_step": "Return to the quest giver and report what you found in the ruins.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Report your findings to the quest giver."
+          }
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 200,
+      "per_level": 50
+    },
+    "gold": {
+      "base": 25,
+      "per_level": 10,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "gmg_story_treasures",
+      "count": 1
+    },
+    "reputation": {
+      "faction": "scholars_guild",
+      "amount": 50
+    }
+  },
+  "prerequisites": {
+    "level_min": 3
+  },
+  "story_impact": {
+    "storyline_id": "torment-and-legacy",
+    "chapter_id": "onboarding",
+    "scene_id": "first-engagement",
+    "unlocks": [
+      "ruins_questline_part2"
+    ]
+  },
+  "estimated_duration_minutes": 90,
+  "version": "1.0.0"
+}

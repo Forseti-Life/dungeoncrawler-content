@@ -1,0 +1,81 @@
+{
+  "template_id": "gather_torch_components",
+  "name": "Gather {item_name} for the Tavern",
+  "description": "The tavern's lighting is dim. Help gather {item_name} to brighten up the common room.",
+  "quest_type": "side_quest",
+  "level_min": 1,
+  "level_max": 2,
+  "tags": [
+    "gathering",
+    "maintenance",
+    "tavern",
+    "beginner"
+  ],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "collect_torches",
+          "type": "collect",
+          "item": "{item_name}",
+          "target_count_range": [
+            4,
+            6
+          ],
+          "description": "Gather {item_name} scattered around the tavern",
+          "next_step": "Search the tavern common room and pick up each {item_name} quest item.",
+          "completion_criteria": {
+            "kind": "count",
+            "metric": "current",
+            "target_count": 1,
+            "description": "Complete when {target_count} {item_name} have been collected from the tavern."
+          }
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "objectives": [
+        {
+          "objective_id": "return_torches",
+          "type": "interact",
+          "target": "tavern_keeper",
+          "description": "Bring the torch components to the tavern keeper",
+          "next_step": "Speak to the tavern keeper after collecting the torch components.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Complete when the torch components are delivered to the tavern keeper."
+          }
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 45,
+      "per_level": 12
+    },
+    "gold": {
+      "base": 4,
+      "per_level": 1,
+      "randomize": true
+    },
+    "items": {
+      "loot_table": "core_field_support",
+      "count": 1
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "story_impact": {
+    "storyline_id": "torment-and-legacy",
+    "chapter_id": "onboarding",
+    "scene_id": "briefing"
+  },
+  "estimated_duration_minutes": 12,
+  "version": "1.0.0"
+}

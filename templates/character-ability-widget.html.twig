@@ -1,0 +1,231 @@
+{#
+/**
+ * @file
+ * Pathbuilder-inspired Ability Score Widget
+ *
+ * Reusable component that displays ability scores with Pathbuilder 2e's
+ * clean visual design: large score, modifier, and source breakdown.
+ *
+ * This widget can be used in multiple contexts:
+ * - Character creation steps 2-8 (preview of current scores)
+ * - Character sheet display
+ * - API-driven real-time updates
+ *
+ * Variables:
+ * - abilities: Array of ability data with scores, modifiers, and sources
+ *   Structure: {
+ *     'strength': {
+ *       'score': 18,
+ *       'modifier': 4,
+ *       'sources': [
+ *         {'type': 'base', 'value': 10, 'source': 'Base score'},
+ *         {'type': 'boost', 'value': 2, 'source': 'Dwarf ancestry', 'step': 'ancestry'},
+ *         ...
+ *       ]
+ *     },
+ *     ...
+ *   }
+ * - mode: Display mode
+ *   - 'full': Full display with source breakdown (default)
+ *   - 'compact': Compact display (score + modifier only)
+ *   - 'interactive': Interactive mode with boost selection
+ * - show_sources: Whether to show source breakdown (default: true)
+ * - highlight_changes: Whether to highlight recent changes (default: false)
+ *
+ * @see \Drupal\dungeoncrawler_content\Service\AbilityScoreTracker
+ */
+#}
+
+{% set mode = mode|default('full') %}
+{% set show_sources = show_sources is defined ? show_sources : true %}
+{% set highlight_changes = highlight_changes|default(false) %}
+
+{{ attach_library('dungeoncrawler_content/ability-widget') }}
+
+<div class="ability-score-widget ability-score-widget--{{ mode }}" data-mode="{{ mode }}"
+     {% if attributes['data-step'] is defined %}data-step="{{ attributes['data-step'] }}"{% endif %}
+     {% if attributes['data-max-boosts'] is defined %}data-max-boosts="{{ attributes['data-max-boosts'] }}"{% endif %}
+     {% if attributes['data-character-data'] is defined %}data-character-data="{{ attributes['data-character-data'] }}"{% endif %}>
+  
+  {% if mode == 'full' and abilities %}
+    <div class="abilities-grid">
+      {% for ability_key, ability_data in abilities %}
+        {% set ability_name = ability_key|capitalize %}
+        {% set score = ability_data.score|default(10) %}
+        {% set modifier = ability_data.modifier|default(0) %}
+        {% set sources = ability_data.sources|default([]) %}
+        {% set has_boost = sources|length > 1 %}
+        {% set has_flaw = sources|filter(s => s.type == 'flaw')|length > 0 %}
+        
+        <div class="ability-card {% if has_boost %}ability-card--boosted{% endif %} {% if has_flaw %}ability-card--flawed{% endif %}" 
+             data-ability="{{ ability_key }}"
+             data-score="{{ score }}"
+             data-modifier="{{ modifier }}">
+          
+          {# Ability Icon #}
+          <div class="ability-icon">
+            {% if ability_key == 'strength' %}💪
+            {% elseif ability_key == 'dexterity' %}🎯
+            {% elseif ability_key == 'constitution' %}❤️
+            {% elseif ability_key == 'intelligence' %}🧠
+            {% elseif ability_key == 'wisdom' %}🔮
+            {% elseif ability_key == 'charisma' %}✨
+            {% endif %}
+          </div>
+          
+          {# Ability Name #}
+          <h3 class="ability-name">{{ ability_name }}</h3>
+          
+          {# Score Display (Pathbuilder-style: large prominent number) #}
+          <div class="score-display {% if highlight_changes %}score-display--changed{% endif %}">
+            <span class="score-value">{{ score }}</span>
+            <span class="modifier-value {% if modifier >= 0 %}modifier-positive{% else %}modifier-negative{% endif %}">
+              {{ modifier >= 0 ? '+' ~ modifier : modifier }}
+            </span>
+          </div>
+          
+          {# Source Breakdown (tooltip-style on hover) #}
+          {% if show_sources and sources|length > 0 %}
+            <div class="ability-sources">
+              {% for source in sources %}
+                {% set badge_class = source.type == 'flaw' ? 'source-badge--flaw' : 'source-badge--boost' %}
+                <span class="source-badge {{ badge_class }}" 
+                      title="{{ source.source }}"
+                      data-type="{{ source.type }}"
+                      data-value="{{ source.value }}"
+                      data-step="{{ source.step|default('') }}">
+                  {% if source.type == 'base' %}
+                    Base {{ source.value }}
+                  {% elseif source.type == 'boost' %}
+                    +{{ source.value }}
+                  {% elseif source.type == 'flaw' %}
+                    {{ source.value }}
+                  {% endif %}
+                </span>
+              {% endfor %}
+            </div>
+            
+            {# Detailed source list (hidden, shown on click/hover) #}
+            <div class="ability-sources-detail hidden">
+              <strong>Score Breakdown:</strong>
+              <ul class="source-list">
+                {% for source in sources %}
+                  <li class="source-item source-item--{{ source.type }}">
+                    <span class="source-change">
+                      {% if source.type == 'boost' %}+{{ source.value }}
+                      {% elseif source.type == 'flaw' %}{{ source.value }}
+                      {% else %}{{ source.value }}
+                      {% endif %}
+                    </span>
+                    <span class="source-text">{{ source.source }}</span>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+          
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  
+  {% if mode == 'compact' and abilities %}
+    <div class="abilities-compact">
+      {% for ability_key, ability_data in abilities %}
+        {% set ability_abbr = ability_key|slice(0, 3)|upper %}
+        {% set score = ability_data.score|default(10) %}
+        {% set modifier = ability_data.modifier|default(0) %}
+        
+        <div class="ability-compact-item" data-ability="{{ ability_key }}">
+          <span class="ability-abbr">{{ ability_abbr }}</span>
+          <span class="ability-score">{{ score }}</span>
+          <span class="ability-modifier {% if modifier >= 0 %}positive{% else %}negative{% endif %}">
+            ({{ modifier >= 0 ? '+' ~ modifier : modifier }})
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  
+  {% if mode == 'interactive' %}
+    <div class="abilities-interactive">
+      <div class="boost-selector-header">
+        <h3>Select Abilities to Boost</h3>
+        <div class="boost-counter">
+          <span class="boosts-remaining" data-remaining="{{ boosts_remaining|default(4) }}">
+            {{ boosts_remaining|default(4) }}
+          </span>
+          <span class="boosts-total"> / {{ boosts_total|default(4) }}</span>
+          <span class="counter-label"> boosts remaining</span>
+        </div>
+      </div>
+      
+      <div class="abilities-grid abilities-grid--interactive">
+        {% for ability_key, ability_data in abilities %}
+          {% set ability_name = ability_key|capitalize %}
+          {% set score = ability_data.score|default(10) %}
+          {% set modifier = ability_data.modifier|default(0) %}
+          {% set is_selected = ability_data.selected|default(false) %}
+          {% set is_disabled = ability_data.disabled|default(false) %}
+          
+          <div class="ability-card ability-card--selectable {% if is_selected %}ability-card--selected{% endif %} {% if is_disabled %}ability-card--disabled{% endif %}"
+               data-ability="{{ ability_key }}"
+               data-score="{{ score }}"
+               data-modifier="{{ modifier }}"
+               {% if not is_disabled %}tabindex="0" role="button"{% endif %}>
+            
+            {# Selection Indicator #}
+            <div class="selection-indicator">
+              <input type="checkbox" 
+                     name="ability_boost_{{ ability_key }}" 
+                     value="{{ ability_key }}"
+                     {% if is_selected %}checked{% endif %}
+                     {% if is_disabled %}disabled{% endif %}
+                     class="ability-checkbox">
+              <span class="checkmark"></span>
+            </div>
+            
+            {# Ability Icon #}
+            <div class="ability-icon">
+              {% if ability_key == 'strength' %}💪
+              {% elseif ability_key == 'dexterity' %}🎯
+              {% elseif ability_key == 'constitution' %}❤️
+              {% elseif ability_key == 'intelligence' %}🧠
+              {% elseif ability_key == 'wisdom' %}🔮
+              {% elseif ability_key == 'charisma' %}✨
+              {% endif %}
+            </div>
+            
+            {# Ability Name #}
+            <h3 class="ability-name">{{ ability_name }}</h3>
+            
+            {# Current Score Preview #}
+            <div class="score-preview">
+              <span class="current-score">{{ score }}</span>
+              {% if not is_selected %}
+                <span class="arrow-icon">→</span>
+                <span class="preview-score">{{ score < 18 ? score + 2 : score + 1 }}</span>
+              {% endif %}
+            </div>
+            
+            {# Modifier Preview #}
+            <div class="modifier-preview">
+              <span class="current-modifier {{ modifier >= 0 ? 'positive' : 'negative' }}">
+                ({{ modifier >= 0 ? '+' ~ modifier : modifier }})
+              </span>
+            </div>
+            
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+  
+  {% if not abilities %}
+    <div class="ability-widget-empty">
+      <p class="empty-message">No ability scores calculated yet. Select your ancestry, background, and class to see your ability scores.</p>
+    </div>
+  {% endif %}
+  
+</div>
+

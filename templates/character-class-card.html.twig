@@ -1,0 +1,39 @@
+{#
+/**
+ * @file
+ * Template for a character class card display.
+ *
+ * Available variables:
+ * - name: The class name.
+ * - description: The class description.
+ * - image: The class image.
+ * - primary_stat: The primary stat for this class.
+ * - abilities: List of class abilities.
+ */
+#}
+<div class="class-card card mb-4 shadow-sm">
+  {% if image %}
+    <div class="class-card__image">
+      {{ image }}
+    </div>
+  {% endif %}
+  <div class="card-body">
+    <h3 class="class-card__title card-title">{{ name }}</h3>
+    {% if primary_stat %}
+      <span class="class-card__stat badge bg-info">{{ primary_stat }}</span>
+    {% endif %}
+    {% if description %}
+      <p class="class-card__description card-text mt-2">{{ description }}</p>
+    {% endif %}
+    {% if abilities is not empty %}
+      <div class="class-card__abilities mt-2">
+        <strong>{{ 'Abilities:'|t }}</strong>
+        <ul class="list-unstyled">
+          {% for ability in abilities %}
+            <li>✨ {{ ability }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+</div>

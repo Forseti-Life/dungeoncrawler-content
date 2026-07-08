@@ -1,0 +1,41 @@
+{#
+/**
+ * @file
+ * Template for an item card display.
+ *
+ * Available variables:
+ * - name: The item name.
+ * - description: The item description.
+ * - rarity: The item rarity tier.
+ * - image: The item image.
+ * - stats: List of item stats.
+ */
+#}
+<div class="item-card card mb-4 shadow-sm item-card--{{ rarity|lower|default('common') }}">
+  {% if image %}
+    <div class="item-card__image">
+      {{ image }}
+    </div>
+  {% endif %}
+  <div class="card-body">
+    <h3 class="item-card__title card-title">{{ name }}</h3>
+    {% if rarity %}
+      <span class="item-card__rarity badge bg-{{ rarity|lower == 'common' ? 'secondary' : (rarity|lower == 'uncommon' ? 'success' : (rarity|lower == 'rare' ? 'primary' : (rarity|lower == 'epic' ? 'purple' : 'warning'))) }}">
+        {{ rarity }}
+      </span>
+    {% endif %}
+    {% if description %}
+      <p class="item-card__description card-text mt-2">{{ description }}</p>
+    {% endif %}
+    {% if stats is not empty %}
+      <div class="item-card__stats mt-2">
+        <strong>{{ 'Stats:'|t }}</strong>
+        <ul class="list-unstyled">
+          {% for stat_name, stat_value in stats %}
+            <li>🛡️ {{ stat_name }}: +{{ stat_value }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+</div>

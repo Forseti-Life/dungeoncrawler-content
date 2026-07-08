@@ -1,0 +1,66 @@
+{
+  "template_id": "deliver_package",
+  "name": "Deliver Package to {destination}",
+  "description": "A merchant needs a package delivered to {destination}. The roads are dangerous, so be on your guard.",
+  "quest_type": "delivery",
+  "level_min": 1,
+  "level_max": 8,
+  "tags": [
+    "delivery",
+    "travel"
+  ],
+  "objectives_schema": [
+    {
+      "phase": 1,
+      "objectives": [
+        {
+          "objective_id": "travel_to_destination",
+          "type": "explore",
+          "description": "Travel to {destination}",
+          "location": "{destination}",
+          "next_step": "Travel to {destination} and reveal or enter the delivery location.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "discovered",
+            "required_value": true,
+            "description": "Reach {destination}."
+          }
+        },
+        {
+          "objective_id": "deliver_package",
+          "type": "interact",
+          "target": "recipient",
+          "description": "Deliver the package to the recipient",
+          "next_step": "Speak to the recipient at {destination} and hand over the package.",
+          "completion_criteria": {
+            "kind": "flag",
+            "metric": "completed",
+            "required_value": true,
+            "description": "Hand the package to the intended recipient."
+          }
+        }
+      ]
+    }
+  ],
+  "rewards_schema": {
+    "xp": {
+      "base": 80,
+      "per_level": 25
+    },
+    "gold": {
+      "base": 12,
+      "per_level": 6,
+      "randomize": true
+    }
+  },
+  "prerequisites": {
+    "level_min": 1
+  },
+  "story_impact": {
+    "storyline_id": "torment-and-legacy",
+    "chapter_id": "onboarding",
+    "scene_id": "first-engagement"
+  },
+  "estimated_duration_minutes": 40,
+  "version": "1.0.0"
+}

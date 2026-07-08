@@ -1,0 +1,51 @@
+{#
+/**
+ * @file
+ * Character Creation - Step 2: Ancestry
+ */
+#}
+<div class="character-creation-step step-2">
+  <div class="creation-container">
+    {# Progress Bar #}
+    <div class="progress-bar">
+      <div class="progress-indicator progress-step-2"></div>
+    </div>
+    <div class="progress-text">Step 2 of 8: Choose Ancestry</div>
+
+    {# Main Content #}
+    <div class="step-content">
+      <h2>Choose Your Ancestry</h2>
+      <p class="step-description">Your ancestry determines your character's heritage and inherent abilities.</p>
+
+      <form id="step2Form" method="post" action="/characters/create/step/2/save" data-heritages="{{ heritages|default({})|json_encode|e('html_attr') }}">
+        <input type="hidden" name="character_id" value="{{ character_id }}">
+        <input type="hidden" name="ancestry" id="selectedAncestry" value="{{ character.ancestry }}" required>
+        <input type="hidden" name="heritage" id="selectedHeritage" value="{{ character.heritage }}">
+
+        <div class="ancestry-grid">
+          {% for ancestry in ancestries %}
+            <div class="ancestry-card {{ character.ancestry == ancestry.id ? 'selected' : '' }}" 
+                 data-ancestry="{{ ancestry.id }}">
+              <h3>{{ ancestry.name }}</h3>
+              <div class="ancestry-stats">
+                <span class="stat"><strong>HP:</strong> {{ ancestry.hp }}</span>
+                <span class="stat"><strong>Size:</strong> {{ ancestry.size }}</span>
+                <span class="stat"><strong>Speed:</strong> {{ ancestry.speed }}ft</span>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        <div id="heritageSelection" class="heritage-section hidden">
+          <h3>Choose a Heritage</h3>
+          <div id="heritageOptions" class="heritage-grid"></div>
+        </div>
+
+        <div class="button-group">
+          <a href="/characters/create/step/1?character_id={{ character_id }}" class="btn btn-secondary">← Back</a>
+          <button type="submit" class="btn btn-primary" id="step2Submit" disabled>Next: Choose Background →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
