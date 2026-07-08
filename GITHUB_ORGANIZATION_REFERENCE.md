@@ -13,7 +13,7 @@
 | Repo | Purpose | URL |
 |------|---------|-----|
 | forseti-job-hunter | Job search platform | https://github.com/Forseti-Life/forseti-job-hunter |
-| dungeoncrawler-pf2e | PF2E campaign management | https://github.com/Forseti-Life/dungeoncrawler-pf2e |
+| dungeoncrawler-content | PF2E campaign management | https://github.com/Forseti-Life/dungeoncrawler-content |
 
 ### Libraries & Services (4 repos)
 | Repo | Purpose | URL |
@@ -41,7 +41,7 @@
 ## Repository Topics (Discoverability)
 
 ### By Technology
-- **drupal**: forseti-job-hunter, dungeoncrawler-pf2e, forseti-shared-modules
+- **drupal**: forseti-job-hunter, dungeoncrawler-content, forseti-shared-modules
 - **mobile**: forseti-mobile (react-native, ios, android)
 - **mesh-network**: forseti-meshd (p2p, distributed, networking)
 - **geospatial**: h3-geolocation (h3, geolocation, mapping)
@@ -50,7 +50,7 @@
 
 ### By Community
 - **job-search**: forseti-job-hunter (ai, community)
-- **pathfinder**: dungeoncrawler-pf2e, dungeoncrawler-content (pf2e, campaign-management, tabletop-rpg)
+- **pathfinder**: dungeoncrawler-content, dungeoncrawler-content (pf2e, campaign-management, tabletop-rpg)
 - **governance**: copilot-hq (organizational-model, copilot, release-management)
 
 ---
@@ -59,7 +59,7 @@
 
 ### Phase 1: Core Products
 - [ ] Extract forseti/ (job-hunter) → forseti-job-hunter
-- [ ] Extract dungeoncrawler/ → dungeoncrawler-pf2e
+- [ ] Extract dungeoncrawler/ → dungeoncrawler-content
 - [ ] Create comprehensive README for each
 - [ ] Setup issue templates
 - [ ] Setup GitHub Actions CI

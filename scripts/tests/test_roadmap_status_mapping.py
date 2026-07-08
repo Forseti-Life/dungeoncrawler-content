@@ -20,7 +20,7 @@ def test_done_maps_to_implemented_in_generic_and_forseti_resolvers():
 def test_dungeoncrawler_roadmap_restores_feature_flow_inventory():
     resolver = (
         ROOT
-        / "dungeoncrawler-pf2e"
+        / "dungeoncrawler-content"
         / "web"
         / "modules"
         / "custom"
@@ -31,7 +31,7 @@ def test_dungeoncrawler_roadmap_restores_feature_flow_inventory():
     ).read_text(encoding="utf-8")
     template = (
         ROOT
-        / "dungeoncrawler-pf2e"
+        / "dungeoncrawler-content"
         / "web"
         / "modules"
         / "custom"
@@ -53,7 +53,7 @@ def test_dungeoncrawler_roadmap_restores_feature_flow_inventory():
 def test_dungeoncrawler_controller_uses_pipeline_status_for_linked_requirements():
     controller = (
         ROOT
-        / "dungeoncrawler-pf2e"
+        / "dungeoncrawler-content"
         / "web"
         / "modules"
         / "custom"
@@ -72,7 +72,7 @@ def test_dungeoncrawler_controller_uses_pipeline_status_for_linked_requirements(
 def test_dungeoncrawler_theme_hook_exposes_feature_block_variables():
     module = (
         ROOT
-        / "dungeoncrawler-pf2e"
+        / "dungeoncrawler-content"
         / "web"
         / "modules"
         / "custom"

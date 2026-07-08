@@ -23,7 +23,7 @@ These are the main products users and contributors will engage with.
 | Repository | Purpose | Audience | Status |
 |---|---|---|---|
 | **forseti-job-hunter** | Job search platform with AI matching | Job seekers, recruiters, community | ✅ Created |
-| **dungeoncrawler-pf2e** | PF2E campaign & character management | GMs, players, tabletop RPG community | ✅ Created |
+| **dungeoncrawler-content** | PF2E campaign & character management | GMs, players, tabletop RPG community | ✅ Created |
 
 ### **Tier 2: Libraries & Services** (Developer & Operator Focus)
 Supporting infrastructure for integrations and deployments.
@@ -61,7 +61,7 @@ github.com/Forseti-Life/
 
 📦 CORE PRODUCTS (User Focus)
 ├── forseti-job-hunter              [Job search platform]
-└── dungeoncrawler-pf2e             [Campaign management]
+└── dungeoncrawler-content             [Campaign management]
 
 📚 LIBRARIES & SERVICES (Developer Focus)
 ├── forseti-shared-modules          [Drupal modules]
@@ -110,7 +110,7 @@ Each repo includes:
 ### Topics & Discoverability
 Each repo is tagged with 3-5 topics for GitHub search and discovery:
 - **forseti-job-hunter:** job-search, drupal, ai, community
-- **dungeoncrawler-pf2e:** pathfinder, pf2e, campaign-management, tabletop-rpg, drupal
+- **dungeoncrawler-content:** pathfinder, pf2e, campaign-management, tabletop-rpg, drupal
 - **forseti-shared-modules:** drupal, drupal-modules, php, library
 - **forseti-mobile:** mobile, react-native, ios, android
 - **forseti-meshd:** mesh-network, p2p, distributed, networking
@@ -128,7 +128,7 @@ Each repo is tagged with 3-5 topics for GitHub search and discovery:
 ### Phase 1: Core Products (Immediate)
 Extract and initialize:
 1. **forseti-job-hunter** — Job search codebase + setup guide
-2. **dungeoncrawler-pf2e** — Campaign management system + content guides
+2. **dungeoncrawler-content** — Campaign management system + content guides
 
 ### Phase 2: Supporting Libraries (Week 1-2)
 Extract and initialize:
@@ -176,7 +176,7 @@ User → forseti-job-hunter
        ├─ may use → forseti-devops (for deployment)
        └─ docs from → forseti-docs
 
-GM/Player → dungeoncrawler-pf2e
+GM/Player → dungeoncrawler-content
            ├─ depends on → forseti-shared-modules
            ├─ references → dungeoncrawler-content
            ├─ APIs from → forseti-platform-specs
@@ -273,7 +273,7 @@ Network Operator → forseti-meshd
 
 | Phase | Duration | Focus | Repos |
 |---|---|---|---|
-| **Phase 1** | Week 1 | Core products launch | forseti-job-hunter, dungeoncrawler-pf2e |
+| **Phase 1** | Week 1 | Core products launch | forseti-job-hunter, dungeoncrawler-content |
 | **Phase 2** | Week 2 | Developer tools | forseti-shared-modules, forseti-mobile, forseti-meshd |
 | **Phase 3** | Week 3 | Operations & docs | copilot-hq, forseti-devops, forseti-docs |
 | **Phase 4** | Ongoing | Reference data | dungeoncrawler-content, forseti-platform-specs |
@@ -286,7 +286,7 @@ Network Operator → forseti-meshd
 
 ```
 ✅ forseti-job-hunter               https://github.com/Forseti-Life/forseti-job-hunter
-✅ dungeoncrawler-pf2e              https://github.com/Forseti-Life/dungeoncrawler-pf2e
+✅ dungeoncrawler-content              https://github.com/Forseti-Life/dungeoncrawler-content
 ✅ forseti-shared-modules           https://github.com/Forseti-Life/forseti-shared-modules
 ✅ forseti-mobile                   https://github.com/Forseti-Life/forseti-mobile
 ✅ forseti-meshd                    https://github.com/Forseti-Life/forseti-meshd

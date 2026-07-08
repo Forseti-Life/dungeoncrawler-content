@@ -45,7 +45,7 @@ The Forseti.Life open-sourcing project is splitting the private operational mono
 | Repo | Purpose | URL |
 |------|---------|-----|
 | **forseti-job-hunter** | Job search platform | https://github.com/Forseti-Life/forseti-job-hunter |
-| **dungeoncrawler-pf2e** | PF2E campaign management | https://github.com/Forseti-Life/dungeoncrawler-pf2e |
+| **dungeoncrawler-content** | PF2E campaign management | https://github.com/Forseti-Life/dungeoncrawler-content |
 
 ### 📚 Tier 2: Libraries & Services (4 repos)
 **These are libraries and services for integration.**
@@ -80,7 +80,7 @@ The Forseti.Life open-sourcing project is splitting the private operational mono
 
 ### Phase 1: Week 1 (Core Products Launch)
 - [ ] Extract forseti/ → forseti-job-hunter
-- [ ] Extract dungeoncrawler/ → dungeoncrawler-pf2e
+- [ ] Extract dungeoncrawler/ → dungeoncrawler-content
 - [ ] Add comprehensive README templates
 - [ ] Setup GitHub Actions CI
 - **Goal:** Public availability of core products
@@ -286,7 +286,7 @@ Each repository will include:
 
 ### Tier 1 (Core Products)
 - **forseti-job-hunter:** https://github.com/Forseti-Life/forseti-job-hunter
-- **dungeoncrawler-pf2e:** https://github.com/Forseti-Life/dungeoncrawler-pf2e
+- **dungeoncrawler-content:** https://github.com/Forseti-Life/dungeoncrawler-content
 
 ### Tier 2 (Libraries)
 - **forseti-shared-modules:** https://github.com/Forseti-Life/forseti-shared-modules

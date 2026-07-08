@@ -151,7 +151,7 @@ class TestBaReferenceScan:
             / "sessions"
             / "ba-dungeoncrawler"
             / "inbox"
-            / "20260414-ba-refscan-dungeoncrawler-pf2e-bestiary-1-lvl-1-5"
+            / "20260414-ba-refscan-dungeoncrawler-content-bestiary-1-lvl-1-5"
         )
         existing.mkdir(parents=True)
         (existing / "command.md").write_text("# existing\n", encoding="utf-8")

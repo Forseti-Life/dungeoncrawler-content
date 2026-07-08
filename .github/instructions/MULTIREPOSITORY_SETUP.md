@@ -109,7 +109,7 @@ These 11 repos are accessible via GH_TOKEN:
 
 ### Tier 1: Core Products
 - `Forseti-Life/forseti-job-hunter`
-- `Forseti-Life/dungeoncrawler-pf2e`
+- `Forseti-Life/dungeoncrawler-content`
 
 ### Tier 2: Shared Infrastructure
 - `Forseti-Life/forseti-shared-modules`

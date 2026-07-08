@@ -39,7 +39,7 @@ This guide covers working with both simultaneously.
 
 #### Tier 1: Core Products
 - `forseti-job-hunter` — Job search platform
-- `dungeoncrawler-pf2e` — D&D campaign assistant
+- `dungeoncrawler-content` — D&D campaign assistant
 
 #### Tier 2: Developer Libraries
 - `forseti-shared-modules` — Reusable Drupal modules
@@ -221,7 +221,7 @@ mkdir -p ~/forseti-workspace
 cd ~/forseti-workspace
 
 # Clone all public repos (shallow clone to save space)
-for repo in forseti-job-hunter dungeoncrawler-pf2e forseti-shared-modules \
+for repo in forseti-job-hunter dungeoncrawler-content forseti-shared-modules \
             forseti-mobile forseti-meshd h3-geolocation copilot-hq \
             forseti-devops forseti-docs dungeoncrawler-content forseti-platform-specs; do
   git clone --depth 1 https://github.com/Forseti-Life/$repo.git

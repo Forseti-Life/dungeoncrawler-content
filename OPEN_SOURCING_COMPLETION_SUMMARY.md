@@ -27,7 +27,7 @@
 | Repo | Status | URL |
 |------|--------|-----|
 | forseti-job-hunter | ✅ Initialized | https://github.com/Forseti-Life/forseti-job-hunter |
-| dungeoncrawler-pf2e | ✅ Initialized | https://github.com/Forseti-Life/dungeoncrawler-pf2e |
+| dungeoncrawler-content | ✅ Initialized | https://github.com/Forseti-Life/dungeoncrawler-content |
 
 #### Tier 2: Developer Libraries (4 repos)
 | Repo | Status | URL |
@@ -126,7 +126,7 @@
 
 ### Phase 1: Week 1 (Core Products Launch)
 - [ ] Extract forseti/ → forseti-job-hunter
-- [ ] Extract dungeoncrawler/ → dungeoncrawler-pf2e
+- [ ] Extract dungeoncrawler/ → dungeoncrawler-content
 - **Goal:** Public availability of main products
 
 ### Phase 2: Week 2 (Developer Libraries)
@@ -204,7 +204,7 @@
 
 ### Tier 1: Core Products
 - **forseti-job-hunter:** https://github.com/Forseti-Life/forseti-job-hunter
-- **dungeoncrawler-pf2e:** https://github.com/Forseti-Life/dungeoncrawler-pf2e
+- **dungeoncrawler-content:** https://github.com/Forseti-Life/dungeoncrawler-content
 
 ### Tier 2: Libraries
 - **forseti-shared-modules:** https://github.com/Forseti-Life/forseti-shared-modules
@@ -324,7 +324,7 @@
 
 📦 **Phase 2: Content Extraction** — Ready to begin
 
-- [ ] Extract core products (forseti-job-hunter, dungeoncrawler-pf2e)
+- [ ] Extract core products (forseti-job-hunter, dungeoncrawler-content)
 - [ ] Extract libraries (shared modules, mobile, mesh, geolocation)
 - [ ] Extract tooling (copilot-hq, devops, docs)
 - [ ] Extract reference (content, specs)

@@ -41,7 +41,7 @@ This document clarifies the architecture to prevent confusion about integration 
 | Repo | URL | Synced From | Purpose |
 |------|-----|-------------|---------|
 | **forseti-job-hunter** | https://github.com/Forseti-Life/forseti-job-hunter | monorepo/sites/forseti/ | Job hunter Drupal module; public API |
-| **dungeoncrawler-pf2e** | https://github.com/Forseti-Life/dungeoncrawler-pf2e | monorepo/sites/dungeoncrawler/ | DungeonCrawler Drupal module; PF2E rules engine |
+| **dungeoncrawler-content** | https://github.com/Forseti-Life/dungeoncrawler-content | monorepo/sites/dungeoncrawler/ | DungeonCrawler Drupal module; PF2E rules engine |
 
 #### Tier 2: Shared Infrastructure
 
