@@ -147,8 +147,19 @@ export class NavigationSystem {
       });
 
       if (!coordinator?.api?.sendAction || !actorId) {
-        console.error('[Navigation] executeDirectNavigate: no coordinator or actorId — aborting', { hasCoordinator: !!coordinator, actorId });
-        this._appendChatLine('System', 'No active player actor is available for navigation right now.', 'system');
+        console.warn('[Navigation] executeDirectNavigate: missing coordinator/actor, rerouting through in-session destination resolver', {
+          hasCoordinator: !!coordinator,
+          actorId,
+          roomId,
+          roomName,
+          mapId,
+          dungeonLevelId,
+        });
+        await this.requestInSessionDestination(roomId || roomName, {
+          fallbackRoomId: roomId,
+          mapId,
+          dungeonLevelId,
+        });
         return;
       }
 
@@ -170,6 +181,7 @@ export class NavigationSystem {
           stateVersion: coordinator.phaseManager?.stateVersion,
         });
       } catch (error) {
+        const statusCode = Number(error?.status || 0);
         const serverError = String(
           error?.payload?.error
           || error?.message
@@ -180,13 +192,17 @@ export class NavigationSystem {
             /not reachable from the active room/i.test(serverError)
             || /not available for transition/i.test(serverError)
           );
+        const isTransitionServiceFailure = statusCode >= 500
+          || /service unavailable/i.test(serverError)
+          || /internal server error/i.test(serverError);
 
-        if (isReachabilityFailure) {
-          console.warn('[Navigation] transition reachability failed, rerouting through in-session destination resolver', {
+        if (isReachabilityFailure || isTransitionServiceFailure) {
+          console.warn('[Navigation] transition failed, rerouting through in-session destination resolver', {
             roomId,
             connectionId,
-            status: error?.status,
+            status: statusCode,
             error: serverError,
+            reason: isReachabilityFailure ? 'reachability' : 'service',
           });
           await this.requestInSessionDestination(roomId || roomName, {
             fallbackRoomId: roomId,
