@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\RoomChat\NpcPromptAssembler;
+
 trait RoomChatServiceIntentAndDeterminismTrait {
 
   protected function looksLikeNavigationQuery(string $normalized_message): bool {

@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\RoomChat\NpcPromptAssembler;
+
 trait RoomChatServiceChannelAndSessionTrait {
 
   protected function generateChannelNpcReply(
