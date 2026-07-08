@@ -120,7 +120,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
         return $refreshed_quest_offer ?? $available_quest_offer;
       }
 
-      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message);
+      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
       if ($brokered_leads !== NULL) {
         return $brokered_leads;
       }
@@ -613,7 +613,14 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
    * Builds Eldric's deterministic lead handoff.
    */
 
-  protected function buildBrokeredStorylineLeadDialogue(int $campaign_id, string $entity_ref, string $display_name, string $player_message = ''): ?string {
+  protected function buildBrokeredStorylineLeadDialogue(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $player_message = '',
+    string $room_id = '',
+    array $dungeon_data = []
+  ): ?string {
     $contacts = $this->loadBrokeredStorylineContacts($campaign_id, $entity_ref);
     if ($contacts === []) {
       return NULL;
@@ -630,6 +637,14 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     if (!is_array($selected_contact)) {
       return NULL;
     }
+    $this->materializeBrokeredStorylineOffer(
+      $campaign_id,
+      $entity_ref,
+      $display_name,
+      $room_id,
+      $dungeon_data,
+      $selected_contact
+    );
 
     $storyline_name = trim((string) ($selected_contact['name'] ?? ''));
     $quest_giver_name = trim((string) ($selected_contact['quest_giver']['display_name'] ?? ''));
@@ -653,6 +668,145 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
 
     $prefix = $display_name !== '' ? 'If you want work, ' : '';
     return '"' . $prefix . $line . '."';
+  }
+
+  /**
+   * Materialize a canonical offered quest when a broker surfaces a storyline lead.
+   */
+  protected function materializeBrokeredStorylineOffer(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $room_id,
+    array $dungeon_data,
+    array $selected_contact
+  ): void {
+    $storyline_template_id = trim((string) ($selected_contact['template_id'] ?? $selected_contact['storyline_id'] ?? ''));
+    if ($campaign_id <= 0 || $storyline_template_id === '' || !\Drupal::hasService('dungeoncrawler_content.quest_generator')) {
+      return;
+    }
+
+    $quest_template_id = $this->resolveBrokeredStorylinePrimaryQuestTemplateId($storyline_template_id, $selected_contact);
+    if ($quest_template_id === '') {
+      return;
+    }
+
+    $existing = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_id', 'status', 'completed_at'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('source_template_id', $quest_template_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($existing) && !empty($existing['quest_id'])) {
+      $status = strtolower(trim((string) ($existing['status'] ?? '')));
+      if ($status === 'lead') {
+        $this->database->update('dc_campaign_quests')
+          ->fields(['status' => 'offered'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('quest_id', (string) $existing['quest_id'])
+          ->execute();
+      }
+      return;
+    }
+
+    /** @var \Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator */
+    $quest_generator = \Drupal::service('dungeoncrawler_content.quest_generator');
+    $canonical_room_id = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data) ?? $room_id;
+    if ($canonical_room_id === '') {
+      $canonical_room_id = 'tavern_entrance';
+    }
+    $giver_npc_id = $this->resolveCampaignQuestgiverNpcId($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+    $generation_context = [
+      'location' => $canonical_room_id,
+      'initial_status' => 'offered',
+      'dungeon_data' => $dungeon_data,
+    ];
+    if ($giver_npc_id !== NULL) {
+      $generation_context['giver_npc_id'] = $giver_npc_id;
+    }
+
+    $quest_data = $quest_generator->generateQuestFromTemplate($quest_template_id, $campaign_id, $generation_context);
+    if ($quest_data !== []) {
+      $this->database->insert('dc_campaign_quests')
+        ->fields($quest_data)
+        ->execute();
+    }
+  }
+
+  /**
+   * Resolve the quest template to materialize for one brokered storyline lead.
+   */
+  protected function resolveBrokeredStorylinePrimaryQuestTemplateId(string $storyline_template_id, array $selected_contact): string {
+    $storyline_template_id = trim($storyline_template_id);
+    if ($storyline_template_id === '') {
+      return '';
+    }
+
+    $template_row = $this->database->select('dungeoncrawler_content_storylines', 's')
+      ->fields('s', ['template_data'])
+      ->condition('template_id', $storyline_template_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($template_row)) {
+      return '';
+    }
+
+    $template_data = json_decode((string) ($template_row['template_data'] ?? '{}'), TRUE);
+    if (!is_array($template_data)) {
+      return '';
+    }
+
+    $preferred_scene_id = trim((string) (
+      $selected_contact['quest_giver']['relationship_state']['scene_id']
+      ?? $selected_contact['broker']['relationship_state']['scene_id']
+      ?? ''
+    ));
+    if ($preferred_scene_id !== '') {
+      foreach ((array) ($template_data['chapters'] ?? []) as $chapter) {
+        if (!is_array($chapter)) {
+          continue;
+        }
+        foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+          if (!is_array($scene) || trim((string) ($scene['scene_id'] ?? '')) !== $preferred_scene_id) {
+            continue;
+          }
+          $quest_ids = array_values(array_filter(array_map(
+            static fn($value): string => trim((string) $value),
+            is_array($scene['quest_ids'] ?? NULL) ? $scene['quest_ids'] : []
+          )));
+          if ($quest_ids !== []) {
+            return $quest_ids[0];
+          }
+        }
+      }
+    }
+
+    $primary_quest_id = trim((string) ($template_data['questline']['primary_quest_id'] ?? ''));
+    if ($primary_quest_id !== '') {
+      return $primary_quest_id;
+    }
+
+    foreach ((array) ($template_data['chapters'] ?? []) as $chapter) {
+      if (!is_array($chapter)) {
+        continue;
+      }
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+        if (!is_array($scene)) {
+          continue;
+        }
+        $quest_ids = array_values(array_filter(array_map(
+          static fn($value): string => trim((string) $value),
+          is_array($scene['quest_ids'] ?? NULL) ? $scene['quest_ids'] : []
+        )));
+        if ($quest_ids !== []) {
+          return $quest_ids[0];
+        }
+      }
+    }
+
+    return '';
   }
 
   /**
