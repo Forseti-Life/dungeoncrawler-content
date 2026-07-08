@@ -447,20 +447,10 @@ class QuestTrackerService {
       $quest_complete = $this->isQuestCompleted($objective_states);
       $narrator_notes = [];
 
-      // Save updated progress for the caller scope.
-      $this->saveProgressRecord(
-        $campaign_id,
-        $quest_id,
-        $progress_character_id,
-        $progress_party_id,
-        $objective_states,
-        $current_phase
-      );
-
       // Log if objective completed
       if ($objective_completed) {
         if (!empty($quest)) {
-          $this->consumeTurnInCollectiblesForCompletedObjective(
+          $this->transferTurnInCollectiblesForCompletedObjective(
             $campaign_id,
             $quest,
             $objective_states,
@@ -483,6 +473,16 @@ class QuestTrackerService {
           $narrator_notes[] = $this->postQuestObjectiveCompletionNarratorNote($campaign_id, $quest, $objective_id, $progress_character_id, $next_step);
         }
       }
+
+      // Save updated progress for the caller scope.
+      $this->saveProgressRecord(
+        $campaign_id,
+        $quest_id,
+        $progress_character_id,
+        $progress_party_id,
+        $objective_states,
+        $current_phase
+      );
 
       if ($phase_complete) {
         if ($quest_complete) {
@@ -2322,9 +2322,9 @@ class QuestTrackerService {
   }
 
   /**
-   * Consume collected quest items when a turn-in interaction objective completes.
+   * Transfer collected quest items to the turn-in target when handoff completes.
    */
-  protected function consumeTurnInCollectiblesForCompletedObjective(
+  protected function transferTurnInCollectiblesForCompletedObjective(
     int $campaign_id,
     array $quest,
     array $objective_states,
@@ -2344,6 +2344,16 @@ class QuestTrackerService {
     $completed_objective = $this->findObjectiveNodeById($objective_states, $completed_objective_id);
     if (!is_array($completed_objective) || strtolower((string) ($completed_objective['type'] ?? '')) !== 'interact') {
       return;
+    }
+
+    $target_character_id = $this->resolveTurnInTargetCharacterId($campaign_id, $quest, $completed_objective);
+    if ($target_character_id === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Quest turn-in target not found for objective "%s" (campaign_id=%d, quest_id=%s).',
+        $completed_objective_id,
+        $campaign_id,
+        (string) ($quest['quest_id'] ?? '')
+      ));
     }
 
     $depends_on = array_values(array_filter(
@@ -2381,9 +2391,10 @@ class QuestTrackerService {
         ? $this->buildQuestCollectibleItemId($quest_source, $dependency_objective_id, $item_label)
         : '';
 
-      $this->consumeQuestCollectibleInventoryByObjective(
+      $this->transferQuestCollectibleInventoryByObjective(
         $campaign_id,
         (string) $character_id,
+        (string) $target_character_id,
         $quest_source,
         $quest_id,
         $dependency_objective_id,
@@ -2394,11 +2405,12 @@ class QuestTrackerService {
   }
 
   /**
-   * Consume collectible inventory rows that belong to one collect objective.
+   * Transfer collectible inventory rows that belong to one collect objective.
    */
-  protected function consumeQuestCollectibleInventoryByObjective(
+  protected function transferQuestCollectibleInventoryByObjective(
     int $campaign_id,
     string $character_id,
+    string $target_character_id,
     string $quest_source,
     string $quest_id,
     string $objective_id,
@@ -2488,15 +2500,31 @@ class QuestTrackerService {
         continue;
       }
 
-      $consume_quantity = min($remaining, (int) $candidate['quantity']);
-      $this->inventoryManagementService->removeItemFromInventory(
-        $character_id,
-        'character',
+      $transfer_quantity = min($remaining, (int) $candidate['quantity']);
+      $this->inventoryManagementService->transferItemTransaction(
+        [
+          'owner_id' => $character_id,
+          'owner_type' => 'character',
+          'location_type' => 'carried',
+        ],
+        [
+          'owner_id' => $target_character_id,
+          'owner_type' => 'character',
+          'location_type' => 'carried',
+        ],
         $candidate['item_instance_id'],
-        $consume_quantity,
+        $transfer_quantity,
         $campaign_id
       );
-      $remaining -= $consume_quantity;
+      $remaining -= $transfer_quantity;
+    }
+
+    if ($remaining > 0) {
+      throw new \RuntimeException(sprintf(
+        'Quest hand-in transfer incomplete for objective "%s": missing %d collectible item(s).',
+        $objective_id,
+        $remaining
+      ));
     }
   }
 
@@ -2520,6 +2548,82 @@ class QuestTrackerService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve the runtime NPC character row that should receive hand-in items.
+   */
+  protected function resolveTurnInTargetCharacterId(int $campaign_id, array $quest, array $completed_objective): ?int {
+    $candidate_refs = [];
+    foreach ([
+      (string) ($completed_objective['target'] ?? ''),
+      (string) ($completed_objective['npc_ref'] ?? ''),
+      (string) ($completed_objective['entity_ref'] ?? ''),
+      (string) ($completed_objective['completion_criteria']['target'] ?? ''),
+      (string) ($quest['giver_npc_id'] ?? ''),
+    ] as $raw_ref) {
+      foreach ($this->expandTurnInNpcReferenceCandidates($raw_ref) as $candidate) {
+        if (!in_array($candidate, $candidate_refs, TRUE)) {
+          $candidate_refs[] = $candidate;
+        }
+      }
+    }
+
+    if ($candidate_refs === []) {
+      return NULL;
+    }
+
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'instance_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc');
+    $or = $query->orConditionGroup();
+    $or->condition('instance_id', $candidate_refs, 'IN');
+    $or->condition('character_id', $candidate_refs, 'IN');
+    $query->condition($or)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1);
+
+    $row = $query->execute()->fetchAssoc();
+    if (!is_array($row) || empty($row['id'])) {
+      return NULL;
+    }
+
+    return (int) $row['id'];
+  }
+
+  /**
+   * Expand one NPC target token into normalized lookup candidates.
+   *
+   * @return array<int, string>
+   *   Candidate instance/character ids to match in dc_campaign_characters.
+   */
+  protected function expandTurnInNpcReferenceCandidates(string $raw_ref): array {
+    $raw_ref = trim($raw_ref);
+    if ($raw_ref === '') {
+      return [];
+    }
+
+    $normalized = strtolower($raw_ref);
+    $normalized = preg_replace('/\s+/', '_', $normalized) ?? $normalized;
+    $normalized = preg_replace('/[^a-z0-9_:-]/', '', $normalized) ?? $normalized;
+    $normalized = trim($normalized, '_');
+    if ($normalized === '') {
+      return [];
+    }
+
+    $candidates = [$normalized];
+    if (str_starts_with($normalized, 'npc_')) {
+      $without_prefix = substr($normalized, 4);
+      if ($without_prefix !== '') {
+        $candidates[] = $without_prefix;
+      }
+    }
+    else {
+      $candidates[] = 'npc_' . $normalized;
+    }
+
+    return array_values(array_unique(array_filter($candidates, static fn(string $value): bool => $value !== '')));
   }
 
   /**
