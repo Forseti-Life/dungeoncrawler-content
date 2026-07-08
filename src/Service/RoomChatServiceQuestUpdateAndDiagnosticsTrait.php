@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\RoomChat\GmPromptArtifactCacheBuilder;
 use Drupal\dungeoncrawler_content\Service\RoomChat\SessionContextCompactor;
 
 trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
