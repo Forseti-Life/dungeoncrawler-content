@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomNpcProfileGatherer;
+
 trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
 
   protected function buildQueuedRoomContinuationPayload(array $payload): array {
