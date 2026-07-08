@@ -3120,6 +3120,7 @@ function _getHostileTargets(actor, entityManager, movementSystem = null, hasLine
 
 function _normalizeAuthoritativeNavigationCapability(exit, activeRoomId) {
   const targetRoomId = String(exit?.target_room_id || '').trim();
+  const targetRoomName = String(exit?.target_room_name || exit?.to_room_name || '').trim();
   const destinationType = String(exit?.destination_type || 'room').trim().toLowerCase() || 'room';
   const destinationId = String(exit?.destination_id || (destinationType === 'room' ? targetRoomId : '')).trim();
   const type = String(exit?.type || 'passage').trim() || 'passage';
@@ -3137,6 +3138,7 @@ function _normalizeAuthoritativeNavigationCapability(exit, activeRoomId) {
     connection_id: String(exit?.connection_id || `${activeRoomId || 'unknown'}__${targetRoomId || 'unknown'}`),
     origin_room_id: String(exit?.origin_room_id || activeRoomId || '').trim(),
     target_room_id: targetRoomId,
+    target_room_name: targetRoomName,
     destination_type: destinationType,
     destination_id: destinationId,
     type,

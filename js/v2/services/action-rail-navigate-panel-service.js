@@ -168,7 +168,7 @@ function collectNavigateExitGroups(panel, context) {
       
       return {
         roomId: targetRoomId,
-        roomName: String(room?.name || historyEntry?.room_name || targetRoomId),
+        roomName: String(room?.name || capability?.target_room_name || historyEntry?.room_name || targetRoomId),
         statusLabel: isQuestTarget ? '🎯 Quest Target' : (navigable ? 'Exit' : 'Unavailable'),
         lastVisitedLabel: historyEntry?.timestamp ? `Seen ${historyEntry.timestamp}` : 'Linked from current room',
         meta: [

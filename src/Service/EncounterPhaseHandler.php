@@ -3632,11 +3632,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       return ['error' => 'No target room specified.'];
     }
 
-    $room = $this->findRoomById($dungeon_data, $target_room_id);
-    if ($room === NULL) {
-      return ['error' => "Room '$target_room_id' does not exist."];
-    }
-
     $capability = NULL;
     if (!empty($dungeon_data['active_room_id']) && (string) $dungeon_data['active_room_id'] !== $target_room_id) {
       $capability = $this->resolveRoomTransitionCapability($dungeon_data, $target_room_id, $params);
@@ -3645,6 +3640,17 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       }
       if (empty($capability['available'])) {
         return ['error' => sprintf("Room '%s' is not available for transition: %s.", $target_room_id, (string) ($capability['blocked_reason'] ?? 'blocked'))];
+      }
+    }
+
+    $room = $this->findRoomById($dungeon_data, $target_room_id);
+    if ($room === NULL) {
+      if (!$this->materializeCanonicalRoomForTransition($campaign_id, $dungeon_data, $target_room_id, $capability)) {
+        return ['error' => "Room '$target_room_id' does not exist."];
+      }
+      $room = $this->findRoomById($dungeon_data, $target_room_id);
+      if ($room === NULL) {
+        throw new \RuntimeException(sprintf('Encounter transition contract violation: materialized room %s was not present in dungeon payload after instantiation.', $target_room_id));
       }
     }
 
@@ -3705,6 +3711,217 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14($dungeon_data, $target_room_id, $entry_hex)],
       ] : [],
     ];
+  }
+
+  /**
+   * Materialize a canonical room template into the campaign dungeon on first travel.
+   */
+  protected function materializeCanonicalRoomForTransition(
+    int $campaign_id,
+    array &$dungeon_data,
+    string $target_room_id,
+    ?array $capability
+  ): bool {
+    $target_room_id = trim($target_room_id);
+    if ($campaign_id <= 0 || $target_room_id === '') {
+      return FALSE;
+    }
+    if ((string) ($capability['destination_type'] ?? 'room') !== 'room') {
+      return FALSE;
+    }
+
+    $canonical_row = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data'])
+      ->condition('room_id', $target_room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($canonical_row)) {
+      $canonical_row = $this->database->select('dungeoncrawler_content_rooms', 'r')
+        ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data'])
+        ->condition('source_room_id', $target_room_id)
+        ->orderBy('updated', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+    if (!is_array($canonical_row)) {
+      return FALSE;
+    }
+
+    $layout_data = json_decode((string) ($canonical_row['layout_data'] ?? '{}'), TRUE);
+    if (!is_array($layout_data)) {
+      $layout_data = [];
+    }
+    $contents_data = json_decode((string) ($canonical_row['contents_data'] ?? '{}'), TRUE);
+    if (!is_array($contents_data)) {
+      $contents_data = [];
+    }
+    $environment_tags = json_decode((string) ($canonical_row['environment_tags'] ?? '[]'), TRUE);
+    if (!is_array($environment_tags)) {
+      $environment_tags = [];
+    }
+
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf('Encounter transition contract violation: canonical room %s has no hexes to instantiate.', $target_room_id));
+    }
+
+    $dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['map_id']
+      ?? ''
+    ));
+    if ($dungeon_id !== '') {
+      /** @var \Drupal\dungeoncrawler_content\Service\MapGeneratorService $map_generator */
+      $map_generator = \Drupal::service('dungeoncrawler_content.map_generator');
+      $room_for_h3 = [
+        'room_id' => $target_room_id,
+        'hexes' => $hexes,
+      ];
+      $room_for_h3 = $map_generator->ensureRoomHexH3Indexes($dungeon_id, $room_for_h3);
+      $hexes = is_array($room_for_h3['hexes'] ?? NULL) ? $room_for_h3['hexes'] : $hexes;
+    }
+
+    $room_payload = [
+      'room_id' => $target_room_id,
+      'source_room_id' => trim((string) ($canonical_row['source_room_id'] ?? '')) !== ''
+        ? (string) $canonical_row['source_room_id']
+        : (string) ($canonical_row['room_id'] ?? $target_room_id),
+      'name' => (string) ($canonical_row['name'] ?? $target_room_id),
+      'description' => (string) ($canonical_row['description'] ?? ''),
+      'hexes' => $hexes,
+      'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
+      'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
+      'exits' => is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [],
+      'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
+      'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [],
+      'room_type' => (string) ($layout_data['room_type'] ?? 'room'),
+      'state' => [
+        'explored' => TRUE,
+        'explored_at' => gmdate('c'),
+        'cleared' => FALSE,
+        'looted' => FALSE,
+        'traps_disarmed' => FALSE,
+        'visibility' => 'visible',
+      ],
+      'connections' => [],
+      'entities' => NULL,
+    ];
+
+    if (!isset($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
+      $dungeon_data['rooms'] = [];
+    }
+    $dungeon_data['rooms'][] = $room_payload;
+
+    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+      $dungeon_data['hex_map'] = [];
+    }
+    if (!isset($dungeon_data['hex_map']['rooms']) || !is_array($dungeon_data['hex_map']['rooms'])) {
+      $dungeon_data['hex_map']['rooms'] = [];
+    }
+    $dungeon_data['hex_map']['rooms'][] = $room_payload;
+    if (!isset($dungeon_data['hex_map']['metadata']) || !is_array($dungeon_data['hex_map']['metadata'])) {
+      $dungeon_data['hex_map']['metadata'] = [];
+    }
+    $dungeon_data['hex_map']['metadata']['total_rooms'] = count($dungeon_data['hex_map']['rooms']);
+
+    $origin_room_id = trim((string) ($capability['origin_room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
+    if ($origin_room_id !== '') {
+      $this->appendCanonicalTransitionConnection(
+        $dungeon_data,
+        $origin_room_id,
+        $target_room_id,
+        is_array($capability['origin_hex'] ?? NULL) ? $capability['origin_hex'] : NULL,
+        is_array($capability['target_hex'] ?? NULL) ? $capability['target_hex'] : NULL
+      );
+    }
+
+    $now = time();
+    $layout_record = [
+      'hexes' => $hexes,
+      'entry_points' => $room_payload['entry_points'],
+      'exit_points' => $room_payload['exit_points'],
+      'exits' => $room_payload['exits'],
+      'terrain' => $room_payload['terrain'],
+      'lighting' => $room_payload['lighting'],
+    ];
+    $this->database->merge('dc_campaign_rooms')
+      ->keys([
+        'campaign_id' => $campaign_id,
+        'room_id' => $target_room_id,
+      ])
+      ->fields([
+        'name' => (string) $room_payload['name'],
+        'description' => (string) $room_payload['description'],
+        'environment_tags' => json_encode($environment_tags, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'layout_data' => json_encode($layout_record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'contents_data' => json_encode($contents_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'source_room_id' => (string) $room_payload['source_room_id'],
+        'updated' => $now,
+      ])
+      ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+      ->execute();
+
+    return TRUE;
+  }
+
+  /**
+   * Append one canonical room-connection edge if missing.
+   */
+  protected function appendCanonicalTransitionConnection(
+    array &$dungeon_data,
+    string $from_room_id,
+    string $to_room_id,
+    ?array $origin_hex = NULL,
+    ?array $target_hex = NULL
+  ): void {
+    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+      $dungeon_data['hex_map'] = [];
+    }
+    if (!isset($dungeon_data['hex_map']['connections']) || !is_array($dungeon_data['hex_map']['connections'])) {
+      $dungeon_data['hex_map']['connections'] = [];
+    }
+
+    foreach ((array) $dungeon_data['hex_map']['connections'] as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $existing_from = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
+      $existing_to = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
+      if (
+        ($existing_from === $from_room_id && $existing_to === $to_room_id)
+        || ($existing_from === $to_room_id && $existing_to === $from_room_id)
+      ) {
+        return;
+      }
+    }
+
+    $connection = [
+      'connection_id' => $from_room_id . '__' . $to_room_id . '__passage__unscoped',
+      'from_room' => $from_room_id,
+      'to_room' => $to_room_id,
+      'type' => 'passage',
+      'bidirectional' => TRUE,
+      'is_discovered' => TRUE,
+      'is_passable' => TRUE,
+      'destination_type' => 'room',
+      'destination_id' => $to_room_id,
+    ];
+    if (is_array($origin_hex) && isset($origin_hex['q'], $origin_hex['r'])) {
+      $connection['from_hex'] = [
+        'q' => (int) $origin_hex['q'],
+        'r' => (int) $origin_hex['r'],
+      ];
+    }
+    if (is_array($target_hex) && isset($target_hex['q'], $target_hex['r'])) {
+      $connection['to_hex'] = [
+        'q' => (int) $target_hex['q'],
+        'r' => (int) $target_hex['r'],
+      ];
+    }
+    $dungeon_data['hex_map']['connections'][] = $connection;
   }
 
   /**

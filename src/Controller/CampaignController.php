@@ -26,6 +26,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class CampaignController extends ControllerBase {
 
   private const STARTER_CITY_DUNGEON_NAME = 'Absalom';
+  private const STARTER_CITY_STREETS_ROOM_ID = 'tpl_room_absalom_streets';
 
   protected Connection $database;
   protected CharacterManager $characterManager;
@@ -1248,6 +1249,7 @@ class CampaignController extends ControllerBase {
 
       $current_name = trim((string) ($starter_row['name'] ?? ''));
       $canonical_name = self::STARTER_CITY_DUNGEON_NAME;
+      $has_updates = FALSE;
       if ($current_name !== $canonical_name) {
         $dungeon_data['name'] = $canonical_name;
         if (is_array($dungeon_data['hex_map'] ?? NULL)) {
@@ -1263,6 +1265,12 @@ class CampaignController extends ControllerBase {
           unset($region);
         }
 
+        $has_updates = TRUE;
+      }
+      if ($this->ensureStarterCanonicalStreetConnection($dungeon_data, 'tavern_entrance')) {
+        $has_updates = TRUE;
+      }
+      if ($has_updates) {
         $now = $this->time->getRequestTime();
         $this->database->update('dc_campaign_dungeons')
           ->fields([
@@ -1279,6 +1287,61 @@ class CampaignController extends ControllerBase {
     $this->getLogger('dungeoncrawler_content')->warning('Campaign @campaign_id has no dungeon row. Packaged tavern JSON fallback is disabled; explicit assets or generation are required.', [
       '@campaign_id' => $campaign_id,
     ]);
+  }
+
+  /**
+   * Ensure starter dungeon includes canonical tavern -> streets connector.
+   *
+   * @param array<string, mixed> $dungeon_data
+   *   Mutable dungeon payload.
+   * @param string $starter_room_id
+   *   Starter tavern room id.
+   *
+   * @return bool
+   *   TRUE when the payload was modified.
+   */
+  private function ensureStarterCanonicalStreetConnection(array &$dungeon_data, string $starter_room_id): bool {
+    $starter_room_id = trim($starter_room_id);
+    if ($starter_room_id === '') {
+      return FALSE;
+    }
+
+    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+      $dungeon_data['hex_map'] = [];
+    }
+    if (!isset($dungeon_data['hex_map']['connections']) || !is_array($dungeon_data['hex_map']['connections'])) {
+      $dungeon_data['hex_map']['connections'] = [];
+    }
+
+    foreach ($dungeon_data['hex_map']['connections'] as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
+      $to_room = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
+      if (
+        ($from_room === $starter_room_id && $to_room === self::STARTER_CITY_STREETS_ROOM_ID)
+        || ($from_room === self::STARTER_CITY_STREETS_ROOM_ID && $to_room === $starter_room_id)
+      ) {
+        return FALSE;
+      }
+    }
+
+    $dungeon_data['hex_map']['connections'][] = [
+      'connection_id' => $starter_room_id . '__' . self::STARTER_CITY_STREETS_ROOM_ID . '__passage__unscoped',
+      'from_room' => $starter_room_id,
+      'from_room_name' => 'The Gilded Tankard',
+      'to_room' => self::STARTER_CITY_STREETS_ROOM_ID,
+      'to_room_name' => 'Absalom Streets',
+      'type' => 'passage',
+      'bidirectional' => TRUE,
+      'is_discovered' => TRUE,
+      'is_passable' => TRUE,
+      'destination_type' => 'room',
+      'destination_id' => self::STARTER_CITY_STREETS_ROOM_ID,
+    ];
+
+    return TRUE;
   }
 
   /**

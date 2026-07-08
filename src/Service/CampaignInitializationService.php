@@ -30,6 +30,7 @@ class CampaignInitializationService {
 
   private const STARTER_CITY_DUNGEON_NAME = 'Absalom';
   private const STARTER_CITY_DUNGEON_DESCRIPTION = 'City hub containing The Gilded Tankard and nearby starter routes.';
+  private const STARTER_CITY_STREETS_ROOM_ID = 'tpl_room_absalom_streets';
   private const H3_ACTIVE_RESOLUTION = 14;
 
   protected Connection $database;
@@ -317,7 +318,7 @@ class CampaignInitializationService {
         'name' => $dungeon_name,
         'hex_size_ft' => 5,
         'orientation' => 'flat-top',
-        'connections' => [],
+        'connections' => $this->buildStarterCanonicalConnections($runtime_room_id),
         'regions' => [
           [
             'region_id' => 'starter-tavern-region',
@@ -355,6 +356,37 @@ class CampaignInitializationService {
     $this->persistStarterDungeonSparseH3Mappings($dungeon_id, $dungeon_data, $now);
 
     return $dungeon_id;
+  }
+
+  /**
+   * Build canonical starter-room navigation edges for first-time room realization.
+   *
+   * The destination room may not be instantiated yet in campaign runtime state.
+   * Navigation still advertises the canonical connector, and transition handlers
+   * materialize the destination room on first travel.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Canonical starter connections.
+   */
+  private function buildStarterCanonicalConnections(string $starter_room_id): array {
+    $starter_room_id = trim($starter_room_id);
+    if ($starter_room_id === '') {
+      throw new \RuntimeException('Starter dungeon contract violation: starter room id is required for canonical starter connections.');
+    }
+
+    return [[
+      'connection_id' => $starter_room_id . '__' . self::STARTER_CITY_STREETS_ROOM_ID . '__passage__unscoped',
+      'from_room' => $starter_room_id,
+      'from_room_name' => 'The Gilded Tankard',
+      'to_room' => self::STARTER_CITY_STREETS_ROOM_ID,
+      'to_room_name' => 'Absalom Streets',
+      'type' => 'passage',
+      'bidirectional' => TRUE,
+      'is_discovered' => TRUE,
+      'is_passable' => TRUE,
+      'destination_type' => 'room',
+      'destination_id' => self::STARTER_CITY_STREETS_ROOM_ID,
+    ]];
   }
 
   /**

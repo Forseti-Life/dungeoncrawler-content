@@ -632,11 +632,14 @@ class MapVisualStateProjector {
 
       $from = is_array($connection['from'] ?? NULL) ? $connection['from'] : [];
       $to = is_array($connection['to'] ?? NULL) ? $connection['to'] : [];
+      $from_room_name = trim((string) ($connection['from_room_name'] ?? $connection['from_name'] ?? ''));
+      $to_room_name = trim((string) ($connection['to_room_name'] ?? $connection['to_name'] ?? ''));
 
       $exit_from = $this->buildRoomExitPayload(
         $connection_id,
         $type,
         $to_room_id,
+        $to_room_name,
         $from,
         $to,
         (string) ($connection['from_hex_id'] ?? ''),
@@ -670,6 +673,7 @@ class MapVisualStateProjector {
         $connection_id,
         $type,
         $from_room_id,
+        $from_room_name,
         $to,
         $from,
         (string) ($connection['to_hex_id'] ?? ''),
@@ -719,6 +723,7 @@ class MapVisualStateProjector {
     string $connection_id,
     string $type,
     string $target_room_id,
+    string $target_room_name,
     array $origin,
     array $target,
     string $origin_hex_fallback,
@@ -739,6 +744,7 @@ class MapVisualStateProjector {
       'connection_id' => $connection_id,
       'type' => $type,
       'target_room_id' => $target_room_id,
+      'target_room_name' => $target_room_name,
       'origin_hex' => $this->buildExitHexReference($origin, $origin_hex_fallback),
       'target_hex' => $this->buildExitHexReference($target, $target_hex_fallback),
       'is_passable' => $is_passable,

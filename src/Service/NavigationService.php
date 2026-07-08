@@ -200,6 +200,11 @@ class NavigationService {
 
     $travels_forward = $from_room === $room_id;
     $target_room_id = $travels_forward ? $to_room : $from_room;
+    $target_room_name = trim((string) (
+      $travels_forward
+      ? ($connection['to_room_name'] ?? $connection['to_name'] ?? $connection['target_room_name'] ?? '')
+      : ($connection['from_room_name'] ?? $connection['from_name'] ?? $connection['origin_room_name'] ?? '')
+    ));
     $origin_hex = $this->normalizeHex($travels_forward ? ($connection['from_hex'] ?? NULL) : ($connection['to_hex'] ?? NULL));
     $target_hex = $this->normalizeHex($travels_forward ? ($connection['to_hex'] ?? NULL) : ($connection['from_hex'] ?? NULL));
     $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
@@ -224,6 +229,7 @@ class NavigationService {
       'connection_id' => $this->deriveConnectionId($connection),
       'origin_room_id' => $room_id,
       'target_room_id' => $target_room_id,
+      'target_room_name' => $target_room_name,
       'destination_type' => $destination_type,
       'destination_id' => $destination_id,
       'type' => $type,
