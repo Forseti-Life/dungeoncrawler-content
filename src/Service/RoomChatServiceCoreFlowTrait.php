@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\RoomChat\FallbackAutomationDecisionBuilder;
+
 trait RoomChatServiceCoreFlowTrait {
 
   public function getChatHistory(int $campaign_id, string $room_id, string $channel = 'room', ?int $character_id = NULL): array {
