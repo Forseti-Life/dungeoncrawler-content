@@ -563,6 +563,54 @@ services:
   dungeoncrawler_content.gm_transcript_projector:
     class: Drupal\dungeoncrawler_content\Service\GmSubsystem\GmTranscriptProjector
 
+  dungeoncrawler_content.room_chat_progress_stage_mapper:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatProgressStageMapper
+
+  dungeoncrawler_content.room_chat_stream_envelope_emitter:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamEnvelopeEmitter
+
+  dungeoncrawler_content.room_chat_stream_result_coordinator:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamResultCoordinator
+
+  dungeoncrawler_content.room_chat_stream_error_reporter:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamErrorReporter
+    arguments:
+      - '@logger.factory'
+
+  dungeoncrawler_content.room_chat_encounter_progress:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatEncounterProgressService
+    arguments:
+      - '@dungeoncrawler_content.game_coordinator'
+      - '@logger.factory'
+
+  dungeoncrawler_content.room_chat_response_mapper:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatResponseMapper
+    arguments:
+      - '@logger.factory'
+
+  dungeoncrawler_content.room_chat_write_endpoint_orchestrator:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatWriteEndpointOrchestrator
+    arguments:
+      - '@dungeoncrawler_content.room_chat_service'
+      - '@dungeoncrawler_content.game_master_subsystem'
+
+  dungeoncrawler_content.room_chat_stream_flow_orchestrator:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamFlowOrchestrator
+    arguments:
+      - '@dungeoncrawler_content.room_chat_service'
+      - '@dungeoncrawler_content.room_chat_encounter_progress'
+      - '@dungeoncrawler_content.room_chat_write_endpoint_orchestrator'
+
+  dungeoncrawler_content.room_chat_endpoint_facade_orchestrator:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatEndpointFacadeOrchestrator
+    arguments:
+      - '@dungeoncrawler_content.room_chat_service'
+
+  dungeoncrawler_content.room_chat_post_dispatch_orchestrator:
+    class: Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatPostDispatchOrchestrator
+    arguments:
+      - '@dungeoncrawler_content.room_chat_write_endpoint_orchestrator'
+
   dungeoncrawler_content.room_chat_service:
     class: Drupal\dungeoncrawler_content\Service\RoomChatService
     arguments:

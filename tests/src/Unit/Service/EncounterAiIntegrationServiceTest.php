@@ -93,6 +93,41 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
   /**
    * @covers ::buildEncounterContext
    */
+  public function testBuildEncounterContextUsesStableTopLevelEnvelopeShape(): void {
+    $encounter = [
+      'status' => 'active',
+      'current_round' => 1,
+      'turn_index' => 0,
+      'participants' => [
+        ['entity_ref' => 'npc-1', 'team' => 'npc'],
+      ],
+    ];
+
+    $context = $this->service->buildEncounterContext(77, 700, $encounter);
+
+    $this->assertSame([
+      'campaign_id',
+      'encounter_id',
+      'status',
+      'current_round',
+      'turn_index',
+      'current_actor',
+      'participants',
+      'allowed_actions',
+      'action_contract',
+      'action_option_families',
+      'actions_available_to_me_this_turn',
+      'context_built_at',
+    ], array_keys($context));
+    $this->assertSame(
+      $context['action_contract']['action_option_families'] ?? [],
+      $context['action_option_families']
+    );
+  }
+
+  /**
+   * @covers ::buildEncounterContext
+   */
   public function testBuildEncounterContextProjectsParticipantStateIntoActionOptionFamilies(): void {
     $encounter = [
       'status' => 'active',

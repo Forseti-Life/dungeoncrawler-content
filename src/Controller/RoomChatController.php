@@ -3,10 +3,17 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
-use Drupal\dungeoncrawler_content\Service\GameMasterSubsystemService;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatEncounterProgressService;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatEndpointFacadeOrchestrator;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatProgressStageMapper;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatPostDispatchOrchestrator;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatResponseMapper;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamErrorReporter;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamEnvelopeEmitter;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamFlowOrchestrator;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamResultCoordinator;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatWriteEndpointOrchestrator;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
-use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -30,20 +37,41 @@ class RoomChatController extends ControllerBase {
 
   protected RoomChatService $chatService;
 
-  protected ?GameCoordinatorService $coordinator;
+  protected RoomChatProgressStageMapper $progressStageMapper;
 
-  protected ?GameMasterSubsystemService $gmSubsystem;
+  protected RoomChatStreamEnvelopeEmitter $streamEnvelopeEmitter;
 
-  protected LoggerInterface $logger;
+  protected RoomChatStreamResultCoordinator $streamResultCoordinator;
+
+  protected RoomChatStreamErrorReporter $streamErrorReporter;
+
+  protected RoomChatEncounterProgressService $encounterProgressService;
+
+  protected RoomChatResponseMapper $responseMapper;
+
+  protected RoomChatWriteEndpointOrchestrator $writeEndpointOrchestrator;
+
+  protected RoomChatStreamFlowOrchestrator $streamFlowOrchestrator;
+
+  protected RoomChatEndpointFacadeOrchestrator $endpointFacadeOrchestrator;
+
+  protected RoomChatPostDispatchOrchestrator $postDispatchOrchestrator;
 
   /**
    * Constructor.
    */
-  public function __construct(RoomChatService $chat_service, ?GameCoordinatorService $coordinator, ?GameMasterSubsystemService $gm_subsystem, LoggerInterface $logger) {
+  public function __construct(RoomChatService $chat_service, RoomChatProgressStageMapper $progress_stage_mapper, RoomChatStreamEnvelopeEmitter $stream_envelope_emitter, RoomChatStreamResultCoordinator $stream_result_coordinator, RoomChatStreamErrorReporter $stream_error_reporter, RoomChatEncounterProgressService $encounter_progress_service, RoomChatResponseMapper $response_mapper, RoomChatWriteEndpointOrchestrator $write_endpoint_orchestrator, RoomChatStreamFlowOrchestrator $stream_flow_orchestrator, RoomChatEndpointFacadeOrchestrator $endpoint_facade_orchestrator, RoomChatPostDispatchOrchestrator $post_dispatch_orchestrator) {
     $this->chatService = $chat_service;
-    $this->coordinator = $coordinator;
-    $this->gmSubsystem = $gm_subsystem;
-    $this->logger = $logger;
+    $this->progressStageMapper = $progress_stage_mapper;
+    $this->streamEnvelopeEmitter = $stream_envelope_emitter;
+    $this->streamResultCoordinator = $stream_result_coordinator;
+    $this->streamErrorReporter = $stream_error_reporter;
+    $this->encounterProgressService = $encounter_progress_service;
+    $this->responseMapper = $response_mapper;
+    $this->writeEndpointOrchestrator = $write_endpoint_orchestrator;
+    $this->streamFlowOrchestrator = $stream_flow_orchestrator;
+    $this->endpointFacadeOrchestrator = $endpoint_facade_orchestrator;
+    $this->postDispatchOrchestrator = $post_dispatch_orchestrator;
   }
 
   /**
@@ -52,88 +80,76 @@ class RoomChatController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('dungeoncrawler_content.room_chat_service'),
-      NULL,
-      NULL,
-      $container->get('logger.factory')->get('dungeoncrawler_chat')
+      $container->get('dungeoncrawler_content.room_chat_progress_stage_mapper'),
+      $container->get('dungeoncrawler_content.room_chat_stream_envelope_emitter'),
+      $container->get('dungeoncrawler_content.room_chat_stream_result_coordinator'),
+      $container->get('dungeoncrawler_content.room_chat_stream_error_reporter'),
+      $container->get('dungeoncrawler_content.room_chat_encounter_progress'),
+      $container->get('dungeoncrawler_content.room_chat_response_mapper'),
+      $container->get('dungeoncrawler_content.room_chat_write_endpoint_orchestrator'),
+      $container->get('dungeoncrawler_content.room_chat_stream_flow_orchestrator'),
+      $container->get('dungeoncrawler_content.room_chat_endpoint_facade_orchestrator'),
+      $container->get('dungeoncrawler_content.room_chat_post_dispatch_orchestrator')
     );
   }
 
   /**
-   * Resolve the coordinator lazily so read-only room history requests do not
-   * depend on the full encounter runtime during controller construction.
+   * Apply encounter round/turn prefixing when campaign context is available.
+   *
+   * @param array<string,mixed> $data
+   *   Stage-mapped progress payload.
+   * @param array<string,mixed> $context
+   *   Progress context payload.
+   *
+   * @return array<string,mixed>
+   *   Progress payload with encounter-prefixed message if applicable.
    */
-  protected function getCoordinator(): GameCoordinatorService {
-    if (!$this->coordinator) {
-      $service = \Drupal::service('dungeoncrawler_content.game_coordinator');
-      if (!$service instanceof GameCoordinatorService) {
-        throw new \RuntimeException('Game coordinator service is unavailable.');
-      }
-      $this->coordinator = $service;
+  protected function applyEncounterPrefixToProgressData(array $data, int $campaign_id, array $context = []): array {
+    if ($campaign_id <= 0) {
+      return $data;
     }
 
-    return $this->coordinator;
-  }
-
-  /**
-   * Resolve the GM subsystem lazily so read-only room history requests do not
-   * depend on the full chat action graph during controller construction.
-   */
-  protected function getGmSubsystem(): GameMasterSubsystemService {
-    if (!$this->gmSubsystem) {
-      $service = \Drupal::service('dungeoncrawler_content.game_master_subsystem');
-      if (!$service instanceof GameMasterSubsystemService) {
-        throw new \RuntimeException('Game Master subsystem service is unavailable.');
-      }
-      $this->gmSubsystem = $service;
-    }
-
-    return $this->gmSubsystem;
-  }
-
-  /**
-   * Build the standard success wrapper for room-chat JSON responses.
-   */
-  protected function buildSuccessDataResponse(array $data, ?string $client_request_id = NULL): JsonResponse {
-    if ($client_request_id !== NULL && $client_request_id !== '') {
-      $data['client_request_id'] = $client_request_id;
-    }
-
-    $response = new JsonResponse(NULL);
-    $response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);
-    $response->setData([
-      'success' => TRUE,
-      'data' => $data,
-    ]);
-    return $response;
-  }
-
-  protected function isPlayerRoomChat(string $type, string $channel): bool {
-    return $type === 'player' && $channel === 'room';
-  }
-
-  /**
-   * Route player room chat through the GM subsystem.
-   */
-  protected function postPlayerRoomChatViaEncounterTalk(
-    int $campaign_id,
-    string $requested_room_id,
-    ?int $character_id,
-    string $speaker,
-    string $message,
-    bool $defer_npc_interjections = FALSE,
-    bool $suppress_gm = FALSE
-  ): array {
-    $result = $this->getGmSubsystem()->handlePlayerRoomChat(
+    $round_raw = is_numeric($context['encounter_round_raw'] ?? NULL) ? (int) $context['encounter_round_raw'] : NULL;
+    $turn_index_raw = is_numeric($context['encounter_turn_index_raw'] ?? NULL) ? (int) $context['encounter_turn_index_raw'] : NULL;
+    $data['message'] = $this->encounterProgressService->prefixEncounterProgressMessage(
       $campaign_id,
-      $requested_room_id,
-      $character_id,
-      $message,
-      $defer_npc_interjections,
-      $suppress_gm,
-      $speaker
+      (string) ($data['speaker'] ?? 'System'),
+      (string) ($data['message'] ?? ''),
+      $round_raw,
+      $turn_index_raw
     );
+    return $data;
+  }
 
-    return $result;
+  /**
+   * Check campaign access and return an access-denied response when blocked.
+   */
+  protected function getCampaignAccessDeniedResponse(int $campaign_id): ?JsonResponse {
+    if (!$this->chatService->hasCampaignAccess($campaign_id)) {
+      return $this->responseMapper->buildAccessDeniedResponse();
+    }
+    return NULL;
+  }
+
+  /**
+   * Decode request JSON payload into an array.
+   *
+   * @throws \InvalidArgumentException
+   *   Thrown when request body is not a JSON object payload.
+   */
+  protected function decodeJsonPayload(Request $request): array {
+    $payload = json_decode($request->getContent(), TRUE);
+    if (!is_array($payload)) {
+      throw new \InvalidArgumentException('Invalid JSON payload', 400);
+    }
+    return $payload;
+  }
+
+  /**
+   * Parse optional character_id query parameter.
+   */
+  protected function getOptionalCharacterIdFromQuery(Request $request): ?int {
+    return $request->query->get('character_id') ? (int) $request->query->get('character_id') : NULL;
   }
 
   /**
@@ -152,60 +168,34 @@ class RoomChatController extends ControllerBase {
    *   Chat history response.
    */
   public function getChatHistory(int $campaign_id, string $room_id, Request $request): JsonResponse {
+    $channel = 'room';
+    $character_id = NULL;
     try {
-      // Verify user has access to campaign
-      if (!$this->chatService->hasCampaignAccess($campaign_id)) {
-        return new JsonResponse([
-          'success' => FALSE,
-          'error' => 'Access denied',
-        ], 403);
+      $access_denied = $this->getCampaignAccessDeniedResponse($campaign_id);
+      if ($access_denied !== NULL) {
+        return $access_denied;
       }
 
       $channel = $request->query->get('channel', 'room');
-      $character_id = $request->query->get('character_id') ? (int) $request->query->get('character_id') : NULL;
+      $character_id = $this->getOptionalCharacterIdFromQuery($request);
 
       $messages = $this->chatService->getChatHistory($campaign_id, $room_id, $channel, $character_id);
-
-      $response = new JsonResponse(NULL);
-      $response->setEncodingOptions($response->getEncodingOptions() | JSON_INVALID_UTF8_SUBSTITUTE);
-      $response->setData([
-        'success' => TRUE,
-        'data' => [
-          'roomId' => $room_id,
-          'channel' => $channel,
-          'messages' => $messages,
-        ],
-      ]);
-      return $response;
+      return $this->responseMapper->buildSuccessDataResponse(
+        $this->responseMapper->buildChatHistoryResponseData($room_id, $channel, $messages)
+      );
     }
     catch (\InvalidArgumentException $e) {
-      $status = (int) $e->getCode() ?: 500;
-      $this->logger->warning('Room chat history request rejected: campaign={campaign_id} room={room_id} channel={channel} character_id={character_id} status={status} message={message}', [
-        'campaign_id' => $campaign_id,
-        'room_id' => $room_id,
-        'channel' => isset($channel) ? (string) $channel : 'room',
-        'character_id' => isset($character_id) ? (int) ($character_id ?? 0) : 0,
-        'status' => $status,
-        'message' => $e->getMessage(),
-      ]);
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => $status === 404 ? 'Dungeon not found' : 'Invalid request',
-      ], $status);
+      return $this->responseMapper->buildChatHistoryInvalidRequestResponse(
+        $e,
+        $campaign_id,
+        $room_id,
+        (string) $channel,
+        is_int($character_id) ? $character_id : NULL
+      );
     }
     catch (\Throwable $e) {
-      $this->logger->error('Room chat history request failed: campaign={campaign_id} room={room_id} channel={channel} character_id={character_id} exception={exception} message={message}', [
-        'campaign_id' => $campaign_id,
-        'room_id' => $room_id,
-        'channel' => isset($channel) ? (string) $channel : 'room',
-        'character_id' => isset($character_id) ? (int) ($character_id ?? 0) : 0,
-        'exception' => get_class($e),
-        'message' => $e->getMessage(),
-      ]);
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => 'An error occurred',
-      ], 500);
+      $this->responseMapper->logChatHistoryFailure($e, $campaign_id, $room_id, (string) $channel, is_int($character_id) ? $character_id : NULL);
+      return $this->responseMapper->buildUnhandledErrorResponse();
     }
   }
 
@@ -234,199 +224,92 @@ class RoomChatController extends ControllerBase {
    *   Standard JSON response or streamed NDJSON room-chat response.
    */
   public function postChatMessage(int $campaign_id, string $room_id, Request $request): Response {
+    $request_context = [];
+
     try {
-      // Verify user has access to campaign
-      if (!$this->chatService->hasCampaignAccess($campaign_id)) {
-        return new JsonResponse([
-          'success' => FALSE,
-          'error' => 'Access denied',
-        ], 403);
+      $access_denied = $this->getCampaignAccessDeniedResponse($campaign_id);
+      if ($access_denied !== NULL) {
+        return $access_denied;
       }
 
-      // Parse request body
-      $payload = json_decode($request->getContent(), TRUE);
-      if (!is_array($payload)) {
-        return new JsonResponse([
-          'success' => FALSE,
-          'error' => 'Invalid JSON payload',
-        ], 400);
+      try {
+        $payload = $this->decodeJsonPayload($request);
       }
-
-      $request_context = $this->normalizePostChatPayload($payload);
-      $speaker = $request_context['speaker'];
-      $message = $request_context['message'];
-      $type = $request_context['type'];
-      $character_id = $request_context['character_id'];
-      $channel = $request_context['channel'];
-      $client_request_id = $request_context['client_request_id'];
-      $stream = $request_context['stream'];
-      $suppress_gm = $request_context['suppress_gm'];
-      $continue_gm = $request_context['continue_gm'];
-
-      if ($stream && $continue_gm) {
-        return $this->streamQueuedGmContinuation($campaign_id, $room_id, $character_id, $channel, $client_request_id);
+      catch (\InvalidArgumentException $e) {
+        return $this->responseMapper->buildInvalidRequestResponse('Invalid JSON payload', 400);
       }
+      $request_context = $this->resolvePostChatRequestContextFromPayload($payload);
 
-      if ($stream) {
-        return $this->streamChatMessage($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id);
-      }
-
-      if ($continue_gm) {
-        $result = $this->chatService->continueQueuedRoomConversation(
-          $campaign_id,
-          $room_id,
-          $character_id,
-          $channel
-        );
-
-        return $this->buildSuccessDataResponse($result, $client_request_id);
-      }
-
-      if ($this->isPlayerRoomChat($type, $channel)) {
-        $result = $this->postPlayerRoomChatViaEncounterTalk(
-          $campaign_id,
-          $room_id,
-          $character_id,
-          $speaker,
-          $message,
-          FALSE,
-          $suppress_gm
-        );
-      }
-      else {
-        $result = $this->chatService->postMessage(
-          $campaign_id,
-          $room_id,
-          $speaker,
-          $message,
-          $type,
-          $character_id,
-          $channel,
-          FALSE,
-          $suppress_gm
-        );
-      }
-
-      return $this->buildSuccessDataResponse($result, $client_request_id);
+      return $this->postDispatchOrchestrator->dispatchFromContext(
+        $campaign_id,
+        $room_id,
+        $request_context,
+        function (int $current_campaign_id, string $current_room_id, string $speaker, string $message, string $type, ?int $character_id, string $channel, string $client_request_id): Response {
+          return $this->streamChatMessage($current_campaign_id, $current_room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id);
+        },
+        function (int $current_campaign_id, string $current_room_id, ?int $character_id, string $channel, string $client_request_id): Response {
+          return $this->streamQueuedGmContinuation($current_campaign_id, $current_room_id, $character_id, $channel, $client_request_id);
+        },
+        function (array $result, string $client_request_id): Response {
+          return $this->responseMapper->buildSuccessDataResponse($result, $client_request_id);
+        }
+      );
     }
     catch (\InvalidArgumentException $e) {
-      $status = (int) $e->getCode() ?: 400;
-      $debug_id = 'roomchat-' . substr(hash('sha256', microtime(TRUE) . '|' . random_int(0, PHP_INT_MAX)), 0, 12);
-      $this->logger->warning(
-        'Room chat POST rejected [{debug_id}] campaign={campaign_id} room={room_id} channel={channel} character={character_id} request={client_request_id}: {message}',
-        [
-          'debug_id' => $debug_id,
-          'campaign_id' => $campaign_id,
-          'room_id' => $room_id,
-          'channel' => $channel,
-          'character_id' => $character_id,
-          'client_request_id' => $client_request_id,
-          'message' => $e->getMessage(),
-          'exception' => $e,
-        ]
+      $error_context = $this->extractPostChatErrorContext($request_context);
+      return $this->responseMapper->buildPostChatInvalidRequestResponse(
+        $e,
+        $campaign_id,
+        $room_id,
+        $error_context['channel'],
+        $error_context['character_id'],
+        $error_context['client_request_id']
       );
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => $debug_id !== '' ? $e->getMessage() . ' [debug ' . $debug_id . ']' : $e->getMessage(),
-        'debug' => [
-          'debug_id' => $debug_id,
-          'client_request_id' => $client_request_id,
-          'campaign_id' => $campaign_id,
-          'room_id' => $room_id,
-          'character_id' => $character_id,
-          'channel' => $channel,
-          'status' => $status,
-          'stream_mode' => 'json_post',
-          'exception_class' => get_class($e),
-          'message' => $e->getMessage(),
-        ],
-      ], $status);
     }
     catch (\Throwable $e) {
-      $debug_id = 'roomchat-' . substr(hash('sha256', microtime(TRUE) . '|' . random_int(0, PHP_INT_MAX)), 0, 12);
-      $this->logger->error(
-        'Room chat POST failed [{debug_id}] campaign={campaign_id} room={room_id} channel={channel} character={character_id} request={client_request_id}: {message}',
-        [
-          'debug_id' => $debug_id,
-          'campaign_id' => $campaign_id,
-          'room_id' => $room_id,
-          'channel' => $channel,
-          'character_id' => $character_id,
-          'client_request_id' => $client_request_id,
-          'message' => $e->getMessage(),
-          'exception_class' => get_class($e),
-          'exception' => $e,
-          'speaker' => $speaker,
-          'type' => $type,
-        ]
+      $error_context = $this->extractPostChatErrorContext($request_context);
+      return $this->responseMapper->buildPostChatFailureResponse(
+        $e,
+        $campaign_id,
+        $room_id,
+        $error_context['channel'],
+        $error_context['character_id'],
+        $error_context['client_request_id'],
+        $error_context['speaker'],
+        $error_context['type']
       );
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => $debug_id !== '' ? 'An error occurred [debug ' . $debug_id . ']' : 'An error occurred',
-        'debug' => [
-          'debug_id' => $debug_id,
-          'client_request_id' => $client_request_id,
-          'campaign_id' => $campaign_id,
-          'room_id' => $room_id,
-          'character_id' => $character_id,
-          'channel' => $channel,
-          'status' => 500,
-          'stream_mode' => 'json_post',
-          'exception_class' => get_class($e),
-          'message' => $e->getMessage(),
-        ],
-      ], 500);
     }
   }
 
   /**
-   * Normalize room-chat POST payload into canonical request context.
+   * Normalize post-chat request payload to canonical context.
    *
-   * @return array<string, mixed>
-   *   Normalized payload fields used by the post-chat route.
+   * @param array<string,mixed> $payload
+   *   Decoded request payload.
+   *
+   * @return array<string,mixed>
+   *   Normalized post-chat request context.
    */
-  protected function normalizePostChatPayload(array $payload): array {
-    $speaker = (string) ($payload['speaker'] ?? '');
-    $message = (string) ($payload['message'] ?? '');
-    $type = (string) ($payload['type'] ?? 'player');
-    $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : NULL;
-    $channel = (string) ($payload['channel'] ?? 'room');
-    $client_request_id = (string) ($payload['client_request_id'] ?? '');
-    $is_player_turn = $type === 'player';
+  protected function resolvePostChatRequestContextFromPayload(array $payload): array {
+    return $this->writeEndpointOrchestrator->normalizePostChatPayload($payload);
+  }
 
-    // Room transcript lines are encounter-governed: clients cannot inject NPC/system
-    // lines into the room channel. Player room chat must route via the canonical
-    // encounter Talk action.
-    if ($channel === 'room' && !$is_player_turn) {
-      throw new \InvalidArgumentException('Only player messages may be posted to the room channel.', 400);
-    }
-
-    // stream: use NDJSON streaming for player turns so the client can render
-    // player ack, progress, primary reply, and any follow-up reactions
-    // incrementally instead of waiting for one large JSON response.
-    $stream = !empty($payload['stream']) && $is_player_turn;
-
-    // suppress_gm: persist the player's room message but intentionally skip
-    // response generation for this request because a turn is already in
-    // flight. The queued player messages are folded into one later
-    // continuation for the same channel.
-    $suppress_gm = !empty($payload['suppress_gm']) && $is_player_turn;
-
-    // continue_gm: run exactly one follow-up pass over queued player
-    // messages after the active turn settles. This keeps AI analysis
-    // serialized while still allowing the player to keep sending messages.
-    $continue_gm = !empty($payload['continue_gm']) && $is_player_turn;
-
+  /**
+   * Build canonical post-chat error context from normalized request payload.
+   *
+   * @param array<string,mixed> $request_context
+   *   Normalized post-chat request context.
+   *
+   * @return array{speaker:string,type:string,channel:string,character_id:?int,client_request_id:string}
+   *   Canonical error context for post-chat error response mapping.
+   */
+  protected function extractPostChatErrorContext(array $request_context): array {
     return [
-      'speaker' => $speaker,
-      'message' => $message,
-      'type' => $type,
-      'character_id' => $character_id,
-      'channel' => $channel,
-      'client_request_id' => $client_request_id,
-      'stream' => $stream,
-      'suppress_gm' => $suppress_gm,
-      'continue_gm' => $continue_gm,
+      'speaker' => (string) ($request_context['speaker'] ?? ''),
+      'type' => (string) ($request_context['type'] ?? 'player'),
+      'channel' => (string) ($request_context['channel'] ?? 'room'),
+      'character_id' => isset($request_context['character_id']) ? (int) $request_context['character_id'] : NULL,
+      'client_request_id' => (string) ($request_context['client_request_id'] ?? ''),
     ];
   }
 
@@ -435,54 +318,20 @@ class RoomChatController extends ControllerBase {
    */
   public function suggestPlayerAutomationMessage(int $campaign_id, string $room_id, Request $request): JsonResponse {
     try {
-      if (!$this->chatService->hasCampaignAccess($campaign_id)) {
-        return new JsonResponse([
-          'success' => FALSE,
-          'error' => 'Access denied',
-        ], 403);
+      $access_denied = $this->getCampaignAccessDeniedResponse($campaign_id);
+      if ($access_denied !== NULL) {
+        return $access_denied;
       }
 
-      $payload = json_decode($request->getContent(), TRUE);
-      if (!is_array($payload)) {
-        return new JsonResponse([
-          'success' => FALSE,
-          'error' => 'Invalid JSON payload',
-        ], 400);
-      }
-
-      $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : 0;
-      $channel = (string) ($payload['channel'] ?? 'room');
-      if ($character_id <= 0) {
-        return new JsonResponse([
-          'success' => FALSE,
-          'error' => 'character_id is required',
-        ], 400);
-      }
-
-      $result = $this->chatService->suggestPlayerAutomationMessage(
-        $campaign_id,
-        $room_id,
-        $character_id,
-        $channel
-      );
-
-      return new JsonResponse([
-        'success' => TRUE,
-        'data' => $result,
-      ]);
+      $payload = $this->decodeJsonPayload($request);
+      $result = $this->endpointFacadeOrchestrator->suggestPlayerAutomationMessage($campaign_id, $room_id, $payload);
+      return $this->responseMapper->buildSuccessDataResponse($result);
     }
     catch (\InvalidArgumentException $e) {
-      $status = (int) $e->getCode() ?: 400;
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => $e->getMessage(),
-      ], $status);
+      return $this->responseMapper->buildInvalidRequestResponse($e->getMessage(), (int) $e->getCode() ?: 400);
     }
     catch (\Throwable $e) {
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => 'An error occurred',
-      ], 500);
+      return $this->responseMapper->buildUnhandledErrorResponse();
     }
   }
 
@@ -501,83 +350,18 @@ class RoomChatController extends ControllerBase {
   ): StreamedResponse {
     return $this->createStreamedTurnResponse(
       function (callable $emit) use ($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id): void {
-        $encounter_progress_ctx = $this->buildEncounterProgressSnapshot($campaign_id);
-        $this->emitProgressUpdate($emit, $client_request_id, 'room_request_started', [
-          'campaign_id' => $campaign_id,
-          'room_id' => $room_id,
-          'channel' => $channel,
-        ] + $encounter_progress_ctx);
-
-        $posted_message = NULL;
-        $player_message_for_followup = $message;
-
-        if ($this->isPlayerRoomChat($type, $channel)) {
-          $result = $this->postPlayerRoomChatViaEncounterTalk(
-            $campaign_id,
-            $room_id,
-            $character_id,
-            $speaker,
-            $message,
-            TRUE,
-            FALSE
-          );
-          $posted_message = is_array($result['message'] ?? NULL) ? $result['message'] : NULL;
-          if (is_array($posted_message) && isset($posted_message['message']) && is_string($posted_message['message'])) {
-            $player_message_for_followup = $posted_message['message'];
-          }
-        }
-        else {
-          $emit([
-            'type' => 'player_ack',
-            'data' => [
-              'speaker' => $speaker,
-              'message' => $message,
-              'type' => $type,
-              'channel' => $channel,
-              'client_request_id' => $client_request_id,
-            ],
-          ]);
-
-          $result = $this->chatService->postMessage(
-            $campaign_id,
-            $room_id,
-            $speaker,
-            $message,
-            $type,
-            $character_id,
-            $channel,
-            TRUE,
-            FALSE,
-            $this->buildStreamProgressCallback($emit, $client_request_id, [
-              'campaign_id' => $campaign_id,
-              'room_id' => $room_id,
-              'channel' => $channel,
-            ] + $encounter_progress_ctx)
-          );
-        }
-
-        if ($posted_message !== NULL) {
-          $emit([
-            'type' => 'player_ack',
-            'data' => [
-              'speaker' => (string) ($posted_message['speaker'] ?? $speaker),
-              'message' => (string) ($posted_message['message'] ?? $message),
-              'type' => (string) ($posted_message['type'] ?? $type),
-              'channel' => (string) ($posted_message['channel'] ?? $channel),
-              'client_request_id' => $client_request_id,
-            ],
-          ]);
-        }
-
-        $this->emitStreamedTurnResult(
+        $this->streamFlowOrchestrator->handleStreamChatMessageFlow(
           $emit,
-          $result,
           $campaign_id,
           $room_id,
-          $player_message_for_followup,
+          $speaker,
+          $message,
+          $type,
           $character_id,
           $channel,
-          $client_request_id
+          $client_request_id,
+          $this->buildStreamProgressForwarder(),
+          $this->buildStreamResultForwarder()
         );
       },
       [
@@ -606,36 +390,15 @@ class RoomChatController extends ControllerBase {
   ): StreamedResponse {
     return $this->createStreamedTurnResponse(
       function (callable $emit) use ($campaign_id, $room_id, $character_id, $channel, $client_request_id): void {
-        $encounter_progress_ctx = $this->buildEncounterProgressSnapshot($campaign_id);
-        $emit([
-          'type' => 'thinking',
-          'data' => $this->buildProgressEventData('queued_continuation_started', $client_request_id, [
-            'channel' => $channel,
-          ] + $encounter_progress_ctx),
-        ]);
-
-        $result = $this->chatService->continueQueuedRoomConversation(
-          $campaign_id,
-          $room_id,
-          $character_id,
-          $channel,
-          TRUE,
-          $this->buildStreamProgressCallback($emit, $client_request_id, [
-            'campaign_id' => $campaign_id,
-            'room_id' => $room_id,
-            'channel' => $channel,
-          ] + $encounter_progress_ctx)
-        );
-
-        $this->emitStreamedTurnResult(
+        $this->streamFlowOrchestrator->handleStreamQueuedContinuationFlow(
           $emit,
-          $result,
           $campaign_id,
           $room_id,
-          (string) ($result['queued_player_summary'] ?? ''),
           $character_id,
           $channel,
-          $client_request_id
+          $client_request_id,
+          $this->buildStreamProgressForwarder(),
+          $this->buildStreamResultForwarder()
         );
       },
       [
@@ -650,126 +413,43 @@ class RoomChatController extends ControllerBase {
   }
 
   /**
-   * Build a stable encounter round/turn snapshot for progress-line prefixing.
+   * Build stream-flow callback that forwards progress events through controller mapping.
    */
-  protected function buildEncounterProgressSnapshot(int $campaign_id): array {
-    if ($campaign_id <= 0) {
-      return [];
-    }
-
-    try {
-      $state = $this->getCoordinator()->getFullState($campaign_id);
-    }
-    catch (\Throwable $e) {
-      $this->logger->warning('Encounter progress snapshot fallback: campaign={campaign_id} message={message}', [
-        'campaign_id' => $campaign_id,
-        'message' => $e->getMessage(),
-      ]);
-      return [];
-    }
-    if (!is_array($state)) {
-      return [];
-    }
-
-    $round_raw = $state['round'] ?? ($state['game_state']['round'] ?? NULL);
-    $turn = $state['turn'] ?? ($state['game_state']['turn'] ?? []);
-    $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index'])
-      ? (int) $turn['index']
-      : NULL;
-
-    $snapshot = [];
-    if (is_numeric($round_raw)) {
-      $snapshot['encounter_round_raw'] = (int) $round_raw;
-    }
-    if ($turn_index_raw !== NULL) {
-      $snapshot['encounter_turn_index_raw'] = $turn_index_raw;
-    }
-
-    return $snapshot;
+  protected function buildStreamProgressForwarder(): callable {
+    return function (callable $stream_emit, string $request_id, string $stage, array $context = []): void {
+      $this->emitProgressUpdate($stream_emit, $request_id, $stage, $context);
+    };
   }
 
   /**
-   * Resolve progress prefix snapshot from action/chat result payloads.
+   * Build stream-flow callback that forwards completed turn results.
    */
-  protected function buildEncounterProgressSnapshotFromResult(array $result, int $campaign_id): array {
-    $game_state = [];
-    if (is_array($result['game_state'] ?? NULL)) {
-      $game_state = $result['game_state'];
-    }
-    elseif (is_array($result['dungeon_data']['game_state'] ?? NULL)) {
-      $game_state = $result['dungeon_data']['game_state'];
-    }
-
-    if ($game_state !== []) {
-      $round_raw = $game_state['round'] ?? NULL;
-      $turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
-      $turn_index_raw = isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
-
-      $snapshot = [];
-      if (is_numeric($round_raw)) {
-        $snapshot['encounter_round_raw'] = (int) $round_raw;
-      }
-      if ($turn_index_raw !== NULL) {
-        $snapshot['encounter_turn_index_raw'] = $turn_index_raw;
-      }
-      if ($snapshot !== []) {
-        return $snapshot;
-      }
-    }
-
-    return $this->buildEncounterProgressSnapshot($campaign_id);
+  protected function buildStreamResultForwarder(): callable {
+    return function (callable $stream_emit, array $result, int $current_campaign_id, string $current_room_id, string $player_message_for_followup, ?int $current_character_id, string $current_channel, string $request_id): void {
+      $this->emitStreamedTurnResult(
+        $stream_emit,
+        $result,
+        $current_campaign_id,
+        $current_room_id,
+        $player_message_for_followup,
+        $current_character_id,
+        $current_channel,
+        $request_id
+      );
+    };
   }
+
 
   /**
    * Create an NDJSON streaming response with shared error handling.
    */
   protected function createStreamedTurnResponse(callable $stream_callback, array $context = []): StreamedResponse {
-    $response = new StreamedResponse(function () use ($stream_callback, $context): void {
-      $emit = $this->createNdjsonEmitter();
-
-      try {
-        $stream_callback($emit);
-      }
-      catch (\Throwable $e) {
+    return $this->streamEnvelopeEmitter->createStreamedResponse(
+      $stream_callback,
+      function (callable $emit, \Throwable $e) use ($context): void {
         $this->emitStreamError($emit, $e, $context);
       }
-    });
-
-    $response->headers->set('Content-Type', 'application/x-ndjson');
-    $response->headers->set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    $response->headers->set('X-Accel-Buffering', 'no');
-
-    return $response;
-  }
-
-  /**
-   * Build a shared NDJSON emitter.
-   */
-  protected function createNdjsonEmitter(): callable {
-    return function (array $payload): void {
-      echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) . "\n";
-      if (function_exists('ob_flush')) {
-        @ob_flush();
-      }
-      flush();
-    };
-  }
-
-  /**
-   * Build a shared streaming progress callback.
-   */
-  protected function buildStreamProgressCallback(callable $emit, string $client_request_id, array $base_context = []): callable {
-    return function (array $progress) use ($emit, $client_request_id, $base_context): void {
-      $progress_context = is_array($progress['context'] ?? NULL) ? $progress['context'] : [];
-      $context = $base_context + $progress_context;
-
-      $this->emitProgressUpdate(
-        $emit,
-        $client_request_id,
-        (string) ($progress['stage'] ?? ''),
-        $context
-      );
-    };
+    );
   }
 
   /**
@@ -789,165 +469,38 @@ class RoomChatController extends ControllerBase {
     string $channel,
     string $client_request_id
   ): void {
-    $result['turn_logs'] = $this->filterClientVisibleTurnLogs(
-      is_array($result['turn_logs'] ?? NULL) ? $result['turn_logs'] : []
-    );
-    if (!empty($result['turn_logs'])) {
-      foreach ($result['turn_logs'] as $system_message) {
-        $emit([
-          'type' => 'system_message',
-          'data' => $system_message,
-        ]);
-      }
-    }
-
-    if (!empty($result['gm_response'])) {
-      $emit([
-        'type' => 'gm_response',
-        'data' => $result['gm_response'] + [
-          'client_request_id' => $client_request_id,
-        ],
-      ]);
-    }
-
-    $should_complete_deferred_npc_turns = !empty($result['npc_interjections_deferred'])
-      && !empty($result['gm_response']['message'])
-      && empty($result['gm_response']['gm_payload']['flags']['suppress_npc_interjections']);
-    if ($should_complete_deferred_npc_turns) {
-      $this->emitProgressUpdate($emit, $client_request_id, 'npc_reactions_generating', [
-        'campaign_id' => $campaign_id,
-        'room_id' => $room_id,
-        'channel' => $channel,
-      ] + $this->buildEncounterProgressSnapshotFromResult($result, $campaign_id));
-      $npc_turn_result = $this->chatService->completeDeferredNpcInterjections(
-        $campaign_id,
-        $room_id,
-        $player_message,
-        (string) $result['gm_response']['message'],
-        $character_id
-      );
-
-      if (!empty($npc_turn_result['turn_log_key'])) {
-        $result['turn_log_key'] = $npc_turn_result['turn_log_key'];
-      }
-
-      if (!empty($npc_turn_result['turn_logs'])) {
-        $deferred_visible_turn_logs = $this->filterClientVisibleTurnLogs(
-          is_array($npc_turn_result['turn_logs'] ?? NULL) ? $npc_turn_result['turn_logs'] : []
+    $this->streamResultCoordinator->emitStreamedTurnResult(
+      $emit,
+      $result,
+      $campaign_id,
+      $room_id,
+      $player_message,
+      $character_id,
+      $channel,
+      $client_request_id,
+      function (string $stage, array $context = []) use ($emit, $client_request_id): void {
+        $this->emitProgressUpdate($emit, $client_request_id, $stage, $context);
+      },
+      function (array $result_payload, int $current_campaign_id): array {
+        return $this->encounterProgressService->buildEncounterProgressSnapshotFromResult($result_payload, $current_campaign_id);
+      },
+      function (int $current_campaign_id, string $current_room_id, string $current_player_message, string $gm_message, ?int $current_character_id): array {
+        return $this->chatService->completeDeferredNpcInterjections(
+          $current_campaign_id,
+          $current_room_id,
+          $current_player_message,
+          $gm_message,
+          $current_character_id
         );
-        $result['turn_logs'] = array_values(array_merge(
-          is_array($result['turn_logs'] ?? NULL) ? $result['turn_logs'] : [],
-          $deferred_visible_turn_logs
-        ));
-        foreach ($deferred_visible_turn_logs as $system_message) {
-          $emit([
-            'type' => 'system_message',
-            'data' => $system_message,
-          ]);
-        }
       }
-
-      if (!empty($npc_turn_result['messages'])) {
-        $result['turn_harness'] = $npc_turn_result;
-        $result['npc_interjections'] = $npc_turn_result['messages'];
-        foreach ($npc_turn_result['messages'] as $npc_message) {
-          $emit([
-            'type' => 'npc_interjection',
-            'data' => $npc_message,
-          ]);
-        }
-      }
-
-      if (!empty($npc_turn_result['quest_updates'])) {
-        $result['quest_updates'] = array_values(array_merge(
-          is_array($result['quest_updates'] ?? NULL) ? $result['quest_updates'] : [],
-          $npc_turn_result['quest_updates']
-        ));
-      }
-      $result['npc_interjections_deferred'] = FALSE;
-    }
-
-    $emit([
-      'type' => 'complete',
-      'data' => $result + [
-        'client_request_id' => $client_request_id,
-      ],
-    ]);
-  }
-
-  /**
-   * Filter room-turn-harness diagnostics that should not render as transcript lines.
-   */
-  protected function filterClientVisibleTurnLogs(array $turn_logs): array {
-    $visible = [];
-    foreach ($turn_logs as $turn_log) {
-      if (!is_array($turn_log)) {
-        continue;
-      }
-      if (!empty($turn_log['internal_log']) || !empty($turn_log['turn_prompt'])) {
-        continue;
-      }
-      $visible[] = $turn_log;
-    }
-    return array_values($visible);
+    );
   }
 
   /**
    * Emit a normalized streamed error payload.
    */
   protected function emitStreamError(callable $emit, \Throwable $e, array $context = []): void {
-    $status = $e instanceof \InvalidArgumentException ? ((int) $e->getCode() ?: 400) : 500;
-    $debug_id = 'roomchat-' . substr(hash('sha256', microtime(TRUE) . '|' . random_int(0, PHP_INT_MAX)), 0, 12);
-    $debug = $this->buildStreamErrorDebugPayload($debug_id, $status, $context);
-    $this->logStreamError($debug_id, $e, $context, $status);
-
-    $emit([
-      'type' => 'error',
-      'error' => $e instanceof \InvalidArgumentException ? $e->getMessage() : 'An error occurred',
-      'status' => $status,
-      'debug' => $debug,
-    ]);
-  }
-
-  /**
-   * Build the client-visible stream debug payload.
-   */
-  protected function buildStreamErrorDebugPayload(string $debug_id, int $status, array $context = []): array {
-    return [
-      'debug_id' => $debug_id,
-      'client_request_id' => $context['client_request_id'] ?? '',
-      'campaign_id' => $context['campaign_id'] ?? NULL,
-      'room_id' => $context['room_id'] ?? NULL,
-      'character_id' => $context['character_id'] ?? NULL,
-      'channel' => $context['channel'] ?? NULL,
-      'stream_mode' => $context['stream_mode'] ?? 'unknown',
-      'status' => $status,
-    ];
-  }
-
-  /**
-   * Write the server-side log entry for a streamed room-chat failure.
-   */
-  protected function logStreamError(string $debug_id, \Throwable $e, array $context = [], int $status = 500): void {
-    $this->logger->error(
-      'Room chat stream failed [{debug_id}] campaign={campaign_id} room={room_id} channel={channel} character={character_id} request={client_request_id} mode={stream_mode}: {message}',
-      [
-        'debug_id' => $debug_id,
-        'campaign_id' => $context['campaign_id'] ?? NULL,
-        'room_id' => $context['room_id'] ?? NULL,
-        'channel' => $context['channel'] ?? NULL,
-        'character_id' => $context['character_id'] ?? NULL,
-        'client_request_id' => $context['client_request_id'] ?? '',
-        'stream_mode' => $context['stream_mode'] ?? 'unknown',
-        'message' => $e->getMessage(),
-        'status' => $status,
-        'exception_class' => get_class($e),
-        'speaker' => $context['speaker'] ?? '',
-        'type' => $context['type'] ?? '',
-        'message_length' => $context['message_length'] ?? 0,
-        'exception' => $e,
-      ]
-    );
+    $this->streamErrorReporter->emit($emit, $e, $context);
   }
 
   /**
@@ -971,142 +524,13 @@ class RoomChatController extends ControllerBase {
   protected function buildProgressEventData(string $stage, string $client_request_id, array $context = []): ?array {
     $channel = (string) ($context['channel'] ?? 'room');
     $campaign_id = isset($context['campaign_id']) ? (int) $context['campaign_id'] : 0;
-
-    $data = NULL;
-    switch ($stage) {
-      case 'room_request_started':
-        $data = [
-          'message' => $channel !== 'room'
-            ? 'Reviewing what you just said...'
-            : 'Reviewing the room and what you just said...',
-          'phase' => 'reviewing-room',
-          'speaker' => 'System',
-          'client_request_id' => $client_request_id,
-        ];
-        break;
-
-      case 'conversation_persisted':
-        $data = [
-          'message' => 'Updating conversation state...',
-          'phase' => 'updating-conversation',
-          'speaker' => 'System',
-          'client_request_id' => $client_request_id,
-        ];
-        break;
-
-      case 'conversation_bridged':
-        $data = [
-          'message' => 'Syncing the scene context...',
-          'phase' => 'syncing-context',
-          'speaker' => 'System',
-          'client_request_id' => $client_request_id,
-        ];
-        break;
-
-      case 'npc_context_prepared':
-        $data = [
-          'message' => $channel !== 'room'
-            ? 'Checking the active participants...'
-            : 'Checking who is active in the scene...',
-          'phase' => 'checking-reactions',
-          'speaker' => 'System',
-          'client_request_id' => $client_request_id,
-        ];
-        break;
-
-      case 'gm_reply_generating':
-        $data = [
-          'message' => $channel !== 'room'
-            ? 'Preparing the reply...'
-            : 'Preparing the scene...',
-          'phase' => 'drafting-response',
-          'speaker' => 'System',
-          'client_request_id' => $client_request_id,
-        ];
-        break;
-
-      case 'npc_reactions_generating':
-        $data = [
-          'message' => 'Resolving the next actor in turn order...',
-          'phase' => 'npc-reactions',
-          'speaker' => 'System',
-          'client_request_id' => $client_request_id,
-        ];
-        break;
-
-      case 'queued_continuation_started':
-      case 'queued_messages_loaded':
-        $queued_count = max(1, (int) ($context['queued_player_count'] ?? 1));
-        $data = [
-          'message' => $queued_count === 1
-            ? 'Thinking about what you just said...'
-            : "Thinking about the {$queued_count} things you just said...",
-          'phase' => 'reviewing-queue',
-          'speaker' => 'System',
-          'client_request_id' => $client_request_id,
-        ];
-        break;
-    }
+    $data = $this->progressStageMapper->map($stage, $channel, $client_request_id, $context);
 
     if ($data === NULL) {
       return NULL;
     }
 
-    if ($campaign_id > 0) {
-      $round_raw = is_numeric($context['encounter_round_raw'] ?? NULL) ? (int) $context['encounter_round_raw'] : NULL;
-      $turn_index_raw = is_numeric($context['encounter_turn_index_raw'] ?? NULL) ? (int) $context['encounter_turn_index_raw'] : NULL;
-      $data['message'] = $this->prefixEncounterProgressMessage(
-        $campaign_id,
-        (string) ($data['speaker'] ?? 'System'),
-        (string) ($data['message'] ?? ''),
-        $round_raw,
-        $turn_index_raw
-      );
-    }
-
-    return $data;
-  }
-
-  protected function isEncounterPrefixedMessage(string $content): bool {
-    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::isPrefixed($content);
-  }
-
-  protected function prefixEncounterProgressMessage(
-    int $campaign_id,
-    string $speaker,
-    string $message,
-    ?int $round_raw = NULL,
-    ?int $turn_index_raw = NULL
-  ): string {
-    $message = trim($message);
-    if ($message === '' || $this->isEncounterPrefixedMessage($message)) {
-      return $message;
-    }
-
-    if ($round_raw === NULL || $turn_index_raw === NULL) {
-      try {
-        $state = $this->getCoordinator()->getFullState($campaign_id);
-      }
-      catch (\Throwable $e) {
-        $this->logger->warning('Encounter progress prefix fallback: campaign={campaign_id} message={message}', [
-          'campaign_id' => $campaign_id,
-          'message' => $e->getMessage(),
-        ]);
-        $state = [];
-      }
-      if ($round_raw === NULL) {
-        $round_raw = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? 1)) : 1;
-      }
-      if ($turn_index_raw === NULL) {
-        $turn = is_array($state) ? ($state['turn'] ?? ($state['game_state']['turn'] ?? [])) : [];
-        $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
-      }
-    }
-
-    $round_display = \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::displayRound($round_raw);
-    $turn_display = \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::displayTurnFromIndexRaw($turn_index_raw);
-
-    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix($round_display, $turn_display, $speaker) . $message;
+    return $this->applyEncounterPrefixToProgressData($data, $campaign_id, $context);
   }
 
   /**
@@ -1116,20 +540,17 @@ class RoomChatController extends ControllerBase {
    */
   public function getChannels(int $campaign_id, string $room_id, Request $request): JsonResponse {
     try {
-      if (!$this->chatService->hasCampaignAccess($campaign_id)) {
-        return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
+      $access_denied = $this->getCampaignAccessDeniedResponse($campaign_id);
+      if ($access_denied !== NULL) {
+        return $access_denied;
       }
 
-      $character_id = $request->query->get('character_id') ? (int) $request->query->get('character_id') : NULL;
-      $result = $this->chatService->getChannelsForRoom($campaign_id, $room_id, $character_id);
-
-      return new JsonResponse([
-        'success' => TRUE,
-        'data' => $result,
-      ]);
+      $character_id = $this->getOptionalCharacterIdFromQuery($request);
+      $result = $this->endpointFacadeOrchestrator->getChannelsForRoom($campaign_id, $room_id, $character_id);
+      return $this->responseMapper->buildSuccessDataResponse($result);
     }
     catch (\Throwable $e) {
-      return new JsonResponse(['success' => FALSE, 'error' => 'An error occurred'], 500);
+      return $this->responseMapper->buildUnhandledErrorResponse();
     }
   }
 
@@ -1148,40 +569,22 @@ class RoomChatController extends ControllerBase {
    */
   public function openChannel(int $campaign_id, string $room_id, Request $request): JsonResponse {
     try {
-      if (!$this->chatService->hasCampaignAccess($campaign_id)) {
-        return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
+      $access_denied = $this->getCampaignAccessDeniedResponse($campaign_id);
+      if ($access_denied !== NULL) {
+        return $access_denied;
       }
 
-      $payload = json_decode($request->getContent(), TRUE);
-      if (!is_array($payload)) {
-        return new JsonResponse(['success' => FALSE, 'error' => 'Invalid JSON payload'], 400);
-      }
-
-      $channel_key = $payload['channel_key'] ?? '';
-      $opened_by = (string) ($payload['opened_by'] ?? '');
-      $target_entity = $payload['target_entity'] ?? '';
-      $target_name = $payload['target_name'] ?? 'Unknown';
-      $source_ability = $payload['source_ability'] ?? 'whisper';
-
-      if (empty($channel_key) || empty($opened_by) || empty($target_entity)) {
-        return new JsonResponse(['success' => FALSE, 'error' => 'Missing required fields: channel_key, opened_by, target_entity'], 400);
-      }
-
-      $result = $this->chatService->openChannel(
-        $campaign_id,
-        $room_id,
-        $channel_key,
-        $opened_by,
-        $target_entity,
-        $target_name,
-        $source_ability
-      );
+      $payload = $this->decodeJsonPayload($request);
+      $result = $this->endpointFacadeOrchestrator->openChannelFromPayload($campaign_id, $room_id, $payload);
 
       $status = $result['success'] ? 200 : 400;
-      return new JsonResponse(['success' => $result['success'], 'data' => $result], $status);
+      return $this->responseMapper->buildSuccessDataResponse($result)->setStatusCode($status);
+    }
+    catch (\InvalidArgumentException $e) {
+      return $this->responseMapper->buildInvalidRequestResponse($e->getMessage(), (int) $e->getCode() ?: 400);
     }
     catch (\Throwable $e) {
-      return new JsonResponse(['success' => FALSE, 'error' => 'An error occurred'], 500);
+      return $this->responseMapper->buildUnhandledErrorResponse();
     }
   }
 
@@ -1192,19 +595,19 @@ class RoomChatController extends ControllerBase {
    */
   public function closeChannel(int $campaign_id, string $room_id, string $channel_key): JsonResponse {
     try {
-      if (!$this->chatService->hasCampaignAccess($campaign_id)) {
-        return new JsonResponse(['success' => FALSE, 'error' => 'Access denied'], 403);
+      $access_denied = $this->getCampaignAccessDeniedResponse($campaign_id);
+      if ($access_denied !== NULL) {
+        return $access_denied;
       }
 
-      $closed = $this->chatService->closeChannel($campaign_id, $room_id, $channel_key);
-
-      return new JsonResponse([
-        'success' => $closed,
-        'data' => ['channel_key' => $channel_key, 'closed' => $closed],
+      $closed = $this->endpointFacadeOrchestrator->closeChannel($campaign_id, $room_id, $channel_key);
+      return $this->responseMapper->buildSuccessDataResponse([
+        'channel_key' => $channel_key,
+        'closed' => $closed,
       ]);
     }
     catch (\Throwable $e) {
-      return new JsonResponse(['success' => FALSE, 'error' => 'An error occurred'], 500);
+      return $this->responseMapper->buildUnhandledErrorResponse();
     }
   }
 

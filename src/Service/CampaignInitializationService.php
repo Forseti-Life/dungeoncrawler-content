@@ -12,6 +12,7 @@ use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
+use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 
 /**
  * Orchestrates complete campaign initialization with default dungeon and rooms.
@@ -29,6 +30,7 @@ class CampaignInitializationService {
 
   private const STARTER_CITY_DUNGEON_NAME = 'Absalom';
   private const STARTER_CITY_DUNGEON_DESCRIPTION = 'City hub containing The Gilded Tankard and nearby starter routes.';
+  private const H3_ACTIVE_RESOLUTION = 14;
 
   protected Connection $database;
   protected UuidInterface $uuid;
@@ -350,8 +352,154 @@ class CampaignInitializationService {
         'updated' => $now,
       ])
       ->execute();
+    $this->persistStarterDungeonSparseH3Mappings($dungeon_id, $dungeon_data, $now);
 
     return $dungeon_id;
+  }
+
+  /**
+   * Persist sparse H3 anchor/cell rows for starter dungeon payloads.
+   */
+  private function persistStarterDungeonSparseH3Mappings(string $dungeon_id, array $dungeon_data, int $timestamp): void {
+    $schema = $this->database->schema();
+    foreach (['dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $table) {
+      if (!$schema->tableExists($table)) {
+        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: required table %s is missing.', $table));
+      }
+    }
+
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    if ($rooms === []) {
+      throw new \RuntimeException(sprintf('H3 system-of-record contract violation: starter dungeon %s has no rooms for sparse mapping persistence.', $dungeon_id));
+    }
+
+    $this->database->delete('dungeoncrawler_content_h3_room_cells')
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute();
+    $this->database->delete('dungeoncrawler_content_h3_room_anchors')
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute();
+
+    foreach ($rooms as $room_index => $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: starter dungeon %s room[%d] is missing room_id.', $dungeon_id, $room_index));
+      }
+
+      $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+      if ($hexes === []) {
+        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: starter dungeon %s room %s has no hexes for sparse mapping persistence.', $dungeon_id, $room_id));
+      }
+
+      $entry_coordinate = $this->resolveStarterRoomEntryCoordinate($room, $dungeon_id, $room_id);
+      $entry_latlng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $entry_coordinate['q'], $entry_coordinate['r']);
+      $anchor_h3 = H3SpatialHelper::latLngToH3Index((float) $entry_latlng['latitude'], (float) $entry_latlng['longitude'], self::H3_ACTIVE_RESOLUTION);
+
+      $anchor_metadata = [
+        'status' => 'h3_index_assigned',
+        'h3_index_source' => 'libh3',
+        'normalization' => 'global_non_overlapping_axial',
+        'normalization_version' => 'starter-runtime-persist-v1',
+        'global_offset_q' => 0,
+        'global_offset_r' => 0,
+        'room_entrance_global_q' => $entry_coordinate['q'],
+        'room_entrance_global_r' => $entry_coordinate['r'],
+        'source' => 'campaign_initialization_starter_room',
+      ];
+
+      $this->database->insert('dungeoncrawler_content_h3_room_anchors')
+        ->fields([
+          'dungeon_id' => $dungeon_id,
+          'room_id' => $room_id,
+          'h3_resolution' => self::H3_ACTIVE_RESOLUTION,
+          'h3_index' => $anchor_h3,
+          'center_latitude' => $entry_latlng['latitude'],
+          'center_longitude' => $entry_latlng['longitude'],
+          'reference_q' => $entry_coordinate['q'],
+          'reference_r' => $entry_coordinate['r'],
+          'hex_size_meters' => H3SpatialHelper::H3_HEX_SIZE_METERS,
+          'metadata' => json_encode($anchor_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'created' => $timestamp,
+          'updated' => $timestamp,
+        ])
+        ->execute();
+
+      foreach ($hexes as $hex_index => $hex) {
+        if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+          throw new \RuntimeException(sprintf('H3 system-of-record contract violation: starter dungeon %s room %s hex[%d] must include numeric q/r.', $dungeon_id, $room_id, $hex_index));
+        }
+        $q = (int) $hex['q'];
+        $r = (int) $hex['r'];
+        $cell_latlng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $q, $r);
+        $cell_h3 = H3SpatialHelper::latLngToH3Index((float) $cell_latlng['latitude'], (float) $cell_latlng['longitude'], self::H3_ACTIVE_RESOLUTION);
+
+        $cell_metadata = [
+          'status' => 'h3_index_assigned',
+          'h3_index_source' => 'libh3',
+          'normalization' => 'global_non_overlapping_axial',
+          'normalization_version' => 'starter-runtime-persist-v1',
+          'global_offset_q' => 0,
+          'global_offset_r' => 0,
+          'local_source_q' => $q,
+          'local_source_r' => $r,
+          'global_source_q' => $q,
+          'global_source_r' => $r,
+          'room_entrance_global_q' => $entry_coordinate['q'],
+          'room_entrance_global_r' => $entry_coordinate['r'],
+          'source' => 'campaign_initialization_starter_room',
+        ];
+
+        $this->database->insert('dungeoncrawler_content_h3_room_cells')
+          ->fields([
+            'dungeon_id' => $dungeon_id,
+            'room_id' => $room_id,
+            'cell_role' => 'room_hex',
+            'h3_resolution' => self::H3_ACTIVE_RESOLUTION,
+            'h3_index' => $cell_h3,
+            'source_q' => $q,
+            'source_r' => $r,
+            'center_latitude' => $cell_latlng['latitude'],
+            'center_longitude' => $cell_latlng['longitude'],
+            'metadata' => json_encode($cell_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created' => $timestamp,
+            'updated' => $timestamp,
+          ])
+          ->execute();
+      }
+    }
+  }
+
+  /**
+   * Resolve the entry coordinate for a starter room.
+   *
+   * @return array{q:int, r:int}
+   *   Entry q/r coordinate.
+   */
+  private function resolveStarterRoomEntryCoordinate(array $room, string $dungeon_id, string $room_id): array {
+    $entry_points = is_array($room['entry_points'] ?? NULL) ? $room['entry_points'] : [];
+    if ($entry_points !== []) {
+      $entry_point = $entry_points[0] ?? NULL;
+      if (is_array($entry_point) && is_numeric($entry_point['q'] ?? NULL) && is_numeric($entry_point['r'] ?? NULL)) {
+        return [
+          'q' => (int) $entry_point['q'],
+          'r' => (int) $entry_point['r'],
+        ];
+      }
+    }
+
+    $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    $first_hex = $hexes[0] ?? NULL;
+    if (is_array($first_hex) && is_numeric($first_hex['q'] ?? NULL) && is_numeric($first_hex['r'] ?? NULL)) {
+      return [
+        'q' => (int) $first_hex['q'],
+        'r' => (int) $first_hex['r'],
+      ];
+    }
+
+    throw new \RuntimeException(sprintf('H3 system-of-record contract violation: starter dungeon %s room %s has no numeric entry_points[0] or hexes[0] coordinate.', $dungeon_id, $room_id));
   }
 
   /**

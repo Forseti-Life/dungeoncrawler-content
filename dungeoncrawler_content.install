@@ -2668,7 +2668,6 @@ function dungeoncrawler_content_schema() {
     ],
     'primary key' => ['id'],
     'unique keys' => [
-      'room_anchor' => ['room_id'],
       'dungeon_room_anchor' => ['dungeon_id', 'room_id'],
     ],
     'indexes' => [
@@ -23331,6 +23330,187 @@ function dungeoncrawler_content_update_10150() {
     'Canonical Res14 sparse deduplication removed @duplicates duplicate room_hex rows.',
     [
       '@duplicates' => (string) count(array_unique(array_map('intval', $duplicate_ids))),
+    ]
+  );
+}
+
+/**
+ * Backfill missing starter-dungeon sparse H3 mappings and relax anchor uniqueness.
+ */
+function dungeoncrawler_content_update_10151() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $timestamp = \Drupal::time()->getRequestTime();
+  $resolution = 14;
+
+  foreach (['dc_campaign_dungeons', 'dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $table) {
+    if (!$schema->tableExists($table)) {
+      throw new \RuntimeException(sprintf('Required table %s is missing for starter sparse-H3 backfill.', $table));
+    }
+  }
+
+  if ($schema->indexExists('dungeoncrawler_content_h3_room_anchors', 'room_anchor')) {
+    $schema->dropUniqueKey('dungeoncrawler_content_h3_room_anchors', 'room_anchor');
+  }
+
+  $rows = $database->select('dc_campaign_dungeons', 'd')
+    ->fields('d', ['campaign_id', 'dungeon_id', 'dungeon_data'])
+    ->condition('d.source_dungeon_id', 'asset-library-starter-room')
+    ->orderBy('d.id', 'ASC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+
+  $processed = 0;
+  $anchors_written = 0;
+  $cells_written = 0;
+
+  foreach ($rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
+    if ($dungeon_id === '') {
+      throw new \RuntimeException('Starter sparse-H3 backfill encountered empty dungeon_id.');
+    }
+
+    $anchor_count = (int) $database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+      ->condition('a.dungeon_id', $dungeon_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    $cell_count = (int) $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->condition('c.dungeon_id', $dungeon_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    if ($anchor_count > 0 && $cell_count > 0) {
+      continue;
+    }
+
+    $payload = json_decode((string) ($row['dungeon_data'] ?? ''), TRUE);
+    if (!is_array($payload)) {
+      throw new \RuntimeException(sprintf('Starter sparse-H3 backfill: dungeon_data JSON decode failed for dungeon %s.', $dungeon_id));
+    }
+    $rooms = is_array($payload['rooms'] ?? NULL) ? $payload['rooms'] : [];
+    if ($rooms === []) {
+      throw new \RuntimeException(sprintf('Starter sparse-H3 backfill: dungeon %s has no rooms array.', $dungeon_id));
+    }
+
+    $database->delete('dungeoncrawler_content_h3_room_cells')
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute();
+    $database->delete('dungeoncrawler_content_h3_room_anchors')
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute();
+
+    foreach ($rooms as $room_index => $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        throw new \RuntimeException(sprintf('Starter sparse-H3 backfill: dungeon %s room[%d] missing room_id.', $dungeon_id, $room_index));
+      }
+
+      $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+      if ($hexes === []) {
+        throw new \RuntimeException(sprintf('Starter sparse-H3 backfill: dungeon %s room %s has no hexes.', $dungeon_id, $room_id));
+      }
+
+      $entry_points = is_array($room['entry_points'] ?? NULL) ? $room['entry_points'] : [];
+      $entry = $entry_points[0] ?? NULL;
+      if (!is_array($entry) || !is_numeric($entry['q'] ?? NULL) || !is_numeric($entry['r'] ?? NULL)) {
+        $entry = $hexes[0] ?? NULL;
+      }
+      if (!is_array($entry) || !is_numeric($entry['q'] ?? NULL) || !is_numeric($entry['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf('Starter sparse-H3 backfill: dungeon %s room %s has no numeric entry/hex coordinate.', $dungeon_id, $room_id));
+      }
+
+      $entry_q = (int) $entry['q'];
+      $entry_r = (int) $entry['r'];
+      $anchor_latlng = \Drupal\dungeoncrawler_content\Support\H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $entry_q, $entry_r);
+      $anchor_h3 = \Drupal\dungeoncrawler_content\Support\H3SpatialHelper::latLngToH3Index((float) $anchor_latlng['latitude'], (float) $anchor_latlng['longitude'], $resolution);
+
+      $database->insert('dungeoncrawler_content_h3_room_anchors')
+        ->fields([
+          'dungeon_id' => $dungeon_id,
+          'room_id' => $room_id,
+          'h3_resolution' => $resolution,
+          'h3_index' => $anchor_h3,
+          'center_latitude' => $anchor_latlng['latitude'],
+          'center_longitude' => $anchor_latlng['longitude'],
+          'reference_q' => $entry_q,
+          'reference_r' => $entry_r,
+          'hex_size_meters' => \Drupal\dungeoncrawler_content\Support\H3SpatialHelper::H3_HEX_SIZE_METERS,
+          'metadata' => json_encode([
+            'status' => 'h3_index_assigned',
+            'h3_index_source' => 'libh3',
+            'normalization' => 'global_non_overlapping_axial',
+            'normalization_version' => 'starter-backfill-v1',
+            'source' => 'update_10151',
+            'global_offset_q' => 0,
+            'global_offset_r' => 0,
+            'room_entrance_global_q' => $entry_q,
+            'room_entrance_global_r' => $entry_r,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'created' => $timestamp,
+          'updated' => $timestamp,
+        ])
+        ->execute();
+      $anchors_written++;
+
+      foreach ($hexes as $hex_index => $hex) {
+        if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+          throw new \RuntimeException(sprintf('Starter sparse-H3 backfill: dungeon %s room %s hex[%d] missing numeric q/r.', $dungeon_id, $room_id, $hex_index));
+        }
+        $q = (int) $hex['q'];
+        $r = (int) $hex['r'];
+        $cell_latlng = \Drupal\dungeoncrawler_content\Support\H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $q, $r);
+        $cell_h3 = \Drupal\dungeoncrawler_content\Support\H3SpatialHelper::latLngToH3Index((float) $cell_latlng['latitude'], (float) $cell_latlng['longitude'], $resolution);
+
+        $database->insert('dungeoncrawler_content_h3_room_cells')
+          ->fields([
+            'dungeon_id' => $dungeon_id,
+            'room_id' => $room_id,
+            'cell_role' => 'room_hex',
+            'h3_resolution' => $resolution,
+            'h3_index' => $cell_h3,
+            'source_q' => $q,
+            'source_r' => $r,
+            'center_latitude' => $cell_latlng['latitude'],
+            'center_longitude' => $cell_latlng['longitude'],
+            'metadata' => json_encode([
+              'status' => 'h3_index_assigned',
+              'h3_index_source' => 'libh3',
+              'normalization' => 'global_non_overlapping_axial',
+              'normalization_version' => 'starter-backfill-v1',
+              'source' => 'update_10151',
+              'global_offset_q' => 0,
+              'global_offset_r' => 0,
+              'local_source_q' => $q,
+              'local_source_r' => $r,
+              'global_source_q' => $q,
+              'global_source_r' => $r,
+              'room_entrance_global_q' => $entry_q,
+              'room_entrance_global_r' => $entry_r,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created' => $timestamp,
+            'updated' => $timestamp,
+          ])
+          ->execute();
+        $cells_written++;
+      }
+    }
+
+    $processed++;
+  }
+
+  return t(
+    'Starter sparse H3 backfill complete: processed_dungeons=@processed, anchors_written=@anchors, cells_written=@cells.',
+    [
+      '@processed' => (string) $processed,
+      '@anchors' => (string) $anchors_written,
+      '@cells' => (string) $cells_written,
     ]
   );
 }

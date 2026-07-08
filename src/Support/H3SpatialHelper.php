@@ -46,7 +46,14 @@ final class H3SpatialHelper {
       );
     }
     catch (\Throwable $e) {
-      throw new \RuntimeException('True H3 index generation requires libh3.so.1 to be installed and loadable.', 0, $e);
+      throw new \RuntimeException(
+        sprintf(
+          'True H3 index generation requires usable PHP FFI + libh3.so.1. FFI bootstrap failed: %s',
+          $e->getMessage()
+        ),
+        0,
+        $e
+      );
     }
 
     return self::$h3Ffi;

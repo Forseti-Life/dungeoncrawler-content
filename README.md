@@ -37,6 +37,19 @@ Legacy combat mutation endpoints under `/api/combat/*` are non-canonical support
 | Validation & Contract Enforcement | `StateValidationService`, `ImpactContractService`, validator/report controllers | Hard validation of canonical content contracts and runtime consistency |
 | Generated Assets & Media | image generation services + generated image controllers | Portraits, room/terrain/sprite image generation and retrieval |
 
+### Actor Psychology Invocation Summary
+
+The actor psychology subsystem is invoked in two canonical gameplay lanes:
+
+- **Dialogue lane** (room chat + NPC replies): `HexMapController` and `MapGeneratorService` bootstrap room NPC profiles, while `RoomChatService` builds NPC prompt context via `NpcPsychologyService::buildNpcContextForPrompt()` and records post-dialogue state shifts via `recordInnerMonologue()`.
+- **Next-action lane** (encounter AI decisions): `EncounterPhaseHandler` injects `current_actor_profile` + `npc_psychology` into NPC action context through `buildNpcDecisionProfile()` and `buildNpcPsychologyContext()`.
+- **Conformance refresh (2026-07-08):** recent RoomChatController facade decomposition and stream/result boundary extraction did not change actor-psychology invocation authority; invocation remains service-owned (`RoomChatService`, `EncounterPhaseHandler`) and server-authoritative.
+
+See subsystem docs for full invocation points and context payload details:
+
+- `CHAT_AND_NARRATION_ARCHITECTURE.md`
+- `COMBAT_ENGINE_ARCHITECTURE.md`
+
 ## 3. Runtime Data Authority
 
 | Concern | Authoritative surface |
@@ -78,6 +91,12 @@ Top-level module code lives in:
 - `src/Access/` — access checkers
 - `src/Commands/` — Drush command surfaces
 - `src/EventSubscriber/` — event-driven quest/runtime hooks
+
+### RoomChat source-of-truth policy
+
+- **Canonical authoring path:** `src/` at the module root.
+- `sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/` is a runtime mirror copy and must stay byte-identical for RoomChat files.
+- Use `scripts/check-roomchat-tree-drift.sh` to verify parity before merge when RoomChat files are changed.
 
 Wiring and route registration:
 

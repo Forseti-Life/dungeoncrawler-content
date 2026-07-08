@@ -6,6 +6,16 @@ use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\dungeoncrawler_content\Controller\RoomChatController;
 use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
 use Drupal\dungeoncrawler_content\Service\GameMasterSubsystemService;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatEncounterProgressService;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatEndpointFacadeOrchestrator;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatPostDispatchOrchestrator;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatProgressStageMapper;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatResponseMapper;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamErrorReporter;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamEnvelopeEmitter;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamFlowOrchestrator;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatStreamResultCoordinator;
+use Drupal\dungeoncrawler_content\Service\RoomChat\RoomChatWriteEndpointOrchestrator;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -20,12 +30,41 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class RoomChatControllerProgressTest extends UnitTestCase {
 
+  protected function createStreamErrorReporter(?LoggerInterface $logger = NULL): RoomChatStreamErrorReporter {
+    $factory = $this->createMock(\Drupal\Core\Logger\LoggerChannelFactoryInterface::class);
+    $factory->method('get')->with('dungeoncrawler_chat')->willReturn($logger ?: $this->createMock(LoggerInterface::class));
+    return new RoomChatStreamErrorReporter($factory);
+  }
+
+  protected function createEncounterProgressService(?GameCoordinatorService $coordinator = NULL, ?LoggerInterface $logger = NULL): RoomChatEncounterProgressService {
+    $factory = $this->createMock(\Drupal\Core\Logger\LoggerChannelFactoryInterface::class);
+    $factory->method('get')->with('dungeoncrawler_chat')->willReturn($logger ?: $this->createMock(LoggerInterface::class));
+    return new RoomChatEncounterProgressService($coordinator ?: $this->createMock(GameCoordinatorService::class), $factory);
+  }
+
+  protected function createResponseMapper(?LoggerInterface $logger = NULL): RoomChatResponseMapper {
+    $factory = $this->createMock(\Drupal\Core\Logger\LoggerChannelFactoryInterface::class);
+    $factory->method('get')->with('dungeoncrawler_chat')->willReturn($logger ?: $this->createMock(LoggerInterface::class));
+    return new RoomChatResponseMapper($factory);
+  }
+
   protected function createController(RoomChatService $chat_service, ?LoggerInterface $logger = NULL, ?GameCoordinatorService $coordinator = NULL, ?GameMasterSubsystemService $gm_subsystem = NULL): RoomChatController {
+    $resolved_coordinator = $coordinator ?: $this->createMock(GameCoordinatorService::class);
+    $resolved_gm_subsystem = $gm_subsystem ?: $this->createMock(GameMasterSubsystemService::class);
+    $encounter_progress_service = $this->createEncounterProgressService($resolved_coordinator, $logger);
+    $write_endpoint_orchestrator = new RoomChatWriteEndpointOrchestrator($chat_service, $resolved_gm_subsystem);
     return new RoomChatController(
       $chat_service,
-      $coordinator ?: $this->createMock(GameCoordinatorService::class),
-      $gm_subsystem ?: $this->createMock(GameMasterSubsystemService::class),
-      $logger ?: $this->createMock(LoggerInterface::class)
+      new RoomChatProgressStageMapper(),
+      new RoomChatStreamEnvelopeEmitter(),
+      new RoomChatStreamResultCoordinator(),
+      $this->createStreamErrorReporter($logger),
+      $encounter_progress_service,
+      $this->createResponseMapper($logger),
+      $write_endpoint_orchestrator,
+      new RoomChatStreamFlowOrchestrator($chat_service, $encounter_progress_service, $write_endpoint_orchestrator),
+      new RoomChatEndpointFacadeOrchestrator($chat_service),
+      new RoomChatPostDispatchOrchestrator($write_endpoint_orchestrator)
     );
   }
 
@@ -36,14 +75,25 @@ class RoomChatControllerProgressTest extends UnitTestCase {
     $chat_service = $this->createMock(RoomChatService::class);
     $logger = $this->createMock(LoggerInterface::class);
     $logger_factory = $this->createMock(\Drupal\Core\Logger\LoggerChannelFactoryInterface::class);
-    $logger_factory->expects($this->once())
+    $logger_factory->expects($this->exactly(3))
       ->method('get')
       ->with('dungeoncrawler_chat')
       ->willReturn($logger);
 
     $container = new ContainerBuilder();
     $container->set('dungeoncrawler_content.room_chat_service', $chat_service);
-    $container->set('dungeoncrawler_content.game_coordinator', $this->createMock(GameCoordinatorService::class));
+    $container->set('dungeoncrawler_content.room_chat_progress_stage_mapper', new RoomChatProgressStageMapper());
+    $container->set('dungeoncrawler_content.room_chat_stream_envelope_emitter', new RoomChatStreamEnvelopeEmitter());
+    $container->set('dungeoncrawler_content.room_chat_stream_result_coordinator', new RoomChatStreamResultCoordinator());
+    $container->set('dungeoncrawler_content.room_chat_stream_error_reporter', new RoomChatStreamErrorReporter($logger_factory));
+    $encounter_progress_service = new RoomChatEncounterProgressService($this->createMock(GameCoordinatorService::class), $logger_factory);
+    $write_endpoint_orchestrator = new RoomChatWriteEndpointOrchestrator($chat_service, $this->createMock(GameMasterSubsystemService::class));
+    $container->set('dungeoncrawler_content.room_chat_encounter_progress', $encounter_progress_service);
+    $container->set('dungeoncrawler_content.room_chat_response_mapper', new RoomChatResponseMapper($logger_factory));
+    $container->set('dungeoncrawler_content.room_chat_write_endpoint_orchestrator', $write_endpoint_orchestrator);
+    $container->set('dungeoncrawler_content.room_chat_stream_flow_orchestrator', new RoomChatStreamFlowOrchestrator($chat_service, $encounter_progress_service, $write_endpoint_orchestrator));
+    $container->set('dungeoncrawler_content.room_chat_endpoint_facade_orchestrator', new RoomChatEndpointFacadeOrchestrator($chat_service));
+    $container->set('dungeoncrawler_content.room_chat_post_dispatch_orchestrator', new RoomChatPostDispatchOrchestrator($write_endpoint_orchestrator));
     $container->set('logger.factory', $logger_factory);
 
     $controller = RoomChatController::create($container);

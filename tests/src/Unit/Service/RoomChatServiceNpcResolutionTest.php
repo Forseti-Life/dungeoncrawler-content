@@ -3027,6 +3027,45 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildCompactSessionContext
+   */
+  public function testBuildCompactSessionContextPreservesSectionEnvelopeOrder(): void {
+    $session_manager = $this->createMock(AiSessionManager::class);
+    $session_manager->expects($this->once())
+      ->method('buildSessionContext')
+      ->with('campaign.44.room_chat.room-9', 44, 2)
+      ->willReturn(
+        "PRIOR SESSION CONTEXT (summary of earlier interactions):\nEarlier summary.\n\nRECENT CONVERSATION:\n[USER]: first\n[ASSISTANT]: second\n\nSYSTEM NOTES:\nKeep role boundaries."
+      );
+
+    $this->roomChatService->setSessionManager($session_manager);
+
+    $context = $this->roomChatService->publicBuildCompactSessionContext(
+      'campaign.44.room_chat.room-9',
+      44,
+      2,
+      3000,
+      320,
+      TRUE
+    );
+
+    $lines = array_values(array_filter(
+      preg_split("/\r?\n/", $context) ?: [],
+      static fn(string $line): bool => $line !== ''
+    ));
+
+    $this->assertSame([
+      'PRIOR SESSION CONTEXT (summary of earlier interactions):',
+      'Earlier summary.',
+      'RECENT CONVERSATION:',
+      '[USER]: first',
+      '[ASSISTANT]: second',
+      'SYSTEM NOTES:',
+      'Keep role boundaries.',
+    ], $lines);
+  }
+
+  /**
    * @covers ::sanitizePlayerVisibleNarrative
    */
   public function testSanitizePlayerVisibleNarrativeRemovesPromptLeakageHeadings(): void {

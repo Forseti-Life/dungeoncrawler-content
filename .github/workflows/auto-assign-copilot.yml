@@ -1,0 +1,77 @@
+name: Auto-assign Copilot to PRs
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+jobs:
+  assign-copilot:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    
+    steps:
+      - name: Check if Copilot is already assigned
+        id: check_assignee
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            const copilotAssigned = pr.assignees.some(assignee => 
+              assignee.login === 'Copilot' || assignee.login === 'copilot'
+            );
+            
+            console.log(`PR #${pr.number} assignees:`, pr.assignees.map(a => a.login));
+            console.log(`Copilot assigned: ${copilotAssigned}`);
+            
+            return copilotAssigned;
+      
+      - name: Assign Copilot if not already assigned
+        if: steps.check_assignee.outputs.result == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                assignees: ['Copilot']
+              });
+              console.log('✅ Successfully assigned Copilot to PR #' + context.issue.number);
+            } catch (error) {
+              console.log('⚠️ Could not assign Copilot:', error.message);
+              console.log('This is expected if Copilot is not a collaborator or if using GitHub native assignment');
+            }
+      
+      - name: Report status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            const assignees = pr.assignees.map(a => a.login).join(', ');
+            const copilotAssigned = pr.assignees.some(a => a.login === 'Copilot' || a.login === 'copilot');
+            
+            console.log('=== Auto-assignment Status Report ===');
+            console.log(`PR Number: #${pr.number}`);
+            console.log(`PR Title: ${pr.title}`);
+            console.log(`PR State: ${pr.state}`);
+            console.log(`Draft: ${pr.draft}`);
+            console.log(`Current Assignees: ${assignees || 'None'}`);
+            console.log(`Copilot Assigned: ${copilotAssigned ? '✅' : '❌'}`);
+            console.log('====================================');
+            
+            if (!copilotAssigned) {
+              core.warning('Copilot is not assigned to this PR');
+            }

@@ -76,6 +76,22 @@ final class GameCoordinatorServiceTest extends UnitTestCase {
     ], $service->emptyActionAvailabilityPayloadForTest());
   }
 
+  /**
+   * @covers ::getActionAvailabilityForActor
+   */
+  public function testGetActionAvailabilityForActorReturnsCanonicalEnvelopeKeys(): void {
+    $service = $this->createTestService([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        ['room_id' => 'room-a', 'name' => 'Entry'],
+      ],
+    ]);
+
+    $payload = $service->getActionAvailabilityForActor(277, 'pc-1');
+
+    $this->assertSame(['available_actions', 'action_contract'], array_keys($payload));
+  }
+
   private function createTestService(array $dungeon_data): object {
     $database = $this->createMock(Connection::class);
     $runtime_sync = $this->createMock(CampaignCharacterRuntimeSyncService::class);

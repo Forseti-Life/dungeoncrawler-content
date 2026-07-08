@@ -309,6 +309,7 @@ export class GameShell {
     this._initPanels();
     this._bindMapControls();
     this._bindInteractionEvents();
+    this.setupFullscreenToggle();
 
     // Build flat quests array with objectives flattened from phases
     const allQuests = [

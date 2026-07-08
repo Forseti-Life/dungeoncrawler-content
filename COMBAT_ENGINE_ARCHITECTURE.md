@@ -1,7 +1,7 @@
 # Combat & Encounter Engine Architecture
 
 **Module**: dungeoncrawler_content  
-**Last updated**: 2026-03-08  
+**Last updated**: 2026-07-08  
 **Overall completion**: ~75%
 
 This document tracks the implementation status of the PF2e combat/encounter engine — every service, controller, API endpoint, database table, and known gap.
@@ -62,6 +62,43 @@ This document tracks the implementation status of the PF2e combat/encounter engi
 | `dungeoncrawler_content.encounter_phase_handler` | EncounterPhaseHandler | 1780 | **Complete** | `processIntent`, `onEnter`, `onExit`, `getAvailableActions`, `validateIntent`. Integrates CombatEngine, AI, NPC psychology. No TODOs. |
 | `dungeoncrawler_content.exploration_phase_handler` | ExplorationPhaseHandler | 1092 | **Complete** | No TODOs. |
 | `dungeoncrawler_content.downtime_phase_handler` | DowntimePhaseHandler | 283 | **Partial** | `long_rest` implemented. Other downtime activities stubbed (1 TODO). |
+
+---
+
+## Actor Psychology Integration (Next-Action Path)
+
+Combat NPC next-action selection receives psychology context from `EncounterPhaseHandler::buildNpcContext()`, which injects:
+
+- `current_actor_profile` via `buildNpcDecisionProfile()`
+- `npc_psychology` via `buildNpcPsychologyContext()`
+- `current_actor_tactical_intent` via `buildNpcTacticalIntentContract()`
+
+### Profile Resolution and Fallbacks
+
+- `loadCombatantPsychologyProfile()` resolves `entity_ref` from encounter participants first, then falls back to `entity_id` if needed.
+- If no profile exists, `buildNpcDecisionProfile()` emits a deterministic neutral fallback (`attitude=indifferent`, normalized axes, default goals).
+
+### Decision Context Shape
+
+`buildNpcDecisionProfile()` provides structured fields used by encounter AI recommendation flows:
+
+- display/identity: `display_name`
+- stance: `attitude`
+- personality: `personality_traits`, `personality_axes`
+- intent drivers: `motivations`, `fears`, `bonds`, `goals`
+- short memory: `latest_thought` (last inner-monologue thought/emotion/event)
+
+`buildNpcPsychologyContext()` provides a narrative behavioral block that maps axes + attitude into tactical hints (retreat/reckless behavior, focus-fire discipline, strategic targeting, diplomacy likelihood), and appends recent relevant thoughts when present.
+
+This makes encounter "next action" recommendation actor-specific without relying on static behavior assumptions.
+
+### 2026-07-08 Conformance Refresh
+
+- Encounter-side psychology contract remains anchored in `EncounterPhaseHandler`:
+  - `buildNpcDecisionProfile()`,
+  - `buildNpcPsychologyContext()`,
+  - `loadCombatantPsychologyProfile()` with `entity_ref`-first resolution.
+- RoomChat decomposition work did not alter next-action psychology payload shape (`current_actor_profile`, `npc_psychology`) used by encounter recommendation flows.
 
 ---
 

@@ -76,6 +76,31 @@ else
     echo -e "${GREEN}✓ PASS${NC} All escalation items properly formatted"
 fi
 
+# Check 4: RoomChat source-of-truth drift (run only when RoomChat paths changed)
+echo ""
+echo "Check 4: RoomChat Tree Drift"
+roomchat_changes="$(git status --porcelain -- \
+    src/Controller/RoomChatController.php \
+    src/Service/RoomChatService.php \
+    src/Service/RoomChatServicePart*.php \
+    src/Service/RoomChat/*.php \
+    sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/Controller/RoomChatController.php \
+    sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/Service/RoomChatService.php \
+    sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/Service/RoomChatServicePart*.php \
+    sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/Service/RoomChat/*.php \
+    2>/dev/null || true)"
+if [ -n "$roomchat_changes" ]; then
+    if ./scripts/check-roomchat-tree-drift.sh >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ PASS${NC} RoomChat canonical tree and runtime mirror are in sync"
+    else
+        echo -e "${RED}✗ FAIL${NC} RoomChat canonical tree and runtime mirror drift detected"
+        ./scripts/check-roomchat-tree-drift.sh | sed 's/^/  /' || true
+        failures=$((failures + 1))
+    fi
+else
+    echo -e "${GREEN}✓ PASS${NC} No RoomChat path changes in this push scope"
+fi
+
 # Summary
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
