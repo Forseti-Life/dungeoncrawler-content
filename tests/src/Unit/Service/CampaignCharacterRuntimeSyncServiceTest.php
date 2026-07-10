@@ -264,6 +264,9 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       if ($table === 'dc_campaign_characters' && $alias === 'lib') {
         return $library_select;
       }
+      if ($table === 'dungeoncrawler_content_characters' && $alias === 'c') {
+        return $library_select;
+      }
       if ($table === 'dc_campaign_rooms' && $alias === 'r') {
         return $room_select;
       }
@@ -598,6 +601,9 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       if ($table === 'dc_campaign_characters' && $alias === 'lib') {
         return $library_select;
       }
+      if ($table === 'dungeoncrawler_content_characters' && $alias === 'c') {
+        return $library_select;
+      }
       if ($table === 'dc_campaign_rooms' && $alias === 'r') {
         return $room_select;
       }
@@ -734,6 +740,9 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
         return $npc_select;
       }
       if ($table === 'dc_campaign_characters' && $alias === 'lib') {
+        return $library_select;
+      }
+      if ($table === 'dungeoncrawler_content_characters' && $alias === 'c') {
         return $library_select;
       }
       if ($table === 'dc_campaign_rooms' && $alias === 'r') {
