@@ -378,7 +378,15 @@ console.log('\n=== Hexmap V2 interaction state ===');
   const calls = [];
   const shell = {
     bus,
-    mapVisualState: { marker: 'test-connection' },
+    mapVisualState: {
+      marker: 'test-connection',
+      occupants: {
+        party: [
+          { occupant_id: 'pc-1', room_id: 'old_room', placement: { q: 0, r: 0 }, state: { hidden: false } },
+          { occupant_id: 'pc-2', room_id: 'old_room', placement: { q: 1, r: 0 }, state: { hidden: false } },
+        ],
+      },
+    },
     prefetchConnectedRoomContext() {
       calls.push(['prefetch']);
     },
@@ -418,6 +426,7 @@ console.log('\n=== Hexmap V2 interaction state ===');
   assert(Array.isArray(roomChanged?.payload?.connections) && roomChanged.payload.connections.length === 1, 'setActiveRoom emits room-change payloads with canonical connections');
   assert(roomChanged?.payload?.room?.subtitle === 'stone floor | Lighting: dim | large', 'setActiveRoom emits legacy room subtitle metadata for room-transition surfaces');
   assert(Array.isArray(occupantsChanged?.payload?.occupants) && occupantsChanged.payload.occupants.length === 1, 'setActiveRoom re-broadcasts visible occupants for room-driven panels');
+  assert(shell.mapVisualState.occupants.party.every((occupant) => occupant.room_id === 'target_room'), 'setActiveRoom rewrites party occupants to the destination room for room-cast consistency');
   assert(calls.some((call) => call[0] === 'prefetch'), 'setActiveRoom prefetches connected-room context during transitions');
 }
 

@@ -71,7 +71,7 @@ export class PortraitPanel {
         return false;
       }
       const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
-      if (!['npc', 'player_character', 'player'].includes(rawType)) {
+      if (!['npc', 'player_character', 'player'].includes(rawType) && occupant?.is_party !== true) {
         return false;
       }
       return hexmap?.isVisualOccupantVisible?.(occupant) !== false;

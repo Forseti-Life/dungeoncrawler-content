@@ -73,7 +73,8 @@ class RoomViewImageService {
    *   Normalized room image payload for the frontend.
    */
   public function getRoomViewImage(int $campaign_id, string $room_id): array {
-    $record = $this->loadLatestDungeonRecord($campaign_id);
+    $record = $this->loadDungeonRecordForRoom($campaign_id, $room_id)
+      ?? $this->loadLatestDungeonRecord($campaign_id);
     if (!$record) {
       return $this->buildUnavailableRoomViewPayload(
         $campaign_id,
@@ -1301,6 +1302,48 @@ class RoomViewImageService {
       ->fetchAssoc();
 
     return is_array($record) ? $record : NULL;
+  }
+
+  /**
+   * Load the most-recent dungeon record that contains the requested room.
+   *
+   * This avoids selecting unrelated newer dungeon rows (for example onboarding
+   * snapshots) when resolving room-view imagery for the active navigation map.
+   *
+   * @return array<string, mixed>|null
+   *   Matching dungeon record or NULL.
+   */
+  protected function loadDungeonRecordForRoom(int $campaign_id, string $room_id): ?array {
+    $room_id = trim($room_id);
+    if ($campaign_id <= 0 || $room_id === '') {
+      return NULL;
+    }
+
+    $rows = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_id', 'dungeon_data', 'updated', 'id'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->execute()
+      ->fetchAllAssoc('id');
+
+    foreach ($rows as $row) {
+      if (!is_object($row)) {
+        continue;
+      }
+      $dungeon_data = json_decode((string) ($row->dungeon_data ?? ''), TRUE);
+      if (!is_array($dungeon_data)) {
+        continue;
+      }
+      if ($this->resolveRoom($dungeon_data, $room_id) !== NULL) {
+        return [
+          'dungeon_id' => (string) ($row->dungeon_id ?? ''),
+          'dungeon_data' => (string) ($row->dungeon_data ?? ''),
+        ];
+      }
+    }
+
+    return NULL;
   }
 
   /**

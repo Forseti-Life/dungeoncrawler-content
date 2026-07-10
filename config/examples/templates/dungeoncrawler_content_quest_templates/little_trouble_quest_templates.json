@@ -20,15 +20,15 @@
             {
               "objective_id": "enter_vault",
               "type": "explore",
-              "description": "Reach the vault entry and begin the delve.",
+              "description": "Reach the vault entry with the Hookclaw team.",
               "target": "ltba-hookclaw-vault-guide",
               "npc_id": "ltba-hookclaw-vault-guide",
-              "next_step": "Travel with the Hookclaw kobolds to ltba-vault-entry and cross into the first vault area.",
+              "next_step": "Follow Zikza into the first vault chamber to begin the delve.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "discovered",
                 "required_value": true,
-                "description": "Complete when enter_vault marks ltba-vault-entry discovered."
+                "description": "Complete when the party discovers ltba-vault-entry."
               },
               "location": "ltba-vault-entry",
               "location_id": "ltba-vault-entry",
@@ -121,16 +121,17 @@
             {
               "objective_id": "accept_request",
               "type": "interact",
-              "description": "Speak with the old lady and accept the job.",
-              "target": "ltba-grandmother",
-              "npc_id": "ltba-grandmother",
-              "location": "grandmothers-request",
-              "next_step": "Speak with Grandmother in grandmothers-request and explicitly accept her hedge trimmer recovery request.",
+              "description": "Speak with Eldric and accept the grandmother's hedge trimmer job lead.",
+              "target": "npc_tavern_keeper",
+              "npc_id": "npc_tavern_keeper",
+              "location": "tavern_entrance",
+              "location_id": "tavern_entrance",
+              "next_step": "Speak with Eldric in tavern_entrance and explicitly accept the grandmother's hedge trimmer recovery request.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "completed",
                 "required_value": true,
-                "description": "Complete when accept_request records the party has accepted Grandmother's task."
+                "description": "Complete when accept_request records the party has accepted the grandmother recovery task lead."
               }
             }
           ]

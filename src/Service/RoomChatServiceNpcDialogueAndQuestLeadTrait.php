@@ -107,9 +107,17 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       (string) ($profile['backstory'] ?? ''),
     ]))));
 
+    if ($this->looksLikeQuestTurnInHandoff($normalized)) {
+      return match ($attitude) {
+        'friendly', 'helpful' => '"Got it. I\'ll take those now and verify this handoff against the current objective."',
+        'unfriendly', 'hostile' => '"Fine. Leave them here. I\'ll verify the handoff against your current objective."',
+        default => '"Understood. Hand them over and I\'ll verify this handoff against your current objective."',
+      };
+    }
+
     $asks_for_leads = $this->textContainsAny($normalized, [
       'quest', 'job', 'task', 'mission', 'work', 'reward', 'objective',
-      'lead', 'where', 'go', 'start', 'contact', 'looking for work',
+      'lead', 'where', 'start', 'contact', 'looking for work',
       'story', 'stories', 'storyline', 'storylines', 'module', 'modules',
     ]) || $this->looksLikeImplicitLeadRequest($normalized);
     if ($asks_for_leads) {
@@ -140,14 +148,6 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       }
 
       return '"If you are after work, say what kind. I might know a lead, or I might know who does."';
-    }
-
-    if ($this->looksLikeQuestTurnInHandoff($normalized)) {
-      return match ($attitude) {
-        'friendly', 'helpful' => '"Got it. I\'ll take those now and verify this handoff against the current objective."',
-        'unfriendly', 'hostile' => '"Fine. Leave them here. I\'ll verify the handoff against your current objective."',
-        default => '"Understood. Hand them over and I\'ll verify this handoff against your current objective."',
-      };
     }
 
     if ($this->looksLikeQuestOrLeadRequest($normalized) && ($this->npcSupportsQuestOrLeadRole($role) || $this->isBrokeredStorylineNpcRef($entity_ref))) {
@@ -272,7 +272,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
 
   protected function looksLikeQuestTurnInHandoff(string $normalized): bool {
     return (bool) preg_match('/\b(?:here(?:\'?s| is| are)|i(?:\'?m| am)?\s*(?:bringing|brought)|turn(?:ing)?\s*in|hand(?:ing)?\s*(?:over|in)|deliver(?:ed|ing)?|for you)\b/u', $normalized)
-      && (bool) preg_match('/\b(?:item|items|component|components|material|materials|bottle|bottles|torch|wine|package|parcel|supplies|goods|book|books|spellbook|spellbooks)\b/u', $normalized);
+      && (bool) preg_match('/\b(?:item|items|component|components|material|materials|bottle|bottles|torch|wine|package|parcel|supplies|goods|book|books|spellbook|spellbooks|stuff)\b/u', $normalized);
   }
 
   /**
@@ -743,18 +743,23 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       return '';
     }
 
-    $template_row = $this->database->select('dungeoncrawler_content_storylines', 's')
-      ->fields('s', ['template_data'])
+    $schema = $this->database->schema();
+    if (
+      !$schema->tableExists('dc_canonical_storylines')
+      || !$schema->tableExists('dc_canonical_storyline_quests')
+    ) {
+      throw new \RuntimeException(
+        'Canonical storyline tables are required for brokered quest-template resolution.'
+      );
+    }
+
+    $template_row = $this->database->select('dc_canonical_storylines', 's')
+      ->fields('s', ['primary_quest_id'])
       ->condition('template_id', $storyline_template_id)
       ->range(0, 1)
       ->execute()
       ->fetchAssoc();
     if (!is_array($template_row)) {
-      return '';
-    }
-
-    $template_data = json_decode((string) ($template_row['template_data'] ?? '{}'), TRUE);
-    if (!is_array($template_data)) {
       return '';
     }
 
@@ -764,46 +769,35 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       ?? ''
     ));
     if ($preferred_scene_id !== '') {
-      foreach ((array) ($template_data['chapters'] ?? []) as $chapter) {
-        if (!is_array($chapter)) {
-          continue;
-        }
-        foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
-          if (!is_array($scene) || trim((string) ($scene['scene_id'] ?? '')) !== $preferred_scene_id) {
-            continue;
-          }
-          $quest_ids = array_values(array_filter(array_map(
-            static fn($value): string => trim((string) $value),
-            is_array($scene['quest_ids'] ?? NULL) ? $scene['quest_ids'] : []
-          )));
-          if ($quest_ids !== []) {
-            return $quest_ids[0];
-          }
-        }
+      $scene_quest = $this->database->select('dc_canonical_storyline_quests', 'sq')
+        ->fields('sq', ['quest_template_id'])
+        ->condition('storyline_template_id', $storyline_template_id)
+        ->condition('scene_id', $preferred_scene_id)
+        ->orderBy('id', 'ASC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      $scene_quest = trim((string) $scene_quest);
+      if ($scene_quest !== '') {
+        return $scene_quest;
       }
     }
 
-    $primary_quest_id = trim((string) ($template_data['questline']['primary_quest_id'] ?? ''));
+    $primary_quest_id = trim((string) ($template_row['primary_quest_id'] ?? ''));
     if ($primary_quest_id !== '') {
       return $primary_quest_id;
     }
 
-    foreach ((array) ($template_data['chapters'] ?? []) as $chapter) {
-      if (!is_array($chapter)) {
-        continue;
-      }
-      foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
-        if (!is_array($scene)) {
-          continue;
-        }
-        $quest_ids = array_values(array_filter(array_map(
-          static fn($value): string => trim((string) $value),
-          is_array($scene['quest_ids'] ?? NULL) ? $scene['quest_ids'] : []
-        )));
-        if ($quest_ids !== []) {
-          return $quest_ids[0];
-        }
-      }
+    $first_quest = $this->database->select('dc_canonical_storyline_quests', 'sq')
+      ->fields('sq', ['quest_template_id'])
+      ->condition('storyline_template_id', $storyline_template_id)
+      ->orderBy('id', 'ASC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    $first_quest = trim((string) $first_quest);
+    if ($first_quest !== '') {
+      return $first_quest;
     }
 
     return '';
@@ -875,7 +869,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       $clauses[] = $this->trimNpcDialogueClause($lead_hint);
     }
 
-    return '"' . ($display_name !== '' ? $display_name . ' says, ' : '')
+    return '"'
       . implode('. ', array_filter($clauses, static fn(string $clause): bool => trim($clause) !== '')) . '."';
   }
 
@@ -943,8 +937,17 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       return NULL;
     }
 
-    $speaker = $display_name !== '' ? $display_name . ' says, ' : '';
-    return '"' . $speaker . implode(' ', $lines) . '"';
+    $lines = array_map(function (string $line): string {
+      $line = trim($line);
+      if ($line === '') {
+        return '';
+      }
+      $line = $this->trimNpcDialogueClause($line);
+      return $line !== '' ? $line . '.' : '';
+    }, $lines);
+    $lines = array_values(array_filter($lines, static fn(string $line): bool => $line !== ''));
+
+    return '"' . implode(' ', $lines) . '"';
   }
 
   /**

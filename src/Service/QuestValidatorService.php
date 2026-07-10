@@ -367,7 +367,7 @@ class QuestValidatorService {
       return NULL;
     }
 
-    $result = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+    $result = $this->database->select('dc_canonical_quests', 't')
       ->fields('t')
       ->condition('template_id', $template_id)
       ->execute()

@@ -207,7 +207,8 @@ class MapGeneratorService {
       $room = $existing_room_match['room'];
       $room_index = (int) $existing_room_match['room_index'];
 
-      $this->createRoomConnection($dungeon_data, $origin_room_id, (string) ($room['room_id'] ?? ''));
+      $reused_room_id = (string) ($room['room_id'] ?? '');
+      $this->createRoomConnection($dungeon_data, $origin_room_id, $reused_room_id);
       $this->database->update('dc_campaign_dungeons')
         ->fields([
           'dungeon_data' => json_encode($dungeon_data),
@@ -216,6 +217,12 @@ class MapGeneratorService {
         ->condition('dungeon_id', $dungeon_id)
         ->condition('campaign_id', $campaign_id)
         ->execute();
+      $this->syncCampaignConnectionRows(
+        $campaign_id,
+        $dungeon_id,
+        $origin_room_id,
+        $reused_room_id
+      );
 
       if (!empty($room['room_id'])) {
         $this->roomStateService->setState($campaign_id, $room['room_id'], $dungeon_id, [
@@ -332,6 +339,7 @@ class MapGeneratorService {
 
     // Step 6: Create connection from origin room to new room.
     $this->createRoomConnection($dungeon_data, $origin_room_id, $room['room_id']);
+    $this->syncCampaignConnectionRows($campaign_id, $dungeon_id, $origin_room_id, $room['room_id']);
 
     // Step 7: Update hex_map regions.
     $this->addRegionToHexMap($dungeon_data, $room);
@@ -1188,21 +1196,10 @@ class MapGeneratorService {
     }
 
     $now = time();
-    $layout_data = json_encode([
-      'hexes'        => $room['hexes'] ?? [],
-      'entry_points' => $room['entry_points'] ?? [],
-      'exit_points'  => $room['exit_points'] ?? [],
-      'terrain'      => $room['terrain'] ?? [],
-      'lighting'     => $room['lighting'] ?? [],
-    ]);
-    $contents_data = json_encode([
-      'creatures'     => [],
-      'items'         => [],
-      'traps'         => [],
-      'hazards'       => [],
-      'obstacles'     => [],
-      'interactables' => [],
-    ]);
+    $layout_payload = $this->buildCanonicalCampaignRoomLayoutPayload($room);
+    $contents_payload = $this->buildCanonicalCampaignRoomContentsPayload($setting);
+    $layout_data = json_encode($layout_payload);
+    $contents_data = json_encode($contents_payload);
     $env_tags = json_encode($setting['theme_tags'] ?? []);
 
     try {
@@ -1217,7 +1214,7 @@ class MapGeneratorService {
           'environment_tags'  => $env_tags,
           'layout_data'       => $layout_data,
           'contents_data'     => $contents_data,
-          'source_room_id'    => '',
+          'source_room_id'    => $this->resolveGeneratedSourceRoomId($setting),
           'created'           => $now,
           'updated'           => $now,
         ])
@@ -1231,7 +1228,7 @@ class MapGeneratorService {
         '@campaign_id' => $campaign_id,
         '@room_id' => $room_id,
         '@room_name' => (string) ($room['name'] ?? ''),
-        '@source_room_id' => '',
+        '@source_room_id' => $this->resolveGeneratedSourceRoomId($setting),
         '@setting_type' => (string) ($setting['setting_type'] ?? ''),
         '@theme_tag_count' => count($setting['theme_tags'] ?? []),
       ]);
@@ -1242,6 +1239,270 @@ class MapGeneratorService {
         '@err' => $e->getMessage(),
       ]);
     }
+  }
+
+  /**
+   * Build canonical layout_data payload for generated campaign rooms.
+   */
+  protected function buildCanonicalCampaignRoomLayoutPayload(array $room): array {
+    $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf('Generated room %s has no hexes for campaign persistence.', (string) ($room['room_id'] ?? 'unknown')));
+    }
+
+    $entry_points = $this->normalizeLayoutPoints(is_array($room['entry_points'] ?? NULL) ? $room['entry_points'] : []);
+    $exit_points = $this->normalizeLayoutPoints(is_array($room['exit_points'] ?? NULL) ? $room['exit_points'] : []);
+    if ($entry_points === []) {
+      $entry_points[] = [
+        'q' => (int) ($hexes[0]['q'] ?? 0),
+        'r' => (int) ($hexes[0]['r'] ?? 0),
+      ];
+    }
+    if ($exit_points === []) {
+      $fallback_exit_hex = end($hexes);
+      $exit_points[] = [
+        'q' => (int) ($fallback_exit_hex['q'] ?? 0),
+        'r' => (int) ($fallback_exit_hex['r'] ?? 0),
+      ];
+    }
+
+    $entry_keys = [];
+    foreach ($entry_points as $point) {
+      $entry_keys[$point['q'] . ':' . $point['r']] = TRUE;
+    }
+    $terrain_type = trim((string) ($room['terrain']['type'] ?? 'stone_floor'));
+    if ($terrain_type === '') {
+      $terrain_type = 'stone_floor';
+    }
+    $lighting_level = trim((string) ($room['lighting']['level'] ?? 'normal_light'));
+    if ($lighting_level === '') {
+      $lighting_level = 'normal_light';
+    }
+
+    $normalized_hexes = [];
+    foreach ($hexes as $hex_index => $hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf(
+          'Generated room %s has invalid hex coordinates at index %d.',
+          (string) ($room['room_id'] ?? 'unknown'),
+          $hex_index
+        ));
+      }
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $objects = is_array($hex['objects'] ?? NULL) ? $hex['objects'] : [];
+      $normalized_objects = [];
+      foreach ($objects as $object_index => $object) {
+        if (!is_array($object)) {
+          continue;
+        }
+        $object_id = trim((string) ($object['object_id'] ?? ''));
+        if ($object_id === '') {
+          $object_id = sprintf('generated-object-%d-%d-%d', $q, $r, $object_index);
+        }
+        $label = trim((string) ($object['label'] ?? $object_id));
+        if ($label === '') {
+          $label = 'Object';
+        }
+        $passable = array_key_exists('passable', $object) ? (bool) $object['passable'] : TRUE;
+        $blocks_movement = array_key_exists('blocks_movement', $object)
+          ? (bool) $object['blocks_movement']
+          : !$passable;
+        if ($blocks_movement) {
+          $passable = FALSE;
+        }
+        $normalized_objects[] = [
+          'object_id' => $object_id,
+          'label' => $label,
+          'category' => trim((string) ($object['category'] ?? 'custom')) ?: 'custom',
+          'passable' => $passable,
+          'blocks_movement' => $blocks_movement,
+        ];
+      }
+
+      $normalized_hexes[] = [
+        'q' => $q,
+        'r' => $r,
+        'terrain_type' => trim((string) ($hex['terrain_type'] ?? $terrain_type)) ?: $terrain_type,
+        'lighting' => trim((string) ($hex['lighting'] ?? $lighting_level)) ?: $lighting_level,
+        'is_discovered' => array_key_exists('is_discovered', $hex) ? (bool) $hex['is_discovered'] : TRUE,
+        'is_visible' => array_key_exists('is_visible', $hex) ? (bool) $hex['is_visible'] : TRUE,
+        'is_entry' => isset($entry_keys[$q . ':' . $r]),
+        'elevation_ft' => (int) ($hex['elevation_ft'] ?? 0),
+        'objects' => $normalized_objects,
+      ];
+    }
+
+    return [
+      'shape' => trim((string) ($room['size_category'] ?? 'generated')) ?: 'generated',
+      'hexes' => $normalized_hexes,
+      'entry_points' => $entry_points,
+      'exit_points' => $exit_points,
+      'exits' => $this->buildCanonicalCampaignRoomExits($room, $exit_points),
+      'terrain' => $room['terrain'] ?? [],
+      'lighting' => $room['lighting'] ?? [],
+    ];
+  }
+
+  /**
+   * Build canonical contents_data payload for generated campaign rooms.
+   */
+  protected function buildCanonicalCampaignRoomContentsPayload(array $setting): array {
+    $interactables = [];
+    foreach ((array) ($setting['objects'] ?? []) as $object) {
+      if (!is_array($object)) {
+        continue;
+      }
+      $object_id = trim((string) ($object['object_id'] ?? ''));
+      if ($object_id === '') {
+        continue;
+      }
+      $interactables[] = [
+        'content_id' => $object_id,
+        'label' => trim((string) ($object['label'] ?? $object_id)),
+      ];
+    }
+
+    return [
+      'npcs' => [],
+      'items' => [],
+      'entities' => [],
+      'obstacles' => [],
+      'hazards' => [],
+      'interactables' => $interactables,
+      // Legacy buckets retained for older readers.
+      'creatures' => [],
+      'traps' => [],
+    ];
+  }
+
+  /**
+   * Normalize room point arrays into canonical [{q,r}] entries.
+   *
+   * @param array<int, mixed> $points
+   *   Raw point payload.
+   *
+   * @return array<int, array{q:int,r:int}>
+   *   Normalized point list.
+   */
+  protected function normalizeLayoutPoints(array $points): array {
+    $normalized = [];
+    foreach ($points as $point) {
+      if (!is_array($point)) {
+        continue;
+      }
+      $q = $point['q'] ?? ($point['hex']['q'] ?? NULL);
+      $r = $point['r'] ?? ($point['hex']['r'] ?? NULL);
+      if (!is_numeric($q) || !is_numeric($r)) {
+        continue;
+      }
+      $normalized[] = [
+        'q' => (int) $q,
+        'r' => (int) $r,
+      ];
+    }
+    return $normalized;
+  }
+
+  /**
+   * Build canonical exits list from room connection metadata.
+   *
+   * @param array<string, mixed> $room
+   *   Room payload.
+   * @param array<int, array{q:int,r:int}> $exit_points
+   *   Normalized exit points.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Canonical exits payload.
+   */
+  protected function buildCanonicalCampaignRoomExits(array $room, array $exit_points): array {
+    $room_id = (string) ($room['room_id'] ?? '');
+    $connections = is_array($room['connections'] ?? NULL) ? $room['connections'] : [];
+    if ($connections === []) {
+      return [];
+    }
+
+    $exits = [];
+    foreach ($connections as $index => $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $target_room_id = trim((string) ($connection['target_room_id'] ?? ''));
+      if ($target_room_id === '') {
+        continue;
+      }
+      $exit_point = $exit_points[$index % count($exit_points)];
+      $connection_id = sprintf(
+        'conn-%s',
+        substr(hash('sha256', implode(':', [$room_id, $target_room_id, (string) $index])), 0, 16)
+      );
+      $exits[] = [
+        'exit_id' => $connection_id,
+        'connection_id' => $connection_id,
+        'room_id' => $room_id,
+        'target_room_id' => $target_room_id,
+        'leads_to' => $target_room_id,
+        'hex' => $exit_point,
+        'direction' => 'unknown',
+        'type' => (string) ($connection['type'] ?? 'passage'),
+        'locked' => FALSE,
+        'hidden' => FALSE,
+      ];
+    }
+
+    return $exits;
+  }
+
+  /**
+   * Resolve source room id for generated rooms when available.
+   */
+  protected function resolveGeneratedSourceRoomId(array $setting): string {
+    $source_room_id = trim((string) ($setting['source_room_id'] ?? ''));
+    if ($source_room_id !== '') {
+      return $source_room_id;
+    }
+    return '';
+  }
+
+  /**
+   * Persist room connections to dc_campaign_connections for query parity.
+   */
+  protected function syncCampaignConnectionRows(int $campaign_id, string $dungeon_id, string $from_room_id, string $to_room_id): void {
+    $from = trim($from_room_id);
+    $to = trim($to_room_id);
+    if ($from === '' || $to === '' || $from === $to) {
+      return;
+    }
+
+    $pair = [$from, $to];
+    sort($pair, SORT_STRING);
+    $connection_id = sprintf('room-conn-%s', substr(hash('sha256', $campaign_id . ':' . $pair[0] . ':' . $pair[1]), 0, 24));
+    $now = time();
+
+    $this->database->merge('dc_campaign_connections')
+      ->keys([
+        'campaign_id' => $campaign_id,
+        'connection_id' => $connection_id,
+      ])
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'connection_id' => $connection_id,
+        'dungeon_id' => $dungeon_id,
+        'from_room_id' => $from,
+        'to_room_id' => $to,
+        'direction' => 'bidirectional',
+        'kind' => 'hallway',
+        'state' => 'open',
+        'travel_cost' => 1,
+        'is_discovered' => 1,
+        'is_passable' => 1,
+        'source_connection_id' => NULL,
+        'updated' => $now,
+      ])
+      ->insertFields([
+        'created' => $now,
+      ])
+      ->execute();
   }
 
   /**
@@ -1840,6 +2101,19 @@ PROMPT;
 
     // Place objects on hexes.
     $hexes = $this->placeObjectsOnHexes($hexes, $setting['objects']);
+    $entry_points = [];
+    $exit_points = [];
+    if ($hexes !== []) {
+      $entry_points[] = [
+        'q' => (int) ($hexes[0]['q'] ?? 0),
+        'r' => (int) ($hexes[0]['r'] ?? 0),
+      ];
+      $last_hex = end($hexes);
+      $exit_points[] = [
+        'q' => (int) ($last_hex['q'] ?? 0),
+        'r' => (int) ($last_hex['r'] ?? 0),
+      ];
+    }
 
     return [
       'room_id' => $room_id,
@@ -1876,6 +2150,9 @@ PROMPT;
         'explored_hexes' => [],
         'environmental_changes' => [],
       ],
+      'entry_points' => $entry_points,
+      'exit_points' => $exit_points,
+      'exits' => [],
       'connections' => [],
       'chat' => [],
       'entities' => NULL,
@@ -2366,9 +2643,32 @@ PROMPT;
       }
     }
     if (!$connection_exists) {
+      $from_room = is_array($dungeon_data['rooms'] ?? NULL)
+        ? array_values(array_filter($dungeon_data['rooms'], static fn($room): bool => is_array($room) && (string) ($room['room_id'] ?? '') === $from_room_id))[0] ?? NULL
+        : NULL;
+      $to_room = is_array($dungeon_data['rooms'] ?? NULL)
+        ? array_values(array_filter($dungeon_data['rooms'], static fn($room): bool => is_array($room) && (string) ($room['room_id'] ?? '') === $to_room_id))[0] ?? NULL
+        : NULL;
+      $from_hex = is_array($from_room) ? $this->resolveConnectionAnchorHex($from_room, TRUE) : ['q' => 0, 'r' => 0];
+      $to_hex = is_array($to_room) ? $this->resolveConnectionAnchorHex($to_room, FALSE) : ['q' => 0, 'r' => 0];
+
       $dungeon_data['hex_map']['connections'][] = [
         'from_room' => $from_room_id,
+        'from_room_id' => $from_room_id,
         'to_room' => $to_room_id,
+        'to_room_id' => $to_room_id,
+        'from_hex' => $from_hex,
+        'to_hex' => $to_hex,
+        'from' => [
+          'room_id' => $from_room_id,
+          'q' => (int) $from_hex['q'],
+          'r' => (int) $from_hex['r'],
+        ],
+        'to' => [
+          'room_id' => $to_room_id,
+          'q' => (int) $to_hex['q'],
+          'r' => (int) $to_hex['r'],
+        ],
         'type' => 'passage',
         'bidirectional' => TRUE,
       ];
@@ -2380,6 +2680,7 @@ PROMPT;
         if (!isset($room['connections'])) {
           $room['connections'] = [];
         }
+
         if (!$this->roomHasConnection($room, $to_room_id)) {
           $room['connections'][] = [
             'target_room_id' => $to_room_id,
@@ -2406,6 +2707,68 @@ PROMPT;
       '@connection_exists' => $connection_exists ? 'yes' : 'no',
       '@final_connection_count' => count($dungeon_data['hex_map']['connections'] ?? []),
     ]);
+  }
+
+  /**
+   * Resolve deterministic anchor hex for a room-connection endpoint.
+   *
+   * @param array<string,mixed> $room
+   * @param bool $prefer_exit
+   *   TRUE for source endpoint, FALSE for destination endpoint.
+   *
+   * @return array{q:int,r:int}
+   *   Anchor coordinates.
+   */
+  protected function resolveConnectionAnchorHex(array $room, bool $prefer_exit): array {
+    $valid_hexes = [];
+    foreach ((array) ($room['hexes'] ?? []) as $hex) {
+      if (!is_array($hex) || !isset($hex['q'], $hex['r'])) {
+        continue;
+      }
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $valid_hexes[$q . ':' . $r] = [
+        'q' => $q,
+        'r' => $r,
+        'is_entry' => !empty($hex['is_entry']) || !empty($hex['entry']),
+      ];
+    }
+
+    if ($valid_hexes === []) {
+      return ['q' => 0, 'r' => 0];
+    }
+
+    $primary_points = is_array($room[$prefer_exit ? 'exit_points' : 'entry_points'] ?? NULL)
+      ? $room[$prefer_exit ? 'exit_points' : 'entry_points']
+      : [];
+    $secondary_points = is_array($room[$prefer_exit ? 'entry_points' : 'exit_points'] ?? NULL)
+      ? $room[$prefer_exit ? 'entry_points' : 'exit_points']
+      : [];
+    foreach ([$primary_points, $secondary_points] as $points) {
+      foreach ($points as $point) {
+        if (!is_array($point) || !isset($point['q'], $point['r'])) {
+          continue;
+        }
+        $point_key = (int) $point['q'] . ':' . (int) $point['r'];
+        if (isset($valid_hexes[$point_key])) {
+          return ['q' => (int) $point['q'], 'r' => (int) $point['r']];
+        }
+      }
+    }
+
+    if (!$prefer_exit) {
+      foreach ($valid_hexes as $hex_meta) {
+        if (!empty($hex_meta['is_entry'])) {
+          return ['q' => (int) $hex_meta['q'], 'r' => (int) $hex_meta['r']];
+        }
+      }
+    }
+
+    $fallback = reset($valid_hexes);
+    return [
+      'q' => (int) ($fallback['q'] ?? 0),
+      'r' => (int) ($fallback['r'] ?? 0),
+    ];
   }
 
   /**

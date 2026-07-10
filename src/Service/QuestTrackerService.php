@@ -575,6 +575,18 @@ class QuestTrackerService {
         $character_id
       ));
     }
+    $completion_objective_states = json_decode((string) ($progress_record['objective_states'] ?? '[]'), TRUE);
+    if (
+      strtolower(trim($outcome)) === 'success'
+      && is_array($completion_objective_states)
+    ) {
+      $this->transferQuestCompletionTurnInCollectibles(
+        $campaign_id,
+        $quest,
+        $completion_objective_states,
+        $progress_character_id
+      );
+    }
 
     // Update requested scope progress record.
     $this->database->update('dc_campaign_quest_progress')
@@ -650,8 +662,9 @@ class QuestTrackerService {
   ): string {
     $quest_name = trim((string) ($quest['quest_name'] ?? $quest['name'] ?? $quest['quest_id'] ?? 'Quest'));
     $objective_label = $this->resolveQuestObjectiveNarrationLabel($quest, $objective_id);
+    $objective_label = $objective_label !== '' ? $this->normalizeQuestNarratorSentence($objective_label) : '';
     $message = $objective_label !== ''
-      ? sprintf('Objective completed for %s: %s.', $quest_name, $objective_label)
+      ? sprintf('Objective completed for %s: %s', $quest_name, $objective_label)
       : sprintf('Objective completed for %s.', $quest_name);
     $next_step = trim($next_step);
     if ($next_step !== '') {
@@ -2030,6 +2043,7 @@ class QuestTrackerService {
     array $objective_phases
   ): void {
     $destinations = [];
+    $objective_actor_refs = [];
     foreach ($objective_phases as $phase) {
       if (!is_array($phase)) {
         continue;
@@ -2037,44 +2051,56 @@ class QuestTrackerService {
       foreach ((array) ($phase['objectives'] ?? []) as $objective) {
         if (is_array($objective)) {
           $this->collectObjectiveDestinationReferences($objective, $destinations);
+          $this->collectObjectiveActorReferences($objective, $objective_actor_refs);
         }
       }
     }
-    if ($destinations === []) {
-      return;
-    }
+    if ($destinations !== []) {
+      $room_rows = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['room_id', 'name', 'source_room_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->execute()
+        ->fetchAllAssoc('room_id');
+      if (!is_array($room_rows) || $room_rows === []) {
+        throw new \RuntimeException(sprintf(
+          'Quest activation contract violation: campaign %d has no room records for destination validation.',
+          $campaign_id
+        ));
+      }
 
-    $room_rows = $this->database->select('dc_campaign_rooms', 'r')
-      ->fields('r', ['room_id', 'name', 'source_room_id'])
-      ->condition('campaign_id', $campaign_id)
-      ->execute()
-      ->fetchAllAssoc('room_id');
-    if (!is_array($room_rows) || $room_rows === []) {
-      throw new \RuntimeException(sprintf(
-        'Quest activation contract violation: campaign %d has no room records for destination validation.',
-        $campaign_id
-      ));
-    }
-
-    $valid_identifiers = [];
-    foreach ($room_rows as $row) {
-      $room = is_array($row) ? $row : (array) $row;
-      foreach (['room_id', 'name', 'source_room_id'] as $field) {
-        $value = trim((string) ($room[$field] ?? ''));
-        if ($value !== '') {
-          $valid_identifiers[$value] = TRUE;
+      $valid_identifiers = [];
+      foreach ($room_rows as $row) {
+        $room = is_array($row) ? $row : (array) $row;
+        foreach (['room_id', 'name', 'source_room_id'] as $field) {
+          $value = trim((string) ($room[$field] ?? ''));
+          if ($value !== '') {
+            $valid_identifiers[$value] = TRUE;
+          }
         }
+      }
+
+      foreach (array_keys($destinations) as $destination) {
+        if (isset($valid_identifiers[$destination])) {
+          continue;
+        }
+        throw new \InvalidArgumentException(sprintf(
+          'Quest activation contract violation: quest "%s" references destination "%s", but it is not present in campaign %d room registry.',
+          (string) ($quest['quest_id'] ?? 'unknown'),
+          $destination,
+          $campaign_id
+        ));
       }
     }
 
-    foreach (array_keys($destinations) as $destination) {
-      if (isset($valid_identifiers[$destination])) {
+    foreach (array_keys($objective_actor_refs) as $actor_ref) {
+      $resolved_row_id = $this->lookupNpcCharacterRowIdByReferences($campaign_id, [$actor_ref]);
+      if ($resolved_row_id !== NULL) {
         continue;
       }
       throw new \InvalidArgumentException(sprintf(
-        'Quest activation contract violation: quest "%s" references destination "%s", but it is not present in campaign %d room registry.',
+        'Quest activation contract violation: quest "%s" references actor target "%s", but it is not present in campaign %d NPC registry.',
         (string) ($quest['quest_id'] ?? 'unknown'),
-        $destination,
+        $actor_ref,
         $campaign_id
       ));
     }
@@ -2099,6 +2125,38 @@ class QuestTrackerService {
     foreach ((array) ($objective['children'] ?? []) as $child) {
       if (is_array($child)) {
         $this->collectObjectiveDestinationReferences($child, $destinations);
+      }
+    }
+  }
+
+  /**
+   * Recursively collect actor reference contracts from interact objective nodes.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective node.
+   * @param array<string, bool> $actor_refs
+   *   Actor reference set (mutated).
+   */
+  protected function collectObjectiveActorReferences(array $objective, array &$actor_refs): void {
+    $objective_type = strtolower(trim((string) ($objective['type'] ?? '')));
+    if ($objective_type === 'interact') {
+      foreach (['target', 'npc_ref', 'entity_ref', 'completion_criteria.target'] as $field) {
+        $value = '';
+        if ($field === 'completion_criteria.target') {
+          $value = trim((string) ($objective['completion_criteria']['target'] ?? ''));
+        }
+        else {
+          $value = trim((string) ($objective[$field] ?? ''));
+        }
+        if ($value !== '') {
+          $actor_refs[$value] = TRUE;
+        }
+      }
+    }
+
+    foreach ((array) ($objective['children'] ?? []) as $child) {
+      if (is_array($child)) {
+        $this->collectObjectiveActorReferences($child, $actor_refs);
       }
     }
   }
@@ -2451,7 +2509,11 @@ class QuestTrackerService {
 
       $item_id = trim((string) ($row['item_id'] ?? ''));
       $matches_objective = $state_objective_id !== '' && $state_objective_id === $objective_id;
-      $matches_association = $state_quest_association !== '' && $state_quest_association === $quest_source;
+      $matches_association = $state_quest_association !== '' && (
+        $state_quest_association === $quest_source
+        || $state_quest_association === $quest_id
+        || ($quest_id !== '' && str_starts_with($quest_id, $state_quest_association . '_'))
+      );
       $matches_quest_id = $state_spawn_quest_id !== '' && $state_spawn_quest_id === $quest_id;
       $matches_canonical_item_id = $canonical_item_id !== '' && $item_id === $canonical_item_id;
 
@@ -2493,7 +2555,10 @@ class QuestTrackerService {
       return strcmp($left['item_instance_id'], $right['item_instance_id']);
     });
 
-    $remaining = $required_quantity;
+    $available_quantity = array_reduce($candidates, static function (int $carry, array $candidate): int {
+      return $carry + max(0, (int) ($candidate['quantity'] ?? 0));
+    }, 0);
+    $remaining = max($required_quantity, $available_quantity);
     foreach ($candidates as $candidate) {
       if ($remaining <= 0) {
         break;
@@ -2549,6 +2614,82 @@ class QuestTrackerService {
   }
 
   /**
+   * Transfer any completed turn-in collectible handoffs before quest finalization.
+   */
+  protected function transferQuestCompletionTurnInCollectibles(
+    int $campaign_id,
+    array $quest,
+    array $objective_states,
+    ?int $character_id
+  ): void {
+    if (
+      $campaign_id <= 0
+      || !$character_id
+      || $character_id <= 0
+    ) {
+      return;
+    }
+
+    $interact_objective_ids = $this->collectCompletedInteractObjectiveIds($objective_states);
+    foreach ($interact_objective_ids as $objective_id) {
+      $this->transferTurnInCollectiblesForCompletedObjective(
+        $campaign_id,
+        $quest,
+        $objective_states,
+        $objective_id,
+        $character_id
+      );
+    }
+  }
+
+  /**
+   * Collect completed interact objective ids from phase/objective trees.
+   *
+   * @return array<int, string>
+   *   Completed interact objective ids.
+   */
+  protected function collectCompletedInteractObjectiveIds(array $objective_states): array {
+    $ids = [];
+    foreach ($objective_states as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $phase_objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      foreach ($phase_objectives as $objective) {
+        $this->collectCompletedInteractObjectiveIdsFromNode($objective, $ids);
+      }
+    }
+
+    return array_values(array_unique($ids));
+  }
+
+  /**
+   * Collect completed interact objective ids from one objective node subtree.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective definition.
+   * @param array<int, string> $ids
+   *   Interact ids accumulator.
+   */
+  protected function collectCompletedInteractObjectiveIdsFromNode(array $objective, array &$ids): void {
+    $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+    if (
+      $objective_id !== ''
+      && !empty($objective['completed'])
+      && strtolower(trim((string) ($objective['type'] ?? ''))) === 'interact'
+    ) {
+      $ids[] = $objective_id;
+    }
+
+    foreach ($this->getObjectiveChildren($objective) as $child) {
+      if (!is_array($child)) {
+        continue;
+      }
+      $this->collectCompletedInteractObjectiveIdsFromNode($child, $ids);
+    }
+  }
+
+  /**
    * Find one objective node by objective_id from the nested phase/objective tree.
    */
   protected function findObjectiveNodeById(array $objective_states, string $objective_id): ?array {
@@ -2574,42 +2715,26 @@ class QuestTrackerService {
    * Resolve the runtime NPC character row that should receive hand-in items.
    */
   protected function resolveTurnInTargetCharacterId(int $campaign_id, array $quest, array $completed_objective): ?int {
-    $candidate_refs = [];
+    $target_refs = [];
     foreach ([
       (string) ($completed_objective['target'] ?? ''),
       (string) ($completed_objective['npc_ref'] ?? ''),
       (string) ($completed_objective['entity_ref'] ?? ''),
       (string) ($completed_objective['completion_criteria']['target'] ?? ''),
-      (string) ($quest['giver_npc_id'] ?? ''),
     ] as $raw_ref) {
       foreach ($this->expandTurnInNpcReferenceCandidates($raw_ref) as $candidate) {
-        if (!in_array($candidate, $candidate_refs, TRUE)) {
-          $candidate_refs[] = $candidate;
+        if (!in_array($candidate, $target_refs, TRUE)) {
+          $target_refs[] = $candidate;
         }
       }
     }
 
-    if ($candidate_refs === []) {
-      return NULL;
+    $target_match = $this->lookupNpcCharacterRowIdByReferences($campaign_id, $target_refs);
+    if ($target_match !== NULL) {
+      return $target_match;
     }
 
-    $query = $this->database->select('dc_campaign_characters', 'c')
-      ->fields('c', ['id', 'instance_id'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('type', 'npc');
-    $or = $query->orConditionGroup();
-    $or->condition('instance_id', $candidate_refs, 'IN');
-    $or->condition('character_id', $candidate_refs, 'IN');
-    $query->condition($or)
-      ->orderBy('id', 'DESC')
-      ->range(0, 1);
-
-    $row = $query->execute()->fetchAssoc();
-    if (!is_array($row) || empty($row['id'])) {
-      return NULL;
-    }
-
-    return (int) $row['id'];
+    return NULL;
   }
 
   /**
@@ -2644,6 +2769,65 @@ class QuestTrackerService {
     }
 
     return array_values(array_unique(array_filter($candidates, static fn(string $value): bool => $value !== '')));
+  }
+
+  /**
+   * Resolve one NPC runtime row id from reference candidates.
+   *
+   * @param array<int, string> $raw_refs
+   *   Candidate reference values.
+   */
+  protected function lookupNpcCharacterRowIdByReferences(int $campaign_id, array $raw_refs): ?int {
+    $instance_refs = [];
+    $numeric_ids = [];
+
+    foreach ($raw_refs as $raw_ref) {
+      $raw_ref = trim((string) $raw_ref);
+      if ($raw_ref === '') {
+        continue;
+      }
+      foreach ($this->expandTurnInNpcReferenceCandidates($raw_ref) as $candidate) {
+        if ($candidate === '') {
+          continue;
+        }
+        $instance_refs[] = $candidate;
+        if (ctype_digit($candidate)) {
+          $numeric_value = (int) $candidate;
+          if ($numeric_value > 0) {
+            $numeric_ids[] = $numeric_value;
+          }
+        }
+      }
+    }
+
+    $instance_refs = array_values(array_unique($instance_refs));
+    $numeric_ids = array_values(array_unique($numeric_ids));
+    if ($instance_refs === [] && $numeric_ids === []) {
+      return NULL;
+    }
+
+    $query = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'npc');
+    $or = $query->orConditionGroup();
+    if ($instance_refs !== []) {
+      $or->condition('instance_id', $instance_refs, 'IN');
+    }
+    if ($numeric_ids !== []) {
+      $or->condition('id', $numeric_ids, 'IN');
+      $or->condition('character_id', $numeric_ids, 'IN');
+    }
+    $query->condition($or)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1);
+
+    $row = $query->execute()->fetchAssoc();
+    if (!is_array($row) || empty($row['id'])) {
+      return NULL;
+    }
+
+    return (int) $row['id'];
   }
 
   /**

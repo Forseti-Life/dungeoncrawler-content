@@ -31,7 +31,7 @@ import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260619-v2-search-reward-refresh-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20260629-v2-nav-canonical-transition-1';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20260709-v2-nav-canonical-transition-5';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
@@ -149,6 +149,8 @@ export class GameShell {
     this._chatHistoryLoaded = false;
     /** @type {string} currently active tab id */
     this.activeGameShellTab = 'map';
+    /** @type {Set<string>} dedupe set for missing room.exits contract warnings */
+    this._missingNavigationExitsWarnings = new Set();
   }
 
   /**
@@ -434,6 +436,7 @@ export class GameShell {
   _emitInitialRoomState() {
     const roomId = this.activeRoomId;
     if (!roomId) return;
+    this._synchronizePartyOccupantsToRoom(roomId);
 
     const visualRooms = this.mapVisualState?.topology?.rooms ?? {};
     const room = _mergeRoomMetadata(visualRooms[roomId] ?? null, {}, roomId);
@@ -629,6 +632,13 @@ export class GameShell {
       if (_source === 'shell' || !roomId) return;
       this._chatHistoryLoaded = false;
       this.activeRoomId = roomId;
+      if (this.mapVisualState && typeof this.mapVisualState === 'object') {
+        if (!this.mapVisualState.map_meta || typeof this.mapVisualState.map_meta !== 'object') {
+          this.mapVisualState.map_meta = {};
+        }
+        this.mapVisualState.map_meta.active_room_id = roomId;
+      }
+      this._synchronizePartyOccupantsToRoom(roomId);
       this._activeRoomData = _mergeRoomMetadata(this.mapVisualState?.topology?.rooms?.[roomId] ?? null, {}, roomId);
       this._setStateValue('activeRoomId', roomId);
       // Reset view state for new room
@@ -1975,7 +1985,7 @@ export class GameShell {
 
   // --- ported from hexmap.js ---
   isVisualOccupantVisible(occupant) {
-    return _isVisualOccupantVisible(occupant);
+    return _isVisualOccupantVisible(occupant, this.resolveActiveRoomId());
   }
 
   // --- ported from hexmap.js ---
@@ -2246,7 +2256,13 @@ export class GameShell {
     const room = rooms && typeof rooms === 'object' ? rooms[activeRoomId] : null;
     const exits = Array.isArray(room?.exits) ? room.exits : [];
     if (!Array.isArray(room?.exits)) {
-      console.error('[Navigation] Missing authoritative room.exits contract for active room', { activeRoomId });
+      if (!this._missingNavigationExitsWarnings.has(activeRoomId)) {
+        this._missingNavigationExitsWarnings.add(activeRoomId);
+        console.warn('[Navigation] Missing authoritative room.exits contract for active room', {
+          activeRoomId,
+          roomKeys: room && typeof room === 'object' ? Object.keys(room) : [],
+        });
+      }
       return [];
     }
 
@@ -2422,6 +2438,8 @@ export class GameShell {
       return;
     }
 
+    this._synchronizePartyOccupantsToRoom(normalizedRoomId);
+
     const room = _mergeRoomMetadata(this.getVisualRooms()[normalizedRoomId] || null, {}, normalizedRoomId);
     const occupants = this.getVisualOccupants().filter((occupant) => String(occupant?.room_id || '') === normalizedRoomId && this.isVisualOccupantVisible(occupant));
     this.activeRoomId = normalizedRoomId;
@@ -2444,9 +2462,111 @@ export class GameShell {
     this.prefetchConnectedRoomContext?.();
   }
 
+  _synchronizePartyOccupantsToRoom(roomId) {
+    const normalizedRoomId = String(roomId || '').trim();
+    if (!normalizedRoomId || !Array.isArray(this.mapVisualState?.occupants?.party)) {
+      return;
+    }
+    const partyOffsets = [
+      { q: 0, r: 0 },
+      { q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 },
+    ];
+    const anchorQ = Number.isFinite(Number(this.launchContext?.start_q))
+      ? Number(this.launchContext.start_q)
+      : Number(this.mapVisualState.occupants.party?.[0]?.placement?.q || 0);
+    const anchorR = Number.isFinite(Number(this.launchContext?.start_r))
+      ? Number(this.launchContext.start_r)
+      : Number(this.mapVisualState.occupants.party?.[0]?.placement?.r || 0);
+    this.mapVisualState.occupants.party = this.mapVisualState.occupants.party.map((occupant, index) => {
+      const offset = partyOffsets[index] || partyOffsets[index % partyOffsets.length];
+      return {
+        ...occupant,
+        room_id: normalizedRoomId,
+        visible: occupant?.state?.hidden === true ? false : true,
+        placement: {
+          ...(occupant?.placement || {}),
+          q: anchorQ + offset.q,
+          r: anchorR + offset.r,
+        },
+      };
+    });
+  }
+
+  // --- ported from hexmap.js ---
+  updateLaunchLocationContext(roomId, q = null, r = null) {
+    const nextRoomId = roomId || this.resolveActiveRoomId();
+    if (!nextRoomId) {
+      return;
+    }
+
+    this.launchContext = {
+      ...(this.launchContext || {}),
+      room_id: nextRoomId,
+    };
+
+    if (q != null && Number.isFinite(Number(q))) {
+      this.launchContext.start_q = Number(q);
+    }
+    if (r != null && Number.isFinite(Number(r))) {
+      this.launchContext.start_r = Number(r);
+    }
+
+    if (typeof window === 'undefined' || !window.location || !window.history?.replaceState) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const campaignId = this.resolveCampaignId();
+    const characterId = Number(this.launchContext?.character_id || 0);
+    if (campaignId) {
+      params.set('campaign_id', String(campaignId));
+    }
+    if (characterId > 0) {
+      params.set('character_id', String(characterId));
+    }
+    params.set('room_id', String(nextRoomId));
+    if (q != null && Number.isFinite(Number(q))) {
+      params.set('start_q', String(Number(q)));
+    }
+    if (r != null && Number.isFinite(Number(r))) {
+      params.set('start_r', String(Number(r)));
+    }
+
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+  }
+
   // --- ported from hexmap.js ---
   persistLaunchLocationContext(roomId, q = null, r = null, entityRef = null) {
+    const campaignId = this.resolveCampaignId();
+    const nextRoomId = roomId || this.resolveActiveRoomId();
+    const resolvedEntityRef = entityRef
+      || this.launchCharacter?.instanceId
+      || this.launchCharacter?.instance_id
+      || null;
+
     this.updateLaunchLocationContext(roomId, q, r);
+    if (!campaignId || !nextRoomId || !resolvedEntityRef) {
+      return;
+    }
+
+    fetch(`/api/campaign/${campaignId}/entity/${resolvedEntityRef}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({
+        locationType: 'room',
+        locationRef: nextRoomId,
+        stateData: {
+          placement: {
+            room_id: nextRoomId,
+            hex: {
+              q: Number.isFinite(Number(q)) ? Number(q) : 0,
+              r: Number.isFinite(Number(r)) ? Number(r) : 0,
+            },
+          },
+        },
+      }),
+    }).catch((err) => console.warn('[Location] Entity move persist failed:', err));
+
     if (entityRef) {
       this.launchCharacter = {
         ...this.launchCharacter,
@@ -2821,21 +2941,26 @@ function _getEntityDisplayName(entity = null) {
   );
 }
 
-function _isVisualOccupantVisible(occupant) {
+function _isVisualOccupantVisible(occupant, activeRoomId = '') {
   if (!occupant) {
     return false;
   }
+
+  const hidden = occupant?.hidden === true || occupant?.state?.hidden === true;
+  const detected = occupant?.detected === true || occupant?.state?.detected === true;
+  const inActiveRoom = String(occupant?.room_id || '').trim() !== ''
+    && String(occupant?.room_id || '').trim() === String(activeRoomId || '').trim();
 
   if (occupant.visible === true) {
     return true;
   }
 
   if (occupant.visible === false) {
-    return false;
+    // Visual payload visibility is authored against the initial active room.
+    // Keep active-room occupants visible after in-session room transitions.
+    return inActiveRoom ? !(hidden && !detected) : false;
   }
 
-  const hidden = occupant?.hidden === true || occupant?.state?.hidden === true;
-  const detected = occupant?.detected === true || occupant?.state?.detected === true;
   return !(hidden && !detected);
 }
 

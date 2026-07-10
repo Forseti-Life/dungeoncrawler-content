@@ -446,6 +446,168 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::buildValidatorReferenceRows
+   */
+  public function testBuildValidatorReferenceRowsIncludesEntityLinkageGeneratorPath(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeBuildValidatorReferenceRows(array $diagnostics): array {
+        return $this->buildValidatorReferenceRows($diagnostics);
+      }
+    };
+
+    $rows = $controller->exposeBuildValidatorReferenceRows([
+      'stages' => [
+        'entity_linkage' => [
+          'valid' => FALSE,
+          'errors' => ['missing actor target'],
+        ],
+      ],
+    ]);
+
+    $this->assertCount(1, $rows);
+    $this->assertSame('entity_linkage', (string) ($rows[0][0] ?? ''));
+    $this->assertStringContainsString('FAIL', (string) ($rows[0][1] ?? ''));
+    $this->assertStringContainsString('collectEntityLinkageDiagnostics', (string) ($rows[0][2] ?? ''));
+    $this->assertStringContainsString('realizeStorylineNpcs', (string) ($rows[0][3] ?? ''));
+    $this->assertStringContainsString('tal-mission-handler', (string) ($rows[0][4] ?? ''));
+  }
+
+  /**
+   * @covers ::buildValidatorReferenceRows
+   */
+  public function testBuildValidatorReferenceRowsUsesFallbackForUnknownStages(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeBuildValidatorReferenceRows(array $diagnostics): array {
+        return $this->buildValidatorReferenceRows($diagnostics);
+      }
+    };
+
+    $rows = $controller->exposeBuildValidatorReferenceRows([
+      'stages' => [
+        'unknown_stage' => [
+          'valid' => TRUE,
+          'errors' => [],
+        ],
+      ],
+    ]);
+
+    $this->assertCount(1, $rows);
+    $this->assertSame('unknown_stage', (string) ($rows[0][0] ?? ''));
+    $this->assertStringContainsString('PASS', (string) ($rows[0][1] ?? ''));
+    $this->assertStringContainsString('validateStorylineEndToEndContract', (string) ($rows[0][2] ?? ''));
+    $this->assertStringContainsString('instantiateStorylineTemplate', (string) ($rows[0][3] ?? ''));
+  }
+
+  /**
+   * @covers ::collectActorLocationValidationDiagnostics
+   */
+  public function testCollectActorLocationValidationDiagnosticsShowsExplicitPassFailRows(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('getCanonicalLocationTemplateIndex')
+      ->willReturn([
+        'dungeon_ids' => [],
+        'room_ids' => ['canonical-room-1' => TRUE],
+        'dungeon_room_ids' => [],
+        'errors' => [],
+      ]);
+    $storyline_manager->expects($this->once())
+      ->method('getCanonicalQuestTemplateObjectivePhases')
+      ->with('quest-delta')
+      ->willReturn([
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'kill-missing-actor',
+              'type' => 'kill',
+              'target_id' => 'actor-missing',
+              'location_id' => 'canonical-room-1',
+              'destination_id' => 'location-missing',
+              'completion_criteria' => [
+                'kind' => 'count',
+                'metric' => 'current',
+                'target_count' => 1,
+                'description' => 'Complete once.',
+              ],
+            ],
+          ],
+        ],
+      ]);
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectActorLocationValidationDiagnostics(array $template_data, string $selected_quest_id = ''): array {
+        return $this->collectActorLocationValidationDiagnostics($template_data, $selected_quest_id);
+      }
+    };
+
+    $result = $controller->exposeCollectActorLocationValidationDiagnostics([
+      'contacts' => [
+        ['entity_id' => 'actor-anchored'],
+      ],
+      'chapters' => [
+        [
+          'chapter_id' => 'chapter-1',
+          'scenes' => [
+            [
+              'scene_id' => 'scene-1',
+              'quest_ids' => ['quest-delta'],
+            ],
+          ],
+        ],
+      ],
+    ]);
+
+    $actors_by_id = [];
+    foreach ((array) ($result['actors'] ?? []) as $row) {
+      $actors_by_id[(string) ($row['actor_id'] ?? '')] = $row;
+    }
+    $locations_by_id = [];
+    foreach ((array) ($result['locations'] ?? []) as $row) {
+      $locations_by_id[(string) ($row['location_id'] ?? '')] = $row;
+    }
+
+    $this->assertSame('PASS', (string) ($actors_by_id['actor-anchored']['status'] ?? ''));
+    $this->assertSame('FAIL', (string) ($actors_by_id['actor-missing']['status'] ?? ''));
+    $this->assertSame(1, (int) ($actors_by_id['actor-missing']['reference_count'] ?? 0));
+    $this->assertStringContainsString('quest.quest-delta.phase[0].objective[0].target_id', (string) ($actors_by_id['actor-missing']['details'] ?? ''));
+
+    $this->assertSame('PASS', (string) ($locations_by_id['canonical-room-1']['status'] ?? ''));
+    $this->assertSame('FAIL', (string) ($locations_by_id['location-missing']['status'] ?? ''));
+    $this->assertSame(1, (int) ($locations_by_id['location-missing']['reference_count'] ?? 0));
+  }
+
+  /**
+   * @covers ::collectActorLocationValidationDiagnostics
+   */
+  public function testCollectActorLocationValidationDiagnosticsSkipsUnlinkedSelectedQuest(): void {
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->never())
+      ->method('getCanonicalLocationTemplateIndex');
+
+    $controller = new class($storyline_manager) extends StorylineExplorerPageController {
+      public function exposeCollectActorLocationValidationDiagnostics(array $template_data, string $selected_quest_id = ''): array {
+        return $this->collectActorLocationValidationDiagnostics($template_data, $selected_quest_id);
+      }
+    };
+
+    $result = $controller->exposeCollectActorLocationValidationDiagnostics([
+      'chapters' => [
+        [
+          'scenes' => [
+            [
+              'quest_ids' => ['quest-linked'],
+            ],
+          ],
+        ],
+      ],
+    ], 'quest-not-linked');
+
+    $this->assertSame([], (array) ($result['actors'] ?? []));
+    $this->assertSame([], (array) ($result['locations'] ?? []));
+  }
+
+  /**
    * @covers ::collectQuestTemplateDiagnostics
    */
   public function testCollectQuestTemplateDiagnosticsFlagsMissingAndEmptyCanonicalRows(): void {

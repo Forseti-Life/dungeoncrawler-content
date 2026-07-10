@@ -180,7 +180,7 @@ trait RoomChatServiceNpcInterjectionTrait {
     }
 
     $verbish_previous_tokens = [
-      'i', 'we', 'you', 'they', 'to', 'will', 'would', 'can', 'could', 'should',
+      'i', 'we', 'they', 'to', 'will', 'would', 'can', 'could', 'should',
       'must', 'may', 'might', 'll',
     ];
     $candidate_token = $candidate_tokens[0];
@@ -208,7 +208,7 @@ trait RoomChatServiceNpcInterjectionTrait {
     }
 
     static $verbish_previous_tokens = [
-      'i', 'we', 'you', 'they', 'to', 'will', 'would', 'can', 'could', 'should',
+      'i', 'we', 'they', 'to', 'will', 'would', 'can', 'could', 'should',
       'must', 'may', 'might', 'll',
     ];
 

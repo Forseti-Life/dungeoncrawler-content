@@ -12,7 +12,9 @@
 
   const MIN_GRANULARITY = 5;
   const MAX_GRANULARITY = 15;
-  const DEFAULT_GRANULARITY = 14;
+  const DEFAULT_GRANULARITY = 12;
+  const MAX_SAFETYMAP_RENDER_CELLS_NON_V2 = 6000;
+  const MAX_ROOM_EXPLORER_RENDER_CELLS_NON_V2 = 2500;
   const GRANULARITY_LABELS = {
     5: '~251km² districts',
     6: '~36km² city areas',
@@ -993,6 +995,41 @@
     return clampGranularity(Math.round(numeric));
   }
 
+  function countRenderableCellsAtGranularity(graph, granularityLevel) {
+    const nodes = graph && Array.isArray(graph.nodes) ? graph.nodes : [];
+    const normalizedGranularity = normalizeGranularity(granularityLevel, DEFAULT_GRANULARITY);
+    return nodes.reduce((total, node) => {
+      const sourceResolution = Number(
+        (node && node.h3 && node.h3.cells && node.h3.cells.source_resolution)
+        || (node && node.h3 && node.h3.anchor && node.h3.anchor.h3_resolution)
+        || 13
+      );
+      const sparseCells = aggregateSparseCellsForGranularity(
+        extractSparseCellCoordinates(node),
+        sourceResolution,
+        normalizedGranularity
+      );
+      return total + (sparseCells.length > 0 ? sparseCells.length : 1);
+    }, 0);
+  }
+
+  function resolveSafeGranularityForRender(graph, requestedGranularityLevel, maxCells, debugEl, renderTag) {
+    const requested = normalizeGranularity(requestedGranularityLevel, DEFAULT_GRANULARITY);
+    let resolved = requested;
+    let cellCount = countRenderableCellsAtGranularity(graph, resolved);
+    while (resolved > MIN_GRANULARITY && cellCount > maxCells) {
+      resolved -= 1;
+      cellCount = countRenderableCellsAtGranularity(graph, resolved);
+    }
+    if (resolved !== requested) {
+      appendDebug(
+        debugEl,
+        `${renderTag}: auto-coarsened H3 granularity ${requested} -> ${resolved} (cells=${cellCount}, limit=${maxCells})`
+      );
+    }
+    return resolved;
+  }
+
   function toFiniteNumber(value) {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
@@ -1001,6 +1038,42 @@
   function formatLatLng(value) {
     const numeric = toFiniteNumber(value);
     return numeric === null ? 'NA' : numeric.toFixed(8);
+  }
+
+  function buildDefaultHexDetailMetadata(cell = null) {
+    const role = String((cell && cell.role) || '').trim();
+    const isEntry = role === 'room_anchor' || role === 'entry_point';
+    return {
+      terrain: 'unknown',
+      lighting: 'unknown',
+      elevation_ft: 0,
+      passability: 'unknown',
+      connection: 'none',
+      is_entry: isEntry,
+      is_visible: true,
+      is_discovered: true,
+      objects: [],
+      entities: [],
+    };
+  }
+
+  function ensureCellMetadataContract(metadata, cell = null) {
+    const normalized = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+      ? { ...metadata }
+      : {};
+    const objectCounts = normalized.hex_object_counts && typeof normalized.hex_object_counts === 'object' && !Array.isArray(normalized.hex_object_counts)
+      ? normalized.hex_object_counts
+      : {};
+    normalized.hex_object_counts = {
+      exits: toNonNegativeInteger(objectCounts.exits),
+      actors: toNonNegativeInteger(objectCounts.actors),
+      items: toNonNegativeInteger(objectCounts.items),
+      hazards: toNonNegativeInteger(objectCounts.hazards),
+    };
+    normalized.hex_detail = normalized.hex_detail && typeof normalized.hex_detail === 'object' && !Array.isArray(normalized.hex_detail)
+      ? normalized.hex_detail
+      : buildDefaultHexDetailMetadata(cell);
+    return normalized;
   }
 
   function extractSparseCellCoordinates(node) {
@@ -1017,9 +1090,7 @@
         if (!Number.isFinite(q) || !Number.isFinite(r)) {
           return null;
         }
-        const metadata = cell && typeof cell.metadata === 'object' && !Array.isArray(cell.metadata)
-          ? cell.metadata
-          : {};
+        const metadata = ensureCellMetadataContract(cell && cell.metadata, cell);
         return {
           q,
           r,
@@ -1054,7 +1125,7 @@
       h3Index: String((node && node.h3 && node.h3.anchor && node.h3.anchor.h3_index) || '').trim(),
       centerLatitude: toFiniteNumber(node && node.h3 && node.h3.anchor && node.h3.anchor.center_latitude),
       centerLongitude: toFiniteNumber(node && node.h3 && node.h3.anchor && node.h3.anchor.center_longitude),
-      metadata: {},
+      metadata: ensureCellMetadataContract({}, { role: 'room_anchor' }),
     }];
   }
 
@@ -1210,9 +1281,7 @@
         h3Index: String((cell && cell.h3Index) || '').trim(),
         centerLatitude: toFiniteNumber(cell && cell.centerLatitude),
         centerLongitude: toFiniteNumber(cell && cell.centerLongitude),
-        metadata: cell && typeof cell.metadata === 'object' && !Array.isArray(cell.metadata)
-          ? cell.metadata
-          : {},
+        metadata: ensureCellMetadataContract(cell && cell.metadata, cell),
         aggregationCount: Number(cell && cell.aggregationCount) > 0 ? Number(cell.aggregationCount) : 1,
       }));
       const roomRadius = normalizedCells.reduce(
@@ -1263,8 +1332,8 @@
             center_latitude: toFiniteNumber(cell.centerLatitude),
             center_longitude: toFiniteNumber(cell.centerLongitude),
             metadata: cell && typeof cell.metadata === 'object' && !Array.isArray(cell.metadata)
-              ? cell.metadata
-              : {},
+              ? ensureCellMetadataContract(cell.metadata, cell)
+              : ensureCellMetadataContract({}, cell),
             aggregation_count: Number(cell.aggregationCount || 1),
             ordinal: index + 1,
             displaced: Boolean(resolved.displaced),
@@ -1411,7 +1480,6 @@
             analysis_room_contract: roomContractSummary.compactLabel,
             analysis_hex_contract: hexContractLabel,
           });
-          const metadataText = JSON.stringify(cell.metadata || {});
           const titleText = [
             `${toRoomLabel(node)} (${roomId})`,
             `hex_designation=${hexDesignation}`,
@@ -1426,19 +1494,8 @@
             `source_r=${String(cell.source_r)}`,
             `terrain=${hexDetailSummary.terrain}`,
             `lighting=${hexDetailSummary.lighting}`,
-            `elevation_ft=${hexDetailSummary.elevationFt}`,
             `passability=${hexDetailSummary.passability}`,
             `connection=${hexDetailSummary.connection}`,
-            `objects=${hexDetailSummary.objectsLabel}`,
-            `entities=${hexDetailSummary.entitiesLabel}`,
-            `latitude=${formatLatLng(cell.center_latitude)}`,
-            `longitude=${formatLatLng(cell.center_longitude)}`,
-            `aggregation_count=${String(cell.aggregation_count || 1)}`,
-            `displaced=${cell.displaced ? 'true' : 'false'}`,
-            `ordinal=${String(cell.ordinal || 0)}`,
-            `room_contract=${roomContractSummary.compactLabel}`,
-            `hex_contract=${hexContractLabel}`,
-            `metadata=${metadataText}`,
           ].join('\n');
           return `<g class="dc-dungeon-analysis__safetymap-cell-group"><polygon class="${classes.join(' ')}" style="${escapeHtml(polygonStyle)}" data-dungeon-id="${escapeHtml(cellDungeonId)}" data-room-id="${escapeHtml(cellRoomId)}" data-room-label="${escapeHtml(toRoomLabel(node))}" data-hex-designation="${escapeHtml(hexDesignation)}" data-global-q="${escapeHtml(String(cell.q))}" data-global-r="${escapeHtml(String(cell.r))}" data-latitude="${escapeHtml(formatLatLng(cell.center_latitude))}" data-longitude="${escapeHtml(formatLatLng(cell.center_longitude))}" data-role="${escapeHtml(String(cell.role || '').trim() || 'NA')}" data-room-contract="${escapeHtml(roomContractSummary.compactLabel)}" data-hex-contract="${escapeHtml(hexContractLabel)}" data-exits="${escapeHtml(String(semantics.exits))}" data-actors="${escapeHtml(String(semantics.actors))}" data-items="${escapeHtml(String(semantics.items))}" data-hazards="${escapeHtml(String(semantics.hazards))}" data-terrain="${escapeHtml(hexDetailSummary.terrain)}" data-lighting="${escapeHtml(hexDetailSummary.lighting)}" data-elevation-ft="${escapeHtml(hexDetailSummary.elevationFt)}" data-passability="${escapeHtml(hexDetailSummary.passability)}" data-connection="${escapeHtml(hexDetailSummary.connection)}" data-objects="${escapeHtml(hexDetailSummary.objectsLabel)}" data-entities="${escapeHtml(hexDetailSummary.entitiesLabel)}" points="${points}"><title>${escapeHtml(titleText)}</title></polygon>${anchorOutline}${exitGatewayOutline}${externalOutline}${semanticBadges}</g>`;
         }).join('');
@@ -1618,7 +1675,22 @@
     if (!safetyMapEl) {
       return;
     }
-    const rendered = buildSafetyMapSvg(graph, selectedGranularityLevel, dungeonId);
+    const useV2Renderer = hasV2AnalysisRenderer();
+    const requestedGranularity = normalizeGranularity(selectedGranularityLevel, DEFAULT_GRANULARITY);
+    const effectiveGranularity = useV2Renderer
+      ? requestedGranularity
+      : resolveSafeGranularityForRender(
+        graph,
+        requestedGranularity,
+        MAX_SAFETYMAP_RENDER_CELLS_NON_V2,
+        debugEl,
+        'safetymap'
+      );
+    appendDebug(
+      debugEl,
+      `safetymap: render-start requested_h3=${requestedGranularity} effective_h3=${effectiveGranularity} renderer=${useV2Renderer ? 'v2' : 'svg'}`
+    );
+    const rendered = buildSafetyMapSvg(graph, effectiveGranularity, dungeonId);
     if (!rendered.svg || !rendered.canvasRoom) {
       safetyMapEl.innerHTML = '<div class="alert alert-warning mb-0">No room graph available for dungeon analysis map rendering.</div>';
       if (safetyMapAnchorEl) {
@@ -1636,7 +1708,7 @@
       return;
     }
 
-    if (hasV2AnalysisRenderer()) {
+    if (useV2Renderer) {
       if (!safetyMapV2Renderer) {
         safetyMapEl.innerHTML = '';
         safetyMapV2Renderer = window.DCAnalysisV2Bridge.createRenderer(safetyMapEl, {
@@ -1815,7 +1887,22 @@
 
     const resolvedRoomId = resolveRoomExplorerSelection(graph, requestedRoomId);
     const roomGraph = buildSingleRoomGraph(graph, resolvedRoomId);
-    const rendered = buildSafetyMapSvg(roomGraph, selectedGranularityLevel, dungeonId);
+    const useV2Renderer = hasV2AnalysisRenderer();
+    const requestedGranularity = normalizeGranularity(selectedGranularityLevel, DEFAULT_GRANULARITY);
+    const effectiveGranularity = useV2Renderer
+      ? requestedGranularity
+      : resolveSafeGranularityForRender(
+        roomGraph,
+        requestedGranularity,
+        MAX_ROOM_EXPLORER_RENDER_CELLS_NON_V2,
+        debugEl,
+        'room-explorer'
+      );
+    appendDebug(
+      debugEl,
+      `room-explorer: render-start requested_h3=${requestedGranularity} effective_h3=${effectiveGranularity} renderer=${useV2Renderer ? 'v2' : 'svg'}`
+    );
+    const rendered = buildSafetyMapSvg(roomGraph, effectiveGranularity, dungeonId);
     if (!rendered.svg || !rendered.canvasRoom) {
       roomExplorerEl.innerHTML = '<div class="alert alert-warning mb-0">No room graph available for room explorer rendering.</div>';
       if (roomExplorerRoomReadoutEl) {
@@ -1833,7 +1920,7 @@
       return '';
     }
 
-    if (hasV2AnalysisRenderer()) {
+    if (useV2Renderer) {
       if (!roomExplorerV2Renderer) {
         roomExplorerEl.innerHTML = '';
         roomExplorerV2Renderer = window.DCAnalysisV2Bridge.createRenderer(roomExplorerEl, {
@@ -2606,34 +2693,79 @@
             `graph payload: nodes=${Array.isArray(payload.graph.nodes) ? payload.graph.nodes.length : 0} edges=${Array.isArray(payload.graph.edges) ? payload.graph.edges.length : 0}`
           );
           renderGraphReview(summaryEl, exitsEl, edgesEl, payload.graph);
-          renderSafetyMap(
-            safetyMapEl,
-            safetyMapAnchorEl,
-            debugEl,
-            payload.graph,
-            safetyMapZoomLevelEl,
-            resolveSelectedGranularity(granularitySelectEls),
-            safetyMapGranularityEl,
-            selected,
-            safetyMapHoverEl
-          );
+          let safetyMapRenderError = null;
+          try {
+            renderSafetyMap(
+              safetyMapEl,
+              safetyMapAnchorEl,
+              debugEl,
+              payload.graph,
+              safetyMapZoomLevelEl,
+              resolveSelectedGranularity(granularitySelectEls),
+              safetyMapGranularityEl,
+              selected,
+              safetyMapHoverEl
+            );
+          } catch (renderError) {
+            safetyMapRenderError = renderError;
+            if (safetyMapEl) {
+              safetyMapEl.innerHTML = `<div class="alert alert-warning mb-0">Dungeon analysis map failed to load for this dungeon. ${escapeHtml(String(renderError?.message || renderError))}</div>`;
+            }
+            if (safetyMapAnchorEl) {
+              safetyMapAnchorEl.textContent = '-';
+            }
+            if (safetyMapGranularityEl) {
+              safetyMapGranularityEl.textContent = '-';
+            }
+            destroySafetyMapPanZoom();
+            updateSafetyMapZoomReadout(safetyMapZoomLevelEl);
+            setMapHoverDefault(
+              safetyMapHoverEl,
+              'Hover a hex for details; click to pin (room, terrain, lighting, elevation, passability, objects, entities, connection).'
+            );
+            appendDebug(debugEl, `safetymap-render-error: ${String(renderError?.message || renderError)}`);
+          }
           activeRoomExplorerRoomId = populateRoomExplorerRoomOptions(
             roomExplorerRoomSelectEl,
             payload.graph,
             activeRoomExplorerRoomId
           );
-          activeRoomExplorerRoomId = renderRoomExplorerMap(
-            roomExplorerEl,
-            roomExplorerRoomReadoutEl,
-            debugEl,
-            payload.graph,
-            roomExplorerRoomSelectEl ? roomExplorerRoomSelectEl.value : activeRoomExplorerRoomId,
-            roomExplorerZoomLevelEl,
-            resolveSelectedGranularity(granularitySelectEls),
-            roomExplorerGranularityEl,
-            selected,
-            roomExplorerHoverEl
-          ) || activeRoomExplorerRoomId;
+          let roomExplorerRenderError = null;
+          try {
+            activeRoomExplorerRoomId = renderRoomExplorerMap(
+              roomExplorerEl,
+              roomExplorerRoomReadoutEl,
+              debugEl,
+              payload.graph,
+              roomExplorerRoomSelectEl ? roomExplorerRoomSelectEl.value : activeRoomExplorerRoomId,
+              roomExplorerZoomLevelEl,
+              resolveSelectedGranularity(granularitySelectEls),
+              roomExplorerGranularityEl,
+              selected,
+              roomExplorerHoverEl
+            ) || activeRoomExplorerRoomId;
+          } catch (renderError) {
+            roomExplorerRenderError = renderError;
+            if (roomExplorerEl) {
+              roomExplorerEl.innerHTML = `<div class="alert alert-warning mb-0">Room explorer failed to load for this dungeon. ${escapeHtml(String(renderError?.message || renderError))}</div>`;
+            }
+            if (roomExplorerRoomReadoutEl) {
+              roomExplorerRoomReadoutEl.textContent = '-';
+            }
+            if (roomExplorerGranularityEl) {
+              roomExplorerGranularityEl.textContent = '-';
+            }
+            if (roomExplorerRoomSelectEl) {
+              roomExplorerRoomSelectEl.innerHTML = '';
+            }
+            destroyRoomExplorerPanZoom();
+            updateRoomExplorerZoomReadout(roomExplorerZoomLevelEl);
+            setMapHoverDefault(
+              roomExplorerHoverEl,
+              'Hover a room hex for details; click to pin (room, terrain, lighting, elevation, passability, objects, entities, connection).'
+            );
+            appendDebug(debugEl, `room-explorer-render-error: ${String(renderError?.message || renderError)}`);
+          }
           if (roomExplorerRoomSelectEl && activeRoomExplorerRoomId) {
             roomExplorerRoomSelectEl.value = activeRoomExplorerRoomId;
           }
@@ -2672,6 +2804,12 @@
             statusEl,
             `${dungeonName || selected}: ${nodeCount} rooms, ${edgeCount} connections, ${exitCount} dungeon exits [${edgeSource || 'unknown source'}]. Sparse H3 anchors: ${sparseNodeAnchors}/${nodeCount}; cells: ${sparseTotalCells}.`
           );
+          if (safetyMapRenderError || roomExplorerRenderError) {
+            const safetySuffix = safetyMapRenderError ? `safetymap=${String(safetyMapRenderError?.message || safetyMapRenderError)}` : '';
+            const roomSuffix = roomExplorerRenderError ? `room_explorer=${String(roomExplorerRenderError?.message || roomExplorerRenderError)}` : '';
+            const joiner = safetySuffix && roomSuffix ? '; ' : '';
+            appendDebug(debugEl, `render-warning: ${safetySuffix}${joiner}${roomSuffix}`);
+          }
         } catch (error) {
           activeGraph = null;
           activeRoomExplorerRoomId = '';

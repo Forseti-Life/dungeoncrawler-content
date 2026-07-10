@@ -62,6 +62,8 @@ class ConnectorDefinitionService {
    */
   public function saveCanonicalConnector(array $data): string {
     $this->validateConnectorData($data);
+    $this->assertConnectorEndpointColumnsPresent('dungeoncrawler_content_connections');
+    $endpoint_hexes = $this->requireConnectorEndpointHexes($data);
     $connection_id = $this->deriveConnectionId($data);
     $now = time();
 
@@ -71,6 +73,10 @@ class ConnectorDefinitionService {
         'dungeon_id' => (string) $data['dungeon_id'],
         'from_room_id' => (string) $data['from_room_id'],
         'to_room_id' => (string) $data['to_room_id'],
+        'from_hex_q' => $endpoint_hexes['from_hex']['q'],
+        'from_hex_r' => $endpoint_hexes['from_hex']['r'],
+        'to_hex_q' => $endpoint_hexes['to_hex']['q'],
+        'to_hex_r' => $endpoint_hexes['to_hex']['r'],
         'direction' => (string) ($data['direction'] ?? 'bidirectional'),
         'kind' => (string) ($data['kind'] ?? 'hallway'),
         'default_state' => (string) ($data['default_state'] ?? 'open'),
@@ -99,7 +105,11 @@ class ConnectorDefinitionService {
       ->execute()
       ->fetchAssoc();
 
-    return $row ? $this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data']) : NULL;
+    if (!$row) {
+      return NULL;
+    }
+    $row = $this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data']);
+    return $this->hydrateEndpointHexes($row);
   }
 
   /**
@@ -115,7 +125,7 @@ class ConnectorDefinitionService {
       ->fetchAllAssoc('connection_id', \PDO::FETCH_ASSOC);
 
     return array_values(array_map(
-      fn(array $row) => $this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data']),
+      fn(array $row) => $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data'])),
       $rows
     ));
   }
@@ -135,7 +145,7 @@ class ConnectorDefinitionService {
 
     $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
     return array_values(array_map(
-      fn(array $row) => $this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data']),
+      fn(array $row) => $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data'])),
       $rows
     ));
   }
@@ -172,6 +182,8 @@ class ConnectorDefinitionService {
       $raw_connections = array_merge($raw_connections, $dungeon_data['connections']);
     }
 
+    $layout_map = $this->loadRoomLayoutMapForDungeonPayload($dungeon_data);
+    $normalized_connectors = [];
     $count = 0;
     foreach ($raw_connections as $index => $raw) {
       if (!is_array($raw)) {
@@ -193,11 +205,112 @@ class ConnectorDefinitionService {
       }
 
       $normalized = ConnectorGenerationPolicy::normalizeFromRawJson($dungeon_id, $raw);
+      $normalized = $this->enforceEndpointHexContract($normalized, $layout_map, $dungeon_id, 'json_connection');
+      $connection_id = $this->deriveConnectionId($normalized);
+      $normalized_connectors[$connection_id] = $normalized;
+    }
+
+    foreach ($this->synthesizeConnectorsFromRoomExitLayouts($dungeon_id, $dungeon_data) as $synthesized) {
+      $synthesized = $this->enforceEndpointHexContract($synthesized, $layout_map, $dungeon_id, 'layout_exit');
+      $connection_id = $this->deriveConnectionId($synthesized);
+      if (!isset($normalized_connectors[$connection_id])) {
+        $normalized_connectors[$connection_id] = $synthesized;
+      }
+    }
+
+    foreach ($normalized_connectors as $normalized) {
       $this->saveCanonicalConnector($normalized);
       $count++;
     }
 
     return $count;
+  }
+
+  /**
+   * Build canonical connector rows from room layout_data.exits when JSON
+   * connection arrays are incomplete.
+   *
+   * All synthesized connectors default to bidirectional unless authoring
+   * explicitly provides one-way edges through connector tables.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Canonical connector payload rows.
+   */
+  protected function synthesizeConnectorsFromRoomExitLayouts(string $dungeon_id, array $dungeon_data): array {
+    $room_ids = [];
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room_entry) {
+      $room_id = '';
+      if (is_array($room_entry)) {
+        $room_id = trim((string) ($room_entry['room_id'] ?? ''));
+      }
+      elseif (is_string($room_entry)) {
+        $room_id = trim($room_entry);
+      }
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+    if ($room_ids === []) {
+      return [];
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'layout_data'])
+      ->condition('room_id', array_keys($room_ids), 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    if (!is_array($rows) || $rows === []) {
+      return [];
+    }
+
+    $connectors = [];
+    $seen_pairs = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($row['room_id'] ?? ''));
+      if ($from_room_id === '') {
+        continue;
+      }
+
+      $layout_data = json_decode((string) ($row['layout_data'] ?? ''), TRUE);
+      $exit_links = is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [];
+      foreach ($exit_links as $exit_link) {
+        if (!is_array($exit_link)) {
+          continue;
+        }
+        $to_room_id = trim((string) ($exit_link['target_room_id'] ?? ''));
+        if ($to_room_id === '' || $to_room_id === $from_room_id) {
+          continue;
+        }
+
+        $pair = [$from_room_id, $to_room_id];
+        sort($pair, SORT_STRING);
+        $pair_key = $pair[0] . '::' . $pair[1];
+        if (isset($seen_pairs[$pair_key])) {
+          continue;
+        }
+        $seen_pairs[$pair_key] = TRUE;
+
+        $connectors[] = [
+          'dungeon_id' => $dungeon_id,
+          'from_room_id' => $from_room_id,
+          'to_room_id' => $to_room_id,
+          'kind' => 'hallway',
+          'direction' => 'bidirectional',
+          'default_state' => 'open',
+          'trap_data' => NULL,
+          'lock_data' => NULL,
+          'requirements_data' => NULL,
+          'description' => 'Synthesized from canonical layout_data.exits',
+          'travel_cost' => 0,
+          'is_discovered_default' => 1,
+        ];
+      }
+    }
+
+    return $connectors;
   }
 
   /**
@@ -231,6 +344,8 @@ class ConnectorDefinitionService {
    */
   public function saveCampaignConnector(int $campaign_id, array $data): string {
     $this->validateConnectorData($data);
+    $this->assertConnectorEndpointColumnsPresent('dc_campaign_connections');
+    $endpoint_hexes = $this->requireConnectorEndpointHexes($data);
     $connection_id = $this->deriveConnectionId($data);
     $now = time();
 
@@ -240,6 +355,10 @@ class ConnectorDefinitionService {
         'dungeon_id' => (string) $data['dungeon_id'],
         'from_room_id' => (string) $data['from_room_id'],
         'to_room_id' => (string) $data['to_room_id'],
+        'from_hex_q' => $endpoint_hexes['from_hex']['q'],
+        'from_hex_r' => $endpoint_hexes['from_hex']['r'],
+        'to_hex_q' => $endpoint_hexes['to_hex']['q'],
+        'to_hex_r' => $endpoint_hexes['to_hex']['r'],
         'direction' => (string) ($data['direction'] ?? 'bidirectional'),
         'kind' => (string) ($data['kind'] ?? 'hallway'),
         'state' => (string) ($data['state'] ?? $data['default_state'] ?? 'open'),
@@ -274,7 +393,7 @@ class ConnectorDefinitionService {
       ->fetchAssoc();
 
     if ($row) {
-      return $this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data']);
+      return $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data']));
     }
 
     return $this->loadCanonicalConnector($connection_id);
@@ -295,7 +414,7 @@ class ConnectorDefinitionService {
 
     if (!empty($campaign_rows)) {
       return array_values(array_map(
-        fn(array $row) => $this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data']),
+        fn(array $row) => $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data'])),
         $campaign_rows
       ));
     }
@@ -321,7 +440,7 @@ class ConnectorDefinitionService {
 
     if (!empty($rows)) {
       return array_values(array_map(
-        fn(array $row) => $this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data']),
+        fn(array $row) => $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data'])),
         $rows
       ));
     }
@@ -392,6 +511,273 @@ class ConnectorDefinitionService {
       }
     }
     return $row;
+  }
+
+  /**
+   * Ensure connector payload carries both endpoint hex anchors.
+   *
+   * @param array<string,mixed> $data
+   *   Connector payload.
+   *
+   * @return array{from_hex: array{q:int,r:int}, to_hex: array{q:int,r:int}}
+   *   Normalized endpoint hexes.
+   */
+  protected function requireConnectorEndpointHexes(array $data): array {
+    $from_hex = $this->extractConnectorHex($data, 'from');
+    $to_hex = $this->extractConnectorHex($data, 'to');
+    if ($from_hex === NULL || $to_hex === NULL) {
+      throw new \InvalidArgumentException('ConnectorDefinitionService: endpoint hexes are required (from_hex/to_hex).');
+    }
+
+    return ['from_hex' => $from_hex, 'to_hex' => $to_hex];
+  }
+
+  /**
+   * Enforce endpoint-hex contract using explicit data or room layout derivation.
+   *
+   * @param array<string,mixed> $connector
+   *   Connector payload.
+   * @param array<string, array<string,mixed>> $layout_map
+   *   Layout map keyed by room_id.
+   * @param string $dungeon_id
+   *   Dungeon id for errors.
+   * @param string $source
+   *   Contract source label.
+   *
+   * @return array<string,mixed>
+   *   Connector with explicit from_hex/to_hex.
+   */
+  protected function enforceEndpointHexContract(array $connector, array $layout_map, string $dungeon_id, string $source): array {
+    $from_room_id = trim((string) ($connector['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($connector['to_room_id'] ?? ''));
+    if ($from_room_id === '' || $to_room_id === '') {
+      throw new \InvalidArgumentException(sprintf(
+        'Connector endpoint contract violation (%s): %s missing from_room_id/to_room_id.',
+        $source,
+        $dungeon_id
+      ));
+    }
+
+    $from_hex = $this->extractConnectorHex($connector, 'from');
+    $to_hex = $this->extractConnectorHex($connector, 'to');
+    $from_layout = $layout_map[$from_room_id] ?? [];
+    $to_layout = $layout_map[$to_room_id] ?? [];
+
+    if ($from_hex === NULL) {
+      $from_hex = $this->extractExitHexForTarget($from_layout, $to_room_id);
+    }
+    if ($to_hex === NULL) {
+      $to_hex = $this->extractExitHexForTarget($to_layout, $from_room_id);
+    }
+    if ($from_hex === NULL) {
+      $from_hex = $this->resolveRoomAnchorHex($from_layout, TRUE);
+    }
+    if ($to_hex === NULL) {
+      $to_hex = $this->resolveRoomAnchorHex($to_layout, FALSE);
+    }
+
+    if ($from_hex === NULL || $to_hex === NULL) {
+      throw new \InvalidArgumentException(sprintf(
+        'Connector endpoint contract violation (%s): %s %s -> %s missing resolvable endpoint hexes.',
+        $source,
+        $dungeon_id,
+        $from_room_id,
+        $to_room_id
+      ));
+    }
+
+    $connector['from_hex'] = $from_hex;
+    $connector['to_hex'] = $to_hex;
+    return $connector;
+  }
+
+  /**
+   * Load canonical room layout map for rooms present in one dungeon payload.
+   *
+   * @param array<string,mixed> $dungeon_data
+   *   Dungeon payload.
+   *
+   * @return array<string, array<string,mixed>>
+   *   Layout map keyed by room_id.
+   */
+  protected function loadRoomLayoutMapForDungeonPayload(array $dungeon_data): array {
+    $room_ids = [];
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room_entry) {
+      if (is_array($room_entry)) {
+        $room_id = trim((string) ($room_entry['room_id'] ?? ''));
+      }
+      else {
+        $room_id = trim((string) $room_entry);
+      }
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+    if ($room_ids === []) {
+      return [];
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'layout_data'])
+      ->condition('room_id', array_keys($room_ids), 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $layout_map = [];
+    foreach ((array) $rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $room_id = trim((string) ($row['room_id'] ?? ''));
+      if ($room_id === '') {
+        continue;
+      }
+      $layout = json_decode((string) ($row['layout_data'] ?? ''), TRUE);
+      if (is_array($layout)) {
+        $layout_map[$room_id] = $layout;
+      }
+    }
+
+    return $layout_map;
+  }
+
+  /**
+   * Extract endpoint hex from connector payload.
+   *
+   * Supports from_hex/to_hex arrays and q/r scalar columns.
+   *
+   * @param array<string,mixed> $connector
+   *   Connector payload.
+   * @param string $endpoint
+   *   from|to
+   *
+   * @return array{q:int,r:int}|null
+   *   Parsed coordinate.
+   */
+  protected function extractConnectorHex(array $connector, string $endpoint): ?array {
+    $hex = $connector[$endpoint . '_hex'] ?? NULL;
+    if (is_array($hex) && isset($hex['q'], $hex['r']) && is_numeric($hex['q']) && is_numeric($hex['r'])) {
+      return ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
+    }
+
+    $q_key = $endpoint . '_hex_q';
+    $r_key = $endpoint . '_hex_r';
+    if (array_key_exists($q_key, $connector) && array_key_exists($r_key, $connector) && is_numeric($connector[$q_key]) && is_numeric($connector[$r_key])) {
+      return ['q' => (int) $connector[$q_key], 'r' => (int) $connector[$r_key]];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Extract explicit exit-link coordinate for one target room.
+   *
+   * @param array<string,mixed> $layout
+   *   Room layout_data.
+   * @param string $target_room_id
+   *   Linked target room id.
+   *
+   * @return array{q:int,r:int}|null
+   *   Exit coordinate.
+   */
+  protected function extractExitHexForTarget(array $layout, string $target_room_id): ?array {
+    foreach ((array) ($layout['exits'] ?? []) as $link) {
+      if (!is_array($link)) {
+        continue;
+      }
+      if (trim((string) ($link['target_room_id'] ?? '')) !== $target_room_id) {
+        continue;
+      }
+
+      if (isset($link['q'], $link['r']) && is_numeric($link['q']) && is_numeric($link['r'])) {
+        return ['q' => (int) $link['q'], 'r' => (int) $link['r']];
+      }
+      if (
+        is_array($link['hex'] ?? NULL)
+        && isset($link['hex']['q'], $link['hex']['r'])
+        && is_numeric($link['hex']['q'])
+        && is_numeric($link['hex']['r'])
+      ) {
+        return ['q' => (int) $link['hex']['q'], 'r' => (int) $link['hex']['r']];
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Resolve deterministic fallback room anchor.
+   *
+   * @param array<string,mixed> $layout
+   *   Room layout_data.
+   * @param bool $prefer_exit
+   *   TRUE picks exit_points first; FALSE picks entry_points first.
+   *
+   * @return array{q:int,r:int}|null
+   *   Anchor coordinate.
+   */
+  protected function resolveRoomAnchorHex(array $layout, bool $prefer_exit): ?array {
+    $point_sets = $prefer_exit
+      ? [(array) ($layout['exit_points'] ?? []), (array) ($layout['entry_points'] ?? [])]
+      : [(array) ($layout['entry_points'] ?? []), (array) ($layout['exit_points'] ?? [])];
+    foreach ($point_sets as $points) {
+      foreach ($points as $point) {
+        if (is_array($point) && isset($point['q'], $point['r']) && is_numeric($point['q']) && is_numeric($point['r'])) {
+          return ['q' => (int) $point['q'], 'r' => (int) $point['r']];
+        }
+      }
+    }
+
+    foreach ((array) ($layout['hexes'] ?? []) as $hex) {
+      if (is_array($hex) && isset($hex['q'], $hex['r']) && is_numeric($hex['q']) && is_numeric($hex['r'])) {
+        return ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Backward-compat hydrate endpoint hex arrays from scalar DB columns.
+   *
+   * @param array<string,mixed> $row
+   *   DB row.
+   *
+   * @return array<string,mixed>
+   *   Row with from_hex/to_hex arrays.
+   */
+  protected function hydrateEndpointHexes(array $row): array {
+    $from_hex = $this->extractConnectorHex($row, 'from');
+    $to_hex = $this->extractConnectorHex($row, 'to');
+    if ($from_hex !== NULL) {
+      $row['from_hex'] = $from_hex;
+    }
+    if ($to_hex !== NULL) {
+      $row['to_hex'] = $to_hex;
+    }
+
+    return $row;
+  }
+
+  /**
+   * Ensure connector table has endpoint-hex scalar columns before write paths.
+   *
+   * @throws \RuntimeException
+   */
+  protected function assertConnectorEndpointColumnsPresent(string $table_name): void {
+    $schema = $this->database->schema();
+    if (!$schema->tableExists($table_name)) {
+      throw new \RuntimeException(sprintf('ConnectorDefinitionService: required table "%s" is missing.', $table_name));
+    }
+
+    foreach (['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'] as $field_name) {
+      if (!$schema->fieldExists($table_name, $field_name)) {
+        throw new \RuntimeException(sprintf(
+          'ConnectorDefinitionService: table "%s" is missing required field "%s". Run update hook 10159.',
+          $table_name,
+          $field_name
+        ));
+      }
+    }
   }
 
 }

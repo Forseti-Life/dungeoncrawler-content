@@ -1435,7 +1435,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
           'dungeon_data' => $dungeon_data,
         ]);
         if ($quest_data === []) {
-          $template_row = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+          $template_row = $this->database->select('dc_canonical_quests', 't')
             ->fields('t')
             ->condition('template_id', $template_id)
             ->range(0, 1)

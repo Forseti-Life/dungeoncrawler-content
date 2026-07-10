@@ -214,7 +214,7 @@ class QuestTemplateCommands extends DrushCommands {
    * @aliases dcq-list
    */
   public function listTemplates(array $options = ['format' => 'table']): void {
-    $templates = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+    $templates = $this->database->select('dc_canonical_quests', 't')
       ->fields('t', ['template_id', 'name', 'quest_type', 'level_min', 'level_max'])
       ->orderBy('quest_type')
       ->orderBy('level_min')

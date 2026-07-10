@@ -180,6 +180,37 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::resolveDirectlyAddressedNpc
+   */
+  public function testResolveDirectlyAddressedNpcMatchesNameAfterYouToken(): void {
+    $roomNpcs = [
+      [
+        'entity_ref' => 'scholar_npc',
+        'profile' => [
+          'display_name' => 'Marta the Scholar',
+          'attitude' => 'indifferent',
+        ],
+      ],
+      [
+        'entity_ref' => 'tavern_keeper',
+        'profile' => [
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+        ],
+      ],
+    ];
+
+    $resolved = $this->roomChatService->publicResolveDirectlyAddressedNpc(
+      $roomNpcs,
+      'For you Eldric, your stuff'
+    );
+
+    $this->assertNotNull($resolved);
+    $this->assertSame('tavern_keeper', $resolved['entity_ref']);
+    $this->assertSame('Eldric', $resolved['profile']['display_name']);
+  }
+
+  /**
    * @covers ::resolveSelectedRoomNpcs
    */
   public function testResolveSelectedRoomNpcsParsesMultipleSpeakers(): void {
@@ -2531,6 +2562,32 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertNotNull($reply);
     $this->assertStringContainsString('handoff', strtolower($reply));
     $this->assertStringNotContainsString('What do you need?', $reply);
+  }
+
+  /**
+   * @covers ::buildDeterministicNpcDialogue
+   * @covers ::looksLikeQuestTurnInHandoff
+   */
+  public function testDeterministicNpcDialogueTreatsHereYouGoStuffAsHandoff(): void {
+    $this->psychologyService->method('loadProfile')
+      ->willReturnMap([
+        [22, 'npc_tavern_keeper', [
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+          'role' => 'quest_giver',
+        ]],
+      ]);
+
+    $reply = $this->roomChatService->publicBuildDeterministicNpcDialogue(
+      22,
+      'npc_tavern_keeper',
+      'Eldric',
+      'Eldric, here you go, here is your stuff.'
+    );
+
+    $this->assertNotNull($reply);
+    $this->assertStringContainsString('handoff', strtolower($reply));
+    $this->assertStringNotContainsString('I have work for you', $reply);
   }
 
   /**

@@ -1909,6 +1909,7 @@ class StorylineGenerationService {
       ->condition('campaign_id', $campaign_id)
       ->condition('quest_id', (string) ($inserted['quest_id'] ?? ''))
       ->execute();
+    $this->storylineManager->synchronizeCampaignValidationIndexes($campaign_id, $storyline_id);
 
     return $this->database->select('dc_campaign_quests', 'q')
       ->fields('q')

@@ -77,12 +77,16 @@
         "little_trouble_in_big_absalom"
       ],
       "schema_data": {
+        "schema_version": "1.0.0",
         "item_id": "ltba-magical-hedge-trimmer",
-        "item_type": "magic_item",
-        "source_book": "paizo_free_rpg_day",
-        "source_module": "little-trouble-in-big-absalom",
-        "price_gp": 0,
-        "description": "A magical hedge trimmer sought during the Grandma's House chapter."
+        "name": "Magical Hedge Trimmer",
+        "item_type": "adventuring_gear",
+        "level": 1,
+        "rarity": "uncommon",
+        "description": "A magical hedge trimmer sought during the Grandma's House chapter.",
+        "price": {
+          "gp": 0
+        }
       },
       "version": "1.0.0"
     }

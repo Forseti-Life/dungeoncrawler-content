@@ -61,6 +61,7 @@ class QuestTouchpointService {
     }
 
     $objective_type = strtolower((string) ($touchpoint['objective_type'] ?? ''));
+    $objective_id_hint = trim((string) ($touchpoint['objective_id'] ?? ''));
     if ($objective_type === '') {
       return [
         'success' => FALSE,
@@ -131,6 +132,7 @@ class QuestTouchpointService {
       && $this->shouldAutoApplyAllInteractCandidates($touchpoint, $candidates, $objective_type, $confidence)
     ) {
       $applied_objectives = [];
+      $started_quests = [];
       foreach ($candidates as $candidate) {
         $progress_character_id = (int) ($candidate['progress_character_id'] ?? 0);
         if ($progress_character_id <= 0) {
@@ -145,6 +147,13 @@ class QuestTouchpointService {
               'decision' => 'NO_ACTION',
               'error' => sprintf('Failed to start offered quest "%s" before applying touchpoint progress.', (string) $candidate['quest_id']),
             ];
+          }
+          if ($this->shouldDeferStartedQuestObjectiveProgress($touchpoint, $objective_id_hint)) {
+            $started_quests[] = [
+              'quest_id' => (string) $candidate['quest_id'],
+              'objective_id' => (string) $candidate['objective_id'],
+            ];
+            continue;
           }
         }
 
@@ -186,11 +195,22 @@ class QuestTouchpointService {
         'applied_at' => $this->time->getRequestTime(),
       ]);
 
+      if ($applied_objectives === [] && $started_quests !== []) {
+        return [
+          'success' => TRUE,
+          'decision' => 'STARTED_QUEST',
+          'requires_confirmation' => FALSE,
+          'started_quests' => $started_quests,
+          'reason' => 'Offered quest started; explicit follow-up interaction is required before objective progress is recorded.',
+        ];
+      }
+
       return [
         'success' => TRUE,
         'decision' => 'APPLY_PROGRESS',
         'requires_confirmation' => FALSE,
         'applied_objectives' => $applied_objectives,
+        'started_quests' => $started_quests,
       ];
     }
 
@@ -226,6 +246,24 @@ class QuestTouchpointService {
           'success' => FALSE,
           'decision' => 'NO_ACTION',
           'error' => 'Failed to start offered quest before applying touchpoint progress',
+        ];
+      }
+      if ($this->shouldDeferStartedQuestObjectiveProgress($touchpoint, $objective_id_hint)) {
+        $this->fingerprintStore->set($fingerprint, [
+          'campaign_id' => $campaign_id,
+          'character_id' => $character_id,
+          'quest_id' => $match['quest_id'],
+          'objective_id' => $match['objective_id'],
+          'applied_at' => $this->time->getRequestTime(),
+        ]);
+
+        return [
+          'success' => TRUE,
+          'decision' => 'STARTED_QUEST',
+          'requires_confirmation' => FALSE,
+          'quest_id' => $match['quest_id'],
+          'objective_id' => $match['objective_id'],
+          'reason' => 'Offered quest started; explicit follow-up interaction is required before objective progress is recorded.',
         ];
       }
     }
@@ -288,6 +326,18 @@ class QuestTouchpointService {
     }
 
     return TRUE;
+  }
+
+  /**
+   * Require explicit objective resolution after direct dialogue starts an offered quest.
+   */
+  protected function shouldDeferStartedQuestObjectiveProgress(array $touchpoint, string $objective_id_hint): bool {
+    if ($objective_id_hint !== '') {
+      return FALSE;
+    }
+
+    $matching_mode = strtolower(trim((string) ($touchpoint['matching_mode'] ?? '')));
+    return $matching_mode === 'direct_npc_dialogue';
   }
 
   /**

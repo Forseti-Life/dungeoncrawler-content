@@ -207,6 +207,17 @@ class NavigationService {
     ));
     $origin_hex = $this->normalizeHex($travels_forward ? ($connection['from_hex'] ?? NULL) : ($connection['to_hex'] ?? NULL));
     $target_hex = $this->normalizeHex($travels_forward ? ($connection['to_hex'] ?? NULL) : ($connection['from_hex'] ?? NULL));
+    if ($origin_hex === NULL || $target_hex === NULL) {
+      [$resolved_origin_hex, $resolved_target_hex] = $this->resolveConnectionEndpointHexes(
+        $dungeon_data,
+        $room_id,
+        $target_room_id,
+        $origin_hex,
+        $target_hex
+      );
+      $origin_hex = $resolved_origin_hex;
+      $target_hex = $resolved_target_hex;
+    }
     $type = trim((string) ($connection['type'] ?? 'passage')) ?: 'passage';
     $is_discovered = array_key_exists('is_discovered', $connection) ? !empty($connection['is_discovered']) : TRUE;
     $is_passable = array_key_exists('is_passable', $connection) ? !empty($connection['is_passable']) : TRUE;
@@ -468,6 +479,30 @@ class NavigationService {
     if (!isset($normalized['to_hex']) && is_array($connection['to'] ?? NULL)) {
       $normalized['to_hex'] = $connection['to'];
     }
+    if (
+      !isset($normalized['from_hex'])
+      && array_key_exists('from_hex_q', $connection)
+      && array_key_exists('from_hex_r', $connection)
+      && is_numeric($connection['from_hex_q'])
+      && is_numeric($connection['from_hex_r'])
+    ) {
+      $normalized['from_hex'] = [
+        'q' => (int) $connection['from_hex_q'],
+        'r' => (int) $connection['from_hex_r'],
+      ];
+    }
+    if (
+      !isset($normalized['to_hex'])
+      && array_key_exists('to_hex_q', $connection)
+      && array_key_exists('to_hex_r', $connection)
+      && is_numeric($connection['to_hex_q'])
+      && is_numeric($connection['to_hex_r'])
+    ) {
+      $normalized['to_hex'] = [
+        'q' => (int) $connection['to_hex_q'],
+        'r' => (int) $connection['to_hex_r'],
+      ];
+    }
 
     if (!isset($normalized['destination_type']) && isset($connection['to_type'])) {
       $normalized['destination_type'] = $connection['to_type'];
@@ -557,6 +592,16 @@ class NavigationService {
         $source,
         $state
       ));
+    }
+
+    foreach (['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'] as $hex_field) {
+      if (!array_key_exists($hex_field, $connection) || !is_numeric($connection[$hex_field])) {
+        throw new \InvalidArgumentException(sprintf(
+          'Navigation connector contract violation (%s): missing numeric field "%s".',
+          $source,
+          $hex_field
+        ));
+      }
     }
   }
 
@@ -649,6 +694,92 @@ class NavigationService {
       'q' => (int) $hex['q'],
       'r' => (int) $hex['r'],
     ];
+  }
+
+  /**
+   * Resolve authoritative origin/target endpoint hexes for a room connection.
+   *
+   * Connections must have explicit placement anchors so transition receipts and
+   * UI navigation can deterministically position party actors.
+   *
+   * @return array{0: array<string,int>|null, 1: array<string,int>|null}
+   *   Origin and target hex endpoints.
+   */
+  protected function resolveConnectionEndpointHexes(
+    array $dungeon_data,
+    string $origin_room_id,
+    string $target_room_id,
+    ?array $origin_hex,
+    ?array $target_hex
+  ): array {
+    $origin_room = $this->findRoomById($dungeon_data, $origin_room_id);
+    $target_room = $this->findRoomById($dungeon_data, $target_room_id);
+
+    if ($origin_hex === NULL && is_array($origin_room)) {
+      $origin_hex = $this->resolveRoomConnectionHex($origin_room, TRUE);
+    }
+    if ($target_hex === NULL && is_array($target_room)) {
+      $target_hex = $this->resolveRoomConnectionHex($target_room, FALSE);
+    }
+
+    return [$origin_hex, $target_hex];
+  }
+
+  /**
+   * Resolve a deterministic connection anchor hex from room metadata.
+   *
+   * @param array<string,mixed> $room
+   *   Room payload.
+   * @param bool $prefer_exit
+   *   TRUE to prioritize exit_points, FALSE to prioritize entry_points.
+   *
+   * @return array<string,int>|null
+   *   Room hex anchor.
+   */
+  protected function resolveRoomConnectionHex(array $room, bool $prefer_exit): ?array {
+    $room_hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    $hex_index = [];
+    foreach ($room_hexes as $hex) {
+      if (!is_array($hex) || !isset($hex['q'], $hex['r'])) {
+        continue;
+      }
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $hex_index[$q . ':' . $r] = ['q' => $q, 'r' => $r, 'is_entry' => !empty($hex['is_entry']) || !empty($hex['entry'])];
+    }
+
+    if ($hex_index === []) {
+      return NULL;
+    }
+
+    $primary_points = is_array($room[$prefer_exit ? 'exit_points' : 'entry_points'] ?? NULL)
+      ? $room[$prefer_exit ? 'exit_points' : 'entry_points']
+      : [];
+    $secondary_points = is_array($room[$prefer_exit ? 'entry_points' : 'exit_points'] ?? NULL)
+      ? $room[$prefer_exit ? 'entry_points' : 'exit_points']
+      : [];
+    foreach ([$primary_points, $secondary_points] as $points) {
+      foreach ($points as $point) {
+        if (!is_array($point) || !isset($point['q'], $point['r'])) {
+          continue;
+        }
+        $key = (int) $point['q'] . ':' . (int) $point['r'];
+        if (isset($hex_index[$key])) {
+          return ['q' => (int) $point['q'], 'r' => (int) $point['r']];
+        }
+      }
+    }
+
+    foreach ($hex_index as $hex_meta) {
+      if (!$prefer_exit && !empty($hex_meta['is_entry'])) {
+        return ['q' => (int) $hex_meta['q'], 'r' => (int) $hex_meta['r']];
+      }
+    }
+
+    $first = reset($hex_index);
+    return is_array($first)
+      ? ['q' => (int) ($first['q'] ?? 0), 'r' => (int) ($first['r'] ?? 0)]
+      : NULL;
   }
 
   /**

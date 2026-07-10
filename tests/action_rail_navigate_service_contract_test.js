@@ -60,9 +60,10 @@ assert(
 
 assert(
   navigationSystemSource.includes("connectionId.startsWith('quest-synthetic-')")
-    && navigationSystemSource.includes('!roomExistsInCurrentDungeon || isQuestSyntheticDestination')
+    && navigationSystemSource.includes('const hasCanonicalTransition = Boolean(connectionId) || Boolean(matchedCapability);')
+    && navigationSystemSource.includes('(!roomExistsInCurrentDungeon && !hasCanonicalTransition) || isQuestSyntheticDestination')
     && navigationSystemSource.includes('await this.requestInSessionDestination(roomId || roomName, {'),
-  'Quest-synthetic navigate entries use in-session destination resolution instead of direct transition validation'
+  'Only unresolved non-canonical destinations (or quest-synthetic) use in-session destination resolution'
 );
 
 console.log('\n=============================================');

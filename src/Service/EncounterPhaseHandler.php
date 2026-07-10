@@ -465,20 +465,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
           'reason' => 'Room transition requires params.target_room_id.',
         ];
       }
-      if ($this->findRoomById($dungeon_data, trim($target_room)) === NULL) {
-        return [
-          'valid' => FALSE,
-          'reason' => "Room '$target_room' does not exist.",
-        ];
-      }
-      $connection = $this->resolveRoomTransitionCapability($dungeon_data, trim($target_room), $intent['params'] ?? []);
+      $target_room = trim($target_room);
+      $room_exists = $this->findRoomById($dungeon_data, $target_room) !== NULL;
+      $connection = $this->resolveRoomTransitionCapability($dungeon_data, $target_room, $intent['params'] ?? []);
       if ($connection === NULL) {
+        $this->logger->warning('Encounter transition validation rejected as unreachable: actor={actor} target_room={target_room} active_room={active_room} room_exists={room_exists} connection_id={connection_id}', [
+          'actor' => $actor_id,
+          'target_room' => $target_room,
+          'active_room' => (string) ($dungeon_data['active_room_id'] ?? ''),
+          'room_exists' => $room_exists ? 1 : 0,
+          'connection_id' => (string) ($intent['params']['connection_id'] ?? ''),
+        ]);
         return [
           'valid' => FALSE,
           'reason' => "Room '$target_room' is not reachable from the active room.",
         ];
       }
       if (empty($connection['available'])) {
+        $this->logger->warning('Encounter transition validation rejected as blocked: actor={actor} target_room={target_room} blocked_reason={blocked_reason} connection_id={connection_id}', [
+          'actor' => $actor_id,
+          'target_room' => $target_room,
+          'blocked_reason' => (string) ($connection['blocked_reason'] ?? 'blocked'),
+          'connection_id' => (string) ($connection['connection_id'] ?? ($intent['params']['connection_id'] ?? '')),
+        ]);
         return [
           'valid' => FALSE,
           'reason' => sprintf(
@@ -487,6 +496,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
             (string) ($connection['blocked_reason'] ?? 'blocked')
           ),
         ];
+      }
+      if (!$room_exists) {
+        $this->logger->info('Encounter transition validation approved with deferred room materialization: actor={actor} target_room={target_room} connection_id={connection_id}', [
+          'actor' => $actor_id,
+          'target_room' => $target_room,
+          'connection_id' => (string) ($connection['connection_id'] ?? ($intent['params']['connection_id'] ?? '')),
+        ]);
       }
       return ['valid' => TRUE, 'reason' => NULL];
     }
@@ -611,6 +627,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       case 'transition':
         $result = $this->enterRoomFramework($actor_id, (string) ($params['target_room_id'] ?? ''), $params, $game_state, $dungeon_data, $campaign_id);
         if (!empty($result['error'])) {
+          $this->logger->warning('Encounter transition execution failed: campaign={campaign_id} actor={actor} target_room={target_room} active_room={active_room} error={error}', [
+            'campaign_id' => $campaign_id,
+            'actor' => (string) ($actor_id ?? ''),
+            'target_room' => (string) ($params['target_room_id'] ?? ''),
+            'active_room' => (string) ($dungeon_data['active_room_id'] ?? ''),
+            'error' => (string) ($result['error'] ?? 'unknown'),
+          ]);
           return [
             'success' => FALSE,
             'result' => ['error' => $result['error']],
@@ -3632,13 +3655,33 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       return ['error' => 'No target room specified.'];
     }
 
+    $this->logger->info('Encounter transition requested: campaign={campaign_id} actor={actor} from_room={from_room} target_room={target_room} connection_id={connection_id}', [
+      'campaign_id' => $campaign_id,
+      'actor' => (string) ($actor_id ?? ''),
+      'from_room' => (string) ($dungeon_data['active_room_id'] ?? ''),
+      'target_room' => $target_room_id,
+      'connection_id' => (string) ($params['connection_id'] ?? ''),
+    ]);
+
     $capability = NULL;
     if (!empty($dungeon_data['active_room_id']) && (string) $dungeon_data['active_room_id'] !== $target_room_id) {
       $capability = $this->resolveRoomTransitionCapability($dungeon_data, $target_room_id, $params);
       if ($capability === NULL) {
+        $this->logger->warning('Encounter transition capability missing: campaign={campaign_id} actor={actor} from_room={from_room} target_room={target_room}', [
+          'campaign_id' => $campaign_id,
+          'actor' => (string) ($actor_id ?? ''),
+          'from_room' => (string) ($dungeon_data['active_room_id'] ?? ''),
+          'target_room' => $target_room_id,
+        ]);
         return ['error' => "Room '$target_room_id' is not reachable from the active room."];
       }
       if (empty($capability['available'])) {
+        $this->logger->warning('Encounter transition capability blocked: campaign={campaign_id} actor={actor} target_room={target_room} blocked_reason={blocked_reason}', [
+          'campaign_id' => $campaign_id,
+          'actor' => (string) ($actor_id ?? ''),
+          'target_room' => $target_room_id,
+          'blocked_reason' => (string) ($capability['blocked_reason'] ?? 'blocked'),
+        ]);
         return ['error' => sprintf("Room '%s' is not available for transition: %s.", $target_room_id, (string) ($capability['blocked_reason'] ?? 'blocked'))];
       }
     }
@@ -3646,13 +3689,23 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $room = $this->findRoomById($dungeon_data, $target_room_id);
     if ($room === NULL) {
       if (!$this->materializeCanonicalRoomForTransition($campaign_id, $dungeon_data, $target_room_id, $capability)) {
+        $this->logger->warning('Encounter transition materialization failed: campaign={campaign_id} target_room={target_room} capability_connection_id={connection_id}', [
+          'campaign_id' => $campaign_id,
+          'target_room' => $target_room_id,
+          'connection_id' => (string) ($capability['connection_id'] ?? ''),
+        ]);
         return ['error' => "Room '$target_room_id' does not exist."];
       }
+      $this->logger->info('Encounter transition materialized canonical room: campaign={campaign_id} target_room={target_room}', [
+        'campaign_id' => $campaign_id,
+        'target_room' => $target_room_id,
+      ]);
       $room = $this->findRoomById($dungeon_data, $target_room_id);
       if ($room === NULL) {
         throw new \RuntimeException(sprintf('Encounter transition contract violation: materialized room %s was not present in dungeon payload after instantiation.', $target_room_id));
       }
     }
+    $this->enqueueLinkedRoomNeighborPreseed($campaign_id, $dungeon_data, $target_room_id);
 
     $from_room = $dungeon_data['active_room_id'] ?? NULL;
     $dungeon_data['active_room_id'] = $target_room_id;
@@ -3865,6 +3918,194 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ->execute();
 
     return TRUE;
+  }
+
+  /**
+   * Materialize one-hop linked room neighbors after entering a room.
+   *
+   * This pre-seeds campaign room state for directly connected destinations to
+   * avoid first-visit races on immediate follow-up navigation.
+   */
+  protected function materializeLinkedRoomNeighborsForCampaign(int $campaign_id, array &$dungeon_data, string $anchor_room_id): void {
+    $anchor_room_id = trim($anchor_room_id);
+    if ($campaign_id <= 0 || $anchor_room_id === '') {
+      return;
+    }
+
+    $connections = is_array($dungeon_data['hex_map']['connections'] ?? NULL) ? $dungeon_data['hex_map']['connections'] : [];
+    if ($connections === []) {
+      return;
+    }
+
+    $neighbors = [];
+    foreach ($connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $destination_type = strtolower(trim((string) ($connection['destination_type'] ?? 'room')));
+      if ($destination_type !== '' && $destination_type !== 'room') {
+        continue;
+      }
+
+      $from_room_id = trim((string) (
+        $connection['from_room']
+        ?? $connection['from_room_id']
+        ?? ($connection['from']['room_id'] ?? '')
+      ));
+      $to_room_id = trim((string) (
+        $connection['to_room']
+        ?? $connection['to_room_id']
+        ?? ($connection['to']['room_id'] ?? '')
+      ));
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      if ($from_room_id === $to_room_id) {
+        continue;
+      }
+
+      if ($from_room_id === $anchor_room_id) {
+        $neighbor_room_id = $to_room_id;
+        $origin_hex = is_array($connection['from_hex'] ?? NULL) ? $connection['from_hex'] : NULL;
+        $target_hex = is_array($connection['to_hex'] ?? NULL) ? $connection['to_hex'] : NULL;
+      }
+      elseif ($to_room_id === $anchor_room_id) {
+        $bidirectional = !array_key_exists('bidirectional', $connection) || !empty($connection['bidirectional']);
+        if (!$bidirectional) {
+          continue;
+        }
+        $neighbor_room_id = $from_room_id;
+        $origin_hex = is_array($connection['to_hex'] ?? NULL) ? $connection['to_hex'] : NULL;
+        $target_hex = is_array($connection['from_hex'] ?? NULL) ? $connection['from_hex'] : NULL;
+      }
+      else {
+        continue;
+      }
+
+      if ($neighbor_room_id === '' || $neighbor_room_id === $anchor_room_id) {
+        continue;
+      }
+      $neighbors[$neighbor_room_id] = [
+        'origin_hex' => $origin_hex,
+        'target_hex' => $target_hex,
+      ];
+    }
+
+    foreach ($neighbors as $neighbor_room_id => $neighbor) {
+      if ($this->findRoomById($dungeon_data, $neighbor_room_id) !== NULL) {
+        continue;
+      }
+
+      $materialize_capability = [
+        'destination_type' => 'room',
+        'origin_room_id' => $anchor_room_id,
+      ];
+      if (is_array($neighbor['origin_hex'] ?? NULL) && isset($neighbor['origin_hex']['q'], $neighbor['origin_hex']['r'])) {
+        $materialize_capability['origin_hex'] = [
+          'q' => (int) $neighbor['origin_hex']['q'],
+          'r' => (int) $neighbor['origin_hex']['r'],
+        ];
+      }
+      if (is_array($neighbor['target_hex'] ?? NULL) && isset($neighbor['target_hex']['q'], $neighbor['target_hex']['r'])) {
+        $materialize_capability['target_hex'] = [
+          'q' => (int) $neighbor['target_hex']['q'],
+          'r' => (int) $neighbor['target_hex']['r'],
+        ];
+      }
+
+      if (!$this->materializeCanonicalRoomForTransition($campaign_id, $dungeon_data, $neighbor_room_id, $materialize_capability)) {
+        throw new \RuntimeException(sprintf(
+          'Encounter transition preseed contract violation: linked room %s from anchor room %s could not be materialized from canonical storage.',
+          $neighbor_room_id,
+          $anchor_room_id
+        ));
+      }
+
+      $this->logger->info('Encounter transition preseed materialized linked room: campaign={campaign_id} anchor_room={anchor_room} linked_room={linked_room}', [
+        'campaign_id' => $campaign_id,
+        'anchor_room' => $anchor_room_id,
+        'linked_room' => $neighbor_room_id,
+      ]);
+    }
+  }
+
+  /**
+   * Queue non-blocking linked-room preseed after successful room entry.
+   */
+  protected function enqueueLinkedRoomNeighborPreseed(int $campaign_id, array $dungeon_data, string $anchor_room_id): void {
+    $anchor_room_id = trim($anchor_room_id);
+    if ($campaign_id <= 0 || $anchor_room_id === '') {
+      return;
+    }
+
+    $dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['map_id']
+      ?? ''
+    ));
+    if ($dungeon_id === '') {
+      return;
+    }
+
+    \Drupal::queue('dungeoncrawler_content.navigation_neighbor_preseed')
+      ->createItem([
+        'campaign_id' => $campaign_id,
+        'dungeon_id' => $dungeon_id,
+        'anchor_room_id' => $anchor_room_id,
+      ]);
+  }
+
+  /**
+   * Process one background neighbor-preseed queue item.
+   */
+  public function processLinkedRoomPreseedQueueItem(int $campaign_id, string $dungeon_id, string $anchor_room_id): void {
+    $campaign_id = (int) $campaign_id;
+    $dungeon_id = trim($dungeon_id);
+    $anchor_room_id = trim($anchor_room_id);
+    if ($campaign_id <= 0 || $dungeon_id === '' || $anchor_room_id === '') {
+      throw new \InvalidArgumentException('Linked-room preseed queue contract violation: campaign_id, dungeon_id, and anchor_room_id are required.');
+    }
+
+    $row = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('dungeon_id', $dungeon_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      throw new \RuntimeException(sprintf(
+        'Linked-room preseed queue contract violation: campaign %d dungeon %s not found.',
+        $campaign_id,
+        $dungeon_id
+      ));
+    }
+
+    $dungeon_data = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
+    if (!is_array($dungeon_data)) {
+      throw new \RuntimeException(sprintf(
+        'Linked-room preseed queue contract violation: campaign %d dungeon %s has invalid dungeon_data JSON.',
+        $campaign_id,
+        $dungeon_id
+      ));
+    }
+
+    $before_room_count = count((array) ($dungeon_data['rooms'] ?? []));
+    $this->materializeLinkedRoomNeighborsForCampaign($campaign_id, $dungeon_data, $anchor_room_id);
+    $after_room_count = count((array) ($dungeon_data['rooms'] ?? []));
+
+    if ($after_room_count === $before_room_count) {
+      return;
+    }
+
+    $this->database->update('dc_campaign_dungeons')
+      ->fields([
+        'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => time(),
+      ])
+      ->condition('id', (int) $row['id'])
+      ->execute();
   }
 
   /**
@@ -8792,7 +9033,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   /**
    * Resolve Res14 H3 index for a room hex coordinate.
    */
-  protected function resolveRoomHexH3IndexRes14(array $dungeon_data, string $room_id, array $hex): string {
+  protected function resolveRoomHexH3IndexRes14(array &$dungeon_data, string $room_id, array $hex): string {
     $room = $this->findRoomById($dungeon_data, $room_id);
     if ($room === NULL) {
       throw new \RuntimeException(sprintf(
@@ -8812,6 +9053,22 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       }
       $h3_index = trim((string) ($room_hex['h3_index_res14'] ?? $room_hex['h3_index'] ?? ''));
       if ($h3_index === '') {
+        $this->ensureRoomHexH3IndexesInDungeonPayload($dungeon_data, $room_id);
+        $refreshed_room = $this->findRoomById($dungeon_data, $room_id);
+        foreach ((array) ($refreshed_room['hexes'] ?? []) as $refreshed_hex) {
+          if (!is_array($refreshed_hex)) {
+            continue;
+          }
+          if ((int) ($refreshed_hex['q'] ?? 0) !== $target_q || (int) ($refreshed_hex['r'] ?? 0) !== $target_r) {
+            continue;
+          }
+          $refreshed_h3_index = trim((string) ($refreshed_hex['h3_index_res14'] ?? $refreshed_hex['h3_index'] ?? ''));
+          if ($refreshed_h3_index !== '') {
+            return strtolower($refreshed_h3_index);
+          }
+          break;
+        }
+
         throw new \RuntimeException(sprintf(
           'Encounter transition contract violation: room %s hex (%d,%d) missing h3_index_res14.',
           $room_id,
@@ -8829,6 +9086,34 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $target_q,
       $target_r
     ));
+  }
+
+  /**
+   * Ensure one room's hexes carry authoritative Res14 H3 indexes.
+   */
+  protected function ensureRoomHexH3IndexesInDungeonPayload(array &$dungeon_data, string $room_id): void {
+    $dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['map_id']
+      ?? ''
+    ));
+    if ($dungeon_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Encounter transition contract violation: cannot backfill h3_index_res14 for room %s without dungeon_id.',
+        $room_id
+      ));
+    }
+
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $index => $room) {
+      if (!is_array($room) || (string) ($room['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      /** @var \Drupal\dungeoncrawler_content\Service\MapGeneratorService $map_generator */
+      $map_generator = \Drupal::service('dungeoncrawler_content.map_generator');
+      $dungeon_data['rooms'][$index] = $map_generator->ensureRoomHexH3Indexes($dungeon_id, $room);
+      return;
+    }
   }
 
   /**

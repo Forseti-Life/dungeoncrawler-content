@@ -139,6 +139,12 @@ class LocationGenerationController extends ControllerBase {
 
     $origin_room_id = $this->resolveOriginRoomId($dungeon_data, (string) ($data['origin_room_id'] ?? ''));
     if ($origin_room_id === '') {
+      $this->getLogger('dungeoncrawler_content')->warning('Location request rejected: unresolved origin room. campaign_id={campaign_id} destination={destination} requested_origin={requested_origin} active_room={active_room}', [
+        'campaign_id' => $campaign_id,
+        'destination' => $destination,
+        'requested_origin' => (string) ($data['origin_room_id'] ?? ''),
+        'active_room' => (string) ($dungeon_data['active_room_id'] ?? ''),
+      ]);
       return new JsonResponse([
         'success' => FALSE,
         'error' => 'Unable to resolve an origin room for generation',
@@ -146,6 +152,11 @@ class LocationGenerationController extends ControllerBase {
     }
 
     if (!$this->roomExists($dungeon_data, $origin_room_id)) {
+      $this->getLogger('dungeoncrawler_content')->warning('Location request rejected: origin room not in active dungeon payload. campaign_id={campaign_id} destination={destination} origin_room_id={origin_room_id}', [
+        'campaign_id' => $campaign_id,
+        'destination' => $destination,
+        'origin_room_id' => $origin_room_id,
+      ]);
       return new JsonResponse([
         'success' => FALSE,
         'error' => 'origin_room_id does not exist in the active dungeon payload',
@@ -469,11 +480,21 @@ class LocationGenerationController extends ControllerBase {
   protected function resolveOriginRoomId(array $dungeon_data, string $requested_origin): string {
     $requested_origin = trim($requested_origin);
     if ($requested_origin !== '') {
-      return $requested_origin;
+      if ($this->roomExists($dungeon_data, $requested_origin)) {
+        return $requested_origin;
+      }
+      $resolved_from_alias = $this->resolveRoomIdFromSessionAlias($dungeon_data, $requested_origin);
+      if ($resolved_from_alias !== '') {
+        return $resolved_from_alias;
+      }
+      $resolved_from_source = $this->resolveRoomIdFromSourceRoomId($dungeon_data, $requested_origin);
+      if ($resolved_from_source !== '') {
+        return $resolved_from_source;
+      }
     }
 
     $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
-    if ($active_room_id !== '') {
+    if ($active_room_id !== '' && $this->roomExists($dungeon_data, $active_room_id)) {
       return $active_room_id;
     }
 
@@ -497,6 +518,57 @@ class LocationGenerationController extends ControllerBase {
     }
 
     return FALSE;
+  }
+
+  /**
+   * Resolve runtime room_id from canonical source_room_id.
+   */
+  protected function resolveRoomIdFromSourceRoomId(array $dungeon_data, string $source_room_id): string {
+    $source_room_id = trim($source_room_id);
+    if ($source_room_id === '') {
+      return '';
+    }
+    foreach (($dungeon_data['rooms'] ?? []) as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      if (trim((string) ($room['source_room_id'] ?? '')) !== $source_room_id) {
+        continue;
+      }
+      return trim((string) ($room['room_id'] ?? ''));
+    }
+    return '';
+  }
+
+  /**
+   * Resolve runtime room_id from chat/session-style alias keys.
+   */
+  protected function resolveRoomIdFromSessionAlias(array $dungeon_data, string $requested_origin): string {
+    $requested_origin = trim($requested_origin);
+    if ($requested_origin === '') {
+      return '';
+    }
+
+    $candidates = [];
+    if (preg_match('/\\.room\\.([a-zA-Z0-9_\\-]+)/', $requested_origin, $matches) === 1 && !empty($matches[1])) {
+      $candidates[] = trim((string) $matches[1]);
+    }
+    $tail = trim((string) preg_replace('/^.*\\./', '', $requested_origin));
+    if ($tail !== '') {
+      $candidates[] = $tail;
+    }
+    $candidates = array_values(array_unique(array_filter($candidates, static fn($value): bool => $value !== '')));
+    foreach ($candidates as $candidate) {
+      if ($this->roomExists($dungeon_data, $candidate)) {
+        return $candidate;
+      }
+      $resolved = $this->resolveRoomIdFromSourceRoomId($dungeon_data, $candidate);
+      if ($resolved !== '') {
+        return $resolved;
+      }
+    }
+
+    return '';
   }
 
   /**

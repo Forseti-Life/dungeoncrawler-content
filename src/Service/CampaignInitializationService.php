@@ -32,6 +32,7 @@ class CampaignInitializationService {
   private const STARTER_CITY_DUNGEON_DESCRIPTION = 'City hub containing The Gilded Tankard and nearby starter routes.';
   private const STARTER_CITY_STREETS_ROOM_ID = 'tpl_room_absalom_streets';
   private const H3_ACTIVE_RESOLUTION = 14;
+  private const INIT_STEP_BOOTSTRAP = 'campaign_bootstrap';
 
   protected Connection $database;
   protected UuidInterface $uuid;
@@ -100,6 +101,7 @@ class CampaignInitializationService {
   ): int {
     $now = $this->time->getRequestTime();
     $campaign_name = $this->resolveCampaignName($name, $theme, $uid, $now);
+    $operation_uuid = $this->uuid->generate();
 
     $transaction = $this->database->startTransaction('campaign_init');
     try {
@@ -108,6 +110,12 @@ class CampaignInitializationService {
       if (!$campaign_id) {
         return 0;
       }
+      $this->claimInitializationStep(
+        $campaign_id,
+        $operation_uuid,
+        self::INIT_STEP_BOOTSTRAP,
+        $now
+      );
 
       $starter_room = $this->loadStarterRoomSeed();
       if ($starter_room === NULL) {
@@ -169,6 +177,16 @@ class CampaignInitializationService {
           'room_id' => $starter_runtime_room_id,
         ]);
       }
+      $this->completeInitializationStep(
+        $campaign_id,
+        self::INIT_STEP_BOOTSTRAP,
+        $now,
+        [
+          'operation_uuid' => $operation_uuid,
+          'dungeon_id' => $dungeon_id,
+          'starter_room_id' => $starter_runtime_room_id,
+        ]
+      );
 
       $this->logger->info('Campaign {campaign_id} initialized with starter dungeon {dungeon_id}', [
         'campaign_id' => $campaign_id,
@@ -183,6 +201,103 @@ class CampaignInitializationService {
       }
       $this->logger->error('Campaign initialization failed: {error}', ['error' => $e->getMessage()]);
       return 0;
+    }
+  }
+
+  /**
+   * Record a campaign initialization step claim as the single-flight authority.
+   */
+  private function claimInitializationStep(
+    int $campaign_id,
+    string $operation_uuid,
+    string $step_name,
+    int $timestamp
+  ): void {
+    if ($campaign_id <= 0) {
+      throw new \RuntimeException('Campaign initialization contract violation: campaign id is required for step claims.');
+    }
+    if (trim($operation_uuid) === '') {
+      throw new \RuntimeException('Campaign initialization contract violation: operation uuid is required for step claims.');
+    }
+    $step_name = trim($step_name);
+    if ($step_name === '') {
+      throw new \RuntimeException('Campaign initialization contract violation: step name is required for step claims.');
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dc_campaign_initialization_steps')) {
+      throw new \RuntimeException('Campaign initialization contract violation: required table dc_campaign_initialization_steps is missing.');
+    }
+
+    try {
+      $this->database->insert('dc_campaign_initialization_steps')
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'operation_uuid' => $operation_uuid,
+          'step_name' => $step_name,
+          'step_status' => 'in_progress',
+          'details' => NULL,
+          'created' => $timestamp,
+          'updated' => $timestamp,
+        ])
+        ->execute();
+    }
+    catch (\Exception $e) {
+      throw new \RuntimeException(sprintf(
+        'Campaign initialization hard-failed: duplicate or invalid initialization step claim for campaign %d step %s (%s).',
+        $campaign_id,
+        $step_name,
+        $e->getMessage()
+      ), 0, $e);
+    }
+  }
+
+  /**
+   * Mark a claimed campaign initialization step as completed.
+   */
+  private function completeInitializationStep(
+    int $campaign_id,
+    string $step_name,
+    int $timestamp,
+    array $details = []
+  ): void {
+    $step_name = trim($step_name);
+    if ($campaign_id <= 0 || $step_name === '') {
+      throw new \RuntimeException('Campaign initialization contract violation: completion requires campaign id and step name.');
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dc_campaign_initialization_steps')) {
+      throw new \RuntimeException('Campaign initialization contract violation: required table dc_campaign_initialization_steps is missing.');
+    }
+
+    $encoded_details = json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded_details)) {
+      throw new \RuntimeException(sprintf(
+        'Campaign initialization contract violation: failed to encode completion details for campaign %d step %s.',
+        $campaign_id,
+        $step_name
+      ));
+    }
+
+    $updated = (int) $this->database->update('dc_campaign_initialization_steps')
+      ->fields([
+        'step_status' => 'completed',
+        'details' => $encoded_details,
+        'updated' => $timestamp,
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('step_name', $step_name)
+      ->condition('step_status', 'in_progress')
+      ->execute();
+
+    if ($updated !== 1) {
+      throw new \RuntimeException(sprintf(
+        'Campaign initialization contract violation: completion update affected %d rows for campaign %d step %s.',
+        $updated,
+        $campaign_id,
+        $step_name
+      ));
     }
   }
 
@@ -302,6 +417,28 @@ class CampaignInitializationService {
       'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
       'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [],
     ];
+    $starter_streets_room = $this->loadStarterCityStreetsRoomSeed();
+    if (!is_array($starter_streets_room)) {
+      $this->logger->error('Starter city streets asset is missing; refusing to synthesize starter dungeon.');
+      return FALSE;
+    }
+    $streets_layout_data = is_array($starter_streets_room['layout_data'] ?? NULL) ? $starter_streets_room['layout_data'] : [];
+    if (empty($streets_layout_data['hexes'])) {
+      throw new \RuntimeException('Starter city streets asset is incomplete; hexes are required.');
+    }
+    $streets_payload = [
+      'room_id' => (string) ($starter_streets_room['room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
+      'source_room_id' => (string) ($starter_streets_room['source_room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
+      'name' => (string) ($starter_streets_room['name'] ?? 'Absalom Streets'),
+      'description' => (string) ($starter_streets_room['description'] ?? ''),
+      'hexes' => is_array($streets_layout_data['hexes'] ?? NULL) ? $streets_layout_data['hexes'] : [],
+      'entry_points' => is_array($streets_layout_data['entry_points'] ?? NULL) ? $streets_layout_data['entry_points'] : [],
+      'exit_points' => is_array($streets_layout_data['exit_points'] ?? NULL) ? $streets_layout_data['exit_points'] : [],
+      'exits' => is_array($streets_layout_data['exits'] ?? NULL) ? $streets_layout_data['exits'] : [],
+      'terrain' => is_array($streets_layout_data['terrain'] ?? NULL) ? $streets_layout_data['terrain'] : [],
+      'lighting' => is_array($streets_layout_data['lighting'] ?? NULL) ? $streets_layout_data['lighting'] : [],
+      'room_type' => (string) ($streets_layout_data['room_type'] ?? 'city_street'),
+    ];
     $dungeon_data = [
       'schema_version' => '1.0.0',
       'level_id' => $level_id,
@@ -324,7 +461,7 @@ class CampaignInitializationService {
             'region_id' => 'starter-tavern-region',
             'name' => $dungeon_name,
             'description' => $dungeon_description,
-            'room_ids' => [$runtime_room_id],
+            'room_ids' => [$runtime_room_id, (string) $streets_payload['room_id']],
             'ambient_hazard_level' => 0,
           ],
         ],
@@ -332,12 +469,12 @@ class CampaignInitializationService {
           'created_at' => gmdate('c', $now),
           'generated_by' => 'asset-library',
           'is_finalized' => TRUE,
-          'total_rooms' => 1,
+          'total_rooms' => 2,
           'explored_rooms' => 0,
           'exploration_percentage' => 0,
         ],
       ],
-      'rooms' => [$room_payload],
+      'rooms' => [$room_payload, $streets_payload],
     ];
 
     $this->database->insert('dc_campaign_dungeons')
@@ -459,12 +596,25 @@ class CampaignInitializationService {
         ])
         ->execute();
 
+      $seen_coordinate_keys = [];
       foreach ($hexes as $hex_index => $hex) {
         if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
           throw new \RuntimeException(sprintf('H3 system-of-record contract violation: starter dungeon %s room %s hex[%d] must include numeric q/r.', $dungeon_id, $room_id, $hex_index));
         }
         $q = (int) $hex['q'];
         $r = (int) $hex['r'];
+        $coordinate_key = $q . ':' . $r;
+        if (isset($seen_coordinate_keys[$coordinate_key])) {
+          throw new \RuntimeException(sprintf(
+            'H3 system-of-record contract violation: starter dungeon %s room %s repeats source coordinate %s at hex[%d] and hex[%d].',
+            $dungeon_id,
+            $room_id,
+            $coordinate_key,
+            $seen_coordinate_keys[$coordinate_key],
+            $hex_index
+          ));
+        }
+        $seen_coordinate_keys[$coordinate_key] = $hex_index;
         $cell_latlng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $q, $r);
         $cell_h3 = H3SpatialHelper::latLngToH3Index((float) $cell_latlng['latitude'], (float) $cell_latlng['longitude'], self::H3_ACTIVE_RESOLUTION);
 
@@ -591,6 +741,38 @@ class CampaignInitializationService {
       'environment_tags' => $this->decodeJsonArray($record['environment_tags'] ?? NULL),
       'layout_data' => $this->decodeJsonArray($record['layout_data'] ?? NULL),
       'contents_data' => $this->decodeJsonArray($record['contents_data'] ?? NULL),
+    ];
+  }
+
+  /**
+   * Load canonical Absalom Streets room seed for starter dungeon linkage.
+   */
+  private function loadStarterCityStreetsRoomSeed(): ?array {
+    $record = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'layout_data'])
+      ->condition('room_id', self::STARTER_CITY_STREETS_ROOM_ID)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($record)) {
+      return NULL;
+    }
+
+    $room_id = trim((string) ($record['room_id'] ?? ''));
+    if ($room_id === '') {
+      return NULL;
+    }
+    $source_room_id = trim((string) ($record['source_room_id'] ?? ''));
+    if ($source_room_id === '') {
+      $source_room_id = $room_id;
+    }
+
+    return [
+      'room_id' => $room_id,
+      'source_room_id' => $source_room_id,
+      'name' => (string) ($record['name'] ?? 'Absalom Streets'),
+      'description' => (string) ($record['description'] ?? ''),
+      'layout_data' => $this->decodeJsonArray($record['layout_data'] ?? NULL),
     ];
   }
 
@@ -976,51 +1158,26 @@ class CampaignInitializationService {
     $instance_id = trim($instance_id);
     $name = trim($name);
 
-    $source_row = NULL;
-    if ($instance_id !== '') {
-      $source_row = $this->database->select('dc_campaign_characters', 'cc')
-        ->fields('cc', ['id', 'campaign_id', 'portrait'])
-        ->condition('cc.type', 'npc')
-        ->condition('cc.instance_id', $instance_id)
-        ->condition('cc.id', $target_row_id, '<>')
-        ->condition('cc.portrait', '', '<>')
-        ->isNotNull('cc.portrait')
-        ->orderBy('cc.updated', 'DESC')
-        ->orderBy('cc.id', 'DESC')
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-    }
-
-    if (!$source_row && $name !== '') {
-      $source_row = $this->database->select('dc_campaign_characters', 'cc')
-        ->fields('cc', ['id', 'campaign_id', 'portrait'])
-        ->condition('cc.type', 'npc')
-        ->condition('cc.name', $name)
-        ->condition('cc.id', $target_row_id, '<>')
-        ->condition('cc.portrait', '', '<>')
-        ->isNotNull('cc.portrait')
-        ->orderBy('cc.updated', 'DESC')
-        ->orderBy('cc.id', 'DESC')
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-    }
-
-    if (!$source_row) {
+    $canonical_source = $this->resolveCanonicalNpcPortraitSource($instance_id, $name);
+    if ($canonical_source === NULL) {
+      $this->logger->warning('NPC portrait canonical source missing; leaving runtime row empty for generation fallback. campaign_id={campaign_id} row_id={row_id} instance_id={instance_id} name={name}', [
+        'campaign_id' => $campaign_id,
+        'row_id' => $target_row_id,
+        'instance_id' => $instance_id,
+        'name' => $name,
+      ]);
       return;
     }
 
-    $source_row_id = (int) ($source_row['id'] ?? 0);
-    $source_campaign_id = (int) ($source_row['campaign_id'] ?? 0);
-    $source_portrait = trim((string) ($source_row['portrait'] ?? ''));
-    if ($source_row_id <= 0 || $source_portrait === '') {
-      return;
+    $image_id = (int) ($canonical_source['image_id'] ?? 0);
+    $canonical_portrait = trim((string) ($canonical_source['portrait_url'] ?? ''));
+    if ($image_id <= 0 || $canonical_portrait === '') {
+      throw new \RuntimeException(sprintf('Canonical portrait source contract violation for NPC %s (instance_id=%s).', $name !== '' ? $name : 'unknown', $instance_id));
     }
 
     $this->database->update('dc_campaign_characters')
       ->fields([
-        'portrait' => $source_portrait,
+        'portrait' => $canonical_portrait,
         'changed' => $now,
         'updated' => $now,
       ])
@@ -1028,67 +1185,31 @@ class CampaignInitializationService {
       ->condition('campaign_id', $campaign_id)
       ->execute();
 
-    $links = [];
-    if ($source_campaign_id > 0) {
-      $links = $this->database->select('dc_generated_image_links', 'l')
-        ->fields('l')
-        ->condition('l.table_name', 'dc_campaign_characters')
-        ->condition('l.object_id', (string) $source_row_id)
-        ->condition('l.slot', 'portrait')
-        ->condition('l.campaign_id', $source_campaign_id)
-        ->orderBy('l.is_primary', 'DESC')
-        ->orderBy('l.created', 'DESC')
-        ->execute()
-        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-    }
-    if ($links === []) {
-      $links = $this->database->select('dc_generated_image_links', 'l')
-        ->fields('l')
-        ->condition('l.table_name', 'dc_campaign_characters')
-        ->condition('l.object_id', (string) $source_row_id)
-        ->condition('l.slot', 'portrait')
-        ->isNull('l.campaign_id')
-        ->orderBy('l.is_primary', 'DESC')
-        ->orderBy('l.created', 'DESC')
-        ->execute()
-        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-    }
+    $link_exists = (bool) $this->database->select('dc_generated_image_links', 'l')
+      ->fields('l', ['id'])
+      ->condition('l.campaign_id', $campaign_id)
+      ->condition('l.table_name', 'dc_campaign_characters')
+      ->condition('l.object_id', (string) $target_row_id)
+      ->condition('l.slot', 'portrait')
+      ->condition('l.variant', 'original')
+      ->condition('l.image_id', $image_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
 
-    foreach ($links as $link) {
-      $image_id = (int) ($link['image_id'] ?? 0);
-      $slot = (string) ($link['slot'] ?? 'portrait');
-      $variant = (string) ($link['variant'] ?? 'original');
-      if ($image_id <= 0) {
-        continue;
-      }
-
-      $exists = (bool) $this->database->select('dc_generated_image_links', 'l')
-        ->fields('l', ['id'])
-        ->condition('l.campaign_id', $campaign_id)
-        ->condition('l.table_name', 'dc_campaign_characters')
-        ->condition('l.object_id', (string) $target_row_id)
-        ->condition('l.slot', $slot)
-        ->condition('l.variant', $variant)
-        ->condition('l.image_id', $image_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-      if ($exists) {
-        continue;
-      }
-
+    if (!$link_exists) {
       $this->database->insert('dc_generated_image_links')
         ->fields([
           'image_id' => $image_id,
-          'scope_type' => (string) ($link['scope_type'] ?? 'campaign'),
+          'scope_type' => 'campaign',
           'campaign_id' => $campaign_id,
           'table_name' => 'dc_campaign_characters',
           'object_id' => (string) $target_row_id,
-          'slot' => $slot,
-          'variant' => $variant,
-          'is_primary' => (int) ($link['is_primary'] ?? 1),
-          'sort_weight' => (int) ($link['sort_weight'] ?? 0),
-          'visibility' => (string) ($link['visibility'] ?? 'owner'),
+          'slot' => 'portrait',
+          'variant' => 'original',
+          'is_primary' => 1,
+          'sort_weight' => 0,
+          'visibility' => 'owner',
           'created' => $now,
           'updated' => $now,
         ])
@@ -1097,10 +1218,128 @@ class CampaignInitializationService {
   }
 
   /**
+   * Resolve canonical library portrait source for a starter NPC identity.
+   *
+   * @return array{image_id:int,portrait_url:string}|null
+   *   Canonical image source descriptor, or NULL when no canonical image exists.
+   */
+  private function resolveCanonicalNpcPortraitSource(string $instance_id, string $name): ?array {
+    $library_row_id = $this->resolveCanonicalNpcLibraryRowId($instance_id, $name);
+    if ($library_row_id === NULL) {
+      return NULL;
+    }
+
+    $link_row = $this->database->select('dc_generated_image_links', 'l')
+      ->fields('l', ['image_id'])
+      ->condition('l.table_name', 'dungeoncrawler_content_characters')
+      ->condition('l.object_id', (string) $library_row_id)
+      ->condition('l.slot', 'portrait')
+      ->condition('l.variant', 'original')
+      ->isNull('l.campaign_id')
+      ->orderBy('l.is_primary', 'DESC')
+      ->orderBy('l.created', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($link_row)) {
+      return NULL;
+    }
+
+    $image_id = (int) ($link_row['image_id'] ?? 0);
+    if ($image_id <= 0) {
+      return NULL;
+    }
+
+    $image_row = $this->database->select('dc_generated_images', 'i')
+      ->fields('i', ['public_url', 'file_uri'])
+      ->condition('i.id', $image_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($image_row)) {
+      return NULL;
+    }
+
+    $public_url = trim((string) ($image_row['public_url'] ?? ''));
+    if ($public_url === '') {
+      $file_uri = trim((string) ($image_row['file_uri'] ?? ''));
+      if ($file_uri === '' || !str_starts_with($file_uri, 'public://')) {
+        return NULL;
+      }
+      $public_url = '/sites/default/files/' . ltrim(substr($file_uri, strlen('public://')), '/');
+    }
+
+    return [
+      'image_id' => $image_id,
+      'portrait_url' => $public_url,
+    ];
+  }
+
+  /**
+   * Resolve canonical library NPC row id by stable instance id, then exact name.
+   */
+  private function resolveCanonicalNpcLibraryRowId(string $instance_id, string $name): ?int {
+    $instance_candidates = [];
+    $instance_id = trim($instance_id);
+    if ($instance_id !== '') {
+      $instance_candidates[] = $instance_id;
+      if (str_starts_with($instance_id, 'npc_')) {
+        $instance_candidates[] = substr($instance_id, strlen('npc_'));
+      }
+    }
+    $instance_candidates = array_values(array_unique(array_filter($instance_candidates, static fn(string $candidate): bool => $candidate !== '')));
+    if ($instance_candidates !== []) {
+      $row_id = $this->database->select('dungeoncrawler_content_characters', 'c')
+        ->fields('c', ['id'])
+        ->condition('c.type', 'npc')
+        ->condition('c.instance_id', $instance_candidates, 'IN')
+        ->orderBy('c.updated', 'DESC')
+        ->orderBy('c.id', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($row_id !== FALSE) {
+        return (int) $row_id;
+      }
+    }
+
+    $name = trim($name);
+    if ($name === '') {
+      return NULL;
+    }
+
+    $candidates = $this->database->select('dungeoncrawler_content_characters', 'c')
+      ->fields('c', ['id', 'state_data'])
+      ->condition('c.type', 'npc')
+      ->condition('c.state_data', '%' . $this->database->escapeLike($name) . '%', 'LIKE')
+      ->orderBy('c.id', 'DESC')
+      ->execute()
+      ->fetchAllAssoc('id');
+    if (!is_array($candidates) || $candidates === []) {
+      return NULL;
+    }
+
+    foreach ($candidates as $candidate) {
+      $state_data = json_decode((string) ($candidate->state_data ?? '{}'), TRUE);
+      if (!is_array($state_data)) {
+        continue;
+      }
+      if (trim((string) ($state_data['name'] ?? '')) !== $name) {
+        continue;
+      }
+      return (int) ($candidate->id ?? 0) ?: NULL;
+    }
+
+    return NULL;
+  }
+
+  /**
    * Seed starter quest templates and create initial campaign quests.
    */
   private function seedStarterQuests(int $campaign_id, string $difficulty, int $now, string $starter_runtime_room_id): void {
-    if (!$this->database->schema()->tableExists('dungeoncrawler_content_quest_templates')
+    if (!$this->database->schema()->tableExists('dc_canonical_quests')
       || !$this->database->schema()->tableExists('dc_campaign_quests')) {
       return;
     }
@@ -1260,9 +1499,10 @@ class CampaignInitializationService {
    */
   private function ensureQuestTemplatesLoaded(array $template_ids): void {
     foreach ($template_ids as $template_id) {
-      $existing = $this->database->select('dungeoncrawler_content_quest_templates', 't')
-        ->fields('t', ['id'])
+      $existing = $this->database->select('dc_canonical_quests', 'q')
+        ->fields('q', ['id'])
         ->condition('template_id', $template_id)
+        ->orderBy('updated_at', 'DESC')
         ->range(0, 1)
         ->execute()
         ->fetchField();
@@ -1274,7 +1514,7 @@ class CampaignInitializationService {
         ]);
       }
       elseif ($canonical !== NULL) {
-        $this->database->update('dungeoncrawler_content_quest_templates')
+        $this->database->update('dc_canonical_quests')
           ->fields($canonical)
           ->condition('id', (int) $existing)
           ->execute();
@@ -1311,9 +1551,9 @@ class CampaignInitializationService {
         'objectives_schema' => json_encode($entry['objectives_schema'] ?? []),
         'rewards_schema' => json_encode($entry['rewards_schema'] ?? []),
         'prerequisites' => json_encode($entry['prerequisites'] ?? []),
-        'story_impact' => (string) ($entry['story_impact'] ?? ''),
+        'story_impact' => json_encode($entry['story_impact'] ?? []),
         'estimated_duration_minutes' => isset($entry['estimated_duration_minutes']) ? (int) $entry['estimated_duration_minutes'] : NULL,
-        'updated' => $this->time->getRequestTime(),
+        'updated_at' => $this->time->getRequestTime(),
         'version' => (string) ($entry['version'] ?? '1.0.0'),
       ];
     }

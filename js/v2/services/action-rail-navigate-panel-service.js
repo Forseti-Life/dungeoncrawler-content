@@ -54,7 +54,9 @@ export function buildNavigateActionRailPanel(panel, context) {
   const html = currentLocationHtml + groups.map((group) => {
     const entries = group.locations.map((location) => panel.renderActionRailEntry({
       execute: 'navigate',
-      title: formatNavigationLocationTitle(location.dungeonName || group.dungeonName, location.roomName),
+      title: group.key === 'room-exits'
+        ? location.roomName
+        : formatNavigationLocationTitle(location.dungeonName || group.dungeonName, location.roomName),
       summary: buildActionRailEntrySummary([
         location.statusLabel || group.dungeonName || group.title,
         location.lastVisitedLabel,
@@ -123,7 +125,7 @@ function resolveNavigateCurrentLocationLabel(context) {
     || hexmap?.launchContext?.dungeon_name
     || ''
   ).trim();
-  const roomName = String(activeRoom?.name || activeRoom?.title || activeRoomId).trim();
+  const roomName = resolveReadableRoomName([activeRoom?.name, activeRoom?.title], activeRoomId);
   return formatNavigationLocationTitle(dungeonName, roomName);
 }
 
@@ -168,7 +170,7 @@ function collectNavigateExitGroups(panel, context) {
       
       return {
         roomId: targetRoomId,
-        roomName: String(room?.name || capability?.target_room_name || historyEntry?.room_name || targetRoomId),
+        roomName: resolveNavigateRoomName(room, capability, historyEntry, targetRoomId),
         statusLabel: isQuestTarget ? '🎯 Quest Target' : (navigable ? 'Exit' : 'Unavailable'),
         lastVisitedLabel: historyEntry?.timestamp ? `Seen ${historyEntry.timestamp}` : 'Linked from current room',
         meta: [
@@ -326,11 +328,23 @@ function resolveNavigateGroupLabel(group, panel, context) {
 function resolveServerCurrentLocationLabel(panel) {
   const serverActiveRoom = panel?.navigateActiveRoom || null;
   const dungeonName = String(serverActiveRoom?.dungeonName || '').trim();
-  const roomName = String(serverActiveRoom?.roomName || '').trim();
+  const roomName = resolveReadableRoomName([serverActiveRoom?.roomName], serverActiveRoom?.roomId);
   if (!dungeonName && !roomName) {
     return '';
   }
   return formatNavigationLocationTitle(dungeonName, roomName);
+}
+
+function resolveReadableRoomName(roomNameCandidates, roomId = '') {
+  const candidates = Array.isArray(roomNameCandidates) ? roomNameCandidates : [roomNameCandidates];
+  for (const candidate of candidates) {
+    const normalized = String(candidate || '').trim();
+    if (!normalized || looksLikeRoomIdentifier(normalized)) {
+      continue;
+    }
+    return normalized;
+  }
+  return String(roomId || '').trim() ? formatRoomIdentifierLabel(roomId) : '';
 }
 
 function resolveActiveDungeonName(panel, context) {
@@ -377,6 +391,52 @@ function formatBlockedReason(reason) {
     return labels[normalized];
   }
   return normalized ? normalized.replace(/_/g, ' ') : 'unavailable';
+}
+
+function resolveNavigateRoomName(room, capability, historyEntry, targetRoomId) {
+  const roomNameCandidates = [
+    room?.name,
+    room?.title,
+    capability?.target_room_name,
+    historyEntry?.room_name,
+    targetRoomId,
+  ];
+  for (const candidate of roomNameCandidates) {
+    const normalized = String(candidate || '').trim();
+    if (normalized === '' || looksLikeRoomIdentifier(normalized)) {
+      continue;
+    }
+    return normalized;
+  }
+  return formatRoomIdentifierLabel(targetRoomId);
+}
+
+function looksLikeRoomIdentifier(value) {
+  const normalized = String(value || '').trim();
+  if (normalized === '') {
+    return true;
+  }
+  if (normalized.startsWith('tpl_room_')) {
+    return true;
+  }
+  return /^[a-z0-9:_-]+$/i.test(normalized) && !/\s/.test(normalized);
+}
+
+function formatRoomIdentifierLabel(roomId) {
+  const normalized = String(roomId || '').trim();
+  if (normalized === '') {
+    return 'Unknown room';
+  }
+  const withoutTemplatePrefix = normalized.replace(/^tpl_room_/i, '');
+  const words = withoutTemplatePrefix
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase());
+  if (!words.length) {
+    return normalized;
+  }
+  const joined = words.join(' ');
+  return /^the\s+/i.test(joined) ? joined : `The ${joined}`;
 }
 
 function ensureNavigateLocationGroups(panel, campaignId) {

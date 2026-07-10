@@ -73,7 +73,11 @@ class CampaignCharacterRuntimeSyncService {
 
     foreach ($records as $record) {
       $record = $this->ensurePersistentRuntimeRecordIdentity($record, $campaign_id, 'pc');
-      $room_id = $this->resolveRecordRoomId($record) ?: $active_room_id;
+      $instance_id = trim((string) ($record['instance_id'] ?? ''));
+      $is_preferred_actor = $preferred_actor_id !== '' && $instance_id === $preferred_actor_id;
+      $room_id = $is_preferred_actor
+        ? $active_room_id
+        : ($this->resolveRecordRoomId($record) ?: $active_room_id);
       $char_data = $this->decodeCharacterData($record);
       $source_character_id = (int) ($record['source_character_id'] ?? 0);
       if ($source_character_id <= 0) {
@@ -350,8 +354,7 @@ class CampaignCharacterRuntimeSyncService {
       }
 
       return $preferred_actor_id !== ''
-        && $instance_id === $preferred_actor_id
-        && $record_room_id === '';
+        && $instance_id === $preferred_actor_id;
     }));
 
     if ($preferred_actor_id !== '') {
@@ -528,7 +531,7 @@ class CampaignCharacterRuntimeSyncService {
     if (
       $this->characterPortraitGenerator
       && (int) ($record['id'] ?? 0) > 0
-      && $this->shouldGenerateRuntimeNpcPortrait($campaign_id, $record)
+      && $this->shouldGenerateRuntimeNpcPortrait($campaign_id, $record, $content_id, $state)
     ) {
       $portrait_payload = array_replace($seed_data, $character_data);
       $portrait_payload['portrait_generate'] = TRUE;
@@ -551,9 +554,13 @@ class CampaignCharacterRuntimeSyncService {
   /**
    * Determine whether runtime NPC portrait generation is still necessary.
    */
-  protected function shouldGenerateRuntimeNpcPortrait(int $campaign_id, array $record): bool {
+  protected function shouldGenerateRuntimeNpcPortrait(int $campaign_id, array $record, string $content_id, array $state = []): bool {
     $record_id = (int) ($record['id'] ?? 0);
     if ($campaign_id <= 0 || $record_id <= 0) {
+      return FALSE;
+    }
+
+    if ($this->hasCanonicalLibraryNpcPortrait($record, $content_id, $state)) {
       return FALSE;
     }
 
@@ -579,6 +586,86 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     return TRUE;
+  }
+
+  /**
+   * Check whether canonical NPC library already has a portrait for this identity.
+   */
+  protected function hasCanonicalLibraryNpcPortrait(array $record, string $content_id, array $state): bool {
+    $instance_candidates = [];
+    $content_id = trim($content_id);
+    if ($content_id !== '') {
+      $instance_candidates[] = $content_id;
+      if (!str_starts_with($content_id, 'npc_')) {
+        $instance_candidates[] = 'npc_' . $content_id;
+      }
+    }
+
+    $record_instance = trim((string) ($record['instance_id'] ?? ''));
+    if ($record_instance !== '') {
+      $instance_candidates[] = $record_instance;
+      if (str_starts_with($record_instance, 'npc_')) {
+        $instance_candidates[] = substr($record_instance, strlen('npc_'));
+      }
+    }
+    $instance_candidates = array_values(array_unique(array_filter($instance_candidates, static fn(string $candidate): bool => $candidate !== '')));
+
+    $library_row_id = FALSE;
+    if ($instance_candidates !== []) {
+      $library_row_id = $this->database->select('dungeoncrawler_content_characters', 'c')
+        ->fields('c', ['id'])
+        ->condition('c.type', 'npc')
+        ->condition('c.instance_id', $instance_candidates, 'IN')
+        ->orderBy('c.updated', 'DESC')
+        ->orderBy('c.id', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+    }
+
+    if ($library_row_id === FALSE) {
+      $name = trim((string) (
+        $record['name']
+        ?? $state['metadata']['display_name']
+        ?? $state['metadata']['name']
+        ?? ''
+      ));
+      if ($name !== '') {
+        $candidates = $this->database->select('dungeoncrawler_content_characters', 'c')
+          ->fields('c', ['id', 'state_data'])
+          ->condition('c.type', 'npc')
+          ->condition('c.state_data', '%' . $this->database->escapeLike($name) . '%', 'LIKE')
+          ->orderBy('c.id', 'DESC')
+          ->execute()
+          ->fetchAllAssoc('id');
+        if (is_array($candidates)) {
+          foreach ($candidates as $candidate) {
+            $state_data = json_decode((string) ($candidate->state_data ?? '{}'), TRUE);
+            if (!is_array($state_data) || trim((string) ($state_data['name'] ?? '')) !== $name) {
+              continue;
+            }
+            $library_row_id = (int) ($candidate->id ?? 0);
+            break;
+          }
+        }
+      }
+    }
+
+    $library_row_id = (int) $library_row_id;
+    if ($library_row_id <= 0) {
+      return FALSE;
+    }
+
+    return (bool) $this->database->select('dc_generated_image_links', 'l')
+      ->fields('l', ['id'])
+      ->condition('l.table_name', 'dungeoncrawler_content_characters')
+      ->condition('l.object_id', (string) $library_row_id)
+      ->condition('l.slot', 'portrait')
+      ->condition('l.variant', 'original')
+      ->isNull('l.campaign_id')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
   }
 
   /**

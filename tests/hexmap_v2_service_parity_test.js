@@ -192,6 +192,25 @@ console.log('\n=== Hexmap V2 legacy service parity helpers ===');
 }
 
 {
+  const visibleInActiveRoom = helpers._isVisualOccupantVisible(
+    { room_id: 'market', visible: false, state: { hidden: false } },
+    'market',
+  );
+  const hiddenInActiveRoom = helpers._isVisualOccupantVisible(
+    { room_id: 'market', visible: false, state: { hidden: true, detected: false } },
+    'market',
+  );
+  const visibleElsewhere = helpers._isVisualOccupantVisible(
+    { room_id: 'other_room', visible: false, state: { hidden: false } },
+    'market',
+  );
+
+  assert(visibleInActiveRoom === true, 'keeps active-room occupants visible when legacy visible=false is stale');
+  assert(hiddenInActiveRoom === false, 'still hides active-room occupants when hidden and not detected');
+  assert(visibleElsewhere === false, 'keeps non-active-room occupants hidden when visible=false');
+}
+
+{
   const actor = makeEntity(1, {
     PositionComponent: { q: 0, r: 0 },
     CombatComponent: {

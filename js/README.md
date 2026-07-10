@@ -92,8 +92,8 @@ JavaScript files should be tested with:
 
 ## Related Documentation
 
-- `/sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/README.md` - Module overview
-- `/sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/config/schemas/` - JSON schemas
+- `../README.md` - Module overview
+- `../config/schemas/` - JSON schemas
 - `DCC-0042` - Libraries architecture refactor
 - `DCC-0055` - character-step-1.js improvements
 - `DCC-0225` - character-creation-schema.js review/refactor

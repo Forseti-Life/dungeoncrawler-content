@@ -161,6 +161,16 @@
                 "minimum": -50,
                 "maximum": 200
               },
+              "h3_index_res14": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
+              "h3_index": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
               "objects": {
                 "type": "array",
                 "items": {
@@ -221,6 +231,7 @@
           "connection_id": { "type": "string", "minLength": 1, "maxLength": 255 },
           "origin_room_id": { "type": "string", "minLength": 1, "maxLength": 255 },
           "target_room_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "target_room_name": { "type": "string", "minLength": 1, "maxLength": 255 },
           "type": { "type": "string", "minLength": 1, "maxLength": 64 },
           "available": { "type": "boolean" },
           "blocked_reason": { "type": ["string", "null"], "maxLength": 64 },

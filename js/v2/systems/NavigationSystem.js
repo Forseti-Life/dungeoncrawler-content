@@ -16,6 +16,7 @@ export class NavigationSystem {
     this.stateManager = null;
     this.dungeonData = null;
     this._unsubs = [];
+    this._actionRailPendingRequests = new Map();
   }
 
   init(dungeonData, stateManager) {
@@ -27,6 +28,7 @@ export class NavigationSystem {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    this._actionRailPendingRequests.clear();
   }
 
   _subscribe() {
@@ -64,6 +66,7 @@ export class NavigationSystem {
       const originR = rawOriginR !== '' ? Number(rawOriginR) : null;
       const mapId = String(button.dataset.mapId || '').trim();
       const dungeonLevelId = String(button.dataset.dungeonLevelId || '').trim();
+      this._appendChatLine('System', `Navigating to ${roomName}.`, 'system');
 
       console.log('[Navigation] executeDirectNavigate: context resolved', {
         hasHexmap: !!hexmap,
@@ -110,7 +113,17 @@ export class NavigationSystem {
         visualRoomKeys: Object.keys(visualRooms).slice(0, 5),
       });
 
-      if (!roomExistsInCurrentDungeon || isQuestSyntheticDestination) {
+      const hasCanonicalTransition = Boolean(connectionId) || Boolean(matchedCapability);
+      if ((!roomExistsInCurrentDungeon && !hasCanonicalTransition) || isQuestSyntheticDestination) {
+        console.warn('[Navigation] executeDirectNavigate: routing through in-session destination request', {
+          roomId,
+          roomName,
+          roomExistsInCurrentDungeon,
+          hasCanonicalTransition,
+          isQuestSyntheticDestination,
+          connectionId,
+          matchedCapability,
+        });
         // Keep a single authoritative path for off-topology or quest-synthetic
         // destinations:
         // ask the server to resolve/generate the destination and any required
@@ -187,6 +200,21 @@ export class NavigationSystem {
             connectionId,
             status: error?.status,
             error: serverError,
+            payload: error?.payload || null,
+          });
+          await this.requestInSessionDestination(roomId || roomName, {
+            fallbackRoomId: roomId,
+            mapId,
+            dungeonLevelId,
+          });
+          return;
+        }
+        if (/state version mismatch/i.test(serverError)) {
+          console.warn('[Navigation] transition state version mismatch, reloading destination in-session', {
+            roomId,
+            connectionId,
+            status: error?.status,
+            error: serverError,
           });
           await this.requestInSessionDestination(roomId || roomName, {
             fallbackRoomId: roomId,
@@ -224,10 +252,10 @@ export class NavigationSystem {
         hexmap.setActiveRoom(nextRoomId);
         const entryHex = result?.entry_hex || result?.navigation?.entry_hex || null;
         if (entryHex && Number.isFinite(Number(entryHex.q)) && Number.isFinite(Number(entryHex.r))) {
+          this._persistPartyLocationAfterTransition(hexmap, nextRoomId, entryHex);
           hexmap.updateLaunchLocationContext?.(nextRoomId, Number(entryHex.q), Number(entryHex.r));
         }
       }
-      this._appendChatLine('System', `Navigating to ${roomName}.`, 'system');
       this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);
@@ -295,52 +323,127 @@ export class NavigationSystem {
       }
     }
 
-    // 4. Move the selected player entity to the new room entry hex.
+    // 4. Move the full party formation to the destination entry hex.
     const selectedEntity = hexmap.stateManager?.get('selectedEntity');
-    if (selectedEntity && Array.isArray(hexmap.dungeonData.entities)) {
-      const entityRef = selectedEntity.dcEntityRef;
-      for (const de of hexmap.dungeonData.entities) {
-        const deRef = de.instance_id || de.entity_instance_id;
-        if (deRef === entityRef || (selectedEntity.dcCharacterId && de?.state?.metadata?.character_id == selectedEntity.dcCharacterId)) {
-          de.placement = {
-            room_id: targetRoomId,
-            hex: { q: Number(entryHex.q), r: Number(entryHex.r) },
-          };
-          break;
-        }
-      }
+    const partyFormationOffsets = [
+      { q: 0, r: 0 },
+      { q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 },
+      { q: 2, r: 0 }, { q: -2, r: 0 }, { q: 0, r: 2 }, { q: 0, r: -2 }, { q: 2, r: -1 }, { q: -2, r: 1 },
+    ];
+    const resolvePartyOffset = (index) => partyFormationOffsets[index] || partyFormationOffsets[index % partyFormationOffsets.length];
+    const destinationQ = Number(entryHex.q);
+    const destinationR = Number(entryHex.r);
+    const persistedPartyMoves = [];
 
-      // Also move ally NPCs to adjacent hexes.
-      const allyNpcs = hexmap.dungeonData.entities.filter(
-        (e) => e.entity_type === 'npc' && e?.state?.metadata?.team === 'ally'
-      );
-      const offsets = [{ q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 }];
-      allyNpcs.forEach((npc, i) => {
-        const offset = offsets[i % offsets.length];
-        const npcQ = Number(entryHex.q) + offset.q;
-        const npcR = Number(entryHex.r) + offset.r;
-        npc.placement = {
-          room_id: targetRoomId,
-          hex: { q: npcQ, r: npcR },
-        };
-        hexmap.persistLaunchLocationContext?.(
-          targetRoomId,
-          npcQ,
-          npcR,
-          npc.instance_id || npc.entity_instance_id || null
-        );
+    let anchorEntityRef = String(selectedEntity?.dcEntityRef || '').trim();
+    if (Array.isArray(hexmap.dungeonData.entities)) {
+      const selectedEntityRef = String(selectedEntity?.dcEntityRef || '').trim();
+      const selectedCharacterId = Number(selectedEntity?.dcCharacterId || 0) || null;
+      const launchCharacterId = Number(
+        hexmap?.launchContext?.character_id
+        || hexmap?.launchCharacter?.character_id
+        || hexmap?.launchCharacter?.id
+        || 0
+      ) || null;
+      const isPartyEntity = (entity) => {
+        const rawType = String(entity?.entity_type || '').trim().toLowerCase();
+        const metadata = entity?.state?.metadata || {};
+        const entityRef = String(entity?.instance_id || entity?.entity_instance_id || entity?.id || '').trim();
+        const entityCharacterId = Number(metadata?.character_id || entity?.character_id || 0) || null;
+        if (selectedEntityRef !== '' && entityRef === selectedEntityRef) {
+          return true;
+        }
+        if (selectedCharacterId && entityCharacterId === selectedCharacterId) {
+          return true;
+        }
+        if (launchCharacterId && entityCharacterId === launchCharacterId) {
+          return true;
+        }
+        if (rawType === 'player_character' || rawType === 'player') {
+          return true;
+        }
+        const team = String(metadata?.team || '').trim().toLowerCase();
+        return team === 'ally' || team === 'player';
+      };
+      const partyEntities = hexmap.dungeonData.entities.filter(isPartyEntity);
+      partyEntities.sort((left, right) => {
+        const leftRef = String(left?.instance_id || left?.entity_instance_id || left?.id || '').trim();
+        const rightRef = String(right?.instance_id || right?.entity_instance_id || right?.id || '').trim();
+        const leftMeta = left?.state?.metadata || {};
+        const rightMeta = right?.state?.metadata || {};
+        const leftCharacterId = Number(leftMeta?.character_id || left?.character_id || 0) || null;
+        const rightCharacterId = Number(rightMeta?.character_id || right?.character_id || 0) || null;
+        if (selectedEntityRef && leftRef === selectedEntityRef) {
+          return -1;
+        }
+        if (selectedEntityRef && rightRef === selectedEntityRef) {
+          return 1;
+        }
+        if (selectedCharacterId && leftCharacterId === selectedCharacterId) {
+          return -1;
+        }
+        if (selectedCharacterId && rightCharacterId === selectedCharacterId) {
+          return 1;
+        }
+        const leftType = String(left?.entity_type || '').trim().toLowerCase();
+        const rightType = String(right?.entity_type || '').trim().toLowerCase();
+        const leftIsPc = leftType === 'player_character' || leftType === 'player';
+        const rightIsPc = rightType === 'player_character' || rightType === 'player';
+        if (leftIsPc !== rightIsPc) {
+          return leftIsPc ? -1 : 1;
+        }
+        return leftRef.localeCompare(rightRef);
       });
 
+      partyEntities.forEach((entity, index) => {
+        const offset = resolvePartyOffset(index);
+        const entityRef = String(entity?.instance_id || entity?.entity_instance_id || entity?.id || '').trim();
+        entity.placement = {
+          ...(entity?.placement || {}),
+          room_id: targetRoomId,
+          hex: { q: destinationQ + offset.q, r: destinationR + offset.r },
+        };
+        if (entityRef) {
+          persistedPartyMoves.push({
+            entityRef,
+            q: destinationQ + offset.q,
+            r: destinationR + offset.r,
+          });
+        }
+      });
+
+      if (!anchorEntityRef && partyEntities[0]) {
+        anchorEntityRef = String(
+          partyEntities[0]?.instance_id
+          || partyEntities[0]?.entity_instance_id
+          || partyEntities[0]?.id
+          || ''
+        ).trim();
+      }
+    }
+    if (selectedEntity) {
       // Deselect before room switch.
       hexmap.deselectEntity();
     }
 
+    this._synchronizeVisualStateForNavigation(
+      hexmap,
+      targetRoomId,
+      newRoom,
+      newConnections,
+      entryHex,
+      String(nav.destination || '').trim()
+    );
+
     hexmap.persistLaunchLocationContext?.(
       targetRoomId,
-      Number(entryHex.q),
-      Number(entryHex.r),
-      selectedEntity?.dcEntityRef || null
+      destinationQ,
+      destinationR,
+      anchorEntityRef || null
     );
+    persistedPartyMoves.forEach((move) => {
+      hexmap.persistLaunchLocationContext?.(targetRoomId, move.q, move.r, move.entityRef);
+    });
 
     // 5. Show travel notification in chat.
     this._appendChatLine('System', `🗺️ Traveling to ${nav.destination || newRoom?.name || targetRoomId}...`, 'system');
@@ -372,6 +475,268 @@ export class NavigationSystem {
     }
 
     console.log('[Navigation] Room switch complete:', targetRoomId);
+  }
+
+  _synchronizeVisualStateForNavigation(hexmap, targetRoomId, newRoom, newConnections, entryHex, roomNameHint = '') {
+    if (!hexmap || !targetRoomId) {
+      return;
+    }
+
+    if (!hexmap.mapVisualState || typeof hexmap.mapVisualState !== 'object') {
+      hexmap.mapVisualState = {};
+    }
+    const visualState = hexmap.mapVisualState;
+    if (!visualState.map_meta || typeof visualState.map_meta !== 'object') {
+      visualState.map_meta = {};
+    }
+    visualState.map_meta.active_room_id = targetRoomId;
+
+    if (!visualState.topology || typeof visualState.topology !== 'object') {
+      visualState.topology = {};
+    }
+    if (!Array.isArray(visualState.topology.connections)) {
+      visualState.topology.connections = [];
+    }
+    for (const conn of Array.isArray(newConnections) ? newConnections : []) {
+      const connId = String(conn?.connection_id || `${conn?.from_room || ''}__${conn?.to_room || ''}`).trim();
+      if (!connId) {
+        continue;
+      }
+      const exists = visualState.topology.connections.some((candidate) => {
+        const candidateId = String(candidate?.connection_id || `${candidate?.from_room || ''}__${candidate?.to_room || ''}`).trim();
+        return candidateId === connId;
+      });
+      if (!exists) {
+        visualState.topology.connections.push(conn);
+      }
+    }
+
+    if (!visualState.topology.rooms || typeof visualState.topology.rooms !== 'object') {
+      visualState.topology.rooms = {};
+    }
+    const previousRoom = (
+      visualState.topology.rooms[targetRoomId]
+      && typeof visualState.topology.rooms[targetRoomId] === 'object'
+    )
+      ? visualState.topology.rooms[targetRoomId]
+      : {};
+    const incomingRoom = newRoom && typeof newRoom === 'object' ? newRoom : {};
+    const mergedRoom = {
+      ...previousRoom,
+      ...incomingRoom,
+      room_id: targetRoomId,
+    };
+    if (!String(mergedRoom.name || '').trim()) {
+      mergedRoom.name = roomNameHint || targetRoomId;
+    }
+    const hasAuthoritativeExits = Array.isArray(mergedRoom.exits);
+    if (!hasAuthoritativeExits) {
+      mergedRoom.exits = this._buildAuthoritativeRoomExitsFromTopology(
+        targetRoomId,
+        visualState.topology.connections
+      );
+    }
+    visualState.topology.rooms[targetRoomId] = mergedRoom;
+
+    if (!visualState.occupants || typeof visualState.occupants !== 'object') {
+      visualState.occupants = {};
+    }
+    if (!Array.isArray(visualState.occupants.party)) {
+      visualState.occupants.party = [];
+    }
+    if (!Array.isArray(visualState.occupants.entities)) {
+      visualState.occupants.entities = [];
+    }
+
+    const roomOccupants = (Array.isArray(hexmap.dungeonData?.entities) ? hexmap.dungeonData.entities : [])
+      .map((entity) => this._buildVisualOccupantFromEntity(entity, targetRoomId, entryHex))
+      .filter(Boolean);
+    visualState.occupants.entities = [
+      ...visualState.occupants.entities.filter((occupant) => String(occupant?.room_id || '') !== targetRoomId),
+      ...roomOccupants,
+    ];
+
+    if (visualState.occupants.party.length === 0) {
+      const synthesizedParty = (Array.isArray(hexmap.dungeonData?.entities) ? hexmap.dungeonData.entities : [])
+        .map((entity) => this._buildVisualOccupantFromEntity(entity, targetRoomId, entryHex, { forceParty: true }))
+        .filter(Boolean);
+      if (synthesizedParty.length > 0) {
+        visualState.occupants.party = synthesizedParty;
+      }
+    }
+
+    const partyOffsets = [
+      { q: 0, r: 0 },
+      { q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 },
+      { q: 2, r: 0 }, { q: -2, r: 0 }, { q: 0, r: 2 }, { q: 0, r: -2 }, { q: 2, r: -1 }, { q: -2, r: 1 },
+    ];
+    visualState.occupants.party = visualState.occupants.party.map((occupant, index) => {
+      const offset = partyOffsets[index] || partyOffsets[index % partyOffsets.length];
+      return {
+        ...occupant,
+        room_id: targetRoomId,
+        placement: {
+          ...(occupant?.placement || {}),
+          q: Number(entryHex?.q || 0) + offset.q,
+          r: Number(entryHex?.r || 0) + offset.r,
+        },
+      };
+    });
+  }
+
+  _buildAuthoritativeRoomExitsFromTopology(roomId, topologyConnections = []) {
+    const normalizedRoomId = String(roomId || '').trim();
+    if (!normalizedRoomId || !Array.isArray(topologyConnections)) {
+      return [];
+    }
+
+    const exits = [];
+    const seen = new Set();
+    topologyConnections.forEach((connection) => {
+      if (!connection || typeof connection !== 'object') {
+        return;
+      }
+      const fromRoomId = String(connection?.from_room || connection?.from_room_id || '').trim();
+      const toRoomId = String(connection?.to_room || connection?.to_room_id || '').trim();
+      const bidirectional = Object.prototype.hasOwnProperty.call(connection, 'bidirectional')
+        ? Boolean(connection.bidirectional)
+        : true;
+
+      const forward = fromRoomId === normalizedRoomId;
+      const reverse = bidirectional && toRoomId === normalizedRoomId;
+      if (!forward && !reverse) {
+        return;
+      }
+
+      const targetRoomId = forward ? toRoomId : fromRoomId;
+      if (!targetRoomId) {
+        return;
+      }
+
+      const connectionId = String(
+        connection?.connection_id
+        || `${fromRoomId || normalizedRoomId}__${toRoomId || targetRoomId}`
+      ).trim();
+      const dedupeKey = `${connectionId}:${targetRoomId}`;
+      if (!connectionId || seen.has(dedupeKey)) {
+        return;
+      }
+      seen.add(dedupeKey);
+
+      const isDiscovered = Object.prototype.hasOwnProperty.call(connection, 'is_discovered')
+        ? Boolean(connection.is_discovered)
+        : true;
+      const isPassable = Object.prototype.hasOwnProperty.call(connection, 'is_passable')
+        ? Boolean(connection.is_passable)
+        : true;
+      const blockedReason = String(connection?.blocked_reason || '').trim();
+      const available = typeof connection?.available === 'boolean'
+        ? connection.available
+        : (blockedReason === '' && isDiscovered && isPassable);
+      const fromHex = connection?.from_hex || connection?.from || null;
+      const toHex = connection?.to_hex || connection?.to || null;
+
+      exits.push({
+        connection_id: connectionId,
+        origin_room_id: normalizedRoomId,
+        target_room_id: targetRoomId,
+        target_room_name: String(
+          forward
+            ? (connection?.to_room_name || '')
+            : (connection?.from_room_name || '')
+        ).trim(),
+        destination_type: String(connection?.destination_type || 'room').trim().toLowerCase() || 'room',
+        destination_id: String(connection?.destination_id || targetRoomId).trim() || targetRoomId,
+        type: String(connection?.type || 'passage').trim() || 'passage',
+        available,
+        blocked_reason: blockedReason || (available ? null : 'blocked'),
+        is_discovered: isDiscovered,
+        is_passable: isPassable,
+        bidirectional,
+        requires_interaction: Object.prototype.hasOwnProperty.call(connection, 'requires_interaction')
+          ? Boolean(connection.requires_interaction)
+          : !isPassable,
+        origin_hex: forward ? fromHex : toHex,
+        target_hex: forward ? toHex : fromHex,
+      });
+    });
+
+    return exits;
+  }
+
+  _buildVisualOccupantFromEntity(entity, targetRoomId, entryHex, options = {}) {
+    if (!entity || typeof entity !== 'object') {
+      return null;
+    }
+    const placement = entity?.placement || {};
+    const hex = placement?.hex || {};
+    const roomId = String(placement?.room_id || '').trim();
+    if (roomId !== String(targetRoomId || '').trim()) {
+      return null;
+    }
+
+    const metadata = entity?.state?.metadata || {};
+    const rawType = String(entity?.entity_type || '').trim().toLowerCase();
+    const occupantId = String(entity?.instance_id || entity?.entity_instance_id || entity?.id || '').trim();
+    if (!occupantId) {
+      return null;
+    }
+
+    const forceParty = options?.forceParty === true;
+    const normalizedType = rawType === 'player' ? 'player_character' : (rawType || 'npc');
+    if (!forceParty && !['npc', 'player_character', 'player'].includes(rawType)) {
+      return null;
+    }
+    if (forceParty && !this._isPartyRuntimeEntity(entity)) {
+      return null;
+    }
+
+    const occupant = {
+      occupant_id: occupantId,
+      occupant_type: normalizedType,
+      room_id: String(targetRoomId || '').trim(),
+      content_id: String(entity?.entity_ref?.content_id || '').trim(),
+      label: String(
+        metadata?.display_name
+        || metadata?.name
+        || entity?.display_name
+        || entity?.name
+        || occupantId
+      ).trim(),
+      character_id: Number(metadata?.character_id || entity?.character_id || 0) || null,
+      placement: {
+        q: Number(hex?.q || entryHex?.q || 0),
+        r: Number(hex?.r || entryHex?.r || 0),
+        orientation: String(placement?.orientation || metadata?.orientation || 'n').trim().toLowerCase() || 'n',
+      },
+      visible: entity?.state?.hidden !== true,
+      is_party: forceParty ? true : undefined,
+      state: entity?.state || {},
+      presentation: {
+        portrait_url: metadata?.portrait_url || metadata?.portrait || null,
+        role: String(metadata?.role || '').trim(),
+        badge: String(metadata?.team || '').trim(),
+        sprite_id: String(metadata?.sprite_id || '').trim() || null,
+      },
+    };
+    if (forceParty) {
+      occupant.is_party = true;
+    }
+    return occupant;
+  }
+
+  _isPartyRuntimeEntity(entity) {
+    const metadata = entity?.state?.metadata || {};
+    const rawType = String(entity?.entity_type || '').trim().toLowerCase();
+    const team = String(metadata?.team || '').trim().toLowerCase();
+    const followerKind = String(metadata?.follower_kind || '').trim().toLowerCase();
+    const role = String(metadata?.role || '').trim().toLowerCase();
+    return rawType === 'player_character'
+      || rawType === 'player'
+      || team === 'player'
+      || team === 'ally'
+      || followerKind === 'familiar'
+      || role === 'familiar';
   }
 
   async executeInSessionDungeonSwitch(dungeonSwitch) {
@@ -465,6 +830,18 @@ export class NavigationSystem {
         }),
       });
       const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) {
+        console.error('[Navigation] requestInSessionDestination failed', {
+          campaignId,
+          destination,
+          originRoomId,
+          status: response.status,
+          payload,
+          fallbackRoomId,
+          fallbackMapId,
+          fallbackDungeonLevelId,
+        });
+      }
       if (!response.ok || !payload?.success || !payload?.data?.navigation) {
         throw new Error(payload?.error || 'Unable to resolve destination in-session.');
       }
@@ -525,11 +902,14 @@ export class NavigationSystem {
     const result = this.shell.panels.actionRail?.beginActionRailRequest(button) ?? false;
     if (!result) {
       console.warn('[Navigation] _beginActionRailRequest: returned false', { hasActionRail, isHTMLButton: button instanceof HTMLButtonElement, pending: button?.dataset?.actionRailPending });
+      return false;
     }
+    this._beginActionRailPendingChatRequest(button);
     return result;
   }
 
   _endActionRailRequest(button) {
+    this._settleActionRailPendingChatRequest(button);
     this.shell.panels.actionRail?.endActionRailRequest(button);
   }
 
@@ -551,6 +931,124 @@ export class NavigationSystem {
       source: 'navigation-system',
       authority: 'authoritative',
       messageClass: 'authoritative_transcript',
+    });
+  }
+
+  _beginActionRailPendingChatRequest(button) {
+    const requestId = String(button?.dataset?.backendRequestId || '').trim();
+    if (!requestId || this._actionRailPendingRequests.has(requestId)) {
+      return;
+    }
+
+    const chatPanel = this.shell?.panels?.chat || null;
+    if (!chatPanel || typeof chatPanel.buildPendingChatRequest !== 'function') {
+      return;
+    }
+
+    const context = this._getActionRailContext();
+    const runtimeContext = context?.runtimeContext || {};
+    const roomId = String(runtimeContext.roomId || context?.hexmap?.resolveActiveRoomId?.() || '').trim();
+    if (!roomId) {
+      return;
+    }
+    const campaignId = Number(runtimeContext.campaignId || context?.hexmap?.resolveCampaignId?.() || 0) || null;
+    const characterId = Number(context?.characterId || runtimeContext.characterId || 0) || null;
+    const target = chatPanel.buildChatRenderTarget?.({
+      view: 'room',
+      channelKey: 'room',
+      context: {
+        campaignId,
+        roomId,
+        characterId,
+      },
+    }) || {
+      view: 'room',
+      channelKey: 'room',
+      context: { campaignId, roomId, characterId },
+    };
+
+    const pending = chatPanel.buildPendingChatRequest(requestId, 'System', '', roomId, {
+      includePlayer: false,
+      includePlaceholder: true,
+      placeholderSpeaker: 'System',
+      placeholderType: 'system',
+      placeholderText: '⏳ Server response pending...',
+      target,
+    });
+    if (pending) {
+      this._actionRailPendingRequests.set(requestId, pending);
+    }
+  }
+
+  _settleActionRailPendingChatRequest(button) {
+    const requestId = String(button?.dataset?.backendRequestId || '').trim();
+    if (!requestId) {
+      return;
+    }
+
+    const chatPanel = this.shell?.panels?.chat || null;
+    const pending = this._actionRailPendingRequests.get(requestId)
+      || chatPanel?.pendingChatRequests?.get?.(requestId)
+      || null;
+
+    if (!pending) {
+      this._actionRailPendingRequests.delete(requestId);
+      return;
+    }
+
+    if (pending.gmProgressLineId) {
+      if (chatPanel?.isChatTargetVisible?.(pending.target)) {
+        chatPanel?.removeChatLineById?.(pending.gmProgressLineId);
+      } else {
+        chatPanel?.removeRememberedChatLineById?.(pending.target, pending.gmProgressLineId);
+      }
+      pending.gmProgressLineId = '';
+      pending.progressLineIds = [];
+    }
+
+    chatPanel?.settlePendingChatRequest?.(pending, {
+      removePlayer: false,
+    });
+    this._actionRailPendingRequests.delete(requestId);
+  }
+
+  _persistPartyLocationAfterTransition(hexmap, roomId, entryHex) {
+    if (!hexmap || !roomId || !entryHex) {
+      return;
+    }
+    const baseQ = Number(entryHex?.q);
+    const baseR = Number(entryHex?.r);
+    if (!Number.isFinite(baseQ) || !Number.isFinite(baseR)) {
+      return;
+    }
+    const offsets = [
+      { q: 0, r: 0 },
+      { q: 1, r: 0 }, { q: -1, r: 0 }, { q: 0, r: 1 }, { q: 0, r: -1 }, { q: 1, r: -1 }, { q: -1, r: 1 },
+    ];
+    const entities = Array.isArray(hexmap?.dungeonData?.entities) ? hexmap.dungeonData.entities : [];
+    const partyEntities = entities.filter((entity) => {
+      const rawType = String(entity?.entity_type || '').trim().toLowerCase();
+      const metadata = entity?.state?.metadata || {};
+      const team = String(metadata?.team || '').trim().toLowerCase();
+      return rawType === 'player_character'
+        || rawType === 'player'
+        || team === 'player'
+        || team === 'ally';
+    });
+    partyEntities.forEach((entity, index) => {
+      const offset = offsets[index] || offsets[index % offsets.length];
+      const q = baseQ + offset.q;
+      const r = baseR + offset.r;
+      const entityRef = String(entity?.instance_id || entity?.entity_instance_id || entity?.id || '').trim();
+      if (!entityRef) {
+        return;
+      }
+      entity.placement = {
+        ...(entity?.placement || {}),
+        room_id: roomId,
+        hex: { q, r },
+      };
+      hexmap.persistLaunchLocationContext?.(roomId, q, r, entityRef);
     });
   }
 

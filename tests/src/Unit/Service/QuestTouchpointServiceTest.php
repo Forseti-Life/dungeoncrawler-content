@@ -230,7 +230,7 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
-   * Offered quests are auto-started before applying a matching touchpoint.
+   * Offered direct-dialogue quests start without auto-completing accept objectives.
    */
   public function testIngestEventStartsOfferedQuestBeforeApplyingProgress(): void {
     $store = $this->createMock(KeyValueStoreInterface::class);
@@ -256,10 +256,8 @@ class QuestTouchpointServiceTest extends UnitTestCase {
       ->method('startQuest')
       ->with(85, 'rescue_merchant_offered', 99)
       ->willReturn(TRUE);
-    $quest_tracker->expects($this->once())
-      ->method('updateObjectiveProgress')
-      ->with(85, 'rescue_merchant_offered', 'escort_to_safety_runtime_1', 1, 99)
-      ->willReturn(['success' => TRUE]);
+    $quest_tracker->expects($this->never())
+      ->method('updateObjectiveProgress');
 
     $confirmation_service = $this->createMock(QuestConfirmationService::class);
     $confirmation_service->expects($this->never())
@@ -281,7 +279,7 @@ class QuestTouchpointServiceTest extends UnitTestCase {
     ]);
 
     $this->assertTrue($result['success']);
-    $this->assertSame('APPLY_PROGRESS', $result['decision']);
+    $this->assertSame('STARTED_QUEST', $result['decision']);
     $this->assertSame('rescue_merchant_offered', $result['quest_id']);
   }
 

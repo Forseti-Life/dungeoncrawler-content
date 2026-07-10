@@ -177,6 +177,14 @@ class QuestGeneratorService {
       );
 
       // Build quest data
+      $template_version = trim((string) ($template['version'] ?? '1.0.0'));
+      if ($template_version === '') {
+        $template_version = '1.0.0';
+      }
+      $contract_hash = hash('sha256', json_encode([
+        'source_template_id' => $template_id,
+        'generated_objectives' => $generated_objectives,
+      ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
       $quest_data = [
         'campaign_id' => $campaign_id,
         'quest_id' => $quest_id,
@@ -184,12 +192,15 @@ class QuestGeneratorService {
         'quest_name' => $quest_name,
         'quest_description' => $quest_description,
         'quest_type' => $template['quest_type'],
+        'template_version' => $template_version,
+        'contract_hash' => $contract_hash,
         'quest_data' => json_encode([
           'variables' => $variables,
           'party_level' => $context['party_level'] ?? 1,
           'difficulty' => $context['difficulty'] ?? 'moderate',
         ]),
         'generated_objectives' => json_encode($generated_objectives),
+        'objective_states' => json_encode($generated_objectives),
         'generated_rewards' => json_encode($generated_rewards),
         'status' => (string) ($context['initial_status'] ?? 'offered'),
         'giver_npc_id' => $context['giver_npc_id'] ?? NULL,
@@ -315,7 +326,7 @@ class QuestGeneratorService {
     }
 
     try {
-      $row = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+      $row = $this->database->select('dc_canonical_quests', 't')
         ->fields('t', ['objectives_schema'])
         ->condition('template_id', $template_id)
         ->range(0, 1)
@@ -844,7 +855,7 @@ class QuestGeneratorService {
    *   Template data or NULL if not found.
    */
   protected function loadTemplate(string $template_id): ?array {
-    $result = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+    $result = $this->database->select('dc_canonical_quests', 't')
       ->fields('t')
       ->condition('template_id', $template_id)
       ->execute()
@@ -1021,7 +1032,7 @@ class QuestGeneratorService {
    *   Array of matching templates.
    */
   protected function findTemplatesForLevel(int $party_level, array $tags = []): array {
-    $query = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+    $query = $this->database->select('dc_canonical_quests', 't')
       ->fields('t')
       ->condition('level_min', $party_level, '<=')
       ->condition('level_max', $party_level, '>=');

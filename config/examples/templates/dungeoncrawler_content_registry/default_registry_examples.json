@@ -66,9 +66,17 @@
         "threshold_of_knowledge"
       ],
       "schema_data": {
+        "schema_version": "1.0.0",
         "hazard_id": "tok-underlying-threat",
-        "hazard_type": "story_threat",
-        "description": "The narrative danger behind Threshold of Knowledge's final resolution objective."
+        "name": "Underlying Threat",
+        "level": 1,
+        "complexity": "simple",
+        "rarity": "uncommon",
+        "description": "The narrative danger behind Threshold of Knowledge's final resolution objective.",
+        "stealth_dc": 15,
+        "disable": {
+          "dc": 15
+        }
       },
       "version": "1.0.0"
     },

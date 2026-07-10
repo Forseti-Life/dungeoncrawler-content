@@ -14,8 +14,8 @@ For on-site user documentation and marketing copy, the primary audience is:
 - This folder mixes **PF2e tabletop reference material**, **implementation design documents**, and **module-runtime architecture notes**.
 - The `01-06` process guides are rules references, not strict runtime contracts for `dungeoncrawler_content` APIs.
 - Runtime API/controller behavior should be validated against:
-   - `sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/dungeoncrawler_content.routing.yml`
-   - `sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/Controller/`
+   - `dungeoncrawler_content.routing.yml`
+   - `src/Controller/`
 - Issue #4 remains design-only; current character state synchronization is REST-first (no production WebSocket route/handler in this module).
 
 

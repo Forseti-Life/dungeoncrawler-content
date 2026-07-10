@@ -110,11 +110,15 @@ class ConnectorGenerationPolicy {
     $is_discovered_default = !empty($raw['is_discovered']) || !isset($raw['is_hidden'])
       ? (empty($raw['is_hidden']) ? 1 : 0)
       : 1;
+    $from_hex = self::extractEndpointHex($raw, 'from');
+    $to_hex = self::extractEndpointHex($raw, 'to');
 
     return [
       'dungeon_id' => $dungeon_id,
       'from_room_id' => $from_room_id,
       'to_room_id' => $to_room_id,
+      'from_hex' => $from_hex,
+      'to_hex' => $to_hex,
       'kind' => $kind,
       'direction' => $direction,
       'default_state' => $default_state,
@@ -154,6 +158,8 @@ class ConnectorGenerationPolicy {
       'dungeon_id' => $dungeon_id,
       'from_room_id' => $from_room_id,
       'to_room_id' => $to_room_id,
+      'from_hex' => NULL,
+      'to_hex' => NULL,
       'kind' => 'hallway',
       'direction' => 'one_way',
       'default_state' => 'open',
@@ -298,6 +304,40 @@ class ConnectorGenerationPolicy {
     }
 
     return empty($requirements) ? NULL : $requirements;
+  }
+
+  /**
+   * Extract one endpoint hex from raw connector payload.
+   *
+   * Accepts:
+   * - from_hex/to_hex: {q,r}
+   * - from/to: {q,r}
+   * - from/to: {hex:{q,r}}
+   *
+   * @return array{q:int,r:int}|null
+   *   Parsed endpoint hex or NULL when unavailable.
+   */
+  private static function extractEndpointHex(array $raw, string $endpoint): ?array {
+    $direct = $raw[$endpoint . '_hex'] ?? NULL;
+    if (is_array($direct) && isset($direct['q'], $direct['r']) && is_numeric($direct['q']) && is_numeric($direct['r'])) {
+      return ['q' => (int) $direct['q'], 'r' => (int) $direct['r']];
+    }
+
+    $legacy = $raw[$endpoint] ?? NULL;
+    if (is_array($legacy) && isset($legacy['q'], $legacy['r']) && is_numeric($legacy['q']) && is_numeric($legacy['r'])) {
+      return ['q' => (int) $legacy['q'], 'r' => (int) $legacy['r']];
+    }
+    if (
+      is_array($legacy)
+      && is_array($legacy['hex'] ?? NULL)
+      && isset($legacy['hex']['q'], $legacy['hex']['r'])
+      && is_numeric($legacy['hex']['q'])
+      && is_numeric($legacy['hex']['r'])
+    ) {
+      return ['q' => (int) $legacy['hex']['q'], 'r' => (int) $legacy['hex']['r']];
+    }
+
+    return NULL;
   }
 
 }

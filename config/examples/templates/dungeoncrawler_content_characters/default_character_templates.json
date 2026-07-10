@@ -185,7 +185,7 @@
       "state_data": {
         "name": "Fallen Pillar",
         "class": "obstacle",
-        "level": 0,
+        "level": 1,
         "hp_current": 999,
         "conditions": []
       },

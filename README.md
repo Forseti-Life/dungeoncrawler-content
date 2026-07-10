@@ -95,8 +95,8 @@ Top-level module code lives in:
 ### RoomChat source-of-truth policy
 
 - **Canonical authoring path:** `src/` at the module root.
-- `sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/` is a runtime mirror copy and must stay byte-identical for RoomChat files.
-- Use `scripts/check-roomchat-tree-drift.sh` to verify parity before merge when RoomChat files are changed.
+- The legacy `sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/src/` mirror path is retired and must not be reintroduced.
+- Use `scripts/check-roomchat-tree-drift.sh` to enforce single-tree canonical RoomChat ownership and block legacy mirror-path drift.
 
 Wiring and route registration:
 

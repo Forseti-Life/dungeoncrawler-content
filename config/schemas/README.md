@@ -548,15 +548,15 @@ Add to `.vscode/settings.json` in your workspace:
   "json.schemas": [
     {
       "fileMatch": ["**/character_data/*.json"],
-      "url": "./sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/config/schemas/character.schema.json"
+      "url": "./config/schemas/character.schema.json"
     },
     {
       "fileMatch": ["**/campaign_data/*.json"],
-      "url": "./sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/config/schemas/campaign.schema.json"
+      "url": "./config/schemas/campaign.schema.json"
     },
     {
       "fileMatch": ["**/creatures/*.json"],
-      "url": "./sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/config/schemas/creature.schema.json"
+      "url": "./config/schemas/creature.schema.json"
     }
   ]
 }

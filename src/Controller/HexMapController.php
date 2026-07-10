@@ -258,6 +258,18 @@ class HexMapController extends ControllerBase {
 
     $this->ensureRoomNpcPsychologyProfiles($dungeon_payload, $launch_context);
     $visual_map_state = $this->mapVisualStateProjector->project($dungeon_payload, $launch_context, $launch_character);
+    $portrait_stats = $this->collectActiveRoomPortraitStats($visual_map_state);
+    $this->getLogger('dungeoncrawler_hexmap')->notice(
+      'Hexmap active-room portrait stats: campaign_id=@campaign_id request_room_id=@request_room_id active_room_id=@active_room_id actor_count=@actor_count actor_with_portrait=@actor_with_portrait sample=@sample',
+      [
+        '@campaign_id' => (int) ($launch_context['campaign_id'] ?? 0),
+        '@request_room_id' => (string) ($launch_context['room_id'] ?? ''),
+        '@active_room_id' => (string) ($portrait_stats['active_room_id'] ?? ''),
+        '@actor_count' => (int) ($portrait_stats['actor_count'] ?? 0),
+        '@actor_with_portrait' => (int) ($portrait_stats['actor_with_portrait'] ?? 0),
+        '@sample' => (string) ($portrait_stats['sample'] ?? ''),
+      ]
+    );
 
     $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap payload ready: campaign_id=@campaign_id room_id=@room_id active_room_id=@active_room_id room_count=@room_count entity_count=@entity_count', [
       '@campaign_id' => (int) ($launch_context['campaign_id'] ?? 0),
@@ -274,6 +286,51 @@ class HexMapController extends ControllerBase {
       'map_visual_state' => $visual_map_state,
       'quest_summary' => $quest_summary,
       'storyline_contacts' => $storyline_contacts,
+    ];
+  }
+
+  /**
+   * Summarize active-room actor portrait coverage for diagnostics.
+   */
+  protected function collectActiveRoomPortraitStats(array $visual_map_state): array {
+    $active_room_id = trim((string) ($visual_map_state['map_meta']['active_room_id'] ?? ''));
+    $party = is_array($visual_map_state['occupants']['party'] ?? NULL) ? $visual_map_state['occupants']['party'] : [];
+    $entities = is_array($visual_map_state['occupants']['entities'] ?? NULL) ? $visual_map_state['occupants']['entities'] : [];
+    $all = array_merge($party, $entities);
+
+    $actor_count = 0;
+    $actor_with_portrait = 0;
+    $sample = [];
+    foreach ($all as $occupant) {
+      if (!is_array($occupant)) {
+        continue;
+      }
+      if ((string) ($occupant['room_id'] ?? '') !== $active_room_id) {
+        continue;
+      }
+      $type = strtolower(trim((string) ($occupant['occupant_type'] ?? '')));
+      if (!in_array($type, ['npc', 'player_character', 'player'], TRUE)) {
+        continue;
+      }
+      $actor_count++;
+      $portrait = trim((string) ($occupant['presentation']['portrait_url'] ?? ''));
+      if ($portrait !== '') {
+        $actor_with_portrait++;
+      }
+      if (count($sample) < 4) {
+        $sample[] = sprintf(
+          '%s:%s',
+          trim((string) ($occupant['label'] ?? $type ?: 'unknown')),
+          $portrait !== '' ? 'yes' : 'no'
+        );
+      }
+    }
+
+    return [
+      'active_room_id' => $active_room_id,
+      'actor_count' => $actor_count,
+      'actor_with_portrait' => $actor_with_portrait,
+      'sample' => implode(',', $sample),
     ];
   }
 
@@ -1014,6 +1071,13 @@ class HexMapController extends ControllerBase {
       return $explicit_portrait;
     }
 
+    if ($character_id > 0) {
+      $runtime_portrait = $this->resolveCampaignCharacterPortraitColumn($campaign_id, $character_id);
+      if ($runtime_portrait !== NULL && $runtime_portrait !== '') {
+        return $runtime_portrait;
+      }
+    }
+
     if ($entity_type === 'npc' && $name !== '') {
       $library_npc_id = $this->findLibraryNpcPortraitSourceId($name);
       if ($library_npc_id !== NULL) {
@@ -1140,6 +1204,46 @@ class HexMapController extends ControllerBase {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve campaign-character portrait from authoritative runtime row(s).
+   */
+  protected function resolveCampaignCharacterPortraitColumn(int $campaign_id, int $character_id): ?string {
+    if ($campaign_id <= 0 || $character_id <= 0) {
+      return NULL;
+    }
+
+    $row = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id', 'character_id', 'portrait'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $character_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return NULL;
+    }
+
+    $portrait = $this->normalizePortraitUrl((string) ($row['portrait'] ?? ''));
+    if ($portrait !== NULL && $portrait !== '') {
+      return $portrait;
+    }
+
+    $source_character_id = (int) ($row['character_id'] ?? 0);
+    if ($source_character_id <= 0 || $source_character_id === $character_id) {
+      return NULL;
+    }
+
+    $source_portrait = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['portrait'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $source_character_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    return $this->normalizePortraitUrl((string) ($source_portrait ?? ''));
   }
 
   /**
@@ -2445,6 +2549,8 @@ class HexMapController extends ControllerBase {
         'name' => (string) ($room['name'] ?? ''),
         'description' => (string) ($room['description'] ?? ''),
         'hexes' => $normalized_hexes,
+        'entry_points' => is_array($room['entry_points'] ?? NULL) ? $room['entry_points'] : [],
+        'exit_points' => is_array($room['exit_points'] ?? NULL) ? $room['exit_points'] : [],
         'terrain' => is_array($room['terrain'] ?? NULL) ? $room['terrain'] : [],
         'lighting' => is_string($room['lighting'] ?? NULL) ? $room['lighting'] : (is_array($room['lighting'] ?? NULL) && isset($room['lighting']['level']) ? (string) $room['lighting']['level'] : 'normal'),
         'room_type' => (string) ($room['room_type'] ?? 'unknown'),
@@ -2570,6 +2676,7 @@ class HexMapController extends ControllerBase {
 
     $connections = is_array($decoded['hex_map']['connections'] ?? NULL) ? $decoded['hex_map']['connections'] : [];
     $connections = $this->ensureRoomsHaveAtLeastOneExit($rooms, $connections, $active_room_id);
+    $connections = $this->ensureConnectionsHaveLinkedHexes($rooms, $connections, $active_room_id);
     $dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $decoded['hex_map']['map_id'] ?? $launch_context['map_id'] ?? ''));
     $authoritative_h3 = $this->loadAuthoritativeSparseH3Payload($dungeon_id, array_keys($rooms));
     $placement_surface = is_array($decoded['hex_map']['placement_surface'] ?? NULL)
@@ -3023,6 +3130,159 @@ class HexMapController extends ControllerBase {
       'Invalid dungeon payload: rooms must have at least one exit; rooms without exits: %s',
       implode(', ', $rooms_without_exits)
     ));
+  }
+
+  /**
+   * Enforce explicit hex-to-hex linkage for each room connection edge.
+   *
+   * Each edge must expose a valid from_hex in room A and to_hex in room B so
+   * transition placement is deterministic.
+   */
+  protected function ensureConnectionsHaveLinkedHexes(array $rooms, array $connections, string $active_room_id): array {
+    if ($connections === []) {
+      return $connections;
+    }
+
+    $room_lookup = [];
+    foreach ($rooms as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        continue;
+      }
+      $room_lookup[$room_id] = $room;
+    }
+
+    foreach ($connections as &$connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+
+      $from_room_id = trim((string) (
+        $connection['from_room']
+        ?? $connection['from_room_id']
+        ?? ($connection['from']['room_id'] ?? '')
+      ));
+      $to_room_id = trim((string) (
+        $connection['to_room']
+        ?? $connection['to_room_id']
+        ?? ($connection['to']['room_id'] ?? '')
+      ));
+
+      if ($from_room_id === '' || $to_room_id === '') {
+        throw new \InvalidArgumentException('Connection linkage contract violation: each connection must define from_room and to_room.');
+      }
+      if (!isset($room_lookup[$from_room_id])) {
+        throw new \InvalidArgumentException(sprintf(
+          'Connection linkage contract violation: from_room_id %s is not present in dungeon rooms.',
+          $from_room_id
+        ));
+      }
+      if (!isset($room_lookup[$to_room_id])) {
+        throw new \InvalidArgumentException(sprintf(
+          'Connection linkage contract violation: to_room_id %s is not present in dungeon rooms.',
+          $to_room_id
+        ));
+      }
+
+      $from_hex = $this->resolveConnectionEndpointHex($connection['from_hex'] ?? ($connection['from'] ?? NULL), $room_lookup[$from_room_id], TRUE);
+      $to_hex = $this->resolveConnectionEndpointHex($connection['to_hex'] ?? ($connection['to'] ?? NULL), $room_lookup[$to_room_id], FALSE);
+
+      $connection['from_room'] = $from_room_id;
+      $connection['from_room_id'] = $from_room_id;
+      $connection['to_room'] = $to_room_id;
+      $connection['to_room_id'] = $to_room_id;
+      $connection['from_hex'] = $from_hex;
+      $connection['to_hex'] = $to_hex;
+      $connection['from'] = [
+        'room_id' => $from_room_id,
+        'q' => (int) $from_hex['q'],
+        'r' => (int) $from_hex['r'],
+      ];
+      $connection['to'] = [
+        'room_id' => $to_room_id,
+        'q' => (int) $to_hex['q'],
+        'r' => (int) $to_hex['r'],
+      ];
+    }
+    unset($connection);
+
+    return $connections;
+  }
+
+  /**
+   * Resolve or synthesize one endpoint hex that must belong to the room.
+   */
+  protected function resolveConnectionEndpointHex(mixed $candidate_hex, array $room, bool $prefer_exit): array {
+    $valid_hexes = [];
+    foreach ((array) ($room['hexes'] ?? []) as $hex) {
+      if (!is_array($hex) || !isset($hex['q'], $hex['r'])) {
+        continue;
+      }
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $valid_hexes[$q . ':' . $r] = [
+        'q' => $q,
+        'r' => $r,
+        'is_entry' => !empty($hex['is_entry']) || !empty($hex['entry']),
+      ];
+    }
+    if ($valid_hexes === []) {
+      throw new \InvalidArgumentException(sprintf(
+        'Connection linkage contract violation: room %s has no hexes.',
+        (string) ($room['room_id'] ?? 'unknown')
+      ));
+    }
+
+    if (is_array($candidate_hex) && isset($candidate_hex['q'], $candidate_hex['r'])) {
+      $candidate_key = (int) $candidate_hex['q'] . ':' . (int) $candidate_hex['r'];
+      if (isset($valid_hexes[$candidate_key])) {
+        return [
+          'q' => (int) $candidate_hex['q'],
+          'r' => (int) $candidate_hex['r'],
+        ];
+      }
+    }
+
+    $primary_points = is_array($room[$prefer_exit ? 'exit_points' : 'entry_points'] ?? NULL)
+      ? $room[$prefer_exit ? 'exit_points' : 'entry_points']
+      : [];
+    $secondary_points = is_array($room[$prefer_exit ? 'entry_points' : 'exit_points'] ?? NULL)
+      ? $room[$prefer_exit ? 'entry_points' : 'exit_points']
+      : [];
+    foreach ([$primary_points, $secondary_points] as $points) {
+      foreach ($points as $point) {
+        if (!is_array($point) || !isset($point['q'], $point['r'])) {
+          continue;
+        }
+        $point_key = (int) $point['q'] . ':' . (int) $point['r'];
+        if (isset($valid_hexes[$point_key])) {
+          return [
+            'q' => (int) $point['q'],
+            'r' => (int) $point['r'],
+          ];
+        }
+      }
+    }
+
+    if (!$prefer_exit) {
+      foreach ($valid_hexes as $hex_meta) {
+        if (!empty($hex_meta['is_entry'])) {
+          return [
+            'q' => (int) $hex_meta['q'],
+            'r' => (int) $hex_meta['r'],
+          ];
+        }
+      }
+    }
+
+    $fallback = reset($valid_hexes);
+    return [
+      'q' => (int) ($fallback['q'] ?? 0),
+      'r' => (int) ($fallback['r'] ?? 0),
+    ];
   }
 
   protected function ensurePayloadObjectOrientations(array $dungeon_payload): array {

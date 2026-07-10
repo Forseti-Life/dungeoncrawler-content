@@ -406,6 +406,20 @@ class StateValidationService {
     $report = [
       'valid' => FALSE,
       'errors' => [],
+      'validation_checks' => [
+        ['id' => 'actor_id_positive', 'label' => 'actor id must be a positive integer.'],
+        ['id' => 'name_required', 'label' => 'name is required.'],
+        ['id' => 'level_range', 'label' => 'level must be between 1 and 25.'],
+        ['id' => 'instance_id_required', 'label' => 'instance_id is required.'],
+        ['id' => 'type_required', 'label' => 'type is required.'],
+        ['id' => 'lifecycle_state_required', 'label' => 'lifecycle_state is required.'],
+        ['id' => 'location_type_required', 'label' => 'location_type is required.'],
+        ['id' => 'location_ref_required_by_type', 'label' => 'location_ref is required for location_type values outside global/roster.'],
+        ['id' => 'status_allowed', 'label' => 'status must be one of: -1, 0, 1, 2.'],
+        ['id' => 'pc_source_character_required', 'label' => 'pc actor rows must define source_character_id when campaign_id is non-zero.'],
+        ['id' => 'character_data_present', 'label' => 'character_data contract is required.'],
+        ['id' => 'character_data_json_contract', 'label' => 'character_data must decode to a non-empty JSON object/array.'],
+      ],
       'summary' => [
         'total_items' => 0,
         'valid_items' => 0,
@@ -469,54 +483,98 @@ class StateValidationService {
       $location_ref = trim((string) ($row['location_ref'] ?? ''));
       $status = isset($row['status']) && is_numeric($row['status']) ? (int) $row['status'] : NULL;
       $actor_errors = [];
-
-      if ($actor_id <= 0) {
-        $actor_errors[] = 'actor id must be a positive integer.';
-      }
-      if ($name === '') {
-        $actor_errors[] = 'name is required.';
-      }
-      if ($level < 1 || $level > 25) {
-        $actor_errors[] = 'level must be between 1 and 25.';
-      }
-      if ($instance_id === '') {
-        $actor_errors[] = 'instance_id is required.';
-      }
-      if ($actor_type === '') {
-        $actor_errors[] = 'type is required.';
-      }
-      if ($lifecycle_state === '') {
-        $actor_errors[] = 'lifecycle_state is required.';
-      }
-      if ($location_type === '') {
-        $actor_errors[] = 'location_type is required.';
-      }
       $location_ref_optional_types = ['global', 'roster'];
-      if ($location_ref === '' && !in_array($location_type, $location_ref_optional_types, TRUE)) {
-        $actor_errors[] = 'location_ref is required for location_type values outside global/roster.';
-      }
-      if ($status === NULL || !in_array($status, [-1, 0, 1, 2], TRUE)) {
-        $actor_errors[] = 'status must be one of: -1, 0, 1, 2.';
-      }
-      if ($campaign_id > 0 && $actor_type === 'pc' && ($source_character_id === NULL || $source_character_id <= 0)) {
-        $actor_errors[] = 'pc actor rows must define source_character_id when campaign_id is non-zero.';
-      }
 
       $character_data_raw = trim((string) ($row['character_data'] ?? ''));
       $character_data = [];
-      if ($character_data_raw === '') {
-        $actor_errors[] = 'character_data contract is required.';
-      }
-      else {
+      $character_data_decoded_valid = FALSE;
+      if ($character_data_raw !== '') {
         $decoded = json_decode($character_data_raw, TRUE);
-        if (!is_array($decoded) || $decoded === []) {
-          $actor_errors[] = 'character_data must decode to a non-empty JSON object/array.';
-        }
-        else {
+        if (is_array($decoded) && $decoded !== []) {
           $character_data = $decoded;
+          $character_data_decoded_valid = TRUE;
         }
       }
 
+      $actor_checks = [
+        [
+          'id' => 'actor_id_positive',
+          'label' => 'actor id must be a positive integer.',
+          'passed' => $actor_id > 0,
+          'error' => 'actor id must be a positive integer.',
+        ],
+        [
+          'id' => 'name_required',
+          'label' => 'name is required.',
+          'passed' => $name !== '',
+          'error' => 'name is required.',
+        ],
+        [
+          'id' => 'level_range',
+          'label' => 'level must be between 1 and 25.',
+          'passed' => $level >= 1 && $level <= 25,
+          'error' => 'level must be between 1 and 25.',
+        ],
+        [
+          'id' => 'instance_id_required',
+          'label' => 'instance_id is required.',
+          'passed' => $instance_id !== '',
+          'error' => 'instance_id is required.',
+        ],
+        [
+          'id' => 'type_required',
+          'label' => 'type is required.',
+          'passed' => $actor_type !== '',
+          'error' => 'type is required.',
+        ],
+        [
+          'id' => 'lifecycle_state_required',
+          'label' => 'lifecycle_state is required.',
+          'passed' => $lifecycle_state !== '',
+          'error' => 'lifecycle_state is required.',
+        ],
+        [
+          'id' => 'location_type_required',
+          'label' => 'location_type is required.',
+          'passed' => $location_type !== '',
+          'error' => 'location_type is required.',
+        ],
+        [
+          'id' => 'location_ref_required_by_type',
+          'label' => 'location_ref is required for location_type values outside global/roster.',
+          'passed' => $location_ref !== '' || in_array($location_type, $location_ref_optional_types, TRUE),
+          'error' => 'location_ref is required for location_type values outside global/roster.',
+        ],
+        [
+          'id' => 'status_allowed',
+          'label' => 'status must be one of: -1, 0, 1, 2.',
+          'passed' => $status !== NULL && in_array($status, [-1, 0, 1, 2], TRUE),
+          'error' => 'status must be one of: -1, 0, 1, 2.',
+        ],
+        [
+          'id' => 'pc_source_character_required',
+          'label' => 'pc actor rows must define source_character_id when campaign_id is non-zero.',
+          'passed' => !($campaign_id > 0 && $actor_type === 'pc' && ($source_character_id === NULL || $source_character_id <= 0)),
+          'error' => 'pc actor rows must define source_character_id when campaign_id is non-zero.',
+        ],
+        [
+          'id' => 'character_data_present',
+          'label' => 'character_data contract is required.',
+          'passed' => $character_data_raw !== '',
+          'error' => 'character_data contract is required.',
+        ],
+        [
+          'id' => 'character_data_json_contract',
+          'label' => 'character_data must decode to a non-empty JSON object/array.',
+          'passed' => $character_data_raw !== '' ? $character_data_decoded_valid : TRUE,
+          'error' => 'character_data must decode to a non-empty JSON object/array.',
+        ],
+      ];
+      foreach ($actor_checks as $check) {
+        if (empty($check['passed'])) {
+          $actor_errors[] = (string) ($check['error'] ?? $check['label'] ?? 'Actor contract check failed.');
+        }
+      }
       $actor_errors = array_values(array_unique($actor_errors));
       $actor_valid = $actor_errors === [];
 
@@ -545,6 +603,13 @@ class StateValidationService {
           ],
           'character_data' => $character_data,
         ],
+        'checks' => array_map(static function (array $check): array {
+          return [
+            'id' => (string) ($check['id'] ?? ''),
+            'label' => (string) ($check['label'] ?? ''),
+            'passed' => !empty($check['passed']),
+          ];
+        }, $actor_checks),
         'valid' => $actor_valid,
         'errors' => $actor_errors,
       ];
@@ -1236,6 +1301,8 @@ class StateValidationService {
    */
   private function validateCanonicalRoomExitLinkContract(array $layout_data, string $room_id, array $canonical_room_ids): array {
     $errors = [];
+    $layout_hex_coordinate_map = $this->buildLayoutCoordinateMap($layout_data['hexes'] ?? NULL);
+    $exit_point_coordinate_map = $this->buildLayoutCoordinateMap($layout_data['exit_points'] ?? NULL);
     $exit_links = $layout_data[self::ROOM_LAYOUT_EXIT_LINK_FIELD] ?? NULL;
     if (!is_array($exit_links) || $exit_links === []) {
       $errors[] = 'layout_data.exits must define at least one linked target_room_id.';
@@ -1277,6 +1344,23 @@ class StateValidationService {
         continue;
       }
       $seen_targets[$target_room_id] = TRUE;
+
+      $exit_hex = $this->extractExitLinkHexCoordinate($link);
+      if ($exit_hex === NULL) {
+        $errors[] = "layout_data.exits[{$index}] must include integer q/r coordinates (or hex.q/hex.r).";
+        continue;
+      }
+
+      $exit_key = $exit_hex['q'] . ':' . $exit_hex['r'];
+      if (!isset($layout_hex_coordinate_map[$exit_key])) {
+        $errors[] = "layout_data.exits[{$index}] coordinate '{$exit_key}' does not map to any layout_data.hexes coordinate.";
+        continue;
+      }
+      if ($exit_point_coordinate_map !== [] && !isset($exit_point_coordinate_map[$exit_key])) {
+        $errors[] = "layout_data.exits[{$index}] coordinate '{$exit_key}' must match a layout_data.exit_points coordinate.";
+        continue;
+      }
+
       $valid_links++;
     }
 
@@ -1285,6 +1369,115 @@ class StateValidationService {
     }
 
     return $errors;
+  }
+
+  /**
+   * Build coordinate map from q/r point arrays.
+   *
+   * @param mixed $points
+   *   Candidate point list.
+   *
+   * @return array<string, bool>
+   *   Keyed as "q:r".
+   */
+  private function buildLayoutCoordinateMap($points): array {
+    $coordinate_map = [];
+    if (!is_array($points)) {
+      return $coordinate_map;
+    }
+
+    foreach ($points as $point) {
+      if (!is_array($point) || !isset($point['q'], $point['r'])) {
+        continue;
+      }
+      if (!is_int($point['q']) || !is_int($point['r'])) {
+        continue;
+      }
+      $coordinate_map[$point['q'] . ':' . $point['r']] = TRUE;
+    }
+
+    return $coordinate_map;
+  }
+
+  /**
+   * Extract one exit-link coordinate from top-level q/r or nested hex.q/hex.r.
+   *
+   * @param array<string, mixed> $link
+   *   Exit link payload.
+   *
+   * @return array{q:int,r:int}|null
+   *   Resolved coordinate or NULL when unavailable/invalid.
+   */
+  private function extractExitLinkHexCoordinate(array $link): ?array {
+    $candidate = NULL;
+    if (array_key_exists('q', $link) || array_key_exists('r', $link)) {
+      $candidate = [
+        'q' => $link['q'] ?? NULL,
+        'r' => $link['r'] ?? NULL,
+      ];
+    }
+    elseif (is_array($link['hex'] ?? NULL)) {
+      $candidate = [
+        'q' => $link['hex']['q'] ?? NULL,
+        'r' => $link['hex']['r'] ?? NULL,
+      ];
+    }
+
+    if (!is_array($candidate) || !is_int($candidate['q'] ?? NULL) || !is_int($candidate['r'] ?? NULL)) {
+      return NULL;
+    }
+
+    return [
+      'q' => (int) $candidate['q'],
+      'r' => (int) $candidate['r'],
+    ];
+  }
+
+  /**
+   * Check whether one layout contains a specific q/r coordinate in hexes.
+   *
+   * @param array<string, mixed> $layout_data
+   *   Room layout payload.
+   */
+  private function layoutContainsHexCoordinate(array $layout_data, int $q, int $r): bool {
+    foreach ((array) ($layout_data['hexes'] ?? []) as $hex) {
+      if (!is_array($hex) || !isset($hex['q'], $hex['r'])) {
+        continue;
+      }
+      if ((int) $hex['q'] === $q && (int) $hex['r'] === $r) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Extract explicit exit-link endpoint hex for one target room.
+   *
+   * @param array<string, mixed> $layout_data
+   *   Room layout payload.
+   * @param string $target_room_id
+   *   Target room id.
+   *
+   * @return array{q:int,r:int}|null
+   *   Endpoint coordinate or NULL when no explicit coordinate exists.
+   */
+  private function extractRoomExitHexCoordinateForTarget(array $layout_data, string $target_room_id): ?array {
+    foreach ((array) ($layout_data[self::ROOM_LAYOUT_EXIT_LINK_FIELD] ?? []) as $exit_link) {
+      if (!is_array($exit_link)) {
+        continue;
+      }
+      if (trim((string) ($exit_link['target_room_id'] ?? '')) !== $target_room_id) {
+        continue;
+      }
+      $hex = $this->extractExitLinkHexCoordinate($exit_link);
+      if ($hex !== NULL) {
+        return $hex;
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -1319,6 +1512,26 @@ class StateValidationService {
     }
 
     $errors = [];
+    $room_layouts_by_id = [];
+    $room_layout_rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'layout_data'])
+      ->condition('room_id', array_keys($canonical_room_ids), 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    foreach ((array) $room_layout_rows as $room_layout_row) {
+      if (!is_array($room_layout_row)) {
+        continue;
+      }
+      $room_id = trim((string) ($room_layout_row['room_id'] ?? ''));
+      if ($room_id === '') {
+        continue;
+      }
+      $layout_data = json_decode((string) ($room_layout_row['layout_data'] ?? ''), TRUE);
+      if (is_array($layout_data)) {
+        $room_layouts_by_id[$room_id] = $layout_data;
+      }
+    }
+
     $dungeon_rooms = [];
     $room_to_dungeons = [];
     foreach ($rows as $row) {
@@ -1377,8 +1590,21 @@ class StateValidationService {
 
     $connector_rows_by_dungeon = [];
     if ($schema->tableExists('dungeoncrawler_content_connections')) {
+      $required_connector_fields = ['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'];
+      $missing_connector_fields = [];
+      foreach ($required_connector_fields as $required_connector_field) {
+        if (!$schema->fieldExists('dungeoncrawler_content_connections', $required_connector_field)) {
+          $missing_connector_fields[] = $required_connector_field;
+        }
+      }
+      if ($missing_connector_fields !== []) {
+        $errors[] = 'Canonical connector schema missing endpoint hex fields: '
+          . implode(', ', $missing_connector_fields)
+          . '. Run module update hook 10159.';
+      }
+      else {
       $connector_rows = $this->database->select('dungeoncrawler_content_connections', 'c')
-        ->fields('c', ['dungeon_id', 'from_room_id', 'to_room_id', 'direction', 'default_state'])
+        ->fields('c', ['dungeon_id', 'from_room_id', 'to_room_id', 'direction', 'default_state', 'from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'])
         ->orderBy('dungeon_id', 'ASC')
         ->orderBy('id', 'ASC')
         ->execute()
@@ -1396,6 +1622,7 @@ class StateValidationService {
           $connector_rows_by_dungeon[$connector_dungeon_id] = [];
         }
         $connector_rows_by_dungeon[$connector_dungeon_id][] = $connector_row;
+      }
       }
     }
 
@@ -1472,59 +1699,137 @@ class StateValidationService {
       }
 
       $connector_rows = (array) ($connector_rows_by_dungeon[$dungeon_id] ?? []);
-      if ($connector_rows !== []) {
-        $room_total_connector_degree = array_fill_keys($room_ids, 0);
-        $room_passable_connector_degree = array_fill_keys($room_ids, 0);
-        foreach ($connector_rows as $connector_row) {
-          if (!is_array($connector_row)) {
-            continue;
-          }
-          $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
-          $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
-          $direction = strtolower(trim((string) ($connector_row['direction'] ?? '')));
-          $default_state = strtolower(trim((string) ($connector_row['default_state'] ?? 'open')));
+      if (count($room_ids) > 1 && $connector_rows === []) {
+        $errors[] = "Dungeon '{$dungeon_id}' has no connector rows in dungeoncrawler_content_connections.";
+      }
 
-          if ($from_room_id === '' || $to_room_id === '') {
-            $errors[] = "Dungeon '{$dungeon_id}' has connector rows missing from_room_id/to_room_id.";
-            continue;
-          }
-          if (!isset($room_set[$from_room_id]) || !isset($room_set[$to_room_id])) {
-            $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' references room(s) outside dungeon_data.rooms.";
-            continue;
-          }
-          if (!in_array($direction, ['one_way', 'bidirectional'], TRUE)) {
-            $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' has unsupported direction '{$direction}'.";
-            continue;
-          }
+      $room_total_connector_degree = array_fill_keys($room_ids, 0);
+      $room_passable_connector_degree = array_fill_keys($room_ids, 0);
+      $room_outgoing_edge_count = array_fill_keys($room_ids, 0);
+      $room_incoming_edge_count = array_fill_keys($room_ids, 0);
+      $connector_index = [];
+      foreach ($connector_rows as $connector_row) {
+        if (!is_array($connector_row)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+        $direction = strtolower(trim((string) ($connector_row['direction'] ?? '')));
+        $default_state = strtolower(trim((string) ($connector_row['default_state'] ?? 'open')));
+        $from_hex_q = $connector_row['from_hex_q'] ?? NULL;
+        $from_hex_r = $connector_row['from_hex_r'] ?? NULL;
+        $to_hex_q = $connector_row['to_hex_q'] ?? NULL;
+        $to_hex_r = $connector_row['to_hex_r'] ?? NULL;
 
-          $from_targets = (array) ($room_exit_targets_by_room[$from_room_id] ?? []);
-          if (!in_array($to_room_id, $from_targets, TRUE)) {
-            $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' is unresolved in layout_data.exits.";
-          }
-          if ($direction === 'bidirectional') {
-            $to_targets = (array) ($room_exit_targets_by_room[$to_room_id] ?? []);
-            if (!in_array($from_room_id, $to_targets, TRUE)) {
-              $errors[] = "Dungeon '{$dungeon_id}' bidirectional connector '{$from_room_id}' <-> '{$to_room_id}' is missing reverse layout_data.exits link.";
-            }
-          }
+        if ($from_room_id === '' || $to_room_id === '') {
+          $errors[] = "Dungeon '{$dungeon_id}' has connector rows missing from_room_id/to_room_id.";
+          continue;
+        }
+        if (!isset($room_set[$from_room_id])) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' has from_room_id outside dungeon_data.rooms.";
+          continue;
+        }
+        if (!in_array($direction, ['one_way', 'bidirectional'], TRUE)) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' has unsupported direction '{$direction}'.";
+          continue;
+        }
+        if (!is_numeric($from_hex_q) || !is_numeric($from_hex_r) || !is_numeric($to_hex_q) || !is_numeric($to_hex_r)) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' is missing endpoint hex coordinates.";
+          continue;
+        }
+        $from_hex_q = (int) $from_hex_q;
+        $from_hex_r = (int) $from_hex_r;
+        $to_hex_q = (int) $to_hex_q;
+        $to_hex_r = (int) $to_hex_r;
 
-          $room_total_connector_degree[$from_room_id] = (int) ($room_total_connector_degree[$from_room_id] ?? 0) + 1;
-          $room_total_connector_degree[$to_room_id] = (int) ($room_total_connector_degree[$to_room_id] ?? 0) + 1;
+        $from_layout = (array) ($room_layouts_by_id[$from_room_id] ?? []);
+        $to_layout = (array) ($room_layouts_by_id[$to_room_id] ?? []);
+        if (!$this->layoutContainsHexCoordinate($from_layout, $from_hex_q, $from_hex_r)) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' from_hex '{$from_hex_q}:{$from_hex_r}' does not map to from_room layout_data.hexes.";
+        }
+        if (!$this->layoutContainsHexCoordinate($to_layout, $to_hex_q, $to_hex_r)) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' to_hex '{$to_hex_q}:{$to_hex_r}' does not map to to_room layout_data.hexes.";
+        }
+        $from_exit_hex = $this->extractRoomExitHexCoordinateForTarget($from_layout, $to_room_id);
+        if (
+          is_array($from_exit_hex)
+          && ((int) ($from_exit_hex['q'] ?? 0) !== $from_hex_q || (int) ($from_exit_hex['r'] ?? 0) !== $from_hex_r)
+        ) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' from_hex '{$from_hex_q}:{$from_hex_r}' does not match layout_data.exits endpoint '{$from_exit_hex['q']}:{$from_exit_hex['r']}'.";
+        }
+        $to_exit_hex = $this->extractRoomExitHexCoordinateForTarget($to_layout, $from_room_id);
+        if (
+          is_array($to_exit_hex)
+          && ((int) ($to_exit_hex['q'] ?? 0) !== $to_hex_q || (int) ($to_exit_hex['r'] ?? 0) !== $to_hex_r)
+        ) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' to_hex '{$to_hex_q}:{$to_hex_r}' does not match reverse layout_data.exits endpoint '{$to_exit_hex['q']}:{$to_exit_hex['r']}'.";
+        }
 
-          $is_passable = !in_array($default_state, ['destroyed', 'collapsed'], TRUE);
-          if ($is_passable) {
-            $room_passable_connector_degree[$from_room_id] = (int) ($room_passable_connector_degree[$from_room_id] ?? 0) + 1;
-            $room_passable_connector_degree[$to_room_id] = (int) ($room_passable_connector_degree[$to_room_id] ?? 0) + 1;
+        $from_targets = (array) ($room_exit_targets_by_room[$from_room_id] ?? []);
+        if (!in_array($to_room_id, $from_targets, TRUE)) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' is unresolved in layout_data.exits.";
+        }
+        if ($direction === 'bidirectional') {
+          $to_targets = (array) ($room_exit_targets_by_room[$to_room_id] ?? []);
+          if (!in_array($from_room_id, $to_targets, TRUE)) {
+            $errors[] = "Dungeon '{$dungeon_id}' bidirectional connector '{$from_room_id}' <-> '{$to_room_id}' is missing reverse layout_data.exits link.";
           }
         }
 
-        if (count($room_ids) > 1) {
-          foreach ($room_ids as $room_id) {
-            $total_degree = (int) ($room_total_connector_degree[$room_id] ?? 0);
-            $passable_degree = (int) ($room_passable_connector_degree[$room_id] ?? 0);
-            if ($total_degree > 0 && $passable_degree === 0) {
-              $errors[] = "Dungeon '{$dungeon_id}' room '{$room_id}' is only connected through blocked/non-passable connectors.";
-            }
+        $connector_index[$from_room_id . '::' . $to_room_id] = $direction;
+        if ($direction === 'bidirectional') {
+          $connector_index[$to_room_id . '::' . $from_room_id] = $direction;
+        }
+
+        if (isset($room_set[$to_room_id])) {
+          $room_outgoing_edge_count[$from_room_id] = (int) ($room_outgoing_edge_count[$from_room_id] ?? 0) + 1;
+          $room_incoming_edge_count[$to_room_id] = (int) ($room_incoming_edge_count[$to_room_id] ?? 0) + 1;
+          if ($direction === 'bidirectional') {
+            $room_outgoing_edge_count[$to_room_id] = (int) ($room_outgoing_edge_count[$to_room_id] ?? 0) + 1;
+            $room_incoming_edge_count[$from_room_id] = (int) ($room_incoming_edge_count[$from_room_id] ?? 0) + 1;
+          }
+        }
+
+        $room_total_connector_degree[$from_room_id] = (int) ($room_total_connector_degree[$from_room_id] ?? 0) + 1;
+        if (isset($room_set[$to_room_id])) {
+          $room_total_connector_degree[$to_room_id] = (int) ($room_total_connector_degree[$to_room_id] ?? 0) + 1;
+        }
+
+        $is_passable = !in_array($default_state, ['destroyed', 'collapsed'], TRUE);
+        if ($is_passable) {
+          $room_passable_connector_degree[$from_room_id] = (int) ($room_passable_connector_degree[$from_room_id] ?? 0) + 1;
+          if (isset($room_set[$to_room_id])) {
+            $room_passable_connector_degree[$to_room_id] = (int) ($room_passable_connector_degree[$to_room_id] ?? 0) + 1;
+          }
+        }
+      }
+
+      foreach ($room_ids as $room_id) {
+        $exit_targets = (array) ($room_exit_targets_by_room[$room_id] ?? []);
+        foreach ($exit_targets as $target_room_id) {
+          if (!isset($canonical_room_ids[$target_room_id])) {
+            continue;
+          }
+          if (!isset($connector_index[$room_id . '::' . $target_room_id])) {
+            $errors[] = "Dungeon '{$dungeon_id}' layout_data.exits link '{$room_id}' -> '{$target_room_id}' is missing a matching connector row.";
+          }
+        }
+      }
+
+      if (count($room_ids) > 1) {
+        foreach ($room_ids as $room_id) {
+          $total_degree = (int) ($room_total_connector_degree[$room_id] ?? 0);
+          $passable_degree = (int) ($room_passable_connector_degree[$room_id] ?? 0);
+          if ($total_degree > 0 && $passable_degree === 0) {
+            $errors[] = "Dungeon '{$dungeon_id}' room '{$room_id}' is only connected through blocked/non-passable connectors.";
+          }
+          $outgoing_edges = (int) ($room_outgoing_edge_count[$room_id] ?? 0);
+          $incoming_edges = (int) ($room_incoming_edge_count[$room_id] ?? 0);
+          if ($outgoing_edges === 0) {
+            $errors[] = "Dungeon '{$dungeon_id}' room '{$room_id}' has no outgoing connector edge.";
+          }
+          if ($incoming_edges === 0) {
+            $errors[] = "Dungeon '{$dungeon_id}' room '{$room_id}' has no incoming connector edge.";
           }
         }
       }

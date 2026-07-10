@@ -1288,6 +1288,46 @@ class StorylineExplorerPageController extends ControllerBase {
         $errors === [] ? '-' : implode('; ', $errors),
       ];
     }
+    $actor_validation_rows = [];
+    foreach (($diagnostics['actor_validation'] ?? []) as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $status = strtoupper(trim((string) ($row['status'] ?? 'UNKNOWN')));
+      $badge_class = $status === 'PASS' ? 'text-bg-success' : ($status === 'FAIL' ? 'text-bg-danger' : 'text-bg-secondary');
+      $actor_id = trim((string) ($row['actor_id'] ?? ''));
+      $actor_validation_url = Url::fromRoute('dungeoncrawler_content.analysis_explorer_actors', [], [
+        'query' => [
+          'selected' => $actor_id,
+          'q' => $actor_id,
+        ],
+      ])->toString();
+      $actor_validation_rows[] = [
+        $actor_id,
+        Markup::create('<span class="badge ' . $badge_class . '">' . Html::escape($status) . '</span>'),
+        (string) ($row['anchor_sources'] ?? '-'),
+        (string) ((int) ($row['reference_count'] ?? 0)),
+        (string) ($row['details'] ?? '-'),
+        $actor_id === ''
+          ? '-'
+          : Markup::create('<a class="btn btn-outline-primary btn-sm" href="' . Html::escape($actor_validation_url) . '">Open actor validation</a>'),
+      ];
+    }
+    $location_validation_rows = [];
+    foreach (($diagnostics['location_validation'] ?? []) as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $status = strtoupper(trim((string) ($row['status'] ?? 'UNKNOWN')));
+      $badge_class = $status === 'PASS' ? 'text-bg-success' : ($status === 'FAIL' ? 'text-bg-danger' : 'text-bg-secondary');
+      $location_validation_rows[] = [
+        (string) ($row['location_id'] ?? ''),
+        Markup::create('<span class="badge ' . $badge_class . '">' . Html::escape($status) . '</span>'),
+        (string) ($row['anchor_sources'] ?? '-'),
+        (string) ((int) ($row['reference_count'] ?? 0)),
+        (string) ($row['details'] ?? '-'),
+      ];
+    }
 
     $validator_status = $diagnostics['validator_status'];
     $status_badge = $validator_status === 'pass'
@@ -1317,6 +1357,7 @@ class StorylineExplorerPageController extends ControllerBase {
         Markup::create('<span class="badge ' . $badge_class . '">' . Html::escape($stage_label) . '</span>'),
       ];
     }
+    $validator_reference_rows = $this->buildValidatorReferenceRows($diagnostics);
 
     return [
       '#type' => 'container',
@@ -1334,6 +1375,18 @@ class StorylineExplorerPageController extends ControllerBase {
           '#type' => 'table',
           '#header' => ['Check', 'Result'],
           '#rows' => $summary_rows,
+        ],
+        'validator_reference_title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h3',
+          '#attributes' => ['class' => ['h6', 'mt-3', 'mb-2']],
+          '#value' => (string) $this->t('Validator reference map (sub-validator + sub-generator)'),
+        ],
+        'validator_reference' => [
+          '#type' => 'table',
+          '#header' => ['Stage', 'Status', 'Sub-validator function', 'Sub-generator function', 'Action when fail'],
+          '#rows' => $validator_reference_rows,
+          '#empty' => $this->t('No validator stage diagnostics are available.'),
         ],
         'validator_errors_title' => [
           '#type' => 'html_tag',
@@ -1371,6 +1424,30 @@ class StorylineExplorerPageController extends ControllerBase {
           '#rows' => $entity_type_rows,
           '#empty' => $this->t('No entity-type references detected in this storyline template.'),
         ],
+        'actor_validation_title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h3',
+          '#attributes' => ['class' => ['h6', 'mt-3', 'mb-2']],
+          '#value' => (string) $this->t('Actor validation (explicit, full coverage)'),
+        ],
+        'actor_validation' => [
+          '#type' => 'table',
+          '#header' => ['Actor ID', 'Status', 'Anchor sources', 'Objective refs', 'Details', 'Review'],
+          '#rows' => $actor_validation_rows,
+          '#empty' => $this->t('No actor anchors or actor objective references found for this validation scope.'),
+        ],
+        'location_validation_title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h3',
+          '#attributes' => ['class' => ['h6', 'mt-3', 'mb-2']],
+          '#value' => (string) $this->t('Location validation (explicit, full coverage)'),
+        ],
+        'location_validation' => [
+          '#type' => 'table',
+          '#header' => ['Location ID', 'Status', 'Anchor sources', 'Objective refs', 'Details'],
+          '#rows' => $location_validation_rows,
+          '#empty' => $this->t('No location anchors or location objective references found for this validation scope.'),
+        ],
         'dungeon_room_validation_title' => [
           '#type' => 'html_tag',
           '#tag' => 'h3',
@@ -1397,6 +1474,94 @@ class StorylineExplorerPageController extends ControllerBase {
         ],
       ],
     ];
+  }
+
+  /**
+   * Build explorer-facing stage -> sub-validator -> sub-generator reference rows.
+   *
+   * @return array<int, array<int, string|\Drupal\Component\Render\MarkupInterface>>
+   *   Table rows for the validator reference map.
+   */
+  protected function buildValidatorReferenceRows(array $diagnostics): array {
+    $stages = is_array($diagnostics['stages'] ?? NULL) ? $diagnostics['stages'] : [];
+    if ($stages === []) {
+      return [];
+    }
+
+    $reference_map = [
+      'raw_definition_contract' => [
+        'label' => 'raw_definition_contract',
+        'validator' => 'StorylineManagerService::validateStorylineEndToEndContract',
+        'generator' => 'StorylineManagerService::instantiateStorylineTemplate',
+        'action' => 'Repair template definition contracts and re-instantiate the storyline template.',
+      ],
+      'entity_type_contracts' => [
+        'label' => 'entity_type_contracts',
+        'validator' => 'StorylineManagerService::validateEntityTypeContracts',
+        'generator' => 'StorylineRealizationService::realizeStorylineNpcs + realizeStorylineAssets',
+        'action' => 'Fix unsupported or malformed entity_type entries, then rerun storyline realization.',
+      ],
+      'task_contract' => [
+        'label' => 'task_contract',
+        'validator' => 'StorylineExplorerPageController::collectTaskContractDiagnostics',
+        'generator' => 'QuestGeneratorService::generateQuestFromTemplate',
+        'action' => 'Fix task/children/completion_criteria contracts and regenerate runtime quest rows.',
+      ],
+      'entity_linkage' => [
+        'label' => 'entity_linkage',
+        'validator' => 'StorylineExplorerPageController::collectEntityLinkageDiagnostics',
+        'generator' => 'StorylineRealizationService::realizeStorylineNpcs (via StorylineManagerService::finalizePersistedCampaignStoryline)',
+        'action' => 'When actor targets are missing (for example tal-mission-handler), add/anchor the actor and rerun NPC realization to register dc_campaign_characters.',
+      ],
+      'dungeon_room_contracts' => [
+        'label' => 'dungeon_room_contracts',
+        'validator' => 'StorylineExplorerPageController::collectDungeonRoomDiagnostics',
+        'generator' => 'StorylineRealizationService::realizeStorylineAssets',
+        'action' => 'Fix dungeon/room canonical contracts and rerun storyline asset realization.',
+      ],
+      'quest_template_contracts' => [
+        'label' => 'quest_template_contracts',
+        'validator' => 'StorylineExplorerPageController::collectQuestTemplateDiagnostics',
+        'generator' => 'QuestGeneratorService::generateQuestFromTemplate',
+        'action' => 'Fix objectives_schema in canonical quest templates and regenerate quests from template.',
+      ],
+      'runtime_instances' => [
+        'label' => 'runtime_instances',
+        'validator' => 'StorylineExplorerPageController::collectRuntimeInstanceDiagnostics',
+        'generator' => 'StorylineManagerService::createCampaignStoryline / instantiateStorylineTemplate',
+        'action' => 'Create or refresh campaign runtime instances for this template and rerun validation.',
+      ],
+      'template_runtime_consistency' => [
+        'label' => 'template_runtime_consistency',
+        'validator' => 'StorylineExplorerPageController::collectTemplateRuntimeConsistencyDiagnostics',
+        'generator' => 'QuestGeneratorService::generateQuestFromTemplate + StorylineManagerService::replaceCampaignStorylineDefinition',
+        'action' => 'Realign runtime quest rows with the template quest graph and refresh storyline runtime definition.',
+      ],
+    ];
+
+    $rows = [];
+    foreach ($stages as $stage_name => $stage_data) {
+      $stage_key = (string) $stage_name;
+      $meta = $reference_map[$stage_key] ?? [
+        'label' => $stage_key,
+        'validator' => 'StorylineManagerService::validateStorylineEndToEndContract',
+        'generator' => 'StorylineManagerService::instantiateStorylineTemplate',
+        'action' => 'Inspect this stage errors and rerun storyline instantiation after fixing the referenced contracts.',
+      ];
+
+      $stage_pass = !empty($stage_data['valid']);
+      $badge_class = $stage_pass ? 'text-bg-success' : 'text-bg-danger';
+      $stage_label = $stage_pass ? 'PASS' : 'FAIL';
+      $rows[] = [
+        (string) $meta['label'],
+        Markup::create('<span class="badge ' . $badge_class . '">' . Html::escape($stage_label) . '</span>'),
+        (string) $meta['validator'],
+        (string) $meta['generator'],
+        (string) $meta['action'],
+      ];
+    }
+
+    return $rows;
   }
 
   /**
@@ -1439,6 +1604,8 @@ class StorylineExplorerPageController extends ControllerBase {
    *   stages: array<string, array{valid: bool, errors: array<int, string>}>,
    *   graph_errors: array<int, string>,
    *   entity_type_verification: array<int, array{entity_type: string, reference_count: int, stage_status: string}>,
+   *   actor_validation: array<int, array{actor_id: string, status: string, anchor_sources: string, reference_count: int, details: string}>,
+   *   location_validation: array<int, array{location_id: string, status: string, anchor_sources: string, reference_count: int, details: string}>,
    *   dungeon_room_validation: array<int, array{dungeon_id: string, status: string, entry_room: string, room_count: int, validated_room_count: int, errors: array<int, string>}>,
    *   quest_template_validation: array<int, array{quest_id: string, status: string, phase_count: int, objective_count: int, errors: array<int, string>}>,
    *   raw_definition_error_count: int,
@@ -1451,6 +1618,8 @@ class StorylineExplorerPageController extends ControllerBase {
     $stages = [];
     $dungeon_room_validation = [];
     $quest_template_validation = [];
+    $actor_validation = [];
+    $location_validation = [];
     $runtime_instance_count = 0;
     $selected_quest_id = trim($selected_quest_id);
 
@@ -1504,6 +1673,13 @@ class StorylineExplorerPageController extends ControllerBase {
             $validator_errors[] = '[entity_linkage] ' . $error;
           }
         }
+        $entity_registry_diagnostics = $this->collectActorLocationValidationDiagnostics($template_data, $selected_quest_id);
+        $actor_validation = is_array($entity_registry_diagnostics['actors'] ?? NULL)
+          ? $entity_registry_diagnostics['actors']
+          : [];
+        $location_validation = is_array($entity_registry_diagnostics['locations'] ?? NULL)
+          ? $entity_registry_diagnostics['locations']
+          : [];
 
         // Stage 7b — dungeon->room contract coverage for referenced dungeon assets.
         $dungeon_room_diagnostics = $this->collectDungeonRoomDiagnostics($template_data);
@@ -1635,6 +1811,8 @@ class StorylineExplorerPageController extends ControllerBase {
       'stages' => $stages,
       'graph_errors' => array_values(array_unique($graph_errors)),
       'entity_type_verification' => $this->buildEntityTypeVerificationRows($template_data, $stages),
+      'actor_validation' => $actor_validation,
+      'location_validation' => $location_validation,
       'dungeon_room_validation' => $dungeon_room_validation,
       'quest_template_validation' => $quest_template_validation,
       'raw_definition_error_count' => count((array) ($stages['raw_definition_contract']['errors'] ?? [])),
@@ -2066,7 +2244,7 @@ class StorylineExplorerPageController extends ControllerBase {
 
       if (!$load_failed) {
         if ($objective_phases === NULL) {
-          $errors[] = 'canonical quest template row not found in dungeoncrawler_content_quest_templates.';
+          $errors[] = 'canonical quest row not found in dc_canonical_quests.';
         }
         elseif ($objective_phases === []) {
           $errors[] = 'objectives_schema payload is empty.';
@@ -2422,6 +2600,312 @@ class StorylineExplorerPageController extends ControllerBase {
   }
 
   /**
+   * Collect explicit actor/location validation coverage rows for Explorer tables.
+   *
+   * @return array{
+   *   actors: array<int, array{actor_id: string, status: string, anchor_sources: string, reference_count: int, details: string}>,
+   *   locations: array<int, array{location_id: string, status: string, anchor_sources: string, reference_count: int, details: string}>
+   * }
+   *   Explicit per-actor and per-location validation rows.
+   */
+  protected function collectActorLocationValidationDiagnostics(array $template_data, string $selected_quest_id = ''): array {
+    if (!($this->storylineManager instanceof StorylineManagerService)) {
+      return ['actors' => [], 'locations' => []];
+    }
+    $selected_quest_id = trim($selected_quest_id);
+    if ($selected_quest_id !== '' && !in_array($selected_quest_id, $this->collectTemplateQuestIds($template_data), TRUE)) {
+      return ['actors' => [], 'locations' => []];
+    }
+
+    $actor_anchor_sources = [];
+    $location_anchor_sources = [];
+    $actor_reference_paths = [];
+    $location_reference_paths = [];
+
+    $add_anchor_source = static function (array &$bucket, string $id, string $source): void {
+      $id = trim($id);
+      $source = trim($source);
+      if ($id === '' || $source === '') {
+        return;
+      }
+      if (!isset($bucket[$id])) {
+        $bucket[$id] = [];
+      }
+      $bucket[$id][$source] = TRUE;
+    };
+    $add_reference_path = static function (array &$bucket, string $id, string $path): void {
+      $id = trim($id);
+      $path = trim($path);
+      if ($id === '' || $path === '') {
+        return;
+      }
+      if (!isset($bucket[$id])) {
+        $bucket[$id] = [];
+      }
+      $bucket[$id][$path] = TRUE;
+    };
+
+    foreach ((array) ($template_data['contacts'] ?? []) as $contact_index => $contact) {
+      $entity_id = trim((string) (is_array($contact) ? ($contact['entity_id'] ?? '') : ''));
+      $add_anchor_source($actor_anchor_sources, $entity_id, "contacts[{$contact_index}]");
+    }
+    foreach ((array) ($template_data['asset_references'] ?? []) as $asset_index => $ref) {
+      if (!is_array($ref)) {
+        continue;
+      }
+      $asset_id = trim((string) ($ref['asset_id'] ?? ''));
+      if ($asset_id === '') {
+        continue;
+      }
+      $asset_type = strtolower(trim((string) ($ref['asset_type'] ?? '')));
+      if ($asset_type === 'npc') {
+        $add_anchor_source($actor_anchor_sources, $asset_id, "asset_references[{$asset_index}]");
+      }
+      elseif (in_array($asset_type, ['room', 'location', 'dungeon'], TRUE)) {
+        $add_anchor_source($location_anchor_sources, $asset_id, "asset_references[{$asset_index}]");
+      }
+    }
+
+    $outline = is_array($template_data['metadata']['generated_outline'] ?? NULL) ? $template_data['metadata']['generated_outline'] : [];
+    $big_boss_id = trim((string) ($outline['big_boss']['boss_id'] ?? ''));
+    $add_anchor_source($actor_anchor_sources, $big_boss_id, 'metadata.generated_outline.big_boss');
+    foreach ((array) ($outline['sub_bosses'] ?? []) as $boss_index => $boss) {
+      $boss_id = trim((string) (is_array($boss) ? ($boss['boss_id'] ?? '') : ''));
+      $add_anchor_source($actor_anchor_sources, $boss_id, "metadata.generated_outline.sub_bosses[{$boss_index}]");
+    }
+    $entry_dungeon_id = trim((string) ($outline['entry_dungeon']['dungeon_id'] ?? ''));
+    $entry_room_id = trim((string) ($outline['entry_dungeon']['entrance_room_id'] ?? ''));
+    $add_anchor_source($location_anchor_sources, $entry_dungeon_id, 'metadata.generated_outline.entry_dungeon.dungeon_id');
+    $add_anchor_source($location_anchor_sources, $entry_room_id, 'metadata.generated_outline.entry_dungeon.entrance_room_id');
+    foreach ((array) ($outline['dungeons'] ?? []) as $dungeon_index => $dungeon) {
+      if (!is_array($dungeon)) {
+        continue;
+      }
+      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      $add_anchor_source($location_anchor_sources, $dungeon_id, "metadata.generated_outline.dungeons[{$dungeon_index}].dungeon_id");
+      foreach ((array) ($dungeon['rooms'] ?? []) as $room_index => $room) {
+        $room_id = trim((string) (is_array($room) ? ($room['room_id'] ?? '') : ''));
+        $add_anchor_source($location_anchor_sources, $room_id, "metadata.generated_outline.dungeons[{$dungeon_index}].rooms[{$room_index}].room_id");
+      }
+    }
+
+    foreach ((array) ($template_data['chapters'] ?? []) as $chapter_index => $chapter) {
+      if (!is_array($chapter)) {
+        continue;
+      }
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      $add_anchor_source($location_anchor_sources, $chapter_id, "chapters[{$chapter_index}].chapter_id");
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene_index => $scene) {
+        $scene_id = trim((string) (is_array($scene) ? ($scene['scene_id'] ?? '') : ''));
+        $add_anchor_source($location_anchor_sources, $scene_id, "chapters[{$chapter_index}].scenes[{$scene_index}].scene_id");
+      }
+    }
+
+    $canonical_index = $this->storylineManager->getCanonicalLocationTemplateIndex();
+    $canonical_location_ids = [];
+    foreach (array_keys((array) ($canonical_index['room_ids'] ?? [])) as $room_id) {
+      $canonical_location_ids[(string) $room_id] = TRUE;
+    }
+    foreach (array_keys((array) ($canonical_index['dungeon_ids'] ?? [])) as $dungeon_id) {
+      $canonical_location_ids[(string) $dungeon_id] = TRUE;
+    }
+
+    $strict_actor_target_types = ['kill', 'escort'];
+    foreach ((array) ($template_data['chapters'] ?? []) as $chapter) {
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+        foreach ((array) ($scene['quest_ids'] ?? []) as $quest_id) {
+          $quest_id = trim((string) $quest_id);
+          if ($quest_id === '') {
+            continue;
+          }
+          if ($selected_quest_id !== '' && $quest_id !== $selected_quest_id) {
+            continue;
+          }
+          try {
+            $phases = $this->storylineManager->getCanonicalQuestTemplateObjectivePhases($quest_id);
+          }
+          catch (\Throwable) {
+            continue;
+          }
+          if (!is_array($phases) || $phases === []) {
+            continue;
+          }
+
+          foreach ($phases as $phase_index => $phase) {
+            if (!is_array($phase)) {
+              continue;
+            }
+            foreach ((array) ($phase['objectives'] ?? []) as $obj_index => $objective) {
+              if (!is_array($objective)) {
+                continue;
+              }
+              $obj_path = "quest.{$quest_id}.phase[{$phase_index}].objective[{$obj_index}]";
+              $obj_type = strtolower(trim((string) ($objective['type'] ?? '')));
+              foreach (['target', 'target_id'] as $field) {
+                $target = trim((string) ($objective[$field] ?? ''));
+                if ($target !== '' && in_array($obj_type, $strict_actor_target_types, TRUE)) {
+                  $add_reference_path($actor_reference_paths, $target, "{$obj_path}.{$field}");
+                }
+              }
+              foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
+                $location_ref = trim((string) ($objective[$field] ?? ''));
+                if ($location_ref !== '') {
+                  $add_reference_path($location_reference_paths, $location_ref, "{$obj_path}.{$field}");
+                }
+              }
+
+              foreach ((array) ($objective['children'] ?? []) as $task_index => $task) {
+                if (!is_array($task)) {
+                  continue;
+                }
+                $task_path = "{$obj_path}.children[{$task_index}]";
+                $task_type = strtolower(trim((string) ($task['type'] ?? '')));
+                foreach (['target', 'target_id'] as $field) {
+                  $task_target = trim((string) ($task[$field] ?? ''));
+                  if ($task_target !== '' && in_array($task_type, $strict_actor_target_types, TRUE)) {
+                    $add_reference_path($actor_reference_paths, $task_target, "{$task_path}.{$field}");
+                  }
+                }
+                foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
+                  $task_location_ref = trim((string) ($task[$field] ?? ''));
+                  if ($task_location_ref !== '') {
+                    $add_reference_path($location_reference_paths, $task_location_ref, "{$task_path}.{$field}");
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (\Drupal::hasService('database')) {
+      $database = \Drupal::database();
+      $schema = $database->schema();
+      $template_id = trim((string) ($template_data['template_id'] ?? ''));
+      if (
+        $template_id !== ''
+        && $schema->tableExists('dc_campaign_storylines')
+        && $schema->tableExists('dc_campaign_objective_refs')
+        && $schema->tableExists('dc_campaign_locations')
+      ) {
+        $runtime_scopes = $database->select('dc_campaign_storylines', 's')
+          ->fields('s', ['campaign_id', 'storyline_id'])
+          ->condition('template_id', $template_id)
+          ->execute()
+          ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($runtime_scopes as $scope) {
+          $campaign_id = (int) ($scope['campaign_id'] ?? 0);
+          $runtime_storyline_id = trim((string) ($scope['storyline_id'] ?? ''));
+          if ($campaign_id <= 0 || $runtime_storyline_id === '') {
+            continue;
+          }
+
+          if ($schema->tableExists('dc_campaign_characters')) {
+            $character_rows = $database->select('dc_campaign_characters', 'c')
+              ->fields('c', ['instance_id'])
+              ->condition('campaign_id', $campaign_id)
+              ->condition('type', 'npc')
+              ->execute()
+              ->fetchCol() ?: [];
+            foreach ($character_rows as $instance_id) {
+              $instance_id = trim((string) $instance_id);
+              if ($instance_id !== '') {
+                $add_anchor_source($actor_anchor_sources, $instance_id, "runtime_campaign_characters[{$campaign_id}]");
+              }
+            }
+          }
+
+          $runtime_ref_rows = $database->select('dc_campaign_objective_refs', 'r')
+            ->fields('r', ['quest_id', 'objective_path', 'ref_type', 'ref_id'])
+            ->condition('campaign_id', $campaign_id)
+            ->condition('storyline_id', $runtime_storyline_id)
+            ->execute()
+            ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+          foreach ($runtime_ref_rows as $runtime_ref_row) {
+            $ref_type = trim((string) ($runtime_ref_row['ref_type'] ?? ''));
+            $ref_id = trim((string) ($runtime_ref_row['ref_id'] ?? ''));
+            if ($ref_id === '') {
+              continue;
+            }
+            $ref_path = 'runtime.' . $campaign_id . '.' . $runtime_storyline_id . '.'
+              . trim((string) ($runtime_ref_row['quest_id'] ?? '')) . '.'
+              . trim((string) ($runtime_ref_row['objective_path'] ?? ''));
+            if ($ref_type === 'target') {
+              $add_reference_path($actor_reference_paths, $ref_id, $ref_path);
+            }
+            elseif ($ref_type === 'location') {
+              $add_reference_path($location_reference_paths, $ref_id, $ref_path);
+            }
+          }
+
+          $runtime_location_rows = $database->select('dc_campaign_locations', 'l')
+            ->fields('l', ['location_id', 'source_type'])
+            ->condition('campaign_id', $campaign_id)
+            ->condition('storyline_id', $runtime_storyline_id)
+            ->execute()
+            ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+          foreach ($runtime_location_rows as $runtime_location_row) {
+            $location_id = trim((string) ($runtime_location_row['location_id'] ?? ''));
+            if ($location_id === '') {
+              continue;
+            }
+            $source_type = trim((string) ($runtime_location_row['source_type'] ?? ''));
+            $add_anchor_source(
+              $location_anchor_sources,
+              $location_id,
+              'runtime_location_registry[' . $campaign_id . ':' . $runtime_storyline_id . ':' . ($source_type !== '' ? $source_type : 'unknown') . ']'
+            );
+          }
+        }
+      }
+    }
+
+    $actor_ids = array_values(array_unique(array_merge(array_keys($actor_anchor_sources), array_keys($actor_reference_paths))));
+    sort($actor_ids);
+    $actor_rows = [];
+    foreach ($actor_ids as $actor_id) {
+      $sources = array_keys($actor_anchor_sources[$actor_id] ?? []);
+      sort($sources);
+      $refs = array_keys($actor_reference_paths[$actor_id] ?? []);
+      sort($refs);
+      $actor_rows[] = [
+        'actor_id' => $actor_id,
+        'status' => $refs !== [] && $sources === [] ? 'FAIL' : 'PASS',
+        'anchor_sources' => $sources === [] ? '-' : implode(', ', $sources),
+        'reference_count' => count($refs),
+        'details' => $refs === [] ? 'No strict actor objective references in current scope.' : implode('; ', $refs),
+      ];
+    }
+
+    $location_ids = array_values(array_unique(array_merge(array_keys($location_anchor_sources), array_keys($location_reference_paths))));
+    sort($location_ids);
+    $location_rows = [];
+    foreach ($location_ids as $location_id) {
+      $sources = array_keys($location_anchor_sources[$location_id] ?? []);
+      if (isset($canonical_location_ids[$location_id])) {
+        $sources[] = 'canonical_location_index';
+      }
+      $sources = array_values(array_unique($sources));
+      sort($sources);
+      $refs = array_keys($location_reference_paths[$location_id] ?? []);
+      sort($refs);
+      $location_rows[] = [
+        'location_id' => $location_id,
+        'status' => $refs !== [] && $sources === [] ? 'FAIL' : 'PASS',
+        'anchor_sources' => $sources === [] ? '-' : implode(', ', $sources),
+        'reference_count' => count($refs),
+        'details' => $refs === [] ? 'No location objective references in current scope.' : implode('; ', $refs),
+      ];
+    }
+
+    return [
+      'actors' => $actor_rows,
+      'locations' => $location_rows,
+    ];
+  }
+
+  /**
    * Build canonical process-flow table for chapter/scene/quest progression.
    */
   protected function buildCanonicalProcessFlowTable(string $selected_template_id, array $template_data): array {
@@ -2769,7 +3253,7 @@ class StorylineExplorerPageController extends ControllerBase {
     }
     elseif ($objective_phases === NULL) {
       $children[] = '<div class="text-warning small mb-2">'
-        . Html::escape("No canonical quest-template row found for '{$quest_id}' in dungeoncrawler_content_quest_templates.")
+        . Html::escape("No canonical quest row found for '{$quest_id}' in dc_canonical_quests.")
         . '</div>';
     }
     elseif ($objective_phases === []) {

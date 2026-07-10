@@ -900,4 +900,159 @@ class QuestTrackerServiceTest extends UnitTestCase {
     ], 'quest_alpha');
   }
 
+  /**
+   * Ensures quest completion handoff transfer evaluates completed interact nodes.
+   */
+  public function testTransferQuestCompletionTurnInCollectiblesIncludesCompletedInteractObjectives(): void {
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public array $transferred = [];
+
+      protected function transferTurnInCollectiblesForCompletedObjective(
+        int $campaign_id,
+        array $quest,
+        array $objective_states,
+        string $completed_objective_id,
+        ?int $character_id
+      ): void {
+        $this->transferred[] = $completed_objective_id;
+      }
+
+      public function transferForQuestCompletion(
+        int $campaign_id,
+        array $quest,
+        array $objective_states,
+        ?int $character_id
+      ): void {
+        $this->transferQuestCompletionTurnInCollectibles(
+          $campaign_id,
+          $quest,
+          $objective_states,
+          $character_id
+        );
+      }
+    };
+
+    $objective_states = [
+      [
+        'phase' => 1,
+        'objectives' => [
+          [
+            'objective_id' => 'collect_wine',
+            'type' => 'collect',
+            'completed' => TRUE,
+          ],
+          [
+            'objective_id' => 'return_wine',
+            'type' => 'interact',
+            'completed' => TRUE,
+            'children' => [
+              [
+                'objective_id' => 'nested_interact',
+                'type' => 'interact',
+                'completed' => TRUE,
+              ],
+            ],
+          ],
+          [
+            'objective_id' => 'return_books',
+            'type' => 'interact',
+            'completed' => FALSE,
+          ],
+        ],
+      ],
+    ];
+
+    $service->transferForQuestCompletion(326, ['quest_id' => 'gather_wine'], $objective_states, 1583);
+
+    sort($service->transferred);
+    $this->assertSame(['nested_interact', 'return_wine'], $service->transferred);
+  }
+
+  /**
+   * Ensures turn-in target resolution does not fallback to quest giver ids.
+   */
+  public function testResolveTurnInTargetCharacterIdDoesNotFallbackToQuestGiver(): void {
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public array $lookup_calls = [];
+
+      protected function lookupNpcCharacterRowIdByReferences(int $campaign_id, array $raw_refs): ?int {
+        $this->lookup_calls[] = array_values($raw_refs);
+        if ($raw_refs === ['npc_missing_target']) {
+          return NULL;
+        }
+        if ($raw_refs === ['1580']) {
+          return 1580;
+        }
+        return NULL;
+      }
+
+      public function resolveTurnInTargetForTest(int $campaign_id, array $quest, array $objective): ?int {
+        return $this->resolveTurnInTargetCharacterId($campaign_id, $quest, $objective);
+      }
+    };
+
+    $resolved = $service->resolveTurnInTargetForTest(
+      326,
+      ['giver_npc_id' => '1580'],
+      ['type' => 'interact', 'target' => 'npc_missing_target']
+    );
+
+    $this->assertNull($resolved);
+    $this->assertCount(1, $service->lookup_calls);
+    $this->assertSame(['npc_missing_target', 'missing_target'], $service->lookup_calls[0]);
+  }
+
+  /**
+   * Ensures activation contracts fail hard when interact actor targets do not resolve.
+   */
+  public function testQuestActivationContractsFailWhenInteractActorTargetMissing(): void {
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      protected function lookupNpcCharacterRowIdByReferences(int $campaign_id, array $raw_refs): ?int {
+        return NULL;
+      }
+
+      public function assertActivationContractsForTest(int $campaign_id, array $quest, array $objective_phases): void {
+        $this->assertQuestActivationDestinationContracts($campaign_id, $quest, $objective_phases);
+      }
+    };
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('references actor target "ltba-grandmother"');
+
+    $service->assertActivationContractsForTest(
+      326,
+      ['quest_id' => 'ltba-accept-the-task_326_example'],
+      [[
+        'phase' => 1,
+        'objectives' => [[
+          'objective_id' => 'accept_request',
+          'type' => 'interact',
+          'target' => 'ltba-grandmother',
+          'depends_on' => [],
+        ]],
+      ]]
+    );
+  }
+
 }

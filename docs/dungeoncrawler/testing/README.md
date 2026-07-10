@@ -56,7 +56,7 @@ cd sites/dungeoncrawler
 
 ### Directory Layout
 ```
-sites/dungeoncrawler/web/modules/custom/dungeoncrawler_content/
+.
 └── tests/
     ├── src/
     │   ├── Unit/                    # Unit tests (no Drupal bootstrap)

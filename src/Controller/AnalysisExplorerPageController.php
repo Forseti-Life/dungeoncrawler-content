@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -261,6 +262,8 @@ class AnalysisExplorerPageController extends ControllerBase {
     );
     $build['actor_overview'] = $this->buildSelectedActorOverviewCard($filter_state['selected_item_record']);
     $build['summary'] = $this->buildActorValidationSummaryCard($filtered_report);
+    $build['validator_checks_catalog'] = $this->buildActorValidationCheckCatalogCard($filtered_report);
+    $build['selected_actor_checks'] = $this->buildSelectedActorCheckResultsCard($filter_state['selected_item_record']);
     $build['table'] = $this->buildActorValidationTable(
       $filtered_report,
       $filter_state['search_term'],
@@ -1640,6 +1643,97 @@ class AnalysisExplorerPageController extends ControllerBase {
               '@invalid' => (string) $invalid_items,
             ]
           ),
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Build a catalog card listing all actor validator checks.
+   *
+   * @param array<string, mixed> $report
+   *   Validation report.
+   */
+  private function buildActorValidationCheckCatalogCard(array $report): array {
+    $rows = [];
+    foreach ((array) ($report['validation_checks'] ?? []) as $check) {
+      if (!is_array($check)) {
+        continue;
+      }
+      $rows[] = [
+        (string) ($check['id'] ?? ''),
+        (string) ($check['label'] ?? ''),
+      ];
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-3']],
+          '#value' => (string) $this->t('Actor Validator Checks (Full Set)'),
+        ],
+        'table' => [
+          '#type' => 'table',
+          '#header' => [
+            (string) $this->t('Check ID'),
+            (string) $this->t('Rule'),
+          ],
+          '#rows' => $rows,
+          '#empty' => (string) $this->t('No actor validator check metadata is available.'),
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Build selected-actor validator check results.
+   *
+   * @param array<string, mixed>|null $actor
+   *   Selected actor record.
+   */
+  private function buildSelectedActorCheckResultsCard(?array $actor): array {
+    $rows = [];
+    if (is_array($actor)) {
+      foreach ((array) ($actor['checks'] ?? []) as $check) {
+        if (!is_array($check)) {
+          continue;
+        }
+        $passed = !empty($check['passed']);
+        $rows[] = [
+          (string) ($check['id'] ?? ''),
+          (string) ($check['label'] ?? ''),
+          Markup::create('<span class="badge ' . ($passed ? 'text-bg-success' : 'text-bg-danger') . '">' . ($passed ? 'PASS' : 'FAIL') . '</span>'),
+        ];
+      }
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['card', 'mb-4']],
+      'body' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['card-body']],
+        'title' => [
+          '#type' => 'html_tag',
+          '#tag' => 'h2',
+          '#attributes' => ['class' => ['h5', 'mb-3']],
+          '#value' => (string) $this->t('Selected Actor Check Results'),
+        ],
+        'table' => [
+          '#type' => 'table',
+          '#header' => [
+            (string) $this->t('Check ID'),
+            (string) $this->t('Rule'),
+            (string) $this->t('Result'),
+          ],
+          '#rows' => $rows,
+          '#empty' => (string) $this->t('Select an actor to view pass/fail results for every validator check.'),
         ],
       ],
     ];

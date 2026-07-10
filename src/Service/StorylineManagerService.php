@@ -50,8 +50,14 @@ class StorylineManagerService {
    */
   public function listTemplates(): array {
     $this->assertStorylineStorageReady();
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dc_canonical_storylines')) {
+      throw new \RuntimeException(
+        'Canonical storyline table dc_canonical_storylines is required to list storyline templates.'
+      );
+    }
 
-    $rows = $this->database->select('dungeoncrawler_content_storylines', 's')
+    $rows = $this->database->select('dc_canonical_storylines', 's')
       ->fields('s')
       ->orderBy('name', 'ASC')
       ->execute()
@@ -68,18 +74,18 @@ class StorylineManagerService {
    */
   public function listCanonicalQuestTemplateIds(): array {
     $schema = $this->database->schema();
-    if (!$schema->tableExists('dungeoncrawler_content_quest_templates')) {
+    if (!$schema->tableExists('dc_canonical_quests')) {
       throw new \RuntimeException(
-        'Canonical quest template table dungeoncrawler_content_quest_templates is required to load quest template ids.'
+        'Canonical quest table dc_canonical_quests is required to load quest template ids.'
       );
     }
-    if (!$schema->fieldExists('dungeoncrawler_content_quest_templates', 'template_id')) {
+    if (!$schema->fieldExists('dc_canonical_quests', 'template_id')) {
       throw new \RuntimeException(
-        'Canonical quest template table dungeoncrawler_content_quest_templates is missing required template_id column.'
+        'Canonical quest table dc_canonical_quests is missing required template_id column.'
       );
     }
 
-    $rows = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+    $rows = $this->database->select('dc_canonical_quests', 't')
       ->fields('t', ['template_id'])
       ->orderBy('template_id', 'ASC')
       ->execute()
@@ -160,6 +166,11 @@ class StorylineManagerService {
     $status = !empty($options['activate']) ? 'active' : ((string) ($options['status'] ?? 'available'));
     $is_primary = !empty($options['is_primary']);
     $now = time();
+    $template_version = trim((string) ($normalized['version'] ?? ($normalized['metadata']['version'] ?? '1.0.0')));
+    if ($template_version === '') {
+      $template_version = '1.0.0';
+    }
+    $contract_hash = hash('sha256', json_encode($instance['storyline_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
     $this->database->insert('dc_campaign_storylines')
       ->fields([
@@ -174,6 +185,8 @@ class StorylineManagerService {
         'current_scene_id' => $instance['current_scene_id'] ?: NULL,
         'storyline_data' => json_encode($instance['storyline_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'variables' => json_encode($instance['variables'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'template_version' => $template_version,
+        'contract_hash' => $contract_hash,
         'created_at' => $now,
         'updated_at' => $now,
         'activated_at' => $status === 'active' ? $now : NULL,
@@ -191,6 +204,7 @@ class StorylineManagerService {
       $storyline_id,
       $instance['storyline_data']['asset_references'] ?? []
     );
+    $this->synchronizeCampaignValidationIndexes($campaign_id, $storyline_id);
 
     $this->logStorylineEvent(
       $campaign_id,
@@ -238,6 +252,11 @@ class StorylineManagerService {
     $instance = $this->buildInitialStorylineState($normalized, $runtime_options);
     $status = (string) ($runtime_options['status'] ?? ($row['status'] ?? 'available'));
     $now = time();
+    $template_version = trim((string) ($normalized['version'] ?? ($normalized['metadata']['version'] ?? '1.0.0')));
+    if ($template_version === '') {
+      $template_version = '1.0.0';
+    }
+    $contract_hash = hash('sha256', json_encode($instance['storyline_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
     $this->database->update('dc_campaign_storylines')
       ->fields([
@@ -248,6 +267,8 @@ class StorylineManagerService {
         'current_scene_id' => $instance['current_scene_id'] ?: NULL,
         'storyline_data' => json_encode($instance['storyline_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'variables' => json_encode($instance['variables'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'template_version' => $template_version,
+        'contract_hash' => $contract_hash,
         'updated_at' => $now,
         'activated_at' => $status === 'active'
           ? (!empty($row['activated_at']) ? (int) $row['activated_at'] : $now)
@@ -267,6 +288,7 @@ class StorylineManagerService {
       $storyline_id,
       $instance['storyline_data']['asset_references'] ?? []
     );
+    $this->synchronizeCampaignValidationIndexes($campaign_id, $storyline_id);
     $this->logStorylineEvent(
       $campaign_id,
       $storyline_id,
@@ -286,7 +308,7 @@ class StorylineManagerService {
    * Finalize a persisted storyline so all creation paths share realization.
    */
   protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id): ?array {
-    $storyline = $this->getCampaignStoryline($campaign_id, $storyline_id, TRUE);
+    $storyline = $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
     if (!is_array($storyline) || $storyline === []) {
       return $storyline;
     }
@@ -3200,19 +3222,19 @@ class StorylineManagerService {
       return NULL;
     }
     $schema = $this->database->schema();
-    if (!$schema->tableExists('dungeoncrawler_content_quest_templates')) {
+    if (!$schema->tableExists('dc_canonical_quests')) {
       throw new \RuntimeException(
-        'Canonical quest template table dungeoncrawler_content_quest_templates is required as the system of record for objective validation. ' .
+        'Canonical quest table dc_canonical_quests is required as the system of record for objective validation. ' .
         'No file-based fallback is permitted. JSON template files are reference material for repairing DB state only.'
       );
     }
-    if (!$schema->fieldExists('dungeoncrawler_content_quest_templates', 'objectives_schema')) {
+    if (!$schema->fieldExists('dc_canonical_quests', 'objectives_schema')) {
       throw new \RuntimeException(
-        'Canonical quest template table dungeoncrawler_content_quest_templates is missing required objectives_schema column.'
+        'Canonical quest table dc_canonical_quests is missing required objectives_schema column.'
       );
     }
 
-    $row = $this->database->select('dungeoncrawler_content_quest_templates', 't')
+    $row = $this->database->select('dc_canonical_quests', 't')
       ->fields('t', ['objectives_schema'])
       ->condition('template_id', $template_id)
       ->range(0, 1)
@@ -4009,6 +4031,346 @@ class StorylineManagerService {
   }
 
   /**
+   * Synchronize normalized DB validation indexes for one storyline runtime scope.
+   */
+  public function synchronizeCampaignValidationIndexes(int $campaign_id, string $storyline_id): void {
+    $storyline_id = trim($storyline_id);
+    if ($campaign_id <= 0 || $storyline_id === '') {
+      return;
+    }
+    $this->syncCampaignObjectiveReferences($campaign_id, $storyline_id);
+    $this->syncCampaignLocationRegistry($campaign_id, $storyline_id);
+  }
+
+  /**
+   * Rebuild normalized objective references for storyline-linked quests.
+   */
+  protected function syncCampaignObjectiveReferences(int $campaign_id, string $storyline_id): void {
+    $schema_handler = $this->database->schema();
+    if (
+      !$schema_handler->tableExists('dc_campaign_objective_refs')
+      || !$schema_handler->tableExists('dc_campaign_quests')
+    ) {
+      return;
+    }
+
+    $this->database->delete('dc_campaign_objective_refs')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->execute();
+
+    $quest_rows = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_id', 'storyline_id', 'objective_states', 'generated_objectives'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if ($quest_rows === []) {
+      return;
+    }
+
+    $now = time();
+    foreach ($quest_rows as $quest_row) {
+      $quest_id = trim((string) ($quest_row['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+      $source_column = 'objective_states';
+      $phases = $this->decodeJsonColumn($quest_row['objective_states'] ?? NULL);
+      if (!is_array($phases) || $phases === []) {
+        $source_column = 'generated_objectives';
+        $phases = $this->decodeJsonColumn($quest_row['generated_objectives'] ?? NULL);
+      }
+      if (!is_array($phases) || $phases === []) {
+        continue;
+      }
+
+      foreach ($this->collectObjectiveReferenceRows($phases, $quest_id, $source_column) as $ref_row) {
+        $this->database->merge('dc_campaign_objective_refs')
+          ->keys([
+            'campaign_id' => $campaign_id,
+            'quest_id' => $quest_id,
+            'source_column' => (string) ($ref_row['source_column'] ?? $source_column),
+            'objective_path' => (string) ($ref_row['objective_path'] ?? ''),
+            'ref_field' => (string) ($ref_row['ref_field'] ?? ''),
+            'ref_id' => (string) ($ref_row['ref_id'] ?? ''),
+          ])
+          ->fields([
+            'storyline_id' => $storyline_id,
+            'phase' => (int) ($ref_row['phase'] ?? 0),
+            'objective_id' => (string) ($ref_row['objective_id'] ?? ''),
+            'objective_type' => (string) ($ref_row['objective_type'] ?? ''),
+            'ref_type' => (string) ($ref_row['ref_type'] ?? ''),
+            'created_at' => $now,
+            'updated_at' => $now,
+          ])
+          ->execute();
+      }
+    }
+  }
+
+  /**
+   * Rebuild normalized location registry for one storyline runtime scope.
+   */
+  protected function syncCampaignLocationRegistry(int $campaign_id, string $storyline_id): void {
+    $schema_handler = $this->database->schema();
+    if (
+      !$schema_handler->tableExists('dc_campaign_locations')
+      || !$schema_handler->tableExists('dc_campaign_quests')
+      || !$schema_handler->tableExists('dc_campaign_rooms')
+      || !$schema_handler->tableExists('dc_campaign_dungeons')
+    ) {
+      return;
+    }
+
+    $this->database->delete('dc_campaign_locations')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->execute();
+
+    $now = time();
+    $storyline = $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
+    $storyline_data = is_array($storyline['storyline_data'] ?? NULL) ? $storyline['storyline_data'] : [];
+    foreach ((array) ($storyline_data['chapters'] ?? []) as $chapter_index => $chapter) {
+      if (!is_array($chapter)) {
+        continue;
+      }
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      if ($chapter_id !== '') {
+        $this->database->merge('dc_campaign_locations')
+          ->keys([
+            'campaign_id' => $campaign_id,
+            'storyline_id' => $storyline_id,
+            'location_id' => $chapter_id,
+            'location_type' => 'chapter',
+            'source_type' => 'chapter_scene',
+            'source_key' => "chapter:{$chapter_index}",
+          ])
+          ->fields(['created_at' => $now, 'updated_at' => $now])
+          ->execute();
+      }
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene_index => $scene) {
+        $scene_id = trim((string) (is_array($scene) ? ($scene['scene_id'] ?? '') : ''));
+        if ($scene_id === '') {
+          continue;
+        }
+        $this->database->merge('dc_campaign_locations')
+          ->keys([
+            'campaign_id' => $campaign_id,
+            'storyline_id' => $storyline_id,
+            'location_id' => $scene_id,
+            'location_type' => 'scene',
+            'source_type' => 'chapter_scene',
+            'source_key' => "scene:{$chapter_index}:{$scene_index}",
+          ])
+          ->fields(['created_at' => $now, 'updated_at' => $now])
+          ->execute();
+      }
+    }
+
+    $room_rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchCol() ?: [];
+    foreach ($room_rows as $room_id) {
+      $room_id = trim((string) $room_id);
+      if ($room_id === '') {
+        continue;
+      }
+      $this->database->merge('dc_campaign_locations')
+        ->keys([
+          'campaign_id' => $campaign_id,
+          'storyline_id' => $storyline_id,
+          'location_id' => $room_id,
+          'location_type' => 'room',
+          'source_type' => 'campaign_room',
+          'source_key' => $room_id,
+        ])
+        ->fields(['created_at' => $now, 'updated_at' => $now])
+        ->execute();
+    }
+
+    $dungeon_rows = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchCol() ?: [];
+    foreach ($dungeon_rows as $dungeon_id) {
+      $dungeon_id = trim((string) $dungeon_id);
+      if ($dungeon_id === '') {
+        continue;
+      }
+      $this->database->merge('dc_campaign_locations')
+        ->keys([
+          'campaign_id' => $campaign_id,
+          'storyline_id' => $storyline_id,
+          'location_id' => $dungeon_id,
+          'location_type' => 'dungeon',
+          'source_type' => 'campaign_dungeon',
+          'source_key' => $dungeon_id,
+        ])
+        ->fields(['created_at' => $now, 'updated_at' => $now])
+        ->execute();
+    }
+
+    $quest_rows = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['quest_id', 'location_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($quest_rows as $quest_row) {
+      $quest_id = trim((string) ($quest_row['quest_id'] ?? ''));
+      $location_id = trim((string) ($quest_row['location_id'] ?? ''));
+      if ($quest_id === '' || $location_id === '') {
+        continue;
+      }
+      $this->database->merge('dc_campaign_locations')
+        ->keys([
+          'campaign_id' => $campaign_id,
+          'storyline_id' => $storyline_id,
+          'location_id' => $location_id,
+          'location_type' => 'location',
+          'source_type' => 'quest_location',
+          'source_key' => $quest_id,
+        ])
+        ->fields(['created_at' => $now, 'updated_at' => $now])
+        ->execute();
+    }
+
+    $ref_rows = $this->database->select('dc_campaign_objective_refs', 'r')
+      ->fields('r', ['quest_id', 'objective_path', 'ref_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('storyline_id', $storyline_id)
+      ->condition('ref_type', 'location')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($ref_rows as $ref_row) {
+      $location_id = trim((string) ($ref_row['ref_id'] ?? ''));
+      if ($location_id === '') {
+        continue;
+      }
+      $source_key = trim((string) ($ref_row['quest_id'] ?? '')) . ':' . trim((string) ($ref_row['objective_path'] ?? ''));
+      $this->database->merge('dc_campaign_locations')
+        ->keys([
+          'campaign_id' => $campaign_id,
+          'storyline_id' => $storyline_id,
+          'location_id' => $location_id,
+          'location_type' => 'location',
+          'source_type' => 'objective_location',
+          'source_key' => $source_key !== '' ? $source_key : 'objective',
+        ])
+        ->fields(['created_at' => $now, 'updated_at' => $now])
+        ->execute();
+    }
+  }
+
+  /**
+   * Extract normalized reference rows from objective phases.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Flat reference rows.
+   */
+  protected function collectObjectiveReferenceRows(array $phases, string $quest_id, string $source_column): array {
+    $rows = [];
+    foreach ($phases as $phase_index => $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $phase_number = isset($phase['phase']) && is_numeric($phase['phase']) ? (int) $phase['phase'] : ($phase_index + 1);
+      $objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      $this->collectObjectiveReferenceRowsRecursive($objectives, "phase[{$phase_index}].objectives", $phase_number, $quest_id, $source_column, $rows);
+    }
+    return $rows;
+  }
+
+  /**
+   * Recursively collect objective references.
+   *
+   * @param array<int, mixed> $objectives
+   *   Objective definitions.
+   * @param string $path_prefix
+   *   Path prefix.
+   * @param int $phase
+   *   Phase number.
+   * @param string $quest_id
+   *   Quest id.
+   * @param string $source_column
+   *   Source column.
+   * @param array<int, array<string, mixed>> $rows
+   *   Output rows.
+   */
+  protected function collectObjectiveReferenceRowsRecursive(
+    array $objectives,
+    string $path_prefix,
+    int $phase,
+    string $quest_id,
+    string $source_column,
+    array &$rows
+  ): void {
+    foreach ($objectives as $index => $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      $path = "{$path_prefix}[{$index}]";
+      $objective_id = trim((string) ($objective['objective_id'] ?? $objective['id'] ?? ''));
+      $objective_type = strtolower(trim((string) ($objective['type'] ?? '')));
+      foreach (['target', 'target_id'] as $field) {
+        $value = trim((string) ($objective[$field] ?? ''));
+        if ($value !== '') {
+          $rows[] = [
+            'quest_id' => $quest_id,
+            'phase' => $phase,
+            'objective_id' => $objective_id,
+            'objective_type' => $objective_type,
+            'objective_path' => $path,
+            'source_column' => $source_column,
+            'ref_type' => 'target',
+            'ref_field' => $field,
+            'ref_id' => $value,
+          ];
+        }
+      }
+      foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
+        $value = trim((string) ($objective[$field] ?? ''));
+        if ($value !== '') {
+          $rows[] = [
+            'quest_id' => $quest_id,
+            'phase' => $phase,
+            'objective_id' => $objective_id,
+            'objective_type' => $objective_type,
+            'objective_path' => $path,
+            'source_column' => $source_column,
+            'ref_type' => 'location',
+            'ref_field' => $field,
+            'ref_id' => $value,
+          ];
+        }
+      }
+      $item_ref = trim((string) ($objective['item'] ?? ''));
+      if ($item_ref !== '') {
+        $rows[] = [
+          'quest_id' => $quest_id,
+          'phase' => $phase,
+          'objective_id' => $objective_id,
+          'objective_type' => $objective_type,
+          'objective_path' => $path,
+          'source_column' => $source_column,
+          'ref_type' => 'item',
+          'ref_field' => 'item',
+          'ref_id' => $item_ref,
+        ];
+      }
+
+      $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+      if ($children !== []) {
+        $this->collectObjectiveReferenceRowsRecursive($children, "{$path}.children", $phase, $quest_id, $source_column, $rows);
+      }
+    }
+  }
+
+  /**
    * Writes a storyline journal/log entry.
    */
   protected function logStorylineEvent(
@@ -4093,6 +4455,7 @@ class StorylineManagerService {
       $storyline_id,
       $sync['storyline_data']['asset_references'] ?? []
     );
+    $this->synchronizeCampaignValidationIndexes($campaign_id, $storyline_id);
 
     if ($sync['status'] === 'completed' && empty($row['completed_at'])) {
       $fields['completed_at'] = time();
@@ -4574,6 +4937,8 @@ class StorylineManagerService {
   protected function isStorylineStorageReady(): bool {
     $schema = $this->database->schema();
     return $schema->tableExists('dungeoncrawler_content_storylines')
+      && $schema->tableExists('dc_canonical_storylines')
+      && $schema->tableExists('dc_canonical_quests')
       && $schema->tableExists('dc_campaign_storylines')
       && $schema->tableExists('dc_campaign_storyline_log')
       && $schema->tableExists('dc_campaign_storyline_links')

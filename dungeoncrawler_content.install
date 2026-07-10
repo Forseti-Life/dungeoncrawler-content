@@ -78,6 +78,10 @@
  * - 10142: Reposition Absalom room footprints to enforce minimum five-hex spacing
  * - 10147: Reallocate Absalom room anchors to enforce minimum 200 Res14 H3 hex spacing
  * - 10148: Reallocate Absalom anchors using city-centered cluster layout profile
+ * - 10152: Backfill NULL dc_campaign_quests.objective_states from generated_objectives
+ * - 10153: Add normalized objective/location validation tables and contract hash/version columns
+ * - 10157: Refine Enter the Vault objective phrasing in canonical and campaign quest data
+ * - 10159: Add explicit connector endpoint hex columns and canonical backfill
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -1120,6 +1124,10 @@ function dungeoncrawler_content_schema() {
       'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Dungeon this connector belongs to.'],
       'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Source room id.'],
       'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Target room id.'],
+      'from_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex q coordinate.'],
+      'from_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex r coordinate.'],
+      'to_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex q coordinate.'],
+      'to_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex r coordinate.'],
       'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional', 'description' => 'bidirectional or one_way.'],
       'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway', 'description' => 'Connector kind: hallway, door, archway, hatch, portcullis, secret_door, magical_barrier, collapsed, bridge, one_way_drop.'],
       'state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Runtime state: open, closed, locked, barred, trapped, triggered, destroyed.'],
@@ -1249,6 +1257,72 @@ function dungeoncrawler_content_schema() {
     'indexes' => [
       'uid' => ['uid'],
       'status' => ['status'],
+    ],
+  ];
+
+  $schema['dc_campaign_initialization_steps'] = [
+    'description' => 'Single-flight campaign initialization step ledger.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Campaign id owning this initialization step row.',
+      ],
+      'operation_uuid' => [
+        'type' => 'varchar',
+        'length' => 36,
+        'not null' => TRUE,
+        'description' => 'Single initialization operation uuid.',
+      ],
+      'step_name' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Initialization step identifier.',
+      ],
+      'step_status' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'in_progress',
+        'description' => 'Step status: in_progress, completed.',
+      ],
+      'details' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+        'description' => 'Optional JSON details for the completed step.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Created timestamp.',
+      ],
+      'updated' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Updated timestamp.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_step' => ['campaign_id', 'step_name'],
+      'operation_step' => ['operation_uuid', 'step_name'],
+    ],
+    'indexes' => [
+      'campaign_status' => ['campaign_id', 'step_status'],
+      'step_name' => ['step_name'],
     ],
   ];
 
@@ -2603,6 +2677,54 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_canonical_actors'] = [
+    'description' => 'Normalized canonical actor contracts by actor/version.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'actor_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Canonical actor identifier.'],
+      'version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical actor contract version.'],
+      'actor_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'npc', 'description' => 'Canonical actor type.'],
+      'display_name' => ['type' => 'varchar', 'length' => 255, 'not null' => FALSE, 'description' => 'Display name of actor.'],
+      'source_module' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Canonical source module identifier.'],
+      'state_data' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Canonical actor state payload JSON.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_actor_version' => ['actor_id', 'version'],
+    ],
+    'indexes' => [
+      'actor_id' => ['actor_id'],
+      'actor_type' => ['actor_type'],
+      'source_module' => ['source_module'],
+    ],
+  ];
+
+  $schema['dc_canonical_locations'] = [
+    'description' => 'Normalized canonical location contracts by location/version.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'location_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Canonical location identifier.'],
+      'version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical location contract version.'],
+      'location_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'location', 'description' => 'Canonical location type.' ],
+      'display_name' => ['type' => 'varchar', 'length' => 255, 'not null' => FALSE, 'description' => 'Display name of location.'],
+      'source_module' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Canonical source module identifier.'],
+      'payload_json' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Canonical location payload JSON.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_location_version' => ['location_id', 'version'],
+    ],
+    'indexes' => [
+      'location_id' => ['location_id'],
+      'location_type' => ['location_type'],
+      'source_module' => ['source_module'],
+    ],
+  ];
+
   $schema['dungeoncrawler_content_rooms'] = [
     'description' => 'Global room template definitions.',
     'fields' => [
@@ -2696,7 +2818,7 @@ function dungeoncrawler_content_schema() {
     ],
     'primary key' => ['id'],
     'unique keys' => [
-      'room_cell_unique' => ['room_id', 'cell_role', 'h3_resolution', 'h3_index', 'source_q', 'source_r'],
+      'room_cell_unique' => ['dungeon_id', 'room_id', 'cell_role', 'h3_resolution', 'h3_index', 'source_q', 'source_r'],
     ],
     'indexes' => [
       'dungeon_resolution' => ['dungeon_id', 'h3_resolution'],
@@ -2715,6 +2837,10 @@ function dungeoncrawler_content_schema() {
       'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Dungeon template id.'],
       'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Source room id.'],
       'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Target room id.'],
+      'from_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex q coordinate.'],
+      'from_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex r coordinate.'],
+      'to_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex q coordinate.'],
+      'to_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex r coordinate.'],
       'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional', 'description' => 'bidirectional or one_way.'],
       'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway', 'description' => 'Connector kind: hallway, door, archway, hatch, portcullis, secret_door, magical_barrier, collapsed, bridge, one_way_drop.'],
       'default_state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Default state for new campaign instances: open, closed, locked, barred, trapped, destroyed.'],
@@ -2834,6 +2960,9 @@ function dungeoncrawler_content_schema() {
       'name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Template name (may contain variables like {target}).'],
       'description' => ['type' => 'text', 'not null' => TRUE, 'description' => 'Quest description template.'],
       'quest_type' => ['type' => 'varchar', 'length' => 50, 'not null' => TRUE, 'description' => 'Type: main_story, side_quest, bounty, patrol, delivery, rescue, exploration, social, crafting.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Promoted owning storyline template id when quest is storyline scoped.'],
+      'entry_point_actor_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Promoted primary actor reference for quest activation/turn-in.'],
+      'entry_point_location_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Promoted primary location reference for quest activation.'],
       'level_min' => ['type' => 'int', 'not null' => TRUE, 'default' => 1, 'description' => 'Minimum party level.'],
       'level_max' => ['type' => 'int', 'not null' => TRUE, 'default' => 20, 'description' => 'Maximum party level.'],
       'tags' => ['type' => 'text', 'not null' => FALSE, 'description' => 'JSON array of tags (combat, exploration, social, dungeon).'],
@@ -2841,6 +2970,7 @@ function dungeoncrawler_content_schema() {
       'rewards_schema' => ['type' => 'text', 'not null' => TRUE, 'description' => 'JSON schema for XP, gold, items, reputation rewards.'],
       'prerequisites' => ['type' => 'text', 'not null' => FALSE, 'description' => 'JSON prerequisites (completed_quests, reputation, items).'],
       'story_impact' => ['type' => 'text', 'not null' => FALSE, 'description' => 'JSON defining how completion affects campaign state.'],
+      'contract_hash' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Deterministic canonical quest contract hash.'],
       'estimated_duration_minutes' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Estimated time to complete.'],
       'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Unix timestamp when created.'],
       'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Unix timestamp when updated.'],
@@ -2848,7 +2978,51 @@ function dungeoncrawler_content_schema() {
     ],
     'primary key' => ['id'],
     'unique keys' => ['template_id' => ['template_id']],
-    'indexes' => ['type_level' => ['quest_type', 'level_min', 'level_max']],
+    'indexes' => [
+      'type_level' => ['quest_type', 'level_min', 'level_max'],
+      'storyline_template_id' => ['storyline_template_id'],
+      'entry_point_actor_id' => ['entry_point_actor_id'],
+      'entry_point_location_id' => ['entry_point_location_id'],
+      'contract_hash' => ['contract_hash'],
+    ],
+  ];
+
+  $schema['dc_canonical_quests'] = [
+    'description' => 'Normalized canonical quest contracts by template/version.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest contract version.'],
+      'name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Canonical quest name.'],
+      'description' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Canonical quest description template.'],
+      'quest_type' => ['type' => 'varchar', 'length' => 50, 'not null' => TRUE, 'description' => 'Canonical quest type.'],
+      'level_min' => ['type' => 'int', 'not null' => TRUE, 'default' => 1, 'description' => 'Canonical minimum party level.'],
+      'level_max' => ['type' => 'int', 'not null' => TRUE, 'default' => 20, 'description' => 'Canonical maximum party level.'],
+      'tags' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Canonical quest tags payload JSON.'],
+      'prerequisites' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Canonical quest prerequisite payload JSON.'],
+      'estimated_duration_minutes' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Canonical estimated duration in minutes.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning storyline template id when linked.'],
+      'entry_point_actor_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Promoted primary actor reference.'],
+      'entry_point_location_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Promoted primary location reference.'],
+      'contract_hash' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Deterministic quest contract hash.'],
+      'objectives_schema' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'Canonical quest objective schema JSON payload.'],
+      'rewards_schema' => ['type' => 'text', 'not null' => TRUE, 'description' => 'Canonical quest rewards schema JSON payload.'],
+      'story_impact' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Canonical quest story impact JSON payload.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_quest_template_version' => ['template_id', 'version'],
+    ],
+    'indexes' => [
+      'template_id' => ['template_id'],
+      'type_level' => ['quest_type', 'level_min', 'level_max'],
+      'storyline_template_id' => ['storyline_template_id'],
+      'entry_point_actor_id' => ['entry_point_actor_id'],
+      'entry_point_location_id' => ['entry_point_location_id'],
+      'contract_hash' => ['contract_hash'],
+    ],
   ];
 
   // Library table: Quest chains
@@ -2874,11 +3048,16 @@ function dungeoncrawler_content_schema() {
     'fields' => [
       'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
       'template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Stable storyline template identifier.'],
+      'version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical storyline template contract version.'],
       'name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Display name.'],
       'synopsis' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Short storyline summary.'],
       'level_range' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Recommended level band.'],
       'source' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Source/publisher/module reference.'],
       'tags' => ['type' => 'text', 'not null' => FALSE, 'description' => 'JSON tag list.'],
+      'entry_point_actor_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Promoted canonical entry-point actor reference.'],
+      'entry_point_location_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Promoted canonical entry-point location reference.'],
+      'primary_quest_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Promoted primary quest template reference.'],
+      'contract_hash' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Deterministic storyline canonical contract hash.'],
       'template_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON storyline/module definition.'],
       'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
       'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
@@ -2889,6 +3068,310 @@ function dungeoncrawler_content_schema() {
     ],
     'indexes' => [
       'source' => ['source'],
+      'version' => ['version'],
+      'entry_point_actor_id' => ['entry_point_actor_id'],
+      'entry_point_location_id' => ['entry_point_location_id'],
+      'primary_quest_id' => ['primary_quest_id'],
+      'contract_hash' => ['contract_hash'],
+    ],
+  ];
+
+  $schema['dc_canonical_storylines'] = [
+    'description' => 'Normalized canonical storyline contracts by template/version.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Canonical storyline template id.'],
+      'version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical contract version.'],
+      'name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Canonical storyline name.'],
+      'synopsis' => ['type' => 'text', 'not null' => FALSE, 'description' => 'Canonical storyline synopsis.'],
+      'source' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Canonical source module.'],
+      'entry_point_actor_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Promoted entry-point actor reference.'],
+      'entry_point_location_id' => ['type' => 'varchar', 'length' => 191, 'not null' => FALSE, 'description' => 'Promoted entry-point location reference.'],
+      'primary_quest_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Promoted primary quest template id.'],
+      'contract_hash' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Deterministic canonical storyline contract hash.'],
+      'template_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'Canonical storyline JSON payload.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_storyline_template_version' => ['template_id', 'version'],
+    ],
+    'indexes' => [
+      'template_id' => ['template_id'],
+      'entry_point_actor_id' => ['entry_point_actor_id'],
+      'entry_point_location_id' => ['entry_point_location_id'],
+      'primary_quest_id' => ['primary_quest_id'],
+      'contract_hash' => ['contract_hash'],
+    ],
+  ];
+
+  $schema['dc_canonical_storyline_quests'] = [
+    'description' => 'Canonical storyline -> canonical quest links by template/version scope.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Canonical storyline template id.'],
+      'storyline_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical storyline version.'],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest version.'],
+      'chapter_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Chapter scope for this link.'],
+      'scene_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Scene scope for this link.'],
+      'source_scope' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'scene', 'description' => 'Source scope for the link.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_storyline_quest_scope' => ['storyline_template_id', 'storyline_version', 'quest_template_id', 'quest_version', 'chapter_id', 'scene_id', 'source_scope'],
+    ],
+    'indexes' => [
+      'storyline_lookup' => ['storyline_template_id', 'storyline_version'],
+      'quest_lookup' => ['quest_template_id', 'quest_version'],
+    ],
+  ];
+
+  $schema['dc_canonical_storyline_actors'] = [
+    'description' => 'Canonical storyline -> canonical actor links by template/version scope.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Canonical storyline template id.'],
+      'storyline_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical storyline version.'],
+      'actor_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Canonical actor identifier.'],
+      'actor_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical actor version.'],
+      'actor_role' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Narrative role for actor in storyline.'],
+      'chapter_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Chapter scope for this link.'],
+      'scene_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Scene scope for this link.'],
+      'source_scope' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'asset', 'description' => 'Source scope for the link.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_storyline_actor_scope' => ['storyline_template_id', 'storyline_version', 'actor_id', 'actor_version', 'chapter_id', 'scene_id', 'source_scope'],
+    ],
+    'indexes' => [
+      'storyline_lookup' => ['storyline_template_id', 'storyline_version'],
+      'actor_lookup' => ['actor_id', 'actor_version'],
+    ],
+  ];
+
+  $schema['dc_canonical_storyline_locations'] = [
+    'description' => 'Canonical storyline -> canonical location links by template/version scope.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'description' => 'Canonical storyline template id.'],
+      'storyline_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical storyline version.'],
+      'location_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Canonical location identifier.'],
+      'location_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical location version.'],
+      'location_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'location', 'description' => 'Canonical location type.'],
+      'location_role' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Narrative role for location in storyline.'],
+      'chapter_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Chapter scope for this link.'],
+      'scene_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Scene scope for this link.'],
+      'source_scope' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'asset', 'description' => 'Source scope for the link.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_storyline_location_scope' => ['storyline_template_id', 'storyline_version', 'location_id', 'location_version', 'location_type', 'chapter_id', 'scene_id', 'source_scope'],
+    ],
+    'indexes' => [
+      'storyline_lookup' => ['storyline_template_id', 'storyline_version'],
+      'location_lookup' => ['location_id', 'location_version', 'location_type'],
+    ],
+  ];
+
+  $schema['dc_canonical_objective_refs'] = [
+    'description' => 'Normalized canonical objective references by quest template/version.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest version.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning canonical storyline template id.'],
+      'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Objective phase number.'],
+      'objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Objective identifier when provided.'],
+      'objective_type' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Objective type.'],
+      'objective_path' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Deterministic path for nested objective rows.'],
+      'ref_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'description' => 'Reference class (actor/location/item).'],
+      'ref_field' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Objective field carrying the reference.'],
+      'ref_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Referenced canonical identifier.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_quest_ref' => ['quest_template_id', 'quest_version', 'objective_path', 'ref_field', 'ref_id'],
+    ],
+    'indexes' => [
+      'quest_lookup' => ['quest_template_id', 'quest_version'],
+      'storyline_lookup' => ['storyline_template_id'],
+      'ref_lookup' => ['ref_type', 'ref_id'],
+    ],
+  ];
+
+  $schema['dc_canonical_objective_actor_refs'] = [
+    'description' => 'Canonical objective refs that must resolve to canonical actors.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest version.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning canonical storyline template id.'],
+      'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Objective phase number.'],
+      'objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Objective identifier when provided.'],
+      'objective_type' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Objective type.'],
+      'objective_path' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Deterministic path for nested objective rows.'],
+      'ref_field' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Objective field carrying the actor reference.'],
+      'actor_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Referenced canonical actor id.'],
+      'actor_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Referenced canonical actor version.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_quest_actor_ref' => ['quest_template_id', 'quest_version', 'objective_path', 'ref_field', 'actor_id', 'actor_version'],
+    ],
+    'indexes' => [
+      'quest_lookup' => ['quest_template_id', 'quest_version'],
+      'storyline_lookup' => ['storyline_template_id'],
+      'actor_lookup' => ['actor_id', 'actor_version'],
+    ],
+  ];
+
+  $schema['dc_canonical_objective_location_refs'] = [
+    'description' => 'Canonical objective refs that must resolve to canonical locations.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest version.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning canonical storyline template id.'],
+      'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Objective phase number.'],
+      'objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Objective identifier when provided.'],
+      'objective_type' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Objective type.'],
+      'objective_path' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Deterministic path for nested objective rows.'],
+      'ref_field' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Objective field carrying the location reference.'],
+      'location_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Referenced canonical location id.'],
+      'location_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Referenced canonical location version.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_quest_location_ref' => ['quest_template_id', 'quest_version', 'objective_path', 'ref_field', 'location_id', 'location_version'],
+    ],
+    'indexes' => [
+      'quest_lookup' => ['quest_template_id', 'quest_version'],
+      'storyline_lookup' => ['storyline_template_id'],
+      'location_lookup' => ['location_id', 'location_version'],
+    ],
+  ];
+
+  $schema['dc_canonical_objective_room_refs'] = [
+    'description' => 'Canonical objective refs that must resolve to canonical room templates.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest version.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning canonical storyline template id.'],
+      'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Objective phase number.'],
+      'objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Objective identifier when provided.'],
+      'objective_type' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Objective type.'],
+      'objective_path' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Deterministic path for nested objective rows.'],
+      'ref_field' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Objective field carrying the room reference.'],
+      'room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Referenced canonical room id.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_quest_room_ref' => ['quest_template_id', 'quest_version', 'objective_path', 'ref_field', 'room_id'],
+    ],
+    'indexes' => [
+      'quest_lookup' => ['quest_template_id', 'quest_version'],
+      'storyline_lookup' => ['storyline_template_id'],
+      'room_lookup' => ['room_id'],
+    ],
+  ];
+
+  $schema['dc_canonical_objective_dungeon_refs'] = [
+    'description' => 'Canonical objective refs that must resolve to canonical dungeon templates.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest version.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning canonical storyline template id.'],
+      'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Objective phase number.'],
+      'objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Objective identifier when provided.'],
+      'objective_type' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Objective type.'],
+      'objective_path' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Deterministic path for nested objective rows.'],
+      'ref_field' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Objective field carrying the dungeon reference.'],
+      'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Referenced canonical dungeon id.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_quest_dungeon_ref' => ['quest_template_id', 'quest_version', 'objective_path', 'ref_field', 'dungeon_id'],
+    ],
+    'indexes' => [
+      'quest_lookup' => ['quest_template_id', 'quest_version'],
+      'storyline_lookup' => ['storyline_template_id'],
+      'dungeon_lookup' => ['dungeon_id'],
+    ],
+  ];
+
+  $schema['dc_canonical_objective_item_refs'] = [
+    'description' => 'Canonical objective refs that must resolve to registry item content.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest version.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning canonical storyline template id.'],
+      'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Objective phase number.'],
+      'objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Objective identifier when provided.'],
+      'objective_type' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Objective type.'],
+      'objective_path' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Deterministic path for nested objective rows.'],
+      'ref_field' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Objective field carrying the item reference.'],
+      'content_type' => ['type' => 'varchar', 'length' => 50, 'not null' => TRUE, 'default' => 'item', 'description' => 'Registry content type; fixed to item.'],
+      'content_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Referenced registry content id.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_quest_item_ref' => ['quest_template_id', 'quest_version', 'objective_path', 'ref_field', 'content_type', 'content_id'],
+    ],
+    'indexes' => [
+      'quest_lookup' => ['quest_template_id', 'quest_version'],
+      'storyline_lookup' => ['storyline_template_id'],
+      'content_lookup' => ['content_type', 'content_id'],
+    ],
+  ];
+
+  $schema['dc_canonical_objective_hazard_refs'] = [
+    'description' => 'Canonical objective refs that must resolve to registry hazard content.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'quest_template_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Canonical quest template id.'],
+      'quest_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => '1.0.0', 'description' => 'Canonical quest version.'],
+      'storyline_template_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning canonical storyline template id.'],
+      'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Objective phase number.'],
+      'objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Objective identifier when provided.'],
+      'objective_type' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Objective type.'],
+      'objective_path' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Deterministic path for nested objective rows.'],
+      'ref_field' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Objective field carrying the hazard reference.'],
+      'content_type' => ['type' => 'varchar', 'length' => 50, 'not null' => TRUE, 'default' => 'hazard', 'description' => 'Registry content type; fixed to hazard.'],
+      'content_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Referenced registry content id.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'canonical_quest_hazard_ref' => ['quest_template_id', 'quest_version', 'objective_path', 'ref_field', 'content_type', 'content_id'],
+    ],
+    'indexes' => [
+      'quest_lookup' => ['quest_template_id', 'quest_version'],
+      'storyline_lookup' => ['storyline_template_id'],
+      'content_lookup' => ['content_type', 'content_id'],
     ],
   ];
 
@@ -2907,6 +3390,8 @@ function dungeoncrawler_content_schema() {
       'current_scene_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Current active scene id.'],
       'storyline_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON storyline definition plus runtime unlock state.'],
       'variables' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'JSON storyline runtime variables.'],
+      'template_version' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Source template version pinned at instantiation.'],
+      'contract_hash' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Deterministic hash of persisted storyline contract payload.'],
       'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
       'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
       'activated_at' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Activation timestamp.'],
@@ -2920,6 +3405,8 @@ function dungeoncrawler_content_schema() {
       'campaign_status' => ['campaign_id', 'status'],
       'campaign_primary' => ['campaign_id', 'is_primary'],
       'template_id' => ['template_id'],
+      'template_version' => ['template_version'],
+      'contract_hash' => ['contract_hash'],
     ],
   ];
 
@@ -3155,6 +3642,8 @@ function dungeoncrawler_content_schema() {
       'quest_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON: campaign-specific variables, NPCs, locations.'],
       'generated_objectives' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE, 'description' => 'JSON array of objectives with current values.'],
       'generated_rewards' => ['type' => 'text', 'not null' => TRUE, 'description' => 'JSON: XP, gold, items scaled to party level.'],
+      'template_version' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Source quest template version pinned at generation time.'],
+      'contract_hash' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Deterministic hash of quest objective contract payload.'],
       'status' => ['type' => 'varchar', 'length' => 50, 'not null' => TRUE, 'default' => 'available', 'description' => 'Status: available, active, completed, failed, abandoned.'],
       'giver_npc_id' => ['type' => 'int', 'not null' => FALSE, 'description' => 'NPC who gave the quest.'],
       'location_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Location where quest is available/active.'],
@@ -3172,10 +3661,65 @@ function dungeoncrawler_content_schema() {
     'indexes' => [
       'campaign_status' => ['campaign_id', 'status'],
       'source_template' => ['source_template_id'],
+      'template_version' => ['template_version'],
+      'contract_hash' => ['contract_hash'],
       'location' => ['location_id'],
       'campaign_storyline' => ['campaign_id', 'storyline_id'],
       'storyline_chapter' => ['storyline_chapter_id'],
       'storyline_scene' => ['storyline_scene_id'],
+    ],
+  ];
+
+  $schema['dc_campaign_objective_refs'] = [
+    'description' => 'Normalized quest objective references for actor/location/item contract validation.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning campaign.'],
+      'storyline_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning storyline id when quest is storyline-linked.'],
+      'quest_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Quest id.'],
+      'phase' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Objective phase number.'],
+      'objective_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Objective id when present.'],
+      'objective_type' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Objective type (kill/interact/etc).'],
+      'objective_path' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'description' => 'Deterministic objective path for nested objective trees.'],
+      'source_column' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'objective_states', 'description' => 'Quest payload column used as source (objective_states/generated_objectives).'],
+      'ref_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'description' => 'Reference class (target/location/item).'],
+      'ref_field' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'description' => 'Objective field carrying the reference.'],
+      'ref_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Referenced actor/location/item id.'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_quest_ref' => ['campaign_id', 'quest_id', 'source_column', 'objective_path', 'ref_field', 'ref_id'],
+    ],
+    'indexes' => [
+      'campaign_storyline' => ['campaign_id', 'storyline_id'],
+      'quest_lookup' => ['campaign_id', 'quest_id'],
+      'ref_lookup' => ['campaign_id', 'ref_type', 'ref_id'],
+    ],
+  ];
+
+  $schema['dc_campaign_locations'] = [
+    'description' => 'Normalized campaign location registry for room/dungeon/scene/location contract validation.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Owning campaign.'],
+      'storyline_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Owning storyline id for storyline-scoped rows.'],
+      'location_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Canonical location identifier.'],
+      'location_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'location', 'description' => 'room/dungeon/chapter/scene/location.'],
+      'source_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'description' => 'Source contract (campaign_room, objective_ref, chapter_scene, etc).'],
+      'source_key' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'description' => 'Source lookup id (room_id, quest_id:path, etc).'],
+      'created_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_storyline_location_source' => ['campaign_id', 'storyline_id', 'location_id', 'location_type', 'source_type', 'source_key'],
+    ],
+    'indexes' => [
+      'campaign_location' => ['campaign_id', 'location_id'],
+      'campaign_storyline' => ['campaign_id', 'storyline_id'],
+      'location_type' => ['location_type'],
     ],
   ];
 
@@ -10408,6 +10952,10 @@ function dungeoncrawler_content_update_10090() {
         'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Dungeon template id.'],
         'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Source room id.'],
         'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Target room id.'],
+        'from_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex q coordinate.'],
+        'from_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex r coordinate.'],
+        'to_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex q coordinate.'],
+        'to_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex r coordinate.'],
         'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional', 'description' => 'bidirectional or one_way.'],
         'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway', 'description' => 'Connector kind.'],
         'default_state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Default state for new campaign instances.'],
@@ -10441,6 +10989,10 @@ function dungeoncrawler_content_update_10090() {
         'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Dungeon id.'],
         'from_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Source room id.'],
         'to_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'description' => 'Target room id.'],
+        'from_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex q coordinate.'],
+        'from_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex r coordinate.'],
+        'to_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex q coordinate.'],
+        'to_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex r coordinate.'],
         'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional'],
         'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway'],
         'state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open'],
@@ -23516,6 +24068,630 @@ function dungeoncrawler_content_update_10151() {
 }
 
 /**
+ * Backfill NULL quest objective_states from generated_objectives.
+ */
+function dungeoncrawler_content_update_10152() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+
+  if (!$schema->tableExists('dc_campaign_quests')) {
+    throw new \RuntimeException('Required table dc_campaign_quests is missing for objective_states backfill.');
+  }
+  if (
+    !$schema->fieldExists('dc_campaign_quests', 'objective_states')
+    || !$schema->fieldExists('dc_campaign_quests', 'generated_objectives')
+  ) {
+    throw new \RuntimeException('Required quest fields objective_states/generated_objectives are missing for backfill.');
+  }
+
+  $statement = $database->prepareStatement(
+    "UPDATE {dc_campaign_quests}
+     SET objective_states = generated_objectives
+     WHERE objective_states IS NULL
+       AND generated_objectives IS NOT NULL
+       AND generated_objectives <> ''",
+    [],
+    TRUE
+  );
+  $statement->execute();
+  $updated = (int) $statement->rowCount();
+
+  return t(
+    'Quest objective_states backfill complete: updated @count quest row(s).',
+    ['@count' => (string) $updated]
+  );
+}
+
+/**
+ * Add normalized validation tables and contract-hash/version columns.
+ */
+function dungeoncrawler_content_update_10153() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $messages = [];
+
+  foreach (['dc_campaign_objective_refs', 'dc_campaign_locations'] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      $schema_handler->createTable($table_name, $schema[$table_name]);
+      $messages[] = "Created {$table_name}.";
+    }
+  }
+
+  $storyline_fields = ['template_version', 'contract_hash'];
+  foreach ($storyline_fields as $field_name) {
+    if (
+      $schema_handler->tableExists('dc_campaign_storylines')
+      && !$schema_handler->fieldExists('dc_campaign_storylines', $field_name)
+    ) {
+      $schema_handler->addField('dc_campaign_storylines', $field_name, $schema['dc_campaign_storylines']['fields'][$field_name]);
+      $messages[] = "Added dc_campaign_storylines.{$field_name}.";
+    }
+  }
+  foreach (['template_version', 'contract_hash'] as $index_name) {
+    if (
+      $schema_handler->tableExists('dc_campaign_storylines')
+      && !$schema_handler->indexExists('dc_campaign_storylines', $index_name)
+    ) {
+      $schema_handler->addIndex('dc_campaign_storylines', $index_name, [$index_name], $schema['dc_campaign_storylines']);
+      $messages[] = "Added index dc_campaign_storylines.{$index_name}.";
+    }
+  }
+
+  $quest_fields = ['template_version', 'contract_hash'];
+  foreach ($quest_fields as $field_name) {
+    if (
+      $schema_handler->tableExists('dc_campaign_quests')
+      && !$schema_handler->fieldExists('dc_campaign_quests', $field_name)
+    ) {
+      $schema_handler->addField('dc_campaign_quests', $field_name, $schema['dc_campaign_quests']['fields'][$field_name]);
+      $messages[] = "Added dc_campaign_quests.{$field_name}.";
+    }
+  }
+  foreach (['template_version', 'contract_hash'] as $index_name) {
+    if (
+      $schema_handler->tableExists('dc_campaign_quests')
+      && !$schema_handler->indexExists('dc_campaign_quests', $index_name)
+    ) {
+      $schema_handler->addIndex('dc_campaign_quests', $index_name, [$index_name], $schema['dc_campaign_quests']);
+      $messages[] = "Added index dc_campaign_quests.{$index_name}.";
+    }
+  }
+
+  if (
+    $schema_handler->tableExists('dc_campaign_storylines')
+    && $schema_handler->fieldExists('dc_campaign_storylines', 'contract_hash')
+    && $schema_handler->fieldExists('dc_campaign_storylines', 'storyline_data')
+  ) {
+    $storyline_rows = $database->select('dc_campaign_storylines', 's')
+      ->fields('s', ['id', 'storyline_data', 'template_version'])
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($storyline_rows as $row) {
+      $storyline_data = json_decode((string) ($row['storyline_data'] ?? ''), TRUE);
+      if (!is_array($storyline_data)) {
+        $storyline_data = [];
+      }
+      $template_version = trim((string) ($row['template_version'] ?? ''));
+      if ($template_version === '') {
+        $template_version = trim((string) ($storyline_data['version'] ?? ($storyline_data['metadata']['version'] ?? '1.0.0')));
+      }
+      if ($template_version === '') {
+        $template_version = '1.0.0';
+      }
+      $contract_hash = hash('sha256', json_encode($storyline_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+      $database->update('dc_campaign_storylines')
+        ->fields([
+          'template_version' => $template_version,
+          'contract_hash' => $contract_hash,
+          'updated_at' => time(),
+        ])
+        ->condition('id', (int) ($row['id'] ?? 0))
+        ->execute();
+    }
+    $messages[] = 'Backfilled dc_campaign_storylines.template_version/contract_hash.';
+  }
+
+  if (
+    $schema_handler->tableExists('dc_campaign_quests')
+    && $schema_handler->fieldExists('dc_campaign_quests', 'contract_hash')
+    && $schema_handler->fieldExists('dc_campaign_quests', 'generated_objectives')
+  ) {
+    $quest_rows = $database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['id', 'source_template_id', 'template_version', 'generated_objectives'])
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($quest_rows as $row) {
+      $template_version = trim((string) ($row['template_version'] ?? ''));
+      if ($template_version === '') {
+        $template_version = '1.0.0';
+      }
+      $generated_objectives = json_decode((string) ($row['generated_objectives'] ?? ''), TRUE);
+      if (!is_array($generated_objectives)) {
+        $generated_objectives = [];
+      }
+      $contract_hash = hash('sha256', json_encode([
+        'source_template_id' => (string) ($row['source_template_id'] ?? ''),
+        'generated_objectives' => $generated_objectives,
+      ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+      $database->update('dc_campaign_quests')
+        ->fields([
+          'template_version' => $template_version,
+          'contract_hash' => $contract_hash,
+        ])
+        ->condition('id', (int) ($row['id'] ?? 0))
+        ->execute();
+    }
+    $messages[] = 'Backfilled dc_campaign_quests.template_version/contract_hash.';
+  }
+
+  $messages[] = 'Deferred objective/location index hydration to runtime storyline sync paths.';
+
+  return $messages === []
+    ? t('Validation contract schema already up to date.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Add canonical library contract tables, promoted refs, and FK integrity links.
+ */
+function dungeoncrawler_content_update_10154() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $messages = [];
+
+  foreach ([
+    'dc_canonical_storylines',
+    'dc_canonical_quests',
+    'dc_canonical_actors',
+    'dc_canonical_locations',
+    'dc_canonical_storyline_quests',
+    'dc_canonical_storyline_actors',
+    'dc_canonical_storyline_locations',
+    'dc_canonical_objective_refs',
+  ] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      $schema_handler->createTable($table_name, $schema[$table_name]);
+      $messages[] = "Created {$table_name}.";
+    }
+  }
+
+  foreach (['version', 'entry_point_actor_id', 'entry_point_location_id', 'primary_quest_id', 'contract_hash'] as $field_name) {
+    if (
+      $schema_handler->tableExists('dungeoncrawler_content_storylines')
+      && !$schema_handler->fieldExists('dungeoncrawler_content_storylines', $field_name)
+    ) {
+      $schema_handler->addField('dungeoncrawler_content_storylines', $field_name, $schema['dungeoncrawler_content_storylines']['fields'][$field_name]);
+      $messages[] = "Added dungeoncrawler_content_storylines.{$field_name}.";
+    }
+  }
+  foreach (['version', 'entry_point_actor_id', 'entry_point_location_id', 'primary_quest_id', 'contract_hash'] as $index_name) {
+    if (
+      $schema_handler->tableExists('dungeoncrawler_content_storylines')
+      && !$schema_handler->indexExists('dungeoncrawler_content_storylines', $index_name)
+    ) {
+      $schema_handler->addIndex('dungeoncrawler_content_storylines', $index_name, [$index_name], $schema['dungeoncrawler_content_storylines']);
+      $messages[] = "Added index dungeoncrawler_content_storylines.{$index_name}.";
+    }
+  }
+
+  foreach (['storyline_template_id', 'entry_point_actor_id', 'entry_point_location_id', 'contract_hash'] as $field_name) {
+    if (
+      $schema_handler->tableExists('dungeoncrawler_content_quest_templates')
+      && !$schema_handler->fieldExists('dungeoncrawler_content_quest_templates', $field_name)
+    ) {
+      $schema_handler->addField('dungeoncrawler_content_quest_templates', $field_name, $schema['dungeoncrawler_content_quest_templates']['fields'][$field_name]);
+      $messages[] = "Added dungeoncrawler_content_quest_templates.{$field_name}.";
+    }
+  }
+  foreach (['storyline_template_id', 'entry_point_actor_id', 'entry_point_location_id', 'contract_hash'] as $index_name) {
+    if (
+      $schema_handler->tableExists('dungeoncrawler_content_quest_templates')
+      && !$schema_handler->indexExists('dungeoncrawler_content_quest_templates', $index_name)
+    ) {
+      $schema_handler->addIndex('dungeoncrawler_content_quest_templates', $index_name, [$index_name], $schema['dungeoncrawler_content_quest_templates']);
+      $messages[] = "Added index dungeoncrawler_content_quest_templates.{$index_name}.";
+    }
+  }
+
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $sync_counts = $importer->synchronizeCanonicalContracts();
+  $messages[] = 'Canonical contract sync complete: '
+    . 'storylines=' . (string) ($sync_counts['storylines'] ?? 0)
+    . ', quests=' . (string) ($sync_counts['quests'] ?? 0)
+    . ', actors=' . (string) ($sync_counts['actors'] ?? 0)
+    . ', locations=' . (string) ($sync_counts['locations'] ?? 0)
+    . ', storyline_quests=' . (string) ($sync_counts['storyline_quests'] ?? 0)
+    . ', storyline_actors=' . (string) ($sync_counts['storyline_actors'] ?? 0)
+    . ', storyline_locations=' . (string) ($sync_counts['storyline_locations'] ?? 0)
+    . ', objective_refs=' . (string) ($sync_counts['objective_refs'] ?? 0) . '.';
+
+  dungeoncrawler_content_add_fk_if_missing(
+    'dungeoncrawler_content_storylines',
+    'fk_dcs_primary_quest',
+    'ALTER TABLE `dungeoncrawler_content_storylines` ADD CONSTRAINT `fk_dcs_primary_quest` FOREIGN KEY (`primary_quest_id`) REFERENCES `dungeoncrawler_content_quest_templates` (`template_id`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dungeoncrawler_content_quest_templates',
+    'fk_dcqt_storyline_template',
+    'ALTER TABLE `dungeoncrawler_content_quest_templates` ADD CONSTRAINT `fk_dcqt_storyline_template` FOREIGN KEY (`storyline_template_id`) REFERENCES `dungeoncrawler_content_storylines` (`template_id`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_storyline_quests',
+    'fk_dcslq_storyline',
+    'ALTER TABLE `dc_canonical_storyline_quests` ADD CONSTRAINT `fk_dcslq_storyline` FOREIGN KEY (`storyline_template_id`, `storyline_version`) REFERENCES `dc_canonical_storylines` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_storyline_quests',
+    'fk_dcslq_quest',
+    'ALTER TABLE `dc_canonical_storyline_quests` ADD CONSTRAINT `fk_dcslq_quest` FOREIGN KEY (`quest_template_id`, `quest_version`) REFERENCES `dc_canonical_quests` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_storyline_actors',
+    'fk_dcsla_storyline',
+    'ALTER TABLE `dc_canonical_storyline_actors` ADD CONSTRAINT `fk_dcsla_storyline` FOREIGN KEY (`storyline_template_id`, `storyline_version`) REFERENCES `dc_canonical_storylines` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_storyline_actors',
+    'fk_dcsla_actor',
+    'ALTER TABLE `dc_canonical_storyline_actors` ADD CONSTRAINT `fk_dcsla_actor` FOREIGN KEY (`actor_id`, `actor_version`) REFERENCES `dc_canonical_actors` (`actor_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_storyline_locations',
+    'fk_dcsll_storyline',
+    'ALTER TABLE `dc_canonical_storyline_locations` ADD CONSTRAINT `fk_dcsll_storyline` FOREIGN KEY (`storyline_template_id`, `storyline_version`) REFERENCES `dc_canonical_storylines` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_storyline_locations',
+    'fk_dcsll_location',
+    'ALTER TABLE `dc_canonical_storyline_locations` ADD CONSTRAINT `fk_dcsll_location` FOREIGN KEY (`location_id`, `location_version`) REFERENCES `dc_canonical_locations` (`location_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_refs',
+    'fk_dcor_quest',
+    'ALTER TABLE `dc_canonical_objective_refs` ADD CONSTRAINT `fk_dcor_quest` FOREIGN KEY (`quest_template_id`, `quest_version`) REFERENCES `dc_canonical_quests` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+
+  return t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Expand canonical quest table fields and re-sync canonical contracts.
+ */
+function dungeoncrawler_content_update_10155() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $messages = [];
+
+  if (!$schema_handler->tableExists('dc_canonical_quests')) {
+    throw new \RuntimeException('Required table dc_canonical_quests is missing for canonical quest field expansion.');
+  }
+
+  foreach ([
+    'description',
+    'level_min',
+    'level_max',
+    'tags',
+    'prerequisites',
+    'estimated_duration_minutes',
+  ] as $field_name) {
+    if (!$schema_handler->fieldExists('dc_canonical_quests', $field_name)) {
+      $schema_handler->addField('dc_canonical_quests', $field_name, $schema['dc_canonical_quests']['fields'][$field_name]);
+      $messages[] = "Added dc_canonical_quests.{$field_name}.";
+    }
+  }
+
+  if (!$schema_handler->indexExists('dc_canonical_quests', 'type_level')) {
+    $schema_handler->addIndex('dc_canonical_quests', 'type_level', ['quest_type', 'level_min', 'level_max'], $schema['dc_canonical_quests']);
+    $messages[] = 'Added index dc_canonical_quests.type_level.';
+  }
+
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $sync_counts = $importer->synchronizeCanonicalContracts();
+  $messages[] = 'Canonical contract re-sync complete after dc_canonical_quests expansion: '
+    . 'storylines=' . (string) ($sync_counts['storylines'] ?? 0)
+    . ', quests=' . (string) ($sync_counts['quests'] ?? 0)
+    . ', actors=' . (string) ($sync_counts['actors'] ?? 0)
+    . ', locations=' . (string) ($sync_counts['locations'] ?? 0)
+    . ', objective_refs=' . (string) ($sync_counts['objective_refs'] ?? 0) . '.';
+
+  return t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Split canonical objective refs into typed FK-enforced tables and re-sync.
+ */
+function dungeoncrawler_content_update_10156() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $messages = [];
+
+  foreach ([
+    'dc_canonical_objective_actor_refs',
+    'dc_canonical_objective_location_refs',
+    'dc_canonical_objective_room_refs',
+    'dc_canonical_objective_dungeon_refs',
+    'dc_canonical_objective_item_refs',
+    'dc_canonical_objective_hazard_refs',
+  ] as $table_name) {
+    if ($schema_handler->tableExists($table_name)) {
+      $schema_handler->dropTable($table_name);
+      $messages[] = "Dropped {$table_name} for FK-split recreation.";
+    }
+  }
+
+  foreach ([
+    'dc_canonical_objective_actor_refs',
+    'dc_canonical_objective_location_refs',
+    'dc_canonical_objective_room_refs',
+    'dc_canonical_objective_dungeon_refs',
+    'dc_canonical_objective_item_refs',
+    'dc_canonical_objective_hazard_refs',
+  ] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      $schema_handler->createTable($table_name, $schema[$table_name]);
+      $messages[] = "Created {$table_name}.";
+    }
+  }
+
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_actor_refs',
+    'fk_dcoar_quest',
+    'ALTER TABLE `dc_canonical_objective_actor_refs` ADD CONSTRAINT `fk_dcoar_quest` FOREIGN KEY (`quest_template_id`, `quest_version`) REFERENCES `dc_canonical_quests` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_actor_refs',
+    'fk_dcoar_actor',
+    'ALTER TABLE `dc_canonical_objective_actor_refs` ADD CONSTRAINT `fk_dcoar_actor` FOREIGN KEY (`actor_id`, `actor_version`) REFERENCES `dc_canonical_actors` (`actor_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_location_refs',
+    'fk_dcolr_quest',
+    'ALTER TABLE `dc_canonical_objective_location_refs` ADD CONSTRAINT `fk_dcolr_quest` FOREIGN KEY (`quest_template_id`, `quest_version`) REFERENCES `dc_canonical_quests` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_location_refs',
+    'fk_dcolr_location',
+    'ALTER TABLE `dc_canonical_objective_location_refs` ADD CONSTRAINT `fk_dcolr_location` FOREIGN KEY (`location_id`, `location_version`) REFERENCES `dc_canonical_locations` (`location_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_room_refs',
+    'fk_dcorr_quest',
+    'ALTER TABLE `dc_canonical_objective_room_refs` ADD CONSTRAINT `fk_dcorr_quest` FOREIGN KEY (`quest_template_id`, `quest_version`) REFERENCES `dc_canonical_quests` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_room_refs',
+    'fk_dcorr_room',
+    'ALTER TABLE `dc_canonical_objective_room_refs` ADD CONSTRAINT `fk_dcorr_room` FOREIGN KEY (`room_id`) REFERENCES `dungeoncrawler_content_rooms` (`room_id`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_dungeon_refs',
+    'fk_dcodr_quest',
+    'ALTER TABLE `dc_canonical_objective_dungeon_refs` ADD CONSTRAINT `fk_dcodr_quest` FOREIGN KEY (`quest_template_id`, `quest_version`) REFERENCES `dc_canonical_quests` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_dungeon_refs',
+    'fk_dcodr_dungeon',
+    'ALTER TABLE `dc_canonical_objective_dungeon_refs` ADD CONSTRAINT `fk_dcodr_dungeon` FOREIGN KEY (`dungeon_id`) REFERENCES `dungeoncrawler_content_dungeons` (`dungeon_id`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_item_refs',
+    'fk_dcoir_quest',
+    'ALTER TABLE `dc_canonical_objective_item_refs` ADD CONSTRAINT `fk_dcoir_quest` FOREIGN KEY (`quest_template_id`, `quest_version`) REFERENCES `dc_canonical_quests` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_item_refs',
+    'fk_dcoir_registry',
+    'ALTER TABLE `dc_canonical_objective_item_refs` ADD CONSTRAINT `fk_dcoir_registry` FOREIGN KEY (`content_type`, `content_id`) REFERENCES `dungeoncrawler_content_registry` (`content_type`, `content_id`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_hazard_refs',
+    'fk_dcohr_quest',
+    'ALTER TABLE `dc_canonical_objective_hazard_refs` ADD CONSTRAINT `fk_dcohr_quest` FOREIGN KEY (`quest_template_id`, `quest_version`) REFERENCES `dc_canonical_quests` (`template_id`, `version`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+  dungeoncrawler_content_add_fk_if_missing(
+    'dc_canonical_objective_hazard_refs',
+    'fk_dcohr_registry',
+    'ALTER TABLE `dc_canonical_objective_hazard_refs` ADD CONSTRAINT `fk_dcohr_registry` FOREIGN KEY (`content_type`, `content_id`) REFERENCES `dungeoncrawler_content_registry` (`content_type`, `content_id`) ON DELETE RESTRICT ON UPDATE CASCADE'
+  );
+
+  /** @var \Drupal\dungeoncrawler_content\Service\TemplateImportService $importer */
+  $importer = \Drupal::service('dungeoncrawler_content.template_importer');
+  $sync_counts = $importer->synchronizeCanonicalContracts();
+  $messages[] = 'Canonical contract re-sync complete after objective ref FK split: '
+    . 'storylines=' . (string) ($sync_counts['storylines'] ?? 0)
+    . ', quests=' . (string) ($sync_counts['quests'] ?? 0)
+    . ', actors=' . (string) ($sync_counts['actors'] ?? 0)
+    . ', locations=' . (string) ($sync_counts['locations'] ?? 0)
+    . ', objective_refs=' . (string) ($sync_counts['objective_refs'] ?? 0) . '.';
+
+  return t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Refine Enter the Vault objective phrasing in canonical and runtime quest rows.
+ */
+function dungeoncrawler_content_update_10157() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $messages = [];
+
+  if (!$schema->tableExists('dungeoncrawler_content_quest_templates')) {
+    throw new \RuntimeException('Required table dungeoncrawler_content_quest_templates is missing for quest phrasing refinement.');
+  }
+  if (!$schema->fieldExists('dungeoncrawler_content_quest_templates', 'objectives_schema')) {
+    throw new \RuntimeException('Required field dungeoncrawler_content_quest_templates.objectives_schema is missing for quest phrasing refinement.');
+  }
+
+  $rewrite_objectives = static function (array $phases): array {
+    foreach ($phases as $phase_index => $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      foreach ($objectives as $objective_index => $objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+        if (trim((string) ($objective['objective_id'] ?? '')) !== 'enter_vault') {
+          continue;
+        }
+
+        $objectives[$objective_index]['description'] = 'Reach the vault entry with the Hookclaw team.';
+        $objectives[$objective_index]['next_step'] = 'Follow Zikza into the first vault chamber to begin the delve.';
+
+        $completion = is_array($objective['completion_criteria'] ?? NULL) ? $objective['completion_criteria'] : [];
+        $completion['description'] = 'Complete when the party discovers ltba-vault-entry.';
+        $objectives[$objective_index]['completion_criteria'] = $completion;
+      }
+      $phases[$phase_index]['objectives'] = $objectives;
+    }
+    return $phases;
+  };
+
+  $template_row = $database->select('dungeoncrawler_content_quest_templates', 'q')
+    ->fields('q', ['id', 'objectives_schema'])
+    ->condition('template_id', 'ltba-enter-the-vault')
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+
+  if (is_array($template_row) && !empty($template_row['id'])) {
+    $decoded = json_decode((string) ($template_row['objectives_schema'] ?? ''), TRUE);
+    $decoded = is_array($decoded) ? $decoded : [];
+    $rewritten = $rewrite_objectives($decoded);
+    if ($rewritten !== $decoded) {
+      $database->update('dungeoncrawler_content_quest_templates')
+        ->fields([
+          'objectives_schema' => json_encode($rewritten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'updated' => \Drupal::time()->getRequestTime(),
+        ])
+        ->condition('id', (int) $template_row['id'])
+        ->execute();
+      $messages[] = 'Updated canonical quest template ltba-enter-the-vault objective wording.';
+    }
+  }
+
+  if ($schema->tableExists('dc_canonical_quests')) {
+    if (!$schema->fieldExists('dc_canonical_quests', 'objectives_schema')) {
+      throw new \RuntimeException('Required field dc_canonical_quests.objectives_schema is missing for quest phrasing refinement.');
+    }
+
+    $canonical_row = $database->select('dc_canonical_quests', 'q')
+      ->fields('q', ['id', 'template_id', 'objectives_schema'])
+      ->condition('template_id', 'ltba-enter-the-vault')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (is_array($canonical_row) && !empty($canonical_row['id'])) {
+      $decoded = json_decode((string) ($canonical_row['objectives_schema'] ?? ''), TRUE);
+      $decoded = is_array($decoded) ? $decoded : [];
+      $rewritten = $rewrite_objectives($decoded);
+      if ($rewritten !== $decoded) {
+        $fields = [
+          'objectives_schema' => json_encode($rewritten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'updated_at' => \Drupal::time()->getRequestTime(),
+        ];
+        if ($schema->fieldExists('dc_canonical_quests', 'contract_hash')) {
+          $fields['contract_hash'] = hash('sha256', json_encode([
+            'template_id' => (string) ($canonical_row['template_id'] ?? ''),
+            'objectives_schema' => $rewritten,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        }
+
+        $database->update('dc_canonical_quests')
+          ->fields($fields)
+          ->condition('id', (int) $canonical_row['id'])
+          ->execute();
+        $messages[] = 'Updated dc_canonical_quests objective wording for ltba-enter-the-vault.';
+      }
+    }
+  }
+
+  if (!$schema->tableExists('dc_campaign_quests')) {
+    return $messages === []
+      ? t('Quest wording already up to date.')
+      : t('@messages', ['@messages' => implode(' ', $messages)]);
+  }
+  if (
+    !$schema->fieldExists('dc_campaign_quests', 'generated_objectives')
+    || !$schema->fieldExists('dc_campaign_quests', 'objective_states')
+  ) {
+    throw new \RuntimeException('Required dc_campaign_quests objective fields are missing for quest phrasing refinement.');
+  }
+
+  $quest_rows = $database->select('dc_campaign_quests', 'q')
+    ->fields('q', ['id', 'source_template_id', 'generated_objectives', 'objective_states'])
+    ->condition('source_template_id', 'ltba-enter-the-vault')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  $rewritten_rows = 0;
+  $has_contract_hash = $schema->fieldExists('dc_campaign_quests', 'contract_hash');
+  foreach ($quest_rows as $row) {
+    $generated = json_decode((string) ($row['generated_objectives'] ?? ''), TRUE);
+    $states = json_decode((string) ($row['objective_states'] ?? ''), TRUE);
+    $generated = is_array($generated) ? $generated : [];
+    $states = is_array($states) ? $states : $generated;
+
+    $rewritten_generated = $rewrite_objectives($generated);
+    $rewritten_states = $rewrite_objectives($states);
+    if ($rewritten_generated === $generated && $rewritten_states === $states) {
+      continue;
+    }
+
+    $fields = [
+      'generated_objectives' => json_encode($rewritten_generated, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'objective_states' => json_encode($rewritten_states, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+    ];
+    if ($has_contract_hash) {
+      $fields['contract_hash'] = hash('sha256', json_encode([
+        'source_template_id' => (string) ($row['source_template_id'] ?? ''),
+        'generated_objectives' => $rewritten_generated,
+      ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    $database->update('dc_campaign_quests')
+      ->fields($fields)
+      ->condition('id', (int) ($row['id'] ?? 0))
+      ->execute();
+    $rewritten_rows++;
+  }
+
+  if ($rewritten_rows > 0) {
+    $messages[] = 'Updated ' . (string) $rewritten_rows . ' campaign quest row(s) for ltba-enter-the-vault objective wording.';
+  }
+
+  return $messages === []
+    ? t('Quest wording already up to date.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Add a foreign-key constraint when it does not already exist.
+ */
+function dungeoncrawler_content_add_fk_if_missing(string $table_name, string $constraint_name, string $sql): void {
+  $database = \Drupal::database();
+  $exists = (int) $database->query(
+    'SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = :table_name AND CONSTRAINT_NAME = :constraint_name',
+    [
+      ':table_name' => $table_name,
+      ':constraint_name' => $constraint_name,
+    ]
+  )->fetchField();
+  if ($exists > 0) {
+    return;
+  }
+  $database->query($sql);
+}
+
+/**
  * Normalize sparse-hex metadata to include elevation and ceiling-height fields.
  *
  * @param array $metadata
@@ -23681,4 +24857,286 @@ function dungeoncrawler_content_safe_room_key(string $room_id): string {
  */
 function dungeoncrawler_content_is_uuidish(string $value): bool {
   return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', trim($value));
+}
+
+/**
+ * Add single-flight campaign init ledger and scope sparse room-cell uniqueness by dungeon.
+ */
+function dungeoncrawler_content_update_10158() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $messages = [];
+
+  if (!$schema_handler->tableExists('dc_campaign_initialization_steps')) {
+    $schema_handler->createTable('dc_campaign_initialization_steps', $schema['dc_campaign_initialization_steps']);
+    $messages[] = 'Created dc_campaign_initialization_steps.';
+  }
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_h3_room_cells')) {
+    throw new \RuntimeException('Required table dungeoncrawler_content_h3_room_cells is missing for room-cell uniqueness migration.');
+  }
+
+  try {
+    $schema_handler->dropUniqueKey('dungeoncrawler_content_h3_room_cells', 'room_cell_unique');
+    $messages[] = 'Dropped legacy dungeoncrawler_content_h3_room_cells.room_cell_unique.';
+  }
+  catch (\Drupal\Core\Database\SchemaObjectDoesNotExistException) {
+    // Fresh databases may not yet have the legacy key shape.
+  }
+
+  if (!$schema_handler->indexExists('dungeoncrawler_content_h3_room_cells', 'room_cell_unique')) {
+    $schema_handler->addUniqueKey(
+      'dungeoncrawler_content_h3_room_cells',
+      'room_cell_unique',
+      ['dungeon_id', 'room_id', 'cell_role', 'h3_resolution', 'h3_index', 'source_q', 'source_r'],
+      $schema['dungeoncrawler_content_h3_room_cells']
+    );
+    $messages[] = 'Added dungeoncrawler_content_h3_room_cells.room_cell_unique scoped by dungeon_id.';
+  }
+
+  return $messages === []
+    ? t('Campaign initialization hardening schema already applied.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Add explicit connector endpoint-hex columns and backfill canonical anchors.
+ */
+function dungeoncrawler_content_update_10159() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $messages = [];
+
+  $connector_hex_fields = [
+    'from_hex_q',
+    'from_hex_r',
+    'to_hex_q',
+    'to_hex_r',
+  ];
+
+  foreach (['dungeoncrawler_content_connections', 'dc_campaign_connections'] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      continue;
+    }
+    foreach ($connector_hex_fields as $field_name) {
+      if ($schema_handler->fieldExists($table_name, $field_name)) {
+        continue;
+      }
+      $schema_handler->addField($table_name, $field_name, $schema[$table_name]['fields'][$field_name]);
+      $messages[] = sprintf('Added %s.%s.', $table_name, $field_name);
+    }
+  }
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_connections')) {
+    return $messages === []
+      ? t('Connector endpoint hex schema update skipped: connector tables not found.')
+      : t('@messages', ['@messages' => implode(' ', $messages)]);
+  }
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_rooms')) {
+    throw new \RuntimeException('Required table dungeoncrawler_content_rooms is missing for canonical connector endpoint backfill.');
+  }
+
+  $room_layout_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id', 'layout_data'])
+    ->execute()
+    ->fetchAllAssoc('room_id');
+  $layout_map = [];
+  foreach ($room_layout_rows as $room_id => $row) {
+    $layout = json_decode((string) ($row->layout_data ?? ''), TRUE);
+    if (is_array($layout)) {
+      $layout_map[(string) $room_id] = $layout;
+    }
+  }
+
+  $canonical_rows = $database->select('dungeoncrawler_content_connections', 'c')
+    ->fields('c', ['id', 'dungeon_id', 'from_room_id', 'to_room_id', 'from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+
+  $canonical_backfilled = 0;
+  foreach ((array) $canonical_rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $from_hex_q = $row['from_hex_q'] ?? NULL;
+    $from_hex_r = $row['from_hex_r'] ?? NULL;
+    $to_hex_q = $row['to_hex_q'] ?? NULL;
+    $to_hex_r = $row['to_hex_r'] ?? NULL;
+    if (is_numeric($from_hex_q) && is_numeric($from_hex_r) && is_numeric($to_hex_q) && is_numeric($to_hex_r)) {
+      continue;
+    }
+
+    $from_room_id = trim((string) ($row['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($row['to_room_id'] ?? ''));
+    $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
+    if ($from_room_id === '' || $to_room_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Connector endpoint backfill failed: canonical connector id=%s (%s) missing room ids.',
+        (string) ($row['id'] ?? 'unknown'),
+        $dungeon_id
+      ));
+    }
+
+    $from_layout = (array) ($layout_map[$from_room_id] ?? []);
+    $to_layout = (array) ($layout_map[$to_room_id] ?? []);
+    $from_hex = dungeoncrawler_content_resolve_layout_connector_hex($from_layout, $to_room_id, TRUE);
+    $to_hex = dungeoncrawler_content_resolve_layout_connector_hex($to_layout, $from_room_id, FALSE);
+    if (!is_array($from_hex) || !is_array($to_hex)) {
+      throw new \RuntimeException(sprintf(
+        'Connector endpoint backfill failed: canonical connector id=%s (%s %s->%s) has no resolvable endpoint hexes.',
+        (string) ($row['id'] ?? 'unknown'),
+        $dungeon_id,
+        $from_room_id,
+        $to_room_id
+      ));
+    }
+
+    $database->update('dungeoncrawler_content_connections')
+      ->fields([
+        'from_hex_q' => (int) $from_hex['q'],
+        'from_hex_r' => (int) $from_hex['r'],
+        'to_hex_q' => (int) $to_hex['q'],
+        'to_hex_r' => (int) $to_hex['r'],
+      ])
+      ->condition('id', (int) $row['id'])
+      ->execute();
+    $canonical_backfilled++;
+  }
+
+  if ($canonical_backfilled > 0) {
+    $messages[] = sprintf('Backfilled %d canonical connector endpoint rows.', $canonical_backfilled);
+  }
+
+  if ($schema_handler->tableExists('dc_campaign_connections')) {
+    $campaign_rows = $database->select('dc_campaign_connections', 'cc')
+      ->fields('cc', ['id', 'connection_id', 'from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'])
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $campaign_backfilled = 0;
+    foreach ((array) $campaign_rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      if (
+        is_numeric($row['from_hex_q'] ?? NULL)
+        && is_numeric($row['from_hex_r'] ?? NULL)
+        && is_numeric($row['to_hex_q'] ?? NULL)
+        && is_numeric($row['to_hex_r'] ?? NULL)
+      ) {
+        continue;
+      }
+      $canonical = $database->select('dungeoncrawler_content_connections', 'c')
+        ->fields('c', ['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'])
+        ->condition('connection_id', (string) ($row['connection_id'] ?? ''))
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (
+        !is_array($canonical)
+        || !is_numeric($canonical['from_hex_q'] ?? NULL)
+        || !is_numeric($canonical['from_hex_r'] ?? NULL)
+        || !is_numeric($canonical['to_hex_q'] ?? NULL)
+        || !is_numeric($canonical['to_hex_r'] ?? NULL)
+      ) {
+        continue;
+      }
+      $database->update('dc_campaign_connections')
+        ->fields([
+          'from_hex_q' => (int) $canonical['from_hex_q'],
+          'from_hex_r' => (int) $canonical['from_hex_r'],
+          'to_hex_q' => (int) $canonical['to_hex_q'],
+          'to_hex_r' => (int) $canonical['to_hex_r'],
+        ])
+        ->condition('id', (int) $row['id'])
+        ->execute();
+      $campaign_backfilled++;
+    }
+    if ($campaign_backfilled > 0) {
+      $messages[] = sprintf('Backfilled %d campaign connector endpoint rows from canonical references.', $campaign_backfilled);
+    }
+  }
+
+  return $messages === []
+    ? t('Connector endpoint-hex schema already applied.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Resolve a connector endpoint hex from one room layout and target room.
+ *
+ * Prefers explicit layout_data.exits target coordinate; falls back to
+ * deterministic entry/exit anchor points in layout_data.
+ *
+ * @param array<string,mixed> $layout
+ *   Room layout payload.
+ * @param string $target_room_id
+ *   Target room id.
+ * @param bool $prefer_exit
+ *   TRUE resolves from source side, FALSE from destination side.
+ *
+ * @return array{q:int,r:int}|null
+ *   Resolved coordinate.
+ */
+function dungeoncrawler_content_resolve_layout_connector_hex(array $layout, string $target_room_id, bool $prefer_exit): ?array {
+  $explicit = dungeoncrawler_content_extract_layout_exit_hex_for_target($layout, $target_room_id);
+  if ($explicit !== NULL) {
+    return $explicit;
+  }
+
+  $point_sets = $prefer_exit
+    ? [(array) ($layout['exit_points'] ?? []), (array) ($layout['entry_points'] ?? [])]
+    : [(array) ($layout['entry_points'] ?? []), (array) ($layout['exit_points'] ?? [])];
+  foreach ($point_sets as $points) {
+    foreach ($points as $point) {
+      if (is_array($point) && isset($point['q'], $point['r']) && is_numeric($point['q']) && is_numeric($point['r'])) {
+        return ['q' => (int) $point['q'], 'r' => (int) $point['r']];
+      }
+    }
+  }
+
+  foreach ((array) ($layout['hexes'] ?? []) as $hex) {
+    if (is_array($hex) && isset($hex['q'], $hex['r']) && is_numeric($hex['q']) && is_numeric($hex['r'])) {
+      return ['q' => (int) $hex['q'], 'r' => (int) $hex['r']];
+    }
+  }
+
+  return NULL;
+}
+
+/**
+ * Extract explicit target-room exit coordinate from layout_data.exits.
+ *
+ * @param array<string,mixed> $layout
+ *   Room layout payload.
+ * @param string $target_room_id
+ *   Linked target room id.
+ *
+ * @return array{q:int,r:int}|null
+ *   Exit coordinate or NULL.
+ */
+function dungeoncrawler_content_extract_layout_exit_hex_for_target(array $layout, string $target_room_id): ?array {
+  foreach ((array) ($layout['exits'] ?? []) as $exit_link) {
+    if (!is_array($exit_link)) {
+      continue;
+    }
+    if (trim((string) ($exit_link['target_room_id'] ?? '')) !== $target_room_id) {
+      continue;
+    }
+    if (isset($exit_link['q'], $exit_link['r']) && is_numeric($exit_link['q']) && is_numeric($exit_link['r'])) {
+      return ['q' => (int) $exit_link['q'], 'r' => (int) $exit_link['r']];
+    }
+    if (
+      is_array($exit_link['hex'] ?? NULL)
+      && isset($exit_link['hex']['q'], $exit_link['hex']['r'])
+      && is_numeric($exit_link['hex']['q'])
+      && is_numeric($exit_link['hex']['r'])
+    ) {
+      return ['q' => (int) $exit_link['hex']['q'], 'r' => (int) $exit_link['hex']['r']];
+    }
+  }
+
+  return NULL;
 }

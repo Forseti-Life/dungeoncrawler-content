@@ -1105,15 +1105,16 @@ export class ChatPanel {
         view: 'room',
       };
     });
+    const clarifiedIncoming = this.clarifyLeadingQuestNarratorTiming(incoming);
 
     const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*(?:Actor\s+)?[^:]+:/i;
-    this._roomHistoryHasEncounterTranscript = incoming.some((line) => encounterPrefixRegex.test(String(line?.message || '').trim()));
+    this._roomHistoryHasEncounterTranscript = clarifiedIncoming.some((line) => encounterPrefixRegex.test(String(line?.message || '').trim()));
 
-    const merged = this.rememberChatLines('room', incoming, {
+    const merged = this.rememberChatLines('room', clarifiedIncoming, {
       context,
       channelKey: this.activeChannel,
     });
-    console.log('[ChatPanel] renderRoomChatHistory:render', { incoming: incoming.length, merged: merged.length });
+    console.log('[ChatPanel] renderRoomChatHistory:render', { incoming: clarifiedIncoming.length, merged: merged.length });
     this.renderChatLineRecords(merged, 'room', {
       context,
       channelKey: this.activeChannel,
@@ -1545,8 +1546,15 @@ export class ChatPanel {
       type,
     });
     const displayMessage = this.formatEncounterChatMessage(lineRecord.speaker, lineRecord.message, lineRecord.type, lineRecord);
+    const localPlayerEcho = this.findMatchingLocalPlayerEchoLine(log, lineRecord, displayMessage);
+    const resolvedOptions = localPlayerEcho
+      ? {
+          ...options,
+          replaceLine: localPlayerEcho,
+        }
+      : options;
     const hasAuthoritativeIdentity = Boolean(lineRecord.messageId || lineRecord.sourceMessageId || lineRecord.eventId);
-    if (!options.replaceLine && hasAuthoritativeIdentity) {
+    if (!resolvedOptions.replaceLine && hasAuthoritativeIdentity) {
       const existingByIdentity = Array.from(log.querySelectorAll('.chat-line')).find((candidate) => {
         const candidateMessageId = String(candidate?.dataset?.messageId || '').trim();
         const candidateSourceMessageId = String(candidate?.dataset?.sourceMessageId || '').trim();
@@ -1565,7 +1573,7 @@ export class ChatPanel {
     }
     const isAuthoritativeTranscript = lineRecord.authority === 'authoritative'
       && lineRecord.messageClass === 'authoritative_transcript';
-    if (!options.replaceLine && !hasAuthoritativeIdentity && !lineRecord.lineId && isAuthoritativeTranscript) {
+    if (!resolvedOptions.replaceLine && !hasAuthoritativeIdentity && !lineRecord.lineId && isAuthoritativeTranscript) {
       const existingByTranscriptContent = Array.from(log.querySelectorAll('.chat-line'))
         .reverse()
         .find((candidate) => (
@@ -1580,7 +1588,7 @@ export class ChatPanel {
         return existingByTranscriptContent;
       }
     }
-    const existingLine = options.replaceLine || (lineRecord.lineId ? this.findChatLineById(lineRecord.lineId) : null);
+    const existingLine = resolvedOptions.replaceLine || (lineRecord.lineId ? this.findChatLineById(lineRecord.lineId) : null);
     if (!existingLine && !lineRecord.lineId) {
       const lastLine = log.lastElementChild;
       if (
@@ -1596,7 +1604,7 @@ export class ChatPanel {
     const line = existingLine || document.createElement('div');
     line.innerHTML = '';
     line.className = `chat-line chat-line--${lineRecord.type}`;
-    line.classList.toggle('chat-line--pending', Boolean(options.pending));
+    line.classList.toggle('chat-line--pending', Boolean(resolvedOptions.pending));
     line.classList.toggle('chat-line--turn-prompt', Boolean(lineRecord.turnPrompt));
     const messageClassToken = this.resolveMessageClassCssToken(lineRecord.messageClass);
     if (messageClassToken !== '') {
@@ -1611,6 +1619,7 @@ export class ChatPanel {
     }
 
     const text = document.createElement('span');
+    text.className = 'chat-line__message';
     text.textContent = displayMessage;
     line.appendChild(text);
     line.dataset.speaker = lineRecord.speaker || '';
@@ -1666,6 +1675,105 @@ export class ChatPanel {
     return line;
   }
 
+  normalizeChatComparableText(value = '') {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[“”"']/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/[.!?]+$/g, '')
+      .trim();
+  }
+
+  extractEncounterTranscriptBody(message = '') {
+    const text = String(message || '').trim();
+    const match = text.match(/^Round\s+(?:\d+|\?)\s*:\s*(?:Turn\s+(?:\d+|\?)\s*:\s*)?(?:Actor\s+)?([^:]+)\s*:\s*(.+)$/i);
+    if (!match) {
+      return null;
+    }
+    const actor = String(match[1] || '').trim();
+    const body = String(match[2] || '').trim();
+    if (!actor || !body) {
+      return null;
+    }
+    return { actor, body };
+  }
+
+  findMatchingLocalPlayerEchoLine(log, lineRecord = {}, displayMessage = '') {
+    const isAuthoritativePlayer = lineRecord.type === 'player'
+      && lineRecord.authority === 'authoritative'
+      && lineRecord.messageClass === 'authoritative_transcript';
+    if (!isAuthoritativePlayer) {
+      return null;
+    }
+
+    const transcript = this.extractEncounterTranscriptBody(displayMessage);
+    if (!transcript) {
+      return null;
+    }
+
+    const speakerKey = this.normalizeChatComparableText(lineRecord.speaker);
+    const transcriptBodyKey = this.normalizeChatComparableText(transcript.body);
+    if (!transcriptBodyKey) {
+      return null;
+    }
+
+    return Array.from(log.querySelectorAll('.chat-line'))
+      .reverse()
+      .find((candidate) => {
+        if (
+          String(candidate?.dataset?.type || '') !== 'player'
+          || String(candidate?.dataset?.authority || '') !== 'local'
+          || String(candidate?.dataset?.messageClass || '') !== 'local_ui_notice'
+        ) {
+          return false;
+        }
+        const candidateSpeakerKey = this.normalizeChatComparableText(candidate?.dataset?.speaker || '');
+        if (
+          speakerKey
+          && candidateSpeakerKey
+          && candidateSpeakerKey !== speakerKey
+          && !String(candidate?.dataset?.lineId || '').startsWith('chat-player-')
+        ) {
+          return false;
+        }
+        const candidateMessageKey = this.normalizeChatComparableText(candidate?.dataset?.message || '');
+        return candidateMessageKey !== '' && candidateMessageKey === transcriptBodyKey;
+      }) || null;
+  }
+
+  clarifyLeadingQuestNarratorTiming(lines = []) {
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return [];
+    }
+    const hasLaterPlayerTurn = lines.some((line, index) => index > 0 && String(line?.type || '') === 'player');
+    if (!hasLaterPlayerTurn) {
+      return lines;
+    }
+
+    const adjusted = [...lines];
+    for (let index = 0; index < adjusted.length; index += 1) {
+      const line = adjusted[index] || {};
+      if (String(line.speaker || '') !== 'Narrator') {
+        break;
+      }
+      const messageClass = String(line.messageClass || '').trim();
+      if (messageClass !== 'quest_completion' && messageClass !== 'quest_objective_completion') {
+        break;
+      }
+      const message = String(line.message || '').trim();
+      if (message === '' || /^Earlier:\s+/i.test(message)) {
+        continue;
+      }
+      adjusted[index] = {
+        ...line,
+        message: `Earlier: ${message}`,
+      };
+    }
+
+    return adjusted;
+  }
+
   shouldRenderTurnLogLine(logLine = {}, target = null) {
     if (!logLine || typeof logLine !== 'object') {
       return false;
@@ -1688,7 +1796,20 @@ export class ChatPanel {
   }
 
   formatEncounterChatMessage(speaker, message, type = 'npc', options = {}) {
-    return message || '';
+    const text = String(message || '').trim();
+    if (text === '') {
+      return '';
+    }
+    const isAuthoritativeTranscript = String(options?.messageClass || '').trim() === 'authoritative_transcript'
+      || String(options?.authority || '').trim() === 'authoritative';
+    if (!isAuthoritativeTranscript) {
+      return text;
+    }
+    const transcript = this.extractEncounterTranscriptBody(text);
+    if (!transcript) {
+      return text;
+    }
+    return transcript.body || text;
   }
 
   resolveEncounterChatContext(speaker = '', options = {}) {

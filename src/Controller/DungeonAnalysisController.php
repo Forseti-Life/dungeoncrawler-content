@@ -18,7 +18,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class DungeonAnalysisController extends ControllerBase {
 
   private const DEFAULT_ANALYSIS_DUNGEON_ID = 'tpl_dungeon_absalom_city';
-  private const DEFAULT_ANALYSIS_GRANULARITY = 14;
+  private const DEFAULT_ANALYSIS_GRANULARITY = 12;
   private const FALLBACK_HEX_ORIGIN_LAT = 0.0;
   private const FALLBACK_HEX_ORIGIN_LNG = 0.0;
   private const FALLBACK_HEX_SIZE_METERS = 2.2;
@@ -296,7 +296,7 @@ class DungeonAnalysisController extends ControllerBase {
           . '<select id="dc-analysis-granularity-toolbar-select" class="form-select form-select-sm dc-dungeon-analysis__toolbar-granularity-select" aria-label="H3 review granularity">'
           . $granularity_toolbar_options
           . '</select>'
-          . '<span class="dc-dungeon-analysis__scale-label" id="dc-analysis-granularity-label">~6.3m² rooms / vehicles</span>'
+          . '<span class="dc-dungeon-analysis__scale-label" id="dc-analysis-granularity-label">~307m² rooms</span>'
           . '<span class="dc-dungeon-analysis__separator">|</span>'
           . '<button type="button" class="btn btn-sm btn-outline-secondary" data-dc-zoom="fit">Fit</button>'
           . '<button type="button" class="btn btn-sm btn-outline-secondary" data-dc-zoom="reset">Reset</button>'
