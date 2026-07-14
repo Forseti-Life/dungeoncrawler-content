@@ -1,3 +1,4 @@
+<!-- REVIEWED: 2026-07-14 -->
 # JavaScript Files - Character Creation
 
 ## Overview
