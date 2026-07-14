@@ -1,7 +1,5 @@
+<!-- REVIEWED: 2026-07-14 -->
 # Metrics
-
-**Last Updated**: December 13, 2024  
-**Status**: 🟡 Template Ready - Data Collection Needed
 
 ---
 
@@ -350,3 +348,9 @@ The **single metric** that best captures the core value you deliver to customers
 - Data-driven product roadmap based on metrics
 - Predictable unit economics (LTV > 3x CAC)
 - Automated dashboards and alerts
+
+## Scope covered by this document
+
+- **Primary target:** `docs/product/metrics/README.md`
+- **Purpose:** the purpose of the `metrics` directory
+- **Nearby files:** `cohort-analysis.md`, `key-metrics-dashboard.md`, `pirate-metrics.md`
