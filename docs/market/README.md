@@ -1,7 +1,5 @@
+<!-- REVIEWED: 2026-07-14 -->
 # Market Documentation
-
-**Last Updated**: 2024-12-13  
-**Status**: 🟡 Template Ready
 
 ---
 
@@ -282,3 +280,8 @@ Different approaches customers use instead of any dedicated solution.
 - SEO research: Ahrefs, SEMrush, Google Trends
 - Survey tools: Typeform, SurveyMonkey, Google Forms
 
+## Scope covered by this document
+
+- **Primary target:** `docs/market/README.md`
+- **Purpose:** the purpose of the `market` directory
+- **Nearby directories:** `Marketing documents`
