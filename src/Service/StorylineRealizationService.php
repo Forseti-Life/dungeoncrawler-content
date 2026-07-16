@@ -127,35 +127,80 @@ class StorylineRealizationService {
       }
 
       $canonical_dungeon_data = $this->buildCanonicalDungeonTemplateData($storyline_id, $dungeon, $rooms, $now);
+      $campaign_rooms = array_values(array_map(function (array $room) use ($npc_name_map, $storyline_id, $dungeon_id): array {
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id === '') {
+          throw new \RuntimeException(sprintf(
+            'Storyline realization contract violation: storyline %s dungeon %s includes a room without room_id.',
+            $storyline_id !== '' ? $storyline_id : 'unknown',
+            $dungeon_id !== '' ? $dungeon_id : 'unknown'
+          ));
+        }
+
+        // Hard contract: storyline rooms must be realized from canonical spatial templates.
+        // No bypass/fallback payloads are allowed here.
+        $layout_data = $this->requireCanonicalRoomLayoutData($room_id, $storyline_id, $dungeon_id);
+        $hexes = (array) $layout_data['hexes'];
+
+        $entry_points = is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [];
+        $exit_points = is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [];
+        if ($entry_points === []) {
+          $entry_points[] = [
+            'q' => (int) ($hexes[0]['q'] ?? 0),
+            'r' => (int) ($hexes[0]['r'] ?? 0),
+          ];
+        }
+        if ($exit_points === []) {
+          $last_hex = end($hexes);
+          $exit_points[] = [
+            'q' => (int) ($last_hex['q'] ?? 0),
+            'r' => (int) ($last_hex['r'] ?? 0),
+          ];
+        }
+
+        return [
+          'room_id' => $room_id,
+          'name' => (string) ($room['name'] ?? 'Unknown Room'),
+          'description' => (string) ($room['summary'] ?? ''),
+          'npcs' => array_map(function (string $npc_id) use ($npc_name_map): array {
+            return [
+              'content_id' => $npc_id,
+              'name' => $npc_name_map[$npc_id] ?? $this->humanizeGeneratedIdentifier($npc_id),
+            ];
+          }, array_values(array_filter(array_map('strval', is_array($room['npc_ids'] ?? NULL) ? $room['npc_ids'] : [])))),
+          'items' => array_map(function (string $item_id): array {
+            return [
+              'content_id' => $item_id,
+              'name' => $this->humanizeGeneratedIdentifier($item_id),
+            ];
+          }, array_values(array_filter(array_map('strval', is_array($room['item_ids'] ?? NULL) ? $room['item_ids'] : [])))),
+          'hexes' => $hexes,
+          'entry_points' => $entry_points,
+          'exit_points' => $exit_points,
+          'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : NULL,
+          'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : NULL,
+        ];
+      }, $rooms));
+      $entry_room_id = (string) ($canonical_dungeon_data['entry_room'] ?? '');
+      if ($entry_room_id === '' || !in_array($entry_room_id, array_map(static fn(array $room): string => (string) ($room['room_id'] ?? ''), $campaign_rooms), TRUE)) {
+        throw new \RuntimeException(sprintf(
+          'Storyline realization contract violation: entry room %s for storyline %s dungeon %s is not present in canonical spatial room payloads.',
+          $entry_room_id !== '' ? $entry_room_id : '(empty)',
+          $storyline_id !== '' ? $storyline_id : 'unknown',
+          $dungeon_id !== '' ? $dungeon_id : 'unknown'
+        ));
+      }
       $campaign_dungeon_data = [
         'schema_version' => '1.0.0',
         'storyline_id' => $storyline_id,
         'goal_alignment' => (string) ($dungeon['goal_alignment'] ?? ''),
-        'entry_room' => (string) ($canonical_dungeon_data['entry_room'] ?? ''),
-        'level_id' => (string) ($canonical_dungeon_data['entry_room'] ?? ''),
+        'entry_room' => $entry_room_id,
+        'level_id' => $entry_room_id,
         'hex_map' => [
           'map_id' => $dungeon_id,
           'connections' => $connections,
         ],
-        'rooms' => array_map(function (array $room) use ($npc_name_map): array {
-          return [
-            'room_id' => (string) ($room['room_id'] ?? ''),
-            'name' => (string) ($room['name'] ?? 'Unknown Room'),
-            'description' => (string) ($room['summary'] ?? ''),
-            'npcs' => array_map(function (string $npc_id) use ($npc_name_map): array {
-              return [
-                'content_id' => $npc_id,
-                'name' => $npc_name_map[$npc_id] ?? $this->humanizeGeneratedIdentifier($npc_id),
-              ];
-            }, array_values(array_filter(array_map('strval', is_array($room['npc_ids'] ?? NULL) ? $room['npc_ids'] : [])))),
-            'items' => array_map(function (string $item_id): array {
-              return [
-                'content_id' => $item_id,
-                'name' => $this->humanizeGeneratedIdentifier($item_id),
-              ];
-            }, array_values(array_filter(array_map('strval', is_array($room['item_ids'] ?? NULL) ? $room['item_ids'] : [])))),
-          ];
-        }, $rooms),
+        'rooms' => $campaign_rooms,
         'entities' => [],
         'object_definitions' => [],
         'generation_context' => [
@@ -164,20 +209,22 @@ class StorylineRealizationService {
         ],
       ];
 
-      $this->database->merge('dungeoncrawler_content_dungeons')
-        ->keys([
-          'dungeon_id' => $dungeon_id,
-        ])
-        ->fields([
-          'name' => (string) ($dungeon['name'] ?? $dungeon_id),
-          'description' => (string) ($dungeon['goal_alignment'] ?? ''),
-          'theme' => (string) ($dungeon['style'] ?? ''),
-          'dungeon_data' => json_encode($canonical_dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-          'source_dungeon_id' => $storyline_id !== '' ? $storyline_id : NULL,
-          'updated' => $now,
-        ])
-        ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
-        ->execute();
+      if (!$this->canonicalDungeonExists($dungeon_id)) {
+        $this->database->merge('dungeoncrawler_content_dungeons')
+          ->keys([
+            'dungeon_id' => $dungeon_id,
+          ])
+          ->fields([
+            'name' => (string) ($dungeon['name'] ?? $dungeon_id),
+            'description' => (string) ($dungeon['goal_alignment'] ?? ''),
+            'theme' => (string) ($dungeon['style'] ?? ''),
+            'dungeon_data' => json_encode($canonical_dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'source_dungeon_id' => $storyline_id !== '' ? $storyline_id : NULL,
+            'updated' => $now,
+          ])
+          ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+          ->execute();
+      }
 
       $this->database->merge('dc_campaign_dungeons')
         ->keys([
@@ -204,13 +251,8 @@ class StorylineRealizationService {
         $room_role = (string) ($room['room_role'] ?? 'room');
         $room_display_name = $this->resolveRoomDisplayName($room, $dungeon, $room_id);
 
-        $layout_data = [
-          'source' => 'storyline_generation',
-          'storyline_id' => $storyline_id,
-          'dungeon_id' => $dungeon_id,
-          'room_role' => $room_role,
-          'style' => (string) ($room['style'] ?? ''),
-        ];
+        // Hard contract: do not write metadata-only fallback layout_data into campaign rows.
+        $layout_data = $this->requireCanonicalRoomLayoutData($room_id, $storyline_id, $dungeon_id);
         $contents_data = [
           'npcs' => array_map(function (string $npc_id) use ($room, $npc_name_map): array {
             return [
@@ -243,21 +285,23 @@ class StorylineRealizationService {
         $encoded_layout = json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $encoded_contents = json_encode($contents_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        $this->database->merge('dungeoncrawler_content_rooms')
-          ->keys([
-            'room_id' => $room_id,
-          ])
-          ->fields([
-            'name' => $room_display_name,
-            'description' => (string) ($room['summary'] ?? ''),
-            'environment_tags' => $environment_tags,
-            'layout_data' => $encoded_layout,
-            'contents_data' => $encoded_contents,
-            'source_room_id' => NULL,
-            'updated' => $now,
-          ])
-          ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
-          ->execute();
+        if (!$this->canonicalRoomExists($room_id)) {
+          $this->database->merge('dungeoncrawler_content_rooms')
+            ->keys([
+              'room_id' => $room_id,
+            ])
+            ->fields([
+              'name' => $room_display_name,
+              'description' => (string) ($room['summary'] ?? ''),
+              'environment_tags' => $environment_tags,
+              'layout_data' => $encoded_layout,
+              'contents_data' => $encoded_contents,
+              'source_room_id' => NULL,
+              'updated' => $now,
+            ])
+            ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+            ->execute();
+        }
 
         $this->database->merge('dc_campaign_rooms')
           ->keys([
@@ -303,21 +347,23 @@ class StorylineRealizationService {
 
           $schema_data = $this->buildGeneratedItemContract($content_id, $item);
           $tags = json_encode($item['tags'] ?? ['storyline', 'generated'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-          $this->database->merge('dungeoncrawler_content_registry')
-            ->keys([
-              'content_type' => 'item',
-              'content_id' => $content_id,
-            ])
-            ->fields([
-              'name' => (string) ($item['name'] ?? $content_id),
-              'level' => NULL,
-              'rarity' => 'common',
-              'tags' => $tags,
-              'schema_data' => json_encode($schema_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-              'source_file' => 'storyline_generated',
-              'version' => '1.0',
-            ])
-            ->execute();
+          if (!$this->canonicalRegistryItemExists($content_id)) {
+            $this->database->merge('dungeoncrawler_content_registry')
+              ->keys([
+                'content_type' => 'item',
+                'content_id' => $content_id,
+              ])
+              ->fields([
+                'name' => (string) ($item['name'] ?? $content_id),
+                'level' => NULL,
+                'rarity' => 'common',
+                'tags' => $tags,
+                'schema_data' => json_encode($schema_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'source_file' => 'storyline_generated',
+                'version' => '1.0',
+              ])
+              ->execute();
+          }
 
           $this->database->merge('dc_campaign_content_registry')
             ->keys([
@@ -438,6 +484,72 @@ class StorylineRealizationService {
   }
 
   /**
+   * Load canonical room layout_data and enforce the spatial hard contract.
+   *
+   * @return array<string, mixed>
+   *   Decoded canonical layout_data payload.
+   */
+  protected function requireCanonicalRoomLayoutData(string $room_id, string $storyline_id, string $dungeon_id): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Storyline realization contract violation: empty room_id for storyline %s dungeon %s.',
+        $storyline_id !== '' ? $storyline_id : 'unknown',
+        $dungeon_id !== '' ? $dungeon_id : 'unknown'
+      ));
+    }
+
+    $layout_data = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['layout_data'])
+      ->condition('room_id', $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (!is_string($layout_data) || trim($layout_data) === '') {
+      throw new \RuntimeException(sprintf(
+        'Storyline realization contract violation: canonical room %s has no layout_data (storyline=%s dungeon=%s).',
+        $room_id,
+        $storyline_id !== '' ? $storyline_id : 'unknown',
+        $dungeon_id !== '' ? $dungeon_id : 'unknown'
+      ));
+    }
+
+    $decoded = json_decode($layout_data, TRUE);
+    if (!is_array($decoded)) {
+      throw new \RuntimeException(sprintf(
+        'Storyline realization contract violation: canonical room %s layout_data is not valid JSON object (storyline=%s dungeon=%s).',
+        $room_id,
+        $storyline_id !== '' ? $storyline_id : 'unknown',
+        $dungeon_id !== '' ? $dungeon_id : 'unknown'
+      ));
+    }
+
+    $hexes = is_array($decoded['hexes'] ?? NULL) ? $decoded['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf(
+        'Storyline realization contract violation: canonical room %s has no hexes (storyline=%s dungeon=%s).',
+        $room_id,
+        $storyline_id !== '' ? $storyline_id : 'unknown',
+        $dungeon_id !== '' ? $dungeon_id : 'unknown'
+      ));
+    }
+
+    foreach ($hexes as $hex_index => $hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf(
+          'Storyline realization contract violation: canonical room %s hexes[%d] missing numeric q/r (storyline=%s dungeon=%s).',
+          $room_id,
+          $hex_index,
+          $storyline_id !== '' ? $storyline_id : 'unknown',
+          $dungeon_id !== '' ? $dungeon_id : 'unknown'
+        ));
+      }
+    }
+
+    return $decoded;
+  }
+
+  /**
    * Build campaign NPC specs from storyline contacts and generated boss outline.
    *
    * @return array<int, array<string, mixed>>
@@ -449,7 +561,12 @@ class StorylineRealizationService {
     $mid_level = min(20, max($level_bounds['min'], (int) floor(($level_bounds['min'] + $level_bounds['max']) / 2)));
 
     foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
-      if (!is_array($contact) || (string) ($contact['entity_type'] ?? '') !== 'campaign_npc') {
+      if (!is_array($contact)) {
+        continue;
+      }
+
+      $entity_type = trim((string) ($contact['entity_type'] ?? ''));
+      if (!in_array($entity_type, ['campaign_npc', 'npc_template'], TRUE)) {
         continue;
       }
 
@@ -927,6 +1044,58 @@ class StorylineRealizationService {
     }
 
     return ['min' => $level, 'max' => $level];
+  }
+
+  /**
+   * Check whether a canonical dungeon template row already exists.
+   */
+  protected function canonicalDungeonExists(string $dungeon_id): bool {
+    $dungeon_id = trim($dungeon_id);
+    if ($dungeon_id === '') {
+      return FALSE;
+    }
+
+    $existing = $this->database->select('dungeoncrawler_content_dungeons', 'd')
+      ->condition('dungeon_id', $dungeon_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    return (int) $existing > 0;
+  }
+
+  /**
+   * Check whether a canonical room template row already exists.
+   */
+  protected function canonicalRoomExists(string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    $existing = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->condition('room_id', $room_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    return (int) $existing > 0;
+  }
+
+  /**
+   * Check whether a canonical item contract already exists.
+   */
+  protected function canonicalRegistryItemExists(string $content_id): bool {
+    $content_id = trim($content_id);
+    if ($content_id === '') {
+      return FALSE;
+    }
+
+    $existing = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->condition('content_type', 'item')
+      ->condition('content_id', $content_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    return (int) $existing > 0;
   }
 
 }

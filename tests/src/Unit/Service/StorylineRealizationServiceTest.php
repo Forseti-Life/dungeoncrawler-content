@@ -147,4 +147,48 @@ class StorylineRealizationServiceTest extends UnitTestCase {
     $this->assertSame('Recovering A Stolen Necklace — Entrance', $name);
   }
 
+  /**
+   * Verifies storyline contact npc_template ids are realized as campaign NPC specs.
+   */
+  public function testBuildStorylineNpcSpecsIncludesNpcTemplateContacts(): void {
+    $service = new class($this->createMock(Connection::class)) extends StorylineRealizationService {
+      public function exposeBuildStorylineNpcSpecs(array $storyline_data): array {
+        return $this->buildStorylineNpcSpecs($storyline_data);
+      }
+    };
+
+    $specs = $service->exposeBuildStorylineNpcSpecs([
+      'contacts' => [
+        [
+          'entity_type' => 'campaign_npc',
+          'entity_id' => 'npc_tavern_keeper',
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+        ],
+        [
+          'entity_type' => 'npc_template',
+          'entity_id' => 'tal-mission-handler',
+          'display_name' => 'Venture-Captain Celia Arvanxi',
+          'attitude' => 'friendly',
+        ],
+      ],
+      'metadata' => [
+        'level_range' => '1-4',
+        'generated_outline' => [],
+      ],
+    ]);
+
+    $by_ref = [];
+    foreach ($specs as $spec) {
+      if (!is_array($spec)) {
+        continue;
+      }
+      $by_ref[(string) ($spec['entity_ref'] ?? '')] = $spec;
+    }
+
+    $this->assertArrayHasKey('npc_tavern_keeper', $by_ref);
+    $this->assertArrayHasKey('tal-mission-handler', $by_ref);
+    $this->assertSame('Venture-Captain Celia Arvanxi', $by_ref['tal-mission-handler']['name'] ?? NULL);
+  }
+
 }
