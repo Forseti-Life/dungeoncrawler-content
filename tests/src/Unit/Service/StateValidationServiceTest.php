@@ -1040,9 +1040,9 @@ class StateValidationServiceTest extends UnitTestCase {
   }
 
   /**
-   * Verifies room validation fails when campaign dungeon payload rooms have no exits.
+   * Verifies canonical validation rejects rooms assigned to multiple dungeons.
    */
-  public function testValidateCanonicalRoomLibraryContractsRejectsRuntimeDisconnectedCampaignRoom(): void {
+  public function testValidateCanonicalRoomLibraryContractsRejectsRoomInMultipleDungeons(): void {
     $row = [
       'room_id' => 'tpl_room_tavern_entrance',
       'name' => 'The Gilded Tankard',
@@ -1110,22 +1110,39 @@ class StateValidationServiceTest extends UnitTestCase {
     $registry_query->method('orderBy')->willReturnSelf();
     $registry_query->method('execute')->willReturn($registry_statement);
 
-    $campaign_statement = $this->createMock(StatementInterface::class);
-    $campaign_statement->method('fetchAll')->willReturn([
+    $dungeons_statement = $this->createMock(StatementInterface::class);
+    $dungeons_statement->method('fetchAll')->willReturn([
       [
-        'campaign_id' => 489,
-        'dungeon_id' => 'dun_489',
+        'dungeon_id' => 'dun_a',
         'dungeon_data' => json_encode([
           'rooms' => [
-            ['room_id' => 'tpl_room_tavern_entrance'],
-            ['room_id' => 'tpl_room_tavern_backroom'],
-            ['room_id' => 'tal-briefing-room'],
+            'tpl_room_tavern_entrance',
+            'tpl_room_tavern_backroom',
           ],
           'hex_map' => [
             'connections' => [
               [
                 'from_room' => 'tpl_room_tavern_entrance',
                 'to_room' => 'tpl_room_tavern_backroom',
+                'bidirectional' => TRUE,
+              ],
+            ],
+          ],
+        ]),
+      ],
+      [
+        'dungeon_id' => 'dun_b',
+        'dungeon_data' => json_encode([
+          'rooms' => [
+            'tpl_room_tavern_entrance',
+            'tpl_room_tavern_backroom',
+          ],
+          'hex_map' => [
+            'connections' => [
+              [
+                'from_room' => 'tpl_room_tavern_entrance',
+                'to_room' => 'tpl_room_tavern_backroom',
+                'bidirectional' => TRUE,
               ],
             ],
           ],
@@ -1133,27 +1150,63 @@ class StateValidationServiceTest extends UnitTestCase {
       ],
     ]);
 
-    $campaign_query = $this->createMock(SelectInterface::class);
-    $campaign_query->method('fields')->willReturnSelf();
-    $campaign_query->method('orderBy')->willReturnSelf();
-    $campaign_query->method('execute')->willReturn($campaign_statement);
+    $dungeons_query = $this->createMock(SelectInterface::class);
+    $dungeons_query->method('fields')->willReturnSelf();
+    $dungeons_query->method('orderBy')->willReturnSelf();
+    $dungeons_query->method('execute')->willReturn($dungeons_statement);
+
+    $connectors_statement = $this->createMock(StatementInterface::class);
+    $connectors_statement->method('fetchAll')->willReturn([
+      [
+        'dungeon_id' => 'dun_a',
+        'from_room_id' => 'tpl_room_tavern_entrance',
+        'to_room_id' => 'tpl_room_tavern_backroom',
+        'direction' => 'bidirectional',
+        'default_state' => 'open',
+        'from_hex_q' => 1,
+        'from_hex_r' => 0,
+        'to_hex_q' => 0,
+        'to_hex_r' => 0,
+      ],
+      [
+        'dungeon_id' => 'dun_b',
+        'from_room_id' => 'tpl_room_tavern_entrance',
+        'to_room_id' => 'tpl_room_tavern_backroom',
+        'direction' => 'bidirectional',
+        'default_state' => 'open',
+        'from_hex_q' => 1,
+        'from_hex_r' => 0,
+        'to_hex_q' => 0,
+        'to_hex_r' => 0,
+      ],
+    ]);
+
+    $connectors_query = $this->createMock(SelectInterface::class);
+    $connectors_query->method('fields')->willReturnSelf();
+    $connectors_query->method('orderBy')->willReturnSelf();
+    $connectors_query->method('execute')->willReturn($connectors_statement);
 
     $schema = $this->createMock(Schema::class);
     $schema->method('tableExists')
-      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry', 'dc_campaign_dungeons'], TRUE));
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry', 'dungeoncrawler_content_dungeons', 'dungeoncrawler_content_connections'], TRUE));
+    $schema->method('fieldExists')
+      ->willReturnCallback(static fn(string $table, string $field): bool => $table === 'dungeoncrawler_content_connections' && in_array($field, ['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'], TRUE));
 
     $database = $this->createMock(Connection::class);
     $database->method('schema')->willReturn($schema);
     $database->method('select')
-      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query, $campaign_query): SelectInterface {
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query, $dungeons_query, $connectors_query): SelectInterface {
         if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
           return $query;
         }
         if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
           return $registry_query;
         }
-        if ($table === 'dc_campaign_dungeons' && $alias === 'd') {
-          return $campaign_query;
+        if ($table === 'dungeoncrawler_content_dungeons' && $alias === 'd') {
+          return $dungeons_query;
+        }
+        if ($table === 'dungeoncrawler_content_connections' && $alias === 'c') {
+          return $connectors_query;
         }
         throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
       });
@@ -1166,7 +1219,143 @@ class StateValidationServiceTest extends UnitTestCase {
     $result = $service->validateCanonicalRoomLibraryContracts();
     $this->assertFalse($result['valid']);
     $this->assertStringContainsString(
-      "Campaign '489' dungeon 'dun_489' has rooms without exits",
+      "Room 'tpl_room_tavern_entrance' appears in multiple dungeons",
+      implode('; ', $result['errors'] ?? [])
+    );
+  }
+
+  /**
+   * Verifies canonical validation rejects dungeon_data/connector direction mismatches.
+   */
+  public function testValidateCanonicalRoomLibraryContractsRejectsConnectorDirectionMismatch(): void {
+    $row = [
+      'room_id' => 'tpl_room_tavern_entrance',
+      'name' => 'The Gilded Tankard',
+      'description' => 'Entry room.',
+      'environment_tags' => json_encode(['urban', 'tavern']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          ['q' => 0, 'r' => 0, 'elevation_ft' => 0, 'objects' => [], 'terrain_type' => 'wooden_floor', 'lighting' => 'bright', 'is_discovered' => TRUE, 'is_visible' => TRUE, 'is_entry' => TRUE],
+          ['q' => 1, 'r' => 0, 'elevation_ft' => 0, 'objects' => [], 'terrain_type' => 'wooden_floor', 'lighting' => 'bright', 'is_discovered' => TRUE, 'is_visible' => TRUE, 'is_entry' => FALSE],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0, 'label' => 'Entry']],
+        'exit_points' => [['q' => 1, 'r' => 0, 'label' => 'Exit']],
+        'exits' => [['target_room_id' => 'tpl_room_tavern_backroom', 'q' => 1, 'r' => 0]],
+      ]),
+      'contents_data' => json_encode(['npcs' => [], 'items' => [], 'entities' => [], 'obstacles' => [], 'hazards' => [], 'interactables' => []]),
+      'source_room_id' => 'tpl_room_tavern_entrance',
+    ];
+    $linked_row = [
+      'room_id' => 'tpl_room_tavern_backroom',
+      'name' => 'The Gilded Tankard Backroom',
+      'description' => 'Linked room.',
+      'environment_tags' => json_encode(['urban', 'tavern']),
+      'layout_data' => json_encode([
+        'hexes' => [
+          ['q' => 0, 'r' => 0, 'elevation_ft' => 0, 'objects' => [], 'terrain_type' => 'wooden_floor', 'lighting' => 'bright', 'is_discovered' => TRUE, 'is_visible' => TRUE, 'is_entry' => TRUE],
+          ['q' => 1, 'r' => 0, 'elevation_ft' => 0, 'objects' => [], 'terrain_type' => 'wooden_floor', 'lighting' => 'bright', 'is_discovered' => TRUE, 'is_visible' => TRUE, 'is_entry' => FALSE],
+        ],
+        'entry_points' => [['q' => 0, 'r' => 0, 'label' => 'Entry']],
+        'exit_points' => [['q' => 1, 'r' => 0, 'label' => 'Exit']],
+        'exits' => [['target_room_id' => 'tpl_room_tavern_entrance', 'q' => 0, 'r' => 0]],
+      ]),
+      'contents_data' => json_encode(['npcs' => [], 'items' => [], 'entities' => [], 'obstacles' => [], 'hazards' => [], 'interactables' => []]),
+      'source_room_id' => 'tpl_room_tavern_backroom',
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row, $linked_row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $registry_statement = $this->createMock(StatementInterface::class);
+    $registry_statement->method('fetchAll')->willReturn([]);
+    $registry_query = $this->createMock(SelectInterface::class);
+    $registry_query->method('fields')->willReturnSelf();
+    $registry_query->method('condition')->willReturnSelf();
+    $registry_query->method('orderBy')->willReturnSelf();
+    $registry_query->method('execute')->willReturn($registry_statement);
+
+    $dungeons_statement = $this->createMock(StatementInterface::class);
+    $dungeons_statement->method('fetchAll')->willReturn([
+      [
+        'dungeon_id' => 'dun_dir',
+        'dungeon_data' => json_encode([
+          'rooms' => ['tpl_room_tavern_entrance', 'tpl_room_tavern_backroom'],
+          'hex_map' => [
+            'connections' => [
+              [
+                'from_room' => 'tpl_room_tavern_entrance',
+                'to_room' => 'tpl_room_tavern_backroom',
+                'bidirectional' => FALSE,
+              ],
+            ],
+          ],
+        ]),
+      ],
+    ]);
+    $dungeons_query = $this->createMock(SelectInterface::class);
+    $dungeons_query->method('fields')->willReturnSelf();
+    $dungeons_query->method('orderBy')->willReturnSelf();
+    $dungeons_query->method('execute')->willReturn($dungeons_statement);
+
+    $connectors_statement = $this->createMock(StatementInterface::class);
+    $connectors_statement->method('fetchAll')->willReturn([
+      [
+        'dungeon_id' => 'dun_dir',
+        'from_room_id' => 'tpl_room_tavern_entrance',
+        'to_room_id' => 'tpl_room_tavern_backroom',
+        'direction' => 'bidirectional',
+        'default_state' => 'open',
+        'from_hex_q' => 1,
+        'from_hex_r' => 0,
+        'to_hex_q' => 0,
+        'to_hex_r' => 0,
+      ],
+    ]);
+    $connectors_query = $this->createMock(SelectInterface::class);
+    $connectors_query->method('fields')->willReturnSelf();
+    $connectors_query->method('orderBy')->willReturnSelf();
+    $connectors_query->method('execute')->willReturn($connectors_statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dungeoncrawler_content_rooms', 'dungeoncrawler_content_registry', 'dungeoncrawler_content_dungeons', 'dungeoncrawler_content_connections'], TRUE));
+    $schema->method('fieldExists')
+      ->willReturnCallback(static fn(string $table, string $field): bool => $table === 'dungeoncrawler_content_connections' && in_array($field, ['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'], TRUE));
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->willReturnCallback(static function (string $table, string $alias) use ($query, $registry_query, $dungeons_query, $connectors_query): SelectInterface {
+        if ($table === 'dungeoncrawler_content_rooms' && $alias === 'r') {
+          return $query;
+        }
+        if ($table === 'dungeoncrawler_content_registry' && $alias === 'r') {
+          return $registry_query;
+        }
+        if ($table === 'dungeoncrawler_content_dungeons' && $alias === 'd') {
+          return $dungeons_query;
+        }
+        if ($table === 'dungeoncrawler_content_connections' && $alias === 'c') {
+          return $connectors_query;
+        }
+        throw new \InvalidArgumentException("Unexpected select target: {$table} {$alias}");
+      });
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalRoomLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString(
+      "connection direction mismatch for 'tpl_room_tavern_entrance' -> 'tpl_room_tavern_backroom'",
       implode('; ', $result['errors'] ?? [])
     );
   }

@@ -860,10 +860,6 @@ class StateValidationService {
       $report['errors'],
       $this->validateCanonicalDungeonCrossDungeonLinkage($canonical_room_ids, $room_exit_targets_by_room)
     );
-    $report['errors'] = array_merge(
-      $report['errors'],
-      $this->validateCampaignDungeonRoomExitCoverage()
-    );
     $report['hex_validation'] = $this->validateCanonicalHexReferentialContracts($canonical_room_ids);
     $report['errors'] = array_merge($report['errors'], (array) ($report['hex_validation']['errors'] ?? []));
 
@@ -873,101 +869,6 @@ class StateValidationService {
     $report['valid'] = $report['errors'] === [] && $report['summary']['invalid_items'] === 0;
 
     return $report;
-  }
-
-  /**
-   * Validate campaign dungeon payload room exit coverage.
-   *
-   * Catches runtime drift where a room exists in dc_campaign_dungeons.dungeon_data
-   * but has zero connector endpoints in hex_map.connections.
-   *
-   * @return array<int, string>
-   *   Validation errors.
-   */
-  private function validateCampaignDungeonRoomExitCoverage(): array {
-    $errors = [];
-    if ($this->database === NULL) {
-      return $errors;
-    }
-
-    $schema = $this->database->schema();
-    if (!$schema->tableExists('dc_campaign_dungeons')) {
-      return $errors;
-    }
-
-    $rows = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['campaign_id', 'dungeon_id', 'dungeon_data'])
-      ->orderBy('campaign_id', 'ASC')
-      ->execute()
-      ->fetchAll(\PDO::FETCH_ASSOC);
-
-    foreach ((array) $rows as $row) {
-      if (!is_array($row)) {
-        continue;
-      }
-      $campaign_id = isset($row['campaign_id']) ? (int) $row['campaign_id'] : 0;
-      $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
-      $payload = json_decode((string) ($row['dungeon_data'] ?? ''), TRUE);
-      if (!is_array($payload)) {
-        continue;
-      }
-
-      $rooms = is_array($payload['rooms'] ?? NULL) ? $payload['rooms'] : [];
-      $connections = is_array($payload['hex_map']['connections'] ?? NULL)
-        ? $payload['hex_map']['connections']
-        : [];
-
-      $room_ids = [];
-      foreach ($rooms as $room) {
-        if (!is_array($room)) {
-          continue;
-        }
-        $room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
-        if ($room_id !== '') {
-          $room_ids[$room_id] = 0;
-        }
-      }
-
-      // Single-room payloads can be remediated by runtime self-exit injection.
-      if (count($room_ids) <= 1) {
-        continue;
-      }
-
-      foreach ($connections as $connection) {
-        if (!is_array($connection)) {
-          continue;
-        }
-        $from_room_id = trim((string) (
-          $connection['from_room']
-          ?? $connection['from_room_id']
-          ?? ($connection['from']['room_id'] ?? '')
-        ));
-        $to_room_id = trim((string) (
-          $connection['to_room']
-          ?? $connection['to_room_id']
-          ?? ($connection['to']['room_id'] ?? '')
-        ));
-        if ($from_room_id !== '' && isset($room_ids[$from_room_id])) {
-          $room_ids[$from_room_id]++;
-        }
-        if ($to_room_id !== '' && isset($room_ids[$to_room_id])) {
-          $room_ids[$to_room_id]++;
-        }
-      }
-
-      $rooms_without_exits = [];
-      foreach ($room_ids as $room_id => $degree) {
-        if ((int) $degree <= 0) {
-          $rooms_without_exits[] = (string) $room_id;
-        }
-      }
-
-      if ($rooms_without_exits !== []) {
-        $errors[] = "Campaign '{$campaign_id}' dungeon '{$dungeon_id}' has rooms without exits in dungeon_data.hex_map.connections: " . implode(', ', $rooms_without_exits) . '.';
-      }
-    }
-
-    return array_values(array_unique($errors));
   }
 
   /**
@@ -1580,7 +1481,67 @@ class StateValidationService {
   }
 
   /**
-   * Validate dungeon-level requirement for cross-dungeon room links.
+   * Extract normalized dungeon_data.hex_map connection edges.
+   *
+   * @param array<string, mixed> $dungeon_data
+   *   Dungeon payload.
+   *
+   * @return array<int, array{from_room_id:string,to_room_id:string,direction:string}>
+   *   Normalized edges where direction is one_way or bidirectional.
+   */
+  private function extractDungeonPayloadConnections(array $dungeon_data): array {
+    $normalized = [];
+    $connections = $dungeon_data['hex_map']['connections'] ?? NULL;
+    if (!is_array($connections)) {
+      return $normalized;
+    }
+
+    foreach ($connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room_id = trim((string) (
+        $connection['from_room']
+        ?? $connection['from_room_id']
+        ?? ($connection['from']['room_id'] ?? '')
+      ));
+      $to_room_id = trim((string) (
+        $connection['to_room']
+        ?? $connection['to_room_id']
+        ?? ($connection['to']['room_id'] ?? '')
+      ));
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+
+      $direction = 'one_way';
+      if (is_string($connection['direction'] ?? NULL)) {
+        $raw_direction = strtolower(trim((string) $connection['direction']));
+        $direction = $raw_direction === 'bidirectional' ? 'bidirectional' : 'one_way';
+      }
+      elseif (!empty($connection['bidirectional'])) {
+        $direction = 'bidirectional';
+      }
+
+      $normalized[] = [
+        'from_room_id' => $from_room_id,
+        'to_room_id' => $to_room_id,
+        'direction' => $direction,
+      ];
+      if ($direction === 'bidirectional') {
+        $normalized[] = [
+          'from_room_id' => $to_room_id,
+          'to_room_id' => $from_room_id,
+          'direction' => 'bidirectional',
+        ];
+      }
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Validate canonical dungeon topology and connector parity contracts.
    *
    * @param array<string, bool> $canonical_room_ids
    *   Canonical room ID map.
@@ -1632,6 +1593,7 @@ class StateValidationService {
     }
 
     $dungeon_rooms = [];
+    $dungeon_payload_connections = [];
     $room_to_dungeons = [];
     foreach ($rows as $row) {
       if (!is_array($row)) {
@@ -1685,6 +1647,14 @@ class StateValidationService {
         continue;
       }
       $dungeon_rooms[$dungeon_id] = array_keys($resolved_room_ids);
+      $dungeon_payload_connections[$dungeon_id] = $this->extractDungeonPayloadConnections($dungeon_data);
+    }
+
+    foreach ($room_to_dungeons as $room_id => $dungeon_map) {
+      $room_dungeon_ids = array_keys((array) $dungeon_map);
+      if (count($room_dungeon_ids) > 1) {
+        $errors[] = "Room '{$room_id}' appears in multiple dungeons: " . implode(', ', $room_dungeon_ids) . '.';
+      }
     }
 
     $connector_rows_by_dungeon = [];
@@ -1726,23 +1696,6 @@ class StateValidationService {
     }
 
     foreach ($dungeon_rooms as $dungeon_id => $room_ids) {
-      $has_cross_dungeon_link = FALSE;
-      foreach ($room_ids as $room_id) {
-        $exit_targets = $room_exit_targets_by_room[$room_id] ?? [];
-        foreach ($exit_targets as $target_room_id) {
-          $target_dungeons = array_keys($room_to_dungeons[$target_room_id] ?? []);
-          foreach ($target_dungeons as $target_dungeon_id) {
-            if ($target_dungeon_id !== $dungeon_id) {
-              $has_cross_dungeon_link = TRUE;
-              break 3;
-            }
-          }
-        }
-      }
-      if (!$has_cross_dungeon_link) {
-        $errors[] = "Dungeon '{$dungeon_id}' must have at least one room link to a room in another dungeon.";
-      }
-
       $room_set = array_fill_keys($room_ids, TRUE);
       $in_dungeon_graph = [];
       foreach ($room_ids as $room_id) {
@@ -1807,6 +1760,7 @@ class StateValidationService {
       $room_outgoing_edge_count = array_fill_keys($room_ids, 0);
       $room_incoming_edge_count = array_fill_keys($room_ids, 0);
       $connector_index = [];
+      $connector_direction_index = [];
       foreach ($connector_rows as $connector_row) {
         if (!is_array($connector_row)) {
           continue;
@@ -1876,8 +1830,10 @@ class StateValidationService {
         }
 
         $connector_index[$from_room_id . '::' . $to_room_id] = $direction;
+        $connector_direction_index[$from_room_id . '::' . $to_room_id] = $direction;
         if ($direction === 'bidirectional') {
           $connector_index[$to_room_id . '::' . $from_room_id] = $direction;
+          $connector_direction_index[$to_room_id . '::' . $from_room_id] = $direction;
         }
 
         if (isset($room_set[$to_room_id])) {
@@ -1900,6 +1856,74 @@ class StateValidationService {
           if (isset($room_set[$to_room_id])) {
             $room_passable_connector_degree[$to_room_id] = (int) ($room_passable_connector_degree[$to_room_id] ?? 0) + 1;
           }
+        }
+
+      }
+
+      $payload_connections = (array) ($dungeon_payload_connections[$dungeon_id] ?? []);
+      $payload_connection_index = [];
+      foreach ($payload_connections as $payload_connection) {
+        if (!is_array($payload_connection)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($payload_connection['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($payload_connection['to_room_id'] ?? ''));
+        $direction = trim((string) ($payload_connection['direction'] ?? ''));
+        if ($from_room_id === '' || $to_room_id === '' || $direction === '') {
+          continue;
+        }
+        $payload_connection_index[$from_room_id . '::' . $to_room_id] = $direction;
+      }
+
+      foreach ($payload_connections as $payload_connection) {
+        if (!is_array($payload_connection)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($payload_connection['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($payload_connection['to_room_id'] ?? ''));
+        $direction = trim((string) ($payload_connection['direction'] ?? ''));
+        if ($from_room_id === '' || $to_room_id === '' || $direction === '') {
+          continue;
+        }
+
+        if (!isset($room_set[$from_room_id])) {
+          $errors[] = "Dungeon '{$dungeon_id}' dungeon_data.hex_map.connections edge '{$from_room_id}' -> '{$to_room_id}' has from_room outside dungeon_data.rooms.";
+          continue;
+        }
+        if (!isset($room_set[$to_room_id])) {
+          $errors[] = "Dungeon '{$dungeon_id}' dungeon_data.hex_map.connections edge '{$from_room_id}' -> '{$to_room_id}' has to_room outside dungeon_data.rooms.";
+          continue;
+        }
+
+        if (!isset($connector_direction_index[$from_room_id . '::' . $to_room_id])) {
+          $errors[] = "Dungeon '{$dungeon_id}' dungeon_data.hex_map.connections edge '{$from_room_id}' -> '{$to_room_id}' is missing a matching canonical connector row.";
+          continue;
+        }
+        $connector_direction = (string) ($connector_direction_index[$from_room_id . '::' . $to_room_id] ?? '');
+        if ($connector_direction !== $direction) {
+          $errors[] = "Dungeon '{$dungeon_id}' connection direction mismatch for '{$from_room_id}' -> '{$to_room_id}': dungeon_data uses '{$direction}' but connector row uses '{$connector_direction}'.";
+        }
+      }
+
+      foreach ($connector_rows as $connector_row) {
+        if (!is_array($connector_row)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+        $direction = strtolower(trim((string) ($connector_row['direction'] ?? '')));
+        if ($from_room_id === '' || $to_room_id === '') {
+          continue;
+        }
+        if (!isset($room_set[$from_room_id]) || !isset($room_set[$to_room_id])) {
+          continue;
+        }
+        if (!isset($payload_connection_index[$from_room_id . '::' . $to_room_id])) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector row '{$from_room_id}' -> '{$to_room_id}' is missing a matching dungeon_data.hex_map.connections edge.";
+          continue;
+        }
+        if (($payload_connection_index[$from_room_id . '::' . $to_room_id] ?? '') !== $direction) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector direction mismatch for '{$from_room_id}' -> '{$to_room_id}': connector row uses '{$direction}' but dungeon_data uses '{$payload_connection_index[$from_room_id . '::' . $to_room_id]}'.";
         }
       }
 
