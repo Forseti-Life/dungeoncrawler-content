@@ -19,7 +19,7 @@
             "objective_id": "collect_wine",
             "type": "collect",
             "item": "{item_name}",
-            "location_id": "{location}",
+            "location_id": "tavern_entrance",
             "target_count": 2,
             "description": "Collect {item_name} from around the tavern",
             "next_step": "Search the tavern common room and pick up each {item_name} quest item.",
@@ -71,9 +71,9 @@
       "level_min": 1
     },
     "story_impact": {
-      "storyline_id": "torment-and-legacy",
-      "chapter_id": "onboarding",
-      "scene_id": "briefing"
+      "storyline_id": "introduction-to-game-mechanics",
+      "chapter_id": "intro-mechanics",
+      "scene_id": "tavern-foundations"
     },
     "estimated_duration_minutes": "15",
     "created": "1772904063",
@@ -153,9 +153,9 @@
       "level_min": 1
     },
     "story_impact": {
-      "storyline_id": "torment-and-legacy",
-      "chapter_id": "onboarding",
-      "scene_id": "briefing"
+      "storyline_id": "introduction-to-game-mechanics",
+      "chapter_id": "intro-mechanics",
+      "scene_id": "tavern-foundations"
     },
     "estimated_duration_minutes": "12",
     "created": "1772904063",
@@ -236,9 +236,9 @@
       "level_min": 1
     },
     "story_impact": {
-      "storyline_id": "torment-and-legacy",
-      "chapter_id": "onboarding",
-      "scene_id": "briefing"
+      "storyline_id": "introduction-to-game-mechanics",
+      "chapter_id": "intro-mechanics",
+      "scene_id": "tavern-foundations"
     },
     "estimated_duration_minutes": "20",
     "created": "1772904063",
@@ -548,7 +548,7 @@
     "story_impact": {
       "storyline_id": "torment-and-legacy",
       "chapter_id": "onboarding",
-      "scene_id": "briefing"
+      "scene_id": "tal-briefing-room"
     },
     "estimated_duration_minutes": "10",
     "created": "1772904063",
@@ -796,6 +796,298 @@
       "scene_id": "first-engagement"
     },
     "estimated_duration_minutes": "45",
+    "created": "1772904063",
+    "updated": "1772904063",
+    "version": "1.0.0"
+  },
+  {
+    "template_id": "follow_the_whispers",
+    "name": "Follow the Whispers",
+    "description": "Track tavern rumors to identify who is moving contraband arcana through town.",
+    "quest_type": "investigation",
+    "level_min": "1",
+    "level_max": "4",
+    "tags": [
+      "investigation",
+      "social",
+      "tavern",
+      "storyline"
+    ],
+    "objectives_schema": [
+      {
+        "phase": 1,
+        "objectives": [
+          {
+            "objective_id": "gather_whisper_network",
+            "type": "interact",
+            "target": "gribbles_rindsworth",
+            "location_id": "tavern_entrance",
+            "target_label": "Gribbles Rindsworth",
+            "target_aliases": [
+              "Gribbles",
+              "Gribbles Rindsworth"
+            ],
+            "wayfinding_hint": "Speak with Gribbles at The Gilded Tankard.",
+            "description": "Question Gribbles about current whisper traffic.",
+            "next_step": "Speak with Gribbles and gather a rumor lead chain.",
+            "completion_criteria": {
+              "kind": "flag",
+              "metric": "completed",
+              "required_value": true,
+              "description": "Collect a usable rumor lead from Gribbles."
+            }
+          }
+        ]
+      },
+      {
+        "phase": 2,
+        "objectives": [
+          {
+            "objective_id": "trace_arcane_route",
+            "type": "explore",
+            "location": "tpl_room_absalom_streets",
+            "location_id": "tpl_room_absalom_streets",
+            "description": "Trace where the contraband route leaves the tavern district.",
+            "next_step": "Travel to Absalom Streets and verify the suspected route.",
+            "wayfinding_hint": "Travel to Absalom Streets and inspect the route markers.",
+            "completion_criteria": {
+              "kind": "flag",
+              "metric": "discovered",
+              "required_value": true,
+              "description": "Discover the route pivot in Absalom Streets."
+            }
+          }
+        ]
+      },
+      {
+        "phase": 3,
+        "objectives": [
+          {
+            "objective_id": "report_whisper_route",
+            "type": "interact",
+            "target": "tavern_keeper",
+            "location_id": "tavern_entrance",
+            "description": "Report the identified route to Eldric.",
+            "next_step": "Return to Eldric and provide the route details.",
+            "completion_criteria": {
+              "kind": "flag",
+              "metric": "completed",
+              "required_value": true,
+              "description": "Complete when Eldric confirms the route report."
+            }
+          }
+        ]
+      }
+    ],
+    "rewards_schema": {
+      "xp": {
+        "base": 85,
+        "per_level": 18
+      },
+      "gold": {
+        "base": 7,
+        "per_level": 2,
+        "randomize": true
+      },
+      "items": {
+        "loot_table": "core_field_support",
+        "count": 1
+      }
+    },
+    "prerequisites": {
+      "level_min": 1
+    },
+    "story_impact": {
+      "storyline_id": "introduction-to-game-mechanics",
+      "chapter_id": "intro-mechanics",
+      "scene_id": "tavern-foundations"
+    },
+    "estimated_duration_minutes": "25",
+    "created": "1772904063",
+    "updated": "1772904063",
+    "version": "1.0.0"
+  },
+  {
+    "template_id": "recover_blackmail_ledger",
+    "name": "Recover Blackmail Ledger",
+    "description": "Retrieve Gribbles' stolen ledger before rival brokers weaponize its secrets.",
+    "quest_type": "recovery",
+    "level_min": "1",
+    "level_max": "4",
+    "tags": [
+      "recovery",
+      "social",
+      "tavern",
+      "storyline"
+    ],
+    "objectives_schema": [
+      {
+        "phase": 1,
+        "objectives": [
+          {
+            "objective_id": "locate_ledger_cache",
+            "type": "explore",
+            "location": "tavern_entrance",
+            "location_id": "tavern_entrance",
+            "description": "Search the tavern for the hidden ledger cache.",
+            "next_step": "Inspect the tavern and identify where the ledger was stashed.",
+            "completion_criteria": {
+              "kind": "flag",
+              "metric": "discovered",
+              "required_value": true,
+              "description": "Discover the ledger cache location."
+            }
+          }
+        ]
+      },
+      {
+        "phase": 2,
+        "objectives": [
+          {
+            "objective_id": "recover_ledger_item",
+            "type": "collect",
+            "item": "blackmail_ledger",
+            "target_count": 1,
+            "location_id": "tavern_entrance",
+            "description": "Recover the concealed blackmail ledger.",
+            "next_step": "Retrieve the blackmail ledger from the discovered cache.",
+            "completion_criteria": {
+              "kind": "count",
+              "metric": "current",
+              "target_count": 1,
+              "description": "Collect the blackmail ledger."
+            }
+          }
+        ]
+      },
+      {
+        "phase": 3,
+        "objectives": [
+          {
+            "objective_id": "return_ledger_to_gribbles",
+            "type": "interact",
+            "target": "gribbles_rindsworth",
+            "location_id": "tavern_entrance",
+            "description": "Return the ledger to Gribbles.",
+            "next_step": "Hand the recovered ledger to Gribbles.",
+            "completion_criteria": {
+              "kind": "flag",
+              "metric": "completed",
+              "required_value": true,
+              "description": "Complete when Gribbles confirms the ledger handoff."
+            }
+          }
+        ]
+      }
+    ],
+    "rewards_schema": {
+      "xp": {
+        "base": 92,
+        "per_level": 20
+      },
+      "gold": {
+        "base": 8,
+        "per_level": 2,
+        "randomize": true
+      },
+      "items": {
+        "loot_table": "core_starter_adventure",
+        "count": 1
+      }
+    },
+    "prerequisites": {
+      "level_min": 1
+    },
+    "story_impact": {
+      "storyline_id": "introduction-to-game-mechanics",
+      "chapter_id": "intro-mechanics",
+      "scene_id": "tavern-foundations"
+    },
+    "estimated_duration_minutes": "30",
+    "created": "1772904063",
+    "updated": "1772904063",
+    "version": "1.0.0"
+  },
+  {
+    "template_id": "stabilize_arcane_resonance",
+    "name": "Stabilize Arcane Resonance",
+    "description": "Help Marta collect resonance samples and stabilize the codex's ambient magical feedback.",
+    "quest_type": "ritual_support",
+    "level_min": "1",
+    "level_max": "4",
+    "tags": [
+      "arcane",
+      "collection",
+      "tavern",
+      "storyline"
+    ],
+    "objectives_schema": [
+      {
+        "phase": 1,
+        "objectives": [
+          {
+            "objective_id": "collect_resonance_samples",
+            "type": "collect",
+            "item": "resonance_sample",
+            "target_count": 3,
+            "location_id": "tavern_entrance",
+            "description": "Collect three resonance samples from the tavern.",
+            "next_step": "Search the tavern and collect 3 resonance samples.",
+            "completion_criteria": {
+              "kind": "count",
+              "metric": "current",
+              "target_count": 3,
+              "description": "Collect 3 resonance samples."
+            }
+          }
+        ]
+      },
+      {
+        "phase": 2,
+        "objectives": [
+          {
+            "objective_id": "stabilize_codex_with_marta",
+            "type": "interact",
+            "target": "scholar_npc",
+            "location_id": "tavern_entrance",
+            "description": "Work with Marta to stabilize the codex resonance.",
+            "next_step": "Bring the samples to Marta and complete the stabilization ritual.",
+            "completion_criteria": {
+              "kind": "flag",
+              "metric": "completed",
+              "required_value": true,
+              "description": "Complete when Marta confirms the codex resonance is stable."
+            }
+          }
+        ]
+      }
+    ],
+    "rewards_schema": {
+      "xp": {
+        "base": 96,
+        "per_level": 22
+      },
+      "gold": {
+        "base": 9,
+        "per_level": 2,
+        "randomize": true
+      },
+      "items": [
+        {
+          "item_id": "healing_potion_minor",
+          "quantity": 1
+        }
+      ]
+    },
+    "prerequisites": {
+      "level_min": 1
+    },
+    "story_impact": {
+      "storyline_id": "introduction-to-game-mechanics",
+      "chapter_id": "intro-mechanics",
+      "scene_id": "tavern-foundations"
+    },
+    "estimated_duration_minutes": "35",
     "created": "1772904063",
     "updated": "1772904063",
     "version": "1.0.0"

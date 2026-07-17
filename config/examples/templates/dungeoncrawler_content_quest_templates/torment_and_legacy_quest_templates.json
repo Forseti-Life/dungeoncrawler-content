@@ -11,7 +11,7 @@
         "module",
         "torment-and-legacy",
         "tutorial",
-        "briefing"
+        "tal-briefing-room"
       ],
       "objectives_schema": [
         {
@@ -22,6 +22,12 @@
               "type": "interact",
               "description": "Hear the mission briefing and commit the party to the adventure.",
               "target": "tal-mission-handler",
+              "target_label": "Mission Handler",
+              "target_aliases": [
+                "Briefing officer",
+                "Mission giver",
+                "Handler"
+              ],
               "next_step": "Speak with the mission handler, listen to the briefing, and choose to accept the mission.",
               "completion_criteria": {
                 "kind": "flag",
@@ -42,7 +48,7 @@
       "story_impact": {
         "storyline_id": "torment-and-legacy",
         "chapter_id": "onboarding",
-        "scene_id": "briefing"
+        "scene_id": "tal-briefing-room"
       },
       "estimated_duration_minutes": 10,
       "version": "1.0.0"

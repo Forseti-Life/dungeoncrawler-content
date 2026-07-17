@@ -71,7 +71,7 @@
   "story_impact": {
     "storyline_id": "torment-and-legacy",
     "chapter_id": "onboarding",
-    "scene_id": "briefing"
+    "scene_id": "tal-briefing-room"
   },
   "estimated_duration_minutes": 10,
   "version": "1.0.0"

@@ -33,16 +33,16 @@
           "campaign_role": "side_arc",
           "generated_outline": {
             "entry_point": {
-              "primary_quest_giver_id": "ltba-hookclaw-vault-guide",
-              "primary_quest_giver_name": "Zikza Hookclaw",
+              "primary_quest_giver_id": "ltba-grandmother",
+              "primary_quest_giver_name": "The Kind Old Lady",
               "primary_dungeon_id": "ltba-tomb-site",
-              "primary_chapter_id": "the-tomb",
-              "primary_scene_id": "vault-entry",
-              "primary_location_id": "ltba-vault-entry",
-              "introduction_path": "direct",
-              "how_to_trigger": "Meet Zikza Hookclaw at the vault entry and agree to start the delve.",
-              "progression_gate": "Quest ltba-enter-the-vault is activated.",
-              "detail_summary": "The Hookclaw team briefs the party at the vault entrance and launches the opening objective.",
+              "primary_chapter_id": "upstairs",
+              "primary_scene_id": "grandmothers-request",
+              "primary_location_id": "ltba-grandmas-house-parlor",
+              "introduction_path": "brokered",
+              "how_to_trigger": "Ask Eldric for work, then meet Grandmother in her parlor to accept the trimmer recovery request.",
+              "progression_gate": "Quest ltba-accept-the-task is completed.",
+              "detail_summary": "Grandmother sends the party to the Hookclaw team at the vault entry to begin the tomb run.",
               "broker_id": "npc_tavern_keeper",
               "broker_name": "Eldric"
             },
@@ -53,10 +53,131 @@
         },
         "chapters": [
           {
+            "chapter_id": "upstairs",
+            "name": "Grandma's House",
+            "summary": "Get the lead from Eldric, speak to Grandmother, and return for turn-in.",
+            "order": 1,
+            "quest_ids": [
+              "ltba-accept-the-task",
+              "ltba-retrieve-hedge-trimmer"
+            ],
+            "asset_references": [
+              {
+                "asset_type": "location",
+                "asset_id": "ltba-grandmas-house",
+                "asset_role": "chapter-hub",
+                "scene_id": "",
+                "source_scope": "asset_reference"
+              },
+              {
+                "asset_type": "npc",
+                "asset_id": "ltba-grandmother",
+                "asset_role": "quest-giver",
+                "scene_id": "grandmothers-request",
+                "source_scope": "asset_reference"
+              },
+              {
+                "asset_type": "room",
+                "asset_id": "ltba-grandmas-house-parlor",
+                "asset_role": "scene-room",
+                "scene_id": "grandmothers-request",
+                "source_scope": "asset_reference"
+              },
+              {
+                "asset_type": "room",
+                "asset_id": "tavern_entrance",
+                "asset_role": "broker-room",
+                "scene_id": "grandmothers-request",
+                "source_scope": "asset_reference"
+              },
+              {
+                "asset_type": "npc",
+                "asset_id": "ltba-grandmother",
+                "asset_role": "turn-in",
+                "scene_id": "grandmothers-turn-in",
+                "source_scope": "asset_reference"
+              },
+              {
+                "asset_type": "room",
+                "asset_id": "ltba-grandmas-house-parlor",
+                "asset_role": "turn-in-room",
+                "scene_id": "grandmothers-turn-in",
+                "source_scope": "asset_reference"
+              }
+            ],
+            "gates": [],
+            "scenes": [
+              {
+                "scene_id": "grandmothers-request",
+                "name": "Grandmother's Request",
+                "summary": "Accept Grandmother's request and get sent to the tomb at vault entry.",
+                "order": 1,
+                "quest_ids": [
+                  "ltba-accept-the-task"
+                ],
+                "asset_references": [
+                  {
+                    "asset_type": "npc",
+                    "asset_id": "ltba-grandmother",
+                    "asset_role": "quest-giver",
+                    "source_scope": "asset_reference"
+                  },
+                  {
+                    "asset_type": "room",
+                    "asset_id": "ltba-grandmas-house-parlor",
+                    "asset_role": "scene-room",
+                    "source_scope": "asset_reference"
+                  },
+                  {
+                    "asset_type": "room",
+                    "asset_id": "tavern_entrance",
+                    "asset_role": "broker-room",
+                    "source_scope": "asset_reference"
+                  }
+                ],
+                "gates": [
+                  {
+                    "trigger": "Speak with Grandmother in her parlor and accept the recovery job.",
+                    "progression_gate": "Complete quest ltba-accept-the-task (accept_request)."
+                  }
+                ]
+              },
+              {
+                "scene_id": "grandmothers-turn-in",
+                "name": "Return to Grandmother",
+                "summary": "Return from the tomb and hand the recovered hedge trimmer to Grandmother.",
+                "order": 2,
+                "quest_ids": [
+                  "ltba-retrieve-hedge-trimmer"
+                ],
+                "asset_references": [
+                  {
+                    "asset_type": "npc",
+                    "asset_id": "ltba-grandmother",
+                    "asset_role": "turn-in",
+                    "source_scope": "asset_reference"
+                  },
+                  {
+                    "asset_type": "room",
+                    "asset_id": "ltba-grandmas-house-parlor",
+                    "asset_role": "scene-room",
+                    "source_scope": "asset_reference"
+                  }
+                ],
+                "gates": [
+                  {
+                    "trigger": "Return to Grandmother after recovering the trimmer and complete the turn-in.",
+                    "progression_gate": "Complete quest ltba-retrieve-hedge-trimmer (turn_in_to_grandmother)."
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "chapter_id": "the-tomb",
             "name": "The Tomb",
-            "summary": "Explore the treasure vault and survive the initial dungeon crawl chaos.",
-            "order": 1,
+            "summary": "Meet the Hookclaw team, enter the vault, clear hazards, and recover the trimmer.",
+            "order": 2,
             "quest_ids": [
               "ltba-enter-the-vault",
               "ltba-clear-the-tomb"
@@ -91,6 +212,13 @@
                 "source_scope": "asset_reference"
               },
               {
+                "asset_type": "npc",
+                "asset_id": "ltba-hookclaw-hazard-scout",
+                "asset_role": "scene-ally",
+                "scene_id": "vault-entry",
+                "source_scope": "asset_reference"
+              },
+              {
                 "asset_type": "room",
                 "asset_id": "ltba-tomb-hazard-room",
                 "asset_role": "hazard-room",
@@ -98,9 +226,9 @@
                 "source_scope": "asset_reference"
               },
               {
-                "asset_type": "npc",
-                "asset_id": "ltba-hookclaw-hazard-scout",
-                "asset_role": "scene-ally",
+                "asset_type": "item",
+                "asset_id": "ltba-magical-hedge-trimmer",
+                "asset_role": "objective-item",
                 "scene_id": "tomb-hazards",
                 "source_scope": "asset_reference"
               }
@@ -110,7 +238,7 @@
               {
                 "scene_id": "vault-entry",
                 "name": "Vault Entry",
-                "summary": "Enter the discovered vault and establish the kobold party's goal.",
+                "summary": "Talk with the Hookclaw leader and companions, then enter the vault.",
                 "order": 1,
                 "quest_ids": [
                   "ltba-enter-the-vault"
@@ -133,11 +261,17 @@
                     "asset_id": "ltba-hookclaw-lookout",
                     "asset_role": "scene-ally",
                     "source_scope": "asset_reference"
+                  },
+                  {
+                    "asset_type": "npc",
+                    "asset_id": "ltba-hookclaw-hazard-scout",
+                    "asset_role": "scene-ally",
+                    "source_scope": "asset_reference"
                   }
                 ],
                 "gates": [
                   {
-                    "trigger": "Travel to ltba-vault-entry and confirm entry with the Hookclaw guide.",
+                    "trigger": "Travel to ltba-vault-entry, brief with the Hookclaw team, and enter the vault.",
                     "progression_gate": "Complete quest ltba-enter-the-vault (enter_vault)."
                   }
                 ]
@@ -145,7 +279,7 @@
               {
                 "scene_id": "tomb-hazards",
                 "name": "Tomb Hazards",
-                "summary": "Overcome traps, hazards, and defenses protecting the treasure site.",
+                "summary": "Disarm hazards, clear the chamber, and search for the magical hedge trimmer.",
                 "order": 2,
                 "quest_ids": [
                   "ltba-clear-the-tomb"
@@ -162,121 +296,6 @@
                     "asset_id": "ltba-hookclaw-hazard-scout",
                     "asset_role": "scene-ally",
                     "source_scope": "asset_reference"
-                  }
-                ],
-                "gates": [
-                  {
-                    "trigger": "Enter ltba-tomb-hazard-room and execute disarm or bypass actions.",
-                    "progression_gate": "Complete quest ltba-clear-the-tomb (clear_tomb_hazards)."
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "chapter_id": "upstairs",
-            "name": "Grandma's House",
-            "summary": "Move the action into the neighborhood and recover the magical hedge trimmer.",
-            "order": 2,
-            "quest_ids": [
-              "ltba-accept-the-task",
-              "ltba-retrieve-hedge-trimmer"
-            ],
-            "asset_references": [
-              {
-                "asset_type": "location",
-                "asset_id": "ltba-grandmas-house",
-                "asset_role": "chapter-hub",
-                "scene_id": "",
-                "source_scope": "asset_reference"
-              },
-              {
-                "asset_type": "npc",
-                "asset_id": "ltba-grandmother",
-                "asset_role": "quest-giver",
-                "scene_id": "grandmothers-request",
-                "source_scope": "asset_reference"
-              },
-              {
-                "asset_type": "room",
-                "asset_id": "ltba-grandmas-house-parlor",
-                "asset_role": "scene-room",
-                "scene_id": "grandmothers-request",
-                "source_scope": "asset_reference"
-              },
-              {
-                "asset_type": "room",
-                "asset_id": "ltba-grandmas-house-garden",
-                "asset_role": "scene-room",
-                "scene_id": "recover-the-trimmer",
-                "source_scope": "asset_reference"
-              },
-              {
-                "asset_type": "room",
-                "asset_id": "tavern_entrance",
-                "asset_role": "broker-room",
-                "scene_id": "grandmothers-request",
-                "source_scope": "asset_reference"
-              },
-              {
-                "asset_type": "item",
-                "asset_id": "ltba-magical-hedge-trimmer",
-                "asset_role": "objective-item",
-                "scene_id": "recover-the-trimmer",
-                "source_scope": "asset_reference"
-              }
-            ],
-            "gates": [],
-            "scenes": [
-              {
-                "scene_id": "grandmothers-request",
-                "name": "Grandmother's Request",
-                "summary": "Accept the follow-up objective and pivot the storyline into social/exploration play.",
-                "order": 1,
-                "quest_ids": [
-                  "ltba-accept-the-task"
-                ],
-                "asset_references": [
-                  {
-                    "asset_type": "npc",
-                    "asset_id": "ltba-grandmother",
-                    "asset_role": "quest-giver",
-                    "source_scope": "asset_reference"
-                  },
-                  {
-                    "asset_type": "room",
-                    "asset_id": "ltba-grandmas-house-parlor",
-                    "asset_role": "scene-room",
-                    "source_scope": "asset_reference"
-                  },
-                  {
-                    "asset_type": "room",
-                    "asset_id": "tavern_entrance",
-                    "asset_role": "broker-room",
-                    "source_scope": "asset_reference"
-                  }
-                ],
-                "gates": [
-                  {
-                    "trigger": "Speak with Grandmother in her parlor and accept the recovery job.",
-                    "progression_gate": "Complete quest ltba-accept-the-task (accept_request)."
-                  }
-                ]
-              },
-              {
-                "scene_id": "recover-the-trimmer",
-                "name": "Recover the Trimmer",
-                "summary": "Retrieve the magical hedge trimmer and resolve the kobolds' mission.",
-                "order": 2,
-                "quest_ids": [
-                  "ltba-retrieve-hedge-trimmer"
-                ],
-                "asset_references": [
-                  {
-                    "asset_type": "room",
-                    "asset_id": "ltba-grandmas-house-garden",
-                    "asset_role": "scene-room",
-                    "source_scope": "asset_reference"
                   },
                   {
                     "asset_type": "item",
@@ -287,8 +306,8 @@
                 ],
                 "gates": [
                   {
-                    "trigger": "Search the upstairs/garden area and collect the magical hedge trimmer.",
-                    "progression_gate": "Complete quest ltba-retrieve-hedge-trimmer (retrieve_trimmer)."
+                    "trigger": "Enter ltba-tomb-hazard-room, neutralize hazards, and search the chamber.",
+                    "progression_gate": "Complete quest ltba-clear-the-tomb (clear_tomb_hazards)."
                   }
                 ]
               }
@@ -296,6 +315,12 @@
           }
         ],
         "linked_quests": {
+          "ltba-accept-the-task": {
+            "quest_id": "ltba-accept-the-task",
+            "chapter_id": "upstairs",
+            "scene_id": "grandmothers-request",
+            "status": "available"
+          },
           "ltba-enter-the-vault": {
             "quest_id": "ltba-enter-the-vault",
             "chapter_id": "the-tomb",
@@ -308,38 +333,45 @@
             "scene_id": "tomb-hazards",
             "status": "available"
           },
-          "ltba-accept-the-task": {
-            "quest_id": "ltba-accept-the-task",
-            "chapter_id": "upstairs",
-            "scene_id": "grandmothers-request",
-            "status": "available"
-          },
           "ltba-retrieve-hedge-trimmer": {
             "quest_id": "ltba-retrieve-hedge-trimmer",
             "chapter_id": "upstairs",
-            "scene_id": "recover-the-trimmer",
+            "scene_id": "grandmothers-turn-in",
             "status": "available"
           }
         },
         "questline": {
-          "primary_quest_id": "ltba-enter-the-vault",
+          "primary_quest_id": "ltba-accept-the-task",
           "ordered_quest_ids": [
+            "ltba-accept-the-task",
             "ltba-enter-the-vault",
             "ltba-clear-the-tomb",
-            "ltba-accept-the-task",
             "ltba-retrieve-hedge-trimmer"
           ],
           "quest_nodes": [
+            {
+              "quest_id": "ltba-accept-the-task",
+              "chapter_id": "upstairs",
+              "scene_id": "grandmothers-request",
+              "status": "available",
+              "unlocks_after": [],
+              "unlocks_to": [
+                "ltba-enter-the-vault"
+              ],
+              "unlock_condition": "storyline_started"
+            },
             {
               "quest_id": "ltba-enter-the-vault",
               "chapter_id": "the-tomb",
               "scene_id": "vault-entry",
               "status": "available",
-              "unlocks_after": [],
+              "unlocks_after": [
+                "ltba-accept-the-task"
+              ],
               "unlocks_to": [
                 "ltba-clear-the-tomb"
               ],
-              "unlock_condition": "storyline_started"
+              "unlock_condition": "quest_completed:ltba-accept-the-task"
             },
             {
               "quest_id": "ltba-clear-the-tomb",
@@ -350,33 +382,20 @@
                 "ltba-enter-the-vault"
               ],
               "unlocks_to": [
-                "ltba-accept-the-task"
+                "ltba-retrieve-hedge-trimmer"
               ],
               "unlock_condition": "quest_completed:ltba-enter-the-vault"
             },
             {
-              "quest_id": "ltba-accept-the-task",
+              "quest_id": "ltba-retrieve-hedge-trimmer",
               "chapter_id": "upstairs",
-              "scene_id": "grandmothers-request",
+              "scene_id": "grandmothers-turn-in",
               "status": "available",
               "unlocks_after": [
                 "ltba-clear-the-tomb"
               ],
-              "unlocks_to": [
-                "ltba-retrieve-hedge-trimmer"
-              ],
-              "unlock_condition": "quest_completed:ltba-clear-the-tomb"
-            },
-            {
-              "quest_id": "ltba-retrieve-hedge-trimmer",
-              "chapter_id": "upstairs",
-              "scene_id": "recover-the-trimmer",
-              "status": "available",
-              "unlocks_after": [
-                "ltba-accept-the-task"
-              ],
               "unlocks_to": [],
-              "unlock_condition": "quest_completed:ltba-accept-the-task"
+              "unlock_condition": "quest_completed:ltba-clear-the-tomb"
             }
           ]
         },
@@ -483,10 +502,10 @@
           },
           {
             "asset_type": "room",
-            "asset_id": "ltba-grandmas-house-garden",
-            "asset_role": "scene-room",
+            "asset_id": "ltba-grandmas-house-parlor",
+            "asset_role": "turn-in-room",
             "chapter_id": "upstairs",
-            "scene_id": "recover-the-trimmer",
+            "scene_id": "grandmothers-turn-in",
             "source_scope": "asset_reference",
             "notes": "",
             "link_data": {}
@@ -505,8 +524,8 @@
             "asset_type": "item",
             "asset_id": "ltba-magical-hedge-trimmer",
             "asset_role": "objective-item",
-            "chapter_id": "upstairs",
-            "scene_id": "recover-the-trimmer",
+            "chapter_id": "the-tomb",
+            "scene_id": "tomb-hazards",
             "source_scope": "asset_reference",
             "notes": "",
             "link_data": {}
@@ -555,7 +574,7 @@
             "contact_id": "ltba-hookclaw-vault-guide-contact",
             "entity_type": "npc_template",
             "entity_id": "ltba-hookclaw-vault-guide",
-            "role": "quest_giver",
+            "role": "scene_ally",
             "display_name": "Zikza Hookclaw",
             "attitude": "friendly",
             "availability": "available",
@@ -1064,7 +1083,7 @@
               "primary_quest_giver_name": "Venture-Captain Celia Arvanxi",
               "primary_dungeon_id": "onboarding",
               "primary_chapter_id": "onboarding",
-              "primary_scene_id": "briefing",
+              "primary_scene_id": "tal-briefing-room",
               "primary_location_id": "tal-briefing-room",
               "broker_id": "npc_tavern_keeper",
               "broker_name": "Eldric",
@@ -1095,7 +1114,7 @@
                 "asset_type": "room",
                 "asset_id": "tal-briefing-room",
                 "asset_role": "entry-room",
-                "scene_id": "briefing",
+                "scene_id": "tal-briefing-room",
                 "source_scope": "asset_reference"
               },
               {
@@ -1116,14 +1135,14 @@
                 "asset_type": "npc",
                 "asset_id": "tal-mission-handler",
                 "asset_role": "quest-giver",
-                "scene_id": "briefing",
+                "scene_id": "tal-briefing-room",
                 "source_scope": "asset_reference"
               }
             ],
             "gates": [],
             "scenes": [
               {
-                "scene_id": "briefing",
+                "scene_id": "tal-briefing-room",
                 "name": "Adventure Briefing",
                 "summary": "Set expectations and explain the immediate objective.",
                 "order": 1,
@@ -1177,7 +1196,7 @@
           "tal-accept-the-mission": {
             "quest_id": "tal-accept-the-mission",
             "chapter_id": "onboarding",
-            "scene_id": "briefing",
+            "scene_id": "tal-briefing-room",
             "status": "available"
           },
           "tal-win-the-opening-fight": {
@@ -1197,7 +1216,7 @@
             {
               "quest_id": "tal-accept-the-mission",
               "chapter_id": "onboarding",
-              "scene_id": "briefing",
+              "scene_id": "tal-briefing-room",
               "status": "available",
               "unlocks_after": [],
               "unlocks_to": [
@@ -1244,7 +1263,7 @@
             "asset_id": "tal-briefing-room",
             "asset_role": "entry-room",
             "chapter_id": "onboarding",
-            "scene_id": "briefing",
+            "scene_id": "tal-briefing-room",
             "source_scope": "asset_reference",
             "notes": "",
             "link_data": {}
@@ -1274,7 +1293,7 @@
             "asset_id": "tal-mission-handler",
             "asset_role": "quest-giver",
             "chapter_id": "onboarding",
-            "scene_id": "briefing",
+            "scene_id": "tal-briefing-room",
             "source_scope": "asset_reference",
             "notes": "",
             "link_data": {}
