@@ -860,6 +860,10 @@ class StateValidationService {
       $report['errors'],
       $this->validateCanonicalDungeonCrossDungeonLinkage($canonical_room_ids, $room_exit_targets_by_room)
     );
+    $report['errors'] = array_merge(
+      $report['errors'],
+      $this->validateCampaignDungeonRoomExitCoverage()
+    );
     $report['hex_validation'] = $this->validateCanonicalHexReferentialContracts($canonical_room_ids);
     $report['errors'] = array_merge($report['errors'], (array) ($report['hex_validation']['errors'] ?? []));
 
@@ -869,6 +873,101 @@ class StateValidationService {
     $report['valid'] = $report['errors'] === [] && $report['summary']['invalid_items'] === 0;
 
     return $report;
+  }
+
+  /**
+   * Validate campaign dungeon payload room exit coverage.
+   *
+   * Catches runtime drift where a room exists in dc_campaign_dungeons.dungeon_data
+   * but has zero connector endpoints in hex_map.connections.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateCampaignDungeonRoomExitCoverage(): array {
+    $errors = [];
+    if ($this->database === NULL) {
+      return $errors;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dc_campaign_dungeons')) {
+      return $errors;
+    }
+
+    $rows = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['campaign_id', 'dungeon_id', 'dungeon_data'])
+      ->orderBy('campaign_id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    foreach ((array) $rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $campaign_id = isset($row['campaign_id']) ? (int) $row['campaign_id'] : 0;
+      $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
+      $payload = json_decode((string) ($row['dungeon_data'] ?? ''), TRUE);
+      if (!is_array($payload)) {
+        continue;
+      }
+
+      $rooms = is_array($payload['rooms'] ?? NULL) ? $payload['rooms'] : [];
+      $connections = is_array($payload['hex_map']['connections'] ?? NULL)
+        ? $payload['hex_map']['connections']
+        : [];
+
+      $room_ids = [];
+      foreach ($rooms as $room) {
+        if (!is_array($room)) {
+          continue;
+        }
+        $room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+        if ($room_id !== '') {
+          $room_ids[$room_id] = 0;
+        }
+      }
+
+      // Single-room payloads can be remediated by runtime self-exit injection.
+      if (count($room_ids) <= 1) {
+        continue;
+      }
+
+      foreach ($connections as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $from_room_id = trim((string) (
+          $connection['from_room']
+          ?? $connection['from_room_id']
+          ?? ($connection['from']['room_id'] ?? '')
+        ));
+        $to_room_id = trim((string) (
+          $connection['to_room']
+          ?? $connection['to_room_id']
+          ?? ($connection['to']['room_id'] ?? '')
+        ));
+        if ($from_room_id !== '' && isset($room_ids[$from_room_id])) {
+          $room_ids[$from_room_id]++;
+        }
+        if ($to_room_id !== '' && isset($room_ids[$to_room_id])) {
+          $room_ids[$to_room_id]++;
+        }
+      }
+
+      $rooms_without_exits = [];
+      foreach ($room_ids as $room_id => $degree) {
+        if ((int) $degree <= 0) {
+          $rooms_without_exits[] = (string) $room_id;
+        }
+      }
+
+      if ($rooms_without_exits !== []) {
+        $errors[] = "Campaign '{$campaign_id}' dungeon '{$dungeon_id}' has rooms without exits in dungeon_data.hex_map.connections: " . implode(', ', $rooms_without_exits) . '.';
+      }
+    }
+
+    return array_values(array_unique($errors));
   }
 
   /**
@@ -3239,6 +3338,20 @@ class StateValidationService {
    */
   public function validateNavigationReceipt(array $payload): array {
     return $this->validateAgainstContract($payload, 'navigation_receipt');
+  }
+
+  /**
+   * Validate a canonical runtime quest touchpoint ingest payload.
+   */
+  public function validateQuestTouchpointIngest(array $payload): array {
+    return $this->validateAgainstContract($payload, 'quest_touchpoint_ingest');
+  }
+
+  /**
+   * Validate a canonical runtime quest confirmation resolve payload.
+   */
+  public function validateQuestConfirmationResolve(array $payload): array {
+    return $this->validateAgainstContract($payload, 'quest_confirmation_resolve');
   }
 
   /**
