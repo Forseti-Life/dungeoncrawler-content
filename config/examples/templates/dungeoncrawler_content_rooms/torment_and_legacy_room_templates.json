@@ -14,7 +14,23 @@
       "layout_data": {
         "shape": "chamber",
         "width": 7,
-        "height": 5
+        "height": 5,
+        "exit_points": [
+          {
+            "q": -2,
+            "r": -1,
+            "label": "Exit"
+          }
+        ],
+        "exits": [
+          {
+            "target_room_id": "tpl_room_absalom_citadel_watch_barracks",
+            "label": "Barracks Passage",
+            "link_type": "room_transition",
+            "q": -2,
+            "r": -1
+          }
+        ]
       },
       "contents_data": {
         "obstacles": [
@@ -28,7 +44,9 @@
           "mission-dossier",
           "regional-map",
           "tactical-slate"
-        ]
+        ],
+        "entities": [],
+        "hazards": []
       }
     }
   ]
