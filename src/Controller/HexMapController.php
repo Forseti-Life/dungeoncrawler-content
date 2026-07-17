@@ -3126,45 +3126,6 @@ class HexMapController extends ControllerBase {
       return $connections;
     }
 
-    $briefing_rooms_without_exits = [];
-    $non_briefing_rooms_without_exits = [];
-    foreach ($rooms_without_exits as $room_id) {
-      $room = is_array($rooms[$room_id] ?? NULL) ? $rooms[$room_id] : [];
-      $room_name = strtolower(trim((string) ($room['name'] ?? '')));
-      $room_id_lc = strtolower(trim((string) $room_id));
-      if (str_contains($room_id_lc, 'briefing') || str_contains($room_name, 'briefing')) {
-        $briefing_rooms_without_exits[] = (string) $room_id;
-        continue;
-      }
-      $non_briefing_rooms_without_exits[] = (string) $room_id;
-    }
-
-    if ($briefing_rooms_without_exits !== [] && $non_briefing_rooms_without_exits === []) {
-      foreach ($briefing_rooms_without_exits as $room_id) {
-        $hexes = is_array($rooms[$room_id]['hexes'] ?? NULL) ? $rooms[$room_id]['hexes'] : [];
-        $origin_hex = is_array($hexes[0] ?? NULL) ? $hexes[0] : ['q' => 0, 'r' => 0];
-        $q = (int) ($origin_hex['q'] ?? 0);
-        $r = (int) ($origin_hex['r'] ?? 0);
-
-        $connections[] = [
-          'connection_id' => sprintf('%s:self-exit', $room_id),
-          'from_room' => $room_id,
-          'to_room' => $room_id,
-          'from_hex' => ['q' => $q, 'r' => $r],
-          'to_hex' => ['q' => $q, 'r' => $r],
-          'type' => 'open_passage',
-          'is_discovered' => TRUE,
-          'is_passable' => TRUE,
-        ];
-      }
-
-      $this->getLogger('dungeoncrawler_hexmap')->warning(
-        'Hexmap injected self-exits for isolated briefing room(s): @room_ids',
-        ['@room_ids' => implode(', ', $briefing_rooms_without_exits)]
-      );
-      return $connections;
-    }
-
     throw new \InvalidArgumentException(sprintf(
       'Invalid dungeon payload: rooms must have at least one exit; rooms without exits: %s',
       implode(', ', $rooms_without_exits)

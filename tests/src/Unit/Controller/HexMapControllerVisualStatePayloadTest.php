@@ -79,48 +79,4 @@ class HexMapControllerVisualStatePayloadTest extends UnitTestCase {
     $this->assertSame('Campaign 21', $payload['campaign_title']);
   }
 
-  /**
-   * @covers ::ensureRoomsHaveAtLeastOneExit
-   */
-  public function testEnsureRoomsHaveAtLeastOneExitAllowsIsolatedBriefingRoom(): void {
-    $controller = $this->buildController();
-    $method = new \ReflectionMethod($controller, 'ensureRoomsHaveAtLeastOneExit');
-    $method->setAccessible(TRUE);
-
-    $rooms = [
-      'tavern_entrance' => [
-        'room_id' => 'tavern_entrance',
-        'name' => 'Tavern Entrance',
-        'hexes' => [['q' => 0, 'r' => 0]],
-      ],
-      'briefing' => [
-        'room_id' => 'briefing',
-        'name' => 'Adventure Briefing',
-        'hexes' => [['q' => 3, 'r' => -1]],
-      ],
-    ];
-    $connections = [
-      [
-        'from_room' => 'tavern_entrance',
-        'to_room' => 'tavern_entrance',
-        'from_hex' => ['q' => 0, 'r' => 0],
-        'to_hex' => ['q' => 0, 'r' => 0],
-      ],
-    ];
-
-    $normalized = $method->invoke($controller, $rooms, $connections, 'tavern_entrance');
-    $this->assertIsArray($normalized);
-
-    $briefing_self_exit = array_values(array_filter($normalized, static function ($connection): bool {
-      if (!is_array($connection)) {
-        return FALSE;
-      }
-      return (string) ($connection['from_room'] ?? '') === 'briefing'
-        && (string) ($connection['to_room'] ?? '') === 'briefing';
-    }));
-
-    $this->assertCount(1, $briefing_self_exit);
-    $this->assertSame('briefing:self-exit', (string) ($briefing_self_exit[0]['connection_id'] ?? ''));
-  }
-
 }
