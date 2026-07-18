@@ -999,6 +999,31 @@ class ChatSessionManager {
   }
 
   /**
+   * Delete all sessions and messages for multiple campaigns.
+   *
+   * @param int[] $campaign_ids
+   *   Campaign ids to purge.
+   */
+  public function deleteAllForCampaigns(array $campaign_ids): void {
+    $campaign_ids = array_values(array_unique(array_map('intval', $campaign_ids)));
+    if ($campaign_ids === []) {
+      return;
+    }
+
+    $this->database->delete('dc_chat_messages')
+      ->condition('campaign_id', $campaign_ids, 'IN')
+      ->execute();
+
+    $this->database->delete('dc_chat_sessions')
+      ->condition('campaign_id', $campaign_ids, 'IN')
+      ->execute();
+
+    $this->logger->info('Deleted all chat sessions and messages for @count campaigns', [
+      '@count' => count($campaign_ids),
+    ]);
+  }
+
+  /**
    * Archive a dungeon session and all descendants when dungeon is cleared.
    *
    * This triggers summary compression: the campaign root session gets

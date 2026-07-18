@@ -1621,18 +1621,55 @@ class CampaignController extends ControllerBase {
       return new RedirectResponse($redirect_url);
     }
 
-    $deleted_count = 0;
-    $preserved_total = 0;
-    $chat_session_manager = $this->resolveChatSessionManager();
+    $campaign_ids = [];
     foreach ($campaigns as $campaign) {
-      $preserved_total += $this->permanentlyDeleteCampaignById(
-        (int) $campaign->id,
-        (string) $campaign->name,
-        $uid,
-        $chat_session_manager
-      );
-      $deleted_count++;
+      $campaign_ids[] = (int) $campaign->id;
     }
+
+    $preserved_total = $this->preservePlayerCharactersForDeletionByCampaignIds($campaign_ids);
+
+    $chat_session_manager = $this->resolveChatSessionManager();
+    if ($chat_session_manager) {
+      try {
+        $chat_session_manager->deleteAllForCampaigns($campaign_ids);
+      }
+      catch (\Exception $e) {
+        $this->getLogger('dungeoncrawler_content')->error('Failed to delete chat sessions for archived campaign purge: {error}', [
+          'error' => $e->getMessage(),
+        ]);
+      }
+    }
+
+    foreach ([
+      'dc_campaign_quest_confirmations',
+      'dc_campaign_quest_log',
+      'dc_campaign_quest_progress',
+      'dc_campaign_quest_rewards_claimed',
+      'dc_campaign_quests',
+      'dc_campaign_item_instances',
+      'dc_campaign_content_registry',
+      'dc_campaign_room_states',
+      'dc_campaign_rooms',
+      'dc_campaign_dungeons',
+      'dc_campaign_characters',
+    ] as $table) {
+      $this->deleteCampaignScopedRowsBulk($table, $campaign_ids);
+    }
+
+    $this->database->delete('dc_campaigns')
+      ->condition('id', $campaign_ids, 'IN')
+      ->execute();
+
+    $cache_tags = ['dc_campaigns'];
+    foreach ($campaign_ids as $campaign_id) {
+      $cache_tags[] = 'dc_campaign:' . $campaign_id;
+    }
+    Cache::invalidateTags($cache_tags);
+
+    $this->getLogger('dungeoncrawler_content')->info('Deleted {count} archived campaigns for uid {uid}.', [
+      'count' => count($campaign_ids),
+      'uid' => $uid,
+    ]);
 
     if ($preserved_total > 0) {
       $this->getLogger('dungeoncrawler_content')->notice('Preserved {count} player characters while deleting archived campaigns for uid {uid}.', [
@@ -1642,7 +1679,7 @@ class CampaignController extends ControllerBase {
     }
 
     $this->messenger()->addStatus($this->t('Deleted %count archived campaign(s) permanently.', [
-      '%count' => $deleted_count,
+      '%count' => count($campaign_ids),
     ]));
 
     return new RedirectResponse($redirect_url);
@@ -1741,6 +1778,22 @@ class CampaignController extends ControllerBase {
   }
 
   /**
+   * Delete rows from one campaign-scoped table for multiple campaigns.
+   *
+   * @param int[] $campaign_ids
+   *   Campaign ids to delete.
+   */
+  protected function deleteCampaignScopedRowsBulk(string $table, array $campaign_ids): void {
+    if ($campaign_ids === [] || !$this->database->schema()->tableExists($table)) {
+      return;
+    }
+
+    $this->database->delete($table)
+      ->condition('campaign_id', $campaign_ids, 'IN')
+      ->execute();
+  }
+
+  /**
    * Preserve player characters so campaign deletion does not destroy the roster.
    */
   protected function preservePlayerCharactersForDeletion(int $campaign_id): int {
@@ -1757,6 +1810,71 @@ class CampaignController extends ControllerBase {
         'status',
       ])
       ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAll();
+
+    if ($records === []) {
+      return 0;
+    }
+
+    $preserved = 0;
+    $now = $this->time->getRequestTime();
+    foreach ($records as $record) {
+      if (!$this->isPreservablePlayerCharacterForDeletion($record)) {
+        continue;
+      }
+
+      $canonical_character_id = (int) ($record->character_id ?? 0);
+      $has_library_record = FALSE;
+      if ($canonical_character_id > 0 && (int) ($record->id ?? 0) !== $canonical_character_id) {
+        $has_library_record = (bool) $this->database->select('dc_campaign_characters', 'c')
+          ->fields('c', ['id'])
+          ->condition('id', $canonical_character_id)
+          ->condition('campaign_id', 0)
+          ->range(0, 1)
+          ->execute()
+          ->fetchField();
+      }
+
+      if ($has_library_record) {
+        continue;
+      }
+
+      $this->database->update('dc_campaign_characters')
+        ->fields($this->buildDetachedPlayerCharacterFieldsForDeletion($record, $now))
+        ->condition('id', (int) $record->id)
+        ->execute();
+      $preserved++;
+    }
+
+    return $preserved;
+  }
+
+  /**
+   * Preserve player characters before deleting multiple campaigns.
+   *
+   * @param int[] $campaign_ids
+   *   Campaign ids being deleted.
+   */
+  protected function preservePlayerCharactersForDeletionByCampaignIds(array $campaign_ids): int {
+    $campaign_ids = array_values(array_unique(array_map('intval', $campaign_ids)));
+    if ($campaign_ids === []) {
+      return 0;
+    }
+
+    $records = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', [
+        'id',
+        'uuid',
+        'uid',
+        'campaign_id',
+        'character_id',
+        'instance_id',
+        'role',
+        'type',
+        'status',
+      ])
+      ->condition('campaign_id', $campaign_ids, 'IN')
       ->execute()
       ->fetchAll();
 
