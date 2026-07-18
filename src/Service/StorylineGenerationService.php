@@ -11,6 +11,9 @@ use Psr\Log\LoggerInterface;
 
 /**
  * Generates storyline definitions and aligned quest-template blueprints.
+ *
+ * Validation pair: StorylineManagerService end-to-end storyline contract
+ * validation plus this service's generation-bundle contract gates.
  */
 class StorylineGenerationService {
 
@@ -20,7 +23,8 @@ class StorylineGenerationService {
   private const GENERATED_TEMPLATE_ID_MAX_LENGTH = 64;
 
   protected LoggerInterface $logger;
-  protected ObjectiveTypeService $objectiveTypeService;
+  protected ?ObjectiveTypeService $objectiveTypeService;
+  protected ?array $canonicalItemIdCache = NULL;
 
   public function __construct(
     protected readonly Connection $database,
@@ -30,16 +34,16 @@ class StorylineGenerationService {
     protected readonly CampaignStateService $campaignStateService,
     protected readonly TreasureByLevelService $treasureByLevelService,
     protected readonly UuidInterface $uuid,
+    protected readonly StorylineQuestLifecycleService $storylineQuestLifecycleService,
     protected readonly ?RelationshipManagerService $relationshipManager = NULL,
     protected readonly ?QuestGeneratorService $questGenerator = NULL,
     protected readonly ?StateValidationService $stateValidationService = NULL,
     protected readonly ?NpcSheetGenerationService $npcSheetGenerationService = NULL,
     protected readonly ?StorylineRealizationService $storylineRealizationService = NULL,
-    protected readonly ?QuestTrackerService $questTracker = NULL,
     ?ObjectiveTypeService $objective_type_service = NULL,
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler_content');
-    $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
+    $this->objectiveTypeService = $objective_type_service;
   }
 
   /**
@@ -55,10 +59,7 @@ class StorylineGenerationService {
         return $this->normalizeGeneratedPackage($campaign_id, $request, $context, $package, 'ai');
       }
       catch (\Throwable $e) {
-        $this->logger->warning('AI storyline generation failed for campaign {campaign_id}: {error}', [
-          'campaign_id' => $campaign_id,
-          'error' => $e->getMessage(),
-        ]);
+        $this->rethrowAiGenerationFailure('storyline generation', $campaign_id, $e);
       }
     }
 
@@ -80,10 +81,7 @@ class StorylineGenerationService {
         return $this->normalizeGeneratedBootstrapPackage($campaign_id, $request, $context, $package, 'ai');
       }
       catch (\Throwable $e) {
-        $this->logger->warning('AI storyline bootstrap failed for campaign {campaign_id}: {error}', [
-          'campaign_id' => $campaign_id,
-          'error' => $e->getMessage(),
-        ]);
+        $this->rethrowAiGenerationFailure('storyline bootstrap generation', $campaign_id, $e);
       }
     }
 
@@ -108,7 +106,10 @@ class StorylineGenerationService {
       $storyline = $this->storylineManager->createCampaignStoryline(
         $campaign_id,
         $package['storyline_definition'] ?? [],
-        $request + ['status' => 'bootstrapping']
+        $request + [
+          'status' => 'bootstrapping',
+          'realize_storyline_assets' => TRUE,
+        ]
       );
     }
     catch (\Throwable $e) {
@@ -597,6 +598,11 @@ class StorylineGenerationService {
       $errors[] = '[entity_linkage] ' . $error;
     }
 
+    // Stage 8: generated outline and asset contract.
+    foreach ($this->validateGeneratedOutlineContracts($storyline) as $error) {
+      $errors[] = '[generated_outline] ' . $error;
+    }
+
     if ($errors !== []) {
       throw new \InvalidArgumentException(
         'Storyline generation bundle failed contract validation (' . count($errors) . ' error(s)): ' . implode('; ', $errors),
@@ -936,6 +942,236 @@ class StorylineGenerationService {
   }
 
   /**
+   * Stage 8 — generated outline and asset contract validation.
+   *
+   * Ensures generated dungeons/rooms/npcs/items are declared in storyline
+   * asset references and that generated item ids resolve to canonical item
+   * registry rows.
+   *
+   * @return array<int, string>
+   */
+  protected function validateGeneratedOutlineContracts(array $storyline): array {
+    $errors = [];
+    $outline = is_array($storyline['metadata']['generated_outline'] ?? NULL) ? $storyline['metadata']['generated_outline'] : [];
+    if ($outline === []) {
+      return ['metadata.generated_outline is required for generated storyline bundles.'];
+    }
+
+    $asset_refs = array_values(array_filter(is_array($storyline['asset_references'] ?? NULL) ? $storyline['asset_references'] : [], 'is_array'));
+    $assets_by_type = [
+      'dungeon' => [],
+      'room' => [],
+      'npc' => [],
+      'item' => [],
+    ];
+    foreach ($asset_refs as $ref) {
+      $asset_type = strtolower(trim((string) ($ref['asset_type'] ?? '')));
+      $asset_id = trim((string) ($ref['asset_id'] ?? ''));
+      if ($asset_id === '' || !isset($assets_by_type[$asset_type])) {
+        continue;
+      }
+      $assets_by_type[$asset_type][$asset_id] = TRUE;
+    }
+
+    $outline_npc_ids = [];
+    $outline_item_ids = [];
+    $outline_room_ids = [];
+    $outline_dungeon_ids = [];
+
+    $generation_phase = strtolower(trim((string) ($outline['generation_phase'] ?? '')));
+    if ($generation_phase === 'bootstrap') {
+      $entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+      $entry_dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? ''));
+      $entry_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? ''));
+      if ($entry_dungeon_id === '') {
+        $errors[] = 'bootstrap outline requires entry_dungeon.dungeon_id.';
+      }
+      if ($entry_room_id === '') {
+        $errors[] = 'bootstrap outline requires entry_dungeon.entrance_room_id.';
+      }
+      if ($entry_dungeon_id !== '') {
+        $outline_dungeon_ids[$entry_dungeon_id] = TRUE;
+      }
+      if ($entry_room_id !== '') {
+        $outline_room_ids[$entry_room_id] = TRUE;
+      }
+    }
+    else {
+      $dungeons = array_values(array_filter(is_array($outline['dungeons'] ?? NULL) ? $outline['dungeons'] : [], 'is_array'));
+      foreach ($dungeons as $dungeon_index => $dungeon) {
+        $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+        if ($dungeon_id === '') {
+          $errors[] = "outline.dungeons[{$dungeon_index}].dungeon_id is required.";
+          continue;
+        }
+        $outline_dungeon_ids[$dungeon_id] = TRUE;
+
+        $entrance_room_id = trim((string) ($dungeon['entrance_room_id'] ?? ''));
+        if ($entrance_room_id === '') {
+          $errors[] = "outline.dungeons[{$dungeon_index}] '{$dungeon_id}' requires entrance_room_id.";
+        }
+        else {
+          $outline_room_ids[$entrance_room_id] = TRUE;
+        }
+
+        $rooms = array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array'));
+        if ($rooms === []) {
+          $errors[] = "outline.dungeons[{$dungeon_index}] '{$dungeon_id}' must include rooms.";
+        }
+        foreach ($rooms as $room_index => $room) {
+          $room_id = trim((string) ($room['room_id'] ?? ''));
+          if ($room_id === '') {
+            $errors[] = "outline.dungeons[{$dungeon_index}].rooms[{$room_index}].room_id is required.";
+            continue;
+          }
+          $outline_room_ids[$room_id] = TRUE;
+
+          foreach (array_values(array_filter(array_map('strval', is_array($room['npc_ids'] ?? NULL) ? $room['npc_ids'] : []))) as $npc_id) {
+            $npc_id = trim($npc_id);
+            if ($npc_id !== '') {
+              $outline_npc_ids[$npc_id] = TRUE;
+            }
+          }
+          foreach (array_values(array_filter(array_map('strval', is_array($room['item_ids'] ?? NULL) ? $room['item_ids'] : []))) as $item_id) {
+            $item_id = trim($item_id);
+            if ($item_id !== '') {
+              $outline_item_ids[$item_id] = TRUE;
+            }
+          }
+        }
+      }
+    }
+
+    foreach (array_keys($outline_dungeon_ids) as $dungeon_id) {
+      if (!isset($assets_by_type['dungeon'][$dungeon_id])) {
+        $errors[] = "generated dungeon '{$dungeon_id}' must be declared in asset_references as asset_type=dungeon.";
+      }
+    }
+    foreach (array_keys($outline_room_ids) as $room_id) {
+      if (!isset($assets_by_type['room'][$room_id])) {
+        $errors[] = "generated room '{$room_id}' must be declared in asset_references as asset_type=room.";
+      }
+    }
+    foreach (array_keys($outline_npc_ids) as $npc_id) {
+      if (!isset($assets_by_type['npc'][$npc_id])) {
+        $errors[] = "generated npc '{$npc_id}' must be declared in asset_references as asset_type=npc.";
+      }
+    }
+    foreach (array_keys($outline_item_ids) as $item_id) {
+      if (!isset($assets_by_type['item'][$item_id])) {
+        $errors[] = "generated item '{$item_id}' must be declared in asset_references as asset_type=item.";
+      }
+    }
+
+    if ($outline_item_ids !== []) {
+      $canonical_item_ids = $this->loadCanonicalItemIds();
+      foreach (array_keys($outline_item_ids) as $item_id) {
+        if (!isset($canonical_item_ids[$item_id])) {
+          $errors[] = "generated item '{$item_id}' does not resolve to canonical item registry content_id.";
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Load canonical item ids indexed by content_id.
+   *
+   * @return array<string, bool>
+   */
+  protected function loadCanonicalItemIds(): array {
+    if (is_array($this->canonicalItemIdCache)) {
+      return $this->canonicalItemIdCache;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_registry')) {
+      throw new \RuntimeException('Canonical item contract requires dungeoncrawler_content_registry table.');
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id'])
+      ->condition('content_type', 'item')
+      ->orderBy('content_id', 'ASC')
+      ->execute()
+      ->fetchCol();
+
+    $item_ids = [];
+    foreach ((array) $rows as $content_id) {
+      $normalized = trim((string) $content_id);
+      if ($normalized !== '') {
+        $item_ids[$normalized] = TRUE;
+      }
+    }
+
+    if ($item_ids === []) {
+      throw new \RuntimeException('Canonical item contract requires at least one item in dungeoncrawler_content_registry.');
+    }
+
+    $this->canonicalItemIdCache = $item_ids;
+    return $this->canonicalItemIdCache;
+  }
+
+  /**
+   * Load one canonical quest template payload from DB-authoritative storage.
+   *
+   * @return array<string, mixed>
+   */
+  protected function loadCanonicalQuestTemplateById(string $template_id): array {
+    $template_id = trim($template_id);
+    if ($template_id === '') {
+      throw new \InvalidArgumentException('Canonical quest template id is required.', 400);
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dc_canonical_quests')) {
+      throw new \RuntimeException('Canonical quest contract requires dc_canonical_quests table.');
+    }
+
+    $row = $this->database->select('dc_canonical_quests', 'q')
+      ->fields('q', [
+        'template_id',
+        'name',
+        'description',
+        'quest_type',
+        'level_min',
+        'level_max',
+        'tags',
+        'objectives_schema',
+        'rewards_schema',
+        'prerequisites',
+        'story_impact',
+        'estimated_duration_minutes',
+        'version',
+      ])
+      ->condition('template_id', $template_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($row)) {
+      throw new \RuntimeException("Canonical quest template '{$template_id}' was not found in dc_canonical_quests.");
+    }
+
+    return [
+      'template_id' => $template_id,
+      'name' => trim((string) ($row['name'] ?? $template_id)),
+      'description' => trim((string) ($row['description'] ?? '')),
+      'quest_type' => trim((string) ($row['quest_type'] ?? 'main')) ?: 'main',
+      'level_min' => max(1, (int) ($row['level_min'] ?? 1)),
+      'level_max' => max(1, (int) ($row['level_max'] ?? 1)),
+      'tags' => array_values(array_filter(array_map('strval', is_array(json_decode((string) ($row['tags'] ?? '[]'), TRUE)) ? json_decode((string) ($row['tags'] ?? '[]'), TRUE) : []))),
+      'objectives_schema' => is_array(json_decode((string) ($row['objectives_schema'] ?? '[]'), TRUE)) ? json_decode((string) ($row['objectives_schema'] ?? '[]'), TRUE) : [],
+      'rewards_schema' => is_array(json_decode((string) ($row['rewards_schema'] ?? '[]'), TRUE)) ? json_decode((string) ($row['rewards_schema'] ?? '[]'), TRUE) : [],
+      'prerequisites' => is_array(json_decode((string) ($row['prerequisites'] ?? '{}'), TRUE)) ? json_decode((string) ($row['prerequisites'] ?? '{}'), TRUE) : [],
+      'story_impact' => is_array(json_decode((string) ($row['story_impact'] ?? '{}'), TRUE)) ? json_decode((string) ($row['story_impact'] ?? '{}'), TRUE) : [],
+      'estimated_duration_minutes' => max(5, (int) ($row['estimated_duration_minutes'] ?? 20)),
+      'version' => trim((string) ($row['version'] ?? self::QUEST_TEMPLATE_VERSION)) ?: self::QUEST_TEMPLATE_VERSION,
+    ];
+  }
+
+  /**
    * Build the queue payload used to hand off deferred expansion safely.
    */
   protected function buildExpansionJobPayload(int $campaign_id, string $storyline_id, array $request): array {
@@ -1152,163 +1388,8 @@ class StorylineGenerationService {
    * Deterministic fallback package when AI is unavailable or invalid.
    */
   protected function generateFallbackPackage(int $campaign_id, array $request, array $context): array {
-    $goal = $this->normalizeSentence($request['prompt']);
-    $identity = $this->suggestCanonicalStorylineIdentity($request['prompt'], [
-      'name' => (string) ($request['name'] ?? ''),
-      'template_id' => (string) ($request['template_id'] ?? ''),
-      'metadata' => ['goal' => $goal],
-    ]);
-    $base_name = $identity['name'];
-    $base_slug = $identity['template_id'];
-
-    $style_seed = $request['theme'] !== '' ? $request['theme'] : $this->deriveStyleSeed($request['prompt'], $request['tone']);
-    $location_id = $request['lead_location_id'] !== '' ? (string) $request['lead_location_id'] : (string) ($context['location_id'] ?? 'tavern_entrance');
-    $level_bounds = $this->parseLevelRange((string) $request['level_range']);
-    $dungeon_levels = [
-      $level_bounds['min'],
-      min(20, max($level_bounds['min'], (int) floor(($level_bounds['min'] + $level_bounds['max']) / 2))),
-      $level_bounds['max'],
-    ];
-
-    $boss_specs = [
-      [
-        'boss_id' => $base_slug . '-sub-boss-1',
-        'name' => 'Warden of the First Seal',
-        'style' => 'disciplined ' . $style_seed,
-        'role' => 'sub_boss',
-        'dungeon_id' => $request['entry_dungeon_id'] !== '' ? $request['entry_dungeon_id'] : $base_slug . '-vault-of-ashes',
-        'dungeon_name' => $request['entry_dungeon_id'] !== '' ? $base_name : 'Vault of Ashes',
-        'dungeon_style' => 'fortified ' . $style_seed,
-      ],
-      [
-        'boss_id' => $base_slug . '-sub-boss-2',
-        'name' => 'Whispering Archivist',
-        'style' => 'occult ' . $style_seed,
-        'role' => 'sub_boss',
-        'dungeon_id' => $base_slug . '-catacomb-of-echoes',
-        'dungeon_name' => 'Catacomb of Echoes',
-        'dungeon_style' => 'haunted ' . $style_seed,
-      ],
-      [
-        'boss_id' => $base_slug . '-big-boss',
-        'name' => 'The Crown of Ruin',
-        'style' => 'apex ' . $style_seed,
-        'role' => 'big_boss',
-        'dungeon_id' => $base_slug . '-throne-of-ruin',
-        'dungeon_name' => 'Throne of Ruin',
-        'dungeon_style' => 'cataclysmic ' . $style_seed,
-      ],
-    ];
-
-    $dungeons = [];
-    $chapters = [];
-    $quest_templates = [];
-    $asset_references = [
-      [
-        'asset_type' => 'room',
-        'asset_id' => $location_id,
-        'asset_role' => 'lead-location',
-        'notes' => 'Primary lead-in location for the generated storyline.',
-      ],
-    ];
-
-    foreach ($boss_specs as $index => $boss) {
-      $dungeon_level = $dungeon_levels[$index] ?? $level_bounds['max'];
-      $room_bundle = $this->buildDungeonRoomBundle(
-        $base_slug,
-        $boss,
-        $dungeon_level,
-        $style_seed,
-        $context,
-        $index === 0 ? [
-          'entry_room_id' => (string) ($request['entry_room_id'] ?? ''),
-          'first_quest_id' => (string) ($request['first_quest_id'] ?? ''),
-        ] : []
-      );
-      $dungeons[] = $room_bundle['dungeon_outline'];
-      $chapters[] = $room_bundle['chapter'];
-      $quest_templates = array_merge($quest_templates, $room_bundle['quest_templates']);
-      $asset_references = array_merge($asset_references, $room_bundle['asset_references']);
-    }
-
-    $big_boss = $boss_specs[2];
-    $sub_bosses = [$boss_specs[0], $boss_specs[1]];
-    $progression_connectors = $this->buildProgressionConnectors($base_slug, $location_id, $dungeons, $boss_specs, $goal);
-    $asset_references = array_merge($asset_references, $this->buildProgressionAssetReferences($progression_connectors));
-
-    $outline = [
-      'generation_phase' => 'expanded',
-      'goal' => $goal,
-      'entry_point' => [
-        'primary_quest_giver_id' => $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : ($base_slug . '-patron'),
-        'primary_quest_giver_name' => $request['speaker_name'] !== '' ? $request['speaker_name'] : 'Keeper Althea',
-        'primary_dungeon_id' => (string) ($dungeons[0]['dungeon_id'] ?? ($base_slug . '-vault-of-ashes')),
-        'primary_chapter_id' => (string) ($dungeons[0]['dungeon_id'] ?? ($base_slug . '-vault-of-ashes')),
-        'primary_scene_id' => (string) ($dungeons[0]['entrance_room_id'] ?? ($base_slug . '-vault-of-ashes-room-1')),
-        'primary_location_id' => (string) ($dungeons[0]['entrance_room_id'] ?? ($base_slug . '-vault-of-ashes-room-1')),
-        'introduction_path' => 'direct',
-        'detail_summary' => 'The questgiver briefs the party on the goal "' . $goal . '" and directs them to the first dungeon entrance.',
-      ],
-      'big_boss' => [
-        'boss_id' => $big_boss['boss_id'],
-        'name' => $big_boss['name'],
-        'style' => $big_boss['style'],
-        'alignment_to_goal' => 'Embodies the core threat behind the campaign goal.',
-        'dungeon_id' => $big_boss['dungeon_id'],
-      ],
-      'sub_bosses' => array_map(static function (array $boss): array {
-        return [
-          'boss_id' => $boss['boss_id'],
-          'name' => $boss['name'],
-          'style' => $boss['style'],
-          'alignment_to_big_boss' => 'Acts as a lieutenant advancing the big boss plan.',
-          'dungeon_id' => $boss['dungeon_id'],
-        ];
-      }, $sub_bosses),
-      'dungeons' => $dungeons,
-      'progression_connectors' => $progression_connectors,
-      'treasure_strategy' => [
-        'budget_basis' => $context['treasure_budget'] ?? [],
-        'style_alignment' => 'Treasure and consumables escalate with the boss hierarchy and room pressure.',
-      ],
-    ];
-
-    return [
-      'storyline' => [
-        'name' => $base_name,
-        'template_id' => $base_slug,
-        'synopsis' => 'Pursue the goal "' . $goal . '" across three boss-linked dungeons, culminating in a final confrontation with ' . $big_boss['name'] . '.',
-        'level_range' => (string) $request['level_range'],
-        'source' => (string) $request['source'],
-        'tags' => array_values(array_unique(array_merge($request['tags'], [$style_seed, 'generated', 'boss-arc']))),
-        'metadata' => [
-          'campaign_role' => 'generated_arc',
-          'generation_source' => 'fallback',
-          'tone' => $request['tone'],
-          'goal' => $goal,
-          'generated_outline' => $outline,
-        ],
-        'asset_references' => $asset_references,
-        'contacts' => [
-          [
-            'contact_id' => $base_slug . '-patron',
-            'entity_type' => $request['speaker_npc_id'] !== '' ? 'campaign_npc' : 'npc_template',
-            'entity_id' => $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : ($base_slug . '-patron'),
-            'role' => 'quest_giver',
-            'display_name' => $request['speaker_name'] !== '' ? $request['speaker_name'] : 'Keeper Althea',
-            'attitude' => 'friendly',
-            'notes' => 'Patron who briefs the party on the goal and the three boss dungeons.',
-            'relationship_state' => [
-              'points_to_dungeon_id' => (string) ($dungeons[0]['dungeon_id'] ?? ''),
-              'points_to_room_id' => (string) ($dungeons[0]['entrance_room_id'] ?? ''),
-              'mechanism' => 'npc_direction',
-            ],
-          ],
-        ],
-        'chapters' => $chapters,
-      ],
-      'quest_templates' => $quest_templates,
-    ];
+    // Contract-first fallback: reuse bootstrap-safe canonical anchors.
+    return $this->generateFallbackBootstrapPackage($campaign_id, $request, $context);
   }
 
   /**
@@ -1316,96 +1397,71 @@ class StorylineGenerationService {
    */
   protected function generateFallbackBootstrapPackage(int $campaign_id, array $request, array $context): array {
     $goal = $this->normalizeSentence($request['prompt']);
-    $identity = $this->suggestCanonicalStorylineIdentity($request['prompt'], [
-      'name' => (string) ($request['name'] ?? ''),
-      'template_id' => (string) ($request['template_id'] ?? ''),
-      'metadata' => ['goal' => $goal],
-    ], TRUE);
-    $base_name = $identity['name'];
-    $base_slug = $identity['template_id'];
-
-    $style_seed = $request['theme'] !== '' ? $request['theme'] : $this->deriveStyleSeed($request['prompt'], $request['tone']);
+    $canonical_storyline_template_id = 'torment-and-legacy';
+    $canonical_quest_template_id = 'tal-accept-the-mission';
+    $canonical_entry_dungeon_id = 'onboarding';
+    $canonical_entry_room_id = 'tal-briefing-room';
+    $canonical_speaker_id = 'tal-mission-handler';
+    $canonical_speaker_name = 'Venture-Captain Celia Arvanxi';
+    $canonical_storyline_name = 'Torment and Legacy';
     $lead_location_id = $request['lead_location_id'] !== '' ? $request['lead_location_id'] : (string) ($context['location_id'] ?? 'tavern_entrance');
-    $entry_dungeon_id = $base_slug . '-entry-dungeon';
-    $entrance_room_id = $entry_dungeon_id . '-entrance';
-    $entry_dungeon_name = 'Threshold of ' . $base_name;
-    $speaker_id = $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : $base_slug . '-questgiver';
-    $speaker_name = $request['speaker_name'] !== '' ? $request['speaker_name'] : 'Keeper Althea';
-    $boss = [
-      'boss_id' => $base_slug . '-future-boss',
-      'name' => 'Unseen Adversary',
-      'dungeon_name' => $entry_dungeon_name,
-      'dungeon_style' => 'threshold ' . $style_seed,
-      'style' => 'threshold ' . $style_seed,
-      'role' => 'sub_boss',
-    ];
-    $quest_template_id = $entrance_room_id . '-quest';
-    $quest_template = $this->buildQuestTemplate(
-      $quest_template_id,
-      $boss,
-      'entrance',
-      'threshold ' . $style_seed,
-      max(1, (int) ($context['party_level'] ?? 1)),
-      $entrance_room_id,
-      $this->chooseLootTableId($style_seed, max(1, (int) ($context['party_level'] ?? 1)), 'entrance'),
-      [
-        'encounter_type' => 'exploration',
-        'threat_level' => 'low',
-        'theme' => 'threshold ' . $style_seed,
-        'objective' => 'Reach the first dungeon entrance tied to the storyline goal.',
-      ],
-      $this->buildTreasurePlan(max(1, (int) ($context['party_level'] ?? 1)), 'low', 'core_starter_adventure', 'entrance', $context)
-    );
+    $lead_location_id = trim($lead_location_id) !== '' ? trim($lead_location_id) : 'tavern_entrance';
+
+    $quest_template = $this->loadCanonicalQuestTemplateById($canonical_quest_template_id);
+    $quest_template['story_impact'] = is_array($quest_template['story_impact'] ?? NULL) ? $quest_template['story_impact'] : [];
+    $quest_template['story_impact']['storyline_id'] = $canonical_storyline_template_id;
+    $quest_template['story_impact']['chapter_id'] = $canonical_entry_dungeon_id;
+    $quest_template['story_impact']['scene_id'] = $canonical_entry_room_id;
 
     $outline = [
       'generation_phase' => 'bootstrap',
       'goal' => $goal,
       'entry_point' => [
-        'primary_quest_giver_id' => $speaker_id,
-        'primary_quest_giver_name' => $speaker_name,
-        'primary_dungeon_id' => $entry_dungeon_id,
-        'primary_chapter_id' => $entry_dungeon_id,
-        'primary_scene_id' => $entrance_room_id,
-        'primary_location_id' => $entrance_room_id,
+        'primary_quest_giver_id' => $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : $canonical_speaker_id,
+        'primary_quest_giver_name' => $request['speaker_name'] !== '' ? $request['speaker_name'] : $canonical_speaker_name,
+        'primary_dungeon_id' => $canonical_entry_dungeon_id,
+        'primary_chapter_id' => $canonical_entry_dungeon_id,
+        'primary_scene_id' => $canonical_entry_room_id,
+        'primary_location_id' => $canonical_entry_room_id,
         'introduction_path' => 'direct',
-        'detail_summary' => $speaker_name . ' briefs the party on the goal "' . $goal . '" and directs them to ' . $entry_dungeon_name . '.',
+        'detail_summary' => ($request['speaker_name'] !== '' ? $request['speaker_name'] : $canonical_speaker_name) . ' briefs the party on the goal "' . $goal . '" and directs them to the onboarding briefing room.',
       ],
       'entry_dungeon' => [
-        'dungeon_id' => $entry_dungeon_id,
-        'name' => $entry_dungeon_name,
-        'style' => 'threshold ' . $style_seed,
-        'entrance_room_id' => $entrance_room_id,
+        'dungeon_id' => $canonical_entry_dungeon_id,
+        'name' => 'Onboarding',
+        'style' => 'canonical onboarding',
+        'entrance_room_id' => $canonical_entry_room_id,
         'lead_location_id' => $lead_location_id,
-        'lead_location_hint' => 'Start at ' . str_replace('_', ' ', $lead_location_id) . ' and follow the first lead toward ' . $entry_dungeon_name . '.',
+        'lead_location_hint' => 'Start at ' . str_replace('_', ' ', $lead_location_id) . ' and follow the first lead toward the briefing room.',
       ],
       'progression_connectors' => [
         [
-          'connector_id' => $base_slug . '-bootstrap-handoff',
+          'connector_id' => 'fallback-bootstrap-handoff',
           'source_type' => 'npc',
-          'source_id' => $speaker_id,
+          'source_id' => $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : $canonical_speaker_id,
           'mechanism' => 'npc_direction',
           'from_location_id' => $lead_location_id,
-          'target_dungeon_id' => $entry_dungeon_id,
-          'target_room_id' => $entrance_room_id,
-          'narrative' => $speaker_name . ' points the party toward the first dungeon entrance.',
+          'target_dungeon_id' => $canonical_entry_dungeon_id,
+          'target_room_id' => $canonical_entry_room_id,
+          'narrative' => ($request['speaker_name'] !== '' ? $request['speaker_name'] : $canonical_speaker_name) . ' points the party toward the briefing room.',
         ],
       ],
       'bootstrap_handoff' => [
-        'speaker_npc_id' => $speaker_id,
-        'speaker_name' => $speaker_name,
-        'lead_text' => $speaker_name . ' points the party toward ' . $entry_dungeon_name . ' to pursue the goal "' . $goal . '".',
+        'speaker_npc_id' => $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : $canonical_speaker_id,
+        'speaker_name' => $request['speaker_name'] !== '' ? $request['speaker_name'] : $canonical_speaker_name,
+        'lead_text' => ($request['speaker_name'] !== '' ? $request['speaker_name'] : $canonical_speaker_name) . ' points the party toward onboarding to pursue the goal "' . $goal . '".',
       ],
       'expansion_status' => 'pending',
     ];
 
     return [
       'storyline' => [
-        'name' => $base_name,
-        'template_id' => $base_slug,
-        'synopsis' => 'Follow the first lead toward ' . $entry_dungeon_name . ' and begin pursuing "' . $goal . '".',
+        'name' => $canonical_storyline_name,
+        'template_id' => $canonical_storyline_template_id,
+        'synopsis' => 'Follow the first lead toward onboarding and begin pursuing "' . $goal . '".',
         'level_range' => (string) $request['level_range'],
         'source' => (string) $request['source'],
-        'tags' => array_values(array_unique(array_merge($request['tags'], [$style_seed, 'generated', 'bootstrap']))),
+        'tags' => array_values(array_unique(array_merge($request['tags'], ['generated', 'bootstrap', 'canonical-anchored']))),
         'metadata' => [
           'campaign_role' => 'generated_bootstrap',
           'generation_source' => 'fallback',
@@ -1415,40 +1471,47 @@ class StorylineGenerationService {
         ],
         'asset_references' => [
           [
-            'asset_type' => 'location',
+            'asset_type' => 'room',
             'asset_id' => $lead_location_id,
             'asset_role' => 'lead-location',
             'notes' => 'The current location where the questgiver gives the first lead.',
           ],
           [
             'asset_type' => 'dungeon',
-            'asset_id' => $entry_dungeon_id,
+            'asset_id' => $canonical_entry_dungeon_id,
             'asset_role' => 'entry-dungeon',
-            'chapter_id' => $entry_dungeon_id,
-            'notes' => 'First storyline dungeon stub generated during bootstrap.',
+            'chapter_id' => $canonical_entry_dungeon_id,
+            'notes' => 'Canonical onboarding dungeon used for bootstrap.',
           ],
           [
             'asset_type' => 'room',
-            'asset_id' => $entrance_room_id,
+            'asset_id' => $canonical_entry_room_id,
             'asset_role' => 'entrance-room',
-            'chapter_id' => $entry_dungeon_id,
-            'scene_id' => $entrance_room_id,
+            'chapter_id' => $canonical_entry_dungeon_id,
+            'scene_id' => $canonical_entry_room_id,
             'notes' => 'Initial storyline entrance room.',
+          ],
+          [
+            'asset_type' => 'npc',
+            'asset_id' => $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : $canonical_speaker_id,
+            'asset_role' => 'quest-giver',
+            'chapter_id' => $canonical_entry_dungeon_id,
+            'scene_id' => $canonical_entry_room_id,
           ],
         ],
         'contacts' => [
           [
-            'contact_id' => $base_slug . '-questgiver',
+            'contact_id' => $canonical_storyline_template_id . '-questgiver',
             'entity_type' => 'campaign_npc',
-            'entity_id' => $speaker_id,
+            'entity_id' => $request['speaker_npc_id'] !== '' ? $request['speaker_npc_id'] : $canonical_speaker_id,
             'role' => 'quest_giver',
-            'display_name' => $speaker_name,
+            'display_name' => $request['speaker_name'] !== '' ? $request['speaker_name'] : $canonical_speaker_name,
             'attitude' => 'friendly',
             'availability' => 'available',
             'notes' => 'Questgiver who bootstrapped this storyline.',
             'relationship_state' => [
-              'points_to_dungeon_id' => $entry_dungeon_id,
-              'points_to_room_id' => $entrance_room_id,
+              'points_to_dungeon_id' => $canonical_entry_dungeon_id,
+              'points_to_room_id' => $canonical_entry_room_id,
               'mechanism' => 'npc_direction',
             ],
             'introduces_to' => [],
@@ -1456,26 +1519,26 @@ class StorylineGenerationService {
         ],
         'chapters' => [
           [
-            'chapter_id' => $entry_dungeon_id,
-            'name' => $entry_dungeon_name,
+            'chapter_id' => $canonical_entry_dungeon_id,
+            'name' => 'Onboarding',
             'summary' => 'Reach the first dungeon entrance and commit to the storyline goal.',
             'asset_references' => [
               [
                 'asset_type' => 'dungeon',
-                'asset_id' => $entry_dungeon_id,
+                'asset_id' => $canonical_entry_dungeon_id,
                 'asset_role' => 'chapter-space',
               ],
             ],
             'scenes' => [
               [
-                'scene_id' => $entrance_room_id,
-                'name' => 'Dungeon Entrance',
+                'scene_id' => $canonical_entry_room_id,
+                'name' => 'Briefing Room',
                 'summary' => 'The first threshold tied to "' . $goal . '".',
-                'quest_ids' => [$quest_template_id],
+                'quest_ids' => [$canonical_quest_template_id],
                 'asset_references' => [
                   [
                     'asset_type' => 'room',
-                    'asset_id' => $entrance_room_id,
+                    'asset_id' => $canonical_entry_room_id,
                     'asset_role' => 'entrance',
                   ],
                 ],
@@ -1498,8 +1561,12 @@ class StorylineGenerationService {
     }
 
     $identity = $this->suggestCanonicalStorylineIdentity($request['prompt'], $storyline);
-    $storyline['name'] = $identity['name'];
-    $storyline['template_id'] = $identity['template_id'];
+    $storyline['name'] = trim((string) ($storyline['name'] ?? '')) !== ''
+      ? trim((string) $storyline['name'])
+      : $identity['name'];
+    $storyline['template_id'] = trim((string) ($storyline['template_id'] ?? '')) !== ''
+      ? $this->sanitizeIdentifier((string) $storyline['template_id'])
+      : $identity['template_id'];
     $storyline['synopsis'] = trim((string) ($storyline['synopsis'] ?? 'Generated storyline based on the supplied campaign goal.'));
     $storyline['level_range'] = trim((string) ($storyline['level_range'] ?? $request['level_range']));
     $storyline['source'] = trim((string) ($storyline['source'] ?? $request['source'])) ?: 'storyline-generator';
@@ -1629,8 +1696,12 @@ class StorylineGenerationService {
     }
 
     $identity = $this->suggestCanonicalStorylineIdentity($request['prompt'], $storyline, TRUE);
-    $storyline['name'] = $identity['name'];
-    $storyline['template_id'] = $identity['template_id'];
+    $storyline['name'] = trim((string) ($storyline['name'] ?? '')) !== ''
+      ? trim((string) $storyline['name'])
+      : $identity['name'];
+    $storyline['template_id'] = trim((string) ($storyline['template_id'] ?? '')) !== ''
+      ? $this->sanitizeIdentifier((string) $storyline['template_id'])
+      : $identity['template_id'];
     $storyline['synopsis'] = trim((string) ($storyline['synopsis'] ?? 'Generated storyline bootstrap based on the supplied campaign goal.'));
     $storyline['level_range'] = trim((string) ($storyline['level_range'] ?? $request['level_range']));
     $storyline['source'] = trim((string) ($storyline['source'] ?? $request['source'])) ?: 'storyline-bootstrap';
@@ -1863,61 +1934,33 @@ class StorylineGenerationService {
       return NULL;
     }
 
-    $existing = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('source_template_id', $template_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (is_array($existing)) {
-      return $existing;
-    }
-
     $context = $this->buildGenerationContext($campaign_id, $request);
-    $quest_data = $this->questGenerator->generateQuestFromTemplate($template_id, $campaign_id, [
-      'party_level' => (int) ($context['party_level'] ?? 1),
-      'difficulty' => 'moderate',
-      'location' => (string) ($request['lead_location_id'] ?? ($context['location_id'] ?? '')),
-    ]);
-    if ($quest_data === []) {
-      return NULL;
-    }
-
-    $this->database->insert('dc_campaign_quests')
-      ->fields($quest_data)
-      ->execute();
-
-    $inserted = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('source_template_id', $template_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($inserted)) {
+    $inserted = $this->storylineQuestLifecycleService->ensureOfferedQuestFromTemplateAndLoad(
+      $campaign_id,
+      $template_id,
+      function () use ($template_id, $campaign_id, $context, $request): array {
+        return $this->questGenerator?->generateQuestFromTemplate($template_id, $campaign_id, [
+          'party_level' => (int) ($context['party_level'] ?? 1),
+          'difficulty' => 'moderate',
+          'location' => (string) ($request['lead_location_id'] ?? ($context['location_id'] ?? '')),
+        ]) ?? [];
+      }
+    );
+    if (!is_array($inserted) || $inserted === []) {
       return NULL;
     }
 
     $quest_link = is_array($storyline_data['linked_quests'][$template_id] ?? NULL) ? $storyline_data['linked_quests'][$template_id] : [];
-    $this->database->update('dc_campaign_quests')
-      ->fields([
-        'storyline_id' => $storyline_id,
-        'storyline_chapter_id' => !empty($quest_link['chapter_id']) ? (string) $quest_link['chapter_id'] : NULL,
-        'storyline_scene_id' => !empty($quest_link['scene_id']) ? (string) $quest_link['scene_id'] : NULL,
-      ])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('quest_id', (string) ($inserted['quest_id'] ?? ''))
-      ->execute();
+    $this->storylineQuestLifecycleService->attachStorylineReferenceToQuestRow(
+      $campaign_id,
+      (string) ($inserted['quest_id'] ?? ''),
+      $storyline_id,
+      !empty($quest_link['chapter_id']) ? (string) $quest_link['chapter_id'] : NULL,
+      !empty($quest_link['scene_id']) ? (string) $quest_link['scene_id'] : NULL
+    );
     $this->storylineManager->synchronizeCampaignValidationIndexes($campaign_id, $storyline_id);
 
-    return $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q')
-      ->condition('campaign_id', $campaign_id)
-      ->condition('quest_id', (string) ($inserted['quest_id'] ?? ''))
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc() ?: NULL;
+    return $this->storylineQuestLifecycleService->loadQuestById($campaign_id, (string) ($inserted['quest_id'] ?? ''));
   }
 
   /**
@@ -1940,7 +1983,7 @@ class StorylineGenerationService {
       ) ?? $storyline;
     }
 
-    if ($this->questTracker === NULL || !is_array($initial_quest)) {
+    if (!is_array($initial_quest)) {
       return [
         'storyline' => $storyline,
         'initial_quest' => $initial_quest,
@@ -1964,7 +2007,7 @@ class StorylineGenerationService {
     $status = strtolower(trim((string) ($initial_quest['status'] ?? '')));
 
     if ($status !== 'active') {
-      $started = $this->questTracker->startQuest($campaign_id, $quest_id, $character_id, $party_id);
+      $started = $this->storylineQuestLifecycleService->startOfferedQuest($campaign_id, $quest_id, $character_id, $party_id);
       if (!$started) {
         $this->logger->warning('Bootstrap quest handoff failed to activate quest {quest_id} for campaign {campaign_id}', [
           'quest_id' => $quest_id,
@@ -2106,10 +2149,21 @@ class StorylineGenerationService {
    */
   protected function assertQuestTemplateConformsToObjectiveContract(array $template): void {
     $template_id = trim((string) ($template['template_id'] ?? 'generated-template'));
-    $this->objectiveTypeService->assertObjectivePhases(
+    $this->getObjectiveTypeService()->assertObjectivePhases(
       is_array($template['objectives_schema'] ?? NULL) ? $template['objectives_schema'] : [],
       'storyline_generation.quest_templates[' . $template_id . '].objectives_schema'
     );
+  }
+
+  /**
+   * Resolve required objective type dependency for storyline generation.
+   */
+  protected function getObjectiveTypeService(): ObjectiveTypeService {
+    if (!($this->objectiveTypeService instanceof ObjectiveTypeService)) {
+      throw new \RuntimeException('ObjectiveTypeService is required for storyline objective contract validation.');
+    }
+
+    return $this->objectiveTypeService;
   }
 
   /**
@@ -2167,12 +2221,28 @@ class StorylineGenerationService {
     if (!is_array($storyline['asset_references'] ?? NULL)) {
       $storyline['asset_references'] = [];
     }
-    $storyline['asset_references'][] = [
-      'asset_type' => 'location',
-      'asset_id' => (string) ($context['location_id'] ?? 'tavern_entrance'),
-      'asset_role' => 'starting-location',
-      'notes' => 'Campaign location that anchors the generated storyline lead.',
-    ];
+    $starting_location_id = trim((string) ($context['location_id'] ?? 'tavern_entrance'));
+    $has_starting_location_ref = FALSE;
+    foreach ((array) ($storyline['asset_references'] ?? []) as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      if (
+        strtolower(trim((string) ($reference['asset_type'] ?? ''))) === 'room'
+        && trim((string) ($reference['asset_id'] ?? '')) === $starting_location_id
+      ) {
+        $has_starting_location_ref = TRUE;
+        break;
+      }
+    }
+    if (!$has_starting_location_ref && $starting_location_id !== '') {
+      $storyline['asset_references'][] = [
+        'asset_type' => 'room',
+        'asset_id' => $starting_location_id,
+        'asset_role' => 'starting-location',
+        'notes' => 'Campaign location that anchors the generated storyline lead.',
+      ];
+    }
 
     return $storyline;
   }
@@ -2523,10 +2593,24 @@ class StorylineGenerationService {
    * Build room item ids aligned to role and loot table usage.
    */
   protected function buildRoomItemIds(string $room_role, array $boss, string $loot_table_id): array {
-    return [
-      $this->sanitizeIdentifier(($boss['dungeon_id'] ?? 'generated-dungeon') . '-' . $room_role . '-relic'),
-      $this->sanitizeIdentifier($loot_table_id . '-' . $room_role . '-cache'),
+    $canonical_item_ids = array_keys($this->loadCanonicalItemIds());
+    $pool_size = count($canonical_item_ids);
+    if ($pool_size === 0) {
+      throw new \RuntimeException('Cannot build room item ids without canonical item registry rows.');
+    }
+
+    $seed = abs(crc32((string) ($boss['dungeon_id'] ?? 'generated-dungeon') . '|' . $room_role . '|' . $loot_table_id));
+    $primary_index = $seed % $pool_size;
+    $secondary_index = ($seed + 17) % $pool_size;
+    if ($secondary_index === $primary_index && $pool_size > 1) {
+      $secondary_index = ($primary_index + 1) % $pool_size;
+    }
+
+    $picked = [
+      $canonical_item_ids[$primary_index],
+      $canonical_item_ids[$secondary_index],
     ];
+    return array_values(array_unique(array_filter(array_map('strval', $picked))));
   }
 
   /**
@@ -2668,6 +2752,23 @@ class StorylineGenerationService {
 
     $level = $this->clampSupportedStorylineLevel((int) preg_replace('/\D+/', '', $level_range));
     return ['min' => $level ?: 1, 'max' => max(1, $level ?: 4)];
+  }
+
+  /**
+   * Surface AI generation failures as hard-fail runtime exceptions.
+   */
+  protected function rethrowAiGenerationFailure(string $operation, int $campaign_id, \Throwable $error): never {
+    $this->logger->error('AI {operation} failed for campaign {campaign_id}: {error}', [
+      'operation' => $operation,
+      'campaign_id' => $campaign_id,
+      'error' => $error->getMessage(),
+    ]);
+
+    throw new \RuntimeException(
+      sprintf('AI %s failed for campaign %d: %s', $operation, $campaign_id, $error->getMessage()),
+      0,
+      $error
+    );
   }
 
   /**

@@ -77,6 +77,21 @@ class StorylineRealizationService {
       $realized[] = $entity_ref;
     }
 
+    $storyline_id = trim((string) ($storyline['storyline_id'] ?? ''));
+    if ($storyline_id !== '' && isset($storyline_data['contacts']) && is_array($storyline_data['contacts'])) {
+      $updated_contacts = $this->buildRuntimeStorylineContacts($storyline_data['contacts']);
+      if ($updated_contacts !== array_values(array_filter($storyline_data['contacts'], 'is_array'))) {
+        $storyline_data['contacts'] = $updated_contacts;
+        $this->database->update('dc_campaign_storylines')
+          ->fields([
+            'storyline_data' => json_encode($storyline_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          ])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('storyline_id', $storyline_id)
+          ->execute();
+      }
+    }
+
     return array_values(array_unique($realized));
   }
 
@@ -181,6 +196,11 @@ class StorylineRealizationService {
           'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : NULL,
         ];
       }, $rooms));
+      $candidate_room_ids = array_values(array_filter(array_map(
+        static fn(array $room): string => trim((string) ($room['room_id'] ?? '')),
+        $campaign_rooms
+      )));
+      $this->assertCampaignRoomBridgeContract($campaign_id, $candidate_room_ids, $storyline_id, $dungeon_id);
       $entry_room_id = (string) ($canonical_dungeon_data['entry_room'] ?? '');
       if ($entry_room_id === '' || !in_array($entry_room_id, array_map(static fn(array $room): string => (string) ($room['room_id'] ?? ''), $campaign_rooms), TRUE)) {
         throw new \RuntimeException(sprintf(
@@ -276,12 +296,12 @@ class StorylineRealizationService {
           'obstacles' => [],
         ];
 
-        $environment_tags = json_encode([
+        $environment_tags = [
           'storyline',
           'generated',
           $room_role,
           (string) ($dungeon['style'] ?? 'generated'),
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        ];
         $encoded_layout = json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $encoded_contents = json_encode($contents_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -303,22 +323,16 @@ class StorylineRealizationService {
             ->execute();
         }
 
-        $this->database->merge('dc_campaign_rooms')
-          ->keys([
-            'campaign_id' => $campaign_id,
-            'room_id' => $room_id,
-          ])
-          ->fields([
-            'name' => $room_display_name,
-            'description' => (string) ($room['summary'] ?? ''),
-            'environment_tags' => $environment_tags,
-            'layout_data' => $encoded_layout,
-            'contents_data' => $encoded_contents,
-            'source_room_id' => $room_id,
-            'updated' => $now,
-          ])
-          ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
-          ->execute();
+        $this->resolveMapGeneratorService()->persistCanonicalCampaignRoom(
+          $campaign_id,
+          $room_id,
+          $room_display_name,
+          (string) ($room['summary'] ?? ''),
+          $layout_data,
+          $contents_data,
+          $environment_tags,
+          $room_id
+        );
         $summary['rooms']++;
 
         $this->database->merge('dc_campaign_room_states')
@@ -561,12 +575,7 @@ class StorylineRealizationService {
     $mid_level = min(20, max($level_bounds['min'], (int) floor(($level_bounds['min'] + $level_bounds['max']) / 2)));
 
     foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
-      if (!is_array($contact)) {
-        continue;
-      }
-
-      $entity_type = trim((string) ($contact['entity_type'] ?? ''));
-      if (!in_array($entity_type, ['campaign_npc', 'npc_template'], TRUE)) {
+      if (!is_array($contact) || (string) ($contact['entity_type'] ?? '') !== 'campaign_npc') {
         continue;
       }
 
@@ -709,6 +718,110 @@ class StorylineRealizationService {
   }
 
   /**
+   * Normalize a storyline contact entity id into a runtime campaign NPC id.
+   */
+  protected function normalizeStorylineContactRuntimeId(string $entity_id): string {
+    return $this->normalizeNpcInstanceId($entity_id);
+  }
+
+  /**
+   * Rewrite storyline contacts into runtime-ready contact records.
+   *
+   * @param array<int, mixed> $contacts
+   *   Storyline contact definitions.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Runtime contact definitions with resolved instance ids.
+   */
+  protected function buildRuntimeStorylineContacts(array $contacts): array {
+    $runtime_contacts = [];
+
+    foreach ($contacts as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+
+      $entity_type = trim((string) ($contact['entity_type'] ?? ''));
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_type !== 'campaign_npc') {
+        throw new \RuntimeException(sprintf(
+          'Storyline contact "%s" must resolve to campaign_npc before runtime realization.',
+          $entity_id !== '' ? $entity_id : '(missing entity_id)'
+        ));
+      }
+      if ($entity_id === '') {
+        throw new \RuntimeException('Storyline contact is missing entity_id before runtime realization.');
+      }
+
+      $runtime_entity_id = trim((string) ($contact['runtime_entity_id'] ?? ''));
+      if ($runtime_entity_id === '') {
+        $runtime_entity_id = $this->normalizeStorylineContactRuntimeId($entity_id);
+      }
+      if ($runtime_entity_id === '') {
+        continue;
+      }
+
+      $normalized_contact = $contact;
+      $normalized_contact['entity_type'] = 'campaign_npc';
+      $normalized_contact['entity_id'] = $entity_id;
+      $normalized_contact['runtime_entity_id'] = $runtime_entity_id;
+      $normalized_contact['introduces_to'] = $this->buildRuntimeStorylineIntroductions(
+        is_array($contact['introduces_to'] ?? NULL) ? $contact['introduces_to'] : []
+      );
+      $runtime_contacts[] = $normalized_contact;
+    }
+
+    return $runtime_contacts;
+  }
+
+  /**
+   * Rewrite storyline contact introductions into runtime-ready records.
+   *
+   * @param array<int, mixed> $introductions
+   *   Storyline introduction definitions.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Runtime introduction definitions with resolved instance ids.
+   */
+  protected function buildRuntimeStorylineIntroductions(array $introductions): array {
+    $runtime_introductions = [];
+
+    foreach ($introductions as $introduction) {
+      if (!is_array($introduction)) {
+        continue;
+      }
+
+      $entity_type = trim((string) ($introduction['entity_type'] ?? ''));
+      $entity_id = trim((string) ($introduction['entity_id'] ?? ''));
+      if ($entity_type !== 'campaign_npc') {
+        throw new \RuntimeException(sprintf(
+          'Storyline introduction "%s" must resolve to campaign_npc before runtime realization.',
+          $entity_id !== '' ? $entity_id : '(missing entity_id)'
+        ));
+      }
+      if ($entity_id === '') {
+        throw new \RuntimeException('Storyline introduction is missing entity_id before runtime realization.');
+      }
+
+      $runtime_entity_id = trim((string) ($introduction['runtime_entity_id'] ?? ''));
+      if ($runtime_entity_id === '') {
+        $runtime_entity_id = $this->normalizeStorylineContactRuntimeId($entity_id);
+      }
+      if ($runtime_entity_id === '') {
+        continue;
+      }
+
+      $normalized_introduction = $introduction;
+      $normalized_introduction['entity_type'] = 'campaign_npc';
+      $normalized_introduction['entity_id'] = $entity_id;
+      $normalized_introduction['runtime_entity_id'] = $runtime_entity_id;
+      $runtime_introductions[] = $normalized_introduction;
+    }
+
+    return $runtime_introductions;
+  }
+
+  /**
    * Build dc_campaign_characters upsert fields from normalized storyline NPC data.
    *
    * @param array<string, mixed> $fields
@@ -828,7 +941,10 @@ class StorylineRealizationService {
   }
 
   /**
-   * Extract dungeon outlines from either bootstrap or expanded storyline metadata.
+   * Extract dungeon outlines from expanded storyline metadata.
+   *
+   * No fallback/synthetic outline generation is permitted. Storyline realization
+   * requires canonical generated_outline.dungeons payloads.
    *
    * @return array<int, array<string, mixed>>
    *   Normalized dungeon outline payloads.
@@ -840,48 +956,118 @@ class StorylineRealizationService {
       return $dungeons;
     }
 
-    $entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
-    $dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? ''));
-    $entrance_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? ''));
-    if ($dungeon_id === '' || $entrance_room_id === '') {
+    if (is_array($outline['entry_dungeon'] ?? NULL)) {
+      throw new \RuntimeException('Storyline realization contract violation: generated_outline.dungeons is required; entry_dungeon fallback outlines are not allowed.');
+    }
+    if ($outline === []) {
       return [];
     }
+    throw new \RuntimeException('Storyline realization contract violation: generated_outline.dungeons is missing or invalid.');
+  }
 
-    $scene = is_array($storyline_data['chapters'][0]['scenes'][0] ?? NULL) ? $storyline_data['chapters'][0]['scenes'][0] : [];
-    $quest_template_id = trim((string) (($scene['quest_ids'][0] ?? '') ?: ($storyline_data['questline']['primary_quest_id'] ?? '')));
+  /**
+   * Enforce generator-grade graph bridge requirements before campaign room writes.
+   *
+   * @param array<int, string> $candidate_room_ids
+   *   Rooms scheduled for insertion into dc_campaign_rooms.
+   */
+  protected function assertCampaignRoomBridgeContract(
+    int $campaign_id,
+    array $candidate_room_ids,
+    string $storyline_id,
+    string $dungeon_id
+  ): void {
+    $candidate_room_ids = array_values(array_unique(array_filter(array_map('strval', $candidate_room_ids))));
+    if ($campaign_id <= 0 || $candidate_room_ids === []) {
+      return;
+    }
 
-    return [[
-      'dungeon_id' => $dungeon_id,
-      'name' => (string) ($entry_dungeon['name'] ?? $dungeon_id),
-      'style' => (string) ($entry_dungeon['style'] ?? 'generated threshold'),
-      'goal_alignment' => (string) ($outline['goal'] ?? ($storyline_data['metadata']['goal'] ?? '')),
-      'entrance_room_id' => $entrance_room_id,
-      'boss_room_id' => $entrance_room_id,
-      'room_count' => 1,
-      'rooms' => [[
-        'room_id' => $entrance_room_id,
-        'quest_template_id' => $quest_template_id,
-        'name' => (string) ($scene['name'] ?? 'Dungeon Entrance'),
-        'room_role' => 'entrance',
-        'style' => (string) ($entry_dungeon['style'] ?? 'generated threshold'),
-        'summary' => (string) ($scene['summary'] ?? ($entry_dungeon['lead_location_hint'] ?? 'Reach the first dungeon entrance.')),
-        'npc_ids' => [],
-        'item_ids' => [],
-        'encounter_connector' => [
-          'room_id' => $entrance_room_id,
-          'boss_id' => '',
-          'threat_level' => 'low',
-          'theme' => (string) ($entry_dungeon['style'] ?? 'generated threshold'),
-          'encounter_type' => 'exploration',
-        ],
-        'treasure_connector' => [
-          'room_id' => $entrance_room_id,
-          'loot_table_id' => 'core_starter_adventure',
-          'currency_gp' => 0,
-          'permanent_item_level' => 1,
-        ],
-      ]],
-    ]];
+    $existing_rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchCol();
+    $known_room_ids = [];
+    foreach ((array) $existing_rows as $room_id) {
+      $normalized = trim((string) $room_id);
+      if ($normalized !== '') {
+        $known_room_ids[$normalized] = TRUE;
+      }
+    }
+    if ($known_room_ids === []) {
+      return;
+    }
+
+    $pending = [];
+    foreach ($candidate_room_ids as $room_id) {
+      $layout_data = $this->requireCanonicalRoomLayoutData($room_id, $storyline_id, $dungeon_id);
+      $pending[$room_id] = $this->extractExitTargetRoomIds($layout_data);
+    }
+
+    while ($pending !== []) {
+      $progressed = FALSE;
+      foreach ($pending as $room_id => $target_room_ids) {
+        $bridges_known_graph = FALSE;
+        foreach ($target_room_ids as $target_room_id) {
+          if (isset($known_room_ids[$target_room_id])) {
+            $bridges_known_graph = TRUE;
+            break;
+          }
+        }
+        if (!$bridges_known_graph) {
+          continue;
+        }
+
+        $known_room_ids[$room_id] = TRUE;
+        unset($pending[$room_id]);
+        $progressed = TRUE;
+      }
+
+      if ($progressed) {
+        continue;
+      }
+
+      throw new \RuntimeException(sprintf(
+        'Storyline realization contract violation: campaign %d storyline %s dungeon %s would materialize disconnected room rows (%s).',
+        $campaign_id,
+        $storyline_id !== '' ? $storyline_id : 'unknown',
+        $dungeon_id !== '' ? $dungeon_id : 'unknown',
+        implode(', ', array_keys($pending))
+      ));
+    }
+  }
+
+  /**
+   * Extract unique target room IDs from layout_data.exits.
+   *
+   * @return array<int, string>
+   *   Target room IDs.
+   */
+  protected function extractExitTargetRoomIds(array $layout_data): array {
+    $targets = [];
+    foreach ((array) ($layout_data['exits'] ?? []) as $exit) {
+      if (!is_array($exit)) {
+        continue;
+      }
+      $target_room_id = trim((string) ($exit['target_room_id'] ?? $exit['destination_id'] ?? $exit['room_id'] ?? ''));
+      if ($target_room_id !== '') {
+        $targets[$target_room_id] = TRUE;
+      }
+    }
+    return array_values(array_keys($targets));
+  }
+
+  /**
+   * Resolve map generator service for centralized campaign room persistence.
+   */
+  protected function resolveMapGeneratorService(): MapGeneratorService {
+    if (\Drupal::hasService('dungeoncrawler_content.map_generator')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.map_generator');
+      if ($candidate instanceof MapGeneratorService) {
+        return $candidate;
+      }
+    }
+    throw new \RuntimeException('Storyline realization contract violation: MapGeneratorService is required for campaign room persistence.');
   }
 
   /**

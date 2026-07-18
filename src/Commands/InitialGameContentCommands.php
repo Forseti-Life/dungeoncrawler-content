@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Commands;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
+use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drush\Commands\DrushCommands;
 
 /**
@@ -248,21 +249,32 @@ class InitialGameContentCommands extends DrushCommands {
       $this->io()->note("Reloading room '{$room_id}'.");
     }
 
-    // Insert room.
-    $now = time();
-    $this->database->insert('dc_campaign_rooms')
-      ->fields([
-        'campaign_id' => $campaign_id,
-        'room_id' => $room_id,
-        'name' => $room_data['name'] ?? 'Unknown Room',
-        'description' => $room_data['description'] ?? '',
-        'environment_tags' => json_encode($room_data['environment_tags'] ?? []),
-        'layout_data' => json_encode($room_data['layout_data'] ?? []),
-        'contents_data' => json_encode($room_data['contents_data'] ?? []),
-        'created' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
+    $layout_data = is_array($room_data['layout_data'] ?? NULL) ? $room_data['layout_data'] : [];
+    $layout_hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if ($layout_hexes === []) {
+      throw new \RuntimeException(sprintf(
+        "Room '%s' is missing required layout_data.hexes.",
+        $room_id
+      ));
+    }
+    $layout_data['entry_points'] = is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [];
+    $layout_data['exit_points'] = is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [];
+    $layout_data['exits'] = is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [];
+    $layout_data['terrain'] = is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [];
+    $layout_data['lighting'] = is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [];
+
+    $contents_data = is_array($room_data['contents_data'] ?? NULL) ? $room_data['contents_data'] : [];
+
+    $this->resolveMapGeneratorService()->persistCanonicalCampaignRoom(
+      $campaign_id,
+      (string) $room_id,
+      (string) ($room_data['name'] ?? 'Unknown Room'),
+      (string) ($room_data['description'] ?? ''),
+      $layout_data,
+      $contents_data,
+      is_array($room_data['environment_tags'] ?? NULL) ? $room_data['environment_tags'] : [],
+      (string) ($room_data['source_room_id'] ?? $room_id)
+    );
 
     $this->io()->writeln("  ✓ Room '{$room_id}' created");
   }
@@ -506,5 +518,18 @@ class InitialGameContentCommands extends DrushCommands {
       ->execute();
 
     $this->io()->writeln("  ✓ Room state initialized");
+  }
+
+  /**
+   * Resolve map generator service for centralized campaign room persistence.
+   */
+  protected function resolveMapGeneratorService(): MapGeneratorService {
+    if (\Drupal::hasService('dungeoncrawler_content.map_generator')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.map_generator');
+      if ($candidate instanceof MapGeneratorService) {
+        return $candidate;
+      }
+    }
+    throw new \RuntimeException('Initial content contract violation: MapGeneratorService is required for campaign room persistence.');
   }
 }

@@ -7,9 +7,11 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignStateService;
+use Drupal\dungeoncrawler_content\Service\ContentRegistry;
 use Drupal\dungeoncrawler_content\Service\ObjectiveTypeService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
+use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -155,6 +157,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
     ]);
 
     $this->assertCount(2, $normalized['contacts']);
+    $this->assertSame('campaign_npc', $normalized['contacts'][0]['entity_type']);
     $this->assertSame('quest_giver', $normalized['contacts'][0]['role']);
     $this->assertSame('campaign_npc', $normalized['contacts'][1]['entity_type']);
     $this->assertSame('npc_tavern_keeper', $normalized['contacts'][1]['entity_id']);
@@ -380,6 +383,9 @@ class StorylineManagerServiceTest extends UnitTestCase {
       'metadata' => [
         'generated_outline' => [
           'generation_phase' => 'bootstrap',
+          'entry_point' => [
+            'primary_location_id' => 'tal-briefing-room',
+          ],
           'entry_dungeon' => [
             'name' => 'Onboarding',
             'dungeon_id' => 'onboarding',
@@ -425,9 +431,9 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertSame('torment-and-legacy', $normalized['metadata']['template_id']);
     $this->assertSame('Torment and Legacy', $normalized['metadata']['name']);
     $this->assertSame('torment-and-legacy-entry-dungeon', $normalized['metadata']['generated_outline']['entry_dungeon']['dungeon_id']);
-    $this->assertSame('torment-and-legacy-entry-dungeon-entrance', $normalized['metadata']['generated_outline']['entry_dungeon']['entrance_room_id']);
+    $this->assertSame('tal-briefing-room', $normalized['metadata']['generated_outline']['entry_dungeon']['entrance_room_id']);
     $this->assertSame('torment-and-legacy-entry-dungeon', $normalized['metadata']['generated_outline']['progression_connectors'][0]['target_dungeon_id']);
-    $this->assertSame('torment-and-legacy-entry-dungeon-entrance', $normalized['metadata']['generated_outline']['progression_connectors'][0]['target_room_id']);
+    $this->assertSame('tal-briefing-room', $normalized['metadata']['generated_outline']['progression_connectors'][0]['target_room_id']);
   }
 
   /**
@@ -643,7 +649,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
 
       protected function persistCampaignStorylinePointers(int $campaign_id, string $storyline_id, bool $primary): void {}
 
-      protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id): ?array {
+      protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id, array $options = []): ?array {
         $this->finalizedStorylines[] = [$campaign_id, $storyline_id];
         return [
           'storyline_id' => $storyline_id,
@@ -766,7 +772,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
 
       protected function logStorylineEvent(int $campaign_id, string $storyline_id, string $event_type, array $event_data, ?string $narrative_text = NULL): void {}
 
-      protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id): ?array {
+      protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id, array $options = []): ?array {
         $this->finalizedStorylines[] = [$campaign_id, $storyline_id];
         return [
           'storyline_id' => $storyline_id,
@@ -961,6 +967,10 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertTrue($validation['stages']['navigation_progression']['valid']);
     $this->assertTrue($validation['stages']['objective_control_chain']['valid']);
     $this->assertTrue($validation['stages']['entity_type_contracts']['valid']);
+    $this->assertTrue($validation['stages']['task_contracts']['valid']);
+    $this->assertTrue($validation['stages']['objective_playability']['valid']);
+    $this->assertTrue($validation['stages']['entity_linkage']['valid']);
+    $this->assertTrue($validation['stages']['dungeon_room_contracts']['valid']);
   }
 
   /**
@@ -1324,12 +1334,482 @@ class StorylineManagerServiceTest extends UnitTestCase {
   /**
    * @covers ::validateStorylineEndToEndContract
    */
+  public function testValidateStorylineEndToEndContractDefinitionRejectsConnectorRoomOutsideTargetDungeon(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $state_validation = $this->buildStateValidationServiceMock();
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $state_validation,
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => ['dungeon-alpha' => TRUE],
+          'room_ids' => ['room-alpha' => TRUE, 'room-beta' => TRUE],
+          'dungeon_room_ids' => [
+            'dungeon-alpha' => ['room-alpha' => TRUE],
+          ],
+          'errors' => [],
+        ];
+      }
+
+      protected function validateDungeonRoomContractsStage(array $storyline_data, string $payload_type): array {
+        return [];
+      }
+    };
+
+    $definition = [
+      'schema_version' => StorylineManagerService::STORYLINE_DEFINITION_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => [
+        'generated_outline' => [
+          'entry_dungeon' => [
+            'dungeon_id' => 'dungeon-alpha',
+            'entrance_room_id' => 'room-alpha',
+          ],
+          'progression_connectors' => [[
+            'connector_id' => 'connector-a',
+            'source_type' => 'scene',
+            'source_id' => 'scene-one',
+            'target_dungeon_id' => 'dungeon-alpha',
+            'target_room_id' => 'room-beta',
+          ]],
+        ],
+      ],
+      'chapters' => [[
+        'chapter_id' => 'chapter-one',
+        'name' => 'Chapter One',
+        'scenes' => [[
+          'scene_id' => 'scene-one',
+          'name' => 'Scene One',
+          'quest_ids' => [],
+        ]],
+      ]],
+      'linked_quests' => [],
+      'questline' => [
+        'primary_quest_id' => '',
+        'ordered_quest_ids' => [],
+        'quest_nodes' => [],
+      ],
+      'asset_references' => [],
+      'contacts' => [],
+    ];
+
+    $validation = $service->validateStorylineEndToEndContract($definition, 'definition');
+
+    $this->assertFalse($validation['stages']['navigation_progression']['valid']);
+    $this->assertStringContainsString(
+      'DCV_NAV_CONNECTOR_TARGET_ROOM_NOT_IN_DUNGEON',
+      implode('; ', $validation['stages']['navigation_progression']['errors'] ?? [])
+    );
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
+  public function testValidateStorylineEndToEndContractRuntimeSkipsCanonicalNavigationLookupChecks(): void {
+    $service = $this->buildServiceWithObjectiveType();
+    $runtime = [
+      'schema_version' => StorylineManagerService::STORYLINE_RUNTIME_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => [
+        'generated_outline' => [
+          'entry_point' => [
+            'primary_quest_giver_id' => 'npc-guide',
+            'primary_quest_giver_name' => 'Guide',
+            'primary_dungeon_id' => 'missing-dungeon',
+            'primary_chapter_id' => 'chapter-one',
+            'primary_scene_id' => 'scene-one',
+            'primary_location_id' => 'missing-room',
+            'introduction_path' => 'direct',
+            'detail_summary' => 'Guide briefing.',
+          ],
+          'entry_dungeon' => [
+            'dungeon_id' => 'missing-dungeon',
+            'entrance_room_id' => 'missing-room',
+          ],
+          'progression_connectors' => [[
+            'connector_id' => 'connector-a',
+            'source_type' => 'scene',
+            'source_id' => 'scene-one',
+            'target_dungeon_id' => 'missing-dungeon',
+            'target_room_id' => 'missing-room',
+          ]],
+        ],
+      ],
+      'chapters' => [[
+        'chapter_id' => 'chapter-one',
+        'name' => 'Chapter One',
+        'scenes' => [[
+          'scene_id' => 'scene-one',
+          'name' => 'Scene One',
+          'quest_ids' => [],
+        ]],
+      ]],
+      'linked_quests' => [],
+      'questline' => [
+        'primary_quest_id' => '',
+        'ordered_quest_ids' => [],
+        'quest_nodes' => [],
+      ],
+      'asset_references' => [],
+      'contacts' => [],
+      'unlocked_chapter_ids' => ['chapter-one'],
+      'unlocked_scene_ids' => ['scene-one'],
+      'current_chapter_id' => 'chapter-one',
+      'current_scene_id' => 'scene-one',
+      'status' => 'active',
+      'variables' => [],
+    ];
+
+    $validation = $service->validateStorylineEndToEndContract($runtime, 'runtime');
+
+    $this->assertTrue($validation['stages']['navigation_progression']['valid']);
+    $this->assertSame([], $validation['stages']['navigation_progression']['errors']);
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
+  public function testValidateStorylineEndToEndContractDefinitionRejectsInvalidConnectorSourceReference(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $state_validation = $this->buildStateValidationServiceMock();
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $state_validation,
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => ['dungeon-alpha' => TRUE],
+          'room_ids' => ['room-alpha' => TRUE],
+          'dungeon_room_ids' => [
+            'dungeon-alpha' => ['room-alpha' => TRUE],
+          ],
+          'errors' => [],
+        ];
+      }
+
+      protected function validateDungeonRoomContractsStage(array $storyline_data, string $payload_type): array {
+        return [];
+      }
+    };
+
+    $definition = [
+      'schema_version' => StorylineManagerService::STORYLINE_DEFINITION_SCHEMA_VERSION,
+      'storyline_type' => 'questline',
+      'metadata' => [
+        'generated_outline' => [
+          'entry_dungeon' => [
+            'dungeon_id' => 'dungeon-alpha',
+            'entrance_room_id' => 'room-alpha',
+          ],
+          'progression_connectors' => [[
+            'connector_id' => 'connector-b',
+            'source_type' => 'npc',
+            'source_id' => 'missing-npc',
+            'target_dungeon_id' => 'dungeon-alpha',
+            'target_room_id' => 'room-alpha',
+          ]],
+        ],
+      ],
+      'chapters' => [[
+        'chapter_id' => 'chapter-one',
+        'name' => 'Chapter One',
+        'scenes' => [[
+          'scene_id' => 'scene-one',
+          'name' => 'Scene One',
+          'quest_ids' => [],
+        ]],
+      ]],
+      'linked_quests' => [],
+      'questline' => [
+        'primary_quest_id' => '',
+        'ordered_quest_ids' => [],
+        'quest_nodes' => [],
+      ],
+      'asset_references' => [],
+      'contacts' => [],
+    ];
+
+    $validation = $service->validateStorylineEndToEndContract($definition, 'definition');
+
+    $this->assertFalse($validation['stages']['navigation_progression']['valid']);
+    $this->assertStringContainsString(
+      'DCV_NAV_CONNECTOR_SOURCE_INVALID',
+      implode('; ', $validation['stages']['navigation_progression']['errors'] ?? [])
+    );
+  }
+
+  /**
+   * @covers ::listTemplates
+   */
+  public function testListTemplatesUsesCanonicalStorageGate(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function assertCanonicalStorylineStorageReady(): void {
+        throw new \RuntimeException('canonical-gate-invoked');
+      }
+    };
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('canonical-gate-invoked');
+    $service->listTemplates();
+  }
+
+  /**
+   * @covers ::isCanonicalStorylineStorageReady
+   */
+  public function testCanonicalStorageReadinessDoesNotRequireLegacyStorylineTable(): void {
+    $schema = $this->createMock(\Drupal\Core\Database\Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => in_array($table, ['dc_canonical_storylines', 'dc_canonical_quests'], TRUE));
+    $schema->method('fieldExists')
+      ->willReturnCallback(static fn(string $table, string $field): bool => $table === 'dc_canonical_storylines' && in_array($field, ['template_id', 'name', 'template_data', 'created', 'updated'], TRUE));
+
+    $connection = $this->createMock(Connection::class);
+    $connection->method('schema')->willReturn($schema);
+
+    $service = new StorylineManagerService(
+      $connection,
+      $this->buildLoggerFactory(),
+      $this->createMock(UuidInterface::class),
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      $this->createMock(StorylineQuestLifecycleService::class)
+    );
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'isCanonicalStorylineStorageReady');
+    $method->setAccessible(TRUE);
+
+    $this->assertTrue($method->invoke($service));
+  }
+
+  /**
+   * @covers ::assertCanonicalStorylineStorageReady
+   */
+  public function testAssertCanonicalStorageReadyReportsContractIssues(): void {
+    $schema = $this->createMock(\Drupal\Core\Database\Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dc_canonical_storylines');
+    $schema->method('fieldExists')
+      ->willReturnCallback(static fn(string $table, string $field): bool => $table === 'dc_canonical_storylines' && $field !== 'template_data');
+
+    $connection = $this->createMock(Connection::class);
+    $connection->method('schema')->willReturn($schema);
+
+    $service = new StorylineManagerService(
+      $connection,
+      $this->buildLoggerFactory(),
+      $this->createMock(UuidInterface::class),
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      $this->createMock(StorylineQuestLifecycleService::class)
+    );
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'assertCanonicalStorylineStorageReady');
+    $method->setAccessible(TRUE);
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('missing table dc_canonical_quests');
+    $this->expectExceptionMessage('missing field dc_canonical_storylines.template_data');
+    $method->invoke($service);
+  }
+
+  /**
+   * @covers ::validateStorylineEndToEndContract
+   */
   public function testValidateStorylineEndToEndContractRejectsUnsupportedPayloadType(): void {
     $service = $this->buildService();
     $this->expectException(\InvalidArgumentException::class);
     $this->expectExceptionMessage('Unsupported storyline payload type');
 
     $service->validateStorylineEndToEndContract([], 'unsupported');
+  }
+
+  /**
+   * @covers ::validateObjectivePlayabilityStage
+   * @covers ::validateObjectivePlayabilityNodeRecursive
+   * @covers ::objectiveNeedsNamedTargetGuidance
+   */
+  public function testValidateObjectivePlayabilityStageRejectsMissingNamedGuidanceContract(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+        return [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'reach-vault-entry',
+            'type' => 'explore',
+            'description' => 'Reach the vault entry with the Hookclaw team.',
+            'target' => 'ltba-hookclaw-vault-guide',
+            'location_id' => 'ltba-vault-entry',
+            'next_step' => 'Follow Zikza into the first vault chamber to begin the delve.',
+            'completion_criteria' => [
+              'kind' => 'flag',
+              'metric' => 'objective_reached',
+              'required_value' => TRUE,
+              'description' => 'Arrive at the vault entry.',
+            ],
+          ]],
+        ]];
+      }
+    };
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateObjectivePlayabilityStage');
+    $method->setAccessible(TRUE);
+    $errors = $method->invoke($service, [
+      'linked_quests' => [
+        'ltba-enter-the-vault' => ['quest_id' => 'ltba-enter-the-vault'],
+      ],
+    ], 'definition');
+
+    $error_text = implode('; ', $errors);
+    $this->assertStringContainsString('DCV_OBJ_PLAYABILITY_MISSING_TARGET_LABEL', $error_text);
+    $this->assertStringContainsString('DCV_OBJ_PLAYABILITY_MISSING_TARGET_ALIASES', $error_text);
+    $this->assertStringContainsString('DCV_OBJ_PLAYABILITY_MISSING_WAYFINDING_HINT', $error_text);
+  }
+
+  /**
+   * @covers ::validateObjectivePlayabilityStage
+   * @covers ::validateObjectivePlayabilityNodeRecursive
+   * @covers ::objectiveNeedsNamedTargetGuidance
+   */
+  public function testValidateObjectivePlayabilityStageAcceptsNamedGuidanceContract(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+        return [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'reach-vault-entry',
+            'type' => 'explore',
+            'description' => 'Reach the vault entry with the Hookclaw team.',
+            'target' => 'ltba-hookclaw-vault-guide',
+            'target_label' => 'Zikza Hookclaw',
+            'target_aliases' => ['Zika Hookclaw', 'Hookclaw guide'],
+            'location_id' => 'ltba-vault-entry',
+            'wayfinding_hint' => 'Head to the docks and follow Hookclaw markers to the vault entry.',
+            'next_step' => 'Follow Zikza into the first vault chamber to begin the delve.',
+            'completion_criteria' => [
+              'kind' => 'flag',
+              'metric' => 'objective_reached',
+              'required_value' => TRUE,
+              'description' => 'Arrive at the vault entry.',
+            ],
+          ]],
+        ]];
+      }
+    };
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateObjectivePlayabilityStage');
+    $method->setAccessible(TRUE);
+    $errors = $method->invoke($service, [
+      'linked_quests' => [
+        'ltba-enter-the-vault' => ['quest_id' => 'ltba-enter-the-vault'],
+      ],
+    ], 'definition');
+
+    $this->assertSame([], $errors);
+  }
+
+  /**
+   * @covers ::validateObjectivePlayabilityStage
+   * @covers ::validateObjectivePlayabilityNodeRecursive
+   */
+  public function testValidateObjectivePlayabilityStageRejectsNonstandardTargetIdAnchorField(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+        return [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'talk-guide',
+            'type' => 'interact',
+            'description' => 'Speak with the mission guide to receive orders.',
+            'target' => '',
+            'target_id' => 'ltba-hookclaw-vault-guide',
+            'target_label' => 'Zikza Hookclaw',
+            'target_aliases' => ['Zika Hookclaw', 'Hookclaw guide'],
+            'next_step' => 'Speak with Zikza and confirm you are ready to proceed.',
+            'completion_criteria' => [
+              'kind' => 'flag',
+              'metric' => 'conversation_complete',
+              'required_value' => TRUE,
+              'description' => 'Complete when conversation with the guide is confirmed.',
+            ],
+          ]],
+        ]];
+      }
+    };
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateObjectivePlayabilityStage');
+    $method->setAccessible(TRUE);
+    $errors = $method->invoke($service, [
+      'linked_quests' => [
+        'ltba-enter-the-vault' => ['quest_id' => 'ltba-enter-the-vault'],
+      ],
+    ], 'definition');
+
+    $this->assertStringContainsString(
+      'DCV_OBJ_PLAYABILITY_NONSTANDARD_TARGET_FIELD',
+      implode('; ', $errors)
+    );
   }
 
   /**
@@ -1612,7 +2092,10 @@ class StorylineManagerServiceTest extends UnitTestCase {
       $this->buildLoggerFactory(),
       $uuid,
       $this->createMock(CampaignStateService::class),
-      $state_validation
+      $state_validation,
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
     ) extends StorylineManagerService {
       protected function loadCanonicalCharacterEntityByInstanceId(string $instance_id): ?array {
         if (str_starts_with($instance_id, 'missing-') || str_starts_with($instance_id, 'unknown-')) {
@@ -1692,7 +2175,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
       $state_validation,
       NULL,
       new ObjectiveTypeService(),
-      NULL
+      $this->buildContentRegistryMock()
     );
   }
 
@@ -1725,6 +2208,18 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $factory->method('get')->willReturn($logger);
     return $factory;
+  }
+
+  /**
+   * Builds a permissive content-registry mock for canonical validation tests.
+   */
+  private function buildContentRegistryMock(): ContentRegistry {
+    $registry = $this->createMock(ContentRegistry::class);
+    $registry->method('validateContent')->willReturn([
+      'valid' => TRUE,
+      'errors' => [],
+    ]);
+    return $registry;
   }
 
 }

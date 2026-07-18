@@ -14,12 +14,21 @@ class StorylineManagerService {
 
   public const STORYLINE_DEFINITION_SCHEMA_VERSION = 'storyline-definition-v1';
   public const STORYLINE_RUNTIME_SCHEMA_VERSION = 'storyline-runtime-v1';
+  private const CANONICAL_STORYLINE_TABLE = 'dc_canonical_storylines';
+  private const CANONICAL_STORYLINE_REQUIRED_FIELDS = [
+    'template_id',
+    'name',
+    'template_data',
+    'created_at',
+    'updated_at',
+  ];
 
   protected Connection $database;
   protected LoggerInterface $logger;
   protected UuidInterface $uuid;
   protected CampaignStateService $campaignStateService;
   protected StateValidationService $stateValidationService;
+  protected ?StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected ?ContentRegistry $contentRegistry;
   protected ?StorylineRealizationService $storylineRealizationService;
   protected ?ObjectiveTypeService $objectiveTypeService;
@@ -31,33 +40,101 @@ class StorylineManagerService {
     UuidInterface $uuid,
     CampaignStateService $campaign_state_service,
     StateValidationService $state_validation_service,
-    ?StorylineRealizationService $storyline_realization_service = NULL,
-    ?ObjectiveTypeService $objective_type_service = NULL,
-    ?ContentRegistry $content_registry = NULL
+    mixed $arg6 = NULL,
+    mixed $arg7 = NULL,
+    mixed $arg8 = NULL,
+    mixed $arg9 = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->uuid = $uuid;
     $this->campaignStateService = $campaign_state_service;
     $this->stateValidationService = $state_validation_service;
+    [
+      'storyline_quest_lifecycle_service' => $storyline_quest_lifecycle_service,
+      'storyline_realization_service' => $storyline_realization_service,
+      'objective_type_service' => $objective_type_service,
+      'content_registry' => $content_registry,
+    ] = $this->resolveOptionalConstructorDependencies($arg6, $arg7, $arg8, $arg9);
+    $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
     $this->storylineRealizationService = $storyline_realization_service;
     $this->objectiveTypeService = $objective_type_service;
     $this->contentRegistry = $content_registry;
   }
 
   /**
+   * Resolve optional constructor services from mixed argument ordering.
+   *
+   * Supports both legacy and current container argument positions to avoid
+   * runtime fatals while service containers refresh.
+   *
+   * @return array{
+   *   storyline_quest_lifecycle_service: ?StorylineQuestLifecycleService,
+   *   storyline_realization_service: ?StorylineRealizationService,
+   *   objective_type_service: ?ObjectiveTypeService,
+   *   content_registry: ?ContentRegistry
+   * }
+   */
+  protected function resolveOptionalConstructorDependencies(
+    mixed $arg6,
+    mixed $arg7,
+    mixed $arg8,
+    mixed $arg9
+  ): array {
+    $storyline_quest_lifecycle_service = NULL;
+    $storyline_realization_service = NULL;
+    $objective_type_service = NULL;
+    $content_registry = NULL;
+
+    foreach ([$arg6, $arg7, $arg8, $arg9] as $argument) {
+      if ($argument === NULL) {
+        continue;
+      }
+      if ($argument instanceof StorylineQuestLifecycleService) {
+        $storyline_quest_lifecycle_service = $argument;
+        continue;
+      }
+      if ($argument instanceof StorylineRealizationService) {
+        $storyline_realization_service = $argument;
+        continue;
+      }
+      if ($argument instanceof ObjectiveTypeService) {
+        $objective_type_service = $argument;
+        continue;
+      }
+      if ($argument instanceof ContentRegistry) {
+        $content_registry = $argument;
+        continue;
+      }
+      throw new \InvalidArgumentException(sprintf(
+        'Unsupported StorylineManagerService constructor dependency argument type: %s',
+        get_debug_type($argument)
+      ));
+    }
+
+    return [
+      'storyline_quest_lifecycle_service' => $storyline_quest_lifecycle_service instanceof StorylineQuestLifecycleService
+        ? $storyline_quest_lifecycle_service
+        : NULL,
+      'storyline_realization_service' => $storyline_realization_service instanceof StorylineRealizationService
+        ? $storyline_realization_service
+        : NULL,
+      'objective_type_service' => $objective_type_service instanceof ObjectiveTypeService
+        ? $objective_type_service
+        : NULL,
+      'content_registry' => $content_registry instanceof ContentRegistry
+        ? $content_registry
+        : NULL,
+    ];
+  }
+
+  /**
    * Returns all stored storyline templates.
    */
   public function listTemplates(): array {
-    $this->assertStorylineStorageReady();
-    $schema = $this->database->schema();
-    if (!$schema->tableExists('dc_canonical_storylines')) {
-      throw new \RuntimeException(
-        'Canonical storyline table dc_canonical_storylines is required to list storyline templates.'
-      );
-    }
+    $this->assertCanonicalStorylineStorageReady();
 
-    $rows = $this->database->select('dc_canonical_storylines', 's')
+    $rows = $this->database->select(self::CANONICAL_STORYLINE_TABLE, 's')
       ->fields('s')
       ->orderBy('name', 'ASC')
       ->execute()
@@ -105,9 +182,9 @@ class StorylineManagerService {
    * Loads a single storyline template.
    */
   public function getTemplate(string $template_id): ?array {
-    $this->assertStorylineStorageReady();
+    $this->assertCanonicalStorylineStorageReady();
 
-    $row = $this->database->select('dungeoncrawler_content_storylines', 's')
+    $row = $this->database->select(self::CANONICAL_STORYLINE_TABLE, 's')
       ->fields('s')
       ->condition('template_id', $template_id)
       ->execute()
@@ -120,11 +197,12 @@ class StorylineManagerService {
    * Creates or updates a storyline template from authored JSON.
    */
   public function saveTemplate(array $definition): array {
-    $this->assertStorylineStorageReady();
+    $this->assertCanonicalStorylineStorageReady();
 
     $normalized = $this->normalizeStorylineDefinition($definition);
     $existing = $this->getTemplate((string) $normalized['template_id']);
     $now = time();
+    $schema = $this->database->schema();
 
     $fields = [
       'name' => (string) $normalized['name'],
@@ -133,19 +211,28 @@ class StorylineManagerService {
       'source' => (string) ($normalized['source'] ?? ''),
       'tags' => json_encode($normalized['tags'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
       'template_data' => json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-      'updated' => $now,
+      'updated_at' => $now,
     ];
+    if (!$schema->fieldExists(self::CANONICAL_STORYLINE_TABLE, 'level_range')) {
+      unset($fields['level_range']);
+    }
+    if (!$schema->fieldExists(self::CANONICAL_STORYLINE_TABLE, 'source')) {
+      unset($fields['source']);
+    }
+    if (!$schema->fieldExists(self::CANONICAL_STORYLINE_TABLE, 'tags')) {
+      unset($fields['tags']);
+    }
 
     if ($existing) {
-      $this->database->update('dungeoncrawler_content_storylines')
+      $this->database->update(self::CANONICAL_STORYLINE_TABLE)
         ->fields($fields)
         ->condition('template_id', (string) $normalized['template_id'])
         ->execute();
     }
     else {
       $fields['template_id'] = (string) $normalized['template_id'];
-      $fields['created'] = $now;
-      $this->database->insert('dungeoncrawler_content_storylines')
+      $fields['created_at'] = $now;
+      $this->database->insert(self::CANONICAL_STORYLINE_TABLE)
         ->fields($fields)
         ->execute();
     }
@@ -221,7 +308,9 @@ class StorylineManagerService {
       $this->persistCampaignStorylinePointers($campaign_id, $storyline_id, $is_primary);
     }
 
-    return $this->finalizePersistedCampaignStoryline($campaign_id, $storyline_id) ?? [];
+    return $this->finalizePersistedCampaignStoryline($campaign_id, $storyline_id, [
+      'realize_storyline_assets' => !empty($options['realize_storyline_assets']),
+    ]) ?? [];
   }
 
   /**
@@ -307,16 +396,18 @@ class StorylineManagerService {
   /**
    * Finalize a persisted storyline so all creation paths share realization.
    */
-  protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id): ?array {
+  protected function finalizePersistedCampaignStoryline(int $campaign_id, string $storyline_id, array $options = []): ?array {
     $storyline = $this->getCampaignStoryline($campaign_id, $storyline_id, FALSE);
     if (!is_array($storyline) || $storyline === []) {
       return $storyline;
     }
 
-    if ($this->storylineRealizationService !== NULL) {
+    if (!empty($options['realize_storyline_assets']) && $this->storylineRealizationService !== NULL) {
       $this->storylineRealizationService->realizeStorylineAssets($campaign_id, $storyline);
       $this->storylineRealizationService->realizeStorylineNpcs($campaign_id, $storyline);
     }
+
+    $this->ensureActiveStorylineRoomsAvailableInCampaign($campaign_id, $storyline);
 
     return $storyline;
   }
@@ -478,7 +569,7 @@ class StorylineManagerService {
       'errors' => $questline_progression_errors,
     ];
 
-    $navigation_progression_errors = $this->validateNavigationProgressionFlow($storyline_data);
+    $navigation_progression_errors = $this->validateNavigationProgressionFlow($storyline_data, $normalized_payload_type);
     $stages['navigation_progression'] = [
       'valid' => $navigation_progression_errors === [],
       'errors' => $navigation_progression_errors,
@@ -494,6 +585,30 @@ class StorylineManagerService {
     $stages['entity_type_contracts'] = [
       'valid' => $entity_type_contract_errors === [],
       'errors' => $entity_type_contract_errors,
+    ];
+
+    $task_contract_errors = $this->validateTaskContractsStage($storyline_data, $normalized_payload_type);
+    $stages['task_contracts'] = [
+      'valid' => $task_contract_errors === [],
+      'errors' => $task_contract_errors,
+    ];
+
+    $objective_playability_errors = $this->validateObjectivePlayabilityStage($storyline_data, $normalized_payload_type);
+    $stages['objective_playability'] = [
+      'valid' => $objective_playability_errors === [],
+      'errors' => $objective_playability_errors,
+    ];
+
+    $entity_linkage_errors = $this->validateEntityLinkageStage($storyline_data, $normalized_payload_type);
+    $stages['entity_linkage'] = [
+      'valid' => $entity_linkage_errors === [],
+      'errors' => $entity_linkage_errors,
+    ];
+
+    $dungeon_room_contract_errors = $this->validateDungeonRoomContractsStage($storyline_data, $normalized_payload_type);
+    $stages['dungeon_room_contracts'] = [
+      'valid' => $dungeon_room_contract_errors === [],
+      'errors' => $dungeon_room_contract_errors,
     ];
 
     $errors = [];
@@ -520,47 +635,541 @@ class StorylineManagerService {
    *   Validation errors for this stage.
    */
   protected function validateReferencedEntityTypeContractsStage(array $storyline_data, string $payload_type): array {
-      $errors = [];
-      $asset_references = array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array'));
-      foreach ($asset_references as $index => $reference) {
-        $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? '')));
-        $asset_id = trim((string) ($reference['asset_id'] ?? ''));
-        if ($asset_type === '' || $asset_id === '') {
-          continue;
-        }
-        $errors = array_merge($errors, $this->validateReferencedEntityByTypeStub(
-          $asset_type,
-          $asset_id,
-          [
-            'payload_type' => $payload_type,
-            'path' => "asset_references[{$index}]",
-            'source' => 'asset_reference',
-            'reference' => $reference,
-          ]
-        ));
-      }
-
-      $contacts = array_values(array_filter(is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : [], 'is_array'));
-      foreach ($contacts as $index => $contact) {
-        $entity_type = strtolower(trim((string) ($contact['entity_type'] ?? '')));
-        $entity_id = trim((string) ($contact['entity_id'] ?? ''));
-        if ($entity_type === '' || $entity_id === '') {
-          continue;
-        }
-        $errors = array_merge($errors, $this->validateReferencedEntityByTypeStub(
-          $entity_type,
-          $entity_id,
-          [
-            'payload_type' => $payload_type,
-            'path' => "contacts[{$index}]",
-            'source' => 'contact',
-            'reference' => $contact,
-          ]
-        ));
-      }
-
-      return array_values(array_unique($errors));
+    if ($this->contentRegistry === NULL) {
+      return ['Canonical validation dependency missing: ContentRegistry is required for entity_type_contracts stage execution.'];
     }
+
+    $errors = [];
+    $asset_references = array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array'));
+    foreach ($asset_references as $index => $reference) {
+      $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? '')));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_type === '' || $asset_id === '') {
+        continue;
+      }
+      $errors = array_merge($errors, $this->validateReferencedEntityByTypeStub(
+        $asset_type,
+        $asset_id,
+        [
+          'payload_type' => $payload_type,
+          'path' => "asset_references[{$index}]",
+          'source' => 'asset_reference',
+          'reference' => $reference,
+        ]
+      ));
+    }
+
+    $contacts = array_values(array_filter(is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : [], 'is_array'));
+    foreach ($contacts as $index => $contact) {
+      $entity_type = strtolower(trim((string) ($contact['entity_type'] ?? '')));
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_type === '' || $entity_id === '') {
+        continue;
+      }
+      $errors = array_merge($errors, $this->validateReferencedEntityByTypeStub(
+        $entity_type,
+        $entity_id,
+        [
+          'payload_type' => $payload_type,
+          'path' => "contacts[{$index}]",
+          'source' => 'contact',
+          'reference' => $contact,
+        ]
+      ));
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate objective child-task contract rules for canonical definitions.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateTaskContractsStage(array $storyline_data, string $payload_type): array {
+    if ($payload_type !== 'definition') {
+      return [];
+    }
+    if ($this->objectiveTypeService === NULL) {
+      return ['Canonical validation dependency missing: ObjectiveTypeService is required for task_contracts stage execution.'];
+    }
+
+    $errors = [];
+    $player_interaction_types = ['interact', 'collect', 'explore', 'escort', 'investigate', 'kill'];
+    $supports_children_types = ['composite', 'escort'];
+    $quest_ids = $this->collectStorylineQuestIdsForObjectiveValidation($storyline_data);
+
+    foreach ($quest_ids as $quest_id) {
+      try {
+        $phases = $this->loadQuestTemplateObjectivePhases($quest_id);
+      }
+      catch (\Throwable $exception) {
+        $errors[] = "Task contract validation for quest template '{$quest_id}' failed: {$exception->getMessage()}";
+        continue;
+      }
+      if ($phases === NULL || $phases === []) {
+        continue;
+      }
+      $task_ids_seen = [];
+      foreach ($phases as $phase_index => $phase) {
+        if (!is_array($phase)) {
+          continue;
+        }
+        foreach ((array) ($phase['objectives'] ?? []) as $obj_index => $objective) {
+          if (!is_array($objective)) {
+            continue;
+          }
+          $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+          $obj_type = strtolower(trim((string) ($objective['type'] ?? '')));
+          $obj_path = "quest.{$quest_id}.phase[{$phase_index}].objective[{$obj_index}]";
+          if ($children === []) {
+            if ($obj_type === 'composite') {
+              $errors[] = "{$obj_path}: composite objectives must include children tasks";
+            }
+            continue;
+          }
+          if (!in_array($obj_type, $supports_children_types, TRUE)) {
+            $errors[] = "{$obj_path}: type '{$obj_type}' does not support children; use composite or escort";
+            continue;
+          }
+          $criteria_kind = strtolower(trim((string) ($objective['completion_criteria']['kind'] ?? '')));
+          if ($criteria_kind !== 'all_children') {
+            $errors[] = "{$obj_path}: objective with children must use completion_criteria.kind=all_children";
+          }
+
+          foreach ($children as $task_index => $task) {
+            if (!is_array($task)) {
+              $errors[] = "{$obj_path}.children[{$task_index}]: task must be an object";
+              continue;
+            }
+            $task_path = "{$obj_path}.children[{$task_index}]";
+            $task_id = trim((string) ($task['objective_id'] ?? ''));
+            if ($task_id === '') {
+              $errors[] = "{$task_path}: objective_id (task_id) is required";
+            }
+            else {
+              $dedup_key = $quest_id . '::' . $task_id;
+              if (isset($task_ids_seen[$dedup_key])) {
+                $errors[] = "{$task_path}: duplicate objective_id '{$task_id}' in quest '{$quest_id}'";
+              }
+              $task_ids_seen[$dedup_key] = TRUE;
+            }
+
+            if (trim((string) ($task['description'] ?? '')) === '') {
+              $errors[] = "{$task_path}: description is required";
+            }
+
+            $task_criteria = $task['completion_criteria'] ?? NULL;
+            if (!is_array($task_criteria)) {
+              $errors[] = "{$task_path}: completion_criteria is required";
+            }
+            else {
+              $kind = strtolower(trim((string) ($task_criteria['kind'] ?? '')));
+              if (!in_array($kind, ['count', 'flag', 'all_children'], TRUE)) {
+                $errors[] = "{$task_path}: completion_criteria.kind must be count, flag, or all_children";
+              }
+              if (trim((string) ($task_criteria['metric'] ?? '')) === '') {
+                $errors[] = "{$task_path}: completion_criteria.metric is required";
+              }
+              if (trim((string) ($task_criteria['description'] ?? '')) === '') {
+                $errors[] = "{$task_path}: completion_criteria.description is required";
+              }
+            }
+
+            $task_type = strtolower(trim((string) ($task['type'] ?? '')));
+            if (in_array($task_type, $player_interaction_types, TRUE) && trim((string) ($task['next_step'] ?? '')) === '') {
+              $errors[] = "{$task_path}: next_step is required for player-interaction task type '{$task_type}'";
+            }
+          }
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate objective playability contracts for canonical definitions.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateObjectivePlayabilityStage(array $storyline_data, string $payload_type): array {
+    if ($payload_type !== 'definition') {
+      return [];
+    }
+    if ($this->objectiveTypeService === NULL) {
+      return ['Canonical validation dependency missing: ObjectiveTypeService is required for objective_playability stage execution.'];
+    }
+
+    $errors = [];
+    $quest_ids = $this->collectStorylineQuestIdsForObjectiveValidation($storyline_data);
+    foreach ($quest_ids as $quest_id) {
+      try {
+        $phases = $this->loadQuestTemplateObjectivePhases($quest_id);
+      }
+      catch (\Throwable $exception) {
+        $errors[] = "Objective playability validation for quest template '{$quest_id}' failed: {$exception->getMessage()}";
+        continue;
+      }
+      if ($phases === NULL || $phases === []) {
+        continue;
+      }
+
+      foreach ($phases as $phase_index => $phase) {
+        if (!is_array($phase)) {
+          continue;
+        }
+        foreach ((array) ($phase['objectives'] ?? []) as $obj_index => $objective) {
+          if (!is_array($objective)) {
+            continue;
+          }
+          $obj_path = "quest.{$quest_id}.phase[{$phase_index}].objective[{$obj_index}]";
+          $errors = array_merge($errors, $this->validateObjectivePlayabilityNodeRecursive($objective, $obj_path));
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate one objective and its children for clear actionable playability.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective payload.
+   * @param string $path
+   *   Objective path for error reporting.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateObjectivePlayabilityNodeRecursive(array $objective, string $path): array {
+    $errors = [];
+    $objective_type = strtolower(trim((string) ($objective['type'] ?? '')));
+    $requires_actionability = in_array($objective_type, ['interact', 'collect', 'explore', 'escort', 'investigate', 'kill'], TRUE);
+    if ($requires_actionability) {
+      $next_step = trim((string) ($objective['next_step'] ?? ''));
+      if ($next_step === '') {
+        $errors[] = "[DCV_OBJ_PLAYABILITY_MISSING_NEXT_STEP] {$path}: next_step is required for objective type '{$objective_type}'.";
+      }
+
+      $target_ref = trim((string) ($objective['target'] ?? ''));
+      $target_id_ref = trim((string) ($objective['target_id'] ?? ''));
+      if ($target_id_ref !== '' && $target_ref === '') {
+        $errors[] = "[DCV_OBJ_PLAYABILITY_NONSTANDARD_TARGET_FIELD] {$path}: use target (not target_id) for playability anchor contracts.";
+      }
+      if ($target_ref !== '' && $target_id_ref !== '' && $target_ref !== $target_id_ref) {
+        $errors[] = "[DCV_OBJ_PLAYABILITY_TARGET_FIELD_CONFLICT] {$path}: target and target_id must match when both are provided.";
+      }
+
+      $location_ref = trim((string) ($objective['location_id'] ?? ''));
+      $location_alias_ref = trim((string) ($objective['location'] ?? ''));
+      $destination_id_ref = trim((string) ($objective['destination_id'] ?? ''));
+      $destination_ref = trim((string) ($objective['destination'] ?? ''));
+      if ($location_ref === '' && ($location_alias_ref !== '' || $destination_id_ref !== '' || $destination_ref !== '')) {
+        $errors[] = "[DCV_OBJ_PLAYABILITY_NONSTANDARD_LOCATION_FIELD] {$path}: use location_id (not location/destination/destination_id) for playability anchor contracts.";
+      }
+      if ($target_ref === '' && $location_ref === '') {
+        $errors[] = "[DCV_OBJ_PLAYABILITY_MISSING_ACTION_ANCHOR] {$path}: objective must define at least one target or location/destination anchor.";
+      }
+      if (
+        $objective_type === 'explore'
+        && $this->isGenericRuntimeLocationAnchor($location_ref)
+        && $this->hasLiteralTravelInstructionWithoutLocationPlaceholder($next_step)
+      ) {
+        $errors[] = "[DCV_OBJ_PLAYABILITY_LOCATION_ANCHOR_NEXT_STEP_MISMATCH] {$path}: objective uses generic location_id '{location}' but next_step names a specific travel target; use an explicit canonical location_id/destination_id anchor.";
+      }
+
+      if ($this->objectiveNeedsNamedTargetGuidance($objective)) {
+        $target_label = trim((string) ($objective['target_label'] ?? ''));
+        if ($target_ref !== '' && $target_label === '') {
+          $errors[] = "[DCV_OBJ_PLAYABILITY_MISSING_TARGET_LABEL] {$path}: target_label is required for meet/travel guidance objectives with canonical target refs.";
+        }
+
+        $target_aliases = array_values(array_filter(array_map('strval', is_array($objective['target_aliases'] ?? NULL) ? $objective['target_aliases'] : []), static fn(string $value): bool => trim($value) !== ''));
+        if ($target_ref !== '' && $target_aliases === []) {
+          $errors[] = "[DCV_OBJ_PLAYABILITY_MISSING_TARGET_ALIASES] {$path}: target_aliases must provide at least one name variant for player phrasing.";
+        }
+
+        if ($location_ref !== '' && trim((string) ($objective['wayfinding_hint'] ?? '')) === '') {
+          $errors[] = "[DCV_OBJ_PLAYABILITY_MISSING_WAYFINDING_HINT] {$path}: wayfinding_hint is required for meet/travel guidance objectives with a location anchor.";
+        }
+      }
+    }
+
+    $children = $this->objectiveTypeService->extractNestedObjectiveDefinitions($objective);
+    foreach ($children as $index => $child) {
+      if (!is_array($child)) {
+        $errors[] = "{$path}.children[{$index}]: objective child must be an object.";
+        continue;
+      }
+      $errors = array_merge(
+        $errors,
+        $this->validateObjectivePlayabilityNodeRecursive($child, "{$path}.children[{$index}]")
+      );
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Identify generic runtime location anchors that must not be paired with
+   * explicit named travel instructions.
+   */
+  protected function isGenericRuntimeLocationAnchor(string $location_ref): bool {
+    return strtolower(trim($location_ref)) === '{location}';
+  }
+
+  /**
+   * Detect literal travel instructions that omit the {location} placeholder.
+   */
+  protected function hasLiteralTravelInstructionWithoutLocationPlaceholder(string $next_step): bool {
+    $normalized = strtolower(trim($next_step));
+    if ($normalized === '' || !str_contains($normalized, 'travel to')) {
+      return FALSE;
+    }
+    return !str_contains($normalized, '{location}');
+  }
+
+  /**
+   * Determine whether objective phrasing requires explicit named target guidance.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective payload.
+   */
+  protected function objectiveNeedsNamedTargetGuidance(array $objective): bool {
+    $combined = strtolower(trim(implode(' ', array_filter([
+      (string) ($objective['description'] ?? ''),
+      (string) ($objective['next_step'] ?? ''),
+    ]))));
+    if ($combined === '') {
+      return FALSE;
+    }
+
+    if (preg_match('/\b(?:reach|meet|follow|find|talk\s+to|speak\s+with|get\s+to|go\s+to|travel\s+to)\b/u', $combined)) {
+      return TRUE;
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Validate quest objective entity-linkage contracts for canonical definitions.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateEntityLinkageStage(array $storyline_data, string $payload_type): array {
+    if ($payload_type !== 'definition') {
+      return [];
+    }
+
+    $errors = [];
+    $strict_actor_target_types = ['kill', 'escort'];
+    $anchored_target_types = ['interact', 'investigate'];
+    $anchors = $this->collectObjectiveReferenceAnchors($storyline_data);
+    $canonical_index = $this->loadCanonicalLocationTemplateIndex();
+
+    foreach ((array) ($canonical_index['errors'] ?? []) as $canonical_error) {
+      $errors[] = (string) $canonical_error;
+    }
+    foreach (array_keys((array) ($canonical_index['room_ids'] ?? [])) as $room_id) {
+      $anchors['location_ids'][(string) $room_id] = TRUE;
+      $anchors['target_ids'][(string) $room_id] = TRUE;
+    }
+    foreach (array_keys((array) ($canonical_index['dungeon_ids'] ?? [])) as $dungeon_id) {
+      $anchors['location_ids'][(string) $dungeon_id] = TRUE;
+      $anchors['target_ids'][(string) $dungeon_id] = TRUE;
+    }
+
+    $quest_ids = $this->collectStorylineQuestIdsForObjectiveValidation($storyline_data);
+    foreach ($quest_ids as $quest_id) {
+      try {
+        $phases = $this->loadQuestTemplateObjectivePhases($quest_id);
+      }
+      catch (\Throwable $exception) {
+        $errors[] = "Entity linkage validation for quest template '{$quest_id}' failed: {$exception->getMessage()}";
+        continue;
+      }
+      if ($phases === NULL || $phases === []) {
+        continue;
+      }
+
+      foreach ($phases as $phase_index => $phase) {
+        if (!is_array($phase)) {
+          continue;
+        }
+        foreach ((array) ($phase['objectives'] ?? []) as $obj_index => $objective) {
+          if (!is_array($objective)) {
+            continue;
+          }
+          $obj_path = "quest.{$quest_id}.phase[{$phase_index}].objective[{$obj_index}]";
+          $obj_type = strtolower(trim((string) ($objective['type'] ?? '')));
+          foreach (['target', 'target_id'] as $field) {
+            $target = trim((string) ($objective[$field] ?? ''));
+            if ($target === '') {
+              continue;
+            }
+            if (in_array($obj_type, $strict_actor_target_types, TRUE) && !isset($anchors['actor_ids'][$target])) {
+              $errors[] = "{$obj_path}: {$field} '{$target}' not in actor registry";
+            }
+            elseif (in_array($obj_type, $anchored_target_types, TRUE) && !isset($anchors['target_ids'][$target])) {
+              $errors[] = "{$obj_path}: {$field} '{$target}' not in anchored entity registry";
+            }
+          }
+          foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
+            $ref = trim((string) ($objective[$field] ?? ''));
+            if ($ref !== '' && !isset($anchors['location_ids'][$ref])) {
+              $errors[] = "{$obj_path}: {$field} '{$ref}' not in entity registry";
+            }
+          }
+          $item_ref = trim((string) ($objective['item'] ?? ''));
+          if ($item_ref !== '' && !isset($anchors['item_ids'][$item_ref])) {
+            $errors[] = "{$obj_path}: item '{$item_ref}' not in entity registry";
+          }
+
+          foreach ((array) ($objective['children'] ?? []) as $task_index => $task) {
+            if (!is_array($task)) {
+              continue;
+            }
+            $task_path = "{$obj_path}.children[{$task_index}]";
+            $task_type = strtolower(trim((string) ($task['type'] ?? '')));
+            foreach (['target', 'target_id'] as $field) {
+              $task_target = trim((string) ($task[$field] ?? ''));
+              if ($task_target === '') {
+                continue;
+              }
+              if (in_array($task_type, $strict_actor_target_types, TRUE) && !isset($anchors['actor_ids'][$task_target])) {
+                $errors[] = "{$task_path}: {$field} '{$task_target}' not in actor registry";
+              }
+              elseif (in_array($task_type, $anchored_target_types, TRUE) && !isset($anchors['target_ids'][$task_target])) {
+                $errors[] = "{$task_path}: {$field} '{$task_target}' not in anchored entity registry";
+              }
+            }
+            foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
+              $ref = trim((string) ($task[$field] ?? ''));
+              if ($ref !== '' && !isset($anchors['location_ids'][$ref])) {
+                $errors[] = "{$task_path}: {$field} '{$ref}' not in entity registry";
+              }
+            }
+            $task_item = trim((string) ($task['item'] ?? ''));
+            if ($task_item !== '' && !isset($anchors['item_ids'][$task_item])) {
+              $errors[] = "{$task_path}: item '{$task_item}' not in entity registry";
+            }
+          }
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Validate canonical dungeon-room coverage for referenced dungeon assets.
+   *
+   * @return array<int, string>
+   *   Validation errors for this stage.
+   */
+  protected function validateDungeonRoomContractsStage(array $storyline_data, string $payload_type): array {
+    if ($payload_type !== 'definition') {
+      return [];
+    }
+
+    $errors = [];
+    foreach ($this->extractReferencedDungeonIds($storyline_data) as $dungeon_id) {
+      $dungeon_row = $this->loadCanonicalDungeonEntity($dungeon_id);
+      if (!is_array($dungeon_row)) {
+        $errors[] = "dungeon '{$dungeon_id}': canonical dungeon template row not found in dungeoncrawler_content_dungeons.";
+        continue;
+      }
+
+      $dungeon_data = $this->decodeJsonArrayValue($dungeon_row['dungeon_data'] ?? NULL);
+      if ($dungeon_data === []) {
+        $errors[] = "dungeon '{$dungeon_id}': dungeon_data contract is required.";
+        continue;
+      }
+
+      $entry_room = trim((string) ($dungeon_data['entry_room'] ?? ''));
+      $room_ids = array_values(array_filter(array_map(
+        'strval',
+        is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : []
+      ), static fn(string $id): bool => trim($id) !== ''));
+      $room_ids = array_values(array_unique($room_ids));
+
+      if ($room_ids === []) {
+        $errors[] = "dungeon '{$dungeon_id}': dungeon_data.rooms must define at least one room.";
+      }
+      if ($entry_room === '') {
+        $errors[] = "dungeon '{$dungeon_id}': dungeon_data.entry_room is required.";
+      }
+      elseif ($room_ids !== [] && !in_array($entry_room, $room_ids, TRUE)) {
+        $errors[] = "dungeon '{$dungeon_id}': dungeon_data.entry_room '{$entry_room}' must be listed in dungeon_data.rooms.";
+      }
+
+      foreach ($room_ids as $room_id) {
+        $room_row = $this->loadCanonicalRoomEntity($room_id);
+        if (!is_array($room_row)) {
+          $errors[] = "dungeon '{$dungeon_id}': room '{$room_id}' is missing from canonical room templates.";
+          continue;
+        }
+        $layout_data = $this->decodeJsonArrayValue($room_row['layout_data'] ?? NULL);
+        $contents_data = $this->decodeJsonArrayValue($room_row['contents_data'] ?? NULL);
+        if ($layout_data === []) {
+          $errors[] = "dungeon '{$dungeon_id}': room '{$room_id}' layout_data contract is required.";
+        }
+        if ($contents_data === []) {
+          $errors[] = "dungeon '{$dungeon_id}': room '{$room_id}' contents_data contract is required.";
+        }
+      }
+    }
+
+    return array_values(array_unique($errors));
+  }
+
+  /**
+   * Extract referenced dungeon ids from storyline payload.
+   *
+   * @return array<int, string>
+   *   Sorted unique dungeon ids.
+   */
+  protected function extractReferencedDungeonIds(array $storyline_data): array {
+    $dungeon_ids = [];
+    foreach ((array) ($storyline_data['asset_references'] ?? []) as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      if (strtolower(trim((string) ($reference['asset_type'] ?? ''))) !== 'dungeon') {
+        continue;
+      }
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($asset_id !== '') {
+        $dungeon_ids[$asset_id] = $asset_id;
+      }
+    }
+
+    $outline = is_array($storyline_data['metadata']['generated_outline'] ?? NULL)
+      ? $storyline_data['metadata']['generated_outline']
+      : [];
+    $entry_dungeon_id = trim((string) ($outline['entry_dungeon']['dungeon_id'] ?? ''));
+    if ($entry_dungeon_id !== '') {
+      $dungeon_ids[$entry_dungeon_id] = $entry_dungeon_id;
+    }
+    foreach ((array) ($outline['dungeons'] ?? []) as $dungeon) {
+      if (!is_array($dungeon)) {
+        continue;
+      }
+      $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? ''));
+      if ($dungeon_id !== '') {
+        $dungeon_ids[$dungeon_id] = $dungeon_id;
+      }
+    }
+
+    $ids = array_values($dungeon_ids);
+    sort($ids);
+    return $ids;
+  }
 
     /**
      * Dispatch per-entity-type contract validators.
@@ -573,7 +1182,7 @@ class StorylineManagerService {
      */
     protected function validateReferencedEntityByTypeStub(string $entity_type, string $entity_id, array $context): array {
       return match ($entity_type) {
-        'npc', 'npc_template', 'campaign_npc', 'character', 'character_group', 'creature'
+        'npc', 'campaign_npc', 'character', 'character_group', 'creature'
           => $this->validateReferencedNpcLikeEntityContractStub($entity_type, $entity_id, $context),
         'hazard' => $this->validateReferencedHazardEntityContractStub($entity_type, $entity_id, $context),
         'item' => $this->validateReferencedItemEntityContractStub($entity_type, $entity_id, $context),
@@ -594,7 +1203,6 @@ class StorylineManagerService {
     public function getSupportedEntityTypeContractTypes(): array {
       return [
         'npc',
-        'npc_template',
         'campaign_npc',
         'character',
         'character_group',
@@ -678,7 +1286,7 @@ class StorylineManagerService {
     protected function resolveNpcLikeRegistryTypes(string $entity_type): array {
       return match ($entity_type) {
         'creature' => ['creature', 'npc'],
-        'character', 'character_group', 'campaign_npc', 'npc_template', 'npc' => ['npc', 'creature'],
+        'character', 'character_group', 'campaign_npc', 'npc' => ['npc', 'creature'],
         default => ['npc', 'creature'],
       };
     }
@@ -1016,8 +1624,13 @@ class StorylineManagerService {
       array $context
     ): array {
       if ($this->contentRegistry === NULL) {
-        return [];
-      }
+          return [$this->formatEntityTypeContractError(
+            $entity_type,
+            $entity_id,
+            $context,
+            'ContentRegistry dependency is missing; cannot validate canonical registry contract.'
+          )];
+        }
 
       $validation = $this->contentRegistry->validateContent($content_type, $schema_data);
       if (!empty($validation['valid'])) {
@@ -1058,14 +1671,40 @@ class StorylineManagerService {
         continue;
       }
 
-      if (!empty($existing[$template_id])) {
-        $instance = $this->getCampaignStoryline($campaign_id, (string) $existing[$template_id], TRUE);
+      $template_definition = is_array($template['template_data'] ?? NULL) ? $template['template_data'] : [];
+      if ($template_definition === []) {
+        $this->logger->warning('Skipping bundled storyline template {template_id}: empty template_data.', [
+          'template_id' => $template_id,
+        ]);
+        continue;
       }
-      else {
-        $instance_options = $options;
-        $instance_options['status'] = (string) ($options['status'] ?? 'available');
-        $instance_options['priority'] = (int) ($options['priority'] ?? ($priority_base - $index));
-        $instance = $this->instantiateStorylineTemplate($campaign_id, $template_id, $instance_options);
+      $template_validation = $this->validateNormalizedStorylineDefinition($template_definition);
+      if (empty($template_validation['valid'])) {
+        $this->logger->warning('Skipping bundled storyline template {template_id}: validation failed ({error_count} errors).', [
+          'template_id' => $template_id,
+          'error_count' => count((array) ($template_validation['errors'] ?? [])),
+        ]);
+        continue;
+      }
+
+      try {
+        if (!empty($existing[$template_id])) {
+          $instance = $this->getCampaignStoryline($campaign_id, (string) $existing[$template_id], TRUE);
+        }
+        else {
+          $instance_options = $options;
+          $instance_options['status'] = (string) ($options['status'] ?? 'available');
+          $instance_options['priority'] = (int) ($options['priority'] ?? ($priority_base - $index));
+          $instance_options['realize_storyline_assets'] = FALSE;
+          $instance = $this->instantiateStorylineTemplate($campaign_id, $template_id, $instance_options);
+        }
+      }
+      catch (\Throwable $e) {
+        $this->logger->warning('Skipping bundled storyline template {template_id}: {message}', [
+          'template_id' => $template_id,
+          'message' => $e->getMessage(),
+        ]);
+        continue;
       }
 
       if (is_array($instance) && $instance !== []) {
@@ -1226,7 +1865,364 @@ class StorylineManagerService {
       'Storyline activated.'
     );
 
-    return $this->getCampaignStoryline($campaign_id, $storyline_id, TRUE);
+    return $this->finalizePersistedCampaignStoryline($campaign_id, $storyline_id);
+  }
+
+  /**
+   * Ensure active storyline rooms are initialized and reachable in campaign runtime.
+   */
+  protected function ensureActiveStorylineRoomsAvailableInCampaign(int $campaign_id, array $storyline): void {
+    $status = strtolower(trim((string) ($storyline['status'] ?? '')));
+    if ($status !== 'active') {
+      return;
+    }
+
+    $storyline_id = trim((string) ($storyline['storyline_id'] ?? ''));
+    if ($storyline_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: campaign %d storyline_id is required.',
+        $campaign_id
+      ));
+    }
+
+    $room_ids = $this->collectActiveStorylineRoomIds($storyline);
+    if ($room_ids === []) {
+      return;
+    }
+
+    $runtime_context = $this->loadRuntimeCampaignContext($campaign_id);
+    $runtime_dungeon_id = $runtime_context['runtime_dungeon_id'];
+    $active_room_id = $runtime_context['runtime_active_room_id'];
+    $connector_definition = $this->resolveConnectorDefinitionService();
+    $has_active_room_bridge = FALSE;
+    foreach ($room_ids as $storyline_room_id) {
+      $canonical_connectors = $connector_definition->loadCanonicalConnectorsForRoom($storyline_room_id);
+      foreach ($canonical_connectors as $connector_row) {
+        if (!is_array($connector_row)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+        if ($from_room_id === '' || $to_room_id === '' || $from_room_id === $to_room_id) {
+          continue;
+        }
+        if (
+          ($from_room_id === $active_room_id && in_array($to_room_id, $room_ids, TRUE))
+          || ($to_room_id === $active_room_id && in_array($from_room_id, $room_ids, TRUE))
+        ) {
+          $has_active_room_bridge = TRUE;
+          break 2;
+        }
+      }
+    }
+    if (!$has_active_room_bridge) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: campaign %d storyline %s has no canonical connector bridge from active room %s to storyline rooms.',
+        $campaign_id,
+        $storyline_id,
+        $active_room_id
+      ));
+    }
+
+    foreach ($room_ids as $room_id) {
+      $this->ensureCampaignRoomMaterializedFromCanonical($campaign_id, $room_id);
+      if (!$this->campaignRoomExists($campaign_id, $room_id)) {
+        throw new \RuntimeException(sprintf(
+          'Active storyline availability contract violation: campaign %d storyline %s room %s failed campaign room materialization.',
+          $campaign_id,
+          $storyline_id,
+          $room_id
+        ));
+      }
+    }
+
+    $bridged_connection_count = 0;
+    foreach ($room_ids as $storyline_room_id) {
+      $canonical_connectors = $connector_definition->loadCanonicalConnectorsForRoom($storyline_room_id);
+      foreach ($canonical_connectors as $connector_row) {
+        if (!is_array($connector_row)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+        if ($from_room_id === '' || $to_room_id === '' || $from_room_id === $to_room_id) {
+          continue;
+        }
+
+        $from_is_storyline = in_array($from_room_id, $room_ids, TRUE);
+        $to_is_storyline = in_array($to_room_id, $room_ids, TRUE);
+        $bridges_active_room = ($from_room_id === $active_room_id || $to_room_id === $active_room_id);
+        $internal_storyline = ($from_is_storyline && $to_is_storyline);
+        if (!($bridges_active_room || $internal_storyline)) {
+          continue;
+        }
+        if (!$this->campaignRoomExists($campaign_id, $from_room_id) || !$this->campaignRoomExists($campaign_id, $to_room_id)) {
+          continue;
+        }
+
+        $connector_definition->saveCampaignConnector($campaign_id, [
+          'dungeon_id' => $runtime_dungeon_id,
+          'from_room_id' => $from_room_id,
+          'to_room_id' => $to_room_id,
+          'from_hex' => is_array($connector_row['from_hex'] ?? NULL) ? $connector_row['from_hex'] : NULL,
+          'to_hex' => is_array($connector_row['to_hex'] ?? NULL) ? $connector_row['to_hex'] : NULL,
+          'direction' => (string) ($connector_row['direction'] ?? 'bidirectional'),
+          'kind' => (string) ($connector_row['kind'] ?? 'hallway'),
+          'default_state' => (string) ($connector_row['state'] ?? $connector_row['default_state'] ?? 'open'),
+          'state' => (string) ($connector_row['state'] ?? $connector_row['default_state'] ?? 'open'),
+          'trap_data' => is_array($connector_row['trap_data'] ?? NULL) ? $connector_row['trap_data'] : NULL,
+          'lock_data' => is_array($connector_row['lock_data'] ?? NULL) ? $connector_row['lock_data'] : NULL,
+          'requirements_data' => is_array($connector_row['requirements_data'] ?? NULL) ? $connector_row['requirements_data'] : NULL,
+          'description' => (string) ($connector_row['description'] ?? 'Storyline-activated connector'),
+          'travel_cost' => (int) ($connector_row['travel_cost'] ?? 0),
+          'is_discovered_default' => (int) ($connector_row['is_discovered_default'] ?? $connector_row['is_discovered'] ?? 1),
+          'connection_id' => (string) ($connector_row['connection_id'] ?? ''),
+        ]);
+        if ($bridges_active_room) {
+          $bridged_connection_count++;
+        }
+      }
+    }
+
+    if ($bridged_connection_count <= 0) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: campaign %d storyline %s has no connector bridge from active room %s to storyline rooms.',
+        $campaign_id,
+        $storyline_id,
+        $active_room_id
+      ));
+    }
+  }
+
+  /**
+   * Resolve runtime campaign context required for active storyline availability.
+   *
+   * @return array{runtime_dungeon_id:string,runtime_active_room_id:string}
+   *   Runtime dungeon and active room identifiers.
+   */
+  protected function loadRuntimeCampaignContext(int $campaign_id): array {
+    $campaign_row = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['campaign_data'])
+      ->condition('id', $campaign_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($campaign_row)) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: campaign %d not found.',
+        $campaign_id
+      ));
+    }
+
+    $campaign_data = json_decode((string) ($campaign_row['campaign_data'] ?? '{}'), TRUE);
+    if (!is_array($campaign_data)) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: campaign %d campaign_data is invalid JSON.',
+        $campaign_id
+      ));
+    }
+    $init = is_array($campaign_data['init'] ?? NULL) ? $campaign_data['init'] : [];
+    $context = is_array($init['context'] ?? NULL) ? $init['context'] : [];
+    $runtime_dungeon_id = trim((string) (
+      $init['runtime_dungeon_id']
+      ?? $context['runtime_dungeon_id']
+      ?? ''
+    ));
+    $runtime_active_room_id = trim((string) (
+      $init['runtime_active_room_id']
+      ?? $context['runtime_active_room_id']
+      ?? ''
+    ));
+
+    if ($runtime_dungeon_id === '' || $runtime_active_room_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: campaign %d requires runtime_dungeon_id and runtime_active_room_id before activating storyline room availability.',
+        $campaign_id
+      ));
+    }
+
+    if (!$this->campaignRoomExists($campaign_id, $runtime_active_room_id)) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: campaign %d active room %s is missing from dc_campaign_rooms.',
+        $campaign_id,
+        $runtime_active_room_id
+      ));
+    }
+
+    return [
+      'runtime_dungeon_id' => $runtime_dungeon_id,
+      'runtime_active_room_id' => $runtime_active_room_id,
+    ];
+  }
+
+  /**
+   * Collect unique storyline room asset identifiers from persisted storyline payload.
+   *
+   * @return array<int, string>
+   *   Unique room IDs.
+   */
+  protected function collectActiveStorylineRoomIds(array $storyline): array {
+    $room_ids = [];
+    $asset_links = is_array($storyline['asset_links'] ?? NULL) ? $storyline['asset_links'] : [];
+    foreach ($asset_links as $link) {
+      if (!is_array($link)) {
+        continue;
+      }
+      if (strtolower(trim((string) ($link['asset_type'] ?? ''))) !== 'room') {
+        continue;
+      }
+      $room_id = trim((string) ($link['asset_id'] ?? ''));
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+
+    $storyline_data = is_array($storyline['storyline_data'] ?? NULL) ? $storyline['storyline_data'] : [];
+    foreach ((array) ($storyline_data['asset_references'] ?? []) as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      if (strtolower(trim((string) ($reference['asset_type'] ?? ''))) !== 'room') {
+        continue;
+      }
+      $room_id = trim((string) ($reference['asset_id'] ?? ''));
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+
+    return array_values(array_keys($room_ids));
+  }
+
+  /**
+   * Check whether a campaign room row exists.
+   */
+  protected function campaignRoomExists(int $campaign_id, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($campaign_id <= 0 || $room_id === '') {
+      return FALSE;
+    }
+    $found = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    return is_string($found) && trim($found) !== '';
+  }
+
+  /**
+   * Materialize one storyline room into campaign room storage from canonical room data.
+   */
+  protected function ensureCampaignRoomMaterializedFromCanonical(int $campaign_id, string $room_id): void {
+    $room_id = trim($room_id);
+    if ($campaign_id <= 0 || $room_id === '') {
+      throw new \RuntimeException('Active storyline availability contract violation: campaign_id and room_id are required for room materialization.');
+    }
+    if ($this->campaignRoomExists($campaign_id, $room_id)) {
+      return;
+    }
+
+    $canonical_room = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id'])
+      ->condition('room_id', $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($canonical_room)) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: canonical room %s is missing for campaign %d materialization.',
+        $room_id,
+        $campaign_id
+      ));
+    }
+
+    $layout_data = json_decode((string) ($canonical_room['layout_data'] ?? '{}'), TRUE);
+    if (!is_array($layout_data)) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: canonical room %s has invalid layout_data JSON.',
+        $room_id
+      ));
+    }
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: canonical room %s has no layout_data.hexes.',
+        $room_id
+      ));
+    }
+    $layout_data['entry_points'] = is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [];
+    $layout_data['exit_points'] = is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [];
+    $layout_data['exits'] = is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [];
+    $layout_data['terrain'] = is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [];
+    $layout_data['lighting'] = is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [];
+
+    $environment_tags = json_decode((string) ($canonical_room['environment_tags'] ?? '[]'), TRUE);
+    $contents_data = json_decode((string) ($canonical_room['contents_data'] ?? '{}'), TRUE);
+    $this->resolveMapGeneratorService()->persistCanonicalCampaignRoom(
+      $campaign_id,
+      $room_id,
+      (string) ($canonical_room['name'] ?? $room_id),
+      (string) ($canonical_room['description'] ?? ''),
+      $layout_data,
+      is_array($contents_data) ? $contents_data : [],
+      is_array($environment_tags) ? $environment_tags : [],
+      trim((string) ($canonical_room['source_room_id'] ?? $room_id)) ?: $room_id
+    );
+
+    $fog_state = json_encode([
+      'visibility' => 'initial',
+      'discovered_hexes' => [],
+      'runtime_room_items_seeded' => TRUE,
+      'source' => 'storyline_activation',
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($fog_state)) {
+      throw new \RuntimeException(sprintf(
+        'Active storyline availability contract violation: failed to encode fog state for campaign %d room %s.',
+        $campaign_id,
+        $room_id
+      ));
+    }
+
+    $this->database->merge('dc_campaign_room_states')
+      ->keys([
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+      ])
+      ->fields([
+        'is_cleared' => 0,
+        'fog_state' => $fog_state,
+        'last_visited' => 0,
+        'updated' => $now,
+      ])
+      ->execute();
+  }
+
+  /**
+   * Resolve connector definition service lazily to avoid constructor-order drift.
+   */
+  protected function resolveConnectorDefinitionService(): ConnectorDefinitionService {
+    if (\Drupal::hasService('dungeoncrawler_content.connector_definition_service')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.connector_definition_service');
+      if ($candidate instanceof ConnectorDefinitionService) {
+        return $candidate;
+      }
+    }
+    throw new \RuntimeException('Active storyline availability contract violation: ConnectorDefinitionService is required.');
+  }
+
+  /**
+   * Resolve map generator service for centralized campaign room persistence.
+   */
+  protected function resolveMapGeneratorService(): MapGeneratorService {
+    if (\Drupal::hasService('dungeoncrawler_content.map_generator')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.map_generator');
+      if ($candidate instanceof MapGeneratorService) {
+        return $candidate;
+      }
+    }
+    throw new \RuntimeException('Active storyline availability contract violation: MapGeneratorService is required for campaign room materialization.');
   }
 
   /**
@@ -1315,7 +2311,7 @@ class StorylineManagerService {
     ?int $character_id = NULL,
     array $event_data = []
   ): ?array {
-    if (!$this->isStorylineStorageReady()) {
+    if (!$this->isRuntimeStorylineStorageReady()) {
       return NULL;
     }
 
@@ -1455,12 +2451,16 @@ class StorylineManagerService {
         $chapter_name = trim((string) ($first_chapter['name'] ?? $first_chapter['chapter_id'] ?? 'First Lead'));
         $chapter_id = trim((string) ($first_chapter['chapter_id'] ?? 'first-lead'));
         $scene_id = trim((string) ($first_scene['scene_id'] ?? 'first-scene'));
+        $entry_point_room_id = trim((string) ($outline['entry_point']['primary_location_id'] ?? ''));
         $style = trim((string) ($tags[0] ?? 'generated lead'));
         $outline['entry_dungeon'] = [
           'dungeon_id' => $chapter_id !== '' ? $chapter_id : 'generated-entry-dungeon',
           'name' => $chapter_name !== '' ? $chapter_name : 'First Lead',
           'style' => $style !== '' ? $style : 'generated lead',
-          'entrance_room_id' => $scene_id !== '' ? $scene_id : 'generated-entry-room',
+          // Hard contract: entry_dungeon.entrance_room_id must be a room/location id, never a scene id.
+          'entrance_room_id' => $entry_point_room_id !== ''
+            ? $entry_point_room_id
+            : ($scene_id !== '' ? $scene_id : 'generated-entry-room'),
           'lead_location_id' => $lead_location_id,
           'lead_location_hint' => 'Start at ' . str_replace('_', ' ', $lead_location_id) . ' and follow the first lead.',
         ];
@@ -2088,6 +3088,9 @@ class StorylineManagerService {
       }
 
       $entity_type = $this->sanitizeIdentifier((string) ($contact['entity_type'] ?? $contact['contact_type'] ?? $contact['type'] ?? ''));
+      if ($entity_type === 'npc_template') {
+        $entity_type = 'campaign_npc';
+      }
       $entity_id = trim((string) ($contact['entity_id'] ?? $contact['id'] ?? ''));
       $role = $this->sanitizeIdentifier((string) ($contact['role'] ?? $contact['contact_role'] ?? 'contact'));
       if ($entity_type === '' || $entity_id === '') {
@@ -2123,7 +3126,7 @@ class StorylineManagerService {
         }
 
         $asset_type = (string) ($reference['asset_type'] ?? '');
-        $entity_type = $asset_type === 'npc' ? 'npc_template' : $asset_type;
+        $entity_type = $asset_type === 'npc' ? 'campaign_npc' : $asset_type;
         $entity_id = trim((string) ($reference['asset_id'] ?? ''));
         if ($entity_type === '' || $entity_id === '') {
           continue;
@@ -2202,7 +3205,7 @@ class StorylineManagerService {
         continue;
       }
       $quest_givers[$entity_id] = [
-        'entity_type' => (string) ($contact['entity_type'] ?? 'npc_template'),
+        'entity_type' => (string) ($contact['entity_type'] ?? 'campaign_npc'),
         'entity_id' => $entity_id,
         'display_name' => trim((string) ($contact['display_name'] ?? '')),
         'attitude' => (string) ($contact['attitude'] ?? 'friendly'),
@@ -2236,7 +3239,7 @@ class StorylineManagerService {
           continue;
         }
         $introductions[] = [
-          'entity_type' => (string) ($quest_giver['entity_type'] ?? 'npc_template'),
+          'entity_type' => (string) ($quest_giver['entity_type'] ?? 'campaign_npc'),
           'entity_id' => (string) ($quest_giver['entity_id'] ?? ''),
           'relationship_type' => 'knows',
           'attitude' => (string) ($quest_giver['attitude'] ?? 'friendly'),
@@ -2266,6 +3269,9 @@ class StorylineManagerService {
       }
 
       $entity_type = $this->sanitizeIdentifier((string) ($introduction['entity_type'] ?? $introduction['contact_type'] ?? $introduction['type'] ?? ''));
+      if ($entity_type === 'npc_template') {
+        $entity_type = 'campaign_npc';
+      }
       $entity_id = trim((string) ($introduction['entity_id'] ?? $introduction['id'] ?? ''));
       if ($entity_type === '' || $entity_id === '') {
         continue;
@@ -2542,7 +3548,7 @@ class StorylineManagerService {
    * @return array<int, string>
    *   Validation errors for this stage.
    */
-  protected function validateNavigationProgressionFlow(array $storyline_data): array {
+  protected function validateNavigationProgressionFlow(array $storyline_data, string $payload_type): array {
     $errors = [];
     $outline = is_array($storyline_data['metadata']['generated_outline'] ?? NULL) ? $storyline_data['metadata']['generated_outline'] : [];
     if ($outline === []) {
@@ -2577,6 +3583,139 @@ class StorylineManagerService {
       }
     }
 
+    if ($payload_type !== 'definition') {
+      return array_values(array_unique($errors));
+    }
+
+    $canonical_index = $this->loadCanonicalLocationTemplateIndex();
+    foreach ((array) ($canonical_index['errors'] ?? []) as $canonical_error) {
+      $errors[] = '[DCV_NAV_INDEX_LOAD_ERROR] ' . (string) $canonical_error;
+    }
+
+    $entry_dungeon = is_array($outline['entry_dungeon'] ?? NULL) ? $outline['entry_dungeon'] : [];
+    $entry_dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? ''));
+    $entry_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? ''));
+    if ($entry_dungeon_id !== '' && !isset($canonical_index['dungeon_ids'][$entry_dungeon_id])) {
+      $errors[] = "[DCV_NAV_ENTRY_DUNGEON_MISSING] entry_dungeon.dungeon_id '{$entry_dungeon_id}' is not in canonical dungeon templates.";
+    }
+    if ($entry_room_id !== '' && !isset($canonical_index['room_ids'][$entry_room_id])) {
+      $errors[] = "[DCV_NAV_ENTRY_ROOM_MISSING] entry_dungeon.entrance_room_id '{$entry_room_id}' is not in canonical room templates.";
+    }
+    if (
+      $entry_dungeon_id !== ''
+      && $entry_room_id !== ''
+      && isset($canonical_index['dungeon_ids'][$entry_dungeon_id])
+      && isset($canonical_index['room_ids'][$entry_room_id])
+      && !isset($canonical_index['dungeon_room_ids'][$entry_dungeon_id][$entry_room_id])
+    ) {
+      $errors[] = "[DCV_NAV_ENTRY_ROOM_NOT_IN_DUNGEON] entry_dungeon.entrance_room_id '{$entry_room_id}' is not linked to dungeon '{$entry_dungeon_id}'.";
+    }
+
+    $chapter_ids = [];
+    $scene_ids = [];
+    foreach ((array) ($storyline_data['chapters'] ?? []) as $chapter) {
+      if (!is_array($chapter)) {
+        continue;
+      }
+      $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
+      if ($chapter_id !== '') {
+        $chapter_ids[$chapter_id] = TRUE;
+      }
+      foreach ((array) ($chapter['scenes'] ?? []) as $scene) {
+        if (!is_array($scene)) {
+          continue;
+        }
+        $scene_id = trim((string) ($scene['scene_id'] ?? ''));
+        if ($scene_id !== '') {
+          $scene_ids[$scene_id] = TRUE;
+        }
+      }
+    }
+
+    $actor_ids = [];
+    foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_id !== '') {
+        $actor_ids[$entity_id] = TRUE;
+      }
+      foreach ((array) ($contact['introduces_to'] ?? []) as $introduction) {
+        if (!is_array($introduction)) {
+          continue;
+        }
+        $intro_entity_id = trim((string) ($introduction['entity_id'] ?? ''));
+        if ($intro_entity_id !== '') {
+          $actor_ids[$intro_entity_id] = TRUE;
+        }
+      }
+    }
+    foreach ((array) ($storyline_data['asset_references'] ?? []) as $reference) {
+      if (!is_array($reference)) {
+        continue;
+      }
+      $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? '')));
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      if (
+        $asset_id !== ''
+        && in_array($asset_type, ['npc', 'campaign_npc', 'character', 'creature'], TRUE)
+      ) {
+        $actor_ids[$asset_id] = TRUE;
+      }
+    }
+    foreach ((array) ($outline['sub_bosses'] ?? []) as $boss) {
+      if (!is_array($boss)) {
+        continue;
+      }
+      $boss_id = trim((string) ($boss['boss_id'] ?? ''));
+      if ($boss_id !== '') {
+        $actor_ids[$boss_id] = TRUE;
+      }
+    }
+    $big_boss_id = trim((string) ($outline['big_boss']['boss_id'] ?? ''));
+    if ($big_boss_id !== '') {
+      $actor_ids[$big_boss_id] = TRUE;
+    }
+
+    foreach (array_values(array_filter(is_array($outline['progression_connectors'] ?? NULL) ? $outline['progression_connectors'] : [], 'is_array')) as $index => $connector) {
+      $connector_path = "progression_connectors[{$index}]";
+      $source_type = strtolower(trim((string) ($connector['source_type'] ?? '')));
+      $source_id = trim((string) ($connector['source_id'] ?? ''));
+      $target_dungeon_id = trim((string) ($connector['target_dungeon_id'] ?? ''));
+      $target_room_id = trim((string) ($connector['target_room_id'] ?? ''));
+
+      if ($source_id !== '') {
+        $source_valid = match ($source_type) {
+          'npc', 'campaign_npc', 'character', 'creature' => isset($actor_ids[$source_id]),
+          'dungeon' => isset($canonical_index['dungeon_ids'][$source_id]),
+          'room', 'location' => isset($canonical_index['room_ids'][$source_id]),
+          'chapter' => isset($chapter_ids[$source_id]),
+          'scene' => isset($scene_ids[$source_id]),
+          default => FALSE,
+        };
+        if (!$source_valid) {
+          $errors[] = "[DCV_NAV_CONNECTOR_SOURCE_INVALID] {$connector_path}: source_type/source_id '{$source_type}:{$source_id}' does not resolve to a canonical/anchored source.";
+        }
+      }
+
+      if ($target_dungeon_id !== '' && !isset($canonical_index['dungeon_ids'][$target_dungeon_id])) {
+        $errors[] = "[DCV_NAV_CONNECTOR_TARGET_DUNGEON_MISSING] {$connector_path}: target_dungeon_id '{$target_dungeon_id}' is not in canonical dungeon templates.";
+      }
+      if ($target_room_id !== '' && !isset($canonical_index['room_ids'][$target_room_id])) {
+        $errors[] = "[DCV_NAV_CONNECTOR_TARGET_ROOM_MISSING] {$connector_path}: target_room_id '{$target_room_id}' is not in canonical room templates.";
+      }
+      if (
+        $target_dungeon_id !== ''
+        && $target_room_id !== ''
+        && isset($canonical_index['dungeon_ids'][$target_dungeon_id])
+        && isset($canonical_index['room_ids'][$target_room_id])
+        && !isset($canonical_index['dungeon_room_ids'][$target_dungeon_id][$target_room_id])
+      ) {
+        $errors[] = "[DCV_NAV_CONNECTOR_TARGET_ROOM_NOT_IN_DUNGEON] {$connector_path}: target_room_id '{$target_room_id}' is not linked to target_dungeon_id '{$target_dungeon_id}'.";
+      }
+    }
+
     return array_values(array_unique($errors));
   }
 
@@ -2588,7 +3727,7 @@ class StorylineManagerService {
    */
   protected function validateObjectiveControlChainStage(array $storyline_data, string $payload_type): array {
     if ($this->objectiveTypeService === NULL) {
-      return [];
+      return ['Canonical validation dependency missing: ObjectiveTypeService is required for objective_control_chain stage execution.'];
     }
 
     $errors = [];
@@ -2610,13 +3749,17 @@ class StorylineManagerService {
 
         if ($runtime_payload !== NULL) {
           $generated = $runtime_payload['generated_objectives'];
+          $runtime_anchors = $anchors;
+          if ($generated !== []) {
+            $runtime_anchors = $this->withObjectiveItemAnchors($runtime_anchors, $generated);
+          }
           if ($generated === []) {
             $errors[] = "Runtime quest '{$quest_id}' is missing generated_objectives.";
           }
           else {
             $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
               $generated,
-              $anchors,
+              $runtime_anchors,
               "runtime quest '{$quest_id}' generated_objectives"
             ));
           }
@@ -2625,9 +3768,10 @@ class StorylineManagerService {
             ? $runtime_payload['objective_states']
             : $generated;
           if ($states !== []) {
+            $runtime_anchors = $this->withObjectiveItemAnchors($runtime_anchors, $states);
             $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
               $states,
-              $anchors,
+              $runtime_anchors,
               "runtime quest '{$quest_id}' objective_states"
             ));
             $errors = array_merge($errors, $this->validateRuntimeObjectiveStateAlignment(
@@ -2683,7 +3827,7 @@ class StorylineManagerService {
    */
   protected function validateQuestObjectiveControlChain(array $objective_phases, array $anchors, string $path): array {
     if ($this->objectiveTypeService === NULL) {
-      return [];
+      return ["{$path}: ObjectiveTypeService dependency is required for objective control-chain validation."];
     }
 
     $errors = $this->objectiveTypeService->validateObjectivePhases($objective_phases, $path);
@@ -3404,12 +4548,17 @@ class StorylineManagerService {
    */
   protected function collectObjectiveReferenceAnchors(array $storyline_data): array {
     $chapter_ids = [];
-    $scene_ids = [];
     foreach (array_values(array_filter(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : [], 'is_array')) as $chapter) {
       $chapter_id = trim((string) ($chapter['chapter_id'] ?? ''));
       if ($chapter_id !== '') {
         $chapter_ids[$chapter_id] = TRUE;
       }
+    }
+
+    $asset_ids = [];
+    $item_ids = [];
+    $scene_ids = [];
+    foreach (array_values(array_filter(is_array($storyline_data['chapters'] ?? NULL) ? $storyline_data['chapters'] : [], 'is_array')) as $chapter) {
       foreach (array_values(array_filter(is_array($chapter['scenes'] ?? NULL) ? $chapter['scenes'] : [], 'is_array')) as $scene) {
         $scene_id = trim((string) ($scene['scene_id'] ?? ''));
         if ($scene_id !== '') {
@@ -3417,9 +4566,6 @@ class StorylineManagerService {
         }
       }
     }
-
-    $asset_ids = [];
-    $item_ids = [];
     $location_ids = $scene_ids;
     foreach (array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array')) as $reference) {
       $asset_id = trim((string) ($reference['asset_id'] ?? ''));
@@ -3470,13 +4616,98 @@ class StorylineManagerService {
       }
     }
 
+    $actor_ids = $contact_ids + $outline_npc_ids;
+    foreach (array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array')) as $reference) {
+      $asset_id = trim((string) ($reference['asset_id'] ?? ''));
+      $asset_type = strtolower(trim((string) ($reference['asset_type'] ?? '')));
+      if ($asset_id !== '' && in_array($asset_type, ['npc', 'campaign_npc', 'character', 'creature'], TRUE)) {
+        $actor_ids[$asset_id] = TRUE;
+      }
+    }
+
     $target_ids = $asset_ids + $contact_ids + $outline_npc_ids + $location_ids + $chapter_ids;
 
     return [
       'target_ids' => $target_ids,
+      'actor_ids' => $actor_ids,
       'item_ids' => $item_ids,
       'location_ids' => $location_ids,
     ];
+  }
+
+  /**
+   * Add item anchors derived from objective definitions.
+   *
+   * @param array<string, array<string, bool>> $anchors
+   *   Anchor payload.
+   * @param array<int, mixed> $objective_phases
+   *   Objective phases.
+   *
+   * @return array<string, array<string, bool>>
+   *   Anchor payload with objective-derived item ids.
+   */
+  protected function withObjectiveItemAnchors(array $anchors, array $objective_phases): array {
+    if (!isset($anchors['item_ids']) || !is_array($anchors['item_ids'])) {
+      $anchors['item_ids'] = [];
+    }
+    foreach ($this->collectObjectiveItemRefs($objective_phases) as $item_ref) {
+      $anchors['item_ids'][$item_ref] = TRUE;
+    }
+    return $anchors;
+  }
+
+  /**
+   * Collect item refs referenced by objective phases.
+   *
+   * @param array<int, mixed> $objective_phases
+   *   Objective phases.
+   *
+   * @return array<int, string>
+   *   Item refs.
+   */
+  protected function collectObjectiveItemRefs(array $objective_phases): array {
+    $item_refs = [];
+    foreach ($objective_phases as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $objectives = is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [];
+      foreach ($this->collectObjectiveItemRefsFromNodes($objectives) as $item_ref) {
+        $item_refs[$item_ref] = TRUE;
+      }
+    }
+    return array_values(array_keys($item_refs));
+  }
+
+  /**
+   * Collect item refs from nested objective nodes.
+   *
+   * @param array<int, mixed> $objectives
+   *   Objective node list.
+   *
+   * @return array<int, string>
+   *   Item refs.
+   */
+  protected function collectObjectiveItemRefsFromNodes(array $objectives): array {
+    $item_refs = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      $item_ref = trim((string) ($objective['item_ref'] ?? $objective['item'] ?? ''));
+      if ($item_ref !== '') {
+        $item_refs[$item_ref] = TRUE;
+      }
+      $criteria_item_ref = trim((string) ($objective['completion_criteria']['item_ref'] ?? $objective['completion_criteria']['item'] ?? ''));
+      if ($criteria_item_ref !== '') {
+        $item_refs[$criteria_item_ref] = TRUE;
+      }
+      $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+      foreach ($this->collectObjectiveItemRefsFromNodes($children) as $child_item_ref) {
+        $item_refs[$child_item_ref] = TRUE;
+      }
+    }
+    return array_values(array_keys($item_refs));
   }
 
   /**
@@ -3487,6 +4718,7 @@ class StorylineManagerService {
    */
   protected function validateStorylineCrossReferences(array $definition): array {
     $errors = [];
+    $storyline_template_id = trim((string) ($definition['template_id'] ?? ''));
     $chapters = array_values(array_filter(is_array($definition['chapters'] ?? NULL) ? $definition['chapters'] : [], 'is_array'));
     $chapter_ids = [];
     $scene_ids = [];
@@ -3644,6 +4876,10 @@ class StorylineManagerService {
         $errors[] = "Linked quest '{$quest_id}' points to unknown scene '{$scene_id}'.";
       }
     }
+    $errors = array_merge(
+      $errors,
+      $this->validateCanonicalLinkedQuestStorylineOwnership($storyline_template_id, $definition['linked_quests'] ?? [])
+    );
 
     $questline = is_array($definition['questline'] ?? NULL) ? $definition['questline'] : [];
     foreach (array_values(array_filter(is_array($questline['quest_nodes'] ?? NULL) ? $questline['quest_nodes'] : [], 'is_array')) as $quest_node) {
@@ -3892,6 +5128,92 @@ class StorylineManagerService {
   }
 
   /**
+   * Validate canonical quest-to-storyline ownership for linked quests.
+   *
+   * @param array<string, mixed> $linked_quests
+   *   Storyline linked_quests map.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateCanonicalLinkedQuestStorylineOwnership(string $storyline_template_id, array $linked_quests): array {
+    $storyline_template_id = trim($storyline_template_id);
+    if ($storyline_template_id === '') {
+      return [];
+    }
+
+    $quest_template_ids = [];
+    foreach ($linked_quests as $quest_key => $quest_link) {
+      $quest_template_id = trim((string) $quest_key);
+      if (is_array($quest_link)) {
+        $quest_template_id = trim((string) ($quest_link['quest_id'] ?? $quest_template_id));
+      }
+      if ($quest_template_id !== '') {
+        $quest_template_ids[$quest_template_id] = TRUE;
+      }
+    }
+    if ($quest_template_ids === []) {
+      return [];
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dc_canonical_quests')) {
+      return ['Canonical quest ownership validation requires dc_canonical_quests table.'];
+    }
+    if (!$schema->fieldExists('dc_canonical_quests', 'template_id')) {
+      return ['Canonical quest ownership validation requires dc_canonical_quests.template_id column.'];
+    }
+    if (!$schema->fieldExists('dc_canonical_quests', 'storyline_template_id')) {
+      return ['Canonical quest ownership validation requires dc_canonical_quests.storyline_template_id column.'];
+    }
+    if (!$schema->fieldExists('dc_canonical_quests', 'story_impact')) {
+      return ['Canonical quest ownership validation requires dc_canonical_quests.story_impact column.'];
+    }
+
+    $rows = $this->database->select('dc_canonical_quests', 'q')
+      ->fields('q', ['template_id', 'storyline_template_id', 'story_impact'])
+      ->condition('template_id', array_keys($quest_template_ids), 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $row_map = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $template_id = trim((string) ($row['template_id'] ?? ''));
+      if ($template_id !== '') {
+        $row_map[$template_id] = $row;
+      }
+    }
+
+    $errors = [];
+    foreach (array_keys($quest_template_ids) as $quest_template_id) {
+      $row = $row_map[$quest_template_id] ?? NULL;
+      if (!is_array($row)) {
+        $errors[] = "Linked quest '{$quest_template_id}' is missing from canonical quest templates.";
+        continue;
+      }
+
+      $canonical_storyline_template_id = trim((string) ($row['storyline_template_id'] ?? ''));
+      if ($canonical_storyline_template_id === '') {
+        $errors[] = "Linked quest '{$quest_template_id}' is missing canonical storyline_template_id.";
+      }
+      elseif ($canonical_storyline_template_id !== $storyline_template_id) {
+        $errors[] = "Linked quest '{$quest_template_id}' has canonical storyline_template_id '{$canonical_storyline_template_id}' but storyline template is '{$storyline_template_id}'.";
+      }
+
+      $story_impact = $this->decodeJsonArrayValue($row['story_impact'] ?? NULL);
+      $story_impact_storyline_id = trim((string) ($story_impact['storyline_id'] ?? ''));
+      if ($story_impact_storyline_id !== '' && $story_impact_storyline_id !== $storyline_template_id) {
+        $errors[] = "Linked quest '{$quest_template_id}' has story_impact.storyline_id '{$story_impact_storyline_id}' but storyline template is '{$storyline_template_id}'.";
+      }
+    }
+
+    return $errors;
+  }
+
+  /**
    * Collect outline-declared dungeon and room anchors.
    *
    * @return array{dungeons: array<string, bool>, rooms: array<string, bool>}
@@ -3979,21 +5301,39 @@ class StorylineManagerService {
    * Attaches known quest ids to a storyline instance in the quest table.
    */
   protected function attachQuestReferences(int $campaign_id, string $storyline_id, array $linked_quests): void {
+    $storyline_quest_lifecycle_service = $this->resolveStorylineQuestLifecycleService();
     foreach ($linked_quests as $quest_link) {
       if (!is_array($quest_link) || empty($quest_link['quest_id'])) {
         continue;
       }
 
-      $this->database->update('dc_campaign_quests')
-        ->fields([
-          'storyline_id' => $storyline_id,
-          'storyline_chapter_id' => !empty($quest_link['chapter_id']) ? (string) $quest_link['chapter_id'] : NULL,
-          'storyline_scene_id' => !empty($quest_link['scene_id']) ? (string) $quest_link['scene_id'] : NULL,
-        ])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('quest_id', (string) $quest_link['quest_id'])
-        ->execute();
+      $storyline_quest_lifecycle_service->attachStorylineReferenceToQuestRow(
+        $campaign_id,
+        (string) $quest_link['quest_id'],
+        $storyline_id,
+        !empty($quest_link['chapter_id']) ? (string) $quest_link['chapter_id'] : NULL,
+        !empty($quest_link['scene_id']) ? (string) $quest_link['scene_id'] : NULL
+      );
     }
+  }
+
+  /**
+   * Resolve storyline quest lifecycle service on first use to avoid DI cycles.
+   */
+  protected function resolveStorylineQuestLifecycleService(): StorylineQuestLifecycleService {
+    if ($this->storylineQuestLifecycleService instanceof StorylineQuestLifecycleService) {
+      return $this->storylineQuestLifecycleService;
+    }
+
+    if (\Drupal::hasService('dungeoncrawler_content.storyline_quest_lifecycle')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.storyline_quest_lifecycle');
+      if ($candidate instanceof StorylineQuestLifecycleService) {
+        $this->storylineQuestLifecycleService = $candidate;
+        return $candidate;
+      }
+    }
+
+    throw new \RuntimeException('StorylineQuestLifecycleService is required to attach storyline quest references.');
   }
 
   /**
@@ -4006,26 +5346,61 @@ class StorylineManagerService {
       ->execute();
 
     $now = time();
+    $normalized_rows = [];
     foreach ($asset_references as $reference) {
       if (!is_array($reference) || empty($reference['asset_type']) || empty($reference['asset_id'])) {
         continue;
       }
+      $asset_type = trim((string) $reference['asset_type']);
+      $asset_id = trim((string) $reference['asset_id']);
+      if ($asset_type === '' || $asset_id === '') {
+        continue;
+      }
+      $chapter_id = !empty($reference['chapter_id']) ? trim((string) $reference['chapter_id']) : NULL;
+      $scene_id = !empty($reference['scene_id']) ? trim((string) $reference['scene_id']) : NULL;
+      $source_scope = !empty($reference['source_scope']) ? trim((string) $reference['source_scope']) : 'storyline';
+      if ($source_scope === '') {
+        $source_scope = 'storyline';
+      }
+      $link_key = implode('|', [
+        $asset_type,
+        $asset_id,
+        $source_scope,
+        $chapter_id ?? '',
+        $scene_id ?? '',
+      ]);
+      $normalized_rows[$link_key] = [
+        'campaign_id' => $campaign_id,
+        'storyline_id' => $storyline_id,
+        'asset_type' => $asset_type,
+        'asset_id' => $asset_id,
+        'asset_role' => !empty($reference['asset_role']) ? (string) $reference['asset_role'] : NULL,
+        'chapter_id' => $chapter_id,
+        'scene_id' => $scene_id,
+        'source_scope' => $source_scope,
+        'notes' => !empty($reference['notes']) ? (string) $reference['notes'] : NULL,
+        'link_data' => json_encode($reference['link_data'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      ];
+    }
 
-      $this->database->insert('dc_campaign_storyline_links')
+    foreach ($normalized_rows as $row) {
+      $this->database->merge('dc_campaign_storyline_links')
+        ->keys([
+          'campaign_id' => $row['campaign_id'],
+          'storyline_id' => $row['storyline_id'],
+          'asset_type' => $row['asset_type'],
+          'asset_id' => $row['asset_id'],
+          'source_scope' => $row['source_scope'],
+          'chapter_id' => $row['chapter_id'],
+          'scene_id' => $row['scene_id'],
+        ])
         ->fields([
-          'campaign_id' => $campaign_id,
-          'storyline_id' => $storyline_id,
-          'asset_type' => (string) $reference['asset_type'],
-          'asset_id' => (string) $reference['asset_id'],
-          'asset_role' => !empty($reference['asset_role']) ? (string) $reference['asset_role'] : NULL,
-          'chapter_id' => !empty($reference['chapter_id']) ? (string) $reference['chapter_id'] : NULL,
-          'scene_id' => !empty($reference['scene_id']) ? (string) $reference['scene_id'] : NULL,
-          'source_scope' => !empty($reference['source_scope']) ? (string) $reference['source_scope'] : 'storyline',
-          'notes' => !empty($reference['notes']) ? (string) $reference['notes'] : NULL,
-          'link_data' => json_encode($reference['link_data'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-          'created_at' => $now,
+          'asset_role' => $row['asset_role'],
+          'notes' => $row['notes'],
+          'link_data' => $row['link_data'],
           'updated_at' => $now,
         ])
+        ->expression('created_at', 'COALESCE(created_at, :time)', [':time' => $now])
         ->execute();
     }
   }
@@ -4694,17 +6069,29 @@ class StorylineManagerService {
       $entry_dungeon['name'] = (string) $first_chapter['name'];
     }
 
+    $canonical_room_id = trim((string) ($outline['entry_point']['primary_location_id'] ?? ''));
+    if ($canonical_room_id === '') {
+      $canonical_room_id = $this->resolveEntryPointPrimaryLocationId(
+        array_values(array_filter(is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [], 'is_array')),
+        $canonical_chapter_id,
+        $canonical_scene_id
+      );
+    }
+    if ($canonical_room_id === '' && isset($outline_room_ids[$canonical_scene_id])) {
+      $canonical_room_id = $canonical_scene_id;
+    }
+
     $entry_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? ''));
     if (
-      $canonical_scene_id !== ''
-      && ($entry_room_id === '' || (!isset($outline_room_ids[$entry_room_id]) && !isset($scene_ids[$entry_room_id])))
+      $canonical_room_id !== ''
+      && ($entry_room_id === '' || !isset($outline_room_ids[$entry_room_id]))
     ) {
-      $entry_dungeon['entrance_room_id'] = $canonical_scene_id;
+      $entry_dungeon['entrance_room_id'] = $canonical_room_id;
     }
     $outline['entry_dungeon'] = $entry_dungeon;
 
     $target_dungeon_id = trim((string) ($entry_dungeon['dungeon_id'] ?? $canonical_chapter_id));
-    $target_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? $canonical_scene_id));
+    $target_room_id = trim((string) ($entry_dungeon['entrance_room_id'] ?? $canonical_room_id));
     $connectors = [];
     foreach (array_values(array_filter(is_array($outline['progression_connectors'] ?? NULL) ? $outline['progression_connectors'] : [], 'is_array')) as $connector) {
       $connector_target_dungeon_id = trim((string) ($connector['target_dungeon_id'] ?? ''));
@@ -4718,7 +6105,7 @@ class StorylineManagerService {
       $connector_target_room_id = trim((string) ($connector['target_room_id'] ?? ''));
       if (
         $target_room_id !== ''
-        && ($connector_target_room_id === '' || (!isset($outline_room_ids[$connector_target_room_id]) && !isset($scene_ids[$connector_target_room_id])))
+        && ($connector_target_room_id === '' || !isset($outline_room_ids[$connector_target_room_id]))
       ) {
         $connector['target_room_id'] = $target_room_id;
       }
@@ -4756,18 +6143,23 @@ class StorylineManagerService {
       'errors' => [],
     ];
 
-    $templates_root = dirname(__DIR__, 2) . '/config/examples/templates';
-    $dungeon_dir = $templates_root . '/dungeoncrawler_content_dungeons';
-    $room_dir = $templates_root . '/dungeoncrawler_content_rooms';
-    foreach ([$dungeon_dir, $room_dir] as $required_dir) {
-      if (!is_dir($required_dir)) {
-        $index['errors'][] = "Canonical template directory is missing: {$required_dir}";
-      }
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_dungeons')) {
+      $index['errors'][] = 'Canonical dungeon table dungeoncrawler_content_dungeons is unavailable.';
     }
+    elseif (
+      !$schema->fieldExists('dungeoncrawler_content_dungeons', 'dungeon_id')
+      || !$schema->fieldExists('dungeoncrawler_content_dungeons', 'dungeon_data')
+    ) {
+      $index['errors'][] = 'Canonical dungeon table dungeoncrawler_content_dungeons is missing required fields: dungeon_id, dungeon_data.';
+    }
+    else {
+      $dungeon_rows = $this->database->select('dungeoncrawler_content_dungeons', 'd')
+        ->fields('d', ['dungeon_id', 'dungeon_data'])
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
-    foreach (glob($dungeon_dir . '/*.json') ?: [] as $path) {
-      $rows = $this->loadCanonicalTemplateRowsFromFile($path, $index['errors']);
-      foreach ($rows as $row) {
+      foreach ($dungeon_rows as $row) {
         if (!is_array($row)) {
           continue;
         }
@@ -4777,17 +6169,7 @@ class StorylineManagerService {
         }
         $index['dungeon_ids'][$dungeon_id] = TRUE;
 
-        $dungeon_data = [];
-        if (is_array($row['dungeon_data'] ?? NULL)) {
-          $dungeon_data = $row['dungeon_data'];
-        }
-        elseif (is_string($row['dungeon_data'] ?? NULL)) {
-          $decoded_data = json_decode((string) $row['dungeon_data'], TRUE);
-          if (is_array($decoded_data)) {
-            $dungeon_data = $decoded_data;
-          }
-        }
-
+        $dungeon_data = $this->decodeJsonArrayValue($row['dungeon_data'] ?? []);
         $entry_room_id = trim((string) ($dungeon_data['entry_room'] ?? ''));
         if ($entry_room_id !== '') {
           $index['dungeon_room_ids'][$dungeon_id][$entry_room_id] = TRUE;
@@ -4798,9 +6180,19 @@ class StorylineManagerService {
       }
     }
 
-    foreach (glob($room_dir . '/*.json') ?: [] as $path) {
-      $rows = $this->loadCanonicalTemplateRowsFromFile($path, $index['errors']);
-      foreach ($rows as $row) {
+    if (!$schema->tableExists('dungeoncrawler_content_rooms')) {
+      $index['errors'][] = 'Canonical room table dungeoncrawler_content_rooms is unavailable.';
+    }
+    elseif (!$schema->fieldExists('dungeoncrawler_content_rooms', 'room_id')) {
+      $index['errors'][] = 'Canonical room table dungeoncrawler_content_rooms is missing required field: room_id.';
+    }
+    else {
+      $room_rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
+        ->fields('r', ['room_id'])
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+      foreach ($room_rows as $row) {
         if (!is_array($row)) {
           continue;
         }
@@ -4813,40 +6205,13 @@ class StorylineManagerService {
 
     foreach ($index['dungeon_room_ids'] as $dungeon_id => $room_ids) {
       $index['dungeon_room_ids'][$dungeon_id] = array_fill_keys(array_keys($room_ids), TRUE);
+      foreach (array_keys($index['dungeon_room_ids'][$dungeon_id]) as $room_id) {
+        $index['room_ids'][(string) $room_id] = TRUE;
+      }
     }
 
     $this->canonicalLocationTemplateIndex = $index;
     return $this->canonicalLocationTemplateIndex;
-  }
-
-  /**
-   * Load template rows from one canonical template file.
-   *
-   * @param array<int, string> $errors
-   *   Error collection (mutated).
-   *
-   * @return array<int, mixed>
-   *   Decoded rows payload.
-   */
-  protected function loadCanonicalTemplateRowsFromFile(string $path, array &$errors): array {
-    $raw = @file_get_contents($path);
-    if (!is_string($raw)) {
-      $errors[] = "Failed to read canonical template file: {$path}";
-      return [];
-    }
-
-    $decoded = json_decode($raw, TRUE);
-    if (!is_array($decoded)) {
-      $errors[] = "Canonical template file is not valid JSON: {$path}";
-      return [];
-    }
-
-    if (!is_array($decoded['rows'] ?? NULL)) {
-      $errors[] = "Canonical template file is missing rows[] payload: {$path}";
-      return [];
-    }
-
-    return $decoded['rows'];
   }
 
   /**
@@ -4934,10 +6299,30 @@ class StorylineManagerService {
   /**
    * Returns whether the required storyline storage schema is available.
    */
-  protected function isStorylineStorageReady(): bool {
+  protected function isCanonicalStorylineStorageReady(): bool {
     $schema = $this->database->schema();
-    return $schema->tableExists('dungeoncrawler_content_storylines')
-      && $schema->tableExists('dc_canonical_storylines')
+    if (
+      !$schema->tableExists(self::CANONICAL_STORYLINE_TABLE)
+      || !$schema->tableExists('dc_canonical_quests')
+    ) {
+      return FALSE;
+    }
+
+    foreach (self::CANONICAL_STORYLINE_REQUIRED_FIELDS as $field_name) {
+      if (!$schema->fieldExists(self::CANONICAL_STORYLINE_TABLE, $field_name)) {
+        return FALSE;
+      }
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Returns whether the required runtime storyline storage schema is available.
+   */
+  protected function isRuntimeStorylineStorageReady(): bool {
+    $schema = $this->database->schema();
+    return $this->isCanonicalStorylineStorageReady()
       && $schema->tableExists('dc_canonical_quests')
       && $schema->tableExists('dc_campaign_storylines')
       && $schema->tableExists('dc_campaign_storyline_log')
@@ -4949,14 +6334,44 @@ class StorylineManagerService {
   }
 
   /**
-   * Ensures storyline schema exists before storyline APIs are used.
+   * Ensures canonical storyline schema exists before canonical APIs are used.
    */
-  protected function assertStorylineStorageReady(): void {
-    if ($this->isStorylineStorageReady()) {
+  protected function assertCanonicalStorylineStorageReady(): void {
+    if ($this->isCanonicalStorylineStorageReady()) {
       return;
     }
 
-    throw new \InvalidArgumentException('Storyline storage is not installed yet. Run database updates first.', 503);
+    $schema = $this->database->schema();
+    $issues = [];
+    if (!$schema->tableExists(self::CANONICAL_STORYLINE_TABLE)) {
+      $issues[] = sprintf('missing table %s', self::CANONICAL_STORYLINE_TABLE);
+    }
+    if (!$schema->tableExists('dc_canonical_quests')) {
+      $issues[] = 'missing table dc_canonical_quests';
+    }
+    if ($schema->tableExists(self::CANONICAL_STORYLINE_TABLE)) {
+      foreach (self::CANONICAL_STORYLINE_REQUIRED_FIELDS as $field_name) {
+        if (!$schema->fieldExists(self::CANONICAL_STORYLINE_TABLE, $field_name)) {
+          $issues[] = sprintf('missing field %s.%s', self::CANONICAL_STORYLINE_TABLE, $field_name);
+        }
+      }
+    }
+    $detail = $issues !== [] ? implode('; ', $issues) : 'unknown contract mismatch';
+    throw new \InvalidArgumentException(
+      sprintf('Canonical storyline storage contract is not installed: %s. Run database updates first.', $detail),
+      503
+    );
+  }
+
+  /**
+   * Ensures runtime storyline schema exists before runtime storyline APIs are used.
+   */
+  protected function assertStorylineStorageReady(): void {
+    if ($this->isRuntimeStorylineStorageReady()) {
+      return;
+    }
+
+    throw new \InvalidArgumentException('Storyline runtime storage is not installed yet. Run database updates first.', 503);
   }
 
 }

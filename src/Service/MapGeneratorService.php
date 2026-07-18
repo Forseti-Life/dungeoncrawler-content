@@ -21,6 +21,9 @@ use Psr\Log\LoggerInterface;
  *
  * This bridges the gap between narrative exploration ("I want to go to the
  * blacksmith") and the mechanical hex map system that needs concrete room data.
+ *
+ * Validation pair: StateValidationService::validateNavigationReceipt() plus
+ * navigation connection parity assertions.
  */
 class MapGeneratorService {
 
@@ -202,37 +205,75 @@ class MapGeneratorService {
       throw new \RuntimeException('Invalid dungeon data for campaign ' . $campaign_id);
     }
 
-    $existing_room_match = $this->findExistingCampaignRoomMatch($dungeon_data, $destination, $origin_room_id);
+    $existing_room_match = $this->findExistingCampaignRoomMatch($campaign_id, $dungeon_data, $destination, $origin_room_id);
     if ($existing_room_match !== NULL) {
       $room = $existing_room_match['room'];
       $room_index = (int) $existing_room_match['room_index'];
 
       $reused_room_id = (string) ($room['room_id'] ?? '');
-      $this->createRoomConnection($dungeon_data, $origin_room_id, $reused_room_id);
-      $this->database->update('dc_campaign_dungeons')
-        ->fields([
-          'dungeon_data' => json_encode($dungeon_data),
-          'updated' => time(),
-        ])
-        ->condition('dungeon_id', $dungeon_id)
-        ->condition('campaign_id', $campaign_id)
-        ->execute();
-      $this->syncCampaignConnectionRows(
+      $this->executeNavigationPersistenceTransaction(function () use (
+        &$dungeon_data,
         $campaign_id,
         $dungeon_id,
+        $room_index,
         $origin_room_id,
-        $reused_room_id
-      );
+        $reused_room_id,
+        $room
+      ): void {
+        if (
+          $dungeon_id !== ''
+          && isset($dungeon_data['rooms'][$room_index])
+          && is_array($dungeon_data['rooms'][$room_index])
+        ) {
+          $dungeon_data['rooms'][$room_index] = $this->ensureRoomHexH3Indexes(
+            $dungeon_id,
+            $dungeon_data['rooms'][$room_index]
+          );
 
-      if (!empty($room['room_id'])) {
-        $this->roomStateService->setState($campaign_id, $room['room_id'], $dungeon_id, [
-          'roomId' => $room['room_id'],
-          'dungeonId' => $dungeon_id,
-          'explored' => TRUE,
-          'visibility' => 'visible',
-          'isCleared' => FALSE,
-        ], NULL);
-      }
+          if (isset($dungeon_data['hex_map']['rooms']) && is_array($dungeon_data['hex_map']['rooms'])) {
+            foreach ($dungeon_data['hex_map']['rooms'] as $hex_room_index => $hex_room) {
+              if (!is_array($hex_room) || (string) ($hex_room['room_id'] ?? '') !== $reused_room_id) {
+                continue;
+              }
+              $dungeon_data['hex_map']['rooms'][$hex_room_index] = $dungeon_data['rooms'][$room_index];
+              break;
+            }
+          }
+        }
+
+        $this->createRoomConnection($dungeon_data, $origin_room_id, $reused_room_id);
+        $this->database->update('dc_campaign_dungeons')
+          ->fields([
+            'dungeon_data' => json_encode($dungeon_data),
+            'updated' => time(),
+          ])
+          ->condition('dungeon_id', $dungeon_id)
+          ->condition('campaign_id', $campaign_id)
+          ->execute();
+        $this->syncCampaignConnectionRows(
+          $campaign_id,
+          $dungeon_id,
+          $origin_room_id,
+          $reused_room_id
+        );
+        $this->assertNavigationConnectionParity(
+          $campaign_id,
+          $dungeon_id,
+          $origin_room_id,
+          $reused_room_id,
+          $dungeon_data
+        );
+
+        if (!empty($room['room_id'])) {
+          $this->roomStateService->setState($campaign_id, $room['room_id'], $dungeon_id, [
+            'roomId' => $room['room_id'],
+            'dungeonId' => $dungeon_id,
+            'explored' => TRUE,
+            'visibility' => 'visible',
+            'isCleared' => FALSE,
+          ], NULL);
+        }
+      });
 
       $this->logger->info('Existing setting reused: @name (room_id=@room_id, room_index=@idx, destination=@dest)', [
         '@name' => $room['name'] ?? 'Unknown',
@@ -325,66 +366,86 @@ class MapGeneratorService {
       (int) ($placement_result['offset_r'] ?? 0)
     );
 
-    // Step 4: Append room to dungeon_data.
-    $dungeon_data['rooms'][] = $room;
-    $room_index = array_key_last($dungeon_data['rooms']);
+    $room_index = -1;
+    $this->executeNavigationPersistenceTransaction(function () use (
+      &$dungeon_data,
+      &$room_index,
+      $campaign_id,
+      $dungeon_id,
+      $origin_room_id,
+      $room,
+      $entities,
+      $template_id,
+      $setting
+    ): void {
+      // Step 4: Append room to dungeon_data.
+      $dungeon_data['rooms'][] = $room;
+      $room_index = array_key_last($dungeon_data['rooms']);
 
-    // Step 5: Add entities to top-level entities array.
-    if (!isset($dungeon_data['entities'])) {
-      $dungeon_data['entities'] = [];
-    }
-    foreach ($entities as $entity) {
-      $dungeon_data['entities'][] = $entity;
-    }
+      // Step 5: Add entities to top-level entities array.
+      if (!isset($dungeon_data['entities'])) {
+        $dungeon_data['entities'] = [];
+      }
+      foreach ($entities as $entity) {
+        $dungeon_data['entities'][] = $entity;
+      }
 
-    // Step 6: Create connection from origin room to new room.
-    $this->createRoomConnection($dungeon_data, $origin_room_id, $room['room_id']);
-    $this->syncCampaignConnectionRows($campaign_id, $dungeon_id, $origin_room_id, $room['room_id']);
+      // Step 6: Create connection from origin room to new room.
+      $this->createRoomConnection($dungeon_data, $origin_room_id, $room['room_id']);
+      $this->syncCampaignConnectionRows($campaign_id, $dungeon_id, $origin_room_id, $room['room_id']);
+      $this->assertNavigationConnectionParity(
+        $campaign_id,
+        $dungeon_id,
+        $origin_room_id,
+        (string) $room['room_id'],
+        $dungeon_data
+      );
 
-    // Step 7: Update hex_map regions.
-    $this->addRegionToHexMap($dungeon_data, $room);
+      // Step 7: Update hex_map regions.
+      $this->addRegionToHexMap($dungeon_data, $room);
 
-    // Step 8: Persist dungeon_data.
-    $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => json_encode($dungeon_data),
-        'updated' => time(),
-      ])
-      ->condition('dungeon_id', $dungeon_id)
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
+      // Step 8: Persist dungeon_data.
+      $this->database->update('dc_campaign_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($dungeon_data),
+          'updated' => time(),
+        ])
+        ->condition('dungeon_id', $dungeon_id)
+        ->condition('campaign_id', $campaign_id)
+        ->execute();
 
-    // Step 9: Record campaign setting instance.
-    $this->recordCampaignSettingInstance(
-      $campaign_id, $room['room_id'], $template_id, $room['name'],
-      $setting['setting_type'] ?? 'default', $room_index, $setting
-    );
+      // Step 9: Record campaign setting instance.
+      $this->recordCampaignSettingInstance(
+        $campaign_id, $room['room_id'], $template_id, $room['name'],
+        $setting['setting_type'] ?? 'default', $room_index, $setting
+      );
 
-    // Step 10a: Persist room into dc_campaign_rooms so it can be resolved
-    // by slug later (prevents tavern NPC bleed into unindexed rooms).
-    $this->persistRoomToCampaignRooms($campaign_id, $room, $setting);
+      // Step 10a: Persist room into dc_campaign_rooms so it can be resolved
+      // by slug later (prevents tavern NPC bleed into unindexed rooms).
+      $this->persistRoomToCampaignRooms($campaign_id, $room, $setting);
 
-    // Step 10a.1: Mark the destination as discovered/visited now that this
-    // generation path is being used for immediate travel into the new room.
-    $this->roomStateService->setState($campaign_id, $room['room_id'], $dungeon_id, [
-      'roomId' => $room['room_id'],
-      'dungeonId' => $dungeon_id,
-      'explored' => TRUE,
-      'visibility' => 'visible',
-      'isCleared' => FALSE,
-    ], NULL);
+      // Step 10a.1: Mark the destination as discovered/visited now that this
+      // generation path is being used for immediate travel into the new room.
+      $this->roomStateService->setState($campaign_id, $room['room_id'], $dungeon_id, [
+        'roomId' => $room['room_id'],
+        'dungeonId' => $dungeon_id,
+        'explored' => TRUE,
+        'visibility' => 'visible',
+        'isCleared' => FALSE,
+      ], NULL);
 
-    // Step 10b: Create NPC psychology profiles for any new NPCs.
-    $room_entities = array_filter($entities, fn($e) => ($e['entity_type'] ?? '') === 'npc');
-    if (!empty($room_entities)) {
-      $this->psychologyService->ensureRoomNpcProfiles($campaign_id, $room_entities);
-    }
+      // Step 10b: Create NPC psychology profiles for any new NPCs.
+      $room_entities = array_filter($entities, fn($e) => ($e['entity_type'] ?? '') === 'npc');
+      if (!empty($room_entities)) {
+        $this->psychologyService->ensureRoomNpcProfiles($campaign_id, $room_entities);
+      }
 
-    // Step 11: Register AI-generated NPCs in content library + campaign chars.
-    $npc_setting_data = $setting['npcs'] ?? [];
-    if (!empty($npc_setting_data)) {
-      $this->registerGeneratedNpcs($campaign_id, $room['room_id'], $npc_setting_data);
-    }
+      // Step 11: Register AI-generated NPCs in content library + campaign chars.
+      $npc_setting_data = $setting['npcs'] ?? [];
+      if (!empty($npc_setting_data)) {
+        $this->registerGeneratedNpcs($campaign_id, $room['room_id'], $npc_setting_data);
+      }
+    });
 
     $this->logger->info('Setting ready: @name (source=@src, template=@tid, room_index=@idx, @hex hexes, @ent entities)', [
       '@name' => $room['name'],
@@ -502,7 +563,10 @@ class MapGeneratorService {
       'room_id' => $room_id,
       'name' => (string) ($room['name'] ?? ''),
       'description' => (string) ($room['description'] ?? ''),
-      'hexes' => is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [],
+      'hexes' => $this->normalizeRoomHexesForNavigationReceipt(
+        is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [],
+        $room_id
+      ),
       'terrain' => is_array($room['terrain'] ?? NULL) ? $room['terrain'] : [],
       'lighting' => is_string($room['lighting'] ?? NULL)
         ? $room['lighting']
@@ -515,55 +579,33 @@ class MapGeneratorService {
       'connections' => is_array($room['connections'] ?? NULL) ? $room['connections'] : [],
     ];
 
-    $connections = [];
-    $hex_map_connections = $dungeon_data['hex_map']['connections'] ?? ($dungeon_data['connections'] ?? []);
-    if (is_array($hex_map_connections)) {
-      foreach ($hex_map_connections as $connection) {
-        if (!is_array($connection)) {
-          continue;
-        }
-        $from_room_id = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
-        $to_room_id = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
-        if ($from_room_id === $room_id || $to_room_id === $room_id) {
-          $connections[] = $connection;
-        }
-      }
+    if (!$this->navigationService) {
+      throw new \RuntimeException('Navigation receipt contract violation: NavigationService is required for DB-authoritative route projection.');
     }
+
+    $capabilities = $this->navigationService->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id);
+    $connections = $this->buildNavigationReceiptConnectionsFromCapabilities($capabilities);
 
     $entry_hex = ['q' => 0, 'r' => 0];
     $source_hex = NULL;
-    foreach ($connections as $connection) {
-      $from_room_id = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
-      $to_room_id = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
-      $to_hex = $connection['to_hex'] ?? $connection['to'] ?? NULL;
-      $from_hex = $connection['from_hex'] ?? $connection['from'] ?? NULL;
-
-      if ($to_room_id === $room_id && is_array($to_hex)) {
-        $entry_hex = [
-          'q' => (int) ($to_hex['q'] ?? 0),
-          'r' => (int) ($to_hex['r'] ?? 0),
-        ];
-        if (is_array($from_hex)) {
-          $source_hex = [
-            'q' => (int) ($from_hex['q'] ?? 0),
-            'r' => (int) ($from_hex['r'] ?? 0),
-          ];
-        }
-        break;
-      }
-      if ($from_room_id === $room_id && is_array($from_hex)) {
-        $entry_hex = [
-          'q' => (int) ($from_hex['q'] ?? 0),
-          'r' => (int) ($from_hex['r'] ?? 0),
-        ];
-        if (is_array($to_hex)) {
-          $source_hex = [
-            'q' => (int) ($to_hex['q'] ?? 0),
-            'r' => (int) ($to_hex['r'] ?? 0),
-          ];
-        }
-        break;
-      }
+    $origin_room_id = trim((string) ($navigation['origin_room_id'] ?? ''));
+    $arrival_capability = $origin_room_id !== ''
+      ? $this->findCapabilityToTargetRoom(
+        $this->navigationService->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $origin_room_id),
+        $room_id
+      )
+      : NULL;
+    if (is_array($arrival_capability['target_hex'] ?? NULL)) {
+      $entry_hex = [
+        'q' => (int) ($arrival_capability['target_hex']['q'] ?? 0),
+        'r' => (int) ($arrival_capability['target_hex']['r'] ?? 0),
+      ];
+    }
+    if (is_array($arrival_capability['origin_hex'] ?? NULL)) {
+      $source_hex = [
+        'q' => (int) ($arrival_capability['origin_hex']['q'] ?? 0),
+        'r' => (int) ($arrival_capability['origin_hex']['r'] ?? 0),
+      ];
     }
 
     if ($entry_hex['q'] === 0 && $entry_hex['r'] === 0 && !empty($normalized_room['hexes'][0])) {
@@ -573,7 +615,6 @@ class MapGeneratorService {
       ];
     }
 
-    $origin_room_id = trim((string) ($navigation['origin_room_id'] ?? ''));
     if ($source_hex === NULL && $origin_room_id !== '') {
       $source_hex = $this->resolveDefaultRoomHex($dungeon_data, $origin_room_id);
     }
@@ -652,6 +693,71 @@ class MapGeneratorService {
   }
 
   /**
+   * Project room hexes to the strict navigation receipt contract shape.
+   *
+   * @param array<int, mixed> $hexes
+   *   Raw room hex rows.
+   * @param string $room_id
+   *   Owning room id for error context.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Contract-safe hex payload rows.
+   */
+  protected function normalizeRoomHexesForNavigationReceipt(array $hexes, string $room_id): array {
+    $normalized = [];
+
+    foreach ($hexes as $index => $hex) {
+      if (!is_array($hex)) {
+        throw new \RuntimeException(sprintf(
+          'Navigation receipt contract violation: room %s hexes[%d] must be an object.',
+          $room_id,
+          $index
+        ));
+      }
+      if (!array_key_exists('q', $hex) || !array_key_exists('r', $hex)) {
+        throw new \RuntimeException(sprintf(
+          'Navigation receipt contract violation: room %s hexes[%d] must include q/r.',
+          $room_id,
+          $index
+        ));
+      }
+
+      $projected = [
+        'q' => (int) $hex['q'],
+        'r' => (int) $hex['r'],
+      ];
+
+      $terrain_override = trim((string) ($hex['terrain_override'] ?? $hex['terrain_type'] ?? ''));
+      if ($terrain_override !== '') {
+        $projected['terrain_override'] = $terrain_override;
+      }
+
+      $elevation_ft = $hex['elevation_ft'] ?? $hex['elevation'] ?? NULL;
+      if ($elevation_ft !== NULL && $elevation_ft !== '') {
+        $projected['elevation_ft'] = (int) $elevation_ft;
+      }
+
+      $h3_index_res14 = trim((string) ($hex['h3_index_res14'] ?? ''));
+      if ($h3_index_res14 !== '') {
+        $projected['h3_index_res14'] = strtolower($h3_index_res14);
+      }
+
+      $h3_index = trim((string) ($hex['h3_index'] ?? ''));
+      if ($h3_index !== '') {
+        $projected['h3_index'] = strtolower($h3_index);
+      }
+
+      if (is_array($hex['objects'] ?? NULL)) {
+        $projected['objects'] = $hex['objects'];
+      }
+
+      $normalized[] = $projected;
+    }
+
+    return $normalized;
+  }
+
+  /**
    * Enforce the canonical navigation receipt contract.
    */
   protected function validateNavigationReceiptPayload(array $payload): void {
@@ -661,6 +767,60 @@ class MapGeneratorService {
     }
 
     throw new \RuntimeException('Navigation receipt contract violation: ' . implode('; ', $validation['errors'] ?? []));
+  }
+
+  /**
+   * Convert navigation capabilities into receipt connection payload rows.
+   *
+   * @param array<int, array<string, mixed>> $capabilities
+   *   Navigation capabilities from NavigationService.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Receipt connection projections.
+   */
+  protected function buildNavigationReceiptConnectionsFromCapabilities(array $capabilities): array {
+    $connections = [];
+    foreach ($capabilities as $capability) {
+      if (!is_array($capability)) {
+        continue;
+      }
+      $connections[] = [
+        'connection_id' => (string) ($capability['connection_id'] ?? ''),
+        'from_room_id' => (string) ($capability['origin_room_id'] ?? ''),
+        'to_room_id' => (string) ($capability['target_room_id'] ?? ''),
+        'from_hex' => is_array($capability['origin_hex'] ?? NULL) ? $capability['origin_hex'] : NULL,
+        'to_hex' => is_array($capability['target_hex'] ?? NULL) ? $capability['target_hex'] : NULL,
+        'type' => (string) ($capability['type'] ?? 'passage'),
+        'destination_type' => (string) ($capability['destination_type'] ?? 'room'),
+        'destination_id' => (string) ($capability['destination_id'] ?? ''),
+        'distance' => (int) ($capability['distance'] ?? 0),
+        'available' => !empty($capability['available']),
+        'blocked_reason' => $capability['blocked_reason'] ?? NULL,
+      ];
+    }
+
+    return $connections;
+  }
+
+  /**
+   * Find one capability that targets the requested room.
+   */
+  protected function findCapabilityToTargetRoom(array $capabilities, string $target_room_id): ?array {
+    $target_room_id = trim($target_room_id);
+    if ($target_room_id === '') {
+      return NULL;
+    }
+
+    foreach ($capabilities as $capability) {
+      if (!is_array($capability)) {
+        continue;
+      }
+      if (trim((string) ($capability['target_room_id'] ?? '')) === $target_room_id) {
+        return $capability;
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -918,7 +1078,8 @@ class MapGeneratorService {
   /**
    * Reuse an existing campaign room when the destination already exists.
    */
-  protected function findExistingCampaignRoomMatch(array $dungeon_data, string $destination, string $origin_room_id): ?array {
+  protected function findExistingCampaignRoomMatch(int $campaign_id, array &$dungeon_data, string $destination, string $origin_room_id): ?array {
+    $this->mergeCampaignRoomRowsIntoDungeonData($campaign_id, $dungeon_data);
     $normalized_destination = $this->normalizeLocationLabel($destination);
     $this->logger->notice('Existing room match entry: origin_room_id=@origin_room_id destination=@destination normalized_destination=@normalized_destination room_count=@room_count', [
       '@origin_room_id' => $origin_room_id,
@@ -949,16 +1110,21 @@ class MapGeneratorService {
       }
 
       $normalized_name = $this->normalizeLocationLabel((string) ($room['name'] ?? ''));
-      if ($normalized_name === '') {
+      $normalized_room_id = $this->normalizeLocationLabel((string) ($room['room_id'] ?? ''));
+      $normalized_source_room_id = $this->normalizeLocationLabel((string) ($room['source_room_id'] ?? ''));
+      if ($normalized_name === '' && $normalized_room_id === '' && $normalized_source_room_id === '') {
         continue;
       }
 
-      $exact_match = $normalized_name === $normalized_destination;
-      $partial_match = !$exact_match
-        && (
-          str_contains($normalized_name, $normalized_destination)
-          || str_contains($normalized_destination, $normalized_name)
-        );
+      $exact_match = $normalized_name === $normalized_destination
+        || $normalized_room_id === $normalized_destination
+        || $normalized_source_room_id === $normalized_destination;
+      $source_id_match = $this->locationLabelsLooselyMatch($normalized_source_room_id, $normalized_destination);
+      $partial_match = !$exact_match && (
+        $this->locationLabelsLooselyMatch($normalized_name, $normalized_destination)
+        || $this->locationLabelsLooselyMatch($normalized_room_id, $normalized_destination)
+        || $source_id_match
+      );
       if (!$exact_match && !$partial_match) {
         continue;
       }
@@ -971,6 +1137,8 @@ class MapGeneratorService {
         'room_index' => $index,
         'exact_match' => $exact_match,
         'connected' => $connected,
+        'source_id_match' => $source_id_match,
+        'canonical_backed' => $normalized_source_room_id !== '',
       ];
     }
 
@@ -983,8 +1151,14 @@ class MapGeneratorService {
     }
 
     usort($matches, static function (array $a, array $b): int {
-      $scoreA = ($a['exact_match'] ? 100 : 0) + ($a['connected'] ? 10 : 0);
-      $scoreB = ($b['exact_match'] ? 100 : 0) + ($b['connected'] ? 10 : 0);
+      $scoreA = ($a['source_id_match'] ? 200 : 0)
+        + ($a['exact_match'] ? 100 : 0)
+        + ($a['connected'] ? 10 : 0)
+        + ($a['canonical_backed'] ? 5 : 0);
+      $scoreB = ($b['source_id_match'] ? 200 : 0)
+        + ($b['exact_match'] ? 100 : 0)
+        + ($b['connected'] ? 10 : 0)
+        + ($b['canonical_backed'] ? 5 : 0);
       if ($scoreA !== $scoreB) {
         return $scoreB <=> $scoreA;
       }
@@ -1002,6 +1176,177 @@ class MapGeneratorService {
       '@candidate_count' => count($matches),
     ]);
     return $selected;
+  }
+
+  /**
+   * Hydrate missing campaign room rows into dungeon_data.rooms for stable reuse matching.
+   */
+  protected function mergeCampaignRoomRowsIntoDungeonData(int $campaign_id, array &$dungeon_data): void {
+    if (!isset($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
+      $dungeon_data['rooms'] = [];
+    }
+
+    $known_room_ids = [];
+    foreach ($dungeon_data['rooms'] as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id !== '') {
+        $known_room_ids[$room_id] = TRUE;
+      }
+    }
+
+    $rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'name', 'description', 'layout_data', 'contents_data', 'source_room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAllAssoc('room_id');
+    if ($rows === []) {
+      return;
+    }
+
+    $pending = [];
+    foreach ($rows as $room_id => $row) {
+      if (isset($known_room_ids[$room_id])) {
+        continue;
+      }
+      $layout_data = json_decode((string) ($row->layout_data ?? '{}'), TRUE);
+      $layout_data = is_array($layout_data) ? $layout_data : [];
+      $room_hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+      if ($room_hexes === []) {
+        throw new \RuntimeException(sprintf(
+          'Campaign room merge contract violation: campaign %d room %s has no layout_data.hexes.',
+          $campaign_id,
+          (string) $room_id
+        ));
+      }
+      $room_connections = $this->mapLayoutExitsToRoomConnections($layout_data);
+      $pending[(string) $room_id] = [
+        'room' => [
+          'room_id' => (string) ($row->room_id ?? ''),
+          'name' => (string) ($row->name ?? ''),
+          'description' => (string) ($row->description ?? ''),
+          'source_room_id' => (string) ($row->source_room_id ?? ''),
+          'hexes' => $room_hexes,
+          'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
+          'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
+          'exits' => is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [],
+          'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
+          'lighting' => is_string($layout_data['lighting'] ?? NULL)
+            ? $layout_data['lighting']
+            : (is_array($layout_data['lighting'] ?? NULL) && isset($layout_data['lighting']['level']) ? (string) $layout_data['lighting']['level'] : 'normal'),
+          'room_type' => (string) ($layout_data['room_type'] ?? 'unknown'),
+          'size_category' => (string) ($layout_data['size_category'] ?? 'medium'),
+          'gameplay_state' => [],
+          'connections' => $room_connections,
+        ],
+        'connections' => $room_connections,
+      ];
+    }
+
+    while ($pending !== []) {
+      $progressed = FALSE;
+      foreach ($pending as $room_id => $candidate) {
+        $connection_targets = array_values(array_filter(array_map(
+          static fn(array $connection): string => trim((string) ($connection['target_room_id'] ?? '')),
+          is_array($candidate['connections'] ?? NULL) ? $candidate['connections'] : []
+        )));
+        $bridges_known_graph = FALSE;
+        foreach ($connection_targets as $target_room_id) {
+          if (isset($known_room_ids[$target_room_id])) {
+            $bridges_known_graph = TRUE;
+            break;
+          }
+        }
+
+        if ($known_room_ids !== [] && !$bridges_known_graph) {
+          continue;
+        }
+
+        $dungeon_data['rooms'][] = $candidate['room'];
+        $known_room_ids[$room_id] = TRUE;
+        unset($pending[$room_id]);
+        $progressed = TRUE;
+      }
+
+      if ($progressed) {
+        continue;
+      }
+
+      throw new \RuntimeException(sprintf(
+        'Campaign room merge contract violation: campaign %d has disconnected room rows with no bridge to active dungeon graph (%s).',
+        $campaign_id,
+        implode(', ', array_keys($pending))
+      ));
+    }
+  }
+
+  /**
+   * Project layout_data.exits to room connection rows.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  protected function mapLayoutExitsToRoomConnections(array $layout_data): array {
+    $connections = [];
+    foreach ((array) ($layout_data['exits'] ?? []) as $exit) {
+      if (!is_array($exit)) {
+        continue;
+      }
+      $target_room_id = trim((string) ($exit['target_room_id'] ?? $exit['destination_id'] ?? $exit['room_id'] ?? ''));
+      if ($target_room_id === '') {
+        continue;
+      }
+      $connections[] = [
+        'target_room_id' => $target_room_id,
+        'type' => (string) ($exit['type'] ?? 'passage'),
+      ];
+    }
+    return $connections;
+  }
+
+  /**
+   * Looser location matching that accepts token-subset aliases.
+   */
+  protected function locationLabelsLooselyMatch(string $candidate, string $destination): bool {
+    if ($candidate === '' || $destination === '') {
+      return FALSE;
+    }
+    if ($candidate === $destination || str_contains($candidate, $destination) || str_contains($destination, $candidate)) {
+      return TRUE;
+    }
+
+    $candidate_tokens = $this->tokenizeLocationLabel($candidate);
+    $destination_tokens = $this->tokenizeLocationLabel($destination);
+    if ($candidate_tokens === [] || $destination_tokens === []) {
+      return FALSE;
+    }
+    foreach ($destination_tokens as $token) {
+      if (!in_array($token, $candidate_tokens, TRUE)) {
+        return FALSE;
+      }
+    }
+    return TRUE;
+  }
+
+  /**
+   * Tokenize a normalized location label with simple plural folding.
+   *
+   * @return array<int, string>
+   */
+  protected function tokenizeLocationLabel(string $label): array {
+    $tokens = array_values(array_filter(explode(' ', trim($label)), static fn(string $token): bool => $token !== ''));
+    $normalized = [];
+    foreach ($tokens as $token) {
+      $normalized[] = $token;
+      if (strlen($token) > 3 && str_ends_with($token, 's')) {
+        $singular = rtrim($token, 's');
+        if ($singular !== '') {
+          $normalized[] = $singular;
+        }
+      }
+    }
+    return array_values(array_unique($normalized));
   }
 
   /**
@@ -1118,6 +1463,20 @@ class MapGeneratorService {
   }
 
   /**
+   * Execute navigation persistence writes in one DB transaction.
+   */
+  protected function executeNavigationPersistenceTransaction(callable $operation): void {
+    $transaction = $this->database->startTransaction();
+    try {
+      $operation();
+    }
+    catch (\Throwable $e) {
+      $transaction->rollBack();
+      throw $e;
+    }
+  }
+
+  /**
    * Record a campaign-scoped setting instance.
    *
    * This tracks which settings have been instantiated in each campaign,
@@ -1143,31 +1502,23 @@ class MapGeneratorService {
       'object_count' => count($setting['objects'] ?? []),
     ];
 
-    try {
-      $this->database->insert('dc_campaign_settings')
-        ->fields([
-          'campaign_id' => $campaign_id,
-          'setting_id' => $setting_id,
-          'source_template_id' => $source_template_id,
-          'name' => $name,
-          'setting_type' => $setting_type,
-          'room_index' => $room_index,
-          'instance_data' => json_encode($instance_data),
-          'status' => 'active',
-          'first_visited' => $now,
-          'last_visited' => $now,
-          'visit_count' => 1,
-          'created' => $now,
-          'updated' => $now,
-        ])
-        ->execute();
-    }
-    catch (\Exception $e) {
-      $this->logger->warning('Failed to record campaign setting instance @sid: @err', [
-        '@sid' => $setting_id,
-        '@err' => $e->getMessage(),
-      ]);
-    }
+    $this->database->insert('dc_campaign_settings')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'setting_id' => $setting_id,
+        'source_template_id' => $source_template_id,
+        'name' => $name,
+        'setting_type' => $setting_type,
+        'room_index' => $room_index,
+        'instance_data' => json_encode($instance_data),
+        'status' => 'active',
+        'first_visited' => $now,
+        'last_visited' => $now,
+        'visit_count' => 1,
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
   }
 
   // =========================================================================
@@ -1195,50 +1546,117 @@ class MapGeneratorService {
       return;
     }
 
-    $now = time();
     $layout_payload = $this->buildCanonicalCampaignRoomLayoutPayload($room);
     $contents_payload = $this->buildCanonicalCampaignRoomContentsPayload($setting);
-    $layout_data = json_encode($layout_payload);
-    $contents_data = json_encode($contents_payload);
-    $env_tags = json_encode($setting['theme_tags'] ?? []);
+    $this->persistCanonicalCampaignRoom(
+      $campaign_id,
+      (string) $room_id,
+      (string) ($room['name'] ?? 'Unknown'),
+      (string) ($room['description'] ?? ''),
+      $layout_payload,
+      $contents_payload,
+      is_array($setting['theme_tags'] ?? NULL) ? $setting['theme_tags'] : [],
+      $this->resolveGeneratedSourceRoomId($setting)
+    );
 
-    try {
-      // Use INSERT IGNORE (upsert) to avoid duplicates on re-generation.
-      $this->database->merge('dc_campaign_rooms')
-        ->keys(['campaign_id' => $campaign_id, 'room_id' => $room_id])
-        ->fields([
-          'campaign_id'       => $campaign_id,
-          'room_id'           => $room_id,
-          'name'              => $room['name'] ?? 'Unknown',
-          'description'       => $room['description'] ?? '',
-          'environment_tags'  => $env_tags,
-          'layout_data'       => $layout_data,
-          'contents_data'     => $contents_data,
-          'source_room_id'    => $this->resolveGeneratedSourceRoomId($setting),
-          'created'           => $now,
-          'updated'           => $now,
-        ])
-        ->execute();
+    $this->logger->info('Room @id persisted to dc_campaign_rooms (name: @name)', [
+      '@id'   => $room_id,
+      '@name' => $room['name'] ?? 'Unknown',
+    ]);
+    $this->logger->notice('Room persistence exit: campaign=@campaign_id room_id=@room_id room_name=@room_name source_room_id=@source_room_id setting_type=@setting_type theme_tag_count=@theme_tag_count', [
+      '@campaign_id' => $campaign_id,
+      '@room_id' => $room_id,
+      '@room_name' => (string) ($room['name'] ?? ''),
+      '@source_room_id' => $this->resolveGeneratedSourceRoomId($setting),
+      '@setting_type' => (string) ($setting['setting_type'] ?? ''),
+      '@theme_tag_count' => count($setting['theme_tags'] ?? []),
+    ]);
+  }
 
-      $this->logger->info('Room @id persisted to dc_campaign_rooms (name: @name)', [
-        '@id'   => $room_id,
-        '@name' => $room['name'] ?? 'Unknown',
-      ]);
-      $this->logger->notice('Room persistence exit: campaign=@campaign_id room_id=@room_id room_name=@room_name source_room_id=@source_room_id setting_type=@setting_type theme_tag_count=@theme_tag_count', [
-        '@campaign_id' => $campaign_id,
-        '@room_id' => $room_id,
-        '@room_name' => (string) ($room['name'] ?? ''),
-        '@source_room_id' => $this->resolveGeneratedSourceRoomId($setting),
-        '@setting_type' => (string) ($setting['setting_type'] ?? ''),
-        '@theme_tag_count' => count($setting['theme_tags'] ?? []),
-      ]);
+  /**
+   * Persist one canonical campaign room row.
+   *
+   * This is the authoritative campaign-room writer used by all room
+   * instantiation paths (generator/bootstrap/navigation/storyline).
+   */
+  public function persistCanonicalCampaignRoom(
+    int $campaign_id,
+    string $room_id,
+    string $name,
+    string $description,
+    array $layout_data,
+    array $contents_data = [],
+    array $environment_tags = [],
+    ?string $source_room_id = NULL
+  ): void {
+    $room_id = trim($room_id);
+    if ($campaign_id <= 0 || $room_id === '') {
+      throw new \RuntimeException('Campaign room persistence contract violation: campaign_id and room_id are required.');
     }
-    catch (\Exception $e) {
-      $this->logger->warning('Failed to persist room @id to dc_campaign_rooms: @err', [
-        '@id'  => $room_id,
-        '@err' => $e->getMessage(),
-      ]);
+
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf(
+        'Campaign room persistence contract violation: room %s has no layout_data.hexes.',
+        $room_id
+      ));
     }
+
+    $lighting_raw = $layout_data['lighting'] ?? [];
+    $normalized_lighting = is_array($lighting_raw)
+      ? $lighting_raw
+      : (is_string($lighting_raw) && $lighting_raw !== '' ? ['level' => $lighting_raw] : []);
+
+    $normalized_layout = [
+      'hexes' => $hexes,
+      'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
+      'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
+      'exits' => is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [],
+      'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
+      'lighting' => $normalized_lighting,
+      'room_type' => (string) ($layout_data['room_type'] ?? 'room'),
+      'size_category' => (string) ($layout_data['size_category'] ?? 'medium'),
+    ];
+
+    if (array_key_exists('hex_manifest', $layout_data)) {
+      $normalized_layout['hex_manifest'] = is_array($layout_data['hex_manifest'] ?? NULL) ? $layout_data['hex_manifest'] : [];
+    }
+    if (array_key_exists('source', $layout_data)) {
+      $normalized_layout['source'] = (string) ($layout_data['source'] ?? '');
+    }
+
+    $encoded_layout = json_encode($normalized_layout, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $encoded_contents = json_encode($contents_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $encoded_environment_tags = json_encode(array_values(array_map('strval', $environment_tags)), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded_layout) || !is_string($encoded_contents) || !is_string($encoded_environment_tags)) {
+      throw new \RuntimeException(sprintf(
+        'Campaign room persistence contract violation: failed to encode payloads for room %s.',
+        $room_id
+      ));
+    }
+
+    $resolved_source_room_id = trim((string) ($source_room_id ?? ''));
+    if ($resolved_source_room_id === '') {
+      $resolved_source_room_id = $room_id;
+    }
+
+    $now = time();
+    $this->database->merge('dc_campaign_rooms')
+      ->keys([
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+      ])
+      ->fields([
+        'name' => $name !== '' ? $name : $room_id,
+        'description' => $description,
+        'environment_tags' => $encoded_environment_tags,
+        'layout_data' => $encoded_layout,
+        'contents_data' => $encoded_contents,
+        'source_room_id' => $resolved_source_room_id,
+        'updated' => $now,
+      ])
+      ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+      ->execute();
   }
 
   /**
@@ -1479,30 +1897,125 @@ class MapGeneratorService {
     $connection_id = sprintf('room-conn-%s', substr(hash('sha256', $campaign_id . ':' . $pair[0] . ':' . $pair[1]), 0, 24));
     $now = time();
 
-    $this->database->merge('dc_campaign_connections')
-      ->keys([
-        'campaign_id' => $campaign_id,
-        'connection_id' => $connection_id,
-      ])
-      ->fields([
-        'campaign_id' => $campaign_id,
-        'connection_id' => $connection_id,
-        'dungeon_id' => $dungeon_id,
-        'from_room_id' => $from,
-        'to_room_id' => $to,
-        'direction' => 'bidirectional',
-        'kind' => 'hallway',
-        'state' => 'open',
-        'travel_cost' => 1,
-        'is_discovered' => 1,
-        'is_passable' => 1,
-        'source_connection_id' => NULL,
-        'updated' => $now,
-      ])
-      ->insertFields([
-        'created' => $now,
-      ])
+    $fields = [
+      'dungeon_id' => $dungeon_id,
+      'from_room_id' => $from,
+      'to_room_id' => $to,
+      'direction' => 'bidirectional',
+      'kind' => 'hallway',
+      'state' => 'open',
+      'travel_cost' => 1,
+      'is_discovered' => 1,
+      'is_passable' => 1,
+      'source_connection_id' => NULL,
+      'updated' => $now,
+    ];
+
+    $updated_rows = $this->database->update('dc_campaign_connections')
+      ->fields($fields)
+      ->condition('campaign_id', $campaign_id)
+      ->condition('connection_id', $connection_id)
       ->execute();
+
+    if ((int) $updated_rows === 0) {
+      $this->database->insert('dc_campaign_connections')
+        ->fields($fields + [
+          'campaign_id' => $campaign_id,
+          'connection_id' => $connection_id,
+          'created' => $now,
+        ])
+        ->execute();
+    }
+  }
+
+  /**
+   * Enforce parity between dungeon_data room links and campaign connection rows.
+   */
+  protected function assertNavigationConnectionParity(
+    int $campaign_id,
+    string $dungeon_id,
+    string $from_room_id,
+    string $to_room_id,
+    array $dungeon_data
+  ): void {
+    $from = trim($from_room_id);
+    $to = trim($to_room_id);
+    if ($from === '' || $to === '' || $from === $to) {
+      throw new \RuntimeException('Navigation parity contract violation: connection endpoints must be distinct non-empty room ids.');
+    }
+
+    if (!$this->hasDungeonDataConnectionPair($dungeon_data, $from, $to)) {
+      throw new \RuntimeException(sprintf(
+        'Navigation parity contract violation: dungeon_data is missing room link %s <-> %s.',
+        $from,
+        $to
+      ));
+    }
+
+    if (!$this->hasCampaignConnectionPair($campaign_id, $dungeon_id, $from, $to)) {
+      throw new \RuntimeException(sprintf(
+        'Navigation parity contract violation: dc_campaign_connections is missing room link %s <-> %s.',
+        $from,
+        $to
+      ));
+    }
+  }
+
+  /**
+   * Determine whether dungeon_data contains a bidirectional room pair link.
+   */
+  protected function hasDungeonDataConnectionPair(array $dungeon_data, string $from_room_id, string $to_room_id): bool {
+    $from = trim($from_room_id);
+    $to = trim($to_room_id);
+    if ($from === '' || $to === '') {
+      return FALSE;
+    }
+
+    $connection_sources = [];
+    if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
+      $connection_sources[] = $dungeon_data['hex_map']['connections'];
+    }
+    if (is_array($dungeon_data['connections'] ?? NULL)) {
+      $connection_sources[] = $dungeon_data['connections'];
+    }
+    foreach ($connection_sources as $connections) {
+      foreach ($connections as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $left = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
+        $right = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
+        if (($left === $from && $right === $to) || ($left === $to && $right === $from)) {
+          return TRUE;
+        }
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Determine whether dc_campaign_connections contains a room pair link.
+   */
+  protected function hasCampaignConnectionPair(
+    int $campaign_id,
+    string $dungeon_id,
+    string $from_room_id,
+    string $to_room_id
+  ): bool {
+    $pair = [trim($from_room_id), trim($to_room_id)];
+    sort($pair, SORT_STRING);
+    $connection_id = sprintf('room-conn-%s', substr(hash('sha256', $campaign_id . ':' . $pair[0] . ':' . $pair[1]), 0, 24));
+    $record = $this->database->select('dc_campaign_connections', 'c')
+      ->fields('c', ['connection_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('dungeon_id', $dungeon_id)
+      ->condition('connection_id', $connection_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    return is_string($record) && $record !== '';
   }
 
   /**
@@ -1560,124 +2073,100 @@ class MapGeneratorService {
       ]));
 
       // 1. Global library entry (dungeoncrawler_content_registry).
-      try {
-        $this->database->merge('dungeoncrawler_content_registry')
-          ->keys(['content_type' => 'npc', 'content_id' => $content_id])
-          ->fields([
-            'content_type' => 'npc',
-            'content_id'   => $content_id,
-            'name'         => $name,
-            'level'        => $npc_level,
-            'rarity'       => 'common',
-            'tags'         => $tags,
-            'schema_data'  => $schema_data,
-            'source_file'  => 'ai_generated',
-            'version'      => '1.0',
-          ])
-          ->execute();
-      }
-      catch (\Exception $e) {
-        $this->logger->warning('Failed to register NPC @id in global library: @err', [
-          '@id'  => $content_id,
-          '@err' => $e->getMessage(),
-        ]);
-      }
+      $this->database->merge('dungeoncrawler_content_registry')
+        ->keys(['content_type' => 'npc', 'content_id' => $content_id])
+        ->fields([
+          'content_type' => 'npc',
+          'content_id'   => $content_id,
+          'name'         => $name,
+          'level'        => $npc_level,
+          'rarity'       => 'common',
+          'tags'         => $tags,
+          'schema_data'  => $schema_data,
+          'source_file'  => 'ai_generated',
+          'version'      => '1.0',
+        ])
+        ->execute();
 
       // 2. Campaign-scoped copy (dc_campaign_content_registry).
-      try {
-        $this->database->merge('dc_campaign_content_registry')
-          ->keys(['campaign_id' => $campaign_id, 'content_type' => 'npc', 'content_id' => $content_id])
-          ->fields([
-            'campaign_id'      => $campaign_id,
-            'content_type'     => 'npc',
-            'content_id'       => $content_id,
-            'name'             => $name,
-            'level'            => $npc_level,
-            'rarity'           => 'common',
-            'tags'             => $tags,
-            'schema_data'      => $schema_data,
-            'source_content_id' => $content_id,
-            'created'          => $now,
-            'updated'          => $now,
-          ])
-          ->execute();
-      }
-      catch (\Exception $e) {
-        $this->logger->warning('Failed to register NPC @id in campaign content registry: @err', [
-          '@id'  => $content_id,
-          '@err' => $e->getMessage(),
-        ]);
-      }
+      $this->database->merge('dc_campaign_content_registry')
+        ->keys(['campaign_id' => $campaign_id, 'content_type' => 'npc', 'content_id' => $content_id])
+        ->fields([
+          'campaign_id'      => $campaign_id,
+          'content_type'     => 'npc',
+          'content_id'       => $content_id,
+          'name'             => $name,
+          'level'            => $npc_level,
+          'rarity'           => 'common',
+          'tags'             => $tags,
+          'schema_data'      => $schema_data,
+          'source_content_id' => $content_id,
+          'created'          => $now,
+          'updated'          => $now,
+        ])
+        ->execute();
 
       // 3. Campaign character instance (dc_campaign_characters).
       // Check first — avoid duplicating if this NPC was already registered.
-      try {
-        $existing = $this->database->select('dc_campaign_characters', 'c')
-          ->fields('c', ['id'])
-          ->condition('campaign_id', $campaign_id)
-          ->condition('instance_id', $instance_id)
-          ->execute()
-          ->fetchField();
+      $existing = $this->database->select('dc_campaign_characters', 'c')
+        ->fields('c', ['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('instance_id', $instance_id)
+        ->execute()
+        ->fetchField();
 
-        if (!$existing) {
-          $state_data = json_encode([
-            'content_id'  => $content_id,
-            'role'        => $npc['role'] ?? 'neutral',
-            'description' => $npc['description'] ?? '',
-            'level'       => $npc_level,
-            'stats'       => $npc['stats'] ?? [],
-            'inventory'   => $inventory,
-            'attitude'    => $npc['attitude'] ?? 'indifferent',
-          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+      if (!$existing) {
+        $state_data = json_encode([
+          'content_id'  => $content_id,
+          'role'        => $npc['role'] ?? 'neutral',
+          'description' => $npc['description'] ?? '',
+          'level'       => $npc_level,
+          'stats'       => $npc['stats'] ?? [],
+          'inventory'   => $inventory,
+          'attitude'    => $npc['attitude'] ?? 'indifferent',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
 
-          $this->database->insert('dc_campaign_characters')
-            ->fields([
-              'campaign_id'   => $campaign_id,
-              'character_id'  => 0,
-              'source_character_id' => NULL,
-              'uid'           => 0,
-              'role'          => $npc['role'] ?? 'npc',
-              'is_active'     => 1,
-              'joined'        => $now,
-              'instance_id'   => $instance_id,
-              'type'          => 'npc',
-              'lifecycle_state' => 'campaign_npc',
-              'character_data' => $state_data,
-              'default_locations' => NULL,
-              'portrait' => NULL,
-              'location_type' => 'room',
-              'location_ref'  => $room_id,
-              'updated'       => $now,
-              'name'          => $name,
-              'level'         => $npc_level,
-              'ancestry'      => $npc['ancestry'] ?? 'humanoid',
-              'class'         => 'npc',
-              'status'        => 1,
-              'created'       => $now,
-              'changed'       => $now,
-              'hp_current'    => $npc['stats']['currentHp'] ?? 0,
-              'hp_max'        => $npc['stats']['maxHp'] ?? 0,
-              'armor_class'   => $npc['stats']['ac'] ?? 0,
-              'experience_points' => 0,
-              'position_q'    => 0,
-              'position_r'    => 0,
-              'last_room_id'  => $room_id,
-              'version'       => 0,
-            ])
-            ->execute();
+        $this->database->insert('dc_campaign_characters')
+          ->fields([
+            'campaign_id'   => $campaign_id,
+            'character_id'  => 0,
+            'source_character_id' => NULL,
+            'uid'           => 0,
+            'role'          => $npc['role'] ?? 'npc',
+            'is_active'     => 1,
+            'joined'        => $now,
+            'instance_id'   => $instance_id,
+            'type'          => 'npc',
+            'lifecycle_state' => 'campaign_npc',
+            'character_data' => $state_data,
+            'default_locations' => NULL,
+            'portrait' => NULL,
+            'location_type' => 'room',
+            'location_ref'  => $room_id,
+            'updated'       => $now,
+            'name'          => $name,
+            'level'         => $npc_level,
+            'ancestry'      => $npc['ancestry'] ?? 'humanoid',
+            'class'         => 'npc',
+            'status'        => 1,
+            'created'       => $now,
+            'changed'       => $now,
+            'hp_current'    => $npc['stats']['currentHp'] ?? 0,
+            'hp_max'        => $npc['stats']['maxHp'] ?? 0,
+            'armor_class'   => $npc['stats']['ac'] ?? 0,
+            'experience_points' => 0,
+            'position_q'    => 0,
+            'position_r'    => 0,
+            'last_room_id'  => $room_id,
+            'version'       => 0,
+          ])
+          ->execute();
 
-          $this->logger->info('NPC @name (@id) registered in campaign @cid, room @room', [
-            '@name' => $name,
-            '@id'   => $instance_id,
-            '@cid'  => $campaign_id,
-            '@room' => $room_id,
-          ]);
-        }
-      }
-      catch (\Exception $e) {
-        $this->logger->warning('Failed to register NPC @id in dc_campaign_characters: @err', [
-          '@id'  => $content_id,
-          '@err' => $e->getMessage(),
+        $this->logger->info('NPC @name (@id) registered in campaign @cid, room @room', [
+          '@name' => $name,
+          '@id'   => $instance_id,
+          '@cid'  => $campaign_id,
+          '@room' => $room_id,
         ]);
       }
 
@@ -2776,6 +3265,8 @@ PROMPT;
    */
   protected function normalizeLocationLabel(string $label): string {
     $label = strtolower(trim($label));
+    $label = str_replace(['’', '`'], "'", $label);
+    $label = preg_replace("/'s\\b/u", 's', $label);
     $label = preg_replace('/\b(the|a|an)\b/u', ' ', $label);
     $label = preg_replace('/[^a-z0-9]+/u', ' ', $label);
     return trim(preg_replace('/\s+/u', ' ', $label) ?? '');
@@ -2819,7 +3310,19 @@ PROMPT;
    */
   protected function placeRoomWithMinimumGap(array $room, array $existing_rooms, int $minimum_gap_hexes): array {
     $new_bounds = $this->calculateRoomHexBounds($room);
-    if ($existing_rooms === []) {
+    $spatial_existing_rooms = [];
+    foreach ($existing_rooms as $existing_room) {
+      if (!is_array($existing_room)) {
+        continue;
+      }
+      $hexes = is_array($existing_room['hexes'] ?? NULL) ? $existing_room['hexes'] : [];
+      if ($hexes === []) {
+        continue;
+      }
+      $spatial_existing_rooms[] = $existing_room;
+    }
+
+    if ($spatial_existing_rooms === []) {
       $room['placement'] = [
         'anchor_q' => $new_bounds['min_q'],
         'anchor_r' => $new_bounds['min_r'],
@@ -2836,7 +3339,7 @@ PROMPT;
 
     $max_existing_q = NULL;
     $min_existing_r = NULL;
-    foreach ($existing_rooms as $existing_room) {
+    foreach ($spatial_existing_rooms as $existing_room) {
       if (!is_array($existing_room)) {
         continue;
       }

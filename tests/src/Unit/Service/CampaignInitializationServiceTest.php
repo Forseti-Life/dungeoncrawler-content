@@ -9,11 +9,13 @@ use Drupal\Core\Extension\ModuleExtensionList;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
+use Drupal\dungeoncrawler_content\Service\CampaignClockService;
 use Drupal\dungeoncrawler_content\Service\CampaignNameGeneratorService;
 use Drupal\dungeoncrawler_content\Service\NpcSheetGenerationService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\RoomViewImageService;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
+use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -37,6 +39,8 @@ class CampaignInitializationServiceTest extends UnitTestCase {
       $this->createMock(ModuleExtensionList::class),
       $this->createMock(QuestGeneratorService::class),
       $this->createMock(CampaignNameGeneratorService::class),
+      $this->createMock(CampaignClockService::class),
+      $this->createMock(StorylineQuestLifecycleService::class),
       $this->createMock(ChatSessionManager::class),
       $this->createMock(NpcSheetGenerationService::class),
       $this->createMock(RoomViewImageService::class),

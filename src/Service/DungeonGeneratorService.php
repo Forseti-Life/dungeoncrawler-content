@@ -19,6 +19,10 @@ use Psr\Log\LoggerInterface;
  * - Validating XP budgets across encounters
  * - Persisting complete dungeon structure
  *
+ * Validation pair: internal context validation (including
+ * DungeonLayoutProfileResolver::validateContext()) with downstream room/schema
+ * validation delegated to RoomGeneratorService.
+ *
  * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
  */
 class DungeonGeneratorService {
@@ -706,43 +710,44 @@ class DungeonGeneratorService {
       foreach ($levels as $level) {
         foreach (($level['rooms'] ?? []) as $room) {
           $room_id = $room['room_id'] ?? '';
-          $layout_data = json_encode([
-            'hexes' => $room['hexes'] ?? [],
+          $room_hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+          if ($room_hexes === []) {
+            throw new \RuntimeException(sprintf(
+              'Dungeon generation persistence contract violation: room %s has no hexes.',
+              (string) $room_id
+            ));
+          }
+          $layout_data = [
+            'hexes' => $room_hexes,
             'hex_manifest' => $room['hex_manifest'] ?? [],
             'entry_points' => $room['entry_points'] ?? [],
             'exit_points' => $room['exit_points'] ?? [],
             'exits' => $room['exits'] ?? [],
             'terrain' => $room['terrain'] ?? [],
             'lighting' => $room['lighting'] ?? [],
-          ]);
-          $contents_data = json_encode([
+          ];
+          $contents_data = [
             'creatures' => $room['creatures'] ?? [],
             'items' => $room['items'] ?? [],
             'traps' => $room['traps'] ?? [],
             'hazards' => $room['hazards'] ?? [],
             'obstacles' => $room['obstacles'] ?? [],
             'interactables' => $room['interactables'] ?? [],
-          ]);
-          $env_tags = json_encode($room['environmental_effects'] ?? []);
+          ];
+          $environment_tags = is_array($room['environmental_effects'] ?? NULL) ? $room['environmental_effects'] : [];
 
           // Upsert room — RoomGeneratorService::persistRoom() may have already
           // inserted this row during generateRoom().
-          $this->database->merge('dc_campaign_rooms')
-            ->keys([
-              'campaign_id' => $campaign_id,
-              'room_id' => $room_id,
-            ])
-            ->fields([
-              'name' => $room['name'] ?? 'Unknown Room',
-              'description' => $room['description'] ?? '',
-              'source_room_id' => !empty($room['_library_source']) ? (string) $room['_library_source'] : NULL,
-              'environment_tags' => $env_tags,
-              'layout_data' => $layout_data,
-              'contents_data' => $contents_data,
-              'created' => $now,
-              'updated' => $now,
-            ])
-            ->execute();
+          $this->resolveMapGeneratorService()->persistCanonicalCampaignRoom(
+            $campaign_id,
+            (string) $room_id,
+            (string) ($room['name'] ?? 'Unknown Room'),
+            (string) ($room['description'] ?? ''),
+            $layout_data,
+            $contents_data,
+            $environment_tags,
+            !empty($room['_library_source']) ? (string) $room['_library_source'] : (string) $room_id
+          );
 
           // Persist creature entities into dc_campaign_characters.
           // Creatures are now entity_instance objects from EntityPlacerService.
@@ -2078,6 +2083,19 @@ class DungeonGeneratorService {
     }
 
     return $this->numberGeneration->rollRange(1, 100) <= max(0, min(100, $percent));
+  }
+
+  /**
+   * Resolve map generator service for centralized campaign room persistence.
+   */
+  protected function resolveMapGeneratorService(): MapGeneratorService {
+    if (\Drupal::hasService('dungeoncrawler_content.map_generator')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.map_generator');
+      if ($candidate instanceof MapGeneratorService) {
+        return $candidate;
+      }
+    }
+    throw new \RuntimeException('Dungeon generation contract violation: MapGeneratorService is required for campaign room persistence.');
   }
 
 }

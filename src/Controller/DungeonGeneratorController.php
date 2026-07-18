@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\DungeonGeneratorService;
+use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\SchemaLoader;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -463,32 +464,36 @@ class DungeonGeneratorController extends ControllerBase {
 
       // Persist new level's rooms.
       foreach (($new_level['rooms'] ?? []) as $room) {
-        $now = time();
-        $db->insert('dc_campaign_rooms')
-          ->fields([
-            'campaign_id' => $campaign_id,
-            'room_id' => $room['room_id'] ?? '',
-            'name' => $room['name'] ?? 'Unknown Room',
-            'description' => $room['description'] ?? '',
-            'environment_tags' => json_encode($room['environmental_effects'] ?? []),
-            'layout_data' => json_encode([
-              'hexes' => $room['hexes'] ?? [],
-              'hex_manifest' => $room['hex_manifest'] ?? [],
-              'entry_points' => $room['entry_points'] ?? [],
-              'exit_points' => $room['exit_points'] ?? [],
-              'terrain' => $room['terrain'] ?? [],
-              'lighting' => $room['lighting'] ?? [],
-            ]),
-            'contents_data' => json_encode([
-              'creatures' => $room['creatures'] ?? [],
-              'items' => $room['items'] ?? [],
-              'traps' => $room['traps'] ?? [],
-              'hazards' => $room['hazards'] ?? [],
-            ]),
-            'created' => $now,
-            'updated' => $now,
-          ])
-          ->execute();
+        $room_hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+        if ($room_hexes === []) {
+          throw new \RuntimeException(sprintf(
+            'Dungeon level persistence contract violation: generated room %s has no hexes.',
+            (string) ($room['room_id'] ?? 'unknown')
+          ));
+        }
+        $this->resolveMapGeneratorService()->persistCanonicalCampaignRoom(
+          $campaign_id,
+          (string) ($room['room_id'] ?? ''),
+          (string) ($room['name'] ?? 'Unknown Room'),
+          (string) ($room['description'] ?? ''),
+          [
+            'hexes' => $room_hexes,
+            'hex_manifest' => $room['hex_manifest'] ?? [],
+            'entry_points' => $room['entry_points'] ?? [],
+            'exit_points' => $room['exit_points'] ?? [],
+            'exits' => $room['exits'] ?? [],
+            'terrain' => $room['terrain'] ?? [],
+            'lighting' => $room['lighting'] ?? [],
+          ],
+          [
+            'creatures' => $room['creatures'] ?? [],
+            'items' => $room['items'] ?? [],
+            'traps' => $room['traps'] ?? [],
+            'hazards' => $room['hazards'] ?? [],
+          ],
+          is_array($room['environmental_effects'] ?? NULL) ? $room['environmental_effects'] : [],
+          (string) ($room['source_room_id'] ?? ($room['room_id'] ?? ''))
+        );
       }
 
       return new JsonResponse($new_level, JsonResponse::HTTP_CREATED);
@@ -499,6 +504,19 @@ class DungeonGeneratorController extends ControllerBase {
         JsonResponse::HTTP_INTERNAL_SERVER_ERROR
       );
     }
+  }
+
+  /**
+   * Resolve map generator service for centralized campaign room persistence.
+   */
+  protected function resolveMapGeneratorService(): MapGeneratorService {
+    if (\Drupal::hasService('dungeoncrawler_content.map_generator')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.map_generator');
+      if ($candidate instanceof MapGeneratorService) {
+        return $candidate;
+      }
+    }
+    throw new \RuntimeException('Dungeon level persistence contract violation: MapGeneratorService is required.');
   }
 
 }

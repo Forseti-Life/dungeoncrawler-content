@@ -17,6 +17,8 @@ use Psr\Log\LoggerInterface;
  * - Validating against room.schema.json
  * - Persisting rooms to database
  *
+ * Validation pair: SchemaLoader::validate('room', ...) room contract checks.
+ *
  * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
  */
 class RoomGeneratorService {
@@ -1640,46 +1642,73 @@ class RoomGeneratorService {
    *   Room database ID
    */
   protected function persistRoom(array $context, array $room_data): int {
-    $now = time();
     $campaign_id = $context['campaign_id'] ?? 0;
     $room_id = $room_data['room_id'] ?? '';
+    $room_hexes = is_array($room_data['hexes'] ?? NULL) ? $room_data['hexes'] : [];
+    if ($room_hexes === []) {
+      throw new \RuntimeException(sprintf(
+        'Room persistence contract violation: generated room %s has no hexes.',
+        (string) $room_id
+      ));
+    }
 
-    $layout_data = json_encode([
-      'hexes' => $room_data['hexes'] ?? [],
+    $layout_data = [
+      'hexes' => $room_hexes,
       'hex_manifest' => $room_data['hex_manifest'] ?? [],
       'entry_points' => $room_data['entry_points'] ?? [],
       'exit_points' => $room_data['exit_points'] ?? [],
       'exits' => $room_data['exits'] ?? [],
       'terrain' => $room_data['terrain'] ?? [],
       'lighting' => $room_data['lighting'] ?? [],
-    ]);
+    ];
 
-    $contents_data = json_encode([
+    $contents_data = [
       'creatures' => $room_data['creatures'] ?? [],
       'items' => $room_data['items'] ?? [],
       'traps' => $room_data['traps'] ?? [],
       'hazards' => $room_data['hazards'] ?? [],
       'obstacles' => $room_data['obstacles'] ?? [],
       'interactables' => $room_data['interactables'] ?? [],
-    ]);
+    ];
 
-    $env_tags = json_encode($room_data['environmental_effects'] ?? []);
+    $environment_tags = is_array($room_data['environmental_effects'] ?? NULL) ? $room_data['environmental_effects'] : [];
+    $source_room_id = trim((string) ($room_data['_library_source'] ?? $room_data['source_room_id'] ?? $room_id));
+    if ($source_room_id === '') {
+      $source_room_id = (string) $room_id;
+    }
 
-    $db_id = $this->database->insert('dc_campaign_rooms')
-      ->fields([
-        'campaign_id' => $campaign_id,
-        'room_id' => $room_id,
-        'name' => $room_data['name'] ?? 'Unknown Room',
-        'description' => $room_data['description'] ?? '',
-        'environment_tags' => $env_tags,
-        'layout_data' => $layout_data,
-        'contents_data' => $contents_data,
-        'created' => $now,
-        'updated' => $now,
-      ])
-      ->execute();
+    $this->resolveMapGeneratorService()->persistCanonicalCampaignRoom(
+      (int) $campaign_id,
+      (string) $room_id,
+      (string) ($room_data['name'] ?? 'Unknown Room'),
+      (string) ($room_data['description'] ?? ''),
+      $layout_data,
+      $contents_data,
+      $environment_tags,
+      $source_room_id
+    );
 
-    return (int) $db_id;
+    $db_id = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['id'])
+      ->condition('campaign_id', (int) $campaign_id)
+      ->condition('room_id', (string) $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    return is_numeric($db_id) ? (int) $db_id : 0;
+  }
+
+  /**
+   * Resolve map generator service for centralized campaign room persistence.
+   */
+  protected function resolveMapGeneratorService(): MapGeneratorService {
+    if (\Drupal::hasService('dungeoncrawler_content.map_generator')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.map_generator');
+      if ($candidate instanceof MapGeneratorService) {
+        return $candidate;
+      }
+    }
+    throw new \RuntimeException('Room persistence contract violation: MapGeneratorService is required for campaign room persistence.');
   }
 
   /**

@@ -138,12 +138,16 @@ class StorylineController extends ControllerBase {
         $storyline = $this->storylineManager->instantiateStorylineTemplate(
           $campaign_id,
           (string) $payload['template_id'],
-          $payload
+          $payload + ['realize_storyline_assets' => TRUE]
         );
       }
       else {
         $definition = is_array($payload['template'] ?? NULL) ? $payload['template'] : $payload;
-        $storyline = $this->storylineManager->createCampaignStoryline($campaign_id, $definition, $payload);
+        $storyline = $this->storylineManager->createCampaignStoryline(
+          $campaign_id,
+          $definition,
+          $payload + ['realize_storyline_assets' => TRUE]
+        );
       }
 
       $this->relationshipManager->seedLibraryRelationships($campaign_id);
@@ -208,7 +212,7 @@ class StorylineController extends ControllerBase {
       $storyline = $this->storylineManager->createCampaignStoryline(
         $campaign_id,
         $package['storyline_definition'] ?? [],
-        $payload
+        $payload + ['realize_storyline_assets' => TRUE]
       );
 
       $this->relationshipManager->seedLibraryRelationships($campaign_id);

@@ -937,7 +937,8 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
         $room_id,
         (string) ($touchpoint_entry['entity_ref'] ?? ''),
         (string) ($touchpoint_entry['speaker'] ?? ''),
-        $quest_touchpoint_hint
+        $quest_touchpoint_hint,
+        $player_message
       );
     }
 
@@ -1067,7 +1068,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       return;
     }
 
-    $this->applyConversationQuestTouchpoint($campaign_id, $character_id, $room_id, $npc_ref, $target_name);
+    $this->applyConversationQuestTouchpoint($campaign_id, $character_id, $room_id, $npc_ref, $target_name, [], '');
 
     $quest_id = trim((string) ($quest['quest_id'] ?? ''));
     if ($quest_id === '' || !$this->questTracker) {
@@ -1076,17 +1077,15 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
 
     $status = strtolower(trim((string) ($quest['status'] ?? '')));
     if ($status === 'lead') {
-      $this->database->update('dc_campaign_quests')
-        ->fields(['status' => 'offered'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('quest_id', $quest_id)
-        ->execute();
+      if ($this->storylineQuestLifecycleService === NULL) {
+        throw new \RuntimeException('StorylineQuestLifecycleService is required to promote lead quests.');
+      }
+      $this->storylineQuestLifecycleService->promoteLeadToOfferedByQuestId($campaign_id, $quest_id);
       $status = 'offered';
     }
 
-    if ($status === 'offered') {
-      $this->questTracker->startQuest($campaign_id, $quest_id, $character_id);
-    }
+    // Do not auto-start offered quests on dialogue touchpoint alone.
+    // Offer visibility in the quest journal must be preserved until explicit acceptance/start.
   }
 
   /**
@@ -1099,6 +1098,10 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     if ($campaign_id <= 0 || $character_id <= 0 || !$this->questTracker) {
       return;
     }
+    $activation_character_id = $this->resolveQuestActivationCharacterId($campaign_id, $character_id);
+    if ($activation_character_id === NULL) {
+      return;
+    }
 
     $template_ids = array_values(array_filter(array_map('strval', $template_ids)));
     if ($template_ids === []) {
@@ -1108,7 +1111,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     $available = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['quest_id', 'source_template_id'])
       ->condition('campaign_id', $campaign_id)
-      ->condition('status', ['offered'], 'IN')
+      ->condition('status', ['offered', 'active', 'ready_for_turn_in'], 'IN')
       ->condition('source_template_id', $template_ids, 'IN')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
@@ -1121,7 +1124,10 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
 
         $quest_id = (string) ($quest['quest_id'] ?? '');
         if ($quest_id !== '') {
-          $this->questTracker->startQuest($campaign_id, $quest_id, $character_id);
+          if ($this->storylineQuestLifecycleService === NULL) {
+            throw new \RuntimeException('StorylineQuestLifecycleService is required to start offered quests from preferred templates.');
+          }
+          $this->storylineQuestLifecycleService->startOfferedQuest($campaign_id, $quest_id, $activation_character_id);
         }
         break;
       }
@@ -1236,7 +1242,9 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
         $character_id,
         $room_id,
         $entity_ref,
-        (string) ($entry['speaker'] ?? '')
+        (string) ($entry['speaker'] ?? ''),
+        [],
+        $message
       );
 
       foreach ($matched_contacts as $contact) {
@@ -1366,6 +1374,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
         $instantiated = $this->storylineManager->instantiateStorylineTemplate($campaign_id, $template_id, [
           'status' => 'lead',
           'priority' => (int) ($contact['priority'] ?? 0),
+          'realize_storyline_assets' => TRUE,
         ]);
         if ($instantiated !== []) {
           $storyline_row = [
@@ -1406,16 +1415,46 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     }
 
     $quest_rows = [];
+    if ($this->storylineQuestLifecycleService === NULL) {
+      throw new \RuntimeException('StorylineQuestLifecycleService is required for brokered storyline quest materialization.');
+    }
     foreach ($template_ids as $template_id) {
-      $existing = $this->database->select('dc_campaign_quests', 'q')
-        ->fields('q')
-        ->condition('campaign_id', $campaign_id)
-        ->condition('source_template_id', $template_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-
-      if (!is_array($existing)) {
+      $existing = $this->storylineQuestLifecycleService->loadQuestByTemplate($campaign_id, $template_id);
+      if (!is_array($existing) || $existing === []) {
+        $entry_point = is_array($storyline_data['metadata']['generated_outline']['entry_point'] ?? NULL)
+          ? $storyline_data['metadata']['generated_outline']['entry_point']
+          : [];
+        $primary_dungeon_id = trim((string) ($entry_point['primary_dungeon_id'] ?? ''));
+        $generation_context = [
+          'party_level' => $this->loadCharacterQuestLevel($campaign_id, $character_id),
+          'difficulty' => 'moderate',
+          'location' => $location_id,
+          'location_tags' => [$location_id, 'storyline_lead'],
+          'storyline_id' => $storyline_id,
+          'storyline_template_id' => (string) ($contact['template_id'] ?? ''),
+          'giver_npc_id' => $this->resolveCampaignNpcIdForBrokeredContact($campaign_id, $contact),
+        ];
+        $generation_dungeon_data = [];
+        if ($primary_dungeon_id !== '') {
+          $generation_context['dungeon_id'] = $primary_dungeon_id;
+          $generation_context['map_id'] = $primary_dungeon_id;
+          $generation_dungeon_data = $this->resolveBrokeredGenerationDungeonData($campaign_id, $primary_dungeon_id);
+          if ($generation_dungeon_data === []) {
+            $this->logger->info('Deferred brokered storyline quest generation until dungeon is instantiated: campaign={campaign_id} storyline_id={storyline_id} template_id={template_id} required_dungeon={required_dungeon}', [
+              'campaign_id' => $campaign_id,
+              'storyline_id' => $storyline_id,
+              'template_id' => $template_id,
+              'required_dungeon' => $primary_dungeon_id,
+            ]);
+            continue;
+          }
+        }
+        elseif ($dungeon_data !== []) {
+          $generation_dungeon_data = $dungeon_data;
+        }
+        if ($generation_dungeon_data !== []) {
+          $generation_context['dungeon_data'] = $generation_dungeon_data;
+        }
         $this->logger->info('Attempting brokered storyline quest generation: campaign={campaign_id} storyline_id={storyline_id} template_id={template_id} character_id={character_id} location={location} giver_npc_id={giver_npc_id}', [
           'campaign_id' => $campaign_id,
           'storyline_id' => $storyline_id,
@@ -1424,16 +1463,17 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
           'location' => $location_id,
           'giver_npc_id' => $this->resolveCampaignNpcIdForBrokeredContact($campaign_id, $contact),
         ]);
-        $quest_data = $this->questGenerator->generateQuestFromTemplate($template_id, $campaign_id, [
-          'party_level' => $this->loadCharacterQuestLevel($campaign_id, $character_id),
-          'difficulty' => 'moderate',
-          'location' => $location_id,
-          'location_tags' => [$location_id, 'storyline_lead'],
-          'storyline_id' => $storyline_id,
-          'storyline_template_id' => (string) ($contact['template_id'] ?? ''),
-          'giver_npc_id' => $this->resolveCampaignNpcIdForBrokeredContact($campaign_id, $contact),
-          'dungeon_data' => $dungeon_data,
-        ]);
+        try {
+          $quest_data = $this->questGenerator->generateQuestFromTemplate($template_id, $campaign_id, $generation_context);
+        }
+        catch (\Throwable $e) {
+          $this->logger->warning('Failed to generate brokered storyline quest from template {template_id} in campaign {campaign_id}: {message}', [
+            'template_id' => $template_id,
+            'campaign_id' => $campaign_id,
+            'message' => $e->getMessage(),
+          ]);
+          continue;
+        }
         if ($quest_data === []) {
           $template_row = $this->database->select('dc_canonical_quests', 't')
             ->fields('t')
@@ -1452,20 +1492,14 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
           continue;
         }
 
-        $this->database->insert('dc_campaign_quests')
-          ->fields($quest_data)
-          ->execute();
-
-        $existing = $this->database->select('dc_campaign_quests', 'q')
-          ->fields('q')
-          ->condition('campaign_id', $campaign_id)
-          ->condition('source_template_id', $template_id)
-          ->range(0, 1)
-          ->execute()
-          ->fetchAssoc();
+        $existing = $this->storylineQuestLifecycleService->ensureOfferedQuestFromTemplateAndLoad(
+          $campaign_id,
+          $template_id,
+          static fn(): array => $quest_data
+        );
       }
 
-      if (!is_array($existing)) {
+      if (!is_array($existing) || $existing === []) {
         continue;
       }
 
@@ -1479,6 +1513,56 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     }
 
     return $quest_rows;
+  }
+
+  /**
+   * Resolve an active player character id for quest activation scopes.
+   */
+  protected function resolveQuestActivationCharacterId(int $campaign_id, int $character_id): ?int {
+    if ($campaign_id <= 0 || $character_id <= 0) {
+      return NULL;
+    }
+
+    $row = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $character_id)
+      ->condition('type', 'pc')
+      ->condition('role', 'player')
+      ->condition('is_active', 1)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $resolved_id = is_array($row) ? (int) ($row['id'] ?? 0) : 0;
+    return $resolved_id > 0 ? $resolved_id : NULL;
+  }
+
+  /**
+   * Load instantiated dungeon_data for one brokered storyline primary dungeon id.
+   */
+  protected function resolveBrokeredGenerationDungeonData(int $campaign_id, string $primary_dungeon_id): array {
+    if ($campaign_id <= 0 || trim($primary_dungeon_id) === '') {
+      return [];
+    }
+
+    $query = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->range(0, 1);
+    $or = $query->orConditionGroup()
+      ->condition('dungeon_id', $primary_dungeon_id);
+    if ($this->database->schema()->fieldExists('dc_campaign_dungeons', 'source_dungeon_id')) {
+      $or->condition('source_dungeon_id', $primary_dungeon_id);
+    }
+    $row = $query
+      ->condition($or)
+      ->orderBy('updated', 'DESC')
+      ->execute()
+      ->fetchAssoc();
+
+    $dungeon_data = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
+    return is_array($dungeon_data) ? $dungeon_data : [];
   }
 
   /**
