@@ -241,6 +241,9 @@ class CampaignController extends ControllerBase {
       '#theme' => 'campaign_archived_list',
       '#campaigns' => $campaign_cards,
       '#back_url' => Url::fromRoute('dungeoncrawler_content.campaigns')->toString(),
+      '#delete_all_url' => Url::fromRoute('dungeoncrawler_content.campaigns_archived_delete_all', [], [
+        'query' => ['destination' => $archived_destination],
+      ])->toString(),
       '#attached' => [
         'library' => ['dungeoncrawler_content/character-sheet'],
       ],
@@ -1581,16 +1584,82 @@ class CampaignController extends ControllerBase {
 
     $campaign_id = (int) $campaign->id;
     $campaign_name = (string) $campaign->name;
-    $preserved_player_characters = $this->preservePlayerCharactersForDeletion($campaign_id);
+    $preserved_player_characters = $this->permanentlyDeleteCampaignById(
+      $campaign_id,
+      $campaign_name,
+      (int) $current_user->id()
+    );
 
-    $chat_session_manager = NULL;
-    if (\Drupal::hasService('dungeoncrawler_content.chat_session_manager')) {
-      $candidate = \Drupal::service('dungeoncrawler_content.chat_session_manager');
-      if ($candidate instanceof ChatSessionManager) {
-        $chat_session_manager = $candidate;
-      }
+    $this->messenger()->addStatus($this->t('%name has been permanently destroyed. There is no going back.', [
+      '%name' => $campaign_name,
+    ]));
+
+    return new RedirectResponse($redirect_url);
+  }
+
+  /**
+   * Permanently delete all archived campaigns for the current user.
+   */
+  public function deleteAllArchivedCampaigns(): RedirectResponse {
+    $current_user = $this->currentUser();
+    $uid = (int) $current_user->id();
+    $destination = \Drupal::request()->query->get('destination');
+    $redirect_url = $destination
+      ? Url::fromUserInput($destination)->toString()
+      : Url::fromRoute('dungeoncrawler_content.campaigns_archived')->toString();
+
+    $campaigns = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['id', 'name'])
+      ->condition('uid', $uid)
+      ->condition('status', 'archived')
+      ->orderBy('changed', 'DESC')
+      ->execute()
+      ->fetchAll();
+
+    if ($campaigns === []) {
+      $this->messenger()->addStatus($this->t('No archived campaigns to delete.'));
+      return new RedirectResponse($redirect_url);
     }
 
+    $deleted_count = 0;
+    $preserved_total = 0;
+    $chat_session_manager = $this->resolveChatSessionManager();
+    foreach ($campaigns as $campaign) {
+      $preserved_total += $this->permanentlyDeleteCampaignById(
+        (int) $campaign->id,
+        (string) $campaign->name,
+        $uid,
+        $chat_session_manager
+      );
+      $deleted_count++;
+    }
+
+    if ($preserved_total > 0) {
+      $this->getLogger('dungeoncrawler_content')->notice('Preserved {count} player characters while deleting archived campaigns for uid {uid}.', [
+        'count' => $preserved_total,
+        'uid' => $uid,
+      ]);
+    }
+
+    $this->messenger()->addStatus($this->t('Deleted %count archived campaign(s) permanently.', [
+      '%count' => $deleted_count,
+    ]));
+
+    return new RedirectResponse($redirect_url);
+  }
+
+  /**
+   * Permanently delete one campaign and return count of preserved PCs.
+   */
+  protected function permanentlyDeleteCampaignById(
+    int $campaign_id,
+    string $campaign_name,
+    int $acting_uid,
+    ?ChatSessionManager $chat_session_manager = NULL
+  ): int {
+    $preserved_player_characters = $this->preservePlayerCharactersForDeletion($campaign_id);
+
+    $chat_session_manager = $chat_session_manager ?? $this->resolveChatSessionManager();
     if ($chat_session_manager) {
       try {
         $chat_session_manager->deleteAllForCampaign($campaign_id);
@@ -1634,7 +1703,7 @@ class CampaignController extends ControllerBase {
     $this->getLogger('dungeoncrawler_content')->info('Campaign {id} ({name}) permanently deleted by uid {uid}.', [
       'id' => $campaign_id,
       'name' => $campaign_name,
-      'uid' => (int) $current_user->id(),
+      'uid' => $acting_uid,
     ]);
 
     if ($preserved_player_characters > 0) {
@@ -1644,11 +1713,18 @@ class CampaignController extends ControllerBase {
       ]);
     }
 
-    $this->messenger()->addStatus($this->t('%name has been permanently destroyed. There is no going back.', [
-      '%name' => $campaign_name,
-    ]));
+    return $preserved_player_characters;
+  }
 
-    return new RedirectResponse($redirect_url);
+  /**
+   * Resolve optional chat session manager for campaign cascading deletes.
+   */
+  protected function resolveChatSessionManager(): ?ChatSessionManager {
+    if (!\Drupal::hasService('dungeoncrawler_content.chat_session_manager')) {
+      return NULL;
+    }
+    $candidate = \Drupal::service('dungeoncrawler_content.chat_session_manager');
+    return $candidate instanceof ChatSessionManager ? $candidate : NULL;
   }
 
   /**

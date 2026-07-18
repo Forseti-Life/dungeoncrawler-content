@@ -343,6 +343,14 @@ dungeoncrawler_content.campaigns_archived:
   requirements:
     _permission: 'access dungeoncrawler characters'
 
+dungeoncrawler_content.campaigns_archived_delete_all:
+  path: '/campaigns/archived/delete-all'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::deleteAllArchivedCampaigns'
+    _title: 'Delete Archived Campaigns'
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+
 dungeoncrawler_content.storyline_explorer:
   path: '/storylines/explorer'
   defaults:
