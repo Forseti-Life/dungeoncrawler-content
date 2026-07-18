@@ -10,10 +10,12 @@ use Drupal\Core\Form\FormBuilderInterface;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\CampaignCreateForm;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
+use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
-use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
+use Drupal\dungeoncrawler_content\Service\RuntimeBootstrapService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -31,20 +33,22 @@ class CampaignController extends ControllerBase {
   protected Connection $database;
   protected CharacterManager $characterManager;
   protected FormBuilderInterface $formBuilderService;
-  protected QuestTrackerService $questTracker;
   protected GeneratedImageRepository $imageRepository;
   protected InstitutionMembershipService $institutionMembership;
   protected CampaignCharacterRuntimeResolverService $runtimeResolver;
+  protected GameCoordinatorService $gameCoordinator;
+  protected RuntimeBootstrapService $runtimeBootstrap;
   protected TimeInterface $time;
 
-  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, QuestTrackerService $quest_tracker, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, TimeInterface $time) {
+  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, GameCoordinatorService $game_coordinator, RuntimeBootstrapService $runtime_bootstrap, TimeInterface $time) {
     $this->database = $database;
     $this->characterManager = $character_manager;
     $this->formBuilderService = $form_builder;
-    $this->questTracker = $quest_tracker;
     $this->imageRepository = $image_repository;
     $this->institutionMembership = $institution_membership;
     $this->runtimeResolver = $runtime_resolver;
+    $this->gameCoordinator = $game_coordinator;
+    $this->runtimeBootstrap = $runtime_bootstrap;
     $this->time = $time;
   }
 
@@ -56,10 +60,11 @@ class CampaignController extends ControllerBase {
       $container->get('database'),
       $container->get('dungeoncrawler_content.character_manager'),
       $container->get('form_builder'),
-      $container->get('dungeoncrawler_content.quest_tracker'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
       $container->get('dungeoncrawler_content.institution_membership'),
       $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
+      $container->get('dungeoncrawler_content.game_coordinator'),
+      $container->get('dungeoncrawler_content.runtime_bootstrap'),
       $container->get('datetime.time'),
     );
   }
@@ -224,7 +229,7 @@ class CampaignController extends ControllerBase {
         ], [
           'query' => ['destination' => $archived_destination],
         ])->toString(),
-        'delete_url' => Url::fromRoute('dungeoncrawler_content.campaign_delete', [
+        'delete_url' => Url::fromRoute('dungeoncrawler_content.campaign_delete_direct', [
           'campaign_id' => $campaign_id,
         ], [
           'query' => ['destination' => $archived_destination],
@@ -942,35 +947,14 @@ class CampaignController extends ControllerBase {
         if ($raw_token === '') {
           continue;
         }
-        $token = $this->normalizeNavigationLocationToken($raw_token);
-        $resolved_room_id = '';
-        if (isset($room_lookup[$raw_token])) {
-          $resolved_room_id = $raw_token;
-        }
-        elseif (isset($room_id_lookup[$token])) {
-          $resolved_room_id = (string) $room_id_lookup[$token];
-        }
-        elseif (isset($room_name_lookup[$token])) {
-          $resolved_room_id = (string) $room_name_lookup[$token];
-        }
+        $resolved_room_id = $this->resolveQuestNavigationRoomId($raw_token, $room_lookup, $room_id_lookup, $room_name_lookup);
         if ($resolved_room_id === '' || !isset($room_lookup[$resolved_room_id])) {
-          // Keep unresolved quest locations visible in navigation so players can
-          // still choose them and trigger generation of the destination.
-          $resolved_room_id = $raw_token;
-          $room_meta = [
-            'name' => $raw_token,
-            'description' => 'Quest destination pending generation.',
-          ];
+          continue;
         }
-        else {
-          $room_meta = $room_lookup[$resolved_room_id];
-        }
+        $room_meta = $room_lookup[$resolved_room_id];
         $tags = ['mentioned'];
         if (!empty($candidate['discovered'])) {
           $tags[] = 'discovered';
-        }
-        if (!isset($room_lookup[$resolved_room_id])) {
-          $tags[] = 'unresolved_quest_location';
         }
         $signals[] = [
           'room_id' => $resolved_room_id,
@@ -1097,18 +1081,49 @@ class CampaignController extends ControllerBase {
         continue;
       }
       $candidate = trim((string) ($matches[1] ?? ''));
+      $candidate = trim((string) preg_replace('/[;,].*$/', '', $candidate));
+      $candidate = trim((string) preg_replace('/\b(?:and|then)\b.*$/i', '', $candidate));
       $candidate = preg_replace('/^(the|a|an)\s+/i', '', $candidate) ?? $candidate;
       $candidate = trim((string) preg_replace('/\s+/', ' ', $candidate));
       if ($candidate !== '') {
         $tokens[] = $candidate;
-        $slug_candidate = strtolower(str_replace([' ', '-'], '_', $candidate));
-        if ($slug_candidate !== '') {
-          $tokens[] = $slug_candidate;
+      }
+    }
+
+    if (preg_match_all('/\b[a-z0-9]+(?:[-_][a-z0-9]+){1,}\b/i', $normalized, $matches)) {
+      foreach ((array) ($matches[0] ?? []) as $identifier) {
+        $identifier = trim((string) $identifier);
+        if ($identifier !== '') {
+          $tokens[] = $identifier;
         }
       }
     }
 
     return array_values(array_unique(array_filter($tokens, static fn(string $value): bool => $value !== '')));
+  }
+
+  /**
+   * Resolve a quest-provided location token to a canonical room id.
+   */
+  protected function resolveQuestNavigationRoomId(string $token, array $room_lookup, array $room_id_lookup, array $room_name_lookup): string {
+    $raw_token = trim($token);
+    if ($raw_token === '') {
+      return '';
+    }
+
+    if (isset($room_lookup[$raw_token])) {
+      return $raw_token;
+    }
+
+    $normalized_token = $this->normalizeNavigationLocationToken($raw_token);
+    if ($normalized_token !== '' && isset($room_id_lookup[$normalized_token])) {
+      return (string) $room_id_lookup[$normalized_token];
+    }
+    if ($normalized_token !== '' && isset($room_name_lookup[$normalized_token])) {
+      return (string) $room_name_lookup[$normalized_token];
+    }
+
+    return '';
   }
 
   /**
@@ -1428,9 +1443,15 @@ class CampaignController extends ControllerBase {
       throw new NotFoundHttpException();
     }
     $selected_row_id = (int) ($runtime_record['id'] ?? 0);
+    if ($selected_row_id <= 0) {
+      throw new \RuntimeException(sprintf(
+        'Campaign selection contract violation: runtime row id missing for campaign %d character %d.',
+        $campaign_id,
+        $character_id
+      ));
+    }
+    $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $selected_row_id);
     $canonical_character_id = (int) ($runtime_record['character_id'] ?? $canonical_character_id);
-
-    $this->startStarterQuest($campaign_id, $canonical_character_id);
 
     $this->messenger()->addStatus($this->t('Character selected for campaign.'));
 
@@ -1470,42 +1491,6 @@ class CampaignController extends ControllerBase {
     return $this->redirect('dungeoncrawler_content.hexmap_demo', [], [
       'query' => $launch_query,
     ]);
-  }
-
-  /**
-   * Start a default starter quest when a character is selected.
-   */
-  private function startStarterQuest(int $campaign_id, int $character_id): void {
-    $preferred_templates = ['tavern_storyline_leads'];
-
-    $available = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q', ['quest_id', 'source_template_id'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('status', ['offered', 'available'], 'IN')
-      ->execute()
-      ->fetchAll(\PDO::FETCH_ASSOC);
-
-    if (empty($available)) {
-      return;
-    }
-
-    $quest_id = NULL;
-    foreach ($preferred_templates as $template_id) {
-      foreach ($available as $quest) {
-        if (($quest['source_template_id'] ?? '') === $template_id) {
-          $quest_id = $quest['quest_id'] ?? NULL;
-          break 2;
-        }
-      }
-    }
-
-    if (!$quest_id) {
-      $quest_id = $available[0]['quest_id'] ?? NULL;
-    }
-
-    if ($quest_id) {
-      $this->questTracker->startQuest($campaign_id, $quest_id, $character_id);
-    }
   }
 
   /**
@@ -1565,6 +1550,213 @@ class CampaignController extends ControllerBase {
     ]));
 
     return new RedirectResponse($redirect_url);
+  }
+
+  /**
+   * Permanently delete a campaign directly without a confirmation form.
+   */
+  public function deleteCampaign(int $campaign_id): RedirectResponse {
+    $campaign = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['id', 'name', 'uid'])
+      ->condition('id', $campaign_id)
+      ->execute()
+      ->fetchObject();
+
+    if (!$campaign) {
+      throw new NotFoundHttpException();
+    }
+
+    $current_user = $this->currentUser();
+    if (
+      (int) $campaign->uid !== (int) $current_user->id()
+      && !$current_user->hasPermission('administer dungeoncrawler content')
+    ) {
+      throw new AccessDeniedHttpException();
+    }
+
+    $destination = \Drupal::request()->query->get('destination');
+    $redirect_url = $destination
+      ? Url::fromUserInput($destination)->toString()
+      : Url::fromRoute('dungeoncrawler_content.campaigns_archived')->toString();
+
+    $campaign_id = (int) $campaign->id;
+    $campaign_name = (string) $campaign->name;
+    $preserved_player_characters = $this->preservePlayerCharactersForDeletion($campaign_id);
+
+    $chat_session_manager = NULL;
+    if (\Drupal::hasService('dungeoncrawler_content.chat_session_manager')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.chat_session_manager');
+      if ($candidate instanceof ChatSessionManager) {
+        $chat_session_manager = $candidate;
+      }
+    }
+
+    if ($chat_session_manager) {
+      try {
+        $chat_session_manager->deleteAllForCampaign($campaign_id);
+      }
+      catch (\Exception $e) {
+        $this->getLogger('dungeoncrawler_content')->error('Failed to delete chat sessions for campaign {id}: {error}', [
+          'id' => $campaign_id,
+          'error' => $e->getMessage(),
+        ]);
+      }
+    }
+
+    foreach ([
+      'dc_campaign_quest_confirmations',
+      'dc_campaign_quest_log',
+      'dc_campaign_quest_progress',
+      'dc_campaign_quest_rewards_claimed',
+      'dc_campaign_quests',
+      'dc_campaign_item_instances',
+      'dc_campaign_content_registry',
+      'dc_campaign_room_states',
+      'dc_campaign_rooms',
+      'dc_campaign_dungeons',
+    ] as $table) {
+      $this->deleteCampaignScopedRows($table, $campaign_id);
+    }
+
+    $this->database->delete('dc_campaign_characters')
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+
+    $this->database->delete('dc_campaigns')
+      ->condition('id', $campaign_id)
+      ->execute();
+
+    Cache::invalidateTags([
+      'dc_campaigns',
+      'dc_campaign:' . $campaign_id,
+    ]);
+
+    $this->getLogger('dungeoncrawler_content')->info('Campaign {id} ({name}) permanently deleted by uid {uid}.', [
+      'id' => $campaign_id,
+      'name' => $campaign_name,
+      'uid' => (int) $current_user->id(),
+    ]);
+
+    if ($preserved_player_characters > 0) {
+      $this->getLogger('dungeoncrawler_content')->notice('Preserved {count} player characters while deleting campaign {id}.', [
+        'count' => $preserved_player_characters,
+        'id' => $campaign_id,
+      ]);
+    }
+
+    $this->messenger()->addStatus($this->t('%name has been permanently destroyed. There is no going back.', [
+      '%name' => $campaign_name,
+    ]));
+
+    return new RedirectResponse($redirect_url);
+  }
+
+  /**
+   * Delete rows from one campaign-scoped table when it exists.
+   */
+  protected function deleteCampaignScopedRows(string $table, int $campaign_id): void {
+    if (!$this->database->schema()->tableExists($table)) {
+      return;
+    }
+
+    $this->database->delete($table)
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+  }
+
+  /**
+   * Preserve player characters so campaign deletion does not destroy the roster.
+   */
+  protected function preservePlayerCharactersForDeletion(int $campaign_id): int {
+    $records = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', [
+        'id',
+        'uuid',
+        'uid',
+        'campaign_id',
+        'character_id',
+        'instance_id',
+        'role',
+        'type',
+        'status',
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAll();
+
+    if ($records === []) {
+      return 0;
+    }
+
+    $preserved = 0;
+    $now = $this->time->getRequestTime();
+    foreach ($records as $record) {
+      if (!$this->isPreservablePlayerCharacterForDeletion($record)) {
+        continue;
+      }
+
+      $canonical_character_id = (int) ($record->character_id ?? 0);
+      $has_library_record = FALSE;
+      if ($canonical_character_id > 0 && (int) ($record->id ?? 0) !== $canonical_character_id) {
+        $has_library_record = (bool) $this->database->select('dc_campaign_characters', 'c')
+          ->fields('c', ['id'])
+          ->condition('id', $canonical_character_id)
+          ->condition('campaign_id', 0)
+          ->range(0, 1)
+          ->execute()
+          ->fetchField();
+      }
+
+      if ($has_library_record) {
+        continue;
+      }
+
+      $this->database->update('dc_campaign_characters')
+        ->fields($this->buildDetachedPlayerCharacterFieldsForDeletion($record, $now))
+        ->condition('id', (int) $record->id)
+        ->execute();
+      $preserved++;
+    }
+
+    return $preserved;
+  }
+
+  /**
+   * Determine whether a campaign character row should be preserved as a PC.
+   */
+  protected function isPreservablePlayerCharacterForDeletion(object $record): bool {
+    return (int) ($record->uid ?? 0) > 0
+      && strtolower((string) ($record->type ?? '')) === 'pc'
+      && strtolower((string) ($record->role ?? '')) === 'player';
+  }
+
+  /**
+   * Build field updates that detach a player character from a campaign.
+   */
+  protected function buildDetachedPlayerCharacterFieldsForDeletion(object $record, int $now): array {
+    $instance_id = trim((string) ($record->uuid ?? ''));
+    if ($instance_id === '') {
+      $instance_id = trim((string) ($record->instance_id ?? ''));
+    }
+    if ($instance_id === '') {
+      $instance_id = 'character-' . (int) ($record->id ?? 0);
+    }
+
+    return [
+      'campaign_id' => 0,
+      'character_id' => 0,
+      'source_character_id' => NULL,
+      'instance_id' => $instance_id,
+      'location_type' => 'roster',
+      'location_ref' => '',
+      'position_q' => 0,
+      'position_r' => 0,
+      'last_room_id' => '',
+      'is_active' => 0,
+      'lifecycle_state' => 'detached_roster',
+      'updated' => $now,
+      'changed' => $now,
+    ];
   }
 
 }
