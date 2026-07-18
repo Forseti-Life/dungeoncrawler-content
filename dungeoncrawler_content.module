@@ -120,6 +120,7 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'variables' => [
         'campaigns' => [],
         'back_url' => NULL,
+        'delete_all_url' => NULL,
       ],
       'template' => 'campaign-archived-list',
       'path' => $path . '/templates',
