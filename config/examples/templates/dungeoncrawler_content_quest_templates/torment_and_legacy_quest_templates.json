@@ -22,7 +22,7 @@
               "type": "interact",
               "description": "Hear the mission briefing and commit the party to the adventure.",
               "target": "tal-mission-handler",
-              "target_label": "Mission Handler",
+              "target_label": "Venture-Captain Celia Arvanxi",
               "target_aliases": [
                 "Briefing officer",
                 "Mission giver",

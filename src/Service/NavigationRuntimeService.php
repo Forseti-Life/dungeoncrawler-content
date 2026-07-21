@@ -16,6 +16,7 @@ class NavigationRuntimeService {
   protected const NAVIGATION_ACTION_SCHEMA_VERSION = 'navigation-action-v2';
   protected Connection $database;
   protected MapGeneratorService $mapGenerator;
+  protected ?ConnectorDefinitionService $connectorDefinitionService;
   protected StateValidationService $stateValidationService;
   protected RoomLocator $roomLocator;
   protected RoomChatHistoryProjector $roomChatHistoryProjector;
@@ -29,15 +30,112 @@ class NavigationRuntimeService {
     RoomLocator $room_locator,
     RoomChatHistoryProjector $room_chat_history_projector,
     AiSessionManager $session_manager,
-    LoggerChannelFactoryInterface $logger_factory
+    LoggerChannelFactoryInterface $logger_factory,
+    ?ConnectorDefinitionService $connector_definition_service = NULL
   ) {
     $this->database = $database;
     $this->mapGenerator = $map_generator;
+    $this->connectorDefinitionService = $connector_definition_service;
     $this->stateValidationService = $state_validation_service;
     $this->roomLocator = $room_locator;
     $this->roomChatHistoryProjector = $room_chat_history_projector;
     $this->sessionManager = $session_manager;
     $this->logger = $logger_factory->get('dungeoncrawler_chat');
+  }
+
+  /**
+   * Expand the active room into its canonical connector neighborhood.
+   */
+  public function expandCanonicalRoomNeighborhood(
+    int $campaign_id,
+    array &$dungeon_data,
+    string $root_room_id,
+    int $max_depth = 1
+  ): void {
+    $root_room_id = trim($root_room_id);
+    if ($campaign_id <= 0 || $root_room_id === '') {
+      return;
+    }
+
+    $dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['map_id']
+      ?? ''
+    ));
+    if ($dungeon_id === '') {
+      throw new \RuntimeException('Navigation neighborhood expansion contract violation: dungeon_id is required.');
+    }
+
+    $known_room_ids = $this->collectDungeonPayloadRoomIds($dungeon_data);
+    $queue = [[$root_room_id, 0]];
+    $visited = [];
+    while ($queue !== []) {
+      [$room_id, $depth] = array_shift($queue);
+      $room_id = trim((string) $room_id);
+      $depth = (int) $depth;
+      if ($room_id === '' || isset($visited[$room_id])) {
+        continue;
+      }
+      $visited[$room_id] = TRUE;
+
+      if (!isset($known_room_ids[$room_id])) {
+        $materialized = $this->materializeCanonicalRoomForCampaign($campaign_id, $dungeon_data, $room_id, [
+          'origin_room_id' => '',
+          'visibility' => 'visible',
+        ]);
+        if (!$materialized) {
+          throw new \RuntimeException(sprintf(
+            'Navigation neighborhood expansion contract violation: canonical root room %s could not be materialized for campaign %d.',
+            $room_id,
+            $campaign_id
+          ));
+        }
+        $known_room_ids[$room_id] = TRUE;
+      }
+
+      if ($depth >= $max_depth) {
+        continue;
+      }
+
+      foreach ($this->resolveConnectorDefinitionService()->loadCanonicalConnectorsForRoom($room_id) as $connector_row) {
+        if (!is_array($connector_row)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+        if ($from_room_id === '' || $to_room_id === '' || $from_room_id === $to_room_id) {
+          continue;
+        }
+        $target_room_id = $from_room_id === $room_id ? $to_room_id : ($to_room_id === $room_id ? $from_room_id : '');
+        if ($target_room_id === '') {
+          continue;
+        }
+
+        if (!isset($known_room_ids[$target_room_id])) {
+          $materialized = $this->materializeCanonicalRoomForCampaign($campaign_id, $dungeon_data, $target_room_id, [
+            'origin_room_id' => $room_id,
+            'require_connector_to_existing_room' => TRUE,
+          ]);
+          if (!$materialized) {
+            throw new \RuntimeException(sprintf(
+              'Navigation neighborhood expansion contract violation: canonical adjacent room %s could not be materialized from %s for campaign %d.',
+              $target_room_id,
+              $room_id,
+              $campaign_id
+            ));
+          }
+          $known_room_ids[$target_room_id] = TRUE;
+        }
+
+        $this->persistCanonicalConnectorForCampaign($campaign_id, $dungeon_id, $connector_row);
+        $this->appendCanonicalConnectorRowsToDungeonPayload($dungeon_data, [$connector_row]);
+
+        if ($depth < $max_depth) {
+          $queue[] = [$target_room_id, $depth + 1];
+        }
+      }
+    }
   }
 
   /**
@@ -650,6 +748,62 @@ class NavigationRuntimeService {
       ->fetchAll(\PDO::FETCH_ASSOC) ?: []);
   }
 
+  protected function persistCanonicalConnectorForCampaign(
+    int $campaign_id,
+    string $dungeon_id,
+    array $connector_row
+  ): void {
+    $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+    $from_hex = is_array($connector_row['from_hex'] ?? NULL)
+      ? $connector_row['from_hex']
+      : ((isset($connector_row['from_hex_q'], $connector_row['from_hex_r'])) ? [
+        'q' => (int) $connector_row['from_hex_q'],
+        'r' => (int) $connector_row['from_hex_r'],
+      ] : NULL);
+    $to_hex = is_array($connector_row['to_hex'] ?? NULL)
+      ? $connector_row['to_hex']
+      : ((isset($connector_row['to_hex_q'], $connector_row['to_hex_r'])) ? [
+        'q' => (int) $connector_row['to_hex_q'],
+        'r' => (int) $connector_row['to_hex_r'],
+      ] : NULL);
+
+    if ($from_room_id === '' || $to_room_id === '' || !is_array($from_hex) || !is_array($to_hex)) {
+      throw new \RuntimeException('Navigation neighborhood expansion contract violation: canonical connectors require room ids and endpoint hexes.');
+    }
+
+    $this->resolveConnectorDefinitionService()->saveCampaignConnector($campaign_id, [
+      'dungeon_id' => $dungeon_id,
+      'from_room_id' => $from_room_id,
+      'to_room_id' => $to_room_id,
+      'from_hex' => $from_hex,
+      'to_hex' => $to_hex,
+      'direction' => (string) ($connector_row['direction'] ?? 'bidirectional'),
+      'kind' => (string) ($connector_row['kind'] ?? 'hallway'),
+      'default_state' => (string) ($connector_row['state'] ?? $connector_row['default_state'] ?? 'open'),
+      'state' => (string) ($connector_row['state'] ?? $connector_row['default_state'] ?? 'open'),
+      'trap_data' => is_array($connector_row['trap_data'] ?? NULL) ? $connector_row['trap_data'] : NULL,
+      'lock_data' => is_array($connector_row['lock_data'] ?? NULL) ? $connector_row['lock_data'] : NULL,
+      'requirements_data' => is_array($connector_row['requirements_data'] ?? NULL) ? $connector_row['requirements_data'] : NULL,
+      'description' => (string) ($connector_row['description'] ?? ''),
+      'travel_cost' => (int) ($connector_row['travel_cost'] ?? 0),
+      'is_discovered_default' => (int) ($connector_row['is_discovered_default'] ?? $connector_row['is_discovered'] ?? 1),
+      'connection_id' => (string) ($connector_row['connection_id'] ?? ''),
+    ]);
+  }
+
+  protected function resolveConnectorDefinitionService(): ConnectorDefinitionService {
+    if ($this->connectorDefinitionService instanceof ConnectorDefinitionService) {
+      return $this->connectorDefinitionService;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.connector_definition_service');
+    if (!$service instanceof ConnectorDefinitionService) {
+      throw new \RuntimeException('Navigation runtime contract violation: connector_definition_service is required.');
+    }
+    $this->connectorDefinitionService = $service;
+    return $service;
+  }
+
   protected function appendCanonicalConnectorRowsToDungeonPayload(array &$dungeon_data, array $connector_rows): void {
     if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
       $dungeon_data['hex_map'] = [];
@@ -701,20 +855,32 @@ class NavigationRuntimeService {
         'to_room_id' => $to_room_id,
         'type' => trim((string) ($row['kind'] ?? '')) !== '' ? (string) $row['kind'] : 'passage',
         'kind' => trim((string) ($row['kind'] ?? '')) !== '' ? (string) $row['kind'] : 'passage',
-        'state' => trim((string) ($row['default_state'] ?? '')) !== '' ? (string) $row['default_state'] : 'open',
+        'state' => trim((string) ($row['state'] ?? $row['default_state'] ?? '')) !== '' ? (string) ($row['state'] ?? $row['default_state']) : 'open',
         'bidirectional' => strtolower(trim((string) ($row['direction'] ?? 'bidirectional'))) !== 'one_way',
         'is_discovered' => isset($row['is_discovered_default']) ? ((int) $row['is_discovered_default'] === 1) : TRUE,
-        'is_passable' => TRUE,
+        'is_passable' => strtolower(trim((string) ($row['state'] ?? $row['default_state'] ?? 'open'))) === 'open',
         'destination_type' => 'room',
         'destination_id' => $to_room_id,
       ];
-      if (isset($row['from_hex_q'], $row['from_hex_r'])) {
+      if (is_array($row['from_hex'] ?? NULL)) {
+        $connection['from_hex'] = [
+          'q' => (int) ($row['from_hex']['q'] ?? 0),
+          'r' => (int) ($row['from_hex']['r'] ?? 0),
+        ];
+      }
+      elseif (isset($row['from_hex_q'], $row['from_hex_r'])) {
         $connection['from_hex'] = [
           'q' => (int) $row['from_hex_q'],
           'r' => (int) $row['from_hex_r'],
         ];
       }
-      if (isset($row['to_hex_q'], $row['to_hex_r'])) {
+      if (is_array($row['to_hex'] ?? NULL)) {
+        $connection['to_hex'] = [
+          'q' => (int) ($row['to_hex']['q'] ?? 0),
+          'r' => (int) ($row['to_hex']['r'] ?? 0),
+        ];
+      }
+      elseif (isset($row['to_hex_q'], $row['to_hex_r'])) {
         $connection['to_hex'] = [
           'q' => (int) $row['to_hex_q'],
           'r' => (int) $row['to_hex_r'],

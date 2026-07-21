@@ -131,6 +131,7 @@ class CampaignCharacterRuntimeResolverService {
       'last_room_id',
       'location_type',
       'location_ref',
+      'state_data',
       'character_data',
       'default_character_data',
       'default_locations',
@@ -226,6 +227,7 @@ class CampaignCharacterRuntimeResolverService {
 
     $location_fields = $this->resolveRuntimeLocationFields($campaign_id, $existing_row, $selected_character, $launch_context);
     $instance_id = sprintf('pc-%d-%d', $campaign_id, $canonical_character_id);
+    $runtime_state_data = $this->normalizePcRuntimeStateData($character_data, $campaign_id, $instance_id);
     $now = $this->time->getRequestTime();
     $portrait = NULL;
     $canonical_portrait = trim((string) ($canonical_character->portrait ?? ''));
@@ -270,7 +272,7 @@ class CampaignCharacterRuntimeResolverService {
       'role' => 'player',
       'type' => 'pc',
       'lifecycle_state' => 'campaign_runtime',
-      'state_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
+      'state_data' => json_encode($runtime_state_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
       'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE),
       'default_character_data' => json_encode($default_character_data, JSON_UNESCAPED_UNICODE),
       'default_locations' => $default_locations,
@@ -335,7 +337,92 @@ class CampaignCharacterRuntimeResolverService {
       $this->cloneCampaignCharacterPortraitLinks($source_campaign_id, $selected_character_id, $campaign_id, $selected_row_id);
     }
 
-    return $this->loadRuntimeRecord($campaign_id, $selected_row_id, $canonical_character_id);
+    $runtime_record = $this->loadRuntimeRecord($campaign_id, $selected_row_id, $canonical_character_id);
+    if (!$runtime_record) {
+      throw new \RuntimeException(sprintf(
+        'Runtime contract violation: failed to reload runtime row for campaign %d and character %d after upsert.',
+        $campaign_id,
+        $canonical_character_id
+      ));
+    }
+    $this->assertRuntimePcIdentityContract($runtime_record, $campaign_id);
+
+    return $runtime_record;
+  }
+
+  /**
+   * Normalize embedded runtime state identity to campaign-instance truth.
+   *
+   * @param array<string,mixed> $state_data
+   *   Character state payload selected for runtime persistence.
+   *
+   * @return array<string,mixed>
+   *   State payload with enforced campaign/instance identity fields.
+   */
+  protected function normalizePcRuntimeStateData(array $state_data, int $campaign_id, string $instance_id): array {
+    $state_data['campaignId'] = (string) $campaign_id;
+    $state_data['instanceId'] = $instance_id;
+    return $state_data;
+  }
+
+  /**
+   * Enforce campaign-runtime PC identity contract for persisted state_data.
+   *
+   * @param array<string,mixed> $record
+   *   Persisted runtime row from dc_campaign_characters.
+   *
+   * @throws \RuntimeException
+   *   Thrown when embedded state identity drifts from authoritative row identity.
+   */
+  public function assertRuntimePcIdentityContract(array $record, int $campaign_id): void {
+    $record_id = (int) ($record['id'] ?? 0);
+    $record_campaign_id = (int) ($record['campaign_id'] ?? 0);
+    $record_instance_id = trim((string) ($record['instance_id'] ?? ''));
+    if ($record_id <= 0 || $record_campaign_id <= 0 || $record_instance_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Runtime contract violation: incomplete runtime identity fields (row=%d campaign=%d instance_id="%s").',
+        $record_id,
+        $record_campaign_id,
+        $record_instance_id
+      ));
+    }
+
+    if ($record_campaign_id !== $campaign_id) {
+      throw new \RuntimeException(sprintf(
+        'Runtime contract violation: campaign mismatch on runtime row %d (expected=%d actual=%d).',
+        $record_id,
+        $campaign_id,
+        $record_campaign_id
+      ));
+    }
+
+    $state_data_raw = (string) ($record['state_data'] ?? '');
+    $state_data = json_decode($state_data_raw, TRUE);
+    if (!is_array($state_data)) {
+      throw new \RuntimeException(sprintf(
+        'Runtime contract violation: state_data must decode to object for runtime row %d.',
+        $record_id
+      ));
+    }
+
+    $state_campaign_id = trim((string) ($state_data['campaignId'] ?? ''));
+    $state_instance_id = trim((string) ($state_data['instanceId'] ?? ''));
+    if ($state_campaign_id !== (string) $campaign_id) {
+      throw new \RuntimeException(sprintf(
+        'Runtime contract violation: state_data.campaignId mismatch on runtime row %d (expected=%d actual="%s").',
+        $record_id,
+        $campaign_id,
+        $state_campaign_id
+      ));
+    }
+    if ($state_instance_id !== $record_instance_id) {
+      throw new \RuntimeException(sprintf(
+        'Runtime contract violation: state_data.instanceId mismatch on runtime row %d (expected="%s" actual="%s").',
+        $record_id,
+        $record_instance_id,
+        $state_instance_id
+      ));
+    }
   }
 
   /**
@@ -733,6 +820,7 @@ class CampaignCharacterRuntimeResolverService {
       $position_r = (int) ($launch_context['start_r'] ?? $position_r);
     }
 
+    $is_new_runtime_row = $existing_row === NULL;
     $room_id = '';
     if ($room_explicit) {
       $room_id = trim((string) ($launch_context['room_id'] ?? ''));
@@ -740,10 +828,10 @@ class CampaignCharacterRuntimeResolverService {
     if ($room_id === '') {
       $room_id = trim((string) ($existing_row['last_room_id'] ?? $existing_row['location_ref'] ?? ''));
     }
-    if ($room_id === '') {
+    if ($room_id === '' && !$is_new_runtime_row) {
       $room_id = trim((string) ($selected_character->last_room_id ?? $selected_character->location_ref ?? ''));
     }
-    if ($room_id === '') {
+    if ($room_id === '' || ($is_new_runtime_row && !$room_explicit)) {
       $room_id = $this->resolveStarterRoomIdForCampaign($campaign_id);
     }
 

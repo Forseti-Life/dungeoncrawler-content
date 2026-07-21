@@ -415,7 +415,12 @@ class StateValidationService {
         ['id' => 'lifecycle_state_required', 'label' => 'lifecycle_state is required.'],
         ['id' => 'location_type_required', 'label' => 'location_type is required.'],
         ['id' => 'location_ref_required_by_type', 'label' => 'location_ref is required for location_type values outside global/roster.'],
+        ['id' => 'last_room_id_required_by_type', 'label' => 'last_room_id is required for location_type values outside global/roster.'],
+        ['id' => 'last_room_id_matches_location_ref_for_room', 'label' => 'room-scoped actors must keep last_room_id aligned to location_ref.'],
         ['id' => 'status_allowed', 'label' => 'status must be one of: -1, 0, 1, 2.'],
+        ['id' => 'quest_giver_requires_room_scope', 'label' => 'quest_giver NPC actors must be room-scoped with location_ref and last_room_id.'],
+        ['id' => 'npc_portrait_required', 'label' => 'npc actor rows must provide a portrait via portrait column or portrait image link.'],
+        ['id' => 'npc_template_portrait_required', 'label' => 'npc actor rows mapped to canonical templates must have a template portrait link.'],
         ['id' => 'pc_source_character_required', 'label' => 'pc actor rows must define source_character_id when campaign_id is non-zero.'],
         ['id' => 'character_data_present', 'label' => 'character_data contract is required.'],
         ['id' => 'character_data_json_contract', 'label' => 'character_data must decode to a non-empty JSON object/array.'],
@@ -449,10 +454,13 @@ class StateValidationService {
         'level',
         'instance_id',
         'type',
+        'role',
         'lifecycle_state',
         'location_type',
         'location_ref',
+        'last_room_id',
         'status',
+        'portrait',
         'character_data',
       ])
       ->orderBy('id', 'ASC')
@@ -462,6 +470,56 @@ class StateValidationService {
     if (!is_array($rows) || $rows === []) {
       $report['errors'][] = 'Canonical actor store contains no records.';
       return $report;
+    }
+
+    $runtime_actor_portrait_links = [];
+    $template_actor_id_by_instance = [];
+    $template_actor_portrait_links = [];
+    if ($schema->tableExists('dc_generated_image_links')) {
+      $runtime_portrait_rows = $this->database->select('dc_generated_image_links', 'l')
+        ->fields('l', ['object_id'])
+        ->condition('table_name', 'dc_campaign_characters')
+        ->condition('slot', 'portrait')
+        ->execute()
+        ->fetchCol();
+      foreach ($runtime_portrait_rows as $object_id) {
+        $key = trim((string) $object_id);
+        if ($key !== '') {
+          $runtime_actor_portrait_links[$key] = TRUE;
+        }
+      }
+
+      if ($schema->tableExists('dungeoncrawler_content_characters')) {
+        $template_rows = $this->database->select('dungeoncrawler_content_characters', 'c')
+          ->fields('c', ['id', 'instance_id'])
+          ->condition('type', 'npc')
+          ->execute()
+          ->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ($template_rows as $template_row) {
+          if (!is_array($template_row)) {
+            continue;
+          }
+          $template_instance_id = trim((string) ($template_row['instance_id'] ?? ''));
+          $template_id = (int) ($template_row['id'] ?? 0);
+          if ($template_instance_id === '' || $template_id <= 0) {
+            continue;
+          }
+          $template_actor_id_by_instance[$template_instance_id] = $template_id;
+        }
+
+        $template_portrait_rows = $this->database->select('dc_generated_image_links', 'l')
+          ->fields('l', ['object_id'])
+          ->condition('table_name', 'dungeoncrawler_content_characters')
+          ->condition('slot', 'portrait')
+          ->execute()
+          ->fetchCol();
+        foreach ($template_portrait_rows as $object_id) {
+          $key = trim((string) $object_id);
+          if ($key !== '') {
+            $template_actor_portrait_links[$key] = TRUE;
+          }
+        }
+      }
     }
 
     foreach ($rows as $row) {
@@ -478,12 +536,20 @@ class StateValidationService {
       $level = (int) ($row['level'] ?? 0);
       $instance_id = trim((string) ($row['instance_id'] ?? ''));
       $actor_type = strtolower(trim((string) ($row['type'] ?? '')));
+      $actor_role = strtolower(trim((string) ($row['role'] ?? '')));
       $lifecycle_state = strtolower(trim((string) ($row['lifecycle_state'] ?? '')));
       $location_type = strtolower(trim((string) ($row['location_type'] ?? '')));
       $location_ref = trim((string) ($row['location_ref'] ?? ''));
+      $last_room_id = trim((string) ($row['last_room_id'] ?? ''));
       $status = isset($row['status']) && is_numeric($row['status']) ? (int) $row['status'] : NULL;
+      $portrait = trim((string) ($row['portrait'] ?? ''));
       $actor_errors = [];
       $location_ref_optional_types = ['global', 'roster'];
+      $has_runtime_portrait_link = isset($runtime_actor_portrait_links[(string) $actor_id]);
+      $has_runtime_portrait = $portrait !== '' || $has_runtime_portrait_link;
+      $template_instance_id = preg_replace('/^npc_/', '', $instance_id) ?? $instance_id;
+      $template_actor_id = (int) ($template_actor_id_by_instance[$template_instance_id] ?? 0);
+      $template_has_portrait = $template_actor_id > 0 && isset($template_actor_portrait_links[(string) $template_actor_id]);
 
       $character_data_raw = trim((string) ($row['character_data'] ?? ''));
       $character_data = [];
@@ -546,10 +612,48 @@ class StateValidationService {
           'error' => 'location_ref is required for location_type values outside global/roster.',
         ],
         [
+          'id' => 'last_room_id_required_by_type',
+          'label' => 'last_room_id is required for location_type values outside global/roster.',
+          'passed' => $last_room_id !== '' || in_array($location_type, $location_ref_optional_types, TRUE),
+          'error' => 'last_room_id is required for location_type values outside global/roster.',
+        ],
+        [
+          'id' => 'last_room_id_matches_location_ref_for_room',
+          'label' => 'room-scoped actors must keep last_room_id aligned to location_ref.',
+          'passed' => !($location_type === 'room' && $location_ref !== '' && $last_room_id !== '' && $location_ref !== $last_room_id),
+          'error' => 'room-scoped actors must keep last_room_id aligned to location_ref.',
+        ],
+        [
           'id' => 'status_allowed',
           'label' => 'status must be one of: -1, 0, 1, 2.',
           'passed' => $status !== NULL && in_array($status, [-1, 0, 1, 2], TRUE),
           'error' => 'status must be one of: -1, 0, 1, 2.',
+        ],
+        [
+          'id' => 'quest_giver_requires_room_scope',
+          'label' => 'quest_giver NPC actors must be room-scoped with location_ref and last_room_id.',
+          'passed' => !(
+            $actor_type === 'npc'
+            && $actor_role === 'quest_giver'
+            && (
+              $location_type !== 'room'
+              || $location_ref === ''
+              || $last_room_id === ''
+            )
+          ),
+          'error' => 'quest_giver NPC actors must be room-scoped with location_ref and last_room_id.',
+        ],
+        [
+          'id' => 'npc_portrait_required',
+          'label' => 'npc actor rows must provide a portrait via portrait column or portrait image link.',
+          'passed' => !($actor_type === 'npc' && !$has_runtime_portrait),
+          'error' => 'npc actor rows must provide a portrait via portrait column or portrait image link.',
+        ],
+        [
+          'id' => 'npc_template_portrait_required',
+          'label' => 'npc actor rows mapped to canonical templates must have a template portrait link.',
+          'passed' => !($actor_type === 'npc' && $template_actor_id > 0 && !$template_has_portrait),
+          'error' => 'npc actor rows mapped to canonical templates must have a template portrait link.',
         ],
         [
           'id' => 'pc_source_character_required',
@@ -595,11 +699,17 @@ class StateValidationService {
             'instance_id' => $instance_id,
             'name' => $name,
             'type' => $actor_type,
+            'role' => $actor_role,
             'level' => $level,
             'status' => $status,
             'lifecycle_state' => $lifecycle_state,
             'location_type' => $location_type,
             'location_ref' => $location_ref,
+            'last_room_id' => $last_room_id,
+            'portrait' => $portrait,
+            'has_runtime_portrait_link' => $has_runtime_portrait_link,
+            'template_actor_id' => $template_actor_id > 0 ? $template_actor_id : NULL,
+            'template_has_portrait_link' => $template_actor_id > 0 ? $template_has_portrait : NULL,
           ],
           'character_data' => $character_data,
         ],
@@ -1862,6 +1972,7 @@ class StateValidationService {
 
       $payload_connections = (array) ($dungeon_payload_connections[$dungeon_id] ?? []);
       $payload_connection_index = [];
+      $room_payload_connection_degree = array_fill_keys($room_ids, 0);
       foreach ($payload_connections as $payload_connection) {
         if (!is_array($payload_connection)) {
           continue;
@@ -1873,6 +1984,12 @@ class StateValidationService {
           continue;
         }
         $payload_connection_index[$from_room_id . '::' . $to_room_id] = $direction;
+        if (isset($room_payload_connection_degree[$from_room_id])) {
+          $room_payload_connection_degree[$from_room_id] = (int) $room_payload_connection_degree[$from_room_id] + 1;
+        }
+        if (isset($room_payload_connection_degree[$to_room_id])) {
+          $room_payload_connection_degree[$to_room_id] = (int) $room_payload_connection_degree[$to_room_id] + 1;
+        }
       }
 
       foreach ($payload_connections as $payload_connection) {
@@ -1924,6 +2041,14 @@ class StateValidationService {
         }
         if (($payload_connection_index[$from_room_id . '::' . $to_room_id] ?? '') !== $direction) {
           $errors[] = "Dungeon '{$dungeon_id}' connector direction mismatch for '{$from_room_id}' -> '{$to_room_id}': connector row uses '{$direction}' but dungeon_data uses '{$payload_connection_index[$from_room_id . '::' . $to_room_id]}'.";
+        }
+      }
+
+      if (count($room_ids) > 1) {
+        foreach ($room_ids as $room_id) {
+          if ((int) ($room_payload_connection_degree[$room_id] ?? 0) <= 0) {
+            $errors[] = "Dungeon '{$dungeon_id}' room '{$room_id}' has no dungeon_data.hex_map.connections linkage and will fail room-exit invariants.";
+          }
         }
       }
 

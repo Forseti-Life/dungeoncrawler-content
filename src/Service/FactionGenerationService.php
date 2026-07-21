@@ -6,6 +6,9 @@ use Drupal\Core\Database\Connection;
 
 /**
  * Creates canonical library-backed factions from narrative-generation requests.
+ *
+ * Validation pair: no dedicated validator service; request normalization and
+ * canonical registry constraints are enforced inline.
  */
 class FactionGenerationService {
 

@@ -110,6 +110,24 @@ class RelationshipManagerService {
       if ($entity_type === '' || $entity_id === '') {
         continue;
       }
+      if (!in_array($entity_type, ['campaign_npc', 'npc_template'], TRUE)) {
+        throw new \RuntimeException(sprintf(
+          'Storyline contact "%s" must use entity_type campaign_npc or npc_template before runtime seeding.',
+          $entity_id
+        ));
+      }
+      $entity_type = 'campaign_npc';
+
+      $runtime_entity_id = trim((string) ($contact['runtime_entity_id'] ?? ''));
+      if ($runtime_entity_id === '') {
+        $runtime_entity_id = $this->normalizeNpcInstanceId($entity_id);
+      }
+      if ($runtime_entity_id === '') {
+        throw new \RuntimeException(sprintf(
+          'Storyline contact "%s" is missing a runtime_entity_id for runtime seeding.',
+          $entity_id
+        ));
+      }
 
       $contact_state = is_array($contact['relationship_state'] ?? NULL) ? $contact['relationship_state'] : [];
       $contact_state += [
@@ -118,6 +136,8 @@ class RelationshipManagerService {
         'contact_role' => $role,
         'contact_display_name' => (string) ($contact['display_name'] ?? ''),
         'notes' => (string) ($contact['notes'] ?? ''),
+        'source_entity_id' => $entity_id,
+        'runtime_entity_id' => $runtime_entity_id,
         'source_scope' => 'storyline_contact',
       ];
 
@@ -125,7 +145,7 @@ class RelationshipManagerService {
         'source_type' => 'storyline',
         'source_id' => $storyline_id,
         'target_type' => $entity_type,
-        'target_id' => $entity_id,
+        'target_id' => $runtime_entity_id,
         'relationship_type' => $role !== '' ? $role : 'contact',
         'attitude' => (string) ($contact['attitude'] ?? 'indifferent'),
         'status' => (string) ($contact['availability'] ?? 'available'),
@@ -135,7 +155,7 @@ class RelationshipManagerService {
       if ($role === 'broker') {
         $this->upsertCampaignRelationship($campaign_id, [
           'source_type' => $entity_type,
-          'source_id' => $entity_id,
+          'source_id' => $runtime_entity_id,
           'target_type' => 'storyline',
           'target_id' => $storyline_id,
           'relationship_type' => 'broker',
@@ -157,6 +177,24 @@ class RelationshipManagerService {
         if ($target_type === '' || $target_id === '') {
           continue;
         }
+        if (!in_array($target_type, ['campaign_npc', 'npc_template'], TRUE)) {
+          throw new \RuntimeException(sprintf(
+            'Storyline introduction "%s" must use entity_type campaign_npc or npc_template before runtime seeding.',
+            $target_id
+          ));
+        }
+        $target_type = 'campaign_npc';
+
+        $runtime_target_id = trim((string) ($introduction['runtime_entity_id'] ?? ''));
+        if ($runtime_target_id === '') {
+          $runtime_target_id = $this->normalizeNpcInstanceId($target_id);
+        }
+        if ($runtime_target_id === '') {
+          throw new \RuntimeException(sprintf(
+            'Storyline introduction "%s" is missing a runtime_entity_id for runtime seeding.',
+            $target_id
+          ));
+        }
 
         $intro_state = is_array($introduction['relationship_state'] ?? NULL) ? $introduction['relationship_state'] : [];
         $intro_state += [
@@ -166,13 +204,15 @@ class RelationshipManagerService {
           'introduction_display_name' => (string) ($introduction['display_name'] ?? ''),
           'contact_display_name' => (string) ($contact['display_name'] ?? ''),
           'notes' => (string) ($introduction['notes'] ?? $contact['notes'] ?? ''),
+          'source_entity_id' => $entity_id,
+          'runtime_entity_id' => $runtime_target_id,
         ];
 
         $this->upsertCampaignRelationship($campaign_id, [
           'source_type' => $entity_type,
-          'source_id' => $entity_id,
+          'source_id' => $runtime_entity_id,
           'target_type' => $target_type,
-          'target_id' => $target_id,
+          'target_id' => $runtime_target_id,
           'relationship_type' => (string) ($introduction['relationship_type'] ?? 'knows'),
           'attitude' => (string) ($introduction['attitude'] ?? $contact['attitude'] ?? 'indifferent'),
           'status' => (string) ($contact['availability'] ?? 'available'),
@@ -229,6 +269,17 @@ class RelationshipManagerService {
   }
 
   /**
+   * Normalize a storyline NPC entity id into its campaign runtime instance id.
+   */
+  protected function normalizeNpcInstanceId(string $entity_id): string {
+    $entity_id = trim($entity_id);
+    if ($entity_id === '') {
+      return '';
+    }
+    return str_starts_with($entity_id, 'npc_') ? $entity_id : 'npc_' . $entity_id;
+  }
+
+  /**
    * Ensures bundled storylines and their broker/contact graph exist for a campaign.
    */
   protected function ensureCampaignStorylineContactGraph(int $campaign_id): void {
@@ -257,10 +308,11 @@ class RelationshipManagerService {
         ]);
       }
       catch (\Throwable $e) {
-        $this->logger->warning('Campaign storyline graph bootstrap failed: campaign={campaign_id} message={message}', [
-          'campaign_id' => $campaign_id,
-          'message' => $e->getMessage(),
-        ]);
+        throw new \RuntimeException(sprintf(
+          'Campaign storyline graph bootstrap contract violation for campaign %d: %s',
+          $campaign_id,
+          $e->getMessage()
+        ), 0, $e);
       }
 
       $storylines = $this->database->select('dc_campaign_storylines', 's')
@@ -270,10 +322,10 @@ class RelationshipManagerService {
         ->execute()
         ->fetchAllAssoc('storyline_id');
       if ($storylines === []) {
-        $this->logger->info('Campaign storyline graph bootstrap left campaign without storylines: campaign={campaign_id}', [
-          'campaign_id' => $campaign_id,
-        ]);
-        return;
+        throw new \RuntimeException(sprintf(
+          'Campaign storyline graph bootstrap contract violation: campaign %d has no storylines after bundled bootstrap.',
+          $campaign_id
+        ));
       }
     }
 

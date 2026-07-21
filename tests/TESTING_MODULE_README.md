@@ -1,145 +1,54 @@
 # Dungeon Crawler Testing Module
 
-## Overview
+Focused view of the **functional/controller** testing surface for `dungeoncrawler_content`.
 
-This testing module provides comprehensive test coverage for the Dungeon Crawler module, including:
-- A testing page stub accessible at `/testing`
-- Positive and negative test cases for all routes
-- Positive and negative test cases for all controllers
+## What this document covers
 
-## Testing Page
+1. Functional route/controller testing patterns.
+2. How to run those tests.
+3. Immediate functional gaps still pending.
 
-The testing page is a simple stub page that can be used for manual testing and validation.
+For full-system testing inventory (unit + functional + drush + node), use `tests/README.md`.
 
-**URL:** `/testing`
-**Access:** Public (no authentication required)
-**Controller:** `TestingPageController`
+## Functional structure
 
-## Test Structure
+- `tests/src/Functional/Routes/` for route access/method/permission behavior.
+- `tests/src/Functional/Controller/` for controller/page/API behavior assertions.
 
-### Route Tests (`tests/src/Functional/Routes/`)
+Functional tests rely on Drupal `BrowserTestBase` and should assert both:
 
-Route tests validate that all defined routes work correctly with proper access control:
+1. **Positive path** (authorized/valid request).
+2. **Negative path** (unauthorized/invalid request, deterministic failure response).
 
-1. **PublicRoutesTest** - Tests public-facing routes (home, world, about, credits, how-to-play, testing)
-2. **AdminRoutesTest** - Tests admin routes (settings, dashboard)
-3. **CharacterRoutesTest** - Tests character management routes (list, create, view, edit, delete)
-4. **CampaignRoutesTest** - Tests campaign routes (list, create, tavern entrance, select character)
-5. **ApiRoutesTest** - Tests API endpoints (character and combat APIs)
-6. **DemoRoutesTest** - Tests demo routes (hexmap demo)
+## Running functional tests
 
-### Controller Tests (`tests/src/Functional/Controller/`)
-
-Controller tests validate the behavior of individual controllers:
-
-1. **HomeControllerTest** - Tests homepage functionality
-2. **AboutControllerTest** - Tests about page
-3. **WorldControllerTest** - Tests world page
-4. **CreditsControllerTest** - Tests credits page
-5. **HowToPlayControllerTest** - Tests how-to-play page
-6. **DashboardControllerTest** - Tests admin dashboard
-7. **CampaignControllerTest** - Tests campaign management
-8. **CharacterListControllerTest** - Tests character list
-9. **CharacterCreationStepControllerTest** - Tests character creation wizard
-10. **CharacterViewControllerTest** - Tests character viewing
-11. **CharacterApiControllerTest** - Tests character API
-12. **CharacterStateControllerTest** - Tests character state management API
-13. **CombatControllerTest** - Tests combat functionality
-14. **CombatActionControllerTest** - Tests combat actions
-15. **CombatEncounterApiControllerTest** - Tests combat encounter API
-16. **DungeonGeneratorControllerTest** - Tests dungeon generation functionality
-17. **HexMapControllerTest** - Tests hex map demo
-18. **TestingPageControllerTest** - Tests the testing page itself
-
-## Test Cases
-
-Each test file includes:
-
-### Positive Test Cases
-- Valid user with proper permissions can access routes
-- Routes return expected status codes (200, etc.)
-- Routes display expected content
-- API endpoints accept valid requests
-
-### Negative Test Cases
-- Users without permissions receive 403 Forbidden
-- Invalid route parameters return 404 Not Found
-- Wrong HTTP methods return 405 Method Not Allowed
-- Anonymous users are blocked from protected routes
-- Invalid data returns appropriate error codes
-
-## Running Tests
-
-### Run All Tests
+From Drupal root (`/var/www/html/dungeoncrawler`):
 
 ```bash
-cd /home/runner/work/forseti.life/forseti.life/sites/dungeoncrawler
-./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml
+# Functional suite only.
+./vendor/bin/phpunit -c web/modules/custom/dungeoncrawler_content/phpunit.xml --testsuite functional
+
+# Only route-focused tests.
+./vendor/bin/phpunit -c web/modules/custom/dungeoncrawler_content/phpunit.xml web/modules/custom/dungeoncrawler_content/tests/src/Functional/Routes
+
+# Only controller-focused tests.
+./vendor/bin/phpunit -c web/modules/custom/dungeoncrawler_content/phpunit.xml web/modules/custom/dungeoncrawler_content/tests/src/Functional/Controller
 ```
 
-### Run Route Tests Only
+## Pending functional/controller work
 
-```bash
-./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml tests/src/Functional/Routes/
-```
+High-priority additions still needed (detailed backlog in `tests/TEST_CASE_MATRIX.md`):
 
-### Run Controller Tests Only
+1. `GameObjectsController` functional coverage.
+2. `GeneratedImageApiController` functional coverage.
+3. `DungeonStateController` and `RoomStateController` functional/API contract coverage.
+4. Campaign archive/unarchive lifecycle behavior assertions (including ownership and status restoration).
+5. Admin architecture/testing pages access + content assertions.
 
-```bash
-./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml tests/src/Functional/Controller/
-```
+## Contract posture
 
-### Run Specific Test File
+Functional/API tests should enforce strict contract behavior:
 
-```bash
-./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml tests/src/Functional/Routes/PublicRoutesTest.php
-```
-
-### Run Tests by Group
-
-```bash
-# Run all route tests
-./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml --group routes
-
-# Run all controller tests
-./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml --group controller
-
-# Run all API tests
-./vendor/bin/phpunit --configuration web/modules/custom/dungeoncrawler_content/phpunit.xml --group api
-```
-
-## Test Coverage
-
-The testing module covers:
-
-### Routes (24 routes tested)
-- 6 Public routes
-- 2 Admin routes
-- 8 Character management routes
-- 5 Campaign routes
-- 11 API endpoints
-- 2 Demo routes
-
-### Controllers (20 controllers tested)
-- 7 Public page controllers
-- 4 Character management controllers
-- 2 Campaign controllers
-- 4 Combat controllers
-- 1 Admin controller
-- 1 Testing controller
-
-## Notes
-
-- Tests use Drupal's `BrowserTestBase` for functional testing
-- Each test extends the base test case with proper module dependencies
-- Tests create users with specific permissions as needed
-- Some tests validate route existence even without actual entities (character, campaign, etc.)
-- Negative tests ensure proper access control and error handling
-
-## Future Enhancements
-
-- Add kernel tests for service layer testing
-- Add unit tests for specific business logic
-- Add integration tests for complex workflows
-- Add tests with actual entity creation for more complete coverage
-- Add performance tests for API endpoints
+1. Validate required payload shape.
+2. Assert deterministic error codes/messages for invalid input.
+3. Fail on contract violations (no fallback/recovery masking defects).

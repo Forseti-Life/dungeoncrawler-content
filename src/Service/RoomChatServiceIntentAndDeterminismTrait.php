@@ -498,7 +498,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       '@door_move' => $door_move ? 'yes' : 'no',
     ]);
 
-    $action_payload = $this->buildCanonicalNavigationActionPayload(
+    $action_payload = $this->navigationRuntimeService->buildCanonicalNavigationActionPayload(
       [
         'name' => 'Travel to ' . $destination,
         'details' => [
@@ -525,12 +525,47 @@ trait RoomChatServiceIntentAndDeterminismTrait {
   }
 
   /**
+   * Determine whether destination wording maps to a previously visited room.
+   */
+  protected function hasVisitedDestinationName(array $dungeon_data, string $destination): bool {
+    $normalized_destination = trim($this->normalizeNpcNameForMatch($destination));
+    if ($normalized_destination === '') {
+      return FALSE;
+    }
+
+    foreach ($dungeon_data['location_history'] ?? [] as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $history_room_name = trim($this->normalizeNpcNameForMatch((string) ($entry['room_name'] ?? '')));
+      if ($history_room_name !== '' && $history_room_name === $normalized_destination) {
+        return TRUE;
+      }
+    }
+
+    foreach ($dungeon_data['rooms'] ?? [] as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_name = trim($this->normalizeNpcNameForMatch((string) ($room['name'] ?? '')));
+      if ($room_name !== '' && $room_name === $normalized_destination) {
+        if (!empty($room['chat'])) {
+          return TRUE;
+        }
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
    * Extract a destination phrase from a player navigation message.
    */
 
   protected function extractNavigationDestination(string $player_message, array $room_meta = [], string $room_id = '', array $dungeon_data = []): ?string {
     $patterns = [
       '/(?:lets|let\'s|let\s+us)\s+had\s+to\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
+      '/(?:navigate|go|head|travel|move|walk|journey)(?:ing)?\s+from\s+(?:the\s+)?[a-z0-9][a-z0-9\'\-\s]+\s+to\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
       '/(?:leave(?:\s+for)?|head(?:ing)?\s+(?:to|for)|travel(?:ing)?\s+(?:to|for)|move(?:ing)?\s+(?:to|toward|towards)|journey(?:ing)?\s+(?:to|for)|set out for|depart for|go to|navigation to|navigating to)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-\s]+)/i',
       '/(?:exit via)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-]*(?:\s+[a-z0-9][a-z0-9\'\-]*)+)[.!?]*$/i',
       '/(?:use)\s+(?:the\s+)?([a-z0-9][a-z0-9\'\-]*(?:\s+[a-z0-9][a-z0-9\'\-]*)*\s+(?:door|exit|passage|path|tunnel|stairs?|gate|portal|bridge))[.!?]*$/i',
@@ -545,6 +580,9 @@ trait RoomChatServiceIntentAndDeterminismTrait {
         return 'Beyond the door';
       }
       $destination = trim((string) ($matches[1] ?? ''));
+      if (preg_match('/\b(?:and|then)\s+(?:head|go|travel|move|navigate|walk|run|ride|journey)(?:ing)?\s+(?:to|toward|towards|for)\s+(?:the\s+)?(.+)$/i', $destination, $redirect_match)) {
+        $destination = trim((string) ($redirect_match[1] ?? ''));
+      }
       $destination = preg_replace('/\s+to\s+(?:talk|speak|meet|ask|check(?:\s+on)?|find|get|grab|collect|turn\s*[- ]?in|hand\s*[- ]?in)\b.*$/i', '', $destination) ?? $destination;
       $destination = preg_replace('/\s+(?:with|and|then|after|before)\b.*$/i', '', $destination) ?? $destination;
       $destination = preg_replace('/\s+(?:again|now|please|today|tonight|tomorrow|asap|immediately|right now)\b.*$/i', '', $destination) ?? $destination;
@@ -1114,6 +1152,12 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       $entity_ref,
       $live_entity
     );
+    $actor_action_context = $this->buildCanonicalNpcActionAvailabilityContext(
+      $dungeon_data,
+      $room_id,
+      $entity_ref,
+      $live_entity
+    );
 
     // Build NPC session context (conversation memory).
     $session_key = $this->sessionManager->npcSessionKey($campaign_id, $entity_ref);
@@ -1144,6 +1188,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       $session_context,
       $scene,
       $npc_context,
+      $actor_action_context,
       $storyline_leads_context,
       $history_lines,
       $player_message,

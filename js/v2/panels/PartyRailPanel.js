@@ -14,6 +14,7 @@ export class PartyRailPanel {
     this._el = {};
     this.dungeonData = null;
     this.stateManager = null;
+    this._lastOccupantsTransitionId = '';
   }
 
   init(dungeonData, stateManager) {
@@ -40,8 +41,19 @@ export class PartyRailPanel {
   _subscribe() {
     this._unsubs.push(
       this.bus.on('game:init', ({ occupants } = {}) => this.renderPartyRail()),
-      this.bus.on('room:occupants-changed', ({ occupants } = {}) => this.renderPartyRail()),
+      this.bus.on('room:occupants-changed', (payload = {}) => this.handleRoomOccupantsChanged(payload)),
     );
+  }
+
+  handleRoomOccupantsChanged(payload = {}) {
+    const transitionId = String(payload?.transition?.id || '').trim();
+    if (transitionId && transitionId === this._lastOccupantsTransitionId) {
+      return;
+    }
+    if (transitionId) {
+      this._lastOccupantsTransitionId = transitionId;
+    }
+    this.renderPartyRail();
   }
 
   /** Render exploration-mode party cards into the party rail. */

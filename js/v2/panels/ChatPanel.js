@@ -108,6 +108,10 @@ export class ChatPanel {
     this.roomChatQueueDraining = false;
     this.roomChatDeferredMessages = [];
     this.currentRoomLabel = '';
+    this._lastRoomTransitionId = '';
+    this._roomHistoryRequestSequence = 0;
+    this._roomHistoryLastShellRequestToken = 0;
+    this._roomEncounterEventCursorByRoom = new Map();
     this._handleGameEvents = (event) => this.handleGameEvents(event);
   }
 
@@ -155,6 +159,7 @@ export class ChatPanel {
       this.bus.on('chat:message-received',  (d) => this.handleBusChatMessageReceived(d)),
       this.bus.on('chat:system-message',    (d) => this.handleBusSystemMessage(d)),
       this.bus.on('room:changed', (d) => this.handleRoomChanged(d)),
+      this.bus.on('inventory:changed', (d) => this.handleCharacterContextChanged(d)),
       this.bus.on('session:view-data', (d) => {
         if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
       }),
@@ -162,11 +167,36 @@ export class ChatPanel {
   }
 
   handleRoomChanged(payload = {}) {
+    const transitionId = String(payload?.transition?.id || '').trim();
+    if (transitionId && transitionId === this._lastRoomTransitionId) {
+      return;
+    }
+    if (transitionId) {
+      this._lastRoomTransitionId = transitionId;
+    }
     const roomName = String(payload?.roomName || payload?.room?.name || '').trim();
     if (roomName) {
       this.currentRoomLabel = roomName;
     }
     this.refreshChatPanelTitle();
+  }
+
+  handleCharacterContextChanged(payload = {}) {
+    const characterId = Number(payload?.characterId || 0) || null;
+    if (!characterId) {
+      return;
+    }
+
+    this.invalidateChatCaches({ room: true, sessionViews: ['gm-private'] });
+
+    if (this.activeSessionView === 'room') {
+      void this.loadChatHistory({ force: true });
+      return;
+    }
+
+    if (this.activeSessionView === 'gm-private') {
+      void this.loadSessionViewMessages('gm-private', { force: true });
+    }
   }
 
   handleBusChatMessageReceived(payload = {}) {
@@ -428,7 +458,12 @@ export class ChatPanel {
     });
 
     this.prefetchSessionViews();
-    this.bus.emit('room:view-reload-requested', { roomId, force: true, preserveExisting: true });
+    this.bus.emit('room:view-refresh-intent', {
+      roomId,
+      force: true,
+      preserveExisting: true,
+      reason: 'chat-submit-start',
+    });
 
     try {
       if (!queueOnly) {
@@ -648,7 +683,12 @@ export class ChatPanel {
 
       const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId, roomId);
       if (pinnedRoomId) {
-        this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true, preserveExisting: true });
+        this.bus.emit('room:view-refresh-intent', {
+          roomId: pinnedRoomId,
+          force: true,
+          preserveExisting: true,
+          reason: 'chat-response-complete',
+        });
       }
 
       this.invalidateChatCaches({
@@ -754,11 +794,18 @@ export class ChatPanel {
     const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
     const roomId = this.resolvePinnedChatRoomId();
     const characterId = this.resolveActiveChatCharacterId();
+    const mapId = String(
+      this.stateManager?.hexmap?.dungeonData?.map_id
+      || this.stateManager?.hexmap?.launchContext?.map_id
+      || this.stateManager?.hexmap?.stateManager?.get?.('mapId')
+      || ''
+    ).trim();
 
     return {
       campaignId,
       roomId,
       characterId,
+      mapId: mapId || null,
     };
   }
 
@@ -794,6 +841,7 @@ export class ChatPanel {
       'room',
       resolved.campaignId,
       resolved.roomId,
+      resolved.mapId || '',
       resolved.characterId || 0,
       channelKey || this.activeChannel || 'room',
     ].join(':');
@@ -842,6 +890,63 @@ export class ChatPanel {
     }
 
     return this.buildSessionViewCacheKey(view, resolved);
+  }
+
+  buildEncounterEventCursorKey(context = null) {
+    const resolved = context || this.getChatContext();
+    if (!resolved?.campaignId || !resolved?.roomId) {
+      return '';
+    }
+    return ['encounter-events', resolved.campaignId, resolved.roomId].join(':');
+  }
+
+  getEncounterEventCursor(context = null) {
+    const key = this.buildEncounterEventCursorKey(context);
+    if (!key) {
+      return 0;
+    }
+    const cursor = Number(this._roomEncounterEventCursorByRoom.get(key) ?? 0);
+    return Number.isFinite(cursor) && cursor >= 0 ? cursor : 0;
+  }
+
+  setEncounterEventCursor(context = null, cursor = 0) {
+    const key = this.buildEncounterEventCursorKey(context);
+    if (!key) {
+      return;
+    }
+    const normalized = Number(cursor);
+    if (Number.isFinite(normalized) && normalized >= 0) {
+      this._roomEncounterEventCursorByRoom.set(key, normalized);
+    }
+  }
+
+  advanceEncounterEventCursor(context = null, result = {}, events = []) {
+    let nextCursor = 0;
+    const candidates = [
+      result?.latest_cursor,
+      result?.cursor,
+      result?.event_log_cursor,
+      result?.data?.latest_cursor,
+      result?.data?.cursor,
+    ];
+    for (const candidate of candidates) {
+      const value = Number(candidate);
+      if (Number.isFinite(value) && value > nextCursor) {
+        nextCursor = value;
+      }
+    }
+    if (nextCursor <= 0 && Array.isArray(events)) {
+      for (const gameEvent of events) {
+        const eventId = Number(gameEvent?.id || 0);
+        if (Number.isFinite(eventId) && eventId > nextCursor) {
+          nextCursor = eventId;
+        }
+      }
+    }
+    const currentCursor = this.getEncounterEventCursor(context);
+    if (nextCursor > currentCursor) {
+      this.setEncounterEventCursor(context, nextCursor);
+    }
   }
 
   resolveChatChannelKey(view = this.activeSessionView, channelKey = null) {
@@ -959,6 +1064,58 @@ export class ChatPanel {
     };
   }
 
+  findEquivalentLocalPlayerEchoRecordIndex(records = [], incoming = {}) {
+    const normalizedIncoming = this.normalizeChatLineRecord(incoming);
+    if (normalizedIncoming.type !== 'player' || normalizedIncoming.transient) {
+      return -1;
+    }
+
+    const transcript = this.extractEncounterTranscriptBody(normalizedIncoming.message);
+    if (!transcript) {
+      return -1;
+    }
+
+    const bodyKey = this.normalizeChatComparableText(transcript.body);
+    if (!bodyKey) {
+      return -1;
+    }
+    const speakerKey = this.normalizeChatComparableText(normalizedIncoming.speaker || transcript.actor || '');
+
+    for (let index = records.length - 1; index >= 0; index -= 1) {
+      const candidate = this.normalizeChatLineRecord(records[index]);
+      if (candidate.transient || candidate.type !== 'player') {
+        continue;
+      }
+      if (this.extractEncounterTranscriptBody(candidate.message)) {
+        continue;
+      }
+
+      const candidateBodyKey = this.normalizeChatComparableText(candidate.message);
+      if (!candidateBodyKey || candidateBodyKey !== bodyKey) {
+        continue;
+      }
+
+      const candidateSpeakerKey = this.normalizeChatComparableText(candidate.speaker || '');
+      if (
+        speakerKey
+        && candidateSpeakerKey
+        && candidateSpeakerKey !== speakerKey
+        && !String(candidate.lineId || '').startsWith('chat-player-')
+      ) {
+        continue;
+      }
+
+      const looksLikeLocalEcho = candidate.authority === 'local'
+        || candidate.messageClass === 'local_ui_notice'
+        || String(candidate.lineId || '').startsWith('chat-player-');
+      if (looksLikeLocalEcho) {
+        return index;
+      }
+    }
+
+    return -1;
+  }
+
   hasCanonicalTranscriptOrder(line = {}) {
     const normalized = this.normalizeChatLineRecord(line);
     return normalized.sequenceIndex !== null
@@ -1006,6 +1163,12 @@ export class ChatPanel {
       const exactIndex = merged.findIndex((candidate) => this.buildChatLineExactKey(candidate) === exactKey);
       if (exactIndex !== -1) {
         merged[exactIndex] = this.mergeChatLineRecord(merged[exactIndex], normalized);
+        return;
+      }
+
+      const localEchoIndex = this.findEquivalentLocalPlayerEchoRecordIndex(merged, normalized);
+      if (localEchoIndex !== -1) {
+        merged[localEchoIndex] = this.mergeChatLineRecord(merged[localEchoIndex], normalized);
         return;
       }
 
@@ -1082,8 +1245,25 @@ export class ChatPanel {
       this._roomHistoryHasEncounterTranscript = false;
       return;
     }
+    const requestToken = Number(result?.requestToken || 0);
+    if (requestToken > 0 && requestToken < this._roomHistoryLastShellRequestToken) {
+      return;
+    }
+    if (requestToken > 0) {
+      this._roomHistoryLastShellRequestToken = requestToken;
+    }
 
     const context = this.getChatContext();
+    const activeRoomId = String(context?.roomId || '').trim();
+    const payloadRoomId = String(result?.roomId || result?.data?.roomId || result?.data?.room_id || '').trim();
+    if (activeRoomId && payloadRoomId && payloadRoomId !== activeRoomId) {
+      console.info('[ChatPanel] Ignored stale room chat history payload', {
+        activeRoomId,
+        payloadRoomId,
+      });
+      return;
+    }
+
     const incoming = result.data.messages.map((msg, index) => {
       const timestamp = String(msg.timestamp || '').trim();
       const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
@@ -1126,10 +1306,6 @@ export class ChatPanel {
 
 
     this.scrollChatToBottom({ defer: true });
-    const pinnedRoomId = this.resolvePinnedChatRoomTarget(context.roomId);
-    if (pinnedRoomId) {
-      this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true });
-    }
   }
 
   async loadChannels() {
@@ -1444,7 +1620,12 @@ export class ChatPanel {
 
     const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId);
     if (pinnedRoomId) {
-      this.bus.emit('room:view-reload-requested', { roomId: pinnedRoomId, force: true, preserveExisting: true });
+      this.bus.emit('room:view-refresh-intent', {
+        roomId: pinnedRoomId,
+        force: true,
+        preserveExisting: true,
+        reason: 'chat-stream-complete',
+      });
     }
 
     this.invalidateChatCaches({
@@ -1881,13 +2062,90 @@ export class ChatPanel {
     return normalize(participant?.name || '');
   }
 
-  handleGameEvents(event) {
+  resolveEncounterActorRoomId(actorId = '') {
+    const id = String(actorId || '').trim();
+    if (!id) {
+      return '';
+    }
+    const hexmap = this.stateManager?.hexmap || null;
+    const entities = Array.isArray(hexmap?.dungeonData?.entities)
+      ? hexmap.dungeonData.entities
+      : (Array.isArray(this.dungeonData?.entities) ? this.dungeonData.entities : []);
+    const normalize = (value) => String(value || '').trim();
+    for (const entity of entities) {
+      const metadata = entity?.state?.metadata || {};
+      const keys = [
+        entity?.entity_instance_id,
+        entity?.instance_id,
+        entity?.id,
+        entity?.entity_id,
+        entity?.entity_ref?.content_id,
+        entity?.entity_ref?.id,
+        metadata.entity_ref,
+        metadata.entity_id,
+      ].map(normalize).filter(Boolean);
+      if (!keys.includes(id)) {
+        continue;
+      }
+      const resolvedRoomId = normalize(
+        entity?.room_id
+        || entity?.placement?.room_id
+        || entity?.state?.room_id
+        || metadata?.room_id
+      );
+      if (resolvedRoomId) {
+        return resolvedRoomId;
+      }
+    }
+    return '';
+  }
+
+  resolveEncounterEventRoomId(event = {}) {
+    const data = event?.data || {};
+    const normalize = (value) => String(value || '').trim();
+    const directRoomId = normalize(
+      data?.room_id
+      || data?.active_room_id
+      || data?.target_room_id
+      || data?.to_room
+      || data?.from_room
+      || event?.room_id
+    );
+    if (directRoomId) {
+      return directRoomId;
+    }
+    return this.resolveEncounterActorRoomId(String(event?.actor || data?.entity_id || '').trim());
+  }
+
+  shouldRenderEncounterEventForRoom(gameEvent = {}, activeRoomId = '') {
+    const normalizedActiveRoomId = String(activeRoomId || '').trim();
+    if (!normalizedActiveRoomId) {
+      return true;
+    }
+    const eventType = String(gameEvent?.type || '').trim().toLowerCase();
+    const eventRoomId = this.resolveEncounterEventRoomId(gameEvent);
+    if (eventRoomId) {
+      return eventRoomId === normalizedActiveRoomId;
+    }
+    if (eventType === 'search') {
+      return false;
+    }
+    return true;
+  }
+
+  handleGameEvents(event, options = {}) {
     const events = Array.isArray(event?.detail?.events) ? event.detail.events : [];
     const characterData = this.stateManager?.hexmap?.characterData || {};
     const activeCharacterName = String(characterData?.name || '').trim();
     const normalizeName = (value) => String(value || '').trim().toLowerCase();
+    const activeRoomId = String(options?.activeRoomId || this.getChatContext()?.roomId || '').trim();
 
     for (const gameEvent of events) {
+      if (!this.shouldRenderEncounterEventForRoom(gameEvent, activeRoomId)) {
+        continue;
+      }
+      const eventType = String(gameEvent?.type || '').trim().toLowerCase();
+
       const chatLine = this.buildEncounterEventChatLine(gameEvent);
       if (chatLine) {
         this.appendChatLineToTarget({ view: 'room', channelKey: 'room' }, chatLine.speaker, chatLine.message, chatLine.type, {
@@ -1907,7 +2165,7 @@ export class ChatPanel {
 
       if (
         gameEvent
-        && String(gameEvent.type || '').trim().toLowerCase() === 'turn_start'
+        && eventType === 'turn_start'
         && activeCharacterName
         && normalizeName(
           chatLine?.actorName
@@ -2946,9 +3204,13 @@ export class ChatPanel {
     if (!context.campaignId || !context.roomId) {
       return;
     }
+    const requestSequence = ++this._roomHistoryRequestSequence;
 
     try {
       const result = await this.fetchRoomChatHistory(options);
+      if (requestSequence !== this._roomHistoryRequestSequence) {
+        return;
+      }
       if (result?.success && result.data?.messages) {
         this.renderRoomChatHistory(result);
         if ((this.activeChannel || 'room') === 'room') {
@@ -2998,6 +3260,9 @@ export class ChatPanel {
 
     const request = (async () => {
       let url = `/api/campaign/${context.campaignId}/room/${context.roomId}/chat?channel=${encodeURIComponent(channelKey)}`;
+      if (context.mapId) {
+        url += `&map_id=${encodeURIComponent(context.mapId)}`;
+      }
       if (context.characterId) {
         url += `&character_id=${context.characterId}`;
       }
@@ -3038,11 +3303,16 @@ export class ChatPanel {
 
   async renderPersistedEncounterEventHistory() {
     const context = this.getChatContext();
-    if (!context.campaignId) {
+    if (!context.campaignId || !context.roomId) {
       return;
     }
+    const eventContext = {
+      campaignId: context.campaignId,
+      roomId: context.roomId,
+    };
+    const sinceCursor = this.getEncounterEventCursor(eventContext);
     try {
-      const response = await fetch(`/api/game/${encodeURIComponent(context.campaignId)}/events?since=0`, {
+      const response = await fetch(`/api/game/${encodeURIComponent(context.campaignId)}/events?since=${encodeURIComponent(String(sinceCursor))}`, {
         method: 'GET',
         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         credentials: 'same-origin',
@@ -3052,6 +3322,7 @@ export class ChatPanel {
       }
       const result = await response.json();
       const events = Array.isArray(result?.events) ? result.events : [];
+      this.advanceEncounterEventCursor(eventContext, result, events);
       if (events.length === 0) {
         return;
       }
@@ -3066,9 +3337,13 @@ export class ChatPanel {
         if (!activeCharacterName) {
           return;
         }
+        const activeRoomId = String(context?.roomId || '').trim();
 
         for (const gameEvent of events) {
           if (String(gameEvent?.type || '').trim().toLowerCase() !== 'turn_start') {
+            continue;
+          }
+          if (!this.shouldRenderEncounterEventForRoom(gameEvent, activeRoomId)) {
             continue;
           }
 
@@ -3108,8 +3383,8 @@ export class ChatPanel {
         return;
       }
 
-      this.handleGameEvents({
-        detail: { events },
+      this.handleGameEvents({ detail: { events } }, {
+        activeRoomId: String(context.roomId || '').trim(),
       });
     } catch (error) {
       console.warn('[ChatPanel] Failed to render persisted encounter events:', error?.message || error);

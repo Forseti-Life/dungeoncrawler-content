@@ -32,6 +32,59 @@ class StateValidationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies room-scoped actors must include an aligned last_room_id.
+   */
+  public function testValidateCanonicalActorLibraryContractsRejectsRoomWithoutLastRoomId(): void {
+    $row = [
+      'id' => 1176,
+      'campaign_id' => 296,
+      'character_id' => 0,
+      'source_character_id' => 1033,
+      'name' => 'Grandma',
+      'level' => 1,
+      'instance_id' => 'npc-ltba-grandmother',
+      'type' => 'npc',
+      'lifecycle_state' => 'campaign_npc',
+      'location_type' => 'room',
+      'location_ref' => 'ltba-grandmas-house-parlor',
+      'last_room_id' => '',
+      'status' => 1,
+      'character_data' => json_encode(['content_id' => 'ltba-grandmother']),
+    ];
+
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')->willReturn([$row]);
+
+    $query = $this->createMock(SelectInterface::class);
+    $query->method('fields')->willReturnSelf();
+    $query->method('condition')->willReturnSelf();
+    $query->method('orderBy')->willReturnSelf();
+    $query->method('execute')->willReturn($statement);
+
+    $schema = $this->createMock(Schema::class);
+    $schema->method('tableExists')
+      ->willReturnCallback(static fn(string $table): bool => $table === 'dc_campaign_characters');
+
+    $database = $this->createMock(Connection::class);
+    $database->method('schema')->willReturn($schema);
+    $database->method('select')
+      ->with('dc_campaign_characters', 'c')
+      ->willReturn($query);
+
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $service = new StateValidationService($logger_factory, $database);
+
+    $result = $service->validateCanonicalActorLibraryContracts();
+    $this->assertFalse($result['valid']);
+    $this->assertStringContainsString(
+      'last_room_id is required for location_type values outside global/roster.',
+      implode('; ', $result['items'][0]['errors'] ?? [])
+    );
+  }
+
+  /**
    * Verifies canonical quest summary payloads pass validation.
    */
   public function testValidateQuestSummaryAcceptsCanonicalPayload(): void {
@@ -736,6 +789,7 @@ class StateValidationServiceTest extends UnitTestCase {
       'lifecycle_state' => 'campaign_runtime',
       'location_type' => 'room',
       'location_ref' => 'vault-room-2',
+      'last_room_id' => 'vault-room-2',
       'status' => 1,
       'character_data' => json_encode(['ability_scores' => ['str' => 18]]),
     ];
@@ -787,6 +841,7 @@ class StateValidationServiceTest extends UnitTestCase {
       'lifecycle_state' => 'detached_roster',
       'location_type' => 'roster',
       'location_ref' => '',
+      'last_room_id' => '',
       'status' => 2,
       'character_data' => json_encode(['profile' => ['name' => 'Archived Character']]),
     ];
@@ -838,6 +893,7 @@ class StateValidationServiceTest extends UnitTestCase {
       'lifecycle_state' => 'campaign_npc',
       'location_type' => 'room',
       'location_ref' => '',
+      'last_room_id' => '',
       'status' => 1,
       'character_data' => json_encode(['follower_kind' => 'familiar']),
     ];

@@ -34,6 +34,10 @@ const navigationServiceSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/NavigationService.php'),
   'utf8'
 );
+const navigationRuntimeSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/NavigationRuntimeService.php'),
+  'utf8'
+);
 
 function listPhpFiles(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -67,6 +71,12 @@ assert(
   mapGeneratorSource.includes('buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id)'),
   'MapGeneratorService navigation receipt projection uses road-network-aware capabilities'
 );
+assert(
+  mapGeneratorSource.includes('NavigationService is required for DB-authoritative route projection')
+    && mapGeneratorSource.includes('buildNavigationReceiptConnectionsFromCapabilities($capabilities)')
+    && mapGeneratorSource.includes('findCapabilityToTargetRoom('),
+  'MapGeneratorService route projection is DB-authoritative and avoids JSON connection fallback arrays'
+);
 
 assert(
   navigationServiceSource.includes('$this->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id);'),
@@ -78,11 +88,23 @@ assert(
     && navigationServiceSource.includes('Runtime callers must use buildNavigationCapabilitiesWithRoadNetwork()'),
   'NavigationService documents deprecation of direct-only capability projection'
 );
+assert(
+  navigationServiceSource.includes('JSON payload fallback is not supported.')
+    && !navigationServiceSource.includes("$dungeon_data['hex_map']['connections']")
+    && !navigationServiceSource.includes("$dungeon_data['connections']"),
+  'NavigationService enforces DB-only connector authority with no JSON fallback'
+);
 
 assert(
   encounterPhaseHandlerSource.includes('Transitional fallback kept only for isolated EncounterPhaseHandler tests')
     && encounterPhaseHandlerSource.includes('must stay on NavigationService::buildNavigationCapabilitiesWithRoadNetwork()'),
   'EncounterPhaseHandler documents fallback capability path as temporary/deprecated'
+);
+assert(
+  navigationRuntimeSource.includes('class NavigationRuntimeService')
+    && navigationRuntimeSource.includes('public function handleNavigationActions(')
+    && !navigationRuntimeSource.includes('Try again.'),
+  'navigate_to_location runtime ownership moved to dedicated NavigationRuntimeService with hard-fail behavior'
 );
 
 const phpServiceRoot = path.resolve(__dirname, '../src/Service');

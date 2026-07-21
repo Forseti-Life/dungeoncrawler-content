@@ -8,7 +8,74 @@
       "layout_data": {
         "shape": "chamber",
         "width": 8,
-        "height": 6
+        "height": 6,
+        "hexes": [
+          {
+            "q": 0,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "stone_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": true
+          },
+          {
+            "q": 1,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "stone_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "stone_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "stone_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          }
+        ],
+        "entry_points": [
+          {
+            "q": 0,
+            "r": 0
+          }
+        ],
+        "exit_points": [
+          {
+            "q": 1,
+            "r": 0
+          }
+        ],
+        "exits": [
+          {
+            "target_room_id": "tpl_room_absalom_graveyard_mausoleum_complex",
+            "label": "Absalom Cemetery Approach",
+            "link_type": "room_transition",
+            "q": 1,
+            "r": 0
+          }
+        ]
       },
       "contents_data": {
         "obstacles": ["stone-door", "scattered-crates"],
@@ -27,7 +94,28 @@
           }
         ],
         "creatures": [],
-        "items": []
+        "items": [
+          {
+            "content_id": "ltba-magical-hedge-trimmer",
+            "name": "Magical Hedge Trimmer",
+            "type": "collectible_item",
+            "position": {
+              "q": -1,
+              "r": 1
+            },
+            "description": "The magical hedge trimmer is stashed behind a loose rock near the hazard wall.",
+            "tags": [
+              "quest_item",
+              "hidden",
+              "vault",
+              "little_trouble_in_big_absalom"
+            ],
+            "quest_association": "retrieve_trimmer"
+          }
+        ],
+        "entities": [],
+        "hazards": [],
+        "interactables": []
       }
     },
     {
@@ -38,7 +126,74 @@
       "layout_data": {
         "shape": "hall",
         "width": 10,
-        "height": 7
+        "height": 7,
+        "hexes": [
+          {
+            "q": 0,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "stone_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": true
+          },
+          {
+            "q": 1,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "stone_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "stone_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "stone_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          }
+        ],
+        "entry_points": [
+          {
+            "q": 0,
+            "r": 0
+          }
+        ],
+        "exit_points": [
+          {
+            "q": 1,
+            "r": 0
+          }
+        ],
+        "exits": [
+          {
+            "target_room_id": "ltba-vault-entry",
+            "label": "Back to Vault Entry",
+            "link_type": "room_transition",
+            "q": 1,
+            "r": 0
+          }
+        ]
       },
       "contents_data": {
         "obstacles": ["pressure-plate", "dart-slots"],
@@ -51,7 +206,10 @@
           }
         ],
         "creatures": [],
-        "hazards": ["ltba-tomb-hazard"]
+        "hazards": ["ltba-tomb-hazard"],
+        "items": [],
+        "entities": [],
+        "interactables": []
       }
     },
     {
@@ -62,20 +220,89 @@
       "layout_data": {
         "shape": "rectangle",
         "width": 8,
-        "height": 6
+        "height": 6,
+        "hexes": [
+          {
+            "q": 0,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": true
+          },
+          {
+            "q": 1,
+            "r": 0,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": 0,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          },
+          {
+            "q": -1,
+            "r": 1,
+            "elevation_ft": 0,
+            "objects": [],
+            "terrain_type": "wooden_floor",
+            "lighting": "normal",
+            "is_discovered": true,
+            "is_visible": true,
+            "is_entry": false
+          }
+        ],
+        "entry_points": [
+          {
+            "q": 0,
+            "r": 0
+          }
+        ],
+        "exit_points": [
+          {
+            "q": 1,
+            "r": 0
+          }
+        ],
+        "exits": [
+          {
+            "target_room_id": "tpl_room_absalom_streets",
+            "label": "To Absalom Streets",
+            "link_type": "room_transition",
+            "q": 1,
+            "r": 0
+          }
+        ]
       },
       "contents_data": {
         "obstacles": ["rocking-chair", "tea-table", "book-shelf", "window-box"],
         "npcs": [
           {
             "content_id": "ltba-grandmother",
-            "name": "The Kind Old Lady",
+            "name": "Grandmother",
             "role": "quest_giver",
             "orientation": "se"
           }
         ],
         "creatures": [],
         "items": [],
+        "entities": [],
+        "hazards": [],
         "interactables": [
           "tea-service",
           "mending-basket",
@@ -97,9 +324,7 @@
         "obstacles": ["tool-rack", "overgrown-hedge", "watering-barrel", "shed-door"],
         "npcs": [],
         "creatures": [],
-        "items": [
-          "ltba-magical-hedge-trimmer"
-        ],
+        "items": [],
         "interactables": [
           "tool-rack",
           "shed-door",

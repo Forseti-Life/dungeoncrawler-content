@@ -8,6 +8,13 @@ namespace Drupal\dungeoncrawler_content\Service;
  * Generates encounters, treasure hoards, and creature personalities
  * based on dungeon level, theme, and other parameters.
  *
+ * @deprecated
+ *   Legacy helper retained for compatibility only. Active generation flows use
+ *   EncounterGeneratorService, RoomGeneratorService, DungeonGeneratorService,
+ *   and StorylineGenerationService. Do not use this service for new runtime
+ *   generation paths.
+ *   Validation pair: none (legacy/deprecated path).
+ *
  * @see docs/dungeoncrawler/issues/issue-3-game-content-system-design.md
  *   Section: Service Layer Design > ContentGenerator Service
  */
@@ -34,6 +41,10 @@ class ContentGenerator {
    *   The content query service.
    */
   public function __construct(ContentQuery $content_query, NumberGenerationService $number_generation) {
+    @trigger_error(
+      'ContentGenerator is deprecated and legacy-only. Use EncounterGeneratorService/RoomGeneratorService/DungeonGeneratorService/StorylineGenerationService for active generation flows.',
+      E_USER_DEPRECATED
+    );
     $this->contentQuery = $content_query;
     $this->numberGeneration = $number_generation;
   }

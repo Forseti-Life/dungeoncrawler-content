@@ -2234,6 +2234,7 @@ import { SpriteService } from './SpriteService.js';
       this.navigateLocationGroups = [];
       this.navigateLocationsCampaignId = null;
       this.navigateLocationsInflight = null;
+      this.navigateActiveRoom = null;
       this.actionRailRealClockTimer = null;
       this.actionRailAutomationTogglePending = false;
       this.currentCharacterInventoryContext = null;
@@ -4777,37 +4778,38 @@ import { SpriteService } from './SpriteService.js';
     }
 
     buildNavigateActionRailPanel(context) {
-      const campaignId = Number(context.runtimeContext?.campaignId || context.hexmap?.resolveCampaignId?.() || 0);
-      this.ensureNavigateLocationGroups(campaignId);
-
-      const routeGroups = this.collectNavigateLocationGroups(context);
-      const visitedGroups = this.collectVisitedNavigateLocationGroups(context, campaignId);
-      const questTargetGroups = this.collectQuestTargetNavigateLocationGroups(context, routeGroups, visitedGroups);
-      const groups = this.dedupeNavigateGroups([...routeGroups, ...questTargetGroups, ...visitedGroups]);
-
-      if (!groups.length) {
-        return {
-          title: 'Navigate',
-          chip: this.navigateLocationsInflight ? 'Loading' : 'No routes',
-          html: `<div class="action-rail__empty"><p>${this.navigateLocationsInflight ? 'Loading previously visited dungeons and rooms...' : 'No known routes or visited destinations are available from the current campaign state yet.'}</p></div>`,
-        };
-      }
-
-      const entryCount = groups.reduce((total, group) => total + group.locations.length, 0);
+      const groups = this.collectNavigateLocationGroups(context);
       const visualRooms = typeof context?.hexmap?.getVisualRooms === 'function' ? context.hexmap.getVisualRooms() : {};
       const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
       const activeRoomId = String(context?.hexmap?.resolveActiveRoomId?.() || '').trim();
       const activeRoom = activeRoomId && rooms[activeRoomId] ? rooms[activeRoomId] : null;
       const currentLocationLabel = activeRoomId
         ? formatNavigationLocationTitle(
-          String(this.dungeonData?.name || this.dungeonData?.dungeon_name || this.launchContext?.dungeon_name || ''),
+          String(context?.hexmap?.dungeonData?.name || context?.hexmap?.dungeonData?.dungeon_name || context?.hexmap?.launchContext?.dungeon_name || ''),
           String(activeRoom?.name || activeRoom?.title || activeRoomId).trim()
         )
         : '';
-      const html = groups.map((group) => {
+
+      if (!groups.length) {
+        return {
+          title: 'Navigate',
+          chip: currentLocationLabel ? `Current: ${currentLocationLabel}` : 'No routes',
+          html: currentLocationLabel
+            ? `<div class="action-rail__current-location"><p class="action-rail__current-location-label">📍 You are here: <strong>${escapeQuestHtml(currentLocationLabel)}</strong></p></div><div class="action-rail__empty"><p>No room exits are available yet.</p></div>`
+            : `<div class="action-rail__empty"><p>No room exits are available yet.</p></div>`,
+        };
+      }
+
+      const entryCount = groups.reduce((total, group) => total + group.locations.length, 0);
+      const currentLocationHtml = currentLocationLabel
+        ? `<div class="action-rail__current-location"><p class="action-rail__current-location-label">📍 You are here: <strong>${escapeQuestHtml(currentLocationLabel)}</strong></p></div>`
+        : '';
+      const html = currentLocationHtml + groups.map((group) => {
         const entries = group.locations.map((location) => this.renderActionRailEntry({
           execute: 'navigate',
-          title: formatNavigationLocationTitle(location.dungeonName || group.dungeonName, location.roomName),
+          title: group.key === 'room-exits'
+            ? location.roomName
+            : formatNavigationLocationTitle(location.dungeonName || group.dungeonName, location.roomName),
           summary: buildActionRailEntrySummary([
             location.statusLabel || group.dungeonName || group.title,
             location.lastVisitedLabel,
@@ -4862,392 +4864,69 @@ import { SpriteService } from './SpriteService.js';
 
     collectNavigateLocationGroups(context) {
       const hexmap = context.hexmap;
-      const dungeonData = hexmap?.dungeonData || {};
-      const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
-      const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
-      const activeRoomId = hexmap?.resolveActiveRoomId?.() || null;
-      const visitOrder = new Map();
-      const history = Array.isArray(dungeonData?.location_history) ? dungeonData.location_history : [];
+      const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
       const capabilities = typeof hexmap?.resolveNavigationCapabilities === 'function'
         ? hexmap.resolveNavigationCapabilities(activeRoomId)
         : [];
-      const capabilityByRoomId = new Map();
+      const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || hexmap?.stateManager?.get?.('mapId') || this.stateManager?.get?.('mapId') || '').trim();
+      const currentDungeonLevelId = String(hexmap?.dungeonData?.level_id || hexmap?.launchContext?.dungeon_level_id || '').trim();
+      const currentDungeonName = String(hexmap?.dungeonData?.name || hexmap?.dungeonData?.dungeon_name || hexmap?.launchContext?.dungeon_name || '').trim();
 
-      capabilities.forEach((capability) => {
-        const targetRoomId = String(capability?.target_room_id || '').trim();
-        if (!targetRoomId) {
-          return;
-        }
-
-        const existing = capabilityByRoomId.get(targetRoomId);
-        if (!existing || (!existing.available && capability?.available)) {
-          capabilityByRoomId.set(targetRoomId, capability);
-        }
-      });
-
-      history.forEach((entry, index) => {
-        const roomId = String(entry?.room_id || '').trim();
-        if (roomId) {
-          visitOrder.set(roomId, index);
-        }
-      });
-
-      Object.entries(rooms).forEach(([roomId, room]) => {
-        if (room?.state?.explored) {
-          visitOrder.set(String(roomId), Math.max(visitOrder.get(String(roomId)) ?? -1, history.length));
-        }
-      });
-
-      const sections = [
-        { key: 'explored-navigable', title: 'Explored navigable', locations: [] },
-        { key: 'explored-blocked', title: 'Explored not navigable', locations: [] },
-        { key: 'unexplored-navigable', title: 'Unexplored navigable', locations: [] },
-        { key: 'unexplored-blocked', title: 'Unexplored not navigable', locations: [] },
-      ];
-      const currentDungeonName = String(
-        this.dungeonData?.name
-        || this.dungeonData?.dungeon_name
-        || this.launchContext?.dungeon_name
-        || ''
-      ).trim();
-
-      const destinations = Object.entries(rooms)
-        .map(([roomId, room]) => {
-          const normalizedRoomId = String(roomId || '').trim();
-          if (!normalizedRoomId || normalizedRoomId === activeRoomId) {
+      const exits = (Array.isArray(capabilities) ? capabilities : [])
+        .map((capability) => {
+          const targetRoomId = String(capability?.target_room_id || '').trim();
+          const connectionId = String(capability?.connection_id || '').trim();
+          const isSyntheticSelfExit = targetRoomId === activeRoomId && connectionId.toLowerCase().endsWith(':self-exit');
+          if (!targetRoomId || isSyntheticSelfExit) {
             return null;
           }
-
-          const capability = capabilityByRoomId.get(normalizedRoomId) || null;
-          const lastHistoryEntry = [...history].reverse().find((entry) => String(entry?.room_id || '') === normalizedRoomId) || null;
-          const explored = visitOrder.has(normalizedRoomId);
-          const navigable = Boolean(capability?.available);
-          const blockedReason = String(capability?.blocked_reason || '').trim();
-          const roomName = formatNavigationLocationTitle(
-            currentDungeonName,
-            String(room?.name || lastHistoryEntry?.room_name || normalizedRoomId)
-          );
-          const statusLabel = [
-            explored ? 'Explored' : 'Unexplored',
-            navigable ? 'Navigable' : 'Not navigable',
-          ].join(' · ');
-          const lastVisitedLabel = explored
-            ? (lastHistoryEntry?.timestamp ? `Seen ${lastHistoryEntry.timestamp}` : 'Visited by party')
-            : 'Not yet explored';
-          const metaParts = [
-            room?.description || room?.short_description || '',
-            !navigable && blockedReason === 'blocked' ? 'Route is currently blocked.' : '',
-            !navigable && blockedReason === 'undiscovered' ? 'Route has not been discovered yet.' : '',
-            !navigable && !blockedReason && !capability ? 'No direct route from the current room.' : '',
-          ].filter(Boolean);
+          const destinationType = String(capability?.destination_type || 'room').trim().toLowerCase() || 'room';
+          const connectionType = String(capability?.type || '').trim().toLowerCase();
+          const distanceValue = Number.isFinite(Number(capability?.distance)) ? Math.max(0, Math.trunc(Number(capability.distance))) : 0;
+          const blockedReason = String(capability?.blocked_reason || '').trim().toLowerCase();
+          const navigable = capability?.available !== false;
+          const roomName = String(capability?.target_room_name || targetRoomId).trim() || targetRoomId;
 
           return {
-            roomId: normalizedRoomId,
+            roomId: targetRoomId,
             roomName,
-            statusLabel,
-            lastVisitedLabel,
-            meta: metaParts.join(' '),
-            order: Number(visitOrder.get(normalizedRoomId) ?? -1),
-            explored,
+            statusLabel: navigable ? 'Exit' : 'Unavailable',
+            lastVisitedLabel: 'Linked from current room',
+            meta: [
+              `Destination: ${destinationType === 'road' ? 'Road' : 'Room'}`,
+              `Distance: ${connectionType === 'road_network' && distanceValue > 0 ? `road ${distanceValue}` : distanceValue}`,
+              !navigable && blockedReason ? `Blocked: ${blockedReason.replace(/_/g, ' ')}` : '',
+              capability?.type ? `Connection: ${String(capability.type).replace(/_/g, ' ')}` : '',
+            ].filter(Boolean).join(' '),
             navigable,
-            connectionId: String(capability?.connection_id || ''),
+            connectionId,
             originQ: capability?.origin_hex?.q ?? '',
             originR: capability?.origin_hex?.r ?? '',
+            mapId: currentMapId,
+            dungeonLevelId: currentDungeonLevelId,
           };
         })
         .filter(Boolean)
         .sort((a, b) => {
-          if (b.order !== a.order) {
-            return b.order - a.order;
+          const aUnavailable = a.navigable === false ? 1 : 0;
+          const bUnavailable = b.navigable === false ? 1 : 0;
+          if (aUnavailable !== bUnavailable) {
+            return aUnavailable - bUnavailable;
           }
-          return a.roomName.localeCompare(b.roomName);
+          return String(a.roomName || '').localeCompare(String(b.roomName || ''));
         });
 
-      destinations.forEach((destination) => {
-        const key = `${destination.explored ? 'explored' : 'unexplored'}-${destination.navigable ? 'navigable' : 'blocked'}`;
-        const section = sections.find((candidate) => candidate.key === key);
-        if (section) {
-          section.locations.push(destination);
-        }
-      });
-
-      if (!destinations.length) {
-        return [];
-      }
-
-      return sections.filter((section) => section.locations.length > 0);
-    }
-
-    collectVisitedNavigateLocationGroups(context, campaignId) {
-      if (!campaignId || this.navigateLocationsCampaignId !== campaignId || !Array.isArray(this.navigateLocationGroups)) {
-        return [];
-      }
-
-      const hexmap = context.hexmap;
-      const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
-      const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
-      const currentDungeonName = String(
-        hexmap?.dungeonData?.name
-        || hexmap?.dungeonData?.dungeon_name
-        || hexmap?.launchContext?.dungeon_name
-        || ''
-      ).trim();
-      const directRouteKeys = new Set();
-
-      this.collectNavigateLocationGroups(context).forEach((group) => {
-        (Array.isArray(group.locations) ? group.locations : []).forEach((location) => {
-          const roomId = String(location?.roomId || '').trim();
-          if (roomId) {
-            directRouteKeys.add(`${currentMapId}:${roomId}`);
-          }
-        });
-      });
-
-      return this.navigateLocationGroups
-        .map((group) => {
-          const mapId = String(group?.mapId || group?.dungeonId || '').trim();
-          const dungeonLevelId = String(group?.dungeonLevelId || '').trim();
-          const locations = (Array.isArray(group?.locations) ? group.locations : [])
-            .map((location) => ({
-              ...location,
-              roomId: String(location?.roomId || '').trim(),
-              roomName: formatNavigationLocationTitle(
-                String(location?.dungeonName || group?.dungeonName || currentDungeonName || ''),
-                String(location?.roomName || location?.roomId || 'Room')
-              ),
-              mapId,
-              dungeonLevelId,
-              statusLabel: 'Visited',
-              lastVisitedLabel: String(location?.lastVisitedLabel || 'Visited by party'),
-              meta: String(location?.meta || ''),
-            }))
-            .filter((location) => {
-              if (!location.roomId) {
-                return false;
-              }
-              const sameMap = !mapId || !currentMapId || mapId === currentMapId;
-              if (sameMap && location.roomId === activeRoomId) {
-                return false;
-              }
-              return !directRouteKeys.has(`${mapId || currentMapId}:${location.roomId}`);
-            });
-
-          return {
-            ...group,
-            title: String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations'),
-            dungeonName: String(group?.dungeonName || group?.title || group?.dungeonId || 'Visited destinations'),
-            mapId,
-            dungeonLevelId,
-            locations,
-          };
-        })
-        .filter((group) => Array.isArray(group.locations) && group.locations.length > 0);
-    }
-
-    collectQuestTargetNavigateLocationGroups(context, routeGroups = [], visitedGroups = []) {
-      const hexmap = context.hexmap;
-      const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();
-      const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};
-      const rooms = visualRooms && typeof visualRooms === 'object' ? visualRooms : {};
-      const currentMapId = String(hexmap?.dungeonData?.map_id || hexmap?.launchContext?.map_id || this.stateManager?.get?.('mapId') || '').trim();
-      const currentDungeonLevelId = String(hexmap?.dungeonData?.level_id || hexmap?.launchContext?.dungeon_level_id || '').trim();
-      const rawQuestData = this.resolveQuestSummaryForNavigation(context);
-
-      const routeIndex = new Map();
-      [...routeGroups, ...visitedGroups].forEach((group) => {
-        (Array.isArray(group?.locations) ? group.locations : []).forEach((location) => {
-          const roomId = String(location?.roomId || '').trim();
-          if (!roomId) {
-            return;
-          }
-          const existing = routeIndex.get(roomId);
-          const existingNavigable = existing && existing.navigable !== false;
-          const candidateNavigable = location?.navigable !== false;
-          if (!existing || (!existingNavigable && candidateNavigable)) {
-            routeIndex.set(roomId, location);
-          }
-        });
-      });
-
-      const targets = [];
-      const seen = new Set();
-      const pushTarget = (candidate) => {
-        const roomId = String(candidate?.roomId || '').trim();
-        if (!roomId || roomId === activeRoomId) {
-          return;
-        }
-
-        const targetLabel = String(candidate?.targetLabel || candidate?.locationLabel || roomId).trim() || roomId;
-        const key = `${roomId}|${String(candidate?.kindLabel || '').trim().toLowerCase()}|${targetLabel.toLowerCase()}`;
-        if (seen.has(key)) {
-          return;
-        }
-        seen.add(key);
-
-        const base = routeIndex.get(roomId) || null;
-        const room = rooms[roomId] || null;
-        const nextStep = String(candidate?.nextStep || '').trim();
-        const locationLabel = String(candidate?.locationLabel || '').trim();
-        const kindLabel = String(candidate?.kindLabel || 'Target').trim();
-        const sortRank = Number.isFinite(Number(candidate?.sortRank)) ? Number(candidate.sortRank) : 4;
-        const mapId = String(base?.mapId || currentMapId || '').trim();
-        const dungeonLevelId = String(base?.dungeonLevelId || currentDungeonLevelId || '').trim();
-        const navigable = base ? base.navigable !== false : Boolean(room);
-
-        const metaParts = [
-          nextStep ? `Next: ${nextStep}` : '',
-          room?.description || room?.short_description || '',
-          base?.meta || '',
-          !navigable ? 'No known route from the current room yet.' : '',
-        ].filter(Boolean);
-
-        targets.push({
-          roomId,
-          roomName: targetLabel,
-          statusLabel: [kindLabel, locationLabel && locationLabel !== targetLabel ? locationLabel : ''].filter(Boolean).join(' · '),
-          lastVisitedLabel: base?.lastVisitedLabel || 'Quest destination',
-          meta: metaParts.join(' '),
-          navigable,
-          disabled: !navigable,
-          connectionId: String(base?.connectionId || ''),
-          originQ: base?.originQ ?? '',
-          originR: base?.originR ?? '',
-          mapId,
-          dungeonLevelId,
-          sortRank,
-        });
-      };
-
-      const walkObjectiveTargets = (objectives = [], quest = null) => {
-        (Array.isArray(objectives) ? objectives : []).forEach((objective) => {
-          if (!objective || typeof objective !== 'object') {
-            return;
-          }
-          if (objective.completed) {
-            walkObjectiveTargets(objective.children || [], quest);
-            return;
-          }
-          const roomId = String(
-            objective.location_id
-            || objective.destination_id
-            || objective.location?.id
-            || objective.destination?.id
-            || quest?.location_id
-            || ''
-          ).trim();
-          const locationLabel = String(
-            objective.location?.label
-            || objective.location
-            || objective.destination?.label
-            || objective.destination
-            || ''
-          ).trim();
-          const targetLabel = String(objective.target || objective.item || objective.description || quest?.quest_name || '').trim();
-          if (roomId) {
-            pushTarget({
-              roomId,
-              targetLabel: targetLabel || locationLabel || roomId,
-              locationLabel,
-              nextStep: objective.next_step || '',
-              kindLabel: 'Task target',
-              sortRank: Number(objective?.access?.sort_rank ?? 1),
-            });
-          }
-          walkObjectiveTargets(objective.children || [], quest);
-        });
-      };
-
-      const managementTree = Array.isArray(rawQuestData?.management_tree) ? rawQuestData.management_tree : [];
-      managementTree.forEach((npc) => {
-        if (!npc || typeof npc !== 'object') {
-          return;
-        }
-        const storylineRows = Array.isArray(npc.storylines) ? npc.storylines : [];
-        storylineRows.forEach((storyline) => {
-          if (!storyline || typeof storyline !== 'object') {
-            return;
-          }
-          const storylineLocation = storyline.location && typeof storyline.location === 'object' ? storyline.location : {};
-          const storylineRoomId = String(storylineLocation.id || '').trim();
-          if (storylineRoomId) {
-            pushTarget({
-              roomId: storylineRoomId,
-              targetLabel: String(storyline.name || storyline.storyline_id || storylineRoomId).trim(),
-              locationLabel: String(storylineLocation.label || '').trim(),
-              nextStep: storyline.next_step || '',
-              kindLabel: 'Storyline target',
-              sortRank: Number(storyline?.access?.sort_rank ?? 1),
-            });
-          }
-
-          const quests = Array.isArray(storyline.quests) ? storyline.quests : [];
-          quests.forEach((quest) => {
-            if (!quest || typeof quest !== 'object') {
-              return;
-            }
-            const questLocation = quest.location && typeof quest.location === 'object' ? quest.location : {};
-            const questRoomId = String(questLocation.id || quest.location_id || '').trim();
-            if (questRoomId) {
-              pushTarget({
-                roomId: questRoomId,
-                targetLabel: String(quest.quest_name || quest.title || quest.quest_id || questRoomId).trim(),
-                locationLabel: String(questLocation.label || '').trim(),
-                nextStep: quest.next_step || '',
-                kindLabel: 'Quest target',
-                sortRank: Number(quest?.access?.sort_rank ?? 1),
-              });
-            }
-            walkObjectiveTargets(quest.objectives || [], quest);
-          });
-        });
-      });
-
-      if (!targets.length) {
-        ['active', 'offers', 'leads'].forEach((bucket) => {
-          const quests = Array.isArray(rawQuestData?.[bucket]) ? rawQuestData[bucket] : [];
-          quests.forEach((quest) => {
-            if (!quest || typeof quest !== 'object') {
-              return;
-            }
-            const questRoomId = String(quest.location_id || '').trim();
-            if (questRoomId) {
-              pushTarget({
-                roomId: questRoomId,
-                targetLabel: String(quest.quest_name || quest.title || quest.quest_id || questRoomId).trim(),
-                locationLabel: '',
-                nextStep: quest.next_step || '',
-                kindLabel: 'Quest target',
-                sortRank: 1,
-              });
-            }
-            const phases = Array.isArray(quest.generated_objectives) && quest.generated_objectives.length
-              ? quest.generated_objectives
-              : (Array.isArray(quest.objective_states) ? quest.objective_states : []);
-            phases.forEach((phase) => walkObjectiveTargets(phase?.objectives || [], quest));
-          });
-        });
-      }
-
-      const locations = targets
-        .sort((left, right) => {
-          if (left.sortRank !== right.sortRank) {
-            return left.sortRank - right.sortRank;
-          }
-          return left.roomName.localeCompare(right.roomName);
-        })
-        .map(({ sortRank, ...location }) => location);
-
-      if (!locations.length) {
+      if (!exits.length) {
         return [];
       }
 
       return [{
-        key: 'quest-target-destinations',
-        title: 'Quest destinations',
-        dungeonName: 'Quest destinations',
+        key: 'room-exits',
+        title: 'Room exits',
+        dungeonName: currentDungeonName || 'Room exits',
         mapId: currentMapId,
         dungeonLevelId: currentDungeonLevelId,
-        locations,
+        locations: exits,
       }];
     }
 
@@ -5286,59 +4965,6 @@ import { SpriteService } from './SpriteService.js';
         chip: 'Perception',
         html: entries.join(''),
       };
-    }
-
-    ensureNavigateLocationGroups(campaignId) {
-      if (!campaignId || (this.navigateLocationsCampaignId === campaignId && Array.isArray(this.navigateLocationGroups) && this.navigateLocationGroups.length)) {
-        return;
-      }
-      if (this.navigateLocationsInflight) {
-        return;
-      }
-
-      this.navigateLocationsInflight = fetch(`/api/campaign/${campaignId}/visited-locations`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'include',
-      })
-        .then(async (response) => {
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok || !data.success) {
-            throw new Error(data.error || 'Unable to load visited locations.');
-          }
-
-          this.navigateLocationsCampaignId = campaignId;
-          this.navigateLocationGroups = (Array.isArray(data.dungeons) ? data.dungeons : [])
-            .map((group) => ({
-              dungeonId: String(group?.dungeon_id || ''),
-              dungeonName: String(group?.dungeon_name || group?.dungeon_id || 'Dungeon'),
-              mapId: String(group?.map_id || group?.dungeon_id || ''),
-              dungeonLevelId: String(group?.dungeon_level_id || ''),
-              locations: Array.isArray(group?.locations)
-                ? group.locations.map((location) => ({
-                  roomId: String(location?.room_id || ''),
-                  roomName: String(location?.room_name || location?.room_id || 'Room'),
-                  meta: String(location?.description || ''),
-                  lastVisitedLabel: Number(location?.last_visited || 0) > 0
-                    ? `Visited ${new Date(Number(location.last_visited) * 1000).toLocaleString()}`
-                    : 'Visited by party',
-                })).filter((location) => location.roomId)
-                : [],
-            }))
-            .filter((group) => group.locations.length > 0);
-        })
-        .catch((error) => {
-          console.warn('Failed to load campaign visited locations:', error);
-        })
-        .finally(() => {
-          this.navigateLocationsInflight = null;
-          if (this.activeActionRailCategory === 'navigate') {
-            this.refreshActionRail();
-          }
-        });
     }
 
     buildSpellActionRailPanel(context) {
@@ -8272,11 +7898,18 @@ import { SpriteService } from './SpriteService.js';
       const campaignId = this.stateManager?.hexmap?.resolveCampaignId?.() || null;
       const roomId = this.resolvePinnedChatRoomId();
       const characterId = this.resolveActiveChatCharacterId();
+      const mapId = String(
+        this.stateManager?.hexmap?.dungeonData?.map_id
+        || this.stateManager?.hexmap?.launchContext?.map_id
+        || this.stateManager?.hexmap?.stateManager?.get?.('mapId')
+        || ''
+      ).trim();
 
       return {
         campaignId,
         roomId,
         characterId,
+        mapId: mapId || null,
       };
     }
 
@@ -8312,6 +7945,7 @@ import { SpriteService } from './SpriteService.js';
         'room',
         resolved.campaignId,
         resolved.roomId,
+        resolved.mapId || '',
         resolved.characterId || 0,
         channelKey || this.activeChannel || 'room',
       ].join(':');
@@ -8382,6 +8016,79 @@ import { SpriteService } from './SpriteService.js';
       };
     }
 
+    normalizeChatComparableText(value = '') {
+      return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[“”"']/g, '')
+        .replace(/\s+/g, ' ')
+        .replace(/[.!?]+$/g, '')
+        .trim();
+    }
+
+    extractEncounterTranscriptBody(message = '') {
+      const text = String(message || '').trim();
+      const match = text.match(/^Round\s+(?:\d+|\?)\s*:\s*(?:Turn\s+(?:\d+|\?)\s*:\s*)?(?:Actor\s+)?([^:]+)\s*:\s*(.+)$/i);
+      if (!match) {
+        return null;
+      }
+      const actor = String(match[1] || '').trim();
+      const body = String(match[2] || '').trim();
+      if (!actor || !body) {
+        return null;
+      }
+      return { actor, body };
+    }
+
+    findEquivalentLocalPlayerEchoRecordIndex(records = [], incoming = {}) {
+      const normalizedIncoming = this.normalizeChatLineRecord(incoming);
+      if (normalizedIncoming.type !== 'player' || normalizedIncoming.transient) {
+        return -1;
+      }
+
+      const transcript = this.extractEncounterTranscriptBody(normalizedIncoming.message);
+      if (!transcript) {
+        return -1;
+      }
+      const bodyKey = this.normalizeChatComparableText(transcript.body);
+      if (!bodyKey) {
+        return -1;
+      }
+      const speakerKey = this.normalizeChatComparableText(normalizedIncoming.speaker || transcript.actor || '');
+
+      for (let index = records.length - 1; index >= 0; index -= 1) {
+        const candidate = this.normalizeChatLineRecord(records[index]);
+        if (candidate.transient || candidate.type !== 'player') {
+          continue;
+        }
+        if (this.extractEncounterTranscriptBody(candidate.message)) {
+          continue;
+        }
+
+        const candidateBodyKey = this.normalizeChatComparableText(candidate.message);
+        if (!candidateBodyKey || candidateBodyKey !== bodyKey) {
+          continue;
+        }
+
+        const candidateSpeakerKey = this.normalizeChatComparableText(candidate.speaker || '');
+        if (
+          speakerKey
+          && candidateSpeakerKey
+          && candidateSpeakerKey !== speakerKey
+          && !String(candidate.lineId || '').startsWith('chat-player-')
+        ) {
+          continue;
+        }
+
+        const looksLikeLocalEcho = String(candidate.lineId || '').startsWith('chat-player-');
+        if (looksLikeLocalEcho) {
+          return index;
+        }
+      }
+
+      return -1;
+    }
+
     buildChatLineContentKey(line = {}) {
       const normalized = this.normalizeChatLineRecord(line);
       return [
@@ -8438,6 +8145,12 @@ import { SpriteService } from './SpriteService.js';
         const exactIndex = merged.findIndex((candidate) => this.buildChatLineExactKey(candidate) === exactKey);
         if (exactIndex !== -1) {
           merged[exactIndex] = this.mergeChatLineRecord(merged[exactIndex], normalized);
+          return;
+        }
+
+        const localEchoIndex = this.findEquivalentLocalPlayerEchoRecordIndex(merged, normalized);
+        if (localEchoIndex !== -1) {
+          merged[localEchoIndex] = this.mergeChatLineRecord(merged[localEchoIndex], normalized);
           return;
         }
 
@@ -8558,6 +8271,9 @@ import { SpriteService } from './SpriteService.js';
 
       const request = (async () => {
         let url = `/api/campaign/${context.campaignId}/room/${context.roomId}/chat?channel=${encodeURIComponent(channelKey)}`;
+        if (context.mapId) {
+          url += `&map_id=${encodeURIComponent(context.mapId)}`;
+        }
         if (context.characterId) {
           url += `&character_id=${context.characterId}`;
         }
@@ -9054,6 +8770,7 @@ import { SpriteService } from './SpriteService.js';
       const newRoom = nav.room;
       const newEntities = nav.entities || [];
       const newConnections = nav.connections || [];
+      const navigationCapabilities = Array.isArray(nav.navigation_capabilities) ? nav.navigation_capabilities : [];
       const entryHex = nav.entry_hex || { q: 0, r: 0 };
 
       console.log('[Navigation] Transitioning to:', targetRoomId, nav.destination);
@@ -9097,6 +8814,9 @@ import { SpriteService } from './SpriteService.js';
           hexmap.dungeonData.connections.push(conn);
         }
       }
+
+      // Keep active-room navigation strictly sourced from server navigation service.
+      hexmap.dungeonData.navigation_capabilities = navigationCapabilities;
 
       // 4. Move the full party formation to the destination entry hex.
       const selectedEntity = hexmap.stateManager?.get('selectedEntity');
@@ -14230,7 +13950,7 @@ import { SpriteService } from './SpriteService.js';
       const visualRoomId = this.mapVisualState?.map_meta?.active_room_id
         || Object.keys(this.mapVisualState?.topology?.rooms || {})[0]
         || null;
-      return this.activeRoomId || this.stateManager.get('activeRoomId') || visualRoomId || this.launchContext?.room_id || null;
+      return visualRoomId || this.activeRoomId || this.stateManager.get('activeRoomId') || this.launchContext?.room_id || null;
     },
 
     getVisualRooms: function () {
@@ -16448,8 +16168,9 @@ import { SpriteService } from './SpriteService.js';
 
         const selected = self.stateManager.get('selectedEntity');
         const current = self.turnManagementSystem?.getCurrentTurnEntity?.();
-        const actor = selected || current;
+        const actor = selected || current || self.findLaunchPlayerEntity?.();
         if (!actor) {
+          console.warn('No actor available to interact');
           return;
         }
 
@@ -16487,8 +16208,9 @@ import { SpriteService } from './SpriteService.js';
 
         const selected = self.stateManager.get('selectedEntity');
         const current = self.turnManagementSystem?.getCurrentTurnEntity?.();
-        const actor = selected || current;
+        const actor = selected || current || self.findLaunchPlayerEntity?.();
         if (!actor) {
+          console.warn('No actor available to search');
           return;
         }
 
@@ -18888,52 +18610,100 @@ import { SpriteService } from './SpriteService.js';
     },
 
     /**
-     * Resolve explicit navigation capabilities for a room from connection data.
+     * Resolve explicit navigation capabilities for a room from campaign navigation service data.
      * @param {string} [roomId]
      * @returns {Array<object>}
      */
     resolveNavigationCapabilities: function (roomId) {
-      const activeRoomId = String(roomId || this.activeRoomId || '').trim();
-      const rawConnections = this.getVisualConnections();
-
-      if (!activeRoomId || !rawConnections.length) {
+      const activeRoomId = String(roomId || this.resolveActiveRoomId?.() || this.activeRoomId || '').trim();
+      const rawCapabilities = Array.isArray(this.dungeonData?.navigation_capabilities)
+        ? this.dungeonData.navigation_capabilities
+        : null;
+      if (!rawCapabilities) {
+        if (!activeRoomId) {
+          return [];
+        }
+        if (!(this._missingNavigationExitsWarnings instanceof Set)) {
+          this._missingNavigationExitsWarnings = new Set();
+        }
+        if (!this._missingNavigationExitsWarnings.has(activeRoomId)) {
+          this._missingNavigationExitsWarnings.add(activeRoomId);
+          console.warn('[Navigation] Missing authoritative campaign navigation capabilities for active room', {
+            activeRoomId,
+            dungeonDataKeys: this.dungeonData && typeof this.dungeonData === 'object' ? Object.keys(this.dungeonData) : [],
+          });
+        }
         return [];
       }
 
-      return rawConnections
-        .filter((connection) => connection && typeof connection === 'object' && (this.getConnectionRoomId(connection, 'from') === activeRoomId || this.getConnectionRoomId(connection, 'to') === activeRoomId))
-        .map((connection) => {
-          const travelsForward = this.getConnectionRoomId(connection, 'from') === activeRoomId;
-          const targetRoomId = String(travelsForward ? (this.getConnectionRoomId(connection, 'to') || '') : (this.getConnectionRoomId(connection, 'from') || ''));
-          const isDiscovered = Object.prototype.hasOwnProperty.call(connection, 'is_discovered')
-            ? Boolean(connection.is_discovered)
+      const normalizeHex = (hex) => {
+        if (!hex || typeof hex !== 'object') {
+          return null;
+        }
+        const q = Number(hex.q);
+        const r = Number(hex.r);
+        if (!Number.isFinite(q) || !Number.isFinite(r)) {
+          return null;
+        }
+        return { q, r };
+      };
+
+      const normalizedCapabilities = rawCapabilities
+        .map((capability) => {
+          const targetRoomId = String(capability?.target_room_id || '').trim();
+          const type = String(capability?.type || 'passage').trim() || 'passage';
+          const blockedReason = String(capability?.blocked_reason || '').trim();
+          const isDiscovered = Object.prototype.hasOwnProperty.call(capability || {}, 'is_discovered')
+            ? Boolean(capability.is_discovered)
             : true;
-          const isPassable = Object.prototype.hasOwnProperty.call(connection, 'is_passable')
-            ? Boolean(connection.is_passable)
+          const isPassable = Object.prototype.hasOwnProperty.call(capability || {}, 'is_passable')
+            ? Boolean(capability.is_passable)
             : true;
-          const type = String(connection.type || 'passage');
-          const blockedReason = !targetRoomId
-            ? 'unresolved_destination'
-            : (!isDiscovered ? 'undiscovered' : (!isPassable ? 'blocked' : null));
+          const available = typeof capability?.available === 'boolean'
+            ? capability.available
+            : (blockedReason === '' && Boolean(targetRoomId) && isDiscovered && isPassable);
+          const destinationType = String(capability?.destination_type || 'room').trim().toLowerCase() || 'room';
+          const destinationId = String(capability?.destination_id || (destinationType === 'room' ? targetRoomId : '')).trim();
+          const originHex = normalizeHex(capability?.origin_hex) || normalizeHex(this.getConnectionHex(capability, 'from'));
+          const targetHex = normalizeHex(capability?.target_hex) || normalizeHex(this.getConnectionHex(capability, 'to'));
 
           return {
-            connection_id: String(connection.connection_id || `${this.getConnectionRoomId(connection, 'from') || 'unknown'}__${this.getConnectionRoomId(connection, 'to') || 'unknown'}`),
-            origin_room_id: activeRoomId,
+            connection_id: String(capability?.connection_id || `${activeRoomId || 'unknown'}__${targetRoomId || 'unknown'}`),
+            origin_room_id: String(capability?.origin_room_id || activeRoomId || '').trim(),
             target_room_id: targetRoomId,
+            target_room_name: String(capability?.target_room_name || capability?.to_room_name || '').trim(),
+            destination_type: destinationType,
+            destination_id: destinationId,
             type,
-            available: blockedReason === null,
-            blocked_reason: blockedReason,
+            available,
+            blocked_reason: blockedReason || (available ? null : 'blocked'),
             is_discovered: isDiscovered,
             is_passable: isPassable,
-            bidirectional: Object.prototype.hasOwnProperty.call(connection, 'bidirectional')
-              ? Boolean(connection.bidirectional)
+            bidirectional: Object.prototype.hasOwnProperty.call(capability || {}, 'bidirectional')
+              ? Boolean(capability.bidirectional)
               : type !== 'one_way',
-            requires_interaction: !isPassable || ['door', 'locked_door', 'secret_door', 'trapped_door', 'barricade', 'collapsed', 'magical_barrier'].includes(type),
-            origin_hex: travelsForward ? (this.getConnectionHex(connection, 'from') || null) : (this.getConnectionHex(connection, 'to') || null),
-            target_hex: travelsForward ? (this.getConnectionHex(connection, 'to') || null) : (this.getConnectionHex(connection, 'from') || null),
-            connection,
+            requires_interaction: Object.prototype.hasOwnProperty.call(capability || {}, 'requires_interaction')
+              ? Boolean(capability.requires_interaction)
+              : !isPassable,
+            distance: Number.isFinite(Number(capability?.distance)) ? Math.max(0, Math.trunc(Number(capability.distance))) : 0,
+            quest_reference: capability?.quest_reference === true,
+            quest_ids: Array.isArray(capability?.quest_ids)
+              ? capability.quest_ids.map((value) => String(value || '').trim()).filter(Boolean)
+              : [],
+            origin_hex: originHex,
+            target_hex: targetHex,
+            connection: capability,
           };
-        });
+        })
+        .filter((capability) => String(capability?.target_room_id || '').trim() !== '');
+      if (!activeRoomId) {
+        return normalizedCapabilities;
+      }
+
+      return normalizedCapabilities.filter((capability) => {
+        const originRoomId = String(capability?.origin_room_id || '').trim();
+        return originRoomId === '' || originRoomId === activeRoomId;
+      });
     },
 
     /**

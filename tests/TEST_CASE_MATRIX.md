@@ -24,6 +24,19 @@ High-value gaps identified during review:
 - Limited API contract assertions for some JSON endpoints (shape + error semantics).
 - Limited negative tests around ownership and invalid payload handling for newer endpoints.
 
+### Inventory Snapshot (2026-07-13)
+
+| Metric | Count |
+| --- | ---: |
+| PHPUnit test files (`tests/src/**/*Test.php`) | 191 |
+| Unit test files | 157 |
+| Functional test files | 34 |
+| Kernel test files | 0 |
+| Top-level drush PHP tests (`tests/*_test.php`) | 14 |
+| Top-level Node tests (`tests/*_test.js`) | 109 |
+| `markTestIncomplete()` occurrences | 9 |
+| `TODO` occurrences in `tests/` | 21 |
+
 ## Priority Legend
 
 - **P0**: Blocker / core gameplay or security risk
@@ -69,7 +82,7 @@ High-value gaps identified during review:
 | DCCT-033 | P2 | Route method constraints | Functional | `tests/src/Functional/Routes/ApiRoutesTest.php` | Wrong HTTP methods return 405 across API set | explicit 405 assertions for all POST-only/GET-only endpoints |
 | DCCT-034 | P2 | Unit service hardening | Unit | `tests/src/Unit/Service/CharacterCalculatorTest.php` | Edge ability-score boundaries | PF2e modifier math at low/high boundaries |
 | DCCT-035 | P2 | Unit service hardening | Unit | `tests/src/Unit/Service/CombatCalculatorTest.php` | Degrees-of-success + MAP logic | deterministic outcomes vs fixture vectors |
-| DCCT-036 | P2 | Unit AI provider fallback | Unit | `tests/src/Unit/Service/EncounterAiIntegrationServiceTest.php` | AI provider timeout/failure fallback | stub fallback selected, logs emitted, caller receives safe payload |
+| DCCT-036 | P2 | Unit AI provider failure semantics | Unit | `tests/src/Unit/Service/EncounterAiIntegrationServiceTest.php` | AI provider timeout/failure hard-fail contract | deterministic error surface emitted, failure propagates, no fallback path |
 
 ## Suggested Implementation Order
 

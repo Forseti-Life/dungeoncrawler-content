@@ -8,6 +8,8 @@ use InvalidArgumentException;
 
 /**
  * Service for Pathfinder-compatible number and dice generation.
+ *
+ * Validation pair: none (deterministic utility generator).
  */
 class NumberGenerationService {
 

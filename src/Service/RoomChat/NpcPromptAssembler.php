@@ -14,6 +14,7 @@ final class NpcPromptAssembler {
     string $session_context,
     array $scene_parts,
     string $npc_context,
+    string $actor_action_context,
     string $target_name,
     string $source_ability,
     array $history_lines
@@ -27,6 +28,9 @@ final class NpcPromptAssembler {
     }
     if ($npc_context !== '') {
       $prompt .= $npc_context . "\n\n";
+    }
+    if ($actor_action_context !== '') {
+      $prompt .= $actor_action_context . "\n\n";
     }
     $prompt .= "You are {$target_name}, an NPC in a Pathfinder 2e dungeon crawl.\n";
     $prompt .= "The player character is communicating with you via {$source_ability}.\n";
@@ -53,6 +57,7 @@ final class NpcPromptAssembler {
     string $session_context,
     string $scene,
     string $npc_context,
+    string $actor_action_context,
     string $storyline_leads_context,
     array $history_lines,
     string $player_message,
@@ -68,6 +73,9 @@ final class NpcPromptAssembler {
     }
     if ($npc_context !== '') {
       $prompt .= $npc_context . "\n\n";
+    }
+    if ($actor_action_context !== '') {
+      $prompt .= $actor_action_context . "\n\n";
     }
     if ($storyline_leads_context !== '') {
       $prompt .= $storyline_leads_context . "\n\n";

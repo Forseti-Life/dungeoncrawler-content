@@ -435,10 +435,7 @@ class MapGeneratorService {
       ], NULL);
 
       // Step 10b: Create NPC psychology profiles for any new NPCs.
-      $room_entities = array_filter($entities, fn($e) => ($e['entity_type'] ?? '') === 'npc');
-      if (!empty($room_entities)) {
-        $this->psychologyService->ensureRoomNpcProfiles($campaign_id, $room_entities);
-      }
+      $this->ensureGeneratedNpcPsychologyProfiles($campaign_id, $entities);
 
       // Step 11: Register AI-generated NPCs in content library + campaign chars.
       $npc_setting_data = $setting['npcs'] ?? [];
@@ -1474,6 +1471,22 @@ class MapGeneratorService {
       $transaction->rollBack();
       throw $e;
     }
+  }
+
+  /**
+   * Ensure psychology profiles exist for generated NPC entities.
+   *
+   * @param int $campaign_id
+   *   Campaign identifier.
+   * @param array<int, array<string, mixed>> $entities
+   *   Generated entity list for the new room.
+   */
+  protected function ensureGeneratedNpcPsychologyProfiles(int $campaign_id, array $entities): void {
+    $room_entities = array_values(array_filter($entities, static fn($entity): bool => ($entity['entity_type'] ?? '') === 'npc'));
+    if ($room_entities === []) {
+      return;
+    }
+    $this->psychologyService->ensureRoomNpcProfiles($campaign_id, $room_entities);
   }
 
   /**

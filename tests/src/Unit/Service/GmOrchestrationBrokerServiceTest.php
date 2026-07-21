@@ -7,6 +7,7 @@ use Drupal\dungeoncrawler_content\Service\CanonicalActionRegistryService;
 use Drupal\dungeoncrawler_content\Service\GmOrchestrationBrokerService;
 use Drupal\dungeoncrawler_content\Service\InventoryManagementService;
 use Drupal\dungeoncrawler_content\Service\QuestTouchpointService;
+use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\Tests\UnitTestCase;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -22,6 +23,7 @@ class GmOrchestrationBrokerServiceTest extends UnitTestCase {
   protected GmOrchestrationBrokerService $service;
   protected QuestTouchpointService $questTouchpointService;
   protected InventoryManagementService $inventoryManagementService;
+  protected StateValidationService $stateValidationService;
   protected CanonicalActionRegistryService $registry;
   protected ContainerInterface $serviceContainer;
 
@@ -32,11 +34,20 @@ class GmOrchestrationBrokerServiceTest extends UnitTestCase {
     $this->registry = $this->createMock(CanonicalActionRegistryService::class);
     $this->questTouchpointService = $this->createMock(QuestTouchpointService::class);
     $this->inventoryManagementService = $this->createMock(InventoryManagementService::class);
+    $this->stateValidationService = $this->createMock(StateValidationService::class);
+    $this->stateValidationService->method('validateQuestTouchpointIngest')
+      ->willReturn([
+        'valid' => TRUE,
+        'errors' => [],
+      ]);
     $this->serviceContainer = $this->createMock(ContainerInterface::class);
     $this->serviceContainer->method('get')
       ->willReturnCallback(function (string $service_id) {
         if ($service_id === 'dungeoncrawler_content.inventory_management') {
           return $this->inventoryManagementService;
+        }
+        if ($service_id === 'dungeoncrawler_content.state_validation_service') {
+          return $this->stateValidationService;
         }
         return NULL;
       });
@@ -314,6 +325,12 @@ class GmOrchestrationBrokerServiceTest extends UnitTestCase {
    * @covers ::handleApplyQuestTouchpointAction
    */
   public function testExecuteCanonicalAuthoritativeActionsExecutesQuestTouchpointViaBroker(): void {
+    $this->stateValidationService->expects($this->once())
+      ->method('validateQuestTouchpointIngest')
+      ->willReturn([
+        'valid' => TRUE,
+        'errors' => [],
+      ]);
     $this->questTouchpointService->expects($this->once())
       ->method('ingestEvent')
       ->with(42, $this->callback(static function (array $payload): bool {
@@ -350,6 +367,44 @@ class GmOrchestrationBrokerServiceTest extends UnitTestCase {
     $this->assertTrue($result['results']['apply_quest_touchpoint'][0]['success']);
     $this->assertCount(1, $result['receipts']);
     $this->assertSame('executed', $result['receipts'][0]['status']);
+  }
+
+  /**
+   * @covers ::executeCanonicalAuthoritativeActions
+   * @covers ::handleApplyQuestTouchpointAction
+   */
+  public function testExecuteCanonicalAuthoritativeActionsRejectsInvalidQuestTouchpointContract(): void {
+    $this->stateValidationService->expects($this->once())
+      ->method('validateQuestTouchpointIngest')
+      ->willReturn([
+        'valid' => FALSE,
+        'errors' => ['touchpoint.objective_type is required'],
+      ]);
+    $this->questTouchpointService->expects($this->never())
+      ->method('ingestEvent');
+
+    $result = $this->service->executeCanonicalAuthoritativeActions(
+      42,
+      'tavern_entrance',
+      ['name' => 'Tavern Entrance'],
+      7,
+      [[
+        'type' => 'apply_quest_touchpoint',
+        'name' => 'Apply quest touchpoint',
+        'details' => [
+          'touchpoint' => [
+            'objective_type' => 'deliver',
+            'objective_id' => 'deliver_spellbooks',
+            'room_id' => 'tavern_entrance',
+          ],
+        ],
+      ]],
+      ['entities' => []]
+    );
+
+    $this->assertCount(1, $result['results']['apply_quest_touchpoint']);
+    $this->assertFalse($result['results']['apply_quest_touchpoint'][0]['success']);
+    $this->assertSame('rejected', $result['receipts'][0]['status']);
   }
 
 }

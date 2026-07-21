@@ -124,9 +124,73 @@ class QuestDestinationValidatorServiceTest extends TestCase {
     ];
     
     $this->expectException(\InvalidArgumentException::class);
-    $this->expectExceptionMessage("objective 1");
+    $this->expectExceptionMessage("objective[1]");
     $this->expectExceptionMessage("Missing Room");
     
+    $this->validator->validateQuestObjectives($quest, $this->dungeon_data);
+  }
+
+  /**
+   * Tests phased+nested traversal matches activation-time recursive behavior.
+   */
+  public function testValidateQuestObjectivesTraversesPhasesAndChildren(): void {
+    $quest = [
+      'quest_id' => 'phased-quest',
+      'objectives' => [
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'speak-with-eldric',
+              'type' => 'interact',
+              'location_id' => 'ltba-vault-entry',
+              'children' => [
+                [
+                  'objective_id' => 'travel-to-treasure-room',
+                  'type' => 'explore',
+                  'destination' => 'Treasure Room',
+                ],
+              ],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $this->validator->validateQuestObjectives($quest, $this->dungeon_data);
+    $this->assertTrue(TRUE);
+  }
+
+  /**
+   * Tests phased+nested traversal fails with precise child path context.
+   */
+  public function testValidateQuestObjectivesFailsForInvalidNestedChildDestination(): void {
+    $quest = [
+      'quest_id' => 'phased-quest',
+      'objectives' => [
+        [
+          'phase' => 1,
+          'objectives' => [
+            [
+              'objective_id' => 'speak-with-eldric',
+              'type' => 'interact',
+              'location_id' => 'ltba-vault-entry',
+              'children' => [
+                [
+                  'objective_id' => 'travel-to-nowhere',
+                  'type' => 'explore',
+                  'destination_id' => 'missing-room',
+                ],
+              ],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('phase[0].objective[0].children[0]');
+    $this->expectExceptionMessage('missing-room');
     $this->validator->validateQuestObjectives($quest, $this->dungeon_data);
   }
 

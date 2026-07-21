@@ -9,6 +9,8 @@ use Psr\Log\LoggerInterface;
 
 /**
  * Queues and generates full NPC character sheets in the background.
+ *
+ * Validation pair: StateValidationService::validateNpcSheet() contract checks.
  */
 class NpcSheetGenerationService {
 

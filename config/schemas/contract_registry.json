@@ -81,6 +81,14 @@
     "navigation_receipt": {
       "schema": "navigation_receipt.schema.json",
       "description": "Canonical navigation result payload returned to clients."
+    },
+    "quest_touchpoint_ingest": {
+      "schema": "quest_touchpoint_ingest.schema.json",
+      "description": "Canonical runtime quest touchpoint ingest payload."
+    },
+    "quest_confirmation_resolve": {
+      "schema": "quest_confirmation_resolve.schema.json",
+      "description": "Canonical runtime quest confirmation resolve payload."
     }
   }
 }

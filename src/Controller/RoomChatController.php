@@ -152,6 +152,11 @@ class RoomChatController extends ControllerBase {
     return $request->query->get('character_id') ? (int) $request->query->get('character_id') : NULL;
   }
 
+  protected function getOptionalMapIdFromQuery(Request $request): ?string {
+    $map_id = trim((string) $request->query->get('map_id', ''));
+    return $map_id !== '' ? $map_id : NULL;
+  }
+
   /**
    * Get chat history for a room.
    * 
@@ -170,6 +175,7 @@ class RoomChatController extends ControllerBase {
   public function getChatHistory(int $campaign_id, string $room_id, Request $request): JsonResponse {
     $channel = 'room';
     $character_id = NULL;
+    $map_id = NULL;
     try {
       $access_denied = $this->getCampaignAccessDeniedResponse($campaign_id);
       if ($access_denied !== NULL) {
@@ -178,8 +184,9 @@ class RoomChatController extends ControllerBase {
 
       $channel = $request->query->get('channel', 'room');
       $character_id = $this->getOptionalCharacterIdFromQuery($request);
+      $map_id = $this->getOptionalMapIdFromQuery($request);
 
-      $messages = $this->chatService->getChatHistory($campaign_id, $room_id, $channel, $character_id);
+      $messages = $this->chatService->getChatHistory($campaign_id, $room_id, $channel, $character_id, $map_id);
       return $this->responseMapper->buildSuccessDataResponse(
         $this->responseMapper->buildChatHistoryResponseData($room_id, $channel, $messages)
       );

@@ -2414,6 +2414,25 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Invoke protected interact processor with by-reference state payloads.
+   */
+  private function invokeProcessInteract(
+    EncounterPhaseHandler $handler,
+    int $encounter_id,
+    string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $method = new \ReflectionMethod(EncounterPhaseHandler::class, 'processInteract');
+    $method->setAccessible(TRUE);
+    $args = [$encounter_id, $actor_id, $target_id, $params, &$game_state, &$dungeon_data, $campaign_id];
+    return $method->invokeArgs($handler, $args);
+  }
+
+  /**
    * Invoke protected NPC fallback action selector.
    */
   private function invokeChooseFallbackAction(

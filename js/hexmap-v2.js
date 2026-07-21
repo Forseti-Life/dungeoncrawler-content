@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260709-v2-nav-in-session-switch-3';
+import { GameShell } from './v2/GameShell.js?v=20260721-v2-nav-authority-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

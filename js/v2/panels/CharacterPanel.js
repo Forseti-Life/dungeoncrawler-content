@@ -28,6 +28,7 @@ export class CharacterPanel {
     this._partyPanelHost = null;
     this._convertToLibraryInFlight = false;
     this._suppressActorSelectorChange = false;
+    this._lastRoomSyncTransitionId = '';
   }
 
   init(dungeonData, stateManager) {
@@ -181,6 +182,7 @@ export class CharacterPanel {
           return;
         }
         this.focusActorFromSelector(partyActorSelect.value, { activateCharacterTab: false });
+        this.bus.emit('quest:refresh-requested', this.buildQuestRefreshContext('party-actor-selector-change'));
       };
       partyActorSelect.addEventListener('change', partyActorSelectHandler);
       this._unsubs.push(() => partyActorSelect.removeEventListener('change', partyActorSelectHandler));
@@ -227,19 +229,23 @@ export class CharacterPanel {
       this.bus.on('character:sheet-requested', (d) => {
         if (d?.characterId) this.showEmbeddedCharacterSheet(d.characterId);
       }),
-      this.bus.on('room:changed', () => {
-        this.refreshActorSelector();
-        if (this.isPartySurfaceActive()) {
-          this.applyPartyFollowerSelectionToCharacterSheet();
-        }
-      }),
-      this.bus.on('room:occupants-changed', () => {
-        this.refreshActorSelector();
-        if (this.isPartySurfaceActive()) {
-          this.applyPartyFollowerSelectionToCharacterSheet();
-        }
-      }),
+      this.bus.on('room:changed', (payload) => this.handleRoomContextChanged(payload)),
+      this.bus.on('room:occupants-changed', (payload) => this.handleRoomContextChanged(payload)),
     );
+  }
+
+  handleRoomContextChanged(payload = {}) {
+    const transitionId = String(payload?.transition?.id || '').trim();
+    if (transitionId && transitionId === this._lastRoomSyncTransitionId) {
+      return;
+    }
+    if (transitionId) {
+      this._lastRoomSyncTransitionId = transitionId;
+    }
+    this.refreshActorSelector();
+    if (this.isPartySurfaceActive()) {
+      this.applyPartyFollowerSelectionToCharacterSheet();
+    }
   }
 
   _bindGameShellTabChanges() {

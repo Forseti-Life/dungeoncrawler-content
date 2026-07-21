@@ -467,9 +467,34 @@ class StorylineExplorerPageControllerTest extends UnitTestCase {
     $this->assertCount(1, $rows);
     $this->assertSame('entity_linkage', (string) ($rows[0][0] ?? ''));
     $this->assertStringContainsString('FAIL', (string) ($rows[0][1] ?? ''));
-    $this->assertStringContainsString('collectEntityLinkageDiagnostics', (string) ($rows[0][2] ?? ''));
+    $this->assertStringContainsString('validateEntityLinkageStage', (string) ($rows[0][2] ?? ''));
     $this->assertStringContainsString('realizeStorylineNpcs', (string) ($rows[0][3] ?? ''));
     $this->assertStringContainsString('tal-mission-handler', (string) ($rows[0][4] ?? ''));
+  }
+
+  /**
+   * @covers ::buildValidatorReferenceRows
+   */
+  public function testBuildValidatorReferenceRowsIncludesTaskContractsCoreValidatorPath(): void {
+    $controller = new class(NULL) extends StorylineExplorerPageController {
+      public function exposeBuildValidatorReferenceRows(array $diagnostics): array {
+        return $this->buildValidatorReferenceRows($diagnostics);
+      }
+    };
+
+    $rows = $controller->exposeBuildValidatorReferenceRows([
+      'stages' => [
+        'task_contracts' => [
+          'valid' => FALSE,
+          'errors' => ['missing task criteria'],
+        ],
+      ],
+    ]);
+
+    $this->assertCount(1, $rows);
+    $this->assertSame('task_contracts', (string) ($rows[0][0] ?? ''));
+    $this->assertStringContainsString('validateTaskContractsStage', (string) ($rows[0][2] ?? ''));
+    $this->assertStringContainsString('generateQuestFromTemplate', (string) ($rows[0][3] ?? ''));
   }
 
   /**

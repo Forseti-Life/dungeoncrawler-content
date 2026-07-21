@@ -10,6 +10,8 @@ use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\MapVisualStateProjector;
+use Drupal\dungeoncrawler_content\Service\NavigationRuntimeService;
+use Drupal\dungeoncrawler_content\Service\NavigationService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
@@ -37,6 +39,8 @@ class HexMapControllerVisualStatePayloadTest extends UnitTestCase {
       $this->createMock(QuestGeneratorService::class),
       $this->createMock(GeneratedImageRepository::class),
       $this->createMock(MapVisualStateProjector::class),
+      $this->createMock(NavigationRuntimeService::class),
+      $this->createMock(NavigationService::class),
       $this->createMock(StorylineManagerService::class),
       $this->createMock(RelationshipManagerService::class),
       $this->createMock(StateValidationService::class),

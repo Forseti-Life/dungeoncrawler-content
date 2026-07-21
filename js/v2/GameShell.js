@@ -31,13 +31,13 @@ import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260619-v2-search-reward-refresh-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20260709-v2-nav-canonical-transition-5';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20260721-v2-nav-authority-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
-import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260626-v2-navigate-labels-1';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260624-v2-room-sync-nav-1';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260721-v2-nav-authority-2';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260721-v2-nav-authority-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js?v=20260629-v2-party-only-tab-1';
@@ -147,10 +147,16 @@ export class GameShell {
     this._roomViewRetryTimer = null;
     /** @type {boolean} chat history already loaded for this session */
     this._chatHistoryLoaded = false;
+    /** @type {number} monotonic chat-history request sequence */
+    this._chatHistoryRequestToken = 0;
     /** @type {string} currently active tab id */
     this.activeGameShellTab = 'map';
-    /** @type {Set<string>} dedupe set for missing room.exits contract warnings */
+    /** @type {Set<string>} dedupe set for missing navigation capability contract warnings */
     this._missingNavigationExitsWarnings = new Set();
+    /** @type {number} monotonic room transition sequence */
+    this._roomTransitionSequence = 0;
+    /** @type {string} last processed external room transition id */
+    this._lastExternalRoomTransitionId = '';
   }
 
   /**
@@ -180,9 +186,12 @@ export class GameShell {
       this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary, characterId: null, campaignId });
       return true;
     }
+    const runtimeCharacterId = Number(this.resolveLaunchCharacterRuntimeContext?.().characterId || 0);
     const characterId = requestedCharacterId > 0
       ? requestedCharacterId
-      : Number(this.launchContext?.character_id || 0);
+      : (runtimeCharacterId > 0
+        ? runtimeCharacterId
+        : Number(this.launchContext?.character_id || 0));
     const endpoint = characterId > 0
       ? `/api/campaign/${campaignId}/character/${characterId}/quest-journal`
       : `/api/campaign/${campaignId}/quest-journal`;
@@ -406,18 +415,15 @@ export class GameShell {
           this.activeRoomId = authoritativeRoomId;
           this._activeRoomData = room;
           this._setStateValue('activeRoomId', authoritativeRoomId);
-          this.bus.emit('room:changed', {
+          this._emitCanonicalRoomChanged({
             roomId: authoritativeRoomId,
             roomName: room?.name ?? authoritativeRoomId,
             room,
-            sceneImageUrl: room?.image_url ?? null,
-            connections: _buildRoomConnections(authoritativeRoomId, this.mapVisualState),
-            responders: [],
-            _source: 'shell',
+            source: 'coordinator-bootstrap',
+            phase: 'authoritative-sync',
+            forceView: true,
+            preserveView: true,
           });
-          this._syncActiveRoomEntities(authoritativeRoomId);
-          this._loadChatHistory();
-          this._loadRoomView({ force: true, preserveExisting: true });
         }
         this.panels?.actionRail?.refreshActionRail?.();
       })
@@ -456,16 +462,6 @@ export class GameShell {
       mapMetaActiveRoomId: this.mapVisualState?.map_meta?.active_room_id ?? null,
     });
 
-    this.bus.emit('room:changed', {
-      roomId,
-      roomName,
-      room,
-      sceneImageUrl: room?.image_url ?? null,
-      connections:   _buildRoomConnections(roomId, this.mapVisualState),
-      responders: [],
-      _source: 'shell',
-    });
-
     const occupantsData = this.mapVisualState?.occupants ?? {};
     const partyOccupants = (Array.isArray(occupantsData.party) ? occupantsData.party : [])
       .map((o) => ({ ...o, is_party: true }));
@@ -482,11 +478,98 @@ export class GameShell {
       npcsWithPortrait: roomOccupants.filter((o) => o?.presentation?.portrait_url).length,
       npcSample: roomOccupants.filter((o) => o?.occupant_type === 'npc').map((o) => ({ name: o?.label, portrait: o?.presentation?.portrait_url ? o.presentation.portrait_url.slice(-40) : null })),
     });
-    this.bus.emit('room:occupants-changed', {
+    this._emitCanonicalRoomChanged({
       roomId,
       roomName,
+      room,
       occupants: roomOccupants,
+      source: 'shell-initial-state',
+      phase: 'bootstrap',
+      loadData: false,
     });
+  }
+
+  _nextRoomTransitionId(source = 'shell', phase = 'applied') {
+    this._roomTransitionSequence += 1;
+    return `room-transition-${source}-${phase}-${this._roomTransitionSequence}`;
+  }
+
+  _emitCanonicalRoomChanged({
+    roomId,
+    roomName = '',
+    room = null,
+    occupants = null,
+    source = 'shell',
+    phase = 'applied',
+    transitionId = '',
+    loadData = true,
+    forceView = false,
+    preserveView = false,
+  } = {}) {
+    const normalizedRoomId = String(roomId || '').trim();
+    if (!normalizedRoomId) {
+      return;
+    }
+
+    const resolvedRoom = _mergeRoomMetadata(
+      this.mapVisualState?.topology?.rooms?.[normalizedRoomId] ?? null,
+      room || {},
+      normalizedRoomId,
+    );
+    const resolvedRoomName = String(roomName || resolvedRoom?.name || normalizedRoomId).trim() || normalizedRoomId;
+    const transition = {
+      id: String(transitionId || '').trim() || this._nextRoomTransitionId(source, phase),
+      source,
+      phase,
+      roomId: normalizedRoomId,
+      timestamp: Date.now(),
+    };
+    this._chatHistoryLoaded = false;
+    this.activeRoomId = normalizedRoomId;
+    this._synchronizePartyOccupantsToRoom(normalizedRoomId);
+    if (this.mapVisualState && typeof this.mapVisualState === 'object') {
+      if (!this.mapVisualState.map_meta || typeof this.mapVisualState.map_meta !== 'object') {
+        this.mapVisualState.map_meta = {};
+      }
+      this.mapVisualState.map_meta.active_room_id = normalizedRoomId;
+    }
+    this._activeRoomData = resolvedRoom;
+    this._setStateValue('activeRoomId', normalizedRoomId);
+    this._clearRoomViewRetry();
+    this._roomViewLastKey = null;
+    this._roomViewHasContent = false;
+    this._merchantStockLoading = false;
+
+    this.bus.emit('room:changed', {
+      roomId: normalizedRoomId,
+      roomName: resolvedRoomName,
+      room: resolvedRoom,
+      sceneImageUrl: resolvedRoom?.image_url ?? null,
+      connections: _buildRoomConnections(normalizedRoomId, this.mapVisualState),
+      responders: [],
+      transition,
+      _source: 'shell',
+    });
+
+    const resolvedOccupants = Array.isArray(occupants)
+      ? occupants
+      : this.getVisualOccupants().filter((entry) => String(entry?.room_id || '') === normalizedRoomId && this.isVisualOccupantVisible(entry));
+    this._currentOccupants = resolvedOccupants;
+    this.bus.emit('room:occupants-changed', {
+      roomId: normalizedRoomId,
+      roomName: resolvedRoomName,
+      occupants: resolvedOccupants,
+      transition,
+      _source: 'shell',
+    });
+
+    this._syncActiveRoomEntities(normalizedRoomId);
+    if (!loadData) {
+      return;
+    }
+    this._loadChatHistory();
+    this._loadRoomView({ force: Boolean(forceView), preserveExisting: Boolean(preserveView) });
+    this.prefetchConnectedRoomContext();
   }
 
   /**
@@ -516,7 +599,7 @@ export class GameShell {
     });
 
     try {
-      const response = await fetch(`/api/campaign/${campaignId}/gm/locations/request`, {
+      const response = await fetch(`/api/campaign/${campaignId}/navigation/locations/request`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -577,8 +660,9 @@ export class GameShell {
     // ChatPanel requests room chat history refresh
     this.bus.on('user:chat-history-requested', () => this._loadChatHistory());
 
-    // RoomViewPanel requests a room view reload (e.g. retry after pending)
-    this.bus.on('room:view-reload-requested', (opts) => this._loadRoomView(opts ?? {}));
+    // Shell-owned room-view refresh entrypoint. Legacy reload event is bridged here.
+    this.bus.on('room:view-refresh-intent', (opts) => this._handleRoomViewRefreshIntent(opts, 'room:view-refresh-intent'));
+    this.bus.on('room:view-reload-requested', (opts) => this._handleRoomViewRefreshIntent(opts, 'room:view-reload-requested'));
 
     // Bridge: entity:select-request (from stateManager shim / HexInputHandler) →
     // resolve entity from ECS and emit entity:selected for CharacterPanel etc.
@@ -625,46 +709,29 @@ export class GameShell {
       };
     });
 
-    // Bridge: when NavigationSystem fires room:changed after a room transition,
-    // relay occupants to room:occupants-changed and reload per-room data.
-    // We mark our own internal room:changed emits with _source:'shell' to avoid loops.
-    this.bus.on('room:changed', ({ roomId, roomName, occupants, _source } = {}) => {
-      if (_source === 'shell' || !roomId) return;
-      this._chatHistoryLoaded = false;
-      this.activeRoomId = roomId;
-      if (this.mapVisualState && typeof this.mapVisualState === 'object') {
-        if (!this.mapVisualState.map_meta || typeof this.mapVisualState.map_meta !== 'object') {
-          this.mapVisualState.map_meta = {};
-        }
-        this.mapVisualState.map_meta.active_room_id = roomId;
+    // Compatibility bridge for any non-shell room:changed producer.
+    this.bus.on('room:changed', ({ roomId, roomName, room, occupants, _source, transition } = {}) => {
+      if (_source === 'shell' || !roomId) {
+        return;
       }
-      this._synchronizePartyOccupantsToRoom(roomId);
-      this._activeRoomData = _mergeRoomMetadata(this.mapVisualState?.topology?.rooms?.[roomId] ?? null, {}, roomId);
-      this._setStateValue('activeRoomId', roomId);
-      // Reset view state for new room
-      this._clearRoomViewRetry();
-      this._roomViewLastKey = null;
-      this._roomViewHasContent = false;
-      this._merchantStockLoading = false;
-      // Update navigate panel connections for the new room
-      this.bus.emit('room:changed', {
+      const transitionId = String(transition?.id || '').trim();
+      if (transitionId && transitionId === this._lastExternalRoomTransitionId) {
+        return;
+      }
+      if (transitionId) {
+        this._lastExternalRoomTransitionId = transitionId;
+      }
+      this._emitCanonicalRoomChanged({
         roomId,
         roomName,
-        room: this._activeRoomData,
-        sceneImageUrl: this._activeRoomData?.image_url ?? null,
-        connections: _buildRoomConnections(roomId, this.mapVisualState),
-        _source: 'shell',
+        room,
+        occupants,
+        source: String(transition?.source || _source || 'external-event'),
+        phase: 'event-relay',
+        transitionId: String(transition?.id || '').trim(),
+        forceView: false,
+        preserveView: false,
       });
-      // Relay occupants (empty array clears panels for the new room — correct)
-      if (Array.isArray(occupants)) {
-        this._currentOccupants = occupants;
-        this.bus.emit('room:occupants-changed', { roomId, roomName, occupants });
-      }
-      this._syncActiveRoomEntities(roomId);
-      // Pre-load chat history and scene image for the new room
-      this._loadChatHistory();
-      this._loadRoomView();
-      this.prefetchConnectedRoomContext();
     });
 
     this.bus.on('combat:state-changed', ({ state } = {}) => {
@@ -700,7 +767,26 @@ export class GameShell {
       const charId = this.launchCharacter?.id ?? this.launchContext?.character_id ?? null;
       console.log('[GameShell] party tab → sheet-requested', { charId });
       if (charId) this.bus.emit('character:sheet-requested', { characterId: charId });
-      void this.refreshQuestJournalFromApi();
+      const questRefreshContext = typeof this.panels?.character?.buildQuestRefreshContext === 'function'
+        ? this.panels.character.buildQuestRefreshContext('game-shell-party-tab-open')
+        : {};
+      void this.refreshQuestJournalFromApi(questRefreshContext);
+    }
+  }
+
+  _handleRoomViewRefreshIntent(options = {}, eventName = 'room:view-refresh-intent') {
+    const requestedRoomId = String(options?.roomId || this.activeRoomId || '').trim();
+    const activeRoomId = String(this.activeRoomId || '').trim();
+    if (!requestedRoomId || !activeRoomId || requestedRoomId !== activeRoomId) {
+      return;
+    }
+    this._loadRoomView({
+      ...options,
+      roomId: requestedRoomId,
+      preserveExisting: options?.preserveExisting !== false,
+    });
+    if (eventName === 'room:view-reload-requested') {
+      console.debug('[GameShell] room:view-reload-requested is legacy; prefer room:view-refresh-intent');
     }
   }
 
@@ -711,20 +797,40 @@ export class GameShell {
   async _loadChatHistory() {
     const campaignId = this.launchContext?.campaign_id;
     const roomId     = this.activeRoomId;
-    const charId     = this.launchCharacter?.id ?? this.launchContext?.character_id;
+    const requestRoomId = String(roomId || '').trim();
+    const charId     = Number(
+      this.resolveLaunchCharacterRuntimeContext?.().characterId
+      || this.launchCharacter?.id
+      || this.launchContext?.character_id
+      || 0
+    ) || null;
     if (!campaignId || !roomId) {
       console.warn('[GameShell] _loadChatHistory: missing campaignId or roomId', { campaignId, roomId });
       return;
     }
-    console.log('[GameShell] _loadChatHistory', { campaignId, roomId });
+    const requestToken = ++this._chatHistoryRequestToken;
+    console.log('[GameShell] _loadChatHistory', { campaignId, roomId, requestToken });
 
     try {
       let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`;
-      if (charId) url += `?character_id=${encodeURIComponent(charId)}`;
+      const mapId = String(
+        this.hexmap?.dungeonData?.map_id
+        || this.hexmap?.launchContext?.map_id
+        || this.launchContext?.map_id
+        || this.stateManager?.get?.('mapId')
+        || ''
+      ).trim();
+      const params = new URLSearchParams();
+      if (charId) params.set('character_id', String(charId));
+      if (mapId) params.set('map_id', mapId);
+      if (params.toString()) url += `?${params.toString()}`;
       const resp = await fetch(url, {
         headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         credentials: 'same-origin',
       });
+      if (requestToken !== this._chatHistoryRequestToken) {
+        return;
+      }
       if (!resp.ok) {
         const responseText = await resp.text().catch(() => '');
         console.error('[GameShell] _loadChatHistory failed', {
@@ -737,14 +843,33 @@ export class GameShell {
         return;
       }
       const result = await resp.json().catch(() => ({}));
+      if (requestToken !== this._chatHistoryRequestToken) {
+        return;
+      }
       if (!result?.success || !Array.isArray(result.data?.messages)) {
         console.warn('[GameShell] _loadChatHistory: unexpected response', { ok: resp.ok, success: result?.success, messageCount: result?.data?.messages?.length });
         return;
       }
 
+      const payloadRoomId = String(result?.data?.roomId || result?.data?.room_id || requestRoomId).trim();
+      const activeRoomId = String(this.activeRoomId || '').trim();
+      if (payloadRoomId && activeRoomId && payloadRoomId !== activeRoomId) {
+        console.info('[GameShell] _loadChatHistory: stale response dropped', {
+          requestedRoomId: requestRoomId,
+          payloadRoomId,
+          activeRoomId,
+        });
+        return;
+      }
+
       this._chatHistoryLoaded = true;
       console.log('[GameShell] _loadChatHistory: loaded', { lineCount: result.data.messages.length });
-      this.bus.emit('chat:history-loaded', result);
+      this.bus.emit('chat:history-loaded', {
+        ...result,
+        roomId: payloadRoomId || requestRoomId,
+        campaignId: Number(campaignId) || null,
+        requestToken,
+      });
     } catch (_) {
       // Chat history is best-effort; no user-facing error
     }
@@ -885,12 +1010,16 @@ export class GameShell {
     const campaignId = Number(context?.campaignId || 0);
     const roomId = String(context?.roomId || '').trim();
     const characterId = Number(context?.characterId || 0) || null;
+    const mapId = String(context?.mapId || '').trim();
     const channelKey = String(options?.channelKey || 'room').trim() || 'room';
     if (!campaignId || !roomId) {
       return null;
     }
 
     let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat?channel=${encodeURIComponent(channelKey)}`;
+    if (mapId) {
+      url += `&map_id=${encodeURIComponent(mapId)}`;
+    }
     if (characterId) {
       url += `&character_id=${characterId}`;
     }
@@ -1958,7 +2087,7 @@ export class GameShell {
     const visualRoomId = this.mapVisualState?.map_meta?.active_room_id
       || Object.keys(this.mapVisualState?.topology?.rooms || {})[0]
       || null;
-    return this.activeRoomId || this.state?.activeRoomId || visualRoomId || this.launchContext?.room_id || null;
+    return visualRoomId || this.activeRoomId || this.state?.activeRoomId || this.launchContext?.room_id || null;
   }
 
   // --- ported from hexmap.js ---
@@ -2244,31 +2373,37 @@ export class GameShell {
 
   // --- ported from hexmap.js ---
   resolveNavigationCapabilities(roomId = null) {
-    // Navigation capability source-of-truth is server-projected room.exits.
-    // If this contract is missing, fail closed and surface the contract error
-    // rather than inferring client-side legality.
+    // Navigation capability source-of-truth is the campaign navigation service.
+    // If this contract is missing, fail closed rather than inferring legality.
     const activeRoomId = String(roomId || this.resolveActiveRoomId() || '').trim();
-    if (activeRoomId === '') {
-      return [];
-    }
-
-    const rooms = this.getVisualRooms();
-    const room = rooms && typeof rooms === 'object' ? rooms[activeRoomId] : null;
-    const exits = Array.isArray(room?.exits) ? room.exits : [];
-    if (!Array.isArray(room?.exits)) {
+    const capabilities = Array.isArray(this.dungeonData?.navigation_capabilities)
+      ? this.dungeonData.navigation_capabilities
+      : [];
+    if (!Array.isArray(this.dungeonData?.navigation_capabilities)) {
+      if (activeRoomId === '') {
+        return [];
+      }
       if (!this._missingNavigationExitsWarnings.has(activeRoomId)) {
         this._missingNavigationExitsWarnings.add(activeRoomId);
-        console.warn('[Navigation] Missing authoritative room.exits contract for active room', {
+        console.warn('[Navigation] Missing authoritative campaign navigation capabilities for active room', {
           activeRoomId,
-          roomKeys: room && typeof room === 'object' ? Object.keys(room) : [],
+          dungeonDataKeys: this.dungeonData && typeof this.dungeonData === 'object' ? Object.keys(this.dungeonData) : [],
         });
       }
       return [];
     }
 
-    return exits
-      .map((exit) => _normalizeAuthoritativeNavigationCapability(exit, activeRoomId))
+    const normalizedCapabilities = capabilities
+      .map((capability) => _normalizeAuthoritativeNavigationCapability(capability, activeRoomId))
       .filter((capability) => capability.target_room_id);
+    if (activeRoomId === '') {
+      return normalizedCapabilities;
+    }
+
+    return normalizedCapabilities.filter((capability) => {
+      const originRoomId = String(capability?.origin_room_id || '').trim();
+      return originRoomId === '' || originRoomId === activeRoomId;
+    });
   }
 
   // --- ported from hexmap.js ---
@@ -2305,7 +2440,7 @@ export class GameShell {
     const selectedInstanceId = selectedEntity?.dcEntityRef || selectedEntity?.dcEntityInstanceId || null;
     return {
       campaignId: this.resolveCampaignId(),
-      characterId: launchCharacterId || selectedCharacterId || null,
+      characterId: selectedCharacterId || launchCharacterId || null,
       instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId
         ? selectedInstanceId
         : (this.launchCharacter?.instanceId || this.launchCharacter?.instance_id || null),
@@ -2432,34 +2567,27 @@ export class GameShell {
   }
 
   // --- ported from hexmap.js ---
-  setActiveRoom(roomId) {
+  setActiveRoom(roomId, options = {}) {
     const normalizedRoomId = String(roomId || '').trim();
     if (!normalizedRoomId) {
       return;
     }
-
-    this._synchronizePartyOccupantsToRoom(normalizedRoomId);
-
+    const loadData = options?.loadData !== false;
+    const source = String(options?.source || 'set-active-room').trim() || 'set-active-room';
+    const phase = String(options?.phase || 'navigation-apply').trim() || 'navigation-apply';
     const room = _mergeRoomMetadata(this.getVisualRooms()[normalizedRoomId] || null, {}, normalizedRoomId);
-    const occupants = this.getVisualOccupants().filter((occupant) => String(occupant?.room_id || '') === normalizedRoomId && this.isVisualOccupantVisible(occupant));
-    this.activeRoomId = normalizedRoomId;
-    this._activeRoomData = room;
-    this._setStateValue('activeRoomId', normalizedRoomId);
-    this._syncActiveRoomEntities(normalizedRoomId);
-    this.bus?.emit('room:changed', {
+    const occupants = this.getVisualOccupants().filter(
+      (occupant) => String(occupant?.room_id || '') === normalizedRoomId && this.isVisualOccupantVisible(occupant)
+    );
+    this._emitCanonicalRoomChanged({
       roomId: normalizedRoomId,
       roomName: room?.name ?? normalizedRoomId,
       room,
-      sceneImageUrl: room?.image_url ?? null,
-      connections: _buildRoomConnections(normalizedRoomId, this.mapVisualState),
       occupants,
+      source,
+      phase,
+      loadData,
     });
-    this.bus?.emit('room:occupants-changed', {
-      roomId: normalizedRoomId,
-      roomName: room?.name ?? normalizedRoomId,
-      occupants,
-    });
-    this.prefetchConnectedRoomContext?.();
   }
 
   _synchronizePartyOccupantsToRoom(roomId) {

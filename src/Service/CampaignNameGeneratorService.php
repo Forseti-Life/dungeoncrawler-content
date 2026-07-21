@@ -6,6 +6,8 @@ use Drupal\Core\Extension\ModuleExtensionList;
 
 /**
  * Generates local, deterministic campaign names from themed word tables.
+ *
+ * Validation pair: none (deterministic utility generator).
  */
 class CampaignNameGeneratorService {
 

@@ -342,10 +342,30 @@ authoritative execution beyond simple deltas.
 
 | Action | Use When | Notes |
 |---|---|---|
-| `navigate_to_location` | A player meaningfully moves to another room, exit, or scene location | Use for actual room/scene transitions, not flavor-only movement |
+| `navigate_to_location` | Deprecated for chat-originated turns | Travel transitions are initiated from the navigation action rail, not GM chat action payloads |
 | `transfer_inventory` | An item changes custody between campaign storage owners | Covers character ↔ NPC, character ↔ container, room ↔ character, etc. |
 | `quest_turn_in` | A player turns in, confirms, or advances a quest with a valid target | Quest engine must confirm progress/completion |
 | `combat_initiation` | Hostility escalates into encounter mode | Encounter state is opened by authoritative phase transition |
+
+### GM Privileged Mutation Tool Contract (Authoritative)
+
+When executing GM privileged mutation tools (`dc:gm-actor-tool` / harness runtime):
+
+1. **Principal binding is mandatory**
+   - `actor_role=gm`
+   - `gm_actor_id` + `gm_character_id`
+   - Server verifies `gm_character_id -> actor_id` binding in current campaign runtime.
+2. **Ownership domain is mandatory**
+   - `ownership_domain=normalized_tables` for campaign-table tools
+   - `ownership_domain=dungeon_blob` for `dc_campaign_dungeons.dungeon_data` tools
+3. **Correlation id is mandatory**
+   - `correlation_id` required for immutable ledger linking.
+4. **Mutations are transactional + fail-fast**
+   - Unsupported operations are rejected.
+   - Update/delete paths require exact single-row mutation invariants.
+5. **Audit logging is mandatory**
+   - Every privileged mutation appends one row to `dc_gm_mutation_audit`
+   - Includes tool/operation/target/principal/correlation/payload hash and before/after digests.
 
 ### Inventory Transfer Rule
 
@@ -393,15 +413,18 @@ The GM should:
 
 The GM must distinguish between flavor narration and state-changing transitions.
 
-- Use `navigate_to_location` when the character or party actually leaves the
-  current room or enters a new scene/location
+- Do not emit `navigate_to_location` from GM chat turns
+- Travel transitions are initiated from the navigation action rail
 - Use `combat_initiation` when threats become active combat, initiative should
   begin, or the game should move into encounter mode
 - Do not use prose alone to imply those transitions already happened
+- Navigation execution is hard-fail once initiated from the action rail
+- Navigation authority is DB-first and DB-only for connector topology; do not
+  rely on JSON connection fallback behavior
 
 ### Examples
 
-- "I open the north door and head into the crypt." → `navigate_to_location`
+- "I open the north door and head into the crypt." → use the navigation action rail to travel
 - "I draw steel and rush the goblins." → `combat_initiation`
 - "I hand the relic to Eldric for the promised reward." → `quest_turn_in`
 - "I give the potion to Marta." → `transfer_inventory`

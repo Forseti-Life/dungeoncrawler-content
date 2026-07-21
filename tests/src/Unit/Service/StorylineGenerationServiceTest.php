@@ -12,6 +12,7 @@ use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineGenerationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
+use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Drupal\dungeoncrawler_content\Service\StorylineRealizationService;
 use Drupal\dungeoncrawler_content\Service\TreasureByLevelService;
 use Drupal\Tests\UnitTestCase;
@@ -739,7 +740,8 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       $storyline_manager,
       $campaign_state,
       new TreasureByLevelService(),
-      $this->buildUuid()
+      $this->buildUuid(),
+      $this->createMock(StorylineQuestLifecycleService::class)
     );
 
     $package = $service->generateStorylineBootstrapPackage(65, [
@@ -910,7 +912,8 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       $storyline_manager,
       $campaign_state,
       new TreasureByLevelService(),
-      $this->buildUuid()
+      $this->buildUuid(),
+      $this->createMock(StorylineQuestLifecycleService::class)
     );
 
     $package = $service->generateStorylineBootstrapPackage(65, [
@@ -923,6 +926,77 @@ class StorylineGenerationServiceTest extends UnitTestCase {
     $this->assertSame('ai', $package['generation_source']);
     $this->assertSame('Nested Relic Lead', $package['storyline_definition']['name'] ?? NULL);
     $this->assertSame('Recover the relic map.', $package['storyline_definition']['metadata']['goal'] ?? NULL);
+  }
+
+  /**
+   * Verifies AI generation failures surface as hard failures (no fallback path).
+   */
+  public function testGenerateStorylinePackageThrowsWhenAiGenerationFails(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 2]],
+    ]);
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
+
+    $ai_api = $this->createMock(AIApiService::class);
+    $ai_api->expects($this->once())
+      ->method('invokeModelDirect')
+      ->willThrowException(new \RuntimeException('model unavailable'));
+
+    $service = new StorylineGenerationService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $ai_api,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid(),
+      $this->createMock(StorylineQuestLifecycleService::class)
+    );
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('AI storyline generation failed for campaign 65');
+    $service->generateStorylinePackage(65, [
+      'prompt' => 'Stop the relic cult.',
+    ]);
+  }
+
+  /**
+   * Verifies AI bootstrap failures surface as hard failures (no fallback path).
+   */
+  public function testGenerateStorylineBootstrapPackageThrowsWhenAiGenerationFails(): void {
+    $campaign_state = $this->createMock(CampaignStateService::class);
+    $campaign_state->method('getState')->willReturn([
+      'current_room_id' => 'tavern_entrance',
+      'characters' => [['level' => 2]],
+    ]);
+    $storyline_manager = $this->buildStorylineManager($campaign_state);
+
+    $ai_api = $this->createMock(AIApiService::class);
+    $ai_api->expects($this->once())
+      ->method('invokeModelDirect')
+      ->willThrowException(new \RuntimeException('bootstrap model unavailable'));
+
+    $service = new StorylineGenerationService(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $ai_api,
+      $storyline_manager,
+      $campaign_state,
+      new TreasureByLevelService(),
+      $this->buildUuid(),
+      $this->createMock(StorylineQuestLifecycleService::class)
+    );
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('AI storyline bootstrap generation failed for campaign 65');
+    $service->generateStorylineBootstrapPackage(65, [
+      'prompt' => 'I need a new lead.',
+      'speaker_npc_id' => 'npc_tavern_keeper',
+      'speaker_name' => 'Eldric',
+      'lead_location_id' => 'tavern_entrance',
+    ]);
   }
 
   /**
@@ -1607,6 +1681,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
       $this->buildUuid(),
       $campaign_state,
       $this->buildStateValidationService(),
+      $this->createMock(StorylineQuestLifecycleService::class),
       $existing_storylines
     ) extends StorylineManagerService {
       public function __construct(
@@ -1615,6 +1690,7 @@ class StorylineGenerationServiceTest extends UnitTestCase {
         UuidInterface $uuid,
         CampaignStateService $campaign_state_service,
         StateValidationService $state_validation_service,
+        StorylineQuestLifecycleService $storyline_quest_lifecycle_service,
         private readonly array $existingStorylines,
       ) {
         parent::__construct(
@@ -1622,7 +1698,8 @@ class StorylineGenerationServiceTest extends UnitTestCase {
           $logger_factory,
           $uuid,
           $campaign_state_service,
-          $state_validation_service
+          $state_validation_service,
+          $storyline_quest_lifecycle_service
         );
       }
 

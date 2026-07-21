@@ -81,6 +81,7 @@ export class HexCanvas {
     this.currentRoomId = null;
 
     this._unsubs = [];
+    this._lastRoomTransitionId = '';
     this._wheelHandler = null;
     this._leaveHandler = null;
 
@@ -109,7 +110,14 @@ export class HexCanvas {
     this.drawCompassRose();
 
     this._unsubs.push(
-      this.bus.on('room:changed', ({ roomId, room } = {}) => {
+      this.bus.on('room:changed', ({ roomId, room, transition } = {}) => {
+        const transitionId = String(transition?.id || '').trim();
+        if (transitionId && transitionId === this._lastRoomTransitionId) {
+          return;
+        }
+        if (transitionId) {
+          this._lastRoomTransitionId = transitionId;
+        }
         this.currentRoomId = roomId || room?.room_id || null;
         this.currentRoom = room || null;
         this.generateHexGrid();

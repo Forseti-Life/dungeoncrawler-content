@@ -12,6 +12,9 @@ use GuzzleHttp\Exception\GuzzleException;
 
 /**
  * Vertex image generation integration service.
+ *
+ * Validation pair: no dedicated validator service; API payload/response
+ * contracts are enforced inline by provider integration logic.
  */
 class VertexImageGenerationService {
 

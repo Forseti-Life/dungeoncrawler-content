@@ -44,7 +44,7 @@ Yes — the architecture includes a content generation system, and this section 
 | Campaign shell + starter runtime state | `CampaignInitializationService::initializeCampaign()` | `dc_campaigns`, initial `campaign_data`, starter chat/session bootstrap |
 | Starter and generated dungeons | `CampaignInitializationService`, `DungeonGeneratorService`, `StorylineRealizationService` | `dc_campaign_dungeons`, `dungeoncrawler_content_dungeons` |
 | Rooms (starter, procedural, navigation-generated, storyline-realized) | `RoomGeneratorService`, `MapGeneratorService`, `StorylineRealizationService` | `dc_campaign_rooms`, `dungeoncrawler_content_rooms`, `dungeon_data.rooms` |
-| Room graph/connections | `DungeonGeneratorService`, `MapGeneratorService`, `StorylineRealizationService` | `dungeon_data.hex_map.connections`, room-link metadata |
+| Room graph/connections | `DungeonGeneratorService`, `MapGeneratorService`, `StorylineRealizationService`, `ConnectorDefinitionService` | `dc_dungeon_room_connectors`, `dc_campaign_room_connectors` (authoritative), room-link metadata |
 | Encounter definitions and combatant sets | `EncounterGeneratorService`, `CombatEngine` bootstrap paths | Encounter payloads in room context and encounter persistence stores |
 | Room entities (creatures, NPCs, items, hazards/traps/obstacles) | `EntityPlacerService`, `RoomGeneratorService`, `MapGeneratorService` | Room `contents_data`, room state payloads, registry-backed content references |
 | Quest instances (including objective phases and rewards) | `QuestGeneratorService` | `dc_campaign_quests` (`generated_objectives`, `generated_rewards`, `quest_data`) |
@@ -74,6 +74,26 @@ Yes — the architecture includes a content generation system, and this section 
 - **StorylineGenerationService / StorylineRealizationService**: Storyline package generation and campaign materialization
 - **NpcSheetGenerationService / NpcPsychologyService**: NPC sheet and psychology generation
 - **FactionGenerationService**: Narrative-need faction generation and campaign instantiation
+
+## GM Subsystem Authority Boundaries
+
+| Surface | Owner | Contract |
+|---|---|---|
+| GM room-reply entry orchestration | `GmReplyOrchestrationService` | Room chat flow delegates GM reply entry through subsystem boundary |
+| GM actor runtime ingress | `GmActorHarnessService` + `GmActorRuntimeService` | Runtime route metadata + validated room-chat transport adapter |
+| GM privileged mutations on normalized campaign tables | `GmToolExecutionService` | Requires `ownership_domain=normalized_tables` |
+| GM privileged mutations on `dc_campaign_dungeons.dungeon_data` blob | `GmToolExecutionService` | Requires `ownership_domain=dungeon_blob` |
+| Navigation action execution (`navigate_to_location`) | `NavigationRuntimeService` + `NavigationTransitionPipeline` | Navigation-owned runtime contract; hard-fail execution, no soft fallback payloads |
+| Navigation application orchestration | `NavigationApplicationOrchestrator` | Room chat invokes navigation as a caller; transition coordination remains navigation-owned |
+| Navigation connector/capability reads | `NavigationService` | DB-authoritative connector tables only; JSON connection fallback is unsupported |
+| GM mutation identity binding | `GmToolExecutionService` | Requires `actor_role=gm`, `gm_actor_id`, `gm_character_id`, and server-side actor-resolution match |
+| GM mutation audit trail | `dc_gm_mutation_audit` | Immutable append-only ledger with correlation id + payload/before/after digests |
+
+### Navigation Persistence Contracts
+
+1. `MapGeneratorService` executes navigation persistence writes inside one transaction envelope.
+2. Room-link parity is hard-enforced after writes between `dungeon_data` connection payloads and `dc_campaign_connections` rows.
+3. Navigation runtime and transition services are DI-required production dependencies (no optional service fallback wiring).
 
 ### Entities
 - **Campaign**: Game session container

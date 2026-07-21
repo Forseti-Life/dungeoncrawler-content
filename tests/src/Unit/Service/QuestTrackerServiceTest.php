@@ -5,10 +5,12 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Exception\StorylineSyncContractException;
 use Drupal\dungeoncrawler_content\Service\ChatSessionManager;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\InventoryManagementService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
+use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
 
@@ -176,6 +178,84 @@ class QuestTrackerServiceTest extends UnitTestCase {
 
     $service->preparePhase($hidden_phase, TRUE);
     $this->assertTrue($hidden_phase['objectives'][0]['revealed']);
+  }
+
+  /**
+   * Verifies contract-critical sync fails when storyline manager is missing.
+   */
+  public function testNotifyStorylineManagerThrowsWhenManagerMissing(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public function notifyForTest(int $campaign_id, string $quest_id, string $event_type, ?int $character_id, array $event_data = []): void {
+        $this->notifyStorylineManager($campaign_id, $quest_id, $event_type, $character_id, $event_data);
+      }
+    };
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('StorylineManagerService is required for event "quest_started"');
+    $service->notifyForTest(301, 'quest-alpha', 'quest_started', 99, []);
+  }
+
+  /**
+   * Verifies contract-critical sync failures are surfaced instead of swallowed.
+   */
+  public function testNotifyStorylineManagerThrowsWhenSyncFails(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $storyline_manager = $this->createMock(StorylineManagerService::class);
+    $storyline_manager->expects($this->once())
+      ->method('recordQuestStateChange')
+      ->willThrowException(new \RuntimeException('sync write failed'));
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class),
+      $storyline_manager
+    ) extends QuestTrackerService {
+      public function notifyForTest(int $campaign_id, string $quest_id, string $event_type, ?int $character_id, array $event_data = []): void {
+        $this->notifyStorylineManager($campaign_id, $quest_id, $event_type, $character_id, $event_data);
+      }
+    };
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('Storyline synchronization failed for quest "quest-beta" on event "quest_completed": sync write failed');
+    $service->notifyForTest(302, 'quest-beta', 'quest_completed', 44, []);
+  }
+
+  /**
+   * Verifies contract-critical sync failures are classified for hard-fail propagation.
+   */
+  public function testContractCriticalSyncFailureClassification(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $service = new class(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTrackerService {
+      public function isCriticalForTest(\Throwable $throwable): bool {
+        return $this->isContractCriticalStorylineSyncFailure($throwable);
+      }
+    };
+
+    $this->assertTrue($service->isCriticalForTest(
+      new StorylineSyncContractException('Storyline synchronization failed for quest "quest-gamma" on event "quest_started": manager missing')
+    ));
+    $this->assertFalse($service->isCriticalForTest(
+      new \RuntimeException('Failed to start quest: unrelated failure')
+    ));
   }
 
   /**

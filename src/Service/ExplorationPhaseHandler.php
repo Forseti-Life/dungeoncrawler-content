@@ -129,6 +129,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected ?TextToSpeechIntegrationService $textToSpeechIntegration;
   protected ?FileUrlGeneratorInterface $fileUrlGenerator;
   protected ?QuestTrackerService $questTracker;
+  protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
 
   /**
    * Constructs an ExplorationPhaseHandler.
@@ -141,6 +142,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     CharacterStateService $character_state_service,
     NumberGenerationService $number_generation_service,
     AiGmService $ai_gm_service,
+    StorylineQuestLifecycleService $storyline_quest_lifecycle_service,
     ?NarrationEngine $narration_engine = NULL,
     ?KnowledgeAcquisitionService $knowledge_acquisition = NULL,
     ?HazardService $hazard_service = NULL,
@@ -174,6 +176,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
     $this->questTracker = $quest_tracker;
+    $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
     if (
       $this->questTracker === NULL
       && \Drupal::hasService('dungeoncrawler_content.quest_tracker')
@@ -2256,6 +2259,9 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $exists = $this->database->select('dc_campaign_characters', 'cc')
         ->condition('campaign_id', $campaign_id)
         ->condition('id', $candidate_id)
+        ->condition('type', 'pc')
+        ->condition('role', 'player')
+        ->condition('is_active', 1)
         ->countQuery()
         ->execute()
         ->fetchField();
@@ -2293,27 +2299,42 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         continue;
       }
 
-      $objective_ref = $this->findSearchCollectObjective($objective_states, $objective_room_ids);
+      $current_phase = max(1, (int) ($progress['current_phase'] ?? 1));
+      $this->backfillDiscoveredExploreObjectives($campaign_id, $quest_id, $character_id, $objective_states, $current_phase);
+      $progress = $this->loadSearchQuestProgress($campaign_id, $quest_id, $character_id);
+      $objective_states = $progress
+        ? json_decode((string) ($progress['objective_states'] ?? '[]'), TRUE)
+        : $objective_states;
+      if (!is_array($objective_states)) {
+        continue;
+      }
+      $current_phase = max(1, (int) ($progress['current_phase'] ?? $current_phase));
+      $objective_ref = $this->findSearchCollectObjective($objective_states, $objective_room_ids, $current_phase);
       if (!$objective_ref) {
         continue;
       }
 
       $objective = $objective_ref['objective'];
       $target = max(1, (int) ($objective['target_count'] ?? $objective['completion_criteria']['target_count'] ?? 1));
-      $quest_source = (string) ($quest['source_template_id'] ?? $quest_id);
+      $objective_id = (string) ($objective['objective_id'] ?? '');
+      if ($objective_id === '') {
+        continue;
+      }
+      $quest_source = (string) ($quest['source_template_id'] ?? '');
       $current = max(
         (int) ($objective['current'] ?? 0),
-        $this->countCampaignQuestCollectibles($campaign_id, $quest_source)
+        $this->countCharacterQuestCollectiblesForObjective($campaign_id, $character_id, $quest_id, $objective_id, $quest_source, (string) ($objective['item'] ?? ''))
       );
 
       $quest_target = [
         'quest' => $quest,
         'quest_id' => $quest_id,
         'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
-        'source_template_id' => (string) ($quest['source_template_id'] ?? ''),
-        'objective_id' => (string) ($objective['objective_id'] ?? ''),
+        'source_template_id' => $quest_source,
+        'objective_id' => $objective_id,
+        'objective_item' => (string) ($objective['item'] ?? ''),
         'objective_states' => $objective_states,
-        'current_phase' => (int) ($progress['current_phase'] ?? $objective_ref['phase'] ?? 1),
+        'current_phase' => $current_phase,
         'target' => $target,
         'current' => $current,
         'progress_exists' => (bool) $progress,
@@ -2387,13 +2408,17 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Find a collect objective for the active room.
    */
-  protected function findSearchCollectObjective(array $objective_states, array $room_ids): ?array {
+  protected function findSearchCollectObjective(array $objective_states, array $room_ids, int $current_phase): ?array {
+    $completed_objective_ids = $this->collectSearchCompletedObjectiveIdsThroughPhase($objective_states, $current_phase);
     foreach ($objective_states as $phase) {
       if (!is_array($phase)) {
         continue;
       }
+      if ((int) ($phase['phase'] ?? 0) !== $current_phase) {
+        continue;
+      }
       foreach (($phase['objectives'] ?? []) as $objective) {
-        $match = $this->findSearchCollectObjectiveNode($objective, $room_ids);
+        $match = $this->findSearchCollectObjectiveNode($objective, $room_ids, $completed_objective_ids);
         if ($match) {
           return [
             'phase' => (int) ($phase['phase'] ?? 1),
@@ -2408,7 +2433,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Recursively locate a collect objective in a room.
    */
-  protected function findSearchCollectObjectiveNode($objective, array $room_ids): ?array {
+  protected function findSearchCollectObjectiveNode($objective, array $room_ids, array $phase_completed_objective_ids): ?array {
     if (!is_array($objective)) {
       return NULL;
     }
@@ -2419,13 +2444,15 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $type === 'collect'
       && in_array($location, $room_ids, TRUE)
       && empty($objective['completed'])
+      && $this->isSearchObjectiveCurrentlyRevealed($objective)
+      && !$this->searchObjectiveHasUnmetDependencies($objective, $phase_completed_objective_ids)
     ) {
       return $objective;
     }
 
     foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
       foreach (($objective[$children_key] ?? []) as $child) {
-        $match = $this->findSearchCollectObjectiveNode($child, $room_ids);
+        $match = $this->findSearchCollectObjectiveNode($child, $room_ids, $phase_completed_objective_ids);
         if ($match) {
           return $match;
         }
@@ -2436,11 +2463,22 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
-   * Count already-carried collectibles for a quest association.
+   * Count already-carried collectibles for one quest objective.
    */
-  protected function countCharacterQuestCollectibles(int $campaign_id, int $character_id, string $quest_source): int {
+  protected function countCharacterQuestCollectiblesForObjective(
+    int $campaign_id,
+    int $character_id,
+    string $quest_id,
+    string $objective_id,
+    string $quest_source = '',
+    string $objective_item = ''
+  ): int {
+    if ($campaign_id <= 0 || $character_id <= 0 || $quest_id === '' || $objective_id === '') {
+      return 0;
+    }
+
     $rows = $this->database->select('dc_campaign_item_instances', 'i')
-      ->fields('i', ['state_data', 'quantity'])
+      ->fields('i', ['state_data', 'quantity', 'item_id'])
       ->condition('campaign_id', $campaign_id)
       ->condition('location_type', ['carried', 'inventory', 'equipped', 'worn', 'stashed'], 'IN')
       ->condition('location_ref', (string) $character_id)
@@ -2451,29 +2489,14 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     foreach ($rows as $row) {
       $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
       $state = is_array($state) ? $state : [];
-      if ($this->searchItemMatchesQuestSource($state, $quest_source)) {
-        $count += max(1, (int) ($row['quantity'] ?? 1));
-      }
-    }
-    return $count;
-  }
-
-  /**
-   * Count carried collectibles for a quest association across the campaign.
-   */
-  protected function countCampaignQuestCollectibles(int $campaign_id, string $quest_source): int {
-    $rows = $this->database->select('dc_campaign_item_instances', 'i')
-      ->fields('i', ['state_data', 'quantity'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('location_type', ['carried', 'inventory', 'equipped', 'worn', 'stashed'], 'IN')
-      ->execute()
-      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-    $count = 0;
-    foreach ($rows as $row) {
-      $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
-      $state = is_array($state) ? $state : [];
-      if ($this->searchItemMatchesQuestSource($state, $quest_source)) {
+      if ($this->searchItemMatchesQuestObjective(
+        $state,
+        $quest_id,
+        $objective_id,
+        $quest_source,
+        $objective_item,
+        (string) ($row['item_id'] ?? '')
+      )) {
         $count += max(1, (int) ($row['quantity'] ?? 1));
       }
     }
@@ -2494,11 +2517,17 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
-    $quest_source = (string) ($quest_target['source_template_id'] ?: $quest_target['quest_id']);
+    $quest_id = trim((string) ($quest_target['quest_id'] ?? ''));
+    $objective_id = trim((string) ($quest_target['objective_id'] ?? ''));
+    $quest_source = trim((string) ($quest_target['source_template_id'] ?? ''));
+    $objective_item = trim((string) ($quest_target['objective_item'] ?? ''));
+    if ($quest_id === '' || $objective_id === '') {
+      return NULL;
+    }
     foreach ($rows as $row) {
       $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
       $state = is_array($state) ? $state : [];
-      if ($this->searchItemMatchesQuestSource($state, $quest_source)) {
+      if ($this->searchItemMatchesQuestObjective($state, $quest_id, $objective_id, $quest_source, $objective_item, (string) ($row['item_id'] ?? ''))) {
         return $row;
       }
     }
@@ -2658,6 +2687,9 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       $current = 0;
       $target = 1;
       $narrator_notes = [];
+      if ($quest_target === NULL && $quest_id !== '' && $objective_id !== '') {
+        $quest_target = $this->resolveQuestTargetFromMetadata($campaign_id, $character_id, $quest_id, $objective_id, $quest_source);
+      }
       if ($quest_target) {
         $progress_state = $this->recordSearchCollectibleProgress($campaign_id, $character_id, $quest_target);
         $current = (int) ($progress_state['current'] ?? 0);
@@ -2688,21 +2720,252 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * Determine whether an item belongs to a quest collect objective.
    */
-  protected function searchItemMatchesQuestSource(array $item_state, string $quest_source): bool {
+  protected function searchItemMatchesQuestObjective(
+    array $item_state,
+    string $quest_id,
+    string $objective_id,
+    string $quest_source = '',
+    string $objective_item = '',
+    string $row_item_id = ''
+  ): bool {
+    $quest_id = trim($quest_id);
+    $objective_id = trim($objective_id);
     $quest_source = trim($quest_source);
-    if ($quest_source === '') {
+    if ($quest_id === '' || $objective_id === '') {
       return FALSE;
     }
-    $candidates = [
-      (string) ($item_state['quest_association'] ?? ''),
-      (string) ($item_state['_spawn']['quest_association'] ?? ''),
-      (string) ($item_state['source_template_id'] ?? ''),
-    ];
-    foreach (($item_state['tags'] ?? []) as $tag) {
-      $candidates[] = (string) $tag;
+
+    $spawn = is_array($item_state['_spawn'] ?? NULL) ? $item_state['_spawn'] : [];
+    $state_objective_id = trim((string) ($item_state['objective_id'] ?? $spawn['objective_id'] ?? ''));
+    if ($state_objective_id !== '' && $state_objective_id !== $objective_id) {
+      return FALSE;
     }
 
-    return in_array($quest_source, array_map('trim', $candidates), TRUE);
+    $state_quest_id = trim((string) ($item_state['quest_id'] ?? $spawn['quest_id'] ?? ''));
+    if ($state_quest_id !== '' && $state_quest_id === $quest_id) {
+      return TRUE;
+    }
+
+    if ($quest_source !== '') {
+      $state_quest_source = trim((string) ($item_state['quest_association'] ?? $spawn['quest_source'] ?? $spawn['quest_association'] ?? $item_state['source_template_id'] ?? ''));
+      if ($state_quest_source !== '' && $state_quest_source === $quest_source) {
+        return TRUE;
+      }
+    }
+
+    if ($objective_item !== '' && $this->searchObjectiveItemMatchesState($objective_item, $item_state, $row_item_id)) {
+      return TRUE;
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Determine whether an objective item label/id matches a runtime item state.
+   */
+  protected function searchObjectiveItemMatchesState(string $objective_item, array $item_state, string $row_item_id = ''): bool {
+    $objective_token = $this->normalizeSearchItemToken($objective_item);
+    if ($objective_token === '') {
+      return FALSE;
+    }
+
+    $spawn = is_array($item_state['_spawn'] ?? NULL) ? $item_state['_spawn'] : [];
+    $candidates = [
+      $row_item_id,
+      (string) ($item_state['item_id'] ?? ''),
+      (string) ($item_state['id'] ?? ''),
+      (string) ($item_state['content_id'] ?? ''),
+      (string) ($item_state['name'] ?? ''),
+      (string) ($spawn['content_id'] ?? ''),
+    ];
+    foreach ($candidates as $candidate) {
+      $candidate_token = $this->normalizeSearchItemToken((string) $candidate);
+      if ($candidate_token !== '' && $candidate_token === $objective_token) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Normalize item labels/ids for deterministic equality matching.
+   */
+  protected function normalizeSearchItemToken(string $value): string {
+    $normalized = strtolower(trim($value));
+    $normalized = preg_replace('/[^a-z0-9]+/', '_', $normalized) ?? $normalized;
+    return trim($normalized, '_');
+  }
+
+  /**
+   * Backfill discover-style objectives when the room was already discovered.
+   */
+  protected function backfillDiscoveredExploreObjectives(
+    int $campaign_id,
+    string $quest_id,
+    int $character_id,
+    array $objective_states,
+    int $current_phase
+  ): void {
+    if ($campaign_id <= 0 || $character_id <= 0 || $quest_id === '' || !$this->questTracker) {
+      return;
+    }
+
+    $objective_ids = $this->collectBackfillableDiscoveryObjectiveIds($campaign_id, $objective_states, $current_phase);
+    foreach ($objective_ids as $objective_id) {
+      $this->questTracker->updateObjectiveProgress($campaign_id, $quest_id, $objective_id, 1, $character_id);
+    }
+  }
+
+  /**
+   * Collect discovery objective IDs in the active phase that can be auto-completed.
+   *
+   * @return array<int, string>
+   *   Objective ids.
+   */
+  protected function collectBackfillableDiscoveryObjectiveIds(int $campaign_id, array $objective_states, int $current_phase): array {
+    foreach ($objective_states as $phase) {
+      if (!is_array($phase) || (int) ($phase['phase'] ?? 0) !== $current_phase) {
+        continue;
+      }
+      return $this->collectBackfillableDiscoveryObjectiveIdsFromNodes($campaign_id, (array) ($phase['objectives'] ?? []));
+    }
+
+    return [];
+  }
+
+  /**
+   * Recursively collect backfillable discovery objective IDs.
+   *
+   * @return array<int, string>
+   *   Objective ids.
+   */
+  protected function collectBackfillableDiscoveryObjectiveIdsFromNodes(int $campaign_id, array $objectives): array {
+    $matches = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+      $metric = strtolower(trim((string) ($objective['completion_criteria']['metric'] ?? '')));
+      $type = strtolower(trim((string) ($objective['type'] ?? '')));
+      $location = trim((string) ($objective['location_id'] ?? $objective['location'] ?? ''));
+      if (
+        $objective_id !== ''
+        && empty($objective['completed'])
+        && $this->isSearchObjectiveCurrentlyRevealed($objective)
+        && ($metric === 'discovered' || $type === 'explore')
+        && $location !== ''
+        && $this->searchObjectiveRoomIsDiscovered($campaign_id, $location)
+      ) {
+        $matches[] = $objective_id;
+      }
+      foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+        if (!is_array($objective[$children_key] ?? NULL)) {
+          continue;
+        }
+        $matches = array_merge(
+          $matches,
+          $this->collectBackfillableDiscoveryObjectiveIdsFromNodes($campaign_id, $objective[$children_key])
+        );
+      }
+    }
+
+    return array_values(array_unique($matches));
+  }
+
+  /**
+   * Determine whether an objective's room has already been discovered.
+   */
+  protected function searchObjectiveRoomIsDiscovered(int $campaign_id, string $location): bool {
+    $room_ids = $this->resolveSearchObjectiveRoomIds($campaign_id, $location);
+    if ($room_ids === [] || !$this->database->schema()->tableExists('dc_campaign_room_states')) {
+      return FALSE;
+    }
+
+    $exists = $this->database->select('dc_campaign_room_states', 'rs')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $room_ids, 'IN')
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+
+    return (int) $exists > 0;
+  }
+
+  /**
+   * Determine whether one objective is currently revealed to runtime.
+   */
+  protected function isSearchObjectiveCurrentlyRevealed(array $objective): bool {
+    return !array_key_exists('revealed', $objective) || !empty($objective['revealed']) || !empty($objective['completed']);
+  }
+
+  /**
+   * Collect completed objective IDs from a nested objective tree.
+   *
+   * @return array<int, string>
+   *   Objective ids.
+   */
+  protected function collectSearchCompletedObjectiveIds(array $objectives): array {
+    $ids = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+      $objective_id = trim((string) ($objective['objective_id'] ?? ''));
+      if ($objective_id !== '' && !empty($objective['completed'])) {
+        $ids[] = $objective_id;
+      }
+      foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+        if (!is_array($objective[$children_key] ?? NULL)) {
+          continue;
+        }
+        $ids = array_merge($ids, $this->collectSearchCompletedObjectiveIds($objective[$children_key]));
+      }
+    }
+    return array_values(array_unique($ids));
+  }
+
+  /**
+   * Collect completed objective IDs through the active phase boundary.
+   *
+   * @return array<int, string>
+   *   Objective ids completed in any phase up to and including current.
+   */
+  protected function collectSearchCompletedObjectiveIdsThroughPhase(array $objective_states, int $current_phase): array {
+    $ids = [];
+    foreach ($objective_states as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      $phase_number = (int) ($phase['phase'] ?? 0);
+      if ($phase_number <= 0 || $phase_number > $current_phase) {
+        continue;
+      }
+      $ids = array_merge($ids, $this->collectSearchCompletedObjectiveIds((array) ($phase['objectives'] ?? [])));
+    }
+    return array_values(array_unique($ids));
+  }
+
+  /**
+   * Determine whether a collect objective is blocked by unmet dependencies.
+   */
+  protected function searchObjectiveHasUnmetDependencies(array $objective, array $completed_objective_ids): bool {
+    $dependencies = array_values(array_filter(array_map(
+      static fn($value): string => trim((string) $value),
+      (array) ($objective['depends_on'] ?? [])
+    )));
+    if ($dependencies === []) {
+      return FALSE;
+    }
+
+    foreach ($dependencies as $dependency_id) {
+      if (!in_array($dependency_id, $completed_objective_ids, TRUE)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
@@ -2744,6 +3007,107 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   }
 
   /**
+   * Resolve a searchable collect objective from quest/item metadata fallback.
+   */
+  protected function resolveQuestTargetFromMetadata(
+    int $campaign_id,
+    int $character_id,
+    string $quest_id,
+    string $objective_id,
+    string $quest_source = ''
+  ): ?array {
+    if ($campaign_id <= 0 || $character_id <= 0 || $quest_id === '' || $objective_id === '') {
+      return NULL;
+    }
+
+    $quest = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($quest) || strtolower(trim((string) ($quest['status'] ?? ''))) !== 'active') {
+      return NULL;
+    }
+
+    $progress = $this->loadSearchQuestProgress($campaign_id, $quest_id, $character_id);
+    $objective_states = $progress
+      ? json_decode((string) ($progress['objective_states'] ?? '[]'), TRUE)
+      : json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
+    if (!is_array($objective_states)) {
+      return NULL;
+    }
+
+    $current_phase = max(1, (int) ($progress['current_phase'] ?? 1));
+    $objective_node = $this->findObjectiveNodeByIdInPhase($objective_states, $objective_id, $current_phase);
+    if (!is_array($objective_node)) {
+      return NULL;
+    }
+
+    $target = max(1, (int) ($objective_node['target_count'] ?? $objective_node['completion_criteria']['target_count'] ?? 1));
+    $resolved_quest_source = $quest_source !== '' ? $quest_source : (string) ($quest['source_template_id'] ?? '');
+    $current = max(
+      (int) ($objective_node['current'] ?? 0),
+      $this->countCharacterQuestCollectiblesForObjective($campaign_id, $character_id, $quest_id, $objective_id, $resolved_quest_source, (string) ($objective_node['item'] ?? ''))
+    );
+
+    return [
+      'quest' => $quest,
+      'quest_id' => $quest_id,
+      'quest_name' => (string) ($quest['quest_name'] ?? $quest_id),
+      'source_template_id' => $resolved_quest_source,
+      'objective_id' => $objective_id,
+      'objective_item' => (string) ($objective_node['item'] ?? ''),
+      'objective_states' => $objective_states,
+      'current_phase' => $current_phase,
+      'target' => $target,
+      'current' => $current,
+      'progress_exists' => (bool) $progress,
+    ];
+  }
+
+  /**
+   * Find an objective node by id in one phase.
+   */
+  protected function findObjectiveNodeByIdInPhase(array $objective_states, string $objective_id, int $phase): ?array {
+    foreach ($objective_states as $phase_entry) {
+      if (!is_array($phase_entry) || (int) ($phase_entry['phase'] ?? 0) !== $phase) {
+        continue;
+      }
+      foreach ((array) ($phase_entry['objectives'] ?? []) as $objective) {
+        $match = $this->findObjectiveNodeById($objective, $objective_id);
+        if ($match !== NULL) {
+          return $match;
+        }
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Recursively find an objective node by id.
+   */
+  protected function findObjectiveNodeById($objective, string $objective_id): ?array {
+    if (!is_array($objective)) {
+      return NULL;
+    }
+    if (trim((string) ($objective['objective_id'] ?? '')) === $objective_id) {
+      return $objective;
+    }
+    foreach (['objectives', 'children', 'sub_objectives'] as $children_key) {
+      foreach ((array) ($objective[$children_key] ?? []) as $child) {
+        $match = $this->findObjectiveNodeById($child, $objective_id);
+        if ($match !== NULL) {
+          return $match;
+        }
+      }
+    }
+    return NULL;
+  }
+
+  /**
    * Persist quest collect progress with a resolved current value.
    */
   protected function syncSearchCollectibleProgress(int $campaign_id, int $character_id, array $quest_target, int $resolved_current): void {
@@ -2755,7 +3119,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $current = min($target, max(0, $resolved_current));
     $current_phase = max(1, (int) ($quest_target['current_phase'] ?? 1));
 
-    $this->applySearchCollectibleProgressToStates($objective_states, $objective_id, $current, $target);
+    $this->applySearchCollectibleProgressToStates($objective_states, $objective_id, $current, $target, $current_phase);
     if ($this->isSearchQuestPhaseComplete($objective_states, $current_phase) && $this->hasSearchQuestPhase($objective_states, $current_phase + 1)) {
       $current_phase++;
     }
@@ -2790,20 +3154,24 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     if (in_array(strtolower((string) ($quest['status'] ?? '')), ['lead', 'offered'], TRUE)) {
-      $this->database->update('dc_campaign_quests')
-        ->fields(['status' => 'active'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('quest_id', $quest_id)
-        ->execute();
+      $this->storylineQuestLifecycleService->setQuestStatusByQuestId(
+        $campaign_id,
+        $quest_id,
+        'active',
+        ['lead', 'offered']
+      );
     }
   }
 
   /**
    * Set collect progress in objective states without exceeding the target.
    */
-  protected function applySearchCollectibleProgressToStates(array &$objective_states, string $objective_id, int $current, int $target): bool {
+  protected function applySearchCollectibleProgressToStates(array &$objective_states, string $objective_id, int $current, int $target, int $current_phase): bool {
     foreach ($objective_states as &$phase) {
       if (!is_array($phase)) {
+        continue;
+      }
+      if ((int) ($phase['phase'] ?? 0) !== $current_phase) {
         continue;
       }
       if (!is_array($phase['objectives'] ?? NULL)) {

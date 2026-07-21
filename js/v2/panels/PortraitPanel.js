@@ -14,6 +14,7 @@ export class PortraitPanel {
     // State carried over from UIManager
     this.dungeonData = null;
     this.stateManager = null;
+    this._lastRoomTransitionId = '';
   }
 
   init(dungeonData, stateManager) {
@@ -51,9 +52,20 @@ export class PortraitPanel {
     window.addEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler);
     this._unsubs.push(
       () => window.removeEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler),
-      this.bus.on('room:changed', (d) => this.loadRoomPortraitsPanel(d?.roomId)),
-      this.bus.on('room:occupants-changed', (d) => this.loadRoomPortraitsPanel(d?.roomId)),
+      this.bus.on('room:changed', (d) => this.handleRoomPortraitsUpdate(d)),
+      this.bus.on('room:occupants-changed', (d) => this.handleRoomPortraitsUpdate(d)),
     );
+  }
+
+  handleRoomPortraitsUpdate(payload = {}) {
+    const transitionId = String(payload?.transition?.id || '').trim();
+    if (transitionId && transitionId === this._lastRoomTransitionId) {
+      return;
+    }
+    if (transitionId) {
+      this._lastRoomTransitionId = transitionId;
+    }
+    this.loadRoomPortraitsPanel(payload?.roomId);
   }
 
   buildRoomPortraitEntries(roomId = null) {

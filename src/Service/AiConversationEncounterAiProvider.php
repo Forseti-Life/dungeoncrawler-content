@@ -27,7 +27,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
   protected ConfigFactoryInterface $configFactory;
 
   /**
-   * Deterministic fallback provider.
+   * Deterministic fallback provider for narration-only fallback paths.
    */
   protected StubEncounterAiProvider $fallbackProvider;
 
@@ -79,32 +79,17 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     );
 
     if (empty($response['success'])) {
-      return $this->fallbackRecommendation(
-        $context,
-        (string) ($response['error'] ?? 'AI response was not successful.'),
-        (int) ($response['request_attempts'] ?? 1),
-        (string) ($response['request_id'] ?? '')
-      );
+      throw new \RuntimeException((string) ($response['error'] ?? 'AI response was not successful.'));
     }
 
     $parsed = $this->decodeModelResponse((string) ($response['response'] ?? ''));
     if (!is_array($parsed)) {
-      return $this->fallbackRecommendation(
-        $context,
-        'Unable to parse recommendation payload from ai_conversation response.',
-        (int) ($response['request_attempts'] ?? 1),
-        (string) ($response['request_id'] ?? '')
-      );
+      throw new \RuntimeException('Unable to parse recommendation payload from ai_conversation response.');
     }
 
     $normalized = $this->normalizeRecommendation($parsed, $context);
     if ($normalized === NULL) {
-      return $this->fallbackRecommendation(
-        $context,
-        'Recommendation payload missing required fields.',
-        (int) ($response['request_attempts'] ?? 1),
-        (string) ($response['request_id'] ?? '')
-      );
+      throw new \RuntimeException('Recommendation payload missing required fields.');
     }
 
     $normalized['request_attempts'] = (int) ($response['request_attempts'] ?? 1);
@@ -240,6 +225,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     $current_actor_tactical_intent = is_array($context['current_actor_tactical_intent'] ?? NULL)
       ? $context['current_actor_tactical_intent']
       : [];
+    $action_contract_hash = trim((string) ($context['action_contract_hash'] ?? ''));
 
     return json_encode([
       'task' => 'Choose a single legal tactical action for the active NPC combatant.',
@@ -249,6 +235,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         'must_match_active_actor' => TRUE,
         'action_cost_max' => $action_cost_max,
         'conversation_allowed_when_visible' => TRUE,
+        'contract_version' => $action_contract_hash !== '' ? $action_contract_hash : 'unversioned',
       ],
       'encounter' => [
         'campaign_id' => (int) ($context['campaign_id'] ?? 0),
@@ -265,24 +252,38 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         'conversation_options' => $conversation_options,
         'participants' => $participants,
         'action_contract' => $action_contract,
+        'action_contract_hash' => $action_contract_hash !== '' ? $action_contract_hash : NULL,
         'actions_available_to_me_this_turn' => $actions_available_to_me_this_turn,
+      ],
+      'action_parameter_contracts' => [
+        'talk' => ['required' => ['message']],
+        'stride' => ['required' => ['target_hex.q', 'target_hex.r']],
+        'step' => ['required' => ['target_hex.q', 'target_hex.r']],
+        'transition' => ['required' => ['target_room_id']],
+        'cast_spell' => ['required' => ['option_id']],
+        'use_feat' => ['required' => ['option_id']],
+        'use_consumable' => ['required' => ['option_id']],
+        'activate_item' => ['required' => ['option_id']],
+        'trigger_hazard' => ['required' => ['option_id']],
       ],
       'required_response_schema' => [
         'version' => 'v1',
+        'contract_version' => 'string_must_match_action_contract_hash',
         'actor_instance_id' => 'string',
         'recommended_action' => [
           'type' => 'string',
           'target_instance_id' => 'string|null',
           'action_cost' => 'integer',
-          'parameters' => [
-            'message' => 'string_optional_for_talk',
-            'notes' => 'object_optional',
-          ],
+          'parameters' => 'object_required_action_specific_fields',
         ],
         'alternatives' => 'array',
         'rationale' => 'string',
         'decision_reason' => 'string',
-        'decision_basis' => 'object',
+        'decision_basis' => [
+          'used_profile' => 'boolean',
+          'used_psychology' => 'boolean',
+          'used_availability' => 'boolean',
+        ],
         'confidence' => 'number_between_0_and_1',
       ],
     ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: '{}';
@@ -321,7 +322,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    * Build system prompt for recommendation requests.
    */
   private function buildRecommendationSystemPrompt(): string {
-    return 'You are a tactical combat assistant. Use current_actor_profile, current_actor_tactical_intent, and npc_psychology when provided so recommendations respect motivations, fears, attitude, behavior tendencies, and intent continuity. Return valid JSON only with no markdown fences or extra prose.';
+    return 'You are a tactical combat assistant. Use current_actor_profile, current_actor_tactical_intent, npc_psychology, and action availability contract fields to choose one legal action. Return strict JSON only (no markdown) and include every required field exactly, including contract_version matching action_contract_hash and decision_basis booleans used_profile/used_psychology/used_availability.';
   }
 
   /**
@@ -506,53 +507,55 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    *   Normalized recommendation or NULL when invalid.
    */
   private function normalizeRecommendation(array $payload, array $context): ?array {
-    $current_actor = is_array($context['current_actor'] ?? NULL) ? $context['current_actor'] : [];
     $recommended_action = is_array($payload['recommended_action'] ?? NULL) ? $payload['recommended_action'] : [];
-
-    $action_type = trim((string) ($recommended_action['type'] ?? $payload['action_type'] ?? ''));
+    $action_type = trim((string) ($recommended_action['type'] ?? ''));
     if ($action_type === '') {
       return NULL;
     }
 
-    $action_cost = (int) ($recommended_action['action_cost'] ?? 0);
+    if (!is_numeric($recommended_action['action_cost'] ?? NULL)) {
+      return NULL;
+    }
+    $action_cost = (int) $recommended_action['action_cost'];
 
-    $confidence = (float) ($payload['confidence'] ?? 0.5);
+    if (!is_numeric($payload['confidence'] ?? NULL)) {
+      return NULL;
+    }
+    $confidence = (float) $payload['confidence'];
     $confidence = max(0.0, min(1.0, $confidence));
 
-    $target = $recommended_action['target_instance_id'] ?? $payload['target_instance_id'] ?? NULL;
+    $target = $recommended_action['target_instance_id'] ?? NULL;
     $target_instance_id = is_scalar($target) ? trim((string) $target) : '';
 
-    $parameters = is_array($recommended_action['parameters'] ?? NULL) ? $recommended_action['parameters'] : [];
+    if (!is_array($recommended_action['parameters'] ?? NULL)) {
+      return NULL;
+    }
+    $parameters = $recommended_action['parameters'];
     $alternatives = is_array($payload['alternatives'] ?? NULL) ? $payload['alternatives'] : [];
-    $actor_instance_id = trim((string) ($payload['actor_instance_id'] ?? $current_actor['entity_id'] ?? ''));
-    if ($actor_instance_id === '') {
-      $actor_instance_id = trim((string) ($current_actor['entity_ref'] ?? ''));
-      if ($actor_instance_id !== '' && str_starts_with($actor_instance_id, '{')) {
-        $decoded_actor_ref = json_decode($actor_instance_id, TRUE);
-        if (is_array($decoded_actor_ref)) {
-          $actor_instance_id = trim((string) ($decoded_actor_ref['content_id'] ?? $actor_instance_id));
-        }
+    $actor_instance_id = trim((string) ($payload['actor_instance_id'] ?? ''));
+    $decision_reason = trim((string) ($payload['decision_reason'] ?? ''));
+    $rationale = trim((string) ($payload['rationale'] ?? ''));
+    $decision_basis = is_array($payload['decision_basis'] ?? NULL) ? $payload['decision_basis'] : [];
+    $contract_version = trim((string) ($payload['contract_version'] ?? ''));
+
+    if ($actor_instance_id === '' || $decision_reason === '' || $rationale === '' || $contract_version === '' || $decision_basis === []) {
+      return NULL;
+    }
+    foreach (['used_profile', 'used_psychology', 'used_availability'] as $basis_flag) {
+      if (!array_key_exists($basis_flag, $decision_basis) || !is_bool($decision_basis[$basis_flag])) {
+        return NULL;
       }
     }
-    $decision_reason = trim((string) ($payload['decision_reason'] ?? ''));
-    if ($decision_reason === '') {
-      $decision_reason = (string) ($payload['rationale'] ?? 'Selected by ai_conversation tactical provider.');
-    }
-    $decision_basis = is_array($payload['decision_basis'] ?? NULL) ? $payload['decision_basis'] : [];
-    if ($decision_basis === []) {
-      $decision_basis = [
-        'source' => 'ai_conversation',
-        'confidence' => $confidence,
-      ];
-    }
 
-    if ($actor_instance_id === '') {
+    $expected_contract_hash = trim((string) ($context['action_contract_hash'] ?? ''));
+    if ($expected_contract_hash !== '' && $expected_contract_hash !== $contract_version) {
       return NULL;
     }
 
     return [
       'version' => (string) ($payload['version'] ?? 'v1'),
       'provider' => $this->getProviderName(),
+      'contract_version' => $contract_version,
       'actor_instance_id' => $actor_instance_id,
       'recommended_action' => [
         'type' => $action_type,
@@ -561,41 +564,12 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         'parameters' => $parameters,
       ],
       'alternatives' => $alternatives,
-      'rationale' => (string) ($payload['rationale'] ?? 'Selected by ai_conversation tactical provider.'),
+      'rationale' => $rationale,
       'decision_reason' => $decision_reason,
       'decision_basis' => $decision_basis,
       'confidence' => $confidence,
       'fallback_used' => FALSE,
     ];
-  }
-
-  /**
-   * Build fallback recommendation and log provider error details.
-   *
-   * @param array<string, mixed> $context
-   *   Encounter context payload.
-   * @param string $reason
-   *   Fallback reason.
-   *
-   * @return array<string, mixed>
-   *   Deterministic fallback recommendation.
-   */
-  private function fallbackRecommendation(array $context, string $reason, int $request_attempts, string $request_id): array {
-    $this->loggerFactory->get('dungeoncrawler_content')->warning('Encounter AI recommendation fell back to deterministic provider.', [
-      'provider' => $this->getProviderName(),
-      'reason' => $reason,
-      'encounter_id' => (int) ($context['encounter_id'] ?? 0),
-      'campaign_id' => (int) ($context['campaign_id'] ?? 0),
-    ]);
-
-    $fallback = $this->fallbackProvider->recommendNpcAction($context);
-    $fallback['provider'] = $this->getProviderName();
-    $fallback['fallback_used'] = TRUE;
-    $fallback['fallback_reason'] = $reason;
-    $fallback['request_attempts'] = max(1, $request_attempts);
-    $fallback['request_id'] = $request_id;
-
-    return $fallback;
   }
 
   /**

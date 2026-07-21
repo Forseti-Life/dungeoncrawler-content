@@ -34,17 +34,17 @@ See also [DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md](DETERMINISTIC_GM_ORCHE
 2. **Map generation bootstrap (new room creation)**
    - `MapGeneratorService` creates room NPC entities, then calls `NpcPsychologyService::ensureRoomNpcProfiles()` for those NPCs.
 3. **Direct NPC channel reply**
-   - `RoomChatService` resolves live entity data, seeds/creates profile via `getOrCreateProfile()`, then injects `buildNpcContextForPrompt()` output into the model prompt.
+   - `RoomChatService` resolves live entity data, seeds/creates profile via `getOrCreateProfile()`, then injects context from the canonical `buildUnifiedActorContext()` path (via `buildNpcContextForPrompt()`) plus canonical actor action-availability envelope context into the model prompt.
    - After response persistence, it records private NPC reaction with `recordInnerMonologue(event_type = pc_action)`.
 4. **Room interjection reply**
-   - `RoomChatService::generateNpcRoomDialogue()` injects `buildNpcContextForPrompt()` into prompt assembly for spontaneous room speech.
+   - `RoomChatService::generateNpcRoomDialogue()` injects context from the canonical `buildUnifiedActorContext()` path (via `buildNpcContextForPrompt()`) plus canonical actor action-availability envelope context into prompt assembly for spontaneous room speech.
    - Interjections also call `recordInnerMonologue(event_type = conversation)`.
 5. **Attitude-shift narration**
    - `AiGmService::narrateNpcAttitudeShift()` persists attitude change via `updateProfile()`, then uses `buildNpcContextForPrompt()` as narration context.
 
 ### Prompt Context Composition
 
-`NpcPsychologyService::buildNpcContextForPrompt()` loads `dc_psychology` profile state and delegates to `buildCharacterSheetContext()`, which composes:
+`NpcPsychologyService::buildUnifiedActorContext()` is the canonical actor-context construction path for both dialogue and encounter lanes. For dialogue prompts, `buildNpcContextForPrompt()` consumes that envelope and returns its prompt-context projection, which composes:
 
 - Identity and role (name, ancestry/class/occupation, creature type, level, role, description, backstory)
 - Live or snapshot stats (HP/AC/perception/saves)
@@ -56,12 +56,25 @@ See also [DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md](DETERMINISTIC_GM_ORCHE
 
 The final context string is bounded by `NpcPsychologyService::MAX_CONTEXT_LENGTH` to control prompt size.
 
+### Subsystem Component Breakdown (Dialogue Path)
+
+| Component | Responsibility | Key surfaces |
+|---|---|---|
+| Bootstrap ingress | Ensure room-local NPC profiles exist before chat/interjection logic executes | `HexMapController::ensureRoomNpcPsychologyProfiles()`, `MapGeneratorService::ensureRoomNpcProfiles()` |
+| Room chat orchestration | Route direct-reply + room-interjection flows through psychology-backed prompt assembly | `RoomChatServiceChannelAndSessionTrait`, `RoomChatServiceIntentAndDeterminismTrait` |
+| Unified actor-context authority | Build canonical actor context envelope shared by chat + action lanes | `NpcPsychologyService::buildUnifiedActorContext()` |
+| Prompt context authority | Build canonical NPC prompt context projection from the shared envelope, bounded for token safety | `NpcPsychologyService::buildNpcContextForPrompt()`, `MAX_CONTEXT_LENGTH` |
+| Action-availability context authority | Build canonical actor legal-action envelope for prompt alignment with encounter AI | `ActorActionAvailabilityService::resolveEncounterAvailability()` |
+| Room NPC roster resolution | Gather room NPCs/profiles from runtime entity + campaign-row surfaces | `RoomNpcProfileGatherer::gather()` |
+| Post-response state mutation | Persist NPC internal reaction/state shift after dialogue events | `NpcPsychologyService::recordInnerMonologue()`, `updateProfile()` |
+| Narration bridge | Apply attitude-shift updates and reuse psychology context for narration continuity | `AiGmService::narrateNpcAttitudeShift()` |
+
 ### 2026-07-08 Conformance Refresh
 
 - RoomChat controller decomposition into facade/orchestrator boundaries does not move psychology authority out of `RoomChatService`.
 - Dialogue-path psychology invocation contract remains unchanged:
   - profile bootstrap at room-load/map-generation paths,
-  - prompt context composition via `buildNpcContextForPrompt()`,
+  - prompt context composition via shared `buildUnifiedActorContext()` path (`buildNpcContextForPrompt()` projection),
   - post-response state updates via `recordInnerMonologue()`.
 - This keeps psychology context generation in canonical service boundaries and avoids endpoint-layer drift.
 

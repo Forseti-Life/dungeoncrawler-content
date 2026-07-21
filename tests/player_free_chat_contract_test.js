@@ -30,17 +30,37 @@ const roomChatSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/RoomChatService.php'),
   'utf8'
 );
-const controllerSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Controller/RoomChatController.php'),
+const roomChatCoreFlowSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/RoomChatServiceCoreFlowTrait.php'),
+  'utf8'
+);
+const roomChatNpcInterjectionSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/RoomChatServiceNpcInterjectionTrait.php'),
+  'utf8'
+);
+const gmActorRuntimeSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/GmActorRuntimeService.php'),
+  'utf8'
+);
+const gmActorTransportSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/GmActorChatTransportService.php'),
+  'utf8'
+);
+const gmActorHarnessSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/GmActorHarnessService.php'),
+  'utf8'
+);
+const writeOrchestratorSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/RoomChat/RoomChatWriteEndpointOrchestrator.php'),
   'utf8'
 );
 
 console.log('\n=== Player free chat contract ===');
 
-const roomPostStart = controllerSource.indexOf('  protected function postPlayerRoomChatViaEncounterTalk(');
-const roomPostEnd = controllerSource.indexOf('\n  /**', roomPostStart + 1);
+const roomPostStart = writeOrchestratorSource.indexOf('  public function postPlayerRoomChatViaEncounterTalk(');
+const roomPostEnd = writeOrchestratorSource.indexOf('\n  public function continueQueuedRoomConversation(', roomPostStart + 1);
 const roomPostSource = roomPostStart >= 0
-  ? controllerSource.slice(roomPostStart, roomPostEnd >= 0 ? roomPostEnd : controllerSource.length)
+  ? writeOrchestratorSource.slice(roomPostStart, roomPostEnd >= 0 ? roomPostEnd : writeOrchestratorSource.length)
   : '';
 
 assert(
@@ -53,20 +73,30 @@ assert(
   'ordinary player room messages are described as room_chat instead of canonical talk'
 );
 assert(
-  gmSubsystemSource.includes("$this->roomChatService->postMessage("),
-  'non-deterministic player room chat is posted directly through RoomChatService'
+  gmSubsystemSource.includes("$this->gmActorHarness->handlePlayerRoomChat("),
+  'GM subsystem delegates non-deterministic room chat through GM actor harness'
 );
 assert(
-  gmSubsystemSource.includes("$this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id)"),
-  'free player room chat resyncs actor-scoped action availability instead of unscoped encounter actions'
+  gmActorRuntimeSource.includes('$this->chatTransport->postValidatedPlayerRoomChat(')
+    && gmActorTransportSource.includes("$this->roomChatService->postMessage("),
+  'GM actor runtime posts non-deterministic room chat through the dedicated GM transport adapter'
 );
 assert(
-  gmSubsystemSource.includes("'_validated_encounter_room_chat' => TRUE"),
-  'free player room chat marks the internal validated encounter-room-chat bypass flag'
+  gmActorRuntimeSource.includes("$this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id)"),
+  'GM actor runtime resyncs actor-scoped action availability instead of unscoped encounter actions'
 );
 assert(
-  gmSubsystemSource.includes('$defer_npc_interjections = FALSE;'),
-  'free player room chat resolves NPC replies immediately instead of deferring them behind turn order'
+  gmActorTransportSource.includes("'_validated_encounter_room_chat' => TRUE"),
+  'GM transport marks the internal validated encounter-room-chat bypass flag'
+);
+assert(
+  gmActorTransportSource.includes('$defer_npc_interjections = FALSE;'),
+  'GM transport resolves NPC replies immediately instead of deferring them behind turn order'
+);
+assert(
+  gmActorHarnessSource.includes('HARNESS_CONTRACT_VERSION')
+    && gmActorHarnessSource.includes('gm-actor-harness-v1'),
+  'GM actor harness exposes a stable harness contract version'
 );
 assert(
   gmSubsystemSource.includes("protected const ROUTE_DETERMINISTIC_TURN_CONTROL = 'deterministic_turn_control';")
@@ -74,24 +104,25 @@ assert(
   'deterministic turn-control chat routing remains available'
 );
 assert(
-  roomChatSource.includes("'suppress_visible_gm_response' => TRUE"),
+  roomChatNpcInterjectionSource.includes("'suppress_visible_gm_response' => TRUE"),
   'direct NPC-facing room chat suppresses the narrator placeholder and lets NPC replies carry the exchange'
 );
 assert(
-  roomChatSource.includes('$validated_encounter_room_chat')
-    && roomChatSource.includes('$skip_encounter_turn_validation = $validated_encounter_talk || $validated_encounter_room_chat;'),
+  roomChatCoreFlowSource.includes('$validated_encounter_room_chat')
+    && roomChatCoreFlowSource.includes('$skip_encounter_turn_validation = $validated_encounter_talk || $validated_encounter_room_chat;'),
   'RoomChatService bypasses the turn-lock gate for validated free encounter room chat'
 );
 assert(
-  roomChatSource.includes("&& !$validated_encounter_room_chat"),
+  roomChatCoreFlowSource.includes("&& !$validated_encounter_room_chat"),
   'RoomChatService only enforces canonical encounter-talk transport when the free-chat bypass flag is absent'
 );
 assert(
-  controllerSource.includes('$suppress_gm,\n      $speaker'),
-  'RoomChatController forwards the speaker name into the GM subsystem for free player chat'
+  roomPostSource.includes('$suppress_gm,\n      $speaker')
+    || roomPostSource.includes('$suppress_gm,\n      $speaker\n    );'),
+  'write orchestrator forwards the speaker name into the GM subsystem for free player chat'
 );
 assert(
-  !roomChatSource.includes('hears the question and holds the floor for their turn.'),
+  !roomChatCoreFlowSource.includes('hears the question and holds the floor for their turn.'),
   'room chat no longer emits the narrator wait-your-turn placeholder for addressed NPC dialogue'
 );
 assert(

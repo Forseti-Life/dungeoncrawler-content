@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-07-15T12:11:26.194120Z",
+  "correlation_id": "langgraph-harness-20260715121022",
+  "campaign_id": 406,
+  "character_name": "Burasco",
+  "character_id": 1968,
+  "actor_id": "pc-406-1704",
+  "room_id": "tavern_entrance",
+  "stop_reason": "max_turns_reached",
+  "decision": {
+    "mode": "chat",
+    "reason": "scriptedtesting:chat_eldric_jobs",
+    "chat_message": "Eldric, what jobs do you have for me?"
+  },
+  "last_result_summary": {
+    "phase": "encounter"
+  },
+  "active_objective": {
+    "quest_id": "automation_default_storyline",
+    "quest_name": "Automation Storyline Bootstrap",
+    "objective_id": "talk_to_eldric_for_storyline",
+    "type": "interact",
+    "description": "No open objectives remain; talk to Eldric to request a new storyline lead.",
+    "next_step": "Talk to Eldric in the current room and ask for a storyline lead.",
+    "target": "tavern_keeper",
+    "location_id": "tavern_entrance"
+  },
+  "available_actions": [
+    "choose_not_to_act",
+    "delay",
+    "end_turn",
+    "interact",
+    "search",
+    "talk",
+    "transition"
+  ],
+  "active_quest_count": 1
+}

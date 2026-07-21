@@ -18,8 +18,19 @@ use Drupal\dungeoncrawler_content\Service\RoomChat\RoomNpcProfileGatherer;
 use Drupal\dungeoncrawler_content\Service\RoomChat\SessionContextCompactor;
 use Drupal\dungeoncrawler_content\Service\GmSubsystem\CanonicalExecutionPipeline;
 use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmGenerationPolicy;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmModelInvocationService;
 use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmNarrativePostProcessor;
-use Drupal\dungeoncrawler_content\Service\GmSubsystem\NavigationTransitionPipeline;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmPromptBudgetService;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmPromptOrchestrationService;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmReplyOrchestrationService;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmRealityCheckGenerationService;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmRoleBoundaryPolicyService;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmResponseRoutingService;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmTurnCoordinatorService;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmTurnFinalizationService;
+use Drupal\dungeoncrawler_content\Service\NavigationApplicationOrchestrator;
+use Drupal\dungeoncrawler_content\Service\NavigationRuntimeService;
+use Drupal\dungeoncrawler_content\Service\NavigationTransitionPipeline;
 use Drupal\dungeoncrawler_content\Service\GmSubsystem\PromptContextAssembler;
 use Drupal\dungeoncrawler_content\Service\GmSubsystem\StateMutationPipeline;
 use Drupal\dungeoncrawler_content\Service\GmSubsystem\GmTranscriptPersistencePipeline;
@@ -70,6 +81,7 @@ class RoomChatService {
   protected AiSessionManager $sessionManager;
   protected ChatChannelManager $channelManager;
   protected NpcPsychologyService $psychologyService;
+  protected ActorActionAvailabilityService $actorActionAvailabilityService;
   protected ?NarrationEngine $narrationEngine;
   protected ?ChatSessionManager $chatSessionManager;
   protected ?MapGeneratorService $mapGenerator;
@@ -81,6 +93,7 @@ class RoomChatService {
   protected ?StateValidationService $stateValidationService;
   protected ?StorylineManagerService $storylineManager;
   protected ?StorylineGenerationService $storylineGenerationService;
+  protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected ?QuestTouchpointService $questTouchpointService;
   protected MerchantBotService $merchantBotService;
   protected ?InventoryManagementService $inventoryManagementService;
@@ -89,10 +102,21 @@ class RoomChatService {
   protected TurnIntentRouter $turnIntentRouter;
   protected PromptContextAssembler $promptContextAssembler;
   protected GmGenerationPolicy $gmGenerationPolicy;
+  protected GmModelInvocationService $gmModelInvocation;
+  protected GmPromptBudgetService $gmPromptBudget;
+  protected GmPromptOrchestrationService $gmPromptOrchestration;
+  protected GmReplyOrchestrationService $gmReplyOrchestration;
+  protected GmRoleBoundaryPolicyService $gmRoleBoundaryPolicy;
   protected GmNarrativePostProcessor $gmNarrativePostProcessor;
+  protected GmRealityCheckGenerationService $gmRealityCheckGeneration;
+  protected GmResponseRoutingService $gmResponseRouting;
+  protected GmTurnCoordinatorService $gmTurnCoordinator;
+  protected GmTurnFinalizationService $gmTurnFinalization;
   protected CanonicalExecutionPipeline $canonicalExecutionPipeline;
   protected StateMutationPipeline $stateMutationPipeline;
+  protected NavigationRuntimeService $navigationRuntimeService;
   protected NavigationTransitionPipeline $navigationTransitionPipeline;
+  protected NavigationApplicationOrchestrator $navigationApplicationOrchestrator;
   protected GmTranscriptPersistencePipeline $gmTranscriptPersistencePipeline;
   protected GmTranscriptProjector $gmTranscriptProjector;
   protected RoomChatHistoryProjector $roomChatHistoryProjector;
@@ -117,6 +141,7 @@ class RoomChatService {
     AiSessionManager $session_manager,
     ChatChannelManager $channel_manager,
     NpcPsychologyService $psychology_service,
+    StorylineQuestLifecycleService $storyline_quest_lifecycle_service,
     ?NarrationEngine $narration_engine = NULL,
     ?ChatSessionManager $chat_session_manager = NULL,
     ?MapGeneratorService $map_generator = NULL,
@@ -137,17 +162,29 @@ class RoomChatService {
     ?TurnIntentRouter $turn_intent_router = NULL,
     ?PromptContextAssembler $prompt_context_assembler = NULL,
     ?GmGenerationPolicy $gm_generation_policy = NULL,
+    ?GmModelInvocationService $gm_model_invocation = NULL,
+    ?GmPromptBudgetService $gm_prompt_budget = NULL,
+    ?GmReplyOrchestrationService $gm_reply_orchestration = NULL,
+    ?GmRoleBoundaryPolicyService $gm_role_boundary_policy = NULL,
     ?GmNarrativePostProcessor $gm_narrative_post_processor = NULL,
+    ?GmRealityCheckGenerationService $gm_reality_check_generation = NULL,
+    ?GmResponseRoutingService $gm_response_routing = NULL,
+    ?GmTurnCoordinatorService $gm_turn_coordinator = NULL,
+    ?GmTurnFinalizationService $gm_turn_finalization = NULL,
     ?CanonicalExecutionPipeline $canonical_execution_pipeline = NULL,
     ?StateMutationPipeline $state_mutation_pipeline = NULL,
+    ?NavigationRuntimeService $navigation_runtime_service = NULL,
     ?NavigationTransitionPipeline $navigation_transition_pipeline = NULL,
+    ?NavigationApplicationOrchestrator $navigation_application_orchestrator = NULL,
     ?GmTranscriptPersistencePipeline $gm_transcript_persistence_pipeline = NULL,
     ?GmTranscriptProjector $gm_transcript_projector = NULL,
     ?RoomChatHistoryProjector $room_chat_history_projector = NULL,
     ?EncounterTranscriptPrefixService $encounter_transcript_prefix_service = NULL,
     ?RoomChatAccessGuard $room_chat_access_guard = NULL,
     ?RoomLocator $room_locator = NULL,
-    ?EncounterTurnGuard $encounter_turn_guard = NULL
+    ?EncounterTurnGuard $encounter_turn_guard = NULL,
+    ?GmPromptOrchestrationService $gm_prompt_orchestration = NULL,
+    ?ActorActionAvailabilityService $actor_action_availability_service = NULL
   ) {
     $this->database = $database;
     $this->dungeonStateService = $dungeon_state_service;
@@ -159,6 +196,7 @@ class RoomChatService {
     $this->sessionManager = $session_manager;
     $this->channelManager = $channel_manager;
     $this->psychologyService = $psychology_service;
+    $this->actorActionAvailabilityService = $actor_action_availability_service ?? new ActorActionAvailabilityService();
     $this->narrationEngine = $narration_engine;
     $this->chatSessionManager = $chat_session_manager;
     $this->mapGenerator = $map_generator;
@@ -173,22 +211,72 @@ class RoomChatService {
     $this->stateValidationService = $state_validation_service;
     $this->storylineManager = $storyline_manager;
     $this->storylineGenerationService = $storyline_generation_service;
+    $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
     $this->questTouchpointService = $quest_touchpoint_service;
     $this->attentionService = $attention_service ?? new NpcAttentionService();
     $this->turnIntentRouter = $turn_intent_router ?? new TurnIntentRouter();
     $this->promptContextAssembler = $prompt_context_assembler ?? new PromptContextAssembler();
     $this->gmGenerationPolicy = $gm_generation_policy ?? new GmGenerationPolicy();
+    $this->gmModelInvocation = $gm_model_invocation ?? new GmModelInvocationService();
+    $this->gmPromptBudget = $gm_prompt_budget ?? new GmPromptBudgetService();
+    $this->gmReplyOrchestration = $gm_reply_orchestration ?? new GmReplyOrchestrationService();
+    $this->gmRoleBoundaryPolicy = $gm_role_boundary_policy ?? new GmRoleBoundaryPolicyService();
     $this->gmNarrativePostProcessor = $gm_narrative_post_processor ?? new GmNarrativePostProcessor($ai_api_service);
+    $this->gmRealityCheckGeneration = $gm_reality_check_generation ?? new GmRealityCheckGenerationService();
+    $this->gmResponseRouting = $gm_response_routing ?? new GmResponseRoutingService();
+    $this->gmTurnCoordinator = $gm_turn_coordinator ?? new GmTurnCoordinatorService($this->turnIntentRouter, $this->gmResponseRouting, $this->gmGenerationPolicy);
     $this->canonicalExecutionPipeline = $canonical_execution_pipeline ?? new CanonicalExecutionPipeline($this->gmOrchestrationBroker);
     $this->stateMutationPipeline = $state_mutation_pipeline ?? new StateMutationPipeline($this->actionProcessor);
-    $this->navigationTransitionPipeline = $navigation_transition_pipeline ?? new NavigationTransitionPipeline();
+    $this->roomLocator = $room_locator ?? new RoomLocator();
+    if (!$navigation_runtime_service || !$navigation_transition_pipeline || !$navigation_application_orchestrator) {
+      throw new \RuntimeException('RoomChatService contract violation: navigation runtime, transition pipeline, and application orchestrator must be injected.');
+    }
+    $this->navigationRuntimeService = $navigation_runtime_service;
+    $this->navigationTransitionPipeline = $navigation_transition_pipeline;
+    $this->navigationApplicationOrchestrator = $navigation_application_orchestrator;
     $this->gmTranscriptPersistencePipeline = $gm_transcript_persistence_pipeline ?? new GmTranscriptPersistencePipeline($database, $session_manager);
     $this->gmTranscriptProjector = $gm_transcript_projector ?? new GmTranscriptProjector();
     $this->roomChatHistoryProjector = $room_chat_history_projector ?? new RoomChatHistoryProjector();
     $this->encounterTranscriptPrefixService = $encounter_transcript_prefix_service ?? new EncounterTranscriptPrefixService();
     $this->roomChatAccessGuard = $room_chat_access_guard ?? new RoomChatAccessGuard($database, $current_user);
-    $this->roomLocator = $room_locator ?? new RoomLocator();
     $this->encounterTurnGuard = $encounter_turn_guard ?? new EncounterTurnGuard();
+    $this->gmPromptOrchestration = $gm_prompt_orchestration ?? new GmPromptOrchestrationService($this->promptContextAssembler);
+    $this->gmTurnFinalization = $gm_turn_finalization ?? new GmTurnFinalizationService(
+      $this->gmNarrativePostProcessor,
+      $this->canonicalExecutionPipeline,
+      $this->stateMutationPipeline,
+      $this->gmTranscriptProjector,
+      $this->gmTranscriptPersistencePipeline,
+      $this->encounterTranscriptPrefixService,
+      $this->roomLocator,
+      $this->navigationApplicationOrchestrator,
+      $this->logger
+    );
+    $this->enforceTraitContracts();
+  }
+
+  /**
+   * Fail fast if decomposed trait dependencies drift out of contract.
+   */
+  protected function enforceTraitContracts(): void {
+    $required_methods = [
+      'normalizeNpcNameForMatch',
+      'textContainsAny',
+      'extractNavigationDestination',
+      'hasVisitedDestinationName',
+    ];
+    foreach ($required_methods as $method_name) {
+      if (!method_exists($this, $method_name)) {
+        throw new \RuntimeException('RoomChatService contract violation: missing required method ' . $method_name . '().');
+      }
+    }
+
+    if (!method_exists($this->actionProcessor, 'getResolvedRoomExits')) {
+      throw new \RuntimeException('RoomChatService contract violation: GameplayActionProcessor::getResolvedRoomExits() is required.');
+    }
+    if (!method_exists($this->navigationRuntimeService, 'buildCanonicalNavigationActionPayload')) {
+      throw new \RuntimeException('RoomChatService contract violation: NavigationRuntimeService::buildCanonicalNavigationActionPayload() is required.');
+    }
   }
 
 

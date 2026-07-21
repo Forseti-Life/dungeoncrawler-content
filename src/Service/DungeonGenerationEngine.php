@@ -10,6 +10,12 @@ use Drupal\Core\Database\Connection;
  * Generates complete dungeons with theme-based content, difficulty scaling,
  * AI creature personalities, and PF2e XP budget encounter balancing.
  *
+ * @deprecated
+ *   Deprecated in favor of DungeonGeneratorService. This class remains only as
+ *   a legacy compatibility stub and should not be used for new generation
+ *   flows.
+ *   Validation pair: none (legacy/deprecated path).
+ *
  * @see /docs/dungeoncrawler/issues/issue-4-procedural-dungeon-generation-design.md
  */
 class DungeonGenerationEngine {
@@ -67,6 +73,10 @@ class DungeonGenerationEngine {
     EncounterBalancer $encounter_balancer,
     RoomConnectionAlgorithm $room_connector
   ) {
+    @trigger_error(
+      'DungeonGenerationEngine is deprecated; use DungeonGeneratorService instead.',
+      E_USER_DEPRECATED
+    );
     $this->database = $database;
     $this->schemaLoader = $schema_loader;
     $this->encounterBalancer = $encounter_balancer;

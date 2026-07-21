@@ -103,6 +103,29 @@ class LittleTroubleTemplateIntegrityTest extends UnitTestCase {
     $this->assertSame('ltba-tomb-hazard-room', (string) ($by_instance['ltba-hookclaw-hazard-scout']['location_ref'] ?? ''));
   }
 
+  public function testLittleTroubleProgressionRoutesFromGrandmotherToTombBeforeTurnIn(): void {
+    $storylines = $this->loadRows('dungeoncrawler_content_storylines/default_storyline_templates.json');
+    $storyline = $this->findRow($storylines, 'template_id', 'little-trouble-in-big-absalom');
+    $template_data = (array) ($storyline['template_data'] ?? []);
+
+    $chapters = array_values(array_filter((array) ($template_data['chapters'] ?? []), 'is_array'));
+    $chapter_ids = array_values(array_map(static fn(array $chapter): string => (string) ($chapter['chapter_id'] ?? ''), $chapters));
+    $this->assertSame(['upstairs', 'the-tomb', 'homecoming'], $chapter_ids);
+
+    $quest_nodes = array_values(array_filter((array) ($template_data['questline']['quest_nodes'] ?? []), 'is_array'));
+    $nodes_by_id = [];
+    foreach ($quest_nodes as $node) {
+      $quest_id = trim((string) ($node['quest_id'] ?? ''));
+      if ($quest_id !== '') {
+        $nodes_by_id[$quest_id] = $node;
+      }
+    }
+
+    $this->assertSame('the-tomb', (string) ($nodes_by_id['ltba-enter-the-vault']['chapter_id'] ?? ''));
+    $this->assertSame('homecoming', (string) ($nodes_by_id['ltba-retrieve-hedge-trimmer']['chapter_id'] ?? ''));
+    $this->assertSame(['ltba-enter-the-vault'], array_values($nodes_by_id['ltba-accept-the-task']['unlocks_to'] ?? []));
+  }
+
   protected function loadRows(string $template_file): array {
     $path = dirname(__DIR__, 4) . '/config/examples/templates/' . $template_file;
     $payload = json_decode((string) file_get_contents($path), TRUE);

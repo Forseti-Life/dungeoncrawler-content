@@ -10,6 +10,7 @@ use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\RoomGeneratorService;
 use Drupal\dungeoncrawler_content\Service\RoomStateService;
+use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -61,6 +62,7 @@ class LocationGenerationController extends ControllerBase {
    */
   protected DungeonGeneratorService $dungeonGenerator;
   protected NarrationEngine $narrationEngine;
+  protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
 
   /**
    * Constructs a LocationGenerationController.
@@ -72,7 +74,8 @@ class LocationGenerationController extends ControllerBase {
     QuestGeneratorService $quest_generator,
     RoomStateService $room_state_service,
     DungeonGeneratorService $dungeon_generator,
-    NarrationEngine $narration_engine
+    NarrationEngine $narration_engine,
+    StorylineQuestLifecycleService $storyline_quest_lifecycle_service
   ) {
     $this->database = $database;
     $this->mapGenerator = $map_generator;
@@ -81,6 +84,7 @@ class LocationGenerationController extends ControllerBase {
     $this->roomStateService = $room_state_service;
     $this->dungeonGenerator = $dungeon_generator;
     $this->narrationEngine = $narration_engine;
+    $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
   }
 
   /**
@@ -94,14 +98,16 @@ class LocationGenerationController extends ControllerBase {
       $container->get('dungeoncrawler_content.quest_generator'),
       $container->get('dungeoncrawler_content.room_state_service'),
       $container->get('dungeoncrawler_content.dungeon_generator'),
-      $container->get('dungeoncrawler_content.narration_engine')
+      $container->get('dungeoncrawler_content.narration_engine'),
+      $container->get('dungeoncrawler_content.storyline_quest_lifecycle')
     );
   }
 
   /**
    * POST /api/campaign/{campaign_id}/gm/locations/request
+   * POST /api/campaign/{campaign_id}/navigation/locations/request
    *
-   * Request a new location from the current room. This is GM-only.
+   * Request a new location from the current room.
    */
   public function requestLocation(Request $request, int $campaign_id): JsonResponse {
     $data = json_decode($request->getContent(), TRUE);
@@ -419,10 +425,23 @@ class LocationGenerationController extends ControllerBase {
     try {
       $this->recordGmPrivateRequest($campaign_id, $gm_private);
       $quests = $this->questGenerator->generateQuestsForLocation($campaign_id, $context, $count);
+      $stored_quests = [];
       foreach ($quests as $quest_data) {
-        $this->database->insert('dc_campaign_quests')
-          ->fields($quest_data)
-          ->execute();
+        if (!is_array($quest_data)) {
+          continue;
+        }
+        $template_id = trim((string) ($quest_data['source_template_id'] ?? ''));
+        if ($template_id === '') {
+          continue;
+        }
+        $stored = $this->storylineQuestLifecycleService->ensureOfferedQuestFromTemplateAndLoad(
+          $campaign_id,
+          $template_id,
+          static fn(): array => $quest_data
+        );
+        if (is_array($stored)) {
+          $stored_quests[] = $stored;
+        }
       }
 
       $summary = array_map(static function (array $quest): array {
@@ -432,7 +451,7 @@ class LocationGenerationController extends ControllerBase {
           'description' => $quest['quest_description'],
           'type' => $quest['quest_type'],
         ];
-      }, $quests);
+      }, $stored_quests);
       $response_message = sprintf('Generated %d quest%s for %s.', count($summary), count($summary) === 1 ? '' : 's', (string) ($room['name'] ?? $room_id));
       $this->recordGmPrivateResponse($campaign_id, $gm_private, $response_message, [
         'generated_by' => 'gm_quest_request',

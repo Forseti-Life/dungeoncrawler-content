@@ -32,6 +32,7 @@ export class QuestSystem {
     this._unsubs = [];
     /** @type {Map<string, object>} questId → quest (server-provided shape) */
     this._quests = new Map();
+    this._lastRoomTransitionId = '';
   }
 
   init() {
@@ -51,9 +52,20 @@ export class QuestSystem {
   _subscribe() {
     this._unsubs.push(
       this.bus.on('game:init',         (data) => this._onGameInit(data)),
-      this.bus.on('room:changed',      ()     => this._broadcastCurrentQuests()),
+      this.bus.on('room:changed',      (data) => this._onRoomChanged(data)),
       this.bus.on('entity:interacted', (data) => this._onEntityInteracted(data)),
     );
+  }
+
+  _onRoomChanged(payload = {}) {
+    const transitionId = String(payload?.transition?.id || '').trim();
+    if (transitionId && transitionId === this._lastRoomTransitionId) {
+      return;
+    }
+    if (transitionId) {
+      this._lastRoomTransitionId = transitionId;
+    }
+    this._broadcastCurrentQuests();
   }
 
   _onGameInit({ dungeonData } = {}) {

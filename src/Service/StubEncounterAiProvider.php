@@ -24,9 +24,11 @@ class StubEncounterAiProvider implements EncounterAiProviderInterface {
     $decision_reason = $target !== NULL
       ? 'Deterministic fallback focuses first alive player target.'
       : 'No valid player target available.';
+    $contract_version = trim((string) ($context['action_contract_hash'] ?? ''));
 
     return [
       'version' => 'v1',
+      'contract_version' => $contract_version !== '' ? $contract_version : 'unversioned',
       'provider' => $this->getProviderName(),
       'actor_instance_id' => $current_actor_ref,
       'recommended_action' => [
@@ -44,6 +46,9 @@ class StubEncounterAiProvider implements EncounterAiProviderInterface {
         'intent' => $target !== NULL ? 'aggressive_engage' : 'no_targets',
         'target_selection' => $target !== NULL ? 'first_alive_player' : 'none',
         'deterministic' => TRUE,
+        'used_profile' => TRUE,
+        'used_psychology' => TRUE,
+        'used_availability' => TRUE,
       ],
       'confidence' => $target !== NULL ? 0.6 : 0.4,
     ];

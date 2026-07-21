@@ -15,6 +15,7 @@ use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\GameCoordinatorService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
+use Drupal\dungeoncrawler_content\Service\NavigationService;
 use Drupal\dungeoncrawler_content\Service\RuntimeBootstrapService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -37,10 +38,11 @@ class CampaignController extends ControllerBase {
   protected InstitutionMembershipService $institutionMembership;
   protected CampaignCharacterRuntimeResolverService $runtimeResolver;
   protected GameCoordinatorService $gameCoordinator;
+  protected NavigationService $navigationService;
   protected RuntimeBootstrapService $runtimeBootstrap;
   protected TimeInterface $time;
 
-  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, GameCoordinatorService $game_coordinator, RuntimeBootstrapService $runtime_bootstrap, TimeInterface $time) {
+  public function __construct(Connection $database, CharacterManager $character_manager, FormBuilderInterface $form_builder, GeneratedImageRepository $image_repository, InstitutionMembershipService $institution_membership, CampaignCharacterRuntimeResolverService $runtime_resolver, GameCoordinatorService $game_coordinator, NavigationService $navigation_service, RuntimeBootstrapService $runtime_bootstrap, TimeInterface $time) {
     $this->database = $database;
     $this->characterManager = $character_manager;
     $this->formBuilderService = $form_builder;
@@ -48,6 +50,7 @@ class CampaignController extends ControllerBase {
     $this->institutionMembership = $institution_membership;
     $this->runtimeResolver = $runtime_resolver;
     $this->gameCoordinator = $game_coordinator;
+    $this->navigationService = $navigation_service;
     $this->runtimeBootstrap = $runtime_bootstrap;
     $this->time = $time;
   }
@@ -64,6 +67,7 @@ class CampaignController extends ControllerBase {
       $container->get('dungeoncrawler_content.institution_membership'),
       $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
       $container->get('dungeoncrawler_content.game_coordinator'),
+      $container->get('dungeoncrawler_content.navigation_service'),
       $container->get('dungeoncrawler_content.runtime_bootstrap'),
       $container->get('datetime.time'),
     );
@@ -596,6 +600,8 @@ class CampaignController extends ControllerBase {
       if (!is_array($payload)) {
         $payload = [];
       }
+      $payload['campaign_id'] = $campaign_id;
+      $payload['dungeon_id'] = (string) $dungeon_id;
 
       $is_primary = ((string) $dungeon_id === $primary_dungeon_id);
 
@@ -632,6 +638,8 @@ class CampaignController extends ControllerBase {
       $history_lookup = $this->buildDungeonHistoryLookup($payload, $room_rows);
       $room_name_lookup = $this->buildDungeonRoomNameLookup($room_lookup);
       $locations_by_room = $this->compileDungeonNavigationLocations(
+        $payload,
+        $is_primary ? $active_room_id : '',
         $room_lookup,
         $history_lookup,
         $room_name_lookup,
@@ -682,6 +690,8 @@ class CampaignController extends ControllerBase {
   /**
    * Compile all navigation location signals for a dungeon into a room-indexed map.
    *
+   * @param array<string, mixed> $dungeon_payload
+   * @param string $active_room_id
    * @param array<string, array<string, mixed>> $room_lookup
    * @param array<string, array<string, mixed>> $history_lookup
    * @param array<string, string> $room_name_lookup
@@ -692,6 +702,8 @@ class CampaignController extends ControllerBase {
    * @return array<string, array<string, mixed>>
    */
   protected function compileDungeonNavigationLocations(
+    array $dungeon_payload,
+    string $active_room_id,
     array $room_lookup,
     array $history_lookup,
     array $room_name_lookup,
@@ -737,6 +749,75 @@ class CampaignController extends ControllerBase {
     foreach ($this->buildQuestItemNavigationSignals($item_rows, $room_lookup) as $signal) {
       $this->mergeNavigationLocationEntry($locations_by_room, $signal);
     }
+
+    if ($active_room_id !== '') {
+      $locations_by_room = $this->annotateDungeonNavigationRoutes($locations_by_room, $dungeon_payload, $active_room_id);
+    }
+
+    return $locations_by_room;
+  }
+
+  /**
+   * Annotate dungeon navigation entries with direct reachability and route hints.
+   *
+   * @param array<string, array<string, mixed>> $locations_by_room
+   * @param array<string, mixed> $dungeon_payload
+   *
+   * @return array<string, array<string, mixed>>
+   */
+  protected function annotateDungeonNavigationRoutes(array $locations_by_room, array $dungeon_payload, string $active_room_id): array {
+    $active_room_id = trim($active_room_id);
+    if ($active_room_id === '') {
+      return $locations_by_room;
+    }
+
+    foreach ($locations_by_room as $room_id => &$location) {
+      $normalized_room_id = trim((string) $room_id);
+      if ($normalized_room_id === '' || $normalized_room_id === $active_room_id) {
+        continue;
+      }
+
+      $route_plan = $this->navigationService->resolveRoomRoutePlan($dungeon_payload, $active_room_id, $normalized_room_id);
+      if ($route_plan === NULL) {
+        $location['navigable'] = FALSE;
+        $location['directly_navigable'] = FALSE;
+        $location['next_room_id'] = '';
+        $location['next_room_name'] = '';
+        $location['route_room_ids'] = [];
+        $location['route_room_names'] = [];
+        $location['route_hops'] = 0;
+        continue;
+      }
+
+      $path_room_ids = array_values(array_filter(array_map('strval', (array) ($route_plan['path_room_ids'] ?? [])), static fn(string $value): bool => trim($value) !== ''));
+      $remaining_room_ids = count($path_room_ids) > 1 ? array_slice($path_room_ids, 1) : [];
+      $remaining_room_names = array_values(array_map(function (string $route_room_id) use ($dungeon_payload): string {
+        $room = $this->navigationService->findRoomById($dungeon_payload, $route_room_id);
+        if (is_array($room)) {
+          $room_name = trim((string) ($room['name'] ?? ''));
+          if ($room_name !== '') {
+            return $room_name;
+          }
+        }
+        return $route_room_id;
+      }, $remaining_room_ids));
+
+      $is_direct = !empty($route_plan['is_direct']);
+      $location['navigable'] = $is_direct;
+      $location['directly_navigable'] = $is_direct;
+      $location['next_room_id'] = trim((string) ($route_plan['next_room_id'] ?? ''));
+      $location['next_room_name'] = (string) ($remaining_room_names[0] ?? '');
+      $location['route_room_ids'] = $remaining_room_ids;
+      $location['route_room_names'] = $remaining_room_names;
+      $location['route_hops'] = max(0, (int) ($route_plan['hop_count'] ?? 0));
+      if (!$is_direct && $remaining_room_names !== []) {
+        $location['route_hint'] = implode(' -> ', $remaining_room_names);
+        $source_tags = is_array($location['source_tags'] ?? NULL) ? $location['source_tags'] : [];
+        $source_tags[] = 'route_planned';
+        $location['source_tags'] = array_values(array_unique($source_tags));
+      }
+    }
+    unset($location);
 
     return $locations_by_room;
   }

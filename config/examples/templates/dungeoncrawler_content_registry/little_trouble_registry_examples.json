@@ -18,7 +18,7 @@
         "location_type": "residence",
         "source_book": "paizo_free_rpg_day",
         "source_module": "little-trouble-in-big-absalom",
-        "description": "A warm, slightly overgrown Absalom home where the Kind Old Lady welcomes the kobolds and explains the missing hedge trimmer problem.",
+        "description": "A warm, slightly overgrown Absalom home where Grandmother welcomes the kobolds and explains the missing hedge trimmer problem.",
         "arrival_narration": "The lane opens onto a tidy little house with bright shutters, herb boxes under the windows, and a gate that has clearly seen recent trimming work fall into disrepair.",
         "gm_notes": "Use this as the social anchor for the second Little Trouble chapter. The grandmother is here, the stakes are low and personal, and the tone should feel neighborly rather than ominous.",
         "key_npcs": [
@@ -61,6 +61,214 @@
           "ltba-vault-entry",
           "ltba-tomb-hazard-room"
         ]
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "wine_bottle_1",
+      "name": "Wine Bottle",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "collectible",
+        "quest_item",
+        "tavern",
+        "gather_wine",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "schema_version": "1.0.0",
+        "item_id": "wine_bottle_1",
+        "name": "Wine Bottle",
+        "item_type": "collectible_item",
+        "level": 1,
+        "rarity": "common",
+        "description": "A fine wine bottle, half-full",
+        "quest_association": "gather_wine"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "wine_bottle_2",
+      "name": "Wine Bottle",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "collectible",
+        "quest_item",
+        "tavern",
+        "gather_wine",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "schema_version": "1.0.0",
+        "item_id": "wine_bottle_2",
+        "name": "Wine Bottle",
+        "item_type": "collectible_item",
+        "level": 1,
+        "rarity": "common",
+        "description": "A wine bottle, set on a table",
+        "quest_association": "gather_wine"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "spellbook_1",
+      "name": "Ancient Spellbook",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "collectible",
+        "quest_item",
+        "knowledge",
+        "collect_spellbooks",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "schema_version": "1.0.0",
+        "item_id": "spellbook_1",
+        "name": "Ancient Spellbook",
+        "item_type": "collectible_item",
+        "level": 1,
+        "rarity": "common",
+        "description": "A leather-bound spellbook with glowing runes",
+        "quest_association": "collect_spellbooks"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "spellbook_2",
+      "name": "Mystical Tome",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "collectible",
+        "quest_item",
+        "knowledge",
+        "collect_spellbooks",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "schema_version": "1.0.0",
+        "item_id": "spellbook_2",
+        "name": "Mystical Tome",
+        "item_type": "collectible_item",
+        "level": 1,
+        "rarity": "common",
+        "description": "A mystical tome written in an unusual script",
+        "quest_association": "collect_spellbooks"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "spellbook_3",
+      "name": "Marta's Journal",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "collectible",
+        "quest_item",
+        "knowledge",
+        "collect_spellbooks",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "schema_version": "1.0.0",
+        "item_id": "spellbook_3",
+        "name": "Marta's Journal",
+        "item_type": "collectible_item",
+        "level": 1,
+        "rarity": "common",
+        "description": "Marta's personal journal filled with spell notes and research annotations",
+        "quest_association": "collect_spellbooks"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "spellbook_4",
+      "name": "Crystal-Bound Codex",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "collectible",
+        "quest_item",
+        "knowledge",
+        "collect_spellbooks",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "schema_version": "1.0.0",
+        "item_id": "spellbook_4",
+        "name": "Crystal-Bound Codex",
+        "item_type": "collectible_item",
+        "level": 1,
+        "rarity": "common",
+        "description": "A codex with a crystal clasping its cover",
+        "quest_association": "collect_spellbooks"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "torch_component_1",
+      "name": "Torch Rod",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "collectible",
+        "quest_item",
+        "equipment",
+        "gather_torch_components",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "schema_version": "1.0.0",
+        "item_id": "torch_component_1",
+        "name": "Torch Rod",
+        "item_type": "collectible_item",
+        "level": 1,
+        "rarity": "common",
+        "description": "An iron rod suitable for torch construction",
+        "quest_association": "gather_torch_components"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "torch_component_2",
+      "name": "Cloth Wrapping",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "collectible",
+        "quest_item",
+        "equipment",
+        "gather_torch_components",
+        "little_trouble_in_big_absalom"
+      ],
+      "schema_data": {
+        "schema_version": "1.0.0",
+        "item_id": "torch_component_2",
+        "name": "Cloth Wrapping",
+        "item_type": "collectible_item",
+        "level": 1,
+        "rarity": "common",
+        "description": "Cloth wrapping that could be used for torch binding",
+        "quest_association": "gather_torch_components"
       },
       "version": "1.0.0"
     },

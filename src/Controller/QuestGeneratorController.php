@@ -6,6 +6,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
+use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -28,6 +29,7 @@ class QuestGeneratorController extends ControllerBase {
    * @var \Drupal\dungeoncrawler_content\Service\QuestGeneratorService
    */
   protected QuestGeneratorService $questGenerator;
+  protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
 
   /**
    * Logger instance.
@@ -49,11 +51,13 @@ class QuestGeneratorController extends ControllerBase {
   public function __construct(
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
-    QuestGeneratorService $quest_generator
+    QuestGeneratorService $quest_generator,
+    StorylineQuestLifecycleService $storyline_quest_lifecycle_service
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->questGenerator = $quest_generator;
+    $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
   }
 
   /**
@@ -63,7 +67,8 @@ class QuestGeneratorController extends ControllerBase {
     return new static(
       $container->get('database'),
       $container->get('logger.factory'),
-      $container->get('dungeoncrawler_content.quest_generator')
+      $container->get('dungeoncrawler_content.quest_generator'),
+      $container->get('dungeoncrawler_content.storyline_quest_lifecycle')
     );
   }
 
@@ -118,29 +123,43 @@ class QuestGeneratorController extends ControllerBase {
         ], 500);
       }
 
-      // Insert into database
-      $this->database->insert('dc_campaign_quests')
-        ->fields($quest_data)
-        ->execute();
+      $template_id = trim((string) ($quest_data['source_template_id'] ?? ''));
+      if ($template_id === '') {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'Generated quest is missing source_template_id',
+        ], 500);
+      }
+      $stored_quest = $this->storylineQuestLifecycleService->ensureOfferedQuestFromTemplateAndLoad(
+        $campaign_id,
+        $template_id,
+        static fn(): array => $quest_data
+      );
+      if (!is_array($stored_quest)) {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'Failed to persist generated quest',
+        ], 500);
+      }
 
-      $quest_contract = $this->questGenerator->buildQuestSummaryEntry($quest_data);
+      $quest_contract = $this->questGenerator->buildQuestSummaryEntry($stored_quest);
       $quest_summary = $this->questGenerator->buildQuestSummaryPayload(
         (string) ($quest_contract['location_id'] ?? ('campaign-' . $campaign_id)),
         [],
-        in_array((string) ($quest_data['status'] ?? ''), ['offered', 'available'], TRUE) ? [$quest_data] : [],
-        (string) ($quest_data['status'] ?? '') === 'lead' ? [$quest_data] : []
+        in_array((string) ($stored_quest['status'] ?? ''), ['offered', 'available'], TRUE) ? [$stored_quest] : [],
+        (string) ($stored_quest['status'] ?? '') === 'lead' ? [$stored_quest] : []
       );
 
       return new JsonResponse([
         'success' => TRUE,
         'quest' => [
-          'quest_id' => $quest_data['quest_id'],
-          'name' => $quest_data['quest_name'],
-          'description' => $quest_data['quest_description'],
-          'quest_type' => $quest_data['quest_type'],
-          'objectives' => json_decode($quest_data['generated_objectives'], TRUE),
-          'rewards' => json_decode($quest_data['generated_rewards'], TRUE),
-          'status' => $quest_data['status'],
+          'quest_id' => $stored_quest['quest_id'],
+          'name' => $stored_quest['quest_name'],
+          'description' => $stored_quest['quest_description'],
+          'quest_type' => $stored_quest['quest_type'],
+          'objectives' => json_decode((string) ($stored_quest['generated_objectives'] ?? '[]'), TRUE),
+          'rewards' => json_decode((string) ($stored_quest['generated_rewards'] ?? '[]'), TRUE),
+          'status' => $stored_quest['status'],
         ],
         'quest_contract' => $quest_contract,
         'quest_summary' => $quest_summary,
@@ -189,19 +208,31 @@ class QuestGeneratorController extends ControllerBase {
       $count = $payload['count'] ?? 3;
       $quests = $this->questGenerator->generateQuestsForLocation($campaign_id, $context, $count);
 
-      // Insert into database
+      $stored_quests = [];
       foreach ($quests as $quest_data) {
-        $this->database->insert('dc_campaign_quests')
-          ->fields($quest_data)
-          ->execute();
+        if (!is_array($quest_data)) {
+          continue;
+        }
+        $template_id = trim((string) ($quest_data['source_template_id'] ?? ''));
+        if ($template_id === '') {
+          continue;
+        }
+        $stored = $this->storylineQuestLifecycleService->ensureOfferedQuestFromTemplateAndLoad(
+          $campaign_id,
+          $template_id,
+          static fn(): array => $quest_data
+        );
+        if (is_array($stored)) {
+          $stored_quests[] = $stored;
+        }
       }
 
-      $quest_contracts = array_values(array_map([$this->questGenerator, 'buildQuestSummaryEntry'], $quests));
+      $quest_contracts = array_values(array_map([$this->questGenerator, 'buildQuestSummaryEntry'], $stored_quests));
       $quest_summary = $this->questGenerator->buildQuestSummaryPayload(
         (string) ($context['location'] ?? ('campaign-' . $campaign_id)),
         [],
-        array_values(array_filter($quests, static fn(array $quest): bool => in_array((string) ($quest['status'] ?? ''), ['offered', 'available'], TRUE))),
-        array_values(array_filter($quests, static fn(array $quest): bool => (string) ($quest['status'] ?? '') === 'lead'))
+        array_values(array_filter($stored_quests, static fn(array $quest): bool => in_array((string) ($quest['status'] ?? ''), ['offered', 'available'], TRUE))),
+        array_values(array_filter($stored_quests, static fn(array $quest): bool => (string) ($quest['status'] ?? '') === 'lead'))
       );
 
       $response_quests = array_map(function ($q) {
@@ -211,7 +242,7 @@ class QuestGeneratorController extends ControllerBase {
           'description' => $q['quest_description'],
           'type' => $q['quest_type'],
         ];
-      }, $quests);
+      }, $stored_quests);
 
       return new JsonResponse([
         'success' => TRUE,
@@ -219,7 +250,7 @@ class QuestGeneratorController extends ControllerBase {
         'quest_contracts' => $quest_contracts,
         'quest_summary' => $quest_summary,
         'objective_options' => $this->questGenerator->getObjectiveTypeOptions(),
-        'count' => count($quests),
+        'count' => count($stored_quests),
       ]);
     }
     catch (\Exception $e) {

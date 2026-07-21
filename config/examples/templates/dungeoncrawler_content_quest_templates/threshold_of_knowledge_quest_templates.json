@@ -22,10 +22,17 @@
               "type": "investigate",
               "description": "Determine where the teacher disappeared from the Magaambya.",
               "target": "tok-missing-teacher",
+              "target_label": "Okoro of the Open Palm",
+              "target_aliases": [
+                "Lost teacher",
+                "Missing instructor",
+                "Teacher Okoro is tracking"
+              ],
               "npc_id": "tok-campus-mentor",
-              "location": "tok-missing-teacher",
+              "location_id": "tok-missing-teacher",
               "target_count": 1,
               "next_step": "Talk to Okoro, inspect the tok-missing-teacher room, and log the teacher's last confirmed location.",
+              "wayfinding_hint": "Start at the tok-missing-teacher location on campus and question nearby mentors for the latest sighting.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
@@ -72,10 +79,17 @@
               "type": "investigate",
               "description": "Collect enough evidence on campus to follow the mystery into Nantambu.",
               "target": "tok-missing-teacher",
+              "target_label": "Okoro of the Open Palm",
+              "target_aliases": [
+                "Lost teacher",
+                "Missing instructor",
+                "Campus disappearance target"
+              ],
               "npc_id": "tok-campus-mentor",
-              "location": "campus-clues",
+              "location_id": "campus-clues",
               "target_count": 1,
               "next_step": "Question campus contacts, investigate clue sites in campus-clues, and capture one actionable lead.",
+              "wayfinding_hint": "Move through campus-clues locations and record one confirmed lead tied to the missing teacher.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
@@ -121,9 +135,10 @@
               "objective_id": "trace_nantambu_leads",
               "type": "explore",
               "description": "Follow the strongest leads through the city.",
-              "location": "nantambu",
+              "location_id": "nantambu",
               "npc_id": "npc_tavern_keeper",
               "next_step": "Travel to Nantambu, follow the top city lead, and confirm the investigation destination.",
+              "wayfinding_hint": "Travel to nantambu via the city transition point, then follow the highest-confidence clue marker.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "discovered",
@@ -170,7 +185,7 @@
               "type": "interact",
               "description": "Defuse the danger tied to the missing teacher and secure the academy.",
               "target": "tok-underlying-threat",
-              "location": "threat-revealed",
+              "location_id": "threat-revealed",
               "next_step": "Confront tok-underlying-threat in threat-revealed and complete the resolution interaction sequence.",
               "completion_criteria": {
                 "kind": "flag",

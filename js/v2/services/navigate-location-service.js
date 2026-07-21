@@ -46,8 +46,15 @@ export async function fetchVisitedNavigateLocationGroups(campaignId) {
             : 'Visited by party',
           sourceTags: Array.isArray(location?.source_tags) ? location.source_tags.map((tag) => String(tag || '').trim()).filter(Boolean) : [],
           navigable: location?.navigable !== false,
+          directlyNavigable: location?.directly_navigable === true,
           destinationType: String(location?.destination_type || 'room').trim().toLowerCase() || 'room',
           distance: Number.isFinite(Number(location?.distance)) ? Math.max(0, Math.trunc(Number(location.distance))) : 0,
+          nextRoomId: String(location?.next_room_id || ''),
+          nextRoomName: String(location?.next_room_name || ''),
+          routeRoomIds: Array.isArray(location?.route_room_ids) ? location.route_room_ids.map((roomId) => String(roomId || '').trim()).filter(Boolean) : [],
+          routeRoomNames: Array.isArray(location?.route_room_names) ? location.route_room_names.map((roomName) => String(roomName || '').trim()).filter(Boolean) : [],
+          routeHopCount: Number.isFinite(Number(location?.route_hops)) ? Math.max(0, Math.trunc(Number(location.route_hops))) : 0,
+          routeHint: String(location?.route_hint || ''),
         })).filter((location) => location.roomId)
         : [],
     }))

@@ -19,6 +19,61 @@
       "version": "1.0.0"
     },
     {
+      "content_type": "location",
+      "content_id": "tpl_room_absalom_streets",
+      "name": "Absalom Streets",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "location",
+        "city",
+        "streets",
+        "absalom"
+      ],
+      "schema_data": {
+        "location_id": "tpl_room_absalom_streets",
+        "location_type": "city_street",
+        "description": "The district streets outside The Gilded Tankard used by introductory rumor-tracing objectives."
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "blackmail_ledger",
+      "name": "Blackmail Ledger",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "quest_item",
+        "storyline"
+      ],
+      "schema_data": {
+        "item_id": "blackmail_ledger",
+        "item_type": "quest_item",
+        "description": "Ledger containing leverage notes tied to tavern-side rumor quests."
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_type": "item",
+      "content_id": "resonance_sample",
+      "name": "Resonance Sample",
+      "level": 1,
+      "rarity": "common",
+      "tags": [
+        "item",
+        "quest_item",
+        "arcane"
+      ],
+      "schema_data": {
+        "item_id": "resonance_sample",
+        "item_type": "quest_item",
+        "description": "Arcane residue sample collected during codex resonance stabilization objectives."
+      },
+      "version": "1.0.0"
+    },
+    {
       "content_type": "item",
       "content_id": "room_supply",
       "name": "Room Supply Bundle",

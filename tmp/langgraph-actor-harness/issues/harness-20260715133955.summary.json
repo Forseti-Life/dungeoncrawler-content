@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-07-15T13:40:20.954886Z",
+  "correlation_id": "langgraph-harness-20260715133955",
+  "campaign_id": 413,
+  "character_name": "Burasco",
+  "character_id": 2003,
+  "actor_id": "pc-413-1704",
+  "room_id": "tavern_entrance",
+  "stop_reason": "active_quest_missing_objectives",
+  "decision": {
+    "mode": "chat",
+    "chat_message": "I'll start by exploring the tavern to see if there are any clues about the quest.",
+    "reason": ""
+  },
+  "last_result_summary": {
+    "phase": "encounter"
+  },
+  "active_objective": {},
+  "available_actions": [
+    "choose_not_to_act",
+    "delay",
+    "end_turn",
+    "interact",
+    "search",
+    "talk",
+    "transition"
+  ],
+  "active_quest_count": 3
+}

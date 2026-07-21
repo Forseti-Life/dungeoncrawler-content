@@ -14,6 +14,10 @@ use Symfony\Component\HttpFoundation\Request;
  *
  * Provides REST API endpoints for procedural dungeon generation system.
  *
+ * @deprecated
+ *   Deprecated with DungeonGenerationEngine. Use DungeonGeneratorController
+ *   and DungeonGeneratorService for active dungeon generation APIs.
+ *
  * @see /docs/dungeoncrawler/issues/issue-4-procedural-dungeon-generation-design.md
  * Line 1634-1709
  */

@@ -575,7 +575,11 @@ class StorylineRealizationService {
     $mid_level = min(20, max($level_bounds['min'], (int) floor(($level_bounds['min'] + $level_bounds['max']) / 2)));
 
     foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
-      if (!is_array($contact) || (string) ($contact['entity_type'] ?? '') !== 'campaign_npc') {
+      if (!is_array($contact)) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($contact['entity_type'] ?? '')));
+      if (!in_array($entity_type, ['campaign_npc', 'npc_template'], TRUE)) {
         continue;
       }
 
@@ -598,6 +602,10 @@ class StorylineRealizationService {
         'will_save' => 6,
         'lore_notes' => (string) ($contact['notes'] ?? ''),
         'dialogue_notes' => (string) ($contact['notes'] ?? ''),
+        'canonical_location_id' => (string) (
+          $contact['relationship_state']['runtime_materialization']['canonical_location_id']
+          ?? ''
+        ),
       ];
     }
 
@@ -644,7 +652,10 @@ class StorylineRealizationService {
       ];
     }
 
-    foreach ($this->extractStorylineDungeonOutlines($storyline_data) as $dungeon_index => $dungeon) {
+    $dungeon_outlines = is_array($outline['dungeons'] ?? NULL)
+      ? $this->extractStorylineDungeonOutlines($storyline_data)
+      : [];
+    foreach ($dungeon_outlines as $dungeon_index => $dungeon) {
       $rooms = array_values(array_filter(is_array($dungeon['rooms'] ?? NULL) ? $dungeon['rooms'] : [], 'is_array'));
       foreach ($rooms as $room) {
         $room_id = trim((string) ($room['room_id'] ?? ''));
@@ -668,6 +679,7 @@ class StorylineRealizationService {
             'will_save' => 4 + $dungeon_index,
             'lore_notes' => 'Static storyline occupant for ' . $room_name . '.',
             'dialogue_notes' => 'Appears in the ' . $room_role . ' room of the storyline dungeon.',
+            'canonical_location_id' => $room_id,
           ];
         }
       }
@@ -702,6 +714,8 @@ class StorylineRealizationService {
       'lore_notes' => (string) ($spec['lore_notes'] ?? ''),
       'dialogue_notes' => (string) ($spec['dialogue_notes'] ?? ''),
       'entity_ref' => $entity_ref,
+      'location_type' => trim((string) ($spec['canonical_location_id'] ?? '')) !== '' ? 'room' : 'global',
+      'location_ref' => trim((string) ($spec['canonical_location_id'] ?? '')),
       'updated' => time(),
     ];
   }
@@ -741,11 +755,11 @@ class StorylineRealizationService {
         continue;
       }
 
-      $entity_type = trim((string) ($contact['entity_type'] ?? ''));
+      $entity_type = strtolower(trim((string) ($contact['entity_type'] ?? '')));
       $entity_id = trim((string) ($contact['entity_id'] ?? ''));
-      if ($entity_type !== 'campaign_npc') {
+      if (!in_array($entity_type, ['campaign_npc', 'npc_template'], TRUE)) {
         throw new \RuntimeException(sprintf(
-          'Storyline contact "%s" must resolve to campaign_npc before runtime realization.',
+          'Storyline contact "%s" must use entity_type campaign_npc or npc_template before runtime realization.',
           $entity_id !== '' ? $entity_id : '(missing entity_id)'
         ));
       }
@@ -791,11 +805,11 @@ class StorylineRealizationService {
         continue;
       }
 
-      $entity_type = trim((string) ($introduction['entity_type'] ?? ''));
+      $entity_type = strtolower(trim((string) ($introduction['entity_type'] ?? '')));
       $entity_id = trim((string) ($introduction['entity_id'] ?? ''));
-      if ($entity_type !== 'campaign_npc') {
+      if (!in_array($entity_type, ['campaign_npc', 'npc_template'], TRUE)) {
         throw new \RuntimeException(sprintf(
-          'Storyline introduction "%s" must resolve to campaign_npc before runtime realization.',
+          'Storyline introduction "%s" must use entity_type campaign_npc or npc_template before runtime realization.',
           $entity_id !== '' ? $entity_id : '(missing entity_id)'
         ));
       }
@@ -872,6 +886,21 @@ class StorylineRealizationService {
     $character_data['attitude'] = (string) ($fields['attitude'] ?? 'indifferent');
     $character_data['stats'] = $stats;
 
+    $requested_location_ref = trim((string) ($fields['location_ref'] ?? ''));
+    $requested_location_type = strtolower(trim((string) ($fields['location_type'] ?? '')));
+    $location_ref = $requested_location_ref !== ''
+      ? $requested_location_ref
+      : (string) ($existing['location_ref'] ?? '');
+    if ($requested_location_ref !== '') {
+      $location_type = $requested_location_type !== '' ? $requested_location_type : 'room';
+    }
+    else {
+      $location_type = (string) ($existing['location_type'] ?? 'global');
+      if (trim($location_type) === '') {
+        $location_type = 'global';
+      }
+    }
+
     $role = (string) ($fields['role'] ?? 'neutral');
     $upsert = [
       'campaign_id' => $campaign_id,
@@ -887,7 +916,7 @@ class StorylineRealizationService {
       'experience_points' => (int) ($existing['experience_points'] ?? 0),
       'position_q' => (int) ($existing['position_q'] ?? 0),
       'position_r' => (int) ($existing['position_r'] ?? 0),
-      'last_room_id' => (string) ($existing['last_room_id'] ?? ''),
+      'last_room_id' => $location_type === 'room' ? $location_ref : (string) ($existing['last_room_id'] ?? ''),
       'instance_id' => $instance_id,
       'type' => 'npc',
       'character_data' => json_encode($character_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -896,8 +925,8 @@ class StorylineRealizationService {
       'uid' => (int) ($existing['uid'] ?? 0),
       'role' => $role,
       'lifecycle_state' => $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc',
-      'location_type' => (string) ($existing['location_type'] ?? 'global'),
-      'location_ref' => (string) ($existing['location_ref'] ?? ''),
+      'location_type' => $location_type,
+      'location_ref' => $location_ref,
       'is_active' => (int) ($existing['is_active'] ?? 1),
       'joined' => (int) ($existing['joined'] ?? $now),
       'updated' => $now,

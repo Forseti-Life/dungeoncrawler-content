@@ -111,6 +111,12 @@ class EncounterAiPreviewController extends ControllerBase {
         'error' => $exception->getMessage(),
       ], 400);
     }
+    catch (\RuntimeException $exception) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => $exception->getMessage(),
+      ], 422);
+    }
   }
 
 }

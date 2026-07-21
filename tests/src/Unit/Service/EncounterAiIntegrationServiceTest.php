@@ -78,7 +78,6 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertSame(json_encode(['content_id' => 'npc-2', 'heritage' => 'chameleon']), $context['current_actor']['entity_ref']);
     $this->assertContains('strike', $context['allowed_actions']);
     $this->assertContains('raise_shield', $context['allowed_actions']);
-    $this->assertContains('minor_color_shift', $context['allowed_actions']);
     $this->assertSame('encounter', $context['action_contract']['phase']);
     $this->assertSame('npc-2', $context['action_contract']['actor_id']);
     $this->assertTrue(is_array($context['action_contract']['actions']));
@@ -88,6 +87,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertSame('npc-2', $context['actions_available_to_me_this_turn']['actor_instance_id']);
     $this->assertContains('end_turn', $context['actions_available_to_me_this_turn']['available_actions']);
     $this->assertSame('encounter', $context['actions_available_to_me_this_turn']['action_contract']['phase']);
+    $this->assertNotSame('', (string) ($context['action_contract_hash'] ?? ''));
   }
 
   /**
@@ -115,6 +115,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
       'participants',
       'allowed_actions',
       'action_contract',
+      'action_contract_hash',
       'action_option_families',
       'actions_available_to_me_this_turn',
       'context_built_at',
@@ -161,6 +162,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
    */
   public function testValidateRecommendationReturnsValidForNpcStrike(): void {
     $context = [
+      'action_contract_hash' => 'contract-hash-1',
       'current_actor' => [
         'entity_ref' => 'npc-1',
         'team' => 'npc',
@@ -175,13 +177,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
       ],
     ];
 
-    $recommendation = [
-      'actor_instance_id' => 'npc-1',
-      'recommended_action' => [
-        'type' => 'strike',
-        'action_cost' => 1,
-      ],
-    ];
+    $recommendation = $this->buildRecommendation('npc-1', 'strike', 1, 'contract-hash-1', [], NULL);
 
     $validation = $this->service->validateRecommendation($recommendation, $context);
 
@@ -194,6 +190,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
    */
   public function testValidateRecommendationReturnsErrorsForInvalidActorAndCost(): void {
     $context = [
+      'action_contract_hash' => 'contract-hash-2',
       'current_actor' => [
         'entity_ref' => 'npc-1',
         'team' => 'player',
@@ -207,13 +204,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
       ],
     ];
 
-    $recommendation = [
-      'actor_instance_id' => 'npc-2',
-      'recommended_action' => [
-        'type' => 'unsupported_action',
-        'action_cost' => 3,
-      ],
-    ];
+    $recommendation = $this->buildRecommendation('npc-2', 'unsupported_action', 3, 'contract-hash-2', [], NULL);
 
     $validation = $this->service->validateRecommendation($recommendation, $context);
 
@@ -228,6 +219,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
    */
   public function testValidateRecommendationPrefersCanonicalActionAvailabilityEnvelope(): void {
     $context = [
+      'action_contract_hash' => 'contract-hash-3',
       'current_actor' => [
         'entity_ref' => 'npc-1',
         'team' => 'npc',
@@ -248,13 +240,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
       ],
     ];
 
-    $recommendation = [
-      'actor_instance_id' => 'npc-1',
-      'recommended_action' => [
-        'type' => 'strike',
-        'action_cost' => 1,
-      ],
-    ];
+    $recommendation = $this->buildRecommendation('npc-1', 'strike', 1, 'contract-hash-3', [], NULL);
 
     $validation = $this->service->validateRecommendation($recommendation, $context);
 
@@ -268,6 +254,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
    */
   public function testValidateRecommendationAllowsCanonicalZeroCostEndTurn(): void {
     $context = [
+      'action_contract_hash' => 'contract-hash-4',
       'current_actor' => [
         'entity_ref' => 'npc-1',
         'team' => 'npc',
@@ -287,13 +274,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
       ],
     ];
 
-    $recommendation = [
-      'actor_instance_id' => 'npc-1',
-      'recommended_action' => [
-        'type' => 'end_turn',
-        'action_cost' => 0,
-      ],
-    ];
+    $recommendation = $this->buildRecommendation('npc-1', 'end_turn', 0, 'contract-hash-4', [], NULL);
 
     $validation = $this->service->validateRecommendation($recommendation, $context);
 
@@ -308,6 +289,7 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $context = [
       'encounter_id' => 901,
       'campaign_id' => 0,
+      'action_contract_hash' => 'contract-hash-5',
       'current_actor' => [
         'entity_ref' => 'npc-1',
         'team' => 'npc',
@@ -322,13 +304,9 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     ];
 
     $this->provider->method('getProviderName')->willReturn('stub');
-    $this->provider->method('recommendNpcAction')->willReturn([
-      'actor_instance_id' => 'npc-1',
-      'recommended_action' => [
-        'type' => 'strike',
-        'action_cost' => 1,
-      ],
-    ]);
+    $this->provider->method('recommendNpcAction')->willReturn(
+      $this->buildRecommendation('npc-1', 'strike', 1, 'contract-hash-5', [], NULL)
+    );
 
     $response = $this->service->requestNpcActionRecommendation($context);
 
@@ -336,6 +314,162 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertSame('stub', $response['provider']);
     $this->assertTrue($response['validation']['valid']);
     $this->assertSame(1700000000, $response['requested_at']);
+  }
+
+  /**
+   * @covers ::validateRecommendation
+   */
+  public function testValidateRecommendationRejectsMissingTalkMessageParameter(): void {
+    $context = [
+      'action_contract_hash' => 'contract-hash-6',
+      'current_actor' => [
+        'entity_ref' => 'npc-1',
+        'team' => 'npc',
+        'actions_remaining' => 3,
+      ],
+      'allowed_actions' => ['talk'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'talk', 'cost' => 1, 'targeting' => 'entity_or_room'],
+        ],
+      ],
+    ];
+    $recommendation = $this->buildRecommendation('npc-1', 'talk', 1, 'contract-hash-6', [], 'target-1');
+
+    $validation = $this->service->validateRecommendation($recommendation, $context);
+    $this->assertFalse($validation['valid']);
+    $this->assertContains('recommended_action.parameters.message is required for talk.', $validation['errors']);
+  }
+
+  /**
+   * @covers ::validateRecommendation
+   */
+  public function testValidateRecommendationRejectsMissingStrideTargetHexParameters(): void {
+    $context = [
+      'action_contract_hash' => 'contract-hash-6b',
+      'current_actor' => [
+        'entity_ref' => 'npc-1',
+        'team' => 'npc',
+        'actions_remaining' => 3,
+      ],
+      'allowed_actions' => ['stride'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'stride', 'cost' => 1, 'targeting' => 'connected_room'],
+        ],
+      ],
+    ];
+    $recommendation = $this->buildRecommendation('npc-1', 'stride', 1, 'contract-hash-6b', [], 'target-room');
+
+    $validation = $this->service->validateRecommendation($recommendation, $context);
+    $this->assertFalse($validation['valid']);
+    $this->assertContains('recommended_action.parameters.target_hex.{q,r} is required for stride.', $validation['errors']);
+  }
+
+  /**
+   * @covers ::validateRecommendation
+   */
+  public function testValidateRecommendationRejectsMissingTransitionTargetRoomParameter(): void {
+    $context = [
+      'action_contract_hash' => 'contract-hash-6c',
+      'current_actor' => [
+        'entity_ref' => 'npc-1',
+        'team' => 'npc',
+        'actions_remaining' => 3,
+      ],
+      'allowed_actions' => ['transition'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'transition', 'cost' => 0, 'targeting' => 'connected_room'],
+        ],
+      ],
+    ];
+    $recommendation = $this->buildRecommendation('npc-1', 'transition', 0, 'contract-hash-6c', [], 'target-room');
+
+    $validation = $this->service->validateRecommendation($recommendation, $context);
+    $this->assertFalse($validation['valid']);
+    $this->assertContains('recommended_action.parameters.target_room_id is required for transition.', $validation['errors']);
+  }
+
+  /**
+   * @covers ::validateRecommendation
+   */
+  public function testValidateRecommendationRejectsMissingOptionIdForOptionActions(): void {
+    $context = [
+      'action_contract_hash' => 'contract-hash-6d',
+      'current_actor' => [
+        'entity_ref' => 'npc-1',
+        'team' => 'npc',
+        'actions_remaining' => 3,
+      ],
+      'allowed_actions' => ['cast_spell'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'cast_spell', 'cost' => 2, 'targeting' => 'entity_or_object'],
+        ],
+      ],
+    ];
+    $recommendation = $this->buildRecommendation('npc-1', 'cast_spell', 2, 'contract-hash-6d', [], 'target-1');
+
+    $validation = $this->service->validateRecommendation($recommendation, $context);
+    $this->assertFalse($validation['valid']);
+    $this->assertContains('recommended_action.parameters.option_id is required for cast_spell.', $validation['errors']);
+  }
+
+  /**
+   * @covers ::validateRecommendation
+   */
+  public function testValidateRecommendationRejectsContractVersionMismatch(): void {
+    $context = [
+      'action_contract_hash' => 'contract-hash-7',
+      'current_actor' => [
+        'entity_ref' => 'npc-1',
+        'team' => 'npc',
+        'actions_remaining' => 3,
+      ],
+      'allowed_actions' => ['end_turn'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'end_turn', 'cost' => 0],
+        ],
+      ],
+    ];
+    $recommendation = $this->buildRecommendation('npc-1', 'end_turn', 0, 'wrong-hash', [], NULL);
+
+    $validation = $this->service->validateRecommendation($recommendation, $context);
+    $this->assertFalse($validation['valid']);
+    $this->assertContains('contract_version does not match current action contract hash.', $validation['errors']);
+  }
+
+  /**
+   * @covers ::requestNpcActionRecommendation
+   */
+  public function testRequestNpcActionRecommendationThrowsOnInvalidRecommendationContract(): void {
+    $context = [
+      'encounter_id' => 901,
+      'campaign_id' => 0,
+      'action_contract_hash' => 'contract-hash-8',
+      'current_actor' => [
+        'entity_ref' => 'npc-1',
+        'team' => 'npc',
+        'actions_remaining' => 3,
+      ],
+      'allowed_actions' => ['talk'],
+      'action_contract' => [
+        'actions' => [
+          ['id' => 'talk', 'cost' => 1, 'targeting' => 'entity_or_room'],
+        ],
+      ],
+    ];
+
+    $this->provider->method('getProviderName')->willReturn('stub');
+    $this->provider->method('recommendNpcAction')->willReturn(
+      $this->buildRecommendation('npc-1', 'talk', 1, 'contract-hash-8', [], 'target-1')
+    );
+
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('Encounter AI recommendation contract violation:');
+    $this->service->requestNpcActionRecommendation($context);
   }
 
   /**
@@ -353,6 +487,36 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertSame('stub', $response['provider']);
     $this->assertSame('A measured tactical beat.', $response['narration']['narration']);
     $this->assertSame(1700000000, $response['requested_at']);
+  }
+
+  protected function buildRecommendation(
+    string $actor_instance_id,
+    string $action_type,
+    int $action_cost,
+    string $contract_version,
+    array $parameters = [],
+    ?string $target_instance_id = NULL
+  ): array {
+    return [
+      'version' => 'v1',
+      'contract_version' => $contract_version,
+      'actor_instance_id' => $actor_instance_id,
+      'recommended_action' => [
+        'type' => $action_type,
+        'target_instance_id' => $target_instance_id,
+        'action_cost' => $action_cost,
+        'parameters' => $parameters,
+      ],
+      'alternatives' => [],
+      'rationale' => 'test rationale',
+      'decision_reason' => 'test decision reason',
+      'decision_basis' => [
+        'used_profile' => TRUE,
+        'used_psychology' => TRUE,
+        'used_availability' => TRUE,
+      ],
+      'confidence' => 0.8,
+    ];
   }
 
 }

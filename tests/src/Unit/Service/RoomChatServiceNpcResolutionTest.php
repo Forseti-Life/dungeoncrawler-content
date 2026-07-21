@@ -1095,6 +1095,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
    */
   public function testLooksLikeImplicitLeadRequestDetectsAnyWorkFollowUp(): void {
     $this->assertTrue($this->roomChatService->publicLooksLikeImplicitLeadRequest('what about you marta you have any'));
+    $this->assertTrue($this->roomChatService->publicLooksLikeImplicitLeadRequest('what about you gribbles'));
     $this->assertTrue($this->roomChatService->publicLooksLikeImplicitLeadRequest('got any work'));
     $this->assertFalse($this->roomChatService->publicLooksLikeImplicitLeadRequest('what do you think about this room'));
   }
@@ -1111,7 +1112,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     ], 'Marta the Scholar');
 
     $this->assertSame(
-      'You are already on Collect Lost spellbooks. Start with: Find and collect spellbooks',
+      "You're currently working on Collect Lost spellbooks. Start by Find and collect spellbooks",
       $line
     );
   }
@@ -1128,7 +1129,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     ], 'Eldric');
 
     $this->assertSame(
-      'I have work for you: Collect Wine Bottles. Collect wine bottle from around the tavern',
+      'I have an assignment for you: Collect Wine Bottles. Collect wine bottle from around the tavern',
       $line
     );
   }
@@ -1146,7 +1147,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     ], 'Eldric');
 
     $this->assertSame(
-      'You are already on Gather Storyline Leads in the Tavern. Start with: Gather his storyline lead',
+      "You're currently working on Gather Storyline Leads in the Tavern. Start by Gather his storyline lead",
       $line
     );
   }
@@ -2478,7 +2479,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
         [
           'name' => 'Little Trouble in Big Absalom',
           'quest_giver' => [
-            'display_name' => 'The Kind Old Lady',
+            'display_name' => 'Grandmother',
           ],
           'lead_location' => [
             'label' => "Grandma's House",
@@ -2506,7 +2507,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $this->assertNotNull($reply);
     $this->assertStringContainsString('Little Trouble in Big Absalom', $reply);
-    $this->assertStringContainsString('The Kind Old Lady', $reply);
+    $this->assertStringContainsString('Grandmother', $reply);
     $this->assertStringNotContainsString('Threshold of Knowledge', $reply);
     $this->assertStringNotContainsString('Also,', $reply);
   }
@@ -2710,14 +2711,14 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
         'storyline_id' => 'little-trouble-in-big-absalom',
         'name' => 'Little Trouble in Big Absalom',
         'quest_giver' => [
-          'display_name' => 'The Kind Old Lady',
+          'display_name' => 'Grandmother',
           'notes' => 'She asks the kobolds to recover her magical hedge trimmer.',
         ],
         'lead_location' => [
           'label' => "Grandma's House",
         ],
       ],
-    ], "If you want work, For Little Trouble in Big Absalom, look for The Kind Old Lady at Grandma's House. Also, For Threshold of Knowledge, look for Okoro of the Open Palm at Magaambya Campus.");
+    ], "If you want work, For Little Trouble in Big Absalom, look for Grandmother at Grandma's House. Also, For Threshold of Knowledge, look for Okoro of the Open Palm at Magaambya Campus.");
 
     $this->assertCount(2, $matches);
     $storyline_ids = array_values(array_unique(array_map(static fn(array $match): string => (string) ($match['storyline_id'] ?? ''), $matches)));

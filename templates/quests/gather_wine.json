@@ -71,9 +71,9 @@
     "level_min": 1
   },
   "story_impact": {
-    "storyline_id": "torment-and-legacy",
-    "chapter_id": "onboarding",
-    "scene_id": "briefing"
+    "storyline_id": "introduction-to-game-mechanics",
+    "chapter_id": "intro-mechanics",
+    "scene_id": "tavern-foundations"
   },
   "estimated_duration_minutes": 15,
   "version": "1.0.0"

@@ -13,6 +13,16 @@
         "social"
       ],
       "layout_data": {
+        "shape": "irregular",
+        "exits": [
+          {
+            "target_room_id": "tpl_room_absalom_streets",
+            "label": "To Absalom Streets",
+            "link_type": "room_transition",
+            "q": 0,
+            "r": -3
+          }
+        ],
         "hexes": [
           {
             "q": -4,
@@ -1170,9 +1180,9 @@
                 "description": "Help brighten the tavern by collecting torch components"
               },
               {
-                "quest_id": "quiet_the_back_room",
-                "title": "Quiet the Back Room",
-                "description": "Investigate disruptive late-night visitors and restore order without starting a brawl."
+                "quest_id": "tavern_storyline_leads",
+                "title": "Ask About Storyline Leads",
+                "description": "Get Eldric's latest actionable leads and choose which thread to pursue."
               }
             ]
           },
@@ -1527,7 +1537,10 @@
             "description": "The main bar counter",
             "impassable": true
           }
-        ]
+        ],
+        "entities": [],
+        "hazards": [],
+        "interactables": []
       }
     },
     {

@@ -9,6 +9,8 @@ use Drupal\Core\Extension\ModuleExtensionList;
  *
  * Uses an onset-nucleus-coda syllable generator backed by local JSON tables,
  * so name generation stays fast, deterministic when seeded, and offline.
+ *
+ * Validation pair: none (deterministic utility generator).
  */
 class NameGeneratorService {
 

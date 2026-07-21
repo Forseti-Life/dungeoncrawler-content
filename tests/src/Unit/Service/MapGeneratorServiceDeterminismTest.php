@@ -3,6 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
+use Drupal\dungeoncrawler_content\Service\NpcPsychologyService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\NullLogger;
 
@@ -258,6 +259,68 @@ class MapGeneratorServiceDeterminismTest extends UnitTestCase {
     $this->assertSame(3, $first['stats']['initiative_bonus']);
     $this->assertSame([], $first['equipment']);
     $this->assertSame('Unknown NPC', $service->callNormalizeGeneratedNpcContract([], $used)['name']);
+  }
+
+  /**
+   * @covers ::ensureGeneratedNpcPsychologyProfiles
+   */
+  public function testEnsureGeneratedNpcPsychologyProfilesFiltersNpcEntitiesOnly(): void {
+    $psychology_service = $this->createMock(NpcPsychologyService::class);
+    $psychology_service->expects($this->once())
+      ->method('ensureRoomNpcProfiles')
+      ->with(77, $this->callback(static function (array $entities): bool {
+        if (count($entities) !== 2) {
+          return FALSE;
+        }
+        foreach ($entities as $entity) {
+          if (($entity['entity_type'] ?? '') !== 'npc') {
+            return FALSE;
+          }
+        }
+        return TRUE;
+      }));
+
+    $service = new class($psychology_service) extends MapGeneratorService {
+      public function __construct(NpcPsychologyService $psychology_service) {
+        $this->logger = new NullLogger();
+        $this->psychologyService = $psychology_service;
+      }
+
+      public function callEnsureGeneratedNpcPsychologyProfiles(int $campaign_id, array $entities): void {
+        $this->ensureGeneratedNpcPsychologyProfiles($campaign_id, $entities);
+      }
+    };
+
+    $service->callEnsureGeneratedNpcPsychologyProfiles(77, [
+      ['entity_type' => 'npc', 'entity_ref' => ['content_id' => 'guard']],
+      ['entity_type' => 'npc', 'entity_ref' => ['content_id' => 'merchant']],
+      ['entity_type' => 'object', 'object_id' => 'crate'],
+    ]);
+  }
+
+  /**
+   * @covers ::ensureGeneratedNpcPsychologyProfiles
+   */
+  public function testEnsureGeneratedNpcPsychologyProfilesSkipsWhenNoNpcs(): void {
+    $psychology_service = $this->createMock(NpcPsychologyService::class);
+    $psychology_service->expects($this->never())
+      ->method('ensureRoomNpcProfiles');
+
+    $service = new class($psychology_service) extends MapGeneratorService {
+      public function __construct(NpcPsychologyService $psychology_service) {
+        $this->logger = new NullLogger();
+        $this->psychologyService = $psychology_service;
+      }
+
+      public function callEnsureGeneratedNpcPsychologyProfiles(int $campaign_id, array $entities): void {
+        $this->ensureGeneratedNpcPsychologyProfiles($campaign_id, $entities);
+      }
+    };
+
+    $service->callEnsureGeneratedNpcPsychologyProfiles(77, [
+      ['entity_type' => 'object', 'object_id' => 'crate'],
+      ['entity_type' => 'furniture', 'object_id' => 'bench'],
+    ]);
   }
 
   /**

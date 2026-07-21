@@ -17,7 +17,7 @@
         "schema_version": "storyline-definition-v1",
         "template_id": "little-trouble-in-big-absalom",
         "name": "Little Trouble in Big Absalom",
-        "synopsis": "A two-part kobold caper with a tomb delve followed by a visit to Grandma's House.",
+        "synopsis": "A chaptered kobold caper that begins at Grandma's House, pushes the party into a tomb delve, and ends with a return home.",
         "level_range": "1",
         "source": "Paizo Free RPG Day",
         "tags": [
@@ -34,7 +34,7 @@
           "generated_outline": {
             "entry_point": {
               "primary_quest_giver_id": "ltba-grandmother",
-              "primary_quest_giver_name": "The Kind Old Lady",
+              "primary_quest_giver_name": "Grandmother",
               "primary_dungeon_id": "ltba-tomb-site",
               "primary_chapter_id": "upstairs",
               "primary_scene_id": "grandmothers-request",
@@ -47,19 +47,18 @@
               "broker_name": "Eldric"
             },
             "generation_phase": "bootstrap",
-            "goal": "A two-part kobold caper with a tomb delve followed by a visit to Grandma's House."
+            "goal": "A chaptered kobold caper that begins at Grandma's House, pushes the party into a tomb delve, and ends with a return home."
           },
-          "goal": "A two-part kobold caper with a tomb delve followed by a visit to Grandma's House."
+          "goal": "A chaptered kobold caper that begins at Grandma's House, pushes the party into a tomb delve, and ends with a return home."
         },
         "chapters": [
           {
             "chapter_id": "upstairs",
             "name": "Grandma's House",
-            "summary": "Get the lead from Eldric, speak to Grandmother, and return for turn-in.",
+            "summary": "Get the lead from Eldric and speak to Grandmother to launch the tomb run.",
             "order": 1,
             "quest_ids": [
-              "ltba-accept-the-task",
-              "ltba-retrieve-hedge-trimmer"
+              "ltba-accept-the-task"
             ],
             "asset_references": [
               {
@@ -81,27 +80,6 @@
                 "asset_id": "ltba-grandmas-house-parlor",
                 "asset_role": "scene-room",
                 "scene_id": "grandmothers-request",
-                "source_scope": "asset_reference"
-              },
-              {
-                "asset_type": "room",
-                "asset_id": "tavern_entrance",
-                "asset_role": "broker-room",
-                "scene_id": "grandmothers-request",
-                "source_scope": "asset_reference"
-              },
-              {
-                "asset_type": "npc",
-                "asset_id": "ltba-grandmother",
-                "asset_role": "turn-in",
-                "scene_id": "grandmothers-turn-in",
-                "source_scope": "asset_reference"
-              },
-              {
-                "asset_type": "room",
-                "asset_id": "ltba-grandmas-house-parlor",
-                "asset_role": "turn-in-room",
-                "scene_id": "grandmothers-turn-in",
                 "source_scope": "asset_reference"
               }
             ],
@@ -127,47 +105,12 @@
                     "asset_id": "ltba-grandmas-house-parlor",
                     "asset_role": "scene-room",
                     "source_scope": "asset_reference"
-                  },
-                  {
-                    "asset_type": "room",
-                    "asset_id": "tavern_entrance",
-                    "asset_role": "broker-room",
-                    "source_scope": "asset_reference"
                   }
                 ],
                 "gates": [
                   {
                     "trigger": "Speak with Grandmother in her parlor and accept the recovery job.",
                     "progression_gate": "Complete quest ltba-accept-the-task (accept_request)."
-                  }
-                ]
-              },
-              {
-                "scene_id": "grandmothers-turn-in",
-                "name": "Return to Grandmother",
-                "summary": "Return from the tomb and hand the recovered hedge trimmer to Grandmother.",
-                "order": 2,
-                "quest_ids": [
-                  "ltba-retrieve-hedge-trimmer"
-                ],
-                "asset_references": [
-                  {
-                    "asset_type": "npc",
-                    "asset_id": "ltba-grandmother",
-                    "asset_role": "turn-in",
-                    "source_scope": "asset_reference"
-                  },
-                  {
-                    "asset_type": "room",
-                    "asset_id": "ltba-grandmas-house-parlor",
-                    "asset_role": "scene-room",
-                    "source_scope": "asset_reference"
-                  }
-                ],
-                "gates": [
-                  {
-                    "trigger": "Return to Grandmother after recovering the trimmer and complete the turn-in.",
-                    "progression_gate": "Complete quest ltba-retrieve-hedge-trimmer (turn_in_to_grandmother)."
                   }
                 ]
               }
@@ -312,6 +255,70 @@
                 ]
               }
             ]
+          },
+          {
+            "chapter_id": "homecoming",
+            "name": "Return to Grandmother",
+            "summary": "Return from the tomb and hand the recovered hedge trimmer to Grandmother.",
+            "order": 3,
+            "quest_ids": [
+              "ltba-retrieve-hedge-trimmer"
+            ],
+            "asset_references": [
+              {
+                "asset_type": "location",
+                "asset_id": "ltba-grandmas-house",
+                "asset_role": "turn-in-hub",
+                "scene_id": "",
+                "source_scope": "asset_reference"
+              },
+              {
+                "asset_type": "npc",
+                "asset_id": "ltba-grandmother",
+                "asset_role": "turn-in",
+                "scene_id": "grandmothers-turn-in",
+                "source_scope": "asset_reference"
+              },
+              {
+                "asset_type": "room",
+                "asset_id": "ltba-grandmas-house-parlor",
+                "asset_role": "turn-in-room",
+                "scene_id": "grandmothers-turn-in",
+                "source_scope": "asset_reference"
+              }
+            ],
+            "gates": [],
+            "scenes": [
+              {
+                "scene_id": "grandmothers-turn-in",
+                "name": "Return to Grandmother",
+                "summary": "Return from the tomb and hand the recovered hedge trimmer to Grandmother.",
+                "order": 1,
+                "quest_ids": [
+                  "ltba-retrieve-hedge-trimmer"
+                ],
+                "asset_references": [
+                  {
+                    "asset_type": "npc",
+                    "asset_id": "ltba-grandmother",
+                    "asset_role": "turn-in",
+                    "source_scope": "asset_reference"
+                  },
+                  {
+                    "asset_type": "room",
+                    "asset_id": "ltba-grandmas-house-parlor",
+                    "asset_role": "scene-room",
+                    "source_scope": "asset_reference"
+                  }
+                ],
+                "gates": [
+                  {
+                    "trigger": "Return to Grandmother after recovering the trimmer and complete the turn-in.",
+                    "progression_gate": "Complete quest ltba-retrieve-hedge-trimmer (turn_in_to_grandmother)."
+                  }
+                ]
+              }
+            ]
           }
         ],
         "linked_quests": {
@@ -335,7 +342,7 @@
           },
           "ltba-retrieve-hedge-trimmer": {
             "quest_id": "ltba-retrieve-hedge-trimmer",
-            "chapter_id": "upstairs",
+            "chapter_id": "homecoming",
             "scene_id": "grandmothers-turn-in",
             "status": "available"
           }
@@ -388,7 +395,7 @@
             },
             {
               "quest_id": "ltba-retrieve-hedge-trimmer",
-              "chapter_id": "upstairs",
+              "chapter_id": "homecoming",
               "scene_id": "grandmothers-turn-in",
               "status": "available",
               "unlocks_after": [
@@ -504,18 +511,8 @@
             "asset_type": "room",
             "asset_id": "ltba-grandmas-house-parlor",
             "asset_role": "turn-in-room",
-            "chapter_id": "upstairs",
+            "chapter_id": "homecoming",
             "scene_id": "grandmothers-turn-in",
-            "source_scope": "asset_reference",
-            "notes": "",
-            "link_data": {}
-          },
-          {
-            "asset_type": "room",
-            "asset_id": "tavern_entrance",
-            "asset_role": "broker-room",
-            "chapter_id": "upstairs",
-            "scene_id": "grandmothers-request",
             "source_scope": "asset_reference",
             "notes": "",
             "link_data": {}
@@ -542,7 +539,13 @@
             "availability": "available",
             "notes": "Eldric knows the grandmother at Grandma's House who needs help recovering a magical hedge trimmer. Trigger: Talk to Eldric and ask for a local lead needing help. Gate: Eldric introduces the party to Grandmother.",
             "relationship_state": {
-              "scene_id": "grandmothers-request"
+              "scene_id": "grandmothers-request",
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "npc_tavern_keeper",
+                "canonical_location_id": "tavern_entrance"
+              }
             },
             "introduces_to": [
               {
@@ -550,7 +553,7 @@
                 "entity_id": "ltba-grandmother",
                 "relationship_type": "knows",
                 "attitude": "friendly",
-                "display_name": "The Kind Old Lady",
+                "display_name": "Grandmother",
                 "notes": "",
                 "relationship_state": {}
               }
@@ -561,12 +564,18 @@
             "entity_type": "npc_template",
             "entity_id": "ltba-grandmother",
             "role": "quest_giver",
-            "display_name": "The Kind Old Lady",
+            "display_name": "Grandmother",
             "attitude": "friendly",
             "availability": "available",
             "notes": "She asks the kobolds to recover her magical hedge trimmer. Trigger: Speak with Grandmother and agree to take the hedge trimmer job. Gate: Quest ltba-accept-the-task is activated.",
             "relationship_state": {
-              "scene_id": "grandmothers-request"
+              "scene_id": "grandmothers-request",
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "ltba-grandmother",
+                "canonical_location_id": "ltba-grandmas-house-parlor"
+              }
             },
             "introduces_to": []
           },
@@ -580,7 +589,13 @@
             "availability": "available",
             "notes": "Coordinates the Hookclaw team at the vault entry and briefs the party on next steps. Trigger: Talk to Zikza and confirm you are ready to enter the vault. Gate: Quest ltba-enter-the-vault is in progress.",
             "relationship_state": {
-              "scene_id": "vault-entry"
+              "scene_id": "vault-entry",
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "ltba-hookclaw-vault-guide",
+                "canonical_location_id": "ltba-vault-entry"
+              }
             },
             "introduces_to": []
           },
@@ -594,7 +609,13 @@
             "availability": "available",
             "notes": "Keeps watch over the entrance while the party enters the tomb. Trigger: Check in with Skritch before moving deeper into the vault. Gate: Vault entry conditions are confirmed and secure.",
             "relationship_state": {
-              "scene_id": "vault-entry"
+              "scene_id": "vault-entry",
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "ltba-hookclaw-lookout",
+                "canonical_location_id": "ltba-vault-entry"
+              }
             },
             "introduces_to": []
           },
@@ -608,7 +629,13 @@
             "availability": "available",
             "notes": "Identifies trap triggers and supports hazard bypass in the tomb chamber. Trigger: Coordinate with Pikkik while interacting with hazard controls in the chamber. Gate: Hazard room controls are identified and ready for disarm/bypass actions.",
             "relationship_state": {
-              "scene_id": "tomb-hazards"
+              "scene_id": "tomb-hazards",
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "ltba-hookclaw-hazard-scout",
+                "canonical_location_id": "ltba-tomb-hazard-room"
+              }
             },
             "introduces_to": []
           }
@@ -998,7 +1025,13 @@
             "availability": "available",
             "notes": "Eldric knows a Magaambya mentor who is looking for discreet help from capable adventurers. Trigger: Talk to Eldric and choose dialogue requesting an introduction to a Magaambya mentor. Gate: Eldric introduces the party to Okoro of the Open Palm.",
             "relationship_state": {
-              "scene_id": "missing-teacher"
+              "scene_id": "missing-teacher",
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "npc_tavern_keeper",
+                "canonical_location_id": "tok-missing-teacher"
+              }
             },
             "introduces_to": [
               {
@@ -1022,7 +1055,13 @@
             "availability": "available",
             "notes": "Okoro briefs the party on the missing teacher and opens the Magaambya investigation. Trigger: Speak with Okoro and accept the missing-teacher assignment. Gate: Quest tok-find-the-missing-teacher is activated.",
             "relationship_state": {
-              "scene_id": "missing-teacher"
+              "scene_id": "missing-teacher",
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "tok-campus-mentor",
+                "canonical_location_id": "tok-missing-teacher"
+              }
             },
             "introduces_to": []
           },
@@ -1036,7 +1075,13 @@
             "availability": "available",
             "notes": "The missing teacher is the person the party is trying to find. Trigger: Investigate clues tied to the missing teacher during campus and Nantambu follow-up scenes. Gate: At least one verified lead tied to the missing teacher is recorded.",
             "relationship_state": {
-              "scene_id": "campus-clues"
+              "scene_id": "campus-clues",
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "tok-missing-teacher",
+                "canonical_location_id": "tok-campus-clues"
+              }
             },
             "introduces_to": []
           }
@@ -1309,7 +1354,14 @@
             "attitude": "friendly",
             "availability": "available",
             "notes": "Eldric can put the party in touch with a Pathfinder handler looking for recruits.",
-            "relationship_state": {},
+            "relationship_state": {
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "npc_tavern_keeper",
+                "canonical_location_id": "tavern_entrance"
+              }
+            },
             "introduces_to": [
               {
                 "entity_type": "npc_template",
@@ -1331,7 +1383,14 @@
             "attitude": "friendly",
             "availability": "available",
             "notes": "Celia briefs the party on the opening mission and launches the tutorial storyline.",
-            "relationship_state": {},
+            "relationship_state": {
+              "runtime_materialization": {
+                "required_before_activation": true,
+                "registry_entity_type": "campaign_npc",
+                "canonical_actor_id": "tal-mission-handler",
+                "canonical_location_id": "tal-briefing-room"
+              }
+            },
             "introduces_to": []
           }
         ]

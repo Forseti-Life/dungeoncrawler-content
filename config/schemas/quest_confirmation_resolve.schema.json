@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/quest_confirmation_resolve.schema.json",
+  "title": "Quest Confirmation Resolve Schema",
+  "description": "Canonical runtime contract for resolving pending quest touchpoint confirmations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["resolution", "resolved_by"],
+  "properties": {
+    "resolution": {
+      "type": "string",
+      "enum": ["approved", "rejected"]
+    },
+    "resolved_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "selected_objective_id": {
+      "type": ["string", "null"],
+      "maxLength": 160
+    }
+  }
+}

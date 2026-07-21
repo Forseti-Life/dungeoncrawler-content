@@ -18,6 +18,90 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
   protected const PRIORITY_PAID_WORK_FALLBACK = 90;
   protected const PRIORITY_REST = 100;
   protected const PRIORITY_WAIT = 110;
+  protected const PRIORITY_HARDCODED_TAVERN_SCRIPT = 5;
+
+  /**
+   * HARD CONTRACT — Burasco harness deterministic action workflow.
+   *
+   * This sequence is intentionally hardcoded and is not equivalent to dynamic
+   * objective-driven policy behavior.
+   *
+   * MAINTAINER DIRECTIVE:
+   * - Do NOT remove this list.
+   * - Do NOT reorder this list.
+   * - Do NOT replace this list with generic/dynamic quest selection logic.
+   * - Do NOT gate this list behind optional flags unless product explicitly
+   *   changes the contract.
+   *
+   * If behavior must change, treat it as a product-contract change and update:
+   * 1) this constant,
+   * 2) the matching constant in PlayerAgentEncounterPolicy, and
+   * 3) harness validation expectations.
+   */
+  private const HARDCODED_TAVERN_SCRIPT = [
+    [
+      'target' => 'npc_gribbles_rindsworth',
+      'message' => 'Gribbles, what jobs or dangers should I tackle first for pay around here?',
+      'action' => 'talk',
+      'goal' => 'hardcoded_tavern_talk_gribbles',
+    ],
+    [
+      'target' => 'scholar_npc',
+      'message' => 'Marta, what urgent problem needs attention and where should I start?',
+      'action' => 'talk',
+      'goal' => 'hardcoded_tavern_talk_marta',
+    ],
+    [
+      'target' => 'tavern_keeper',
+      'message' => 'Eldric, what work or danger do you know about that pays coin?',
+      'action' => 'talk',
+      'goal' => 'hardcoded_tavern_talk_eldric',
+    ],
+    [
+      'action' => 'search',
+      'goal' => 'hardcoded_tavern_search',
+    ],
+    [
+      'target' => 'tavern_keeper',
+      'message' => 'Eldric, I found the requested items. I am turning them in now.',
+      'action' => 'talk',
+      'goal' => 'hardcoded_tavern_turn_in',
+    ],
+    [
+      'target' => 'scholar_npc',
+      'message' => 'Marta, I found the requested items. I am turning them in now.',
+      'action' => 'talk',
+      'goal' => 'hardcoded_tavern_turn_in_marta',
+    ],
+    [
+      'target' => 'npc_gribbles_rindsworth',
+      'message' => 'Gribbles, I found the requested items. I am turning them in now.',
+      'action' => 'talk',
+      'goal' => 'hardcoded_tavern_turn_in_gribbles',
+    ],
+    [
+      'target' => 'tavern_keeper',
+      'message' => 'Eldric, I am ready for additional work. What should I do next?',
+      'action' => 'talk',
+      'goal' => 'hardcoded_tavern_ask_eldric_additional_work',
+    ],
+    [
+      'action' => 'transition',
+      'target_room_id' => 'tpl_room_absalom_streets',
+      'goal' => 'hardcoded_tavern_navigate_absalom_streets',
+    ],
+    [
+      'action' => 'transition',
+      'target_room_id' => 'ltba-grandmas-house-parlor',
+      'goal' => 'hardcoded_tavern_navigate_grandmas_parlor',
+    ],
+    [
+      'target' => 'ltba-grandmother',
+      'message' => 'Grandmother, I need details about the hedge trimmer job.',
+      'action' => 'talk',
+      'goal' => 'hardcoded_tavern_talk_grandmother_hedge_trimmers',
+    ],
+  ];
 
   protected ?QuestTrackerService $questTracker;
 
@@ -49,6 +133,19 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
       (int) ($snapshot['campaign_id'] ?? 0),
       (int) ($profile['character_id'] ?? 0)
     );
+    // Contract order is critical: execute hardcoded workflow BEFORE quest
+    // focus or adaptive exploration logic.
+    $hardcoded_decision = $this->chooseHardcodedTavernScriptAction(
+      $actor_id,
+      $available_actions,
+      $memory,
+      $current_room_id,
+      $run_state,
+      (int) ($profile['character_id'] ?? 0)
+    );
+    if ($hardcoded_decision !== NULL) {
+      return $hardcoded_decision;
+    }
 
     $quest_driven_decision = $this->chooseQuestDrivenAction(
       $profile,
@@ -196,6 +293,123 @@ class PlayerAgentExplorationPolicy implements PlayerAgentPolicyInterface {
     }
 
     return $this->attachDecisionMeta(['type' => 'wait', 'reason' => 'No safe exploration action was selected.'], 'wait', self::PRIORITY_WAIT, $current_room_id);
+  }
+
+  /**
+   * Force deterministic tavern NPC order before dynamic objective logic.
+   *
+   * Do not "optimize" this into objective-driven selection. This method is the
+   * canonical contract implementation for the Burasco scripted harness flow.
+   */
+  protected function chooseHardcodedTavernScriptAction(
+    string $actor_id,
+    array $available_actions,
+    array $memory,
+    string $current_room_id,
+    array $run_state = [],
+    int $character_id = 0
+  ): ?array {
+    if ($actor_id === '') {
+      return NULL;
+    }
+    $searched_rooms = array_values(array_map('strval', (array) ($memory['searched_rooms'] ?? [])));
+    $talked_entities = array_values(array_map('strval', (array) ($memory['talked_entities'] ?? [])));
+    foreach (self::HARDCODED_TAVERN_SCRIPT as $step) {
+      $action = (string) ($step['action'] ?? 'talk');
+      $goal = (string) ($step['goal'] ?? '');
+      if ($goal !== '' && $this->hasExecutedHardcodedGoal($run_state, $goal)) {
+        continue;
+      }
+      if (!in_array($action, $available_actions, TRUE)) {
+        continue;
+      }
+      if ($action === 'search') {
+        if ($current_room_id !== '' && in_array($current_room_id, $searched_rooms, TRUE)) {
+          continue;
+        }
+        return $this->attachDecisionMeta([
+          'type' => 'intent',
+          'reason' => 'Execute hardcoded tavern action list in deterministic order.',
+          'intent' => [
+            'type' => 'search',
+            'actor' => $actor_id,
+            'params' => [
+              'character_id' => $character_id,
+              'automation_goal' => $goal !== '' ? $goal : 'hardcoded_tavern_script',
+            ],
+          ],
+        ], 'hardcoded_tavern_script', self::PRIORITY_HARDCODED_TAVERN_SCRIPT, $current_room_id);
+      }
+      if ($action === 'transition') {
+        $target_room_id = trim((string) ($step['target_room_id'] ?? ''));
+        if ($target_room_id === '') {
+          continue;
+        }
+        if ($current_room_id !== '' && $current_room_id === $target_room_id) {
+          continue;
+        }
+        return $this->attachDecisionMeta([
+          'type' => 'intent',
+          'reason' => 'Execute hardcoded tavern action list in deterministic order.',
+          'intent' => [
+            'type' => 'transition',
+            'actor' => $actor_id,
+            'params' => [
+              'character_id' => $character_id,
+              'target_room_id' => $target_room_id,
+              'automation_goal' => $goal !== '' ? $goal : 'hardcoded_tavern_script',
+            ],
+          ],
+        ], 'hardcoded_tavern_script', self::PRIORITY_HARDCODED_TAVERN_SCRIPT, $current_room_id, $target_room_id);
+      }
+      $target = (string) ($step['target'] ?? '');
+      if ($target === '') {
+        continue;
+      }
+      if (str_starts_with($goal, 'hardcoded_tavern_talk_') && in_array($target, $talked_entities, TRUE)) {
+        continue;
+      }
+      return $this->attachDecisionMeta([
+        'type' => 'intent',
+        'reason' => 'Execute hardcoded tavern action list in deterministic order.',
+        'intent' => [
+          'type' => $action,
+          'actor' => $actor_id,
+          'target' => $target,
+          'params' => [
+            'character_id' => $character_id,
+            'message' => (string) ($step['message'] ?? ''),
+            'automation_goal' => $goal !== '' ? $goal : 'hardcoded_tavern_script',
+          ],
+        ],
+      ], 'hardcoded_tavern_script', self::PRIORITY_HARDCODED_TAVERN_SCRIPT, $current_room_id, $target);
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Determine whether the hardcoded action goal already executed in this run.
+   */
+  protected function hasExecutedHardcodedGoal(array $run_state, string $goal): bool {
+    if ($goal === '') {
+      return FALSE;
+    }
+    foreach ((array) ($run_state['trace'] ?? []) as $trace_row) {
+      if (!is_array($trace_row)) {
+        continue;
+      }
+      $decision = is_array($trace_row['decision'] ?? NULL) ? $trace_row['decision'] : [];
+      $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
+      $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+      if ((string) ($params['automation_goal'] ?? '') !== $goal) {
+        continue;
+      }
+      if (!empty($trace_row['success'])) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**

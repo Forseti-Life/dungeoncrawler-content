@@ -62,11 +62,10 @@ assert(
 );
 
 assert(
-  source.includes('const key = buildNavigateRouteKey(mapId, roomId, connectionId);')
-    && source.includes('function buildNavigateRouteKey(mapId, roomId, connectionId = \'\')')
-    && source.includes('? `${normalizedMapId}:${normalizedRoomId}:${normalizedConnectionId}`')
-    && source.includes(': `${normalizedMapId}:${normalizedRoomId}`;'),
-  'navigate dedupe key prefers connection identity to avoid collapsing distinct exits'
+  !source.includes('Known destinations')
+    && !source.includes('collectVisitedNavigateLocationGroups(')
+    && source.includes('const groups = collectNavigateExitGroups(panel, context);'),
+  'navigate panel renders direct exits only without known-destination merging'
 );
 
 assert(

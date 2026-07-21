@@ -176,11 +176,96 @@ class NavigationService {
   }
 
   /**
+   * RoutingPlanner subsystem: resolve the shortest reachable room-to-room route.
+   *
+   * Returns NULL when no available path exists. Routes are expressed as ordered
+   * room ids including the origin and destination rooms.
+   *
+   * @return array<string, mixed>|null
+   *   Route payload with path_room_ids, next_room_id, hop_count, and is_direct.
+   */
+  public function resolveRoomRoutePlan(
+    array $dungeon_data,
+    string $from_room_id,
+    string $to_room_id,
+    int $max_hops = 24
+  ): ?array {
+    $from_room_id = trim($from_room_id);
+    $to_room_id = trim($to_room_id);
+    if ($from_room_id === '' || $to_room_id === '') {
+      return NULL;
+    }
+    if ($from_room_id === $to_room_id) {
+      return [
+        'path_room_ids' => [$from_room_id],
+        'next_room_id' => $from_room_id,
+        'hop_count' => 0,
+        'is_direct' => FALSE,
+      ];
+    }
+
+    $max_hops = max(1, $max_hops);
+    $queue = [[$from_room_id]];
+    $visited = [$from_room_id => TRUE];
+
+    while ($queue !== []) {
+      $path = array_shift($queue);
+      if (!is_array($path) || $path === []) {
+        continue;
+      }
+      $current_room_id = trim((string) end($path));
+      if ($current_room_id === '') {
+        continue;
+      }
+
+      foreach ($this->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $current_room_id) as $capability) {
+        if (empty($capability['available'])) {
+          continue;
+        }
+        $candidate_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+        if ($candidate_room_id === '' || isset($visited[$candidate_room_id])) {
+          continue;
+        }
+
+        $candidate_path = [...$path, $candidate_room_id];
+        $hop_count = count($candidate_path) - 1;
+        if ($hop_count > $max_hops) {
+          continue;
+        }
+        if ($candidate_room_id === $to_room_id) {
+          return [
+            'path_room_ids' => $candidate_path,
+            'next_room_id' => (string) ($candidate_path[1] ?? $to_room_id),
+            'hop_count' => $hop_count,
+            'is_direct' => $hop_count === 1,
+          ];
+        }
+
+        $visited[$candidate_room_id] = TRUE;
+        $queue[] = $candidate_path;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
    * Resolve one room by id from a dungeon payload.
    */
   public function findRoomById(array $dungeon_data, string $room_id): ?array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return NULL;
+    }
     foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
-      if (is_array($room) && (string) ($room['room_id'] ?? '') === $room_id) {
+      if (
+        is_array($room)
+        && (
+          (string) ($room['room_id'] ?? '') === $room_id
+          || (string) ($room['source_room_id'] ?? '') === $room_id
+          || (string) ($room['id'] ?? '') === $room_id
+        )
+      ) {
         return $room;
       }
     }
@@ -205,6 +290,13 @@ class NavigationService {
       ? ($connection['to_room_name'] ?? $connection['to_name'] ?? $connection['target_room_name'] ?? '')
       : ($connection['from_room_name'] ?? $connection['from_name'] ?? $connection['origin_room_name'] ?? '')
     ));
+    $resolved_target_room = $this->findRoomById($dungeon_data, $target_room_id);
+    if (is_array($resolved_target_room)) {
+      $target_room_id = trim((string) ($resolved_target_room['room_id'] ?? $target_room_id));
+      if ($target_room_name === '') {
+        $target_room_name = trim((string) ($resolved_target_room['name'] ?? ''));
+      }
+    }
     $origin_hex = $this->normalizeHex($travels_forward ? ($connection['from_hex'] ?? NULL) : ($connection['to_hex'] ?? NULL));
     $target_hex = $this->normalizeHex($travels_forward ? ($connection['to_hex'] ?? NULL) : ($connection['from_hex'] ?? NULL));
     if ($origin_hex === NULL || $target_hex === NULL) {
@@ -290,33 +382,18 @@ class NavigationService {
    *   Connection records.
    */
   protected function extractConnections(array $dungeon_data): array {
-    $sources = [];
     $table_connections = $this->loadConnectorTableConnections($dungeon_data);
-    $source_label = 'payload_json';
-    if ($table_connections !== []) {
-      $sources[] = $table_connections;
-      $source_label = 'connector_tables';
-    }
-    else {
-      if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
-        $sources[] = $dungeon_data['hex_map']['connections'];
-      }
-      if (is_array($dungeon_data['connections'] ?? NULL)) {
-        $sources[] = $dungeon_data['connections'];
-      }
-    }
-    if ($sources === []) {
+    if ($table_connections === []) {
       return [];
     }
 
     $connections = [];
     $seen_signatures = [];
-    foreach ($sources as $bucket_index => $bucket) {
+    foreach ([$table_connections] as $bucket_index => $bucket) {
       foreach ($bucket as $connection_index => $connection) {
         if (!is_array($connection)) {
           throw new \InvalidArgumentException(sprintf(
-            'Navigation connection contract violation (%s): connection[%d][%d] must be an object payload.',
-            $source_label,
+            'Navigation connection contract violation (connector_tables): connection[%d][%d] must be an object payload.',
             (int) $bucket_index,
             (int) $connection_index
           ));
@@ -327,8 +404,7 @@ class NavigationService {
         if (isset($seen_signatures[$identity])) {
           if ($seen_signatures[$identity] !== $signature) {
             throw new \InvalidArgumentException(sprintf(
-              'Navigation connection contract violation (%s): duplicate identity "%s" has conflicting payload contracts.',
-              $source_label,
+              'Navigation connection contract violation (connector_tables): duplicate identity "%s" has conflicting payload contracts.',
               $identity
             ));
           }
@@ -345,15 +421,15 @@ class NavigationService {
   /**
    * Load connector rows from canonical/campaign tables when available.
    *
-   * Canonical connector tables are authoritative. When rows exist for the
-   * current dungeon context, payload JSON connection arrays are ignored.
+   * Canonical connector tables are authoritative. Runtime navigation no longer
+   * supports JSON payload connector fallback paths.
    *
    * @return array<int, array<string, mixed>>
-   *   Connector rows, or [] when table context is unavailable.
+   *   Connector rows.
    */
   protected function loadConnectorTableConnections(array $dungeon_data): array {
     if ($this->connectorDefinitionService === NULL) {
-      return [];
+      throw new \InvalidArgumentException('Navigation connector source contract violation: ConnectorDefinitionService is required; JSON payload fallback is not supported.');
     }
 
     $dungeon_id = trim((string) (
@@ -363,7 +439,7 @@ class NavigationService {
       ?? ''
     ));
     if ($dungeon_id === '') {
-      return [];
+      throw new \InvalidArgumentException('Navigation connector source contract violation: dungeon_id is required for DB-authoritative connector resolution.');
     }
 
     $campaign_id = $this->resolveOptionalCampaignId($dungeon_data);
@@ -596,6 +672,9 @@ class NavigationService {
 
     foreach (['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'] as $hex_field) {
       if (!array_key_exists($hex_field, $connection) || !is_numeric($connection[$hex_field])) {
+        if ($source === self::CONNECTOR_SOURCE_CAMPAIGN_TABLE) {
+          continue;
+        }
         throw new \InvalidArgumentException(sprintf(
           'Navigation connector contract violation (%s): missing numeric field "%s".',
           $source,
@@ -1244,12 +1323,12 @@ class NavigationService {
   }
 
   /**
-   * Finds a room by room_id or room name.
+   * Finds a room by canonical/runtime room identifiers or room name.
    *
    * @param array $dungeon_data
    *   The dungeon data.
    * @param string $identifier
-   *   The room_id or room name to find.
+   *   The room identifier or room name to find.
    *
    * @return array|null
    *   The room data if found, null otherwise.
@@ -1262,9 +1341,13 @@ class NavigationService {
 
     $rooms = (array) ($dungeon_data['rooms'] ?? []);
 
-    // Try exact match on room_id first
+    // Try exact match on runtime/canonical room identifiers first.
     foreach ($rooms as $room) {
-      if ((string) ($room['room_id'] ?? '') === $identifier) {
+      if (
+        (string) ($room['room_id'] ?? '') === $identifier
+        || (string) ($room['source_room_id'] ?? '') === $identifier
+        || (string) ($room['id'] ?? '') === $identifier
+      ) {
         return $room;
       }
     }

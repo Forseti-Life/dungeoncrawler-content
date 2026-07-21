@@ -1,0 +1,263 @@
+{
+  "timestamp": "2026-07-16T12:21:33.508342Z",
+  "correlation_id": "langgraph-harness-20260716122057",
+  "campaign_id": 445,
+  "character_name": "Burasco",
+  "character_id": 2162,
+  "actor_id": "pc-445-1704",
+  "room_id": "tavern_entrance",
+  "stop_reason": "scriptedtesting_step_failed:chat_gribbles_jobs",
+  "decision": {
+    "mode": "action",
+    "reason": "fallback_after:chat_execution_failed:Command failed (rc=1): /var/www/html/dungeoncrawler/vendor/bin/drush dc:gm-actor-run 445 tavern_entrance Gribbles, what jobs do you have for me? --actor-id=pc-445-1704 --character-id=2162 --speaker=Burasco\n[ERROR] Quest activation contract violation: quest                             \n         \"follow_the_whispers_445_6a58cccd11578\" references destination         \n         \"tpl_room_absalom_streets\", but it is not present in campaign 445 room \n         registry.",
+    "action_intent": {
+      "type": "end_turn",
+      "actor": "pc-445-1704",
+      "params": {
+        "reason": "fallback_after:chat_execution_failed:Command failed (rc=1): /var/www/html/dungeoncrawler/vendor/bin/drush dc:gm-actor-run 445 tavern_entrance Gribbles, what jobs do you have for me? --actor-id=pc-445-1704 --character-id=2162 --speaker=Burasco\n[ERROR] Quest activation contract violation: quest                             \n         \"follow_the_whispers_445_6a58cccd11578\" references destination         \n         \"tpl_room_absalom_streets\", but it is not present in campaign 445 room \n         registry."
+      }
+    }
+  },
+  "last_result_summary": {
+    "success": false,
+    "error": "Command failed (rc=1): /var/www/html/dungeoncrawler/vendor/bin/drush dc:gm-actor-run 445 tavern_entrance Gribbles, what jobs do you have for me? --actor-id=pc-445-1704 --character-id=2162 --speaker=Burasco\n[ERROR] Quest activation contract violation: quest                             \n         \"follow_the_whispers_445_6a58cccd11578\" references destination         \n         \"tpl_room_absalom_streets\", but it is not present in campaign 445 room \n         registry."
+  },
+  "active_objective": {
+    "quest_id": "stabilize_arcane_resonance_445_6a58ccc9d9eab",
+    "quest_name": "Stabilize Arcane Resonance",
+    "source_template_id": "",
+    "storyline_id": "",
+    "current_phase": 0,
+    "objective_id": "collect_resonance_samples",
+    "type": "collect",
+    "objective_action": "collect",
+    "description": "Collect three resonance samples from the tavern.",
+    "next_step": "Search the tavern and collect 3 resonance samples.",
+    "target": "",
+    "location_id": "tavern_entrance",
+    "target_entity_instance_id": "",
+    "target_display_name": ""
+  },
+  "quest_context": [
+    {
+      "quest_id": "follow_the_whispers_445_6a58cccd11578",
+      "quest_name": "Follow the Whispers",
+      "source_template_id": "follow_the_whispers",
+      "storyline_id": "",
+      "status": "offered",
+      "current_phase": 0,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "gather_whisper_network",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Question Gribbles about current whisper traffic.",
+          "next_step": "Speak with Gribbles and gather a rumor lead chain.",
+          "target": "gribbles_rindsworth",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "trace_arcane_route",
+          "type": "explore",
+          "objective_action": "explore",
+          "description": "Trace where the contraband route leaves the tavern district.",
+          "next_step": "Travel to Absalom Streets and verify the suspected route.",
+          "target": "",
+          "location_id": "tpl_room_absalom_streets",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "report_whisper_route",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Report the identified route to Eldric.",
+          "next_step": "Return to Eldric and provide the route details.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "stabilize_arcane_resonance_445_6a58ccc9d9eab",
+      "quest_name": "Stabilize Arcane Resonance",
+      "source_template_id": "stabilize_arcane_resonance",
+      "storyline_id": "",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_resonance_samples",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Collect three resonance samples from the tavern.",
+          "next_step": "Search the tavern and collect 3 resonance samples.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "stabilize_codex_with_marta",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Work with Marta to stabilize the codex resonance.",
+          "next_step": "Bring the samples to Marta and complete the stabilization ritual.",
+          "target": "scholar_npc",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "collect_spellbooks_445_6a58ccc9c3fdf",
+      "quest_name": "Recover Lost Spellbook",
+      "source_template_id": "collect_spellbooks",
+      "storyline_id": "",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_books",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Find and recover Lost Spellbook in The Gilded Tankard",
+          "next_step": "Search The Gilded Tankard and recover Lost Spellbook.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_books",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Return the books to the scholar",
+          "next_step": "Speak to Marta the Scholar in The Gilded Tankard after collecting the Lost Spellbook.",
+          "target": "scholar_npc",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "gather_torch_components_445_6a58ccc662ebe",
+      "quest_name": "Gather Torch Materials for the Tavern",
+      "source_template_id": "gather_torch_components",
+      "storyline_id": "",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_torches",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Gather Torch Materials scattered around the tavern",
+          "next_step": "Search the tavern common room and pick up each Torch Materials quest item.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_torches",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Bring the torch components to the tavern keeper",
+          "next_step": "Speak to the tavern keeper after collecting the torch components.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "gather_wine_445_6a58ccc64a228",
+      "quest_name": "Collect Wine Bottles from the Tavern",
+      "source_template_id": "gather_wine",
+      "storyline_id": "",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_wine",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Collect Wine Bottles from around the tavern",
+          "next_step": "Search the tavern common room and pick up each Wine Bottles quest item.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_wine",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Return the wine to the tavern keeper",
+          "next_step": "Speak to the tavern keeper after collecting the wine.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "tavern_storyline_leads_445_6a58cca99cdd8",
+      "quest_name": "Gather Storyline Leads in the Tavern",
+      "source_template_id": "tavern_storyline_leads",
+      "storyline_id": "",
+      "status": "completed",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "speak_to_eldric",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Speak to Eldric and gather his storyline lead.",
+          "next_step": "Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "speak_to_marta",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Speak to Marta the Scholar and gather her storyline lead.",
+          "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
+          "target": "scholar_npc",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    }
+  ],
+  "storyline_context": [],
+  "available_actions": [
+    "choose_not_to_act",
+    "delay",
+    "end_turn",
+    "interact",
+    "search",
+    "talk",
+    "transition"
+  ],
+  "active_quest_count": 4
+}

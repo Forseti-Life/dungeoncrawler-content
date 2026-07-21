@@ -139,8 +139,6 @@ const collectInteractableEntriesForActionRailSource = extractFunctionExpressionS
 const applyWorldDeltaSource = extractFunctionExpressionSource(source, 'applyWorldDelta: function (worldDelta) {', 'applyWorldDelta');
 const applyDungeonDataSource = extractFunctionExpressionSource(source, 'applyDungeonData: function () {', 'applyDungeonData');
 const renderDungeonStateInspectorSource = extractFunctionExpressionSource(source, 'renderDungeonStateInspector: function () {', 'renderDungeonStateInspector');
-const collectNavigateLocationGroupsSource = extractMethodSource(source, 'collectNavigateLocationGroups(context) {', 'collectNavigateLocationGroups');
-const collectVisitedNavigateLocationGroupsSource = extractMethodSource(source, 'collectVisitedNavigateLocationGroups(context, campaignId) {', 'collectVisitedNavigateLocationGroups');
 const loadRoomPortraitsPanelSource = extractMethodSource(source, 'loadRoomPortraitsPanel(roomId = null) {', 'loadRoomPortraitsPanel');
 const buildRoomPortraitEntriesSource = extractMethodSource(source, 'buildRoomPortraitEntries(roomId = null) {', 'buildRoomPortraitEntries');
 const buildRoomMerchantEntriesSource = extractMethodSource(source, 'buildRoomMerchantEntries(roomId = null) {', 'buildRoomMerchantEntries');
@@ -178,8 +176,6 @@ ${collectInteractableEntriesForActionRailSource}
 ${applyWorldDeltaSource}
 ${applyDungeonDataSource}
 ${renderDungeonStateInspectorSource}
-${collectNavigateLocationGroupsSource}
-${collectVisitedNavigateLocationGroupsSource}
 ${loadRoomPortraitsPanelSource}
 ${buildRoomPortraitEntriesSource}
 ${buildRoomMerchantEntriesSource}
@@ -216,8 +212,6 @@ return {
   applyWorldDelta,
   applyDungeonData,
   renderDungeonStateInspector,
-  collectNavigateLocationGroups,
-  collectVisitedNavigateLocationGroups,
   loadRoomPortraitsPanel,
   buildRoomPortraitEntries,
   buildRoomMerchantEntries,
@@ -388,7 +382,23 @@ console.log('\n=== Hexmap canonical visual-state bootstrap ===');
         ],
       },
     },
-    dungeonData: {},
+    dungeonData: {
+      navigation_capabilities: [
+        {
+          connection_id: 'door-a-b',
+          origin_room_id: 'visual-room',
+          target_room_id: 'next-room',
+          target_room_name: 'Next Room',
+          type: 'door',
+          available: true,
+          blocked_reason: null,
+          is_discovered: true,
+          is_passable: true,
+          origin_hex: { q: 2, r: 3 },
+          target_hex: { q: 7, r: 8 },
+        },
+      ],
+    },
   };
 
   context.hasVisualOccupants = methods.hasVisualOccupants.bind(context);
@@ -582,7 +592,23 @@ console.log('\n=== Hexmap canonical visual-state bootstrap ===');
         },
       },
     },
-    dungeonData: {},
+    dungeonData: {
+      navigation_capabilities: [
+        {
+          connection_id: 'door-a-b',
+          origin_room_id: 'visual-room',
+          target_room_id: 'next-room',
+          target_room_name: 'Next Room',
+          type: 'door',
+          available: true,
+          blocked_reason: null,
+          is_discovered: true,
+          is_passable: true,
+          origin_hex: { q: 2, r: 3 },
+          target_hex: { q: 7, r: 8 },
+        },
+      ],
+    },
   };
 
   context.getVisualRooms = methods.getVisualRooms.bind(context);
@@ -895,7 +921,23 @@ console.log('\n=== Hexmap canonical visual-state bootstrap ===');
         ],
       },
     },
-    dungeonData: {},
+    dungeonData: {
+      navigation_capabilities: [
+        {
+          connection_id: 'door-a-b',
+          origin_room_id: 'visual-room',
+          target_room_id: 'next-room',
+          target_room_name: 'Next Room',
+          type: 'door',
+          available: true,
+          blocked_reason: null,
+          is_discovered: true,
+          is_passable: true,
+          origin_hex: { q: 2, r: 3 },
+          target_hex: { q: 7, r: 8 },
+        },
+      ],
+    },
   };
 
   context.getVisualRooms = methods.getVisualRooms.bind(context);
@@ -910,10 +952,45 @@ console.log('\n=== Hexmap canonical visual-state bootstrap ===');
   const capabilities = methods.resolveNavigationCapabilities.call(context);
   const entryHex = methods.resolveVisitedRoomEntryHex.call(context, 'next-room');
 
-  assert(capabilities.length === 1, 'Navigation capabilities are derived from canonical visual connections');
-  assert(capabilities[0]?.target_room_id === 'next-room', 'Navigation capability keeps the canonical target room');
-  assert(capabilities[0]?.origin_hex?.q === 2 && capabilities[0]?.target_hex?.r === 8, 'Navigation capability decodes canonical endpoint hex ids');
+  assert(capabilities.length === 1, 'Navigation capabilities are sourced from campaign navigation service payload');
+  assert(capabilities[0]?.target_room_id === 'next-room', 'Navigation capability keeps the authoritative target room');
+  assert(capabilities[0]?.origin_hex?.q === 2 && capabilities[0]?.target_hex?.r === 8, 'Navigation capability keeps authoritative endpoint hex coordinates');
   assert(entryHex?.q === 7 && entryHex?.r === 8, 'Visited-room entry resolution uses canonical visual connection endpoints');
+}
+
+{
+  const context = {
+    activeRoomId: 'stale-room',
+    mapVisualState: {
+      map_meta: { active_room_id: 'visual-room' },
+      topology: { rooms: { 'visual-room': { room_id: 'visual-room', name: 'Visual Room' } } },
+    },
+    dungeonData: {
+      navigation_capabilities: [
+        {
+          connection_id: 'door-a-b',
+          origin_room_id: 'visual-room',
+          target_room_id: 'next-room',
+          target_room_name: 'Next Room',
+          type: 'door',
+          available: true,
+          blocked_reason: null,
+          is_discovered: true,
+          is_passable: true,
+          origin_hex: { q: 2, r: 3 },
+          target_hex: { q: 7, r: 8 },
+        },
+      ],
+    },
+  };
+
+  context.resolveActiveRoomId = methods.resolveActiveRoomId.bind(context);
+  context.getConnectionHex = methods.getConnectionHex.bind(context);
+
+  const capabilities = methods.resolveNavigationCapabilities.call(context);
+
+  assert(capabilities.length === 1, 'Navigation capabilities use the authoritative active room from canonical visual state');
+  assert(capabilities[0]?.origin_room_id === 'visual-room', 'Navigation capability filtering honors authoritative server room identity over stale local room state');
 }
 
 {
@@ -1694,142 +1771,6 @@ assert(source.includes('await self.uiManager?.executeDirectSearch(this);'), 'Sta
   assert(painted === 3 && fogRefreshed === 3, 'World deltas still refresh room rendering and fog');
 }
 
-{
-  const context = {
-    hexmap: {
-      dungeonData: {
-        rooms: {
-          legacy_room: {
-            room_id: 'legacy_room',
-            name: 'Legacy Room',
-            state: { explored: false },
-          },
-        },
-        location_history: [],
-      },
-      getVisualRooms() {
-        return {
-          visual_room: {
-            room_id: 'visual_room',
-            name: 'Visual Room',
-            state: { explored: true },
-          },
-        };
-      },
-      resolveActiveRoomId() {
-        return 'active-room';
-      },
-      resolveNavigationCapabilities() {
-        return [];
-      },
-      resolveVisitedRoomEntryHex(roomId) {
-        return roomId === 'visual_room' ? { q: 3, r: 4 } : null;
-      },
-    },
-  };
-
-  const groups = methods.collectNavigateLocationGroups(context);
-  const locations = groups.flatMap((group) => group.locations);
-
-  assert(locations.some((location) => location.roomId === 'visual_room'), 'Navigation location groups prefer canonical visual rooms over payload rooms');
-  assert(!locations.some((location) => location.roomId === 'legacy_room'), 'Navigation location groups stop surfacing stale payload-only rooms when canonical rooms exist');
-}
-
-{
-  const context = {
-    hexmap: {
-      dungeonData: {
-        rooms: {
-          legacy_room: { room_id: 'legacy_room', name: 'Legacy Room' },
-        },
-      },
-      getVisualRooms() {
-        return {};
-      },
-      resolveActiveRoomId() {
-        return null;
-      },
-      resolveNavigationCapabilities() {
-        return [];
-      },
-      resolveVisitedRoomEntryHex() {
-        return null;
-      },
-    },
-  };
-
-  const groups = methods.collectNavigateLocationGroups(context);
-  const locations = groups.flatMap((group) => group.locations);
-
-  assert(locations.length === 0, 'Navigation location groups stay empty when only legacy payload rooms exist');
-}
-
-{
-  const context = {
-    hexmap: {
-      dungeonData: { map_id: 'current-map' },
-      launchContext: {},
-      getVisualRooms() {
-        return {
-          'active-room': { room_id: 'active-room', name: 'Active Room', state: { explored: true } },
-          'direct-room': { room_id: 'direct-room', name: 'Direct Room', state: { explored: true } },
-        };
-      },
-      resolveActiveRoomId() {
-        return 'active-room';
-      },
-      resolveNavigationCapabilities() {
-        return [{
-          connection_id: 'active-direct',
-          target_room_id: 'direct-room',
-          available: true,
-          origin_hex: { q: 1, r: 2 },
-          target_hex: { q: 3, r: 4 },
-        }];
-      },
-      resolveVisitedRoomEntryHex() {
-        return null;
-      },
-    },
-  };
-  const panel = {
-    navigateLocationsCampaignId: 99,
-    navigateLocationGroups: [
-      {
-        dungeonId: 'current-map',
-        dungeonName: 'Current Dungeon',
-        mapId: 'current-map',
-        dungeonLevelId: 'current-level',
-        locations: [
-          { roomId: 'active-room', roomName: 'Active Room', lastVisitedLabel: 'Visited today' },
-          { roomId: 'direct-room', roomName: 'Direct Room', lastVisitedLabel: 'Visited today' },
-          { roomId: 'visited-room', roomName: 'Visited Room', lastVisitedLabel: 'Visited yesterday' },
-        ],
-      },
-      {
-        dungeonId: 'remote-map',
-        dungeonName: 'Remote Dungeon',
-        mapId: 'remote-map',
-        dungeonLevelId: 'remote-level',
-        locations: [
-          { roomId: 'remote-room', roomName: 'Remote Room', lastVisitedLabel: 'Visited last week' },
-        ],
-      },
-    ],
-    stateManager: { get() { return null; } },
-    collectNavigateLocationGroups(ctx) {
-      return methods.collectNavigateLocationGroups(ctx);
-    },
-  };
-
-  const groups = methods.collectVisitedNavigateLocationGroups.call(panel, context, 99);
-  const locations = groups.flatMap((group) => group.locations);
-
-  assert(locations.some((location) => location.roomId === 'visited-room'), 'Visited navigation restores same-map history destinations not covered by direct routes');
-  assert(locations.some((location) => location.roomId === 'remote-room' && location.mapId === 'remote-map'), 'Visited navigation restores cross-dungeon destinations from the old hexmap');
-  assert(!locations.some((location) => location.roomId === 'active-room'), 'Visited navigation filters the current active room');
-  assert(!locations.some((location) => location.roomId === 'direct-room'), 'Visited navigation deduplicates canonical direct routes');
-}
 
 {
   let selectedRoomId = null;

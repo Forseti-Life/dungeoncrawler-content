@@ -11,6 +11,9 @@ namespace Drupal\dungeoncrawler_content\Service;
  * - Placing obstacles (walls, pillars, chasms)
  * - Creating thematic environmental features
  *
+ * Validation pair: none (terrain output is consumed by room-generation
+ * contracts, not by a dedicated terrain validator service).
+ *
  * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
  */
 class TerrainGeneratorService {

@@ -91,6 +91,13 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
         ],
         'alternatives' => [],
         'rationale' => 'Close threat in reach.',
+        'decision_reason' => 'Close threat in reach.',
+        'decision_basis' => [
+          'used_profile' => TRUE,
+          'used_psychology' => TRUE,
+          'used_availability' => TRUE,
+        ],
+        'contract_version' => 'hash-001',
         'confidence' => 0.81,
       ]),
     ]);
@@ -111,7 +118,7 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
   /**
    * @covers ::recommendNpcAction
    */
-  public function testRecommendNpcActionFallsBackWhenAiCallFails(): void {
+  public function testRecommendNpcActionThrowsWhenAiCallFails(): void {
     $context = $this->buildEncounterContext();
 
     $this->aiApiService->method('invokeModelDirect')->willReturn([
@@ -119,16 +126,9 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
       'error' => 'Transport failure',
     ]);
 
-    $recommendation = $this->provider->recommendNpcAction($context);
-
-    $this->assertSame('ai_conversation', $recommendation['provider']);
-    $this->assertTrue($recommendation['fallback_used']);
-    $this->assertSame('strike', $recommendation['recommended_action']['type']);
-    $this->assertSame('pc-1', $recommendation['recommended_action']['target_instance_id']);
-    $this->assertStringContainsString('Transport failure', (string) $recommendation['fallback_reason']);
-    $this->assertNotSame('', trim((string) ($recommendation['decision_reason'] ?? '')));
-    $this->assertTrue(is_array($recommendation['decision_basis'] ?? NULL));
-    $this->assertSame(2, $recommendation['request_attempts']);
+    $this->expectException(\RuntimeException::class);
+    $this->expectExceptionMessage('Transport failure');
+    $this->provider->recommendNpcAction($context);
   }
 
   /**
@@ -157,6 +157,13 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
             ],
             'alternatives' => [],
             'rationale' => 'Recovered on retry.',
+            'decision_reason' => 'Recovered on retry.',
+            'decision_basis' => [
+              'used_profile' => TRUE,
+              'used_psychology' => TRUE,
+              'used_availability' => TRUE,
+            ],
+            'contract_version' => 'hash-001',
             'confidence' => 0.7,
           ]),
         ]
@@ -177,7 +184,7 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
 
     $this->aiApiService->method('invokeModelDirect')->willReturn([
       'success' => TRUE,
-      'response' => "```json\n{\n  \"version\": \"v1\",\n  \"actor_instance_id\": \"npc-1\",\n  \"recommended_action\": {\n    \"type\": \"strike\",\n    \"target_instance_id\": \"pc-1\",\n    \"action_cost\": 1,\n    \"parameters\": {}\n  },\n  \"alternatives\": [],\n  \"rationale\": \"Maintain pressure.\",\n  \"confidence\": 0.73\n}\n```",
+      'response' => "```json\n{\n  \"version\": \"v1\",\n  \"actor_instance_id\": \"npc-1\",\n  \"recommended_action\": {\n    \"type\": \"strike\",\n    \"target_instance_id\": \"pc-1\",\n    \"action_cost\": 1,\n    \"parameters\": {}\n  },\n  \"alternatives\": [],\n  \"rationale\": \"Maintain pressure.\",\n  \"decision_reason\": \"Maintain pressure.\",\n  \"decision_basis\": {\n    \"used_profile\": true,\n    \"used_psychology\": true,\n    \"used_availability\": true\n  },\n  \"contract_version\": \"hash-001\",\n  \"confidence\": 0.73\n}\n```",
     ]);
 
     $recommendation = $this->provider->recommendNpcAction($context);
@@ -240,6 +247,13 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
           ],
           'alternatives' => [],
           'rationale' => 'Use motivation-aligned pressure.',
+          'decision_reason' => 'Use motivation-aligned pressure.',
+          'decision_basis' => [
+            'used_profile' => TRUE,
+            'used_psychology' => TRUE,
+            'used_availability' => TRUE,
+          ],
+          'contract_version' => 'hash-001',
           'confidence' => 0.74,
         ]),
       ]);
@@ -324,6 +338,13 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
           ],
           'alternatives' => [],
           'rationale' => 'Uses canonical turn envelope constraints.',
+          'decision_reason' => 'Uses canonical turn envelope constraints.',
+          'decision_basis' => [
+            'used_profile' => TRUE,
+            'used_psychology' => TRUE,
+            'used_availability' => TRUE,
+          ],
+          'contract_version' => 'hash-001',
           'confidence' => 0.76,
         ]),
       ]);
@@ -423,6 +444,7 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
         ],
       ],
       'allowed_actions' => ['strike', 'end_turn'],
+      'action_contract_hash' => 'hash-001',
     ];
   }
 

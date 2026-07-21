@@ -969,6 +969,7 @@ class StorylineManagerService {
     $errors = [];
     $strict_actor_target_types = ['kill', 'escort'];
     $anchored_target_types = ['interact', 'investigate'];
+    $contact_runtime_contracts = $this->buildContactRuntimeMaterializationContractIndex($storyline_data);
     $anchors = $this->collectObjectiveReferenceAnchors($storyline_data);
     $canonical_index = $this->loadCanonicalLocationTemplateIndex();
 
@@ -1019,6 +1020,15 @@ class StorylineManagerService {
               $errors[] = "{$obj_path}: {$field} '{$target}' not in anchored entity registry";
             }
           }
+          $errors = array_merge(
+            $errors,
+            $this->validateActorRuntimeMaterializationContractForNode(
+              $objective,
+              $obj_path,
+              $contact_runtime_contracts,
+              $anchors
+            )
+          );
           foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
             $ref = trim((string) ($objective[$field] ?? ''));
             if ($ref !== '' && !isset($anchors['location_ids'][$ref])) {
@@ -1048,6 +1058,15 @@ class StorylineManagerService {
                 $errors[] = "{$task_path}: {$field} '{$task_target}' not in anchored entity registry";
               }
             }
+            $errors = array_merge(
+              $errors,
+              $this->validateActorRuntimeMaterializationContractForNode(
+                $task,
+                $task_path,
+                $contact_runtime_contracts,
+                $anchors
+              )
+            );
             foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
               $ref = trim((string) ($task[$field] ?? ''));
               if ($ref !== '' && !isset($anchors['location_ids'][$ref])) {
@@ -1064,6 +1083,146 @@ class StorylineManagerService {
     }
 
     return array_values(array_unique($errors));
+  }
+
+  /**
+   * Build actor contact runtime materialization contracts keyed by actor id.
+   *
+   * @param array<string, mixed> $storyline_data
+   *   Storyline payload.
+   *
+   * @return array<string, array{contact_id: string, entity_type: string, runtime_materialization: array<string, mixed>}>
+   *   Runtime materialization contract index.
+   */
+  protected function buildContactRuntimeMaterializationContractIndex(array $storyline_data): array {
+    $contracts = [];
+    foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($contact['entity_type'] ?? '')));
+      if (!in_array($entity_type, ['npc_template', 'campaign_npc', 'npc', 'character', 'creature'], TRUE)) {
+        continue;
+      }
+      $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+      if ($entity_id === '') {
+        continue;
+      }
+      $relationship_state = is_array($contact['relationship_state'] ?? NULL) ? $contact['relationship_state'] : [];
+      $runtime_materialization = is_array($relationship_state['runtime_materialization'] ?? NULL)
+        ? $relationship_state['runtime_materialization']
+        : [];
+      $contracts[$entity_id] = [
+        'contact_id' => trim((string) ($contact['contact_id'] ?? '')),
+        'entity_type' => $entity_type,
+        'runtime_materialization' => $runtime_materialization,
+      ];
+    }
+
+    return $contracts;
+  }
+
+  /**
+   * Validate interact objective actor runtime materialization contracts.
+   *
+   * @param array<string, mixed> $node
+   *   Objective or task node.
+   * @param string $node_path
+   *   Objective path.
+   * @param array<string, array{contact_id: string, entity_type: string, runtime_materialization: array<string, mixed>}> $contact_runtime_contracts
+   *   Runtime materialization contract index.
+   * @param array<string, array<string, bool>> $anchors
+   *   Objective reference anchors.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateActorRuntimeMaterializationContractForNode(
+    array $node,
+    string $node_path,
+    array $contact_runtime_contracts,
+    array $anchors
+  ): array {
+    $objective_type = strtolower(trim((string) ($node['type'] ?? '')));
+    if ($objective_type !== 'interact') {
+      return [];
+    }
+
+    $actor_refs = [];
+    foreach (['target', 'target_id', 'npc_ref', 'entity_ref'] as $field) {
+      $value = trim((string) ($node[$field] ?? ''));
+      if ($value !== '') {
+        $actor_refs[$value] = TRUE;
+      }
+    }
+    $criteria_target = trim((string) ($node['completion_criteria']['target'] ?? ''));
+    if ($criteria_target !== '') {
+      $actor_refs[$criteria_target] = TRUE;
+    }
+    if ($actor_refs === []) {
+      return [];
+    }
+
+    $location_refs = [];
+    foreach (['location', 'location_id', 'destination', 'destination_id'] as $field) {
+      $value = trim((string) ($node[$field] ?? ''));
+      if ($value !== '') {
+        $location_refs[$value] = TRUE;
+      }
+    }
+    $criteria_location = trim((string) ($node['completion_criteria']['location'] ?? ''));
+    if ($criteria_location !== '') {
+      $location_refs[$criteria_location] = TRUE;
+    }
+
+    $errors = [];
+    foreach (array_keys($actor_refs) as $actor_ref) {
+      if (!isset($anchors['actor_ids'][$actor_ref])) {
+        continue;
+      }
+      if (!isset($contact_runtime_contracts[$actor_ref])) {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_CONTACT actor '{$actor_ref}' must be declared in contacts with a runtime materialization contract.";
+        continue;
+      }
+      $contact = $contact_runtime_contracts[$actor_ref];
+      $contract = $contact['runtime_materialization'];
+      $contact_id = $contact['contact_id'] !== '' ? $contact['contact_id'] : $actor_ref;
+      $contact_entity_type = strtolower(trim((string) ($contact['entity_type'] ?? '')));
+
+      if (($contract['required_before_activation'] ?? NULL) !== TRUE) {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_REQUIRED_FLAG contact '{$contact_id}' must set relationship_state.runtime_materialization.required_before_activation=true.";
+      }
+      if ($contact_entity_type !== 'npc_template') {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_ENTITY_TYPE_INVALID contact '{$contact_id}' must use entity_type 'npc_template' for runtime materialization targets.";
+      }
+
+      $registry_entity_type = trim((string) ($contract['registry_entity_type'] ?? ''));
+      if ($registry_entity_type === '') {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_REGISTRY_TYPE contact '{$contact_id}' must declare relationship_state.runtime_materialization.registry_entity_type.";
+      }
+
+      $canonical_actor_id = trim((string) ($contract['canonical_actor_id'] ?? ''));
+      if ($canonical_actor_id === '') {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_ACTOR contact '{$contact_id}' must declare relationship_state.runtime_materialization.canonical_actor_id.";
+      }
+      elseif ($canonical_actor_id !== $actor_ref) {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_ACTOR_MISMATCH contact '{$contact_id}' declares canonical_actor_id '{$canonical_actor_id}' but objective targets '{$actor_ref}'.";
+      }
+
+      $canonical_location_id = trim((string) ($contract['canonical_location_id'] ?? ''));
+      if ($canonical_location_id === '') {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_LOCATION contact '{$contact_id}' must declare relationship_state.runtime_materialization.canonical_location_id.";
+        continue;
+      }
+      if (!isset($anchors['location_ids'][$canonical_location_id])) {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_LOCATION_UNANCHORED contact '{$contact_id}' canonical_location_id '{$canonical_location_id}' is not in storyline location anchors.";
+      }
+      if ($location_refs !== [] && !isset($location_refs[$canonical_location_id])) {
+        $errors[] = "{$node_path}: DCV_ACTOR_RUNTIME_MATERIALIZATION_LOCATION_MISMATCH actor '{$actor_ref}' canonical_location_id '{$canonical_location_id}' does not match objective location/destination references.";
+      }
+    }
+
+    return $errors;
   }
 
   /**
@@ -1735,6 +1894,73 @@ class StorylineManagerService {
   }
 
   /**
+   * Ensure room-scoped runtime materialization contracts are realized.
+   *
+   * @return array<int, string>
+   *   Realized actor refs.
+   */
+  public function ensureRoomRuntimeMaterializationContractsResolved(int $campaign_id, string $location_id): array {
+    $location_id = trim($location_id);
+    if ($campaign_id <= 0 || $location_id === '' || $this->storylineRealizationService === NULL) {
+      return [];
+    }
+
+    $rows = $this->database->select('dc_campaign_storylines', 's')
+      ->fields('s', ['storyline_id', 'storyline_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->range(0, 100)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($rows) || $rows === []) {
+      return [];
+    }
+
+    $realized = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $storyline_data = $this->decodeJsonColumn($row['storyline_data'] ?? NULL);
+      if ($storyline_data === []) {
+        continue;
+      }
+      $contacts = is_array($storyline_data['contacts'] ?? NULL) ? $storyline_data['contacts'] : [];
+      $needs_materialization = FALSE;
+      foreach ($contacts as $contact) {
+        if (!is_array($contact)) {
+          continue;
+        }
+        $runtime_materialization = is_array($contact['relationship_state']['runtime_materialization'] ?? NULL)
+          ? $contact['relationship_state']['runtime_materialization']
+          : [];
+        if (($runtime_materialization['required_before_activation'] ?? NULL) !== TRUE) {
+          continue;
+        }
+        if (trim((string) ($runtime_materialization['canonical_location_id'] ?? '')) !== $location_id) {
+          continue;
+        }
+        $needs_materialization = TRUE;
+        break;
+      }
+      if (!$needs_materialization) {
+        continue;
+      }
+
+      $storyline = [
+        'storyline_id' => (string) ($row['storyline_id'] ?? ''),
+        'storyline_data' => $storyline_data,
+      ];
+      $realized = array_merge(
+        $realized,
+        $this->storylineRealizationService->realizeStorylineNpcs($campaign_id, $storyline)
+      );
+    }
+
+    return array_values(array_unique(array_filter(array_map('strval', $realized))));
+  }
+
+  /**
    * Returns campaign storyline instances.
    */
   public function listCampaignStorylines(int $campaign_id, bool $refresh = FALSE): array {
@@ -2319,6 +2545,9 @@ class StorylineManagerService {
       ->fields('q', [
         'quest_id',
         'status',
+        'source_template_id',
+        'location_id',
+        'giver_npc_id',
         'storyline_id',
         'storyline_chapter_id',
         'storyline_scene_id',
@@ -2346,16 +2575,33 @@ class StorylineManagerService {
 
     $storyline_data = $this->decodeJsonColumn($row['storyline_data'] ?? NULL);
     $linked_quests = $storyline_data['linked_quests'] ?? [];
-    $linked_quests[(string) $quest_id] = array_filter([
-      'quest_id' => (string) $quest_id,
+    $linked_quest_key = (string) $quest_id;
+    $linked_quest_row = [
+      'quest_id' => $linked_quest_key,
       'chapter_id' => (string) ($quest['storyline_chapter_id'] ?? ''),
       'scene_id' => (string) ($quest['storyline_scene_id'] ?? ''),
       'status' => (string) ($quest['status'] ?? 'available'),
-    ], static fn($value): bool => $value !== '');
+    ];
+    $source_template_id = trim((string) ($quest['source_template_id'] ?? ''));
+    if ($source_template_id !== '') {
+      $linked_quest_row['source_template_id'] = $source_template_id;
+    }
+    $linked_quests[$linked_quest_key] = array_filter($linked_quest_row, static fn($value): bool => $value !== '');
     $storyline_data['linked_quests'] = $linked_quests;
 
     $row['storyline_data'] = json_encode($storyline_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $row = $this->synchronizeStorylineProgress($row);
+    $materialized_next_quests = $this->materializeCurrentStorylineQuestTemplates(
+      $campaign_id,
+      $storyline_id,
+      $event_type,
+      $character_id,
+      $quest,
+      $row
+    );
+    if ($materialized_next_quests) {
+      $row = $this->synchronizeStorylineProgress($row);
+    }
 
     $this->logStorylineEvent(
       $campaign_id,
@@ -3088,9 +3334,6 @@ class StorylineManagerService {
       }
 
       $entity_type = $this->sanitizeIdentifier((string) ($contact['entity_type'] ?? $contact['contact_type'] ?? $contact['type'] ?? ''));
-      if ($entity_type === 'npc_template') {
-        $entity_type = 'campaign_npc';
-      }
       $entity_id = trim((string) ($contact['entity_id'] ?? $contact['id'] ?? ''));
       $role = $this->sanitizeIdentifier((string) ($contact['role'] ?? $contact['contact_role'] ?? 'contact'));
       if ($entity_type === '' || $entity_id === '') {
@@ -3269,9 +3512,6 @@ class StorylineManagerService {
       }
 
       $entity_type = $this->sanitizeIdentifier((string) ($introduction['entity_type'] ?? $introduction['contact_type'] ?? $introduction['type'] ?? ''));
-      if ($entity_type === 'npc_template') {
-        $entity_type = 'campaign_npc';
-      }
       $entity_id = trim((string) ($introduction['entity_id'] ?? $introduction['id'] ?? ''));
       if ($entity_type === '' || $entity_id === '') {
         continue;
@@ -3747,42 +3987,44 @@ class StorylineManagerService {
           continue;
         }
 
-        if ($runtime_payload !== NULL) {
-          $generated = $runtime_payload['generated_objectives'];
-          $runtime_anchors = $anchors;
-          if ($generated !== []) {
-            $runtime_anchors = $this->withObjectiveItemAnchors($runtime_anchors, $generated);
-          }
-          if ($generated === []) {
-            $errors[] = "Runtime quest '{$quest_id}' is missing generated_objectives.";
-          }
-          else {
-            $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
-              $generated,
-              $runtime_anchors,
-              "runtime quest '{$quest_id}' generated_objectives"
-            ));
-          }
-
-          $states = $runtime_payload['objective_states'] !== []
-            ? $runtime_payload['objective_states']
-            : $generated;
-          if ($states !== []) {
-            $runtime_anchors = $this->withObjectiveItemAnchors($runtime_anchors, $states);
-            $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
-              $states,
-              $runtime_anchors,
-              "runtime quest '{$quest_id}' objective_states"
-            ));
-            $errors = array_merge($errors, $this->validateRuntimeObjectiveStateAlignment(
-              $generated,
-              $states,
-              $quest_id
-            ));
-          }
-
+        if ($runtime_payload === NULL) {
           continue;
         }
+
+        $generated = $runtime_payload['generated_objectives'];
+        $runtime_anchors = $anchors;
+        if ($generated !== []) {
+          $runtime_anchors = $this->withObjectiveItemAnchors($runtime_anchors, $generated);
+        }
+        if ($generated === []) {
+          $errors[] = "Runtime quest '{$quest_id}' is missing generated_objectives.";
+        }
+        else {
+          $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
+            $generated,
+            $runtime_anchors,
+            "runtime quest '{$quest_id}' generated_objectives"
+          ));
+        }
+
+        $states = $runtime_payload['objective_states'] !== []
+          ? $runtime_payload['objective_states']
+          : $generated;
+        if ($states !== []) {
+          $runtime_anchors = $this->withObjectiveItemAnchors($runtime_anchors, $states);
+          $errors = array_merge($errors, $this->validateQuestObjectiveControlChain(
+            $states,
+            $runtime_anchors,
+            "runtime quest '{$quest_id}' objective_states"
+          ));
+          $errors = array_merge($errors, $this->validateRuntimeObjectiveStateAlignment(
+            $generated,
+            $states,
+            $quest_id
+          ));
+        }
+
+        continue;
       }
 
       try {
@@ -5798,7 +6040,7 @@ class StorylineManagerService {
     $storyline_data = $this->normalizeRuntimeStorylineData($this->decodeJsonColumn($row['storyline_data'] ?? NULL));
 
     $quest_rows = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q', ['quest_id', 'status'])
+      ->fields('q', ['quest_id', 'source_template_id', 'status'])
       ->condition('campaign_id', $campaign_id)
       ->condition('storyline_id', $storyline_id)
       ->execute()
@@ -5806,7 +6048,22 @@ class StorylineManagerService {
 
     $quest_state_map = [];
     foreach ($quest_rows as $quest_row) {
-      $quest_state_map[(string) ($quest_row['quest_id'] ?? '')] = (string) ($quest_row['status'] ?? 'available');
+      $status = (string) ($quest_row['status'] ?? 'available');
+      $runtime_quest_id = trim((string) ($quest_row['quest_id'] ?? ''));
+      if ($runtime_quest_id !== '') {
+        $quest_state_map[$runtime_quest_id] = $this->mergeStorylineQuestStatus(
+          $quest_state_map[$runtime_quest_id] ?? NULL,
+          $status
+        );
+      }
+
+      $template_id = trim((string) ($quest_row['source_template_id'] ?? ''));
+      if ($template_id !== '') {
+        $quest_state_map[$template_id] = $this->mergeStorylineQuestStatus(
+          $quest_state_map[$template_id] ?? NULL,
+          $status
+        );
+      }
     }
 
     $sync = $this->synchronizeStorylineDataWithQuestStates(
@@ -5857,6 +6114,239 @@ class StorylineManagerService {
     }
 
     return array_replace($row, $fields);
+  }
+
+  /**
+   * Merge two quest statuses for storyline progression decisions.
+   */
+  protected function mergeStorylineQuestStatus(?string $existing_status, string $incoming_status): string {
+    $rank = [
+      'completed' => 90,
+      'ready_for_turn_in' => 80,
+      'active' => 70,
+      'offered' => 60,
+      'lead' => 50,
+      'available' => 40,
+      'pending' => 30,
+      'failed' => 20,
+      'abandoned' => 10,
+    ];
+
+    $existing = strtolower(trim((string) $existing_status));
+    $incoming = strtolower(trim($incoming_status));
+    if ($existing === '') {
+      return $incoming !== '' ? $incoming : 'available';
+    }
+    if ($incoming === '') {
+      return $existing;
+    }
+
+    return ($rank[$incoming] ?? 0) >= ($rank[$existing] ?? 0) ? $incoming : $existing;
+  }
+
+  /**
+   * Materialize storyline quest templates for the current runtime position.
+   */
+  protected function materializeCurrentStorylineQuestTemplates(
+    int $campaign_id,
+    string $storyline_id,
+    string $event_type,
+    ?int $character_id,
+    array $triggering_quest,
+    array $storyline_row
+  ): bool {
+    if (strtolower(trim($event_type)) !== 'quest_completed') {
+      return FALSE;
+    }
+
+    $storyline_data = $this->normalizeRuntimeStorylineData(
+      $this->decodeJsonColumn($storyline_row['storyline_data'] ?? NULL)
+    );
+    if (strtolower(trim((string) ($storyline_data['status'] ?? ''))) === 'completed') {
+      return FALSE;
+    }
+
+    $current_chapter_id = trim((string) ($storyline_row['current_chapter_id'] ?? ($storyline_data['current_chapter_id'] ?? '')));
+    $current_scene_id = trim((string) ($storyline_row['current_scene_id'] ?? ($storyline_data['current_scene_id'] ?? '')));
+    if ($current_chapter_id === '') {
+      return FALSE;
+    }
+
+    $template_ids = array_values(array_filter(array_map('strval', $this->getQuestIdsForPosition(
+      $storyline_data,
+      $current_chapter_id,
+      $current_scene_id
+    ))));
+    if ($template_ids === []) {
+      return FALSE;
+    }
+
+    $quest_lifecycle = $this->resolveStorylineQuestLifecycleService();
+    $activation_character_id = $this->resolveStorylineQuestActivationCharacterId($campaign_id, $character_id);
+    $materialized = FALSE;
+    foreach ($template_ids as $template_id) {
+      $template_id = trim($template_id);
+      if ($template_id === '') {
+        continue;
+      }
+
+      $quest_link = is_array($storyline_data['linked_quests'][$template_id] ?? NULL)
+        ? $storyline_data['linked_quests'][$template_id]
+        : [];
+      $preexisting_quest_row = $quest_lifecycle->loadQuestByTemplate($campaign_id, $template_id);
+      $inserted = $quest_lifecycle->ensureOfferedQuestFromTemplate(
+        $campaign_id,
+        $template_id,
+        function () use (
+          $campaign_id,
+          $storyline_id,
+          $storyline_data,
+          $storyline_row,
+          $quest_link,
+          $triggering_quest,
+          $template_id
+        ): array {
+          $quest_generator = $this->resolveQuestGeneratorService();
+          $generation_context = $this->buildStorylineQuestGenerationContext(
+            $storyline_data,
+            $storyline_row,
+            $quest_link,
+            $triggering_quest
+          );
+          return $quest_generator->generateQuestFromTemplate(
+            $template_id,
+            $campaign_id,
+            $generation_context + [
+              'storyline_id' => $storyline_id,
+            ]
+          );
+        },
+        $activation_character_id
+      );
+
+      $quest_row = $quest_lifecycle->loadQuestByTemplate($campaign_id, $template_id);
+      if ((!is_array($quest_row) || $quest_row === []) && !$inserted && is_array($preexisting_quest_row) && $preexisting_quest_row !== []) {
+        $quest_row = $preexisting_quest_row;
+      }
+      if (!is_array($quest_row) || $quest_row === []) {
+        throw new \RuntimeException(sprintf(
+          'Failed to load storyline quest row after lifecycle materialization (campaign_id=%d, storyline_id=%s, template_id=%s).',
+          $campaign_id,
+          $storyline_id,
+          $template_id
+        ));
+      }
+
+      $quest_lifecycle->attachStorylineReferenceToQuestRow(
+        $campaign_id,
+        (string) ($quest_row['quest_id'] ?? ''),
+        $storyline_id,
+        !empty($quest_link['chapter_id']) ? (string) $quest_link['chapter_id'] : ($current_chapter_id !== '' ? $current_chapter_id : NULL),
+        !empty($quest_link['scene_id']) ? (string) $quest_link['scene_id'] : ($current_scene_id !== '' ? $current_scene_id : NULL)
+      );
+      if ($inserted) {
+        $materialized = TRUE;
+      }
+    }
+
+    return $materialized;
+  }
+
+  /**
+   * Build quest-generation context for storyline progression materialization.
+   */
+  protected function buildStorylineQuestGenerationContext(
+    array $storyline_data,
+    array $storyline_row,
+    array $quest_link,
+    array $triggering_quest
+  ): array {
+    $chapter_id = trim((string) (
+      $quest_link['chapter_id']
+      ?? $storyline_row['current_chapter_id']
+      ?? $storyline_data['current_chapter_id']
+      ?? ''
+    ));
+    $scene_id = trim((string) (
+      $quest_link['scene_id']
+      ?? $storyline_row['current_scene_id']
+      ?? $storyline_data['current_scene_id']
+      ?? ''
+    ));
+    $asset_references = array_values(array_filter(
+      is_array($storyline_data['asset_references'] ?? NULL) ? $storyline_data['asset_references'] : [],
+      'is_array'
+    ));
+    $location = $this->resolveEntryPointPrimaryLocationId($asset_references, $chapter_id, $scene_id);
+    if ($location === '') {
+      $location = trim((string) (
+        $scene_id
+        ?: $chapter_id
+        ?: ($triggering_quest['location_id'] ?? 'tavern_entrance')
+      ));
+    }
+    $location = trim((string) (
+      $location
+      ?: ($triggering_quest['location_id'] ?? 'tavern_entrance')
+    ));
+    if ($location === '') {
+      $location = 'tavern_entrance';
+    }
+
+    $storyline_template_id = trim((string) ($storyline_data['metadata']['template_id'] ?? ''));
+    $context = [
+      'location' => $location,
+      'initial_status' => 'offered',
+    ];
+    if ($storyline_template_id !== '') {
+      $context['storyline_template_id'] = $storyline_template_id;
+    }
+    if ($chapter_id !== '') {
+      $context['storyline_chapter_id'] = $chapter_id;
+    }
+    if ($scene_id !== '') {
+      $context['storyline_scene_id'] = $scene_id;
+    }
+
+    return $context;
+  }
+
+  /**
+   * Resolve an active player character id for quest lifecycle auto-start scopes.
+   */
+  protected function resolveStorylineQuestActivationCharacterId(int $campaign_id, ?int $character_id): ?int {
+    if ($campaign_id <= 0 || $character_id === NULL || $character_id <= 0) {
+      return NULL;
+    }
+
+    $row = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $character_id)
+      ->condition('type', 'pc')
+      ->condition('role', 'player')
+      ->condition('is_active', 1)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    $resolved_id = is_array($row) ? (int) ($row['id'] ?? 0) : 0;
+    return $resolved_id > 0 ? $resolved_id : NULL;
+  }
+
+  /**
+   * Resolve quest generator service for storyline progression handoffs.
+   */
+  protected function resolveQuestGeneratorService(): QuestGeneratorService {
+    if (!\Drupal::hasService('dungeoncrawler_content.quest_generator')) {
+      throw new \RuntimeException('QuestGeneratorService is required for storyline quest progression materialization.');
+    }
+    $candidate = \Drupal::service('dungeoncrawler_content.quest_generator');
+    if ($candidate instanceof QuestGeneratorService) {
+      return $candidate;
+    }
+
+    throw new \RuntimeException('QuestGeneratorService service registration is invalid for storyline quest progression materialization.');
   }
 
   /**

@@ -790,7 +790,10 @@ PROMPT;
         continue;
       }
 
-      $score = $this->scoreNpcDirectAddressMatch($display_name, $message);
+      $score = max(
+        $this->scoreNpcDirectAddressMatch($display_name, $message),
+        $this->scoreNpcAliasAddressMatch($npc, $message)
+      );
       if ($score <= 0) {
         continue;
       }
@@ -806,6 +809,70 @@ PROMPT;
     }
 
     return $this->selectHighestScoredNpc($matches);
+  }
+
+  /**
+   * Score direct-address matches against NPC alias signals beyond display name.
+   */
+  protected function scoreNpcAliasAddressMatch(array $npc, string $normalized_message): int {
+    $aliases = [];
+
+    $entity_ref = trim((string) ($npc['entity_ref'] ?? ''));
+    if ($entity_ref !== '') {
+      $aliases[] = $this->normalizeNpcNameForMatch(preg_replace('/^npc[_-]?/', '', $entity_ref) ?? $entity_ref);
+    }
+
+    $entity = is_array($npc['entity'] ?? NULL) ? $npc['entity'] : [];
+    $entity_names = [
+      (string) ($entity['name'] ?? ''),
+      (string) ($entity['state']['metadata']['display_name'] ?? ''),
+      (string) ($entity['state']['metadata']['name'] ?? ''),
+    ];
+    foreach ($entity_names as $candidate) {
+      $normalized_candidate = $this->normalizeNpcNameForMatch($candidate);
+      if ($normalized_candidate !== '') {
+        $aliases[] = $normalized_candidate;
+      }
+    }
+
+    $expanded_aliases = [];
+    foreach ($aliases as $alias) {
+      $expanded_aliases[$alias] = TRUE;
+      if (str_contains($alias, 'grandmother') || str_contains($alias, 'grandma')) {
+        $expanded_aliases['grandmother'] = TRUE;
+        $expanded_aliases['grandma'] = TRUE;
+        $expanded_aliases['old lady'] = TRUE;
+        $expanded_aliases['kind old lady'] = TRUE;
+        $expanded_aliases['nice old lady'] = TRUE;
+      }
+      if (str_contains($alias, 'old lady')) {
+        $expanded_aliases['grandmother'] = TRUE;
+        $expanded_aliases['grandma'] = TRUE;
+      }
+    }
+
+    foreach (array_keys($expanded_aliases) as $alias) {
+      if ($alias === '') {
+        continue;
+      }
+      if (preg_match('/\b' . preg_quote($alias, '/') . '\b/u', $normalized_message)) {
+        return 95;
+      }
+    }
+
+    foreach (array_keys($expanded_aliases) as $alias) {
+      $tokens = preg_split('/\s+/', $alias) ?: [];
+      foreach ($tokens as $token) {
+        if (strlen($token) < self::NPC_FUZZY_MATCH_MIN_TOKEN_LENGTH) {
+          continue;
+        }
+        if (preg_match('/\b' . preg_quote($token, '/') . '\b/u', $normalized_message)) {
+          return 85;
+        }
+      }
+    }
+
+    return 0;
   }
 
   /**
@@ -1184,6 +1251,7 @@ PROMPT;
     string $intent,
     array $room_npcs,
     ?array $directly_addressed_npc,
+    string $channel,
     string $player_message,
     array $room_meta = [],
     string $room_id = '',
@@ -1351,6 +1419,15 @@ PROMPT;
         return $merchant_response;
       }
 
+      if ($channel !== 'room') {
+        return [
+          'narrative' => $this->buildDeterministicGmAdjudicationNarrative($player_message, $campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs, $character_data),
+          'actions' => [],
+          'dice_rolls' => [],
+          'validation_errors' => [],
+        ];
+      }
+
       return [
         'narrative' => '',
         'actions' => [],
@@ -1360,7 +1437,11 @@ PROMPT;
       ];
     }
 
-    if (($intent === 'direct_npc_dialogue' || $intent === 'direct_npc_transaction') && $directly_addressed_npc !== NULL) {
+    if (
+      $channel === 'room'
+      && ($intent === 'direct_npc_dialogue' || $intent === 'direct_npc_transaction')
+      && $directly_addressed_npc !== NULL
+    ) {
       return [
         'narrative' => '',
         'actions' => [],
@@ -1373,6 +1454,14 @@ PROMPT;
     if ($intent === 'quest_query') {
       foreach ($room_npcs as $npc) {
         if ($this->npcSupportsQuestOrLeadDialogue($npc)) {
+          if ($channel !== 'room') {
+            return [
+              'narrative' => $this->buildDeterministicGmAdjudicationNarrative($player_message, $campaign_id, $room_id, $room_meta, $dungeon_data, $room_npcs, $character_data),
+              'actions' => [],
+              'dice_rolls' => [],
+              'validation_errors' => [],
+            ];
+          }
           return [
             'narrative' => '',
             'actions' => [],

@@ -7,6 +7,9 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 
 /**
  * Generates and persists character portrait images.
+ *
+ * Validation pair: no dedicated validator service; relies on image integration
+ * provider contracts and generated-image repository persistence checks.
  */
 class CharacterPortraitGenerationService {
 

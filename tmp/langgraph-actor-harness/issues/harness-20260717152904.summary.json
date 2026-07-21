@@ -1,0 +1,263 @@
+{
+  "timestamp": "2026-07-17T15:29:55.242588Z",
+  "correlation_id": "langgraph-harness-20260717152904",
+  "campaign_id": 494,
+  "character_name": "Burasco",
+  "character_id": 2609,
+  "actor_id": "pc-494-1033",
+  "room_id": "tavern_entrance",
+  "stop_reason": "max_turns_reached",
+  "decision": {
+    "mode": "action",
+    "reason": "fallback_after:action_execution_failed:Command failed (rc=1): /var/www/html/dungeoncrawler/vendor/bin/drush dc:actor-harness-action 494 --payload={\"type\":\"transition\",\"actor\":\"pc-494-1033\",\"params\":{\"target_room_id\":\"tpl_room_absalom_streets\",\"quest_id\":\"follow_the_whispers_494_6a5a4a60b8122\",\"objective_id\":\"gather_whisper_network\",\"character_id\":2609},\"actor_id\":\"pc-494-1033\",\"client_state_version\":2}\n[warning] Encounter transition validation rejected as unreachable: actor=pc-494-1033 target_room=tpl_room_absalom_streets active_room=tavern_entrance room_exists=1 connection_id=\n{\n    \"success\": false,\n    \"error\": \"Room 'tpl_room_absalom_streets' is not reachable from the active room.\",\n    \"game_state\": {\n        \"phase\": \"encounter\",\n        \"session_id\": \"sess_20260717_152921\",\n        \"round\": 1,\n        \"turn\": {\n            \"entity\": \"pc-494-1033\",\n            \"index\": 0,\n            \"actions_remaining\": 2,\n            \"attacks_this_turn\": 0,\n            \"reaction_available\": true,\n            \"delayed\": false\n        },\n        \"encounter_id\": 750,\n        \"encounter_context\": {\n            \"room_id\": \"tavern_entrance\",\n            \"mode\": \"room_scene\",\n            \"started_at\": \"2026-07-17T15:29:21+00:00\"\n        },\n        \"initiative_order\": [\n            {\n                \"id\": \"2693\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"pc-494-1033\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"player_character\\\",\\\"content_id\\\":\\\"pc-494-1033\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Burasco\",\n                \"team\": \"player\",\n                \"initiative\": \"19\",\n                \"initiative_roll\": \"19\",\n                \"ac\": \"13\",\n                \"hp\": \"15\",\n                \"max_hp\": \"15\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"0\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2694\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_gribbles_rindsworth\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"gribbles_rindsworth\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Gribbles Rindsworth\",\n                \"team\": \"npc\",\n                \"initiative\": \"17\",\n                \"initiative_roll\": \"17\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"1\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2695\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"familiar-1033\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"familiar_standard\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Mimi\",\n                \"team\": \"npc\",\n                \"initiative\": \"16\",\n                \"initiative_roll\": \"16\",\n                \"ac\": \"10\",\n                \"hp\": \"5\",\n                \"max_hp\": \"5\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"-1\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2696\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_tavern_keeper\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"tavern_keeper\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Eldric\",\n                \"team\": \"npc\",\n                \"initiative\": \"14\",\n                \"initiative_roll\": \"14\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"2\",\n                \"position_r\": \"1\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2697\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_scholar_npc\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"scholar_npc\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Marta the Scholar\",\n                \"team\": \"npc\",\n                \"initiative\": \"3\",\n                \"initiative_roll\": \"3\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"3\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            }\n        ],\n        \"campaign_clock\": {\n            \"datetime\": \"2026-07-17T15:29:00Z\",\n            \"date\": \"2026-07-17\",\n            \"time\": \"15:29:00\",\n            \"timezone\": \"UTC\",\n            \"year\": 2026,\n            \"month\": 7,\n            \"day\": 17,\n            \"hour\": 15,\n            \"minute\": 29,\n            \"second\": 0,\n            \"weekday\": \"Friday\",\n            \"season\": \"summer\"\n        },\n        \"game_time\": {\n            \"day\": 17,\n            \"hour\": 15,\n            \"minute\": 29,\n            \"second\": 0,\n            \"date\": \"2026-07-17\",\n            \"datetime\": \"2026-07-17T15:29:00Z\",\n            \"timezone\": \"UTC\"\n        },\n        \"timed_activities\": [],\n        \"state_version\": 2,\n        \"event_log_cursor\": 5,\n        \"last_encounter\": null\n    },\n    \"result\": [],\n    \"mutations\": [],\n    \"events\": [],\n    \"phase_transition\": null,\n    \"narration\": null,\n    \"available_actions\": [],\n    \"action_contract\": null,\n    \"state_version\": 2\n}",
+    "action_intent": {
+      "type": "end_turn",
+      "actor": "pc-494-1033",
+      "params": {
+        "reason": "fallback_after:action_execution_failed:Command failed (rc=1): /var/www/html/dungeoncrawler/vendor/bin/drush dc:actor-harness-action 494 --payload={\"type\":\"transition\",\"actor\":\"pc-494-1033\",\"params\":{\"target_room_id\":\"tpl_room_absalom_streets\",\"quest_id\":\"follow_the_whispers_494_6a5a4a60b8122\",\"objective_id\":\"gather_whisper_network\",\"character_id\":2609},\"actor_id\":\"pc-494-1033\",\"client_state_version\":2}\n[warning] Encounter transition validation rejected as unreachable: actor=pc-494-1033 target_room=tpl_room_absalom_streets active_room=tavern_entrance room_exists=1 connection_id=\n{\n    \"success\": false,\n    \"error\": \"Room 'tpl_room_absalom_streets' is not reachable from the active room.\",\n    \"game_state\": {\n        \"phase\": \"encounter\",\n        \"session_id\": \"sess_20260717_152921\",\n        \"round\": 1,\n        \"turn\": {\n            \"entity\": \"pc-494-1033\",\n            \"index\": 0,\n            \"actions_remaining\": 2,\n            \"attacks_this_turn\": 0,\n            \"reaction_available\": true,\n            \"delayed\": false\n        },\n        \"encounter_id\": 750,\n        \"encounter_context\": {\n            \"room_id\": \"tavern_entrance\",\n            \"mode\": \"room_scene\",\n            \"started_at\": \"2026-07-17T15:29:21+00:00\"\n        },\n        \"initiative_order\": [\n            {\n                \"id\": \"2693\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"pc-494-1033\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"player_character\\\",\\\"content_id\\\":\\\"pc-494-1033\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Burasco\",\n                \"team\": \"player\",\n                \"initiative\": \"19\",\n                \"initiative_roll\": \"19\",\n                \"ac\": \"13\",\n                \"hp\": \"15\",\n                \"max_hp\": \"15\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"0\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2694\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_gribbles_rindsworth\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"gribbles_rindsworth\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Gribbles Rindsworth\",\n                \"team\": \"npc\",\n                \"initiative\": \"17\",\n                \"initiative_roll\": \"17\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"1\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2695\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"familiar-1033\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"familiar_standard\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Mimi\",\n                \"team\": \"npc\",\n                \"initiative\": \"16\",\n                \"initiative_roll\": \"16\",\n                \"ac\": \"10\",\n                \"hp\": \"5\",\n                \"max_hp\": \"5\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"-1\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2696\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_tavern_keeper\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"tavern_keeper\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Eldric\",\n                \"team\": \"npc\",\n                \"initiative\": \"14\",\n                \"initiative_roll\": \"14\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"2\",\n                \"position_r\": \"1\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2697\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_scholar_npc\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"scholar_npc\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Marta the Scholar\",\n                \"team\": \"npc\",\n                \"initiative\": \"3\",\n                \"initiative_roll\": \"3\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"3\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            }\n        ],\n        \"campaign_clock\": {\n            \"datetime\": \"2026-07-17T15:29:00Z\",\n            \"date\": \"2026-07-17\",\n            \"time\": \"15:29:00\",\n            \"timezone\": \"UTC\",\n            \"year\": 2026,\n            \"month\": 7,\n            \"day\": 17,\n            \"hour\": 15,\n            \"minute\": 29,\n            \"second\": 0,\n            \"weekday\": \"Friday\",\n            \"season\": \"summer\"\n        },\n        \"game_time\": {\n            \"day\": 17,\n            \"hour\": 15,\n            \"minute\": 29,\n            \"second\": 0,\n            \"date\": \"2026-07-17\",\n            \"datetime\": \"2026-07-17T15:29:00Z\",\n            \"timezone\": \"UTC\"\n        },\n        \"timed_activities\": [],\n        \"state_version\": 2,\n        \"event_log_cursor\": 5,\n        \"last_encounter\": null\n    },\n    \"result\": [],\n    \"mutations\": [],\n    \"events\": [],\n    \"phase_transition\": null,\n    \"narration\": null,\n    \"available_actions\": [],\n    \"action_contract\": null,\n    \"state_version\": 2\n}"
+      }
+    }
+  },
+  "last_result_summary": {
+    "success": false,
+    "error": "Command failed (rc=1): /var/www/html/dungeoncrawler/vendor/bin/drush dc:actor-harness-action 494 --payload={\"type\":\"transition\",\"actor\":\"pc-494-1033\",\"params\":{\"target_room_id\":\"tpl_room_absalom_streets\",\"quest_id\":\"follow_the_whispers_494_6a5a4a60b8122\",\"objective_id\":\"gather_whisper_network\",\"character_id\":2609},\"actor_id\":\"pc-494-1033\",\"client_state_version\":2}\n[warning] Encounter transition validation rejected as unreachable: actor=pc-494-1033 target_room=tpl_room_absalom_streets active_room=tavern_entrance room_exists=1 connection_id=\n{\n    \"success\": false,\n    \"error\": \"Room 'tpl_room_absalom_streets' is not reachable from the active room.\",\n    \"game_state\": {\n        \"phase\": \"encounter\",\n        \"session_id\": \"sess_20260717_152921\",\n        \"round\": 1,\n        \"turn\": {\n            \"entity\": \"pc-494-1033\",\n            \"index\": 0,\n            \"actions_remaining\": 2,\n            \"attacks_this_turn\": 0,\n            \"reaction_available\": true,\n            \"delayed\": false\n        },\n        \"encounter_id\": 750,\n        \"encounter_context\": {\n            \"room_id\": \"tavern_entrance\",\n            \"mode\": \"room_scene\",\n            \"started_at\": \"2026-07-17T15:29:21+00:00\"\n        },\n        \"initiative_order\": [\n            {\n                \"id\": \"2693\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"pc-494-1033\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"player_character\\\",\\\"content_id\\\":\\\"pc-494-1033\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Burasco\",\n                \"team\": \"player\",\n                \"initiative\": \"19\",\n                \"initiative_roll\": \"19\",\n                \"ac\": \"13\",\n                \"hp\": \"15\",\n                \"max_hp\": \"15\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"0\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2694\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_gribbles_rindsworth\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"gribbles_rindsworth\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Gribbles Rindsworth\",\n                \"team\": \"npc\",\n                \"initiative\": \"17\",\n                \"initiative_roll\": \"17\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"1\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2695\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"familiar-1033\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"familiar_standard\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Mimi\",\n                \"team\": \"npc\",\n                \"initiative\": \"16\",\n                \"initiative_roll\": \"16\",\n                \"ac\": \"10\",\n                \"hp\": \"5\",\n                \"max_hp\": \"5\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"-1\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2696\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_tavern_keeper\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"tavern_keeper\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Eldric\",\n                \"team\": \"npc\",\n                \"initiative\": \"14\",\n                \"initiative_roll\": \"14\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"2\",\n                \"position_r\": \"1\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            },\n            {\n                \"id\": \"2697\",\n                \"encounter_id\": \"750\",\n                \"entity_id\": \"npc_scholar_npc\",\n                \"entity_ref\": \"{\\\"content_type\\\":\\\"npc\\\",\\\"content_id\\\":\\\"scholar_npc\\\",\\\"perception_modifier\\\":0,\\\"heritage\\\":null}\",\n                \"name\": \"Marta the Scholar\",\n                \"team\": \"npc\",\n                \"initiative\": \"3\",\n                \"initiative_roll\": \"3\",\n                \"ac\": \"10\",\n                \"hp\": \"10\",\n                \"max_hp\": \"10\",\n                \"actions_remaining\": \"3\",\n                \"attacks_this_turn\": \"0\",\n                \"position_q\": \"3\",\n                \"position_r\": \"0\",\n                \"reaction_available\": \"1\",\n                \"is_defeated\": \"0\",\n                \"created\": \"1784302161\",\n                \"updated\": \"1784302161\",\n                \"temp_hp\": \"0\",\n                \"status\": \"active\"\n            }\n        ],\n        \"campaign_clock\": {\n            \"datetime\": \"2026-07-17T15:29:00Z\",\n            \"date\": \"2026-07-17\",\n            \"time\": \"15:29:00\",\n            \"timezone\": \"UTC\",\n            \"year\": 2026,\n            \"month\": 7,\n            \"day\": 17,\n            \"hour\": 15,\n            \"minute\": 29,\n            \"second\": 0,\n            \"weekday\": \"Friday\",\n            \"season\": \"summer\"\n        },\n        \"game_time\": {\n            \"day\": 17,\n            \"hour\": 15,\n            \"minute\": 29,\n            \"second\": 0,\n            \"date\": \"2026-07-17\",\n            \"datetime\": \"2026-07-17T15:29:00Z\",\n            \"timezone\": \"UTC\"\n        },\n        \"timed_activities\": [],\n        \"state_version\": 2,\n        \"event_log_cursor\": 5,\n        \"last_encounter\": null\n    },\n    \"result\": [],\n    \"mutations\": [],\n    \"events\": [],\n    \"phase_transition\": null,\n    \"narration\": null,\n    \"available_actions\": [],\n    \"action_contract\": null,\n    \"state_version\": 2\n}"
+  },
+  "active_objective": {
+    "quest_id": "follow_the_whispers_494_6a5a4a60b8122",
+    "quest_name": "Follow the Whispers",
+    "source_template_id": "",
+    "storyline_id": "",
+    "current_phase": 0,
+    "objective_id": "gather_whisper_network",
+    "type": "interact",
+    "objective_action": "interact",
+    "description": "Question Gribbles about current whisper traffic.",
+    "next_step": "Speak with Gribbles and gather a rumor lead chain.",
+    "target": "gribbles_rindsworth",
+    "location_id": "tavern_entrance",
+    "target_entity_instance_id": "",
+    "target_display_name": ""
+  },
+  "quest_context": [
+    {
+      "quest_id": "follow_the_whispers_494_6a5a4a60b8122",
+      "quest_name": "Follow the Whispers",
+      "source_template_id": "follow_the_whispers",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "gather_whisper_network",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Question Gribbles about current whisper traffic.",
+          "next_step": "Speak with Gribbles and gather a rumor lead chain.",
+          "target": "gribbles_rindsworth",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "trace_arcane_route",
+          "type": "explore",
+          "objective_action": "explore",
+          "description": "Trace where the contraband route leaves the tavern district.",
+          "next_step": "Travel to Absalom Streets and verify the suspected route.",
+          "target": "",
+          "location_id": "tpl_room_absalom_streets",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "report_whisper_route",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Report the identified route to Eldric.",
+          "next_step": "Return to Eldric and provide the route details.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "recover_blackmail_ledger_494_6a5a4a60ab98f",
+      "quest_name": "Recover Blackmail Ledger",
+      "source_template_id": "recover_blackmail_ledger",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "locate_ledger_cache",
+          "type": "explore",
+          "objective_action": "explore",
+          "description": "Search the tavern for the hidden ledger cache.",
+          "next_step": "Inspect the tavern and identify where the ledger was stashed.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "recover_ledger_item",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Recover the concealed blackmail ledger.",
+          "next_step": "Retrieve the blackmail ledger from the discovered cache.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_ledger_to_gribbles",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Return the ledger to Gribbles.",
+          "next_step": "Hand the recovered ledger to Gribbles.",
+          "target": "gribbles_rindsworth",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "stabilize_arcane_resonance_494_6a5a4a609e9e5",
+      "quest_name": "Stabilize Arcane Resonance",
+      "source_template_id": "stabilize_arcane_resonance",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_resonance_samples",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Collect three resonance samples from the tavern.",
+          "next_step": "Search the tavern and collect 3 resonance samples.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "stabilize_codex_with_marta",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Work with Marta to stabilize the codex resonance.",
+          "next_step": "Bring the samples to Marta and complete the stabilization ritual.",
+          "target": "scholar_npc",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "gather_torch_components_494_6a5a4a5a2d2f3",
+      "quest_name": "Gather Torch Materials for the Tavern",
+      "source_template_id": "gather_torch_components",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_torches",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Gather Torch Materials scattered around the tavern",
+          "next_step": "Search the tavern common room and pick up each Torch Materials quest item.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_torches",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Bring the torch components to the tavern keeper",
+          "next_step": "Speak to the tavern keeper after collecting the torch components.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "gather_wine_494_6a5a4a5a240ae",
+      "quest_name": "Collect Wine Bottles from the Tavern",
+      "source_template_id": "gather_wine",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_wine",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Collect Wine Bottles from around the tavern",
+          "next_step": "Search the tavern common room and pick up each Wine Bottles quest item.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_wine",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Return the wine to the tavern keeper",
+          "next_step": "Speak to the tavern keeper after collecting the wine.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "tavern_storyline_leads_494_6a5a4a40a415a",
+      "quest_name": "Gather Storyline Leads in the Tavern",
+      "source_template_id": "tavern_storyline_leads",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "active",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "speak_to_marta",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Speak to Marta the Scholar and gather her storyline lead.",
+          "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
+          "target": "scholar_npc",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    }
+  ],
+  "storyline_context": [],
+  "available_actions": [
+    "choose_not_to_act",
+    "delay",
+    "end_turn",
+    "interact",
+    "search",
+    "talk",
+    "transition"
+  ],
+  "active_quest_count": 6
+}

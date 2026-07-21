@@ -31,10 +31,23 @@
       "policy_id": "scholar-npc",
       "giver_ids": ["scholar_npc"],
       "allowed_quest_template_ids": [
-        "collect_spellbooks"
+        "collect_spellbooks",
+        "stabilize_arcane_resonance"
       ],
       "allowed_storyline_template_ids": [],
-      "notes": "The scholar NPC only offers the spellbook recovery errand."
+      "notes": "The scholar NPC offers spellbook recovery and codex resonance stabilization errands."
+    },
+    {
+      "policy_id": "gribbles-rindsworth",
+      "giver_ids": ["gribbles_rindsworth"],
+      "allowed_quest_template_ids": [
+        "follow_the_whispers",
+        "recover_blackmail_ledger"
+      ],
+      "allowed_storyline_template_ids": [
+        "torment-and-legacy"
+      ],
+      "notes": "Gribbles issues rumor-trace and ledger-recovery errands tied to tavern intrigue."
     },
     {
       "policy_id": "ltba-grandmother",

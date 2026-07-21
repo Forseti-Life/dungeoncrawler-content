@@ -148,9 +148,9 @@ class StorylineRealizationServiceTest extends UnitTestCase {
   }
 
   /**
-   * Verifies storyline contact npc_template ids are realized as campaign NPC specs.
+   * Verifies storyline NPC realization only accepts canonical campaign_npc contacts.
    */
-  public function testBuildStorylineNpcSpecsIncludesNpcTemplateContacts(): void {
+  public function testBuildStorylineNpcSpecsUsesCanonicalCampaignNpcContacts(): void {
     $service = new class($this->createMock(Connection::class)) extends StorylineRealizationService {
       public function exposeBuildStorylineNpcSpecs(array $storyline_data): array {
         return $this->buildStorylineNpcSpecs($storyline_data);
@@ -164,11 +164,22 @@ class StorylineRealizationServiceTest extends UnitTestCase {
           'entity_id' => 'npc_tavern_keeper',
           'display_name' => 'Eldric',
           'attitude' => 'friendly',
+          'relationship_state' => [
+            'runtime_materialization' => [
+              'canonical_location_id' => 'tavern_entrance',
+            ],
+          ],
         ],
         [
           'entity_type' => 'npc_template',
           'entity_id' => 'tal-mission-handler',
           'display_name' => 'Venture-Captain Celia Arvanxi',
+          'attitude' => 'friendly',
+        ],
+        [
+          'entity_type' => 'campaign_npc',
+          'entity_id' => 'npc_quest_scholar',
+          'display_name' => 'Scholar Aria',
           'attitude' => 'friendly',
         ],
       ],
@@ -187,8 +198,72 @@ class StorylineRealizationServiceTest extends UnitTestCase {
     }
 
     $this->assertArrayHasKey('npc_tavern_keeper', $by_ref);
-    $this->assertArrayHasKey('tal-mission-handler', $by_ref);
-    $this->assertSame('Venture-Captain Celia Arvanxi', $by_ref['tal-mission-handler']['name'] ?? NULL);
+    $this->assertArrayHasKey('npc_quest_scholar', $by_ref);
+    $this->assertArrayNotHasKey('tal-mission-handler', $by_ref);
+    $this->assertSame('tavern_entrance', $by_ref['npc_tavern_keeper']['canonical_location_id']);
+  }
+
+  /**
+   * Verifies storyline NPC actor upserts inherit canonical room placement.
+   */
+  public function testBuildStorylineNpcActorFieldsUsesCanonicalRoomLocation(): void {
+    $service = new class($this->createMock(Connection::class)) extends StorylineRealizationService {
+      public function exposeNormalizeStorylineNpcFields(int $campaign_id, array $spec): ?array {
+        return $this->normalizeStorylineNpcFields($campaign_id, $spec);
+      }
+
+      public function exposeBuildStorylineNpcActorFields(int $campaign_id, string $instance_id, array $fields, array $existing = []): array {
+        return $this->buildStorylineNpcActorFields($campaign_id, $instance_id, $fields, $existing);
+      }
+    };
+
+    $normalized = $service->exposeNormalizeStorylineNpcFields(536, [
+      'entity_ref' => 'ltba-grandmother',
+      'name' => 'Grandmother',
+      'role' => 'quest_giver',
+      'attitude' => 'friendly',
+      'canonical_location_id' => 'ltba-grandmas-house-parlor',
+    ]);
+
+    $this->assertIsArray($normalized);
+    $upsert = $service->exposeBuildStorylineNpcActorFields(536, 'npc_ltba-grandmother', $normalized ?? [], [
+      'location_type' => 'global',
+      'location_ref' => '',
+      'last_room_id' => '',
+    ]);
+
+    $this->assertSame('room', $upsert['location_type']);
+    $this->assertSame('ltba-grandmas-house-parlor', $upsert['location_ref']);
+    $this->assertSame('ltba-grandmas-house-parlor', $upsert['last_room_id']);
+  }
+
+  /**
+   * Verifies runtime storyline contacts are rewritten to instantiated NPC ids.
+   */
+  public function testBuildRuntimeStorylineContactsAddsRuntimeEntityIds(): void {
+    $service = new class($this->createMock(Connection::class)) extends StorylineRealizationService {
+      public function exposeBuildRuntimeStorylineContacts(array $contacts): array {
+        return $this->buildRuntimeStorylineContacts($contacts);
+      }
+    };
+
+    $contacts = $service->exposeBuildRuntimeStorylineContacts([
+      [
+        'entity_type' => 'campaign_npc',
+        'entity_id' => 'quest-contact',
+        'display_name' => 'Quest Contact',
+        'introduces_to' => [
+          [
+            'entity_type' => 'campaign_npc',
+            'entity_id' => 'storyline-broker',
+            'display_name' => 'Broker',
+          ],
+        ],
+      ],
+    ]);
+
+    $this->assertSame('npc_quest-contact', $contacts[0]['runtime_entity_id']);
+    $this->assertSame('npc_storyline-broker', $contacts[0]['introduces_to'][0]['runtime_entity_id']);
   }
 
 }

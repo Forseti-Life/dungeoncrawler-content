@@ -34,7 +34,7 @@ class CharacterImagePromptBuilder {
 
     $subject = $this->buildSubjectPhrase($base_ancestry, $class, $background, $role, $familiar_species);
     $lines = [];
-    $lines[] = 'Full-body fantasy portrait of ' . $subject . ', standing alone with the entire body visible from head to toe.';
+    $lines[] = 'Full-body portrait illustration of ' . $subject . ', standing alone with the entire body visible from head to toe.';
 
     if ($role === 'familiar') {
       $familiar_profile = $this->buildFamiliarPromptLine($character_data, $familiar_species);
@@ -74,7 +74,7 @@ class CharacterImagePromptBuilder {
       $lines[] = $mood_line;
     }
 
-    $lines[] = 'The background should be a grounded arcane adventuring scene with subtle magical atmosphere and no symbolic text elements.';
+    $lines[] = 'The background should be grounded and context-appropriate, with subtle environmental cues and no symbolic text elements.';
 
     $lines[] = 'Pure illustration only: no readable text, no labels, no posters, no parchment sheets, no books or scrolls with writing, no signs, no runes, no spell circles, no side panels, and no decorative borders.';
 
@@ -229,7 +229,7 @@ class CharacterImagePromptBuilder {
     }
 
     if (empty($keywords)) {
-      $keywords = ['confident', 'grounded', 'adventurous'];
+      $keywords = ['confident', 'grounded', 'composed'];
     }
 
     $keywords = array_slice($keywords, 0, 4);
@@ -492,7 +492,7 @@ class CharacterImagePromptBuilder {
       $parts[] = 'an adult ' . $base_ancestry;
     }
     else {
-      $parts[] = 'a fantasy adventurer';
+      $parts[] = 'an adult humanoid character';
     }
 
     if ($class !== '') {

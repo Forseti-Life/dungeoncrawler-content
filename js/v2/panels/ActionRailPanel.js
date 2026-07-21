@@ -11,7 +11,7 @@ import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEn
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 import { buildActionRailContext } from '../services/action-rail-context-service.js';
-import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js';
+import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260721-v2-nav-authority-2';
 import {
   getActionRailDirectRoute,
   getServerActionIdForExecute,
@@ -97,7 +97,10 @@ export class ActionRailPanel {
     this.navigateLocationsCampaignId = null;
     this.navigateLocationsInflight = null;
     this.navigateActiveRoom = null;
+    this._lastRoomTransitionId = '';
     this._actionRailRequestSequence = 0;
+    this._actionRailRefreshRaf = null;
+    this._actionRailRefreshTimer = null;
     this._domListeners = [];
   }
 
@@ -210,28 +213,62 @@ export class ActionRailPanel {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
     this.teardownActionRailDomListeners();
+    if (this._actionRailRefreshRaf !== null && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(this._actionRailRefreshRaf);
+      this._actionRailRefreshRaf = null;
+    }
+    if (this._actionRailRefreshTimer !== null) {
+      clearTimeout(this._actionRailRefreshTimer);
+      this._actionRailRefreshTimer = null;
+    }
     if (this._actionRailRealtimeTimer) clearInterval(this._actionRailRealtimeTimer);
     if (this.actionRailRealClockTimer) clearInterval(this.actionRailRealClockTimer);
+  }
+
+  queueActionRailRefresh() {
+    if (this._actionRailRefreshRaf !== null || this._actionRailRefreshTimer !== null) {
+      return;
+    }
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      this._actionRailRefreshRaf = window.requestAnimationFrame(() => {
+        this._actionRailRefreshRaf = null;
+        this.refreshActionRail();
+      });
+      return;
+    }
+    this._actionRailRefreshTimer = setTimeout(() => {
+      this._actionRailRefreshTimer = null;
+      this.refreshActionRail();
+    }, 0);
   }
 
   _subscribe() {
     this._unsubs.push(
       this.bus.on('combat:turn-changed', (d) => {
-        this.refreshActionRail();
+        this.queueActionRailRefresh();
         this.updateActionRailClocks(d);
       }),
-      this.bus.on('combat:state-changed', () => this.refreshActionRail()),
-      this.bus.on('game:init', () => this.refreshActionRail()),
-      this.bus.on('room:changed', () => {
-        this.navigateActiveRoom = null;
-        this.navigateLocationsCampaignId = null;
-        this.refreshActionRail();
-      }),
-      this.bus.on('room:occupants-changed', () => this.refreshActionRail()),
-      this.bus.on('character:updated', () => this.refreshActionRail()),
-      this.bus.on('inventory:changed', () => this.refreshActionRail()),
-      this.bus.on('quest:progress-updated', () => this.refreshActionRail()),
+      this.bus.on('combat:state-changed', () => this.queueActionRailRefresh()),
+      this.bus.on('game:init', () => this.queueActionRailRefresh()),
+      this.bus.on('room:changed', (payload) => this.handleRoomContextChanged(payload)),
+      this.bus.on('room:occupants-changed', (payload) => this.handleRoomContextChanged(payload)),
+      this.bus.on('character:updated', () => this.queueActionRailRefresh()),
+      this.bus.on('inventory:changed', () => this.queueActionRailRefresh()),
+      this.bus.on('quest:progress-updated', () => this.queueActionRailRefresh()),
     );
+  }
+
+  handleRoomContextChanged(payload = {}) {
+    const transitionId = String(payload?.transition?.id || '').trim();
+    if (transitionId && transitionId === this._lastRoomTransitionId) {
+      return;
+    }
+    if (transitionId) {
+      this._lastRoomTransitionId = transitionId;
+    }
+    this.navigateActiveRoom = null;
+    this.navigateLocationsCampaignId = null;
+    this.queueActionRailRefresh();
   }
 
   setupActionRail() {

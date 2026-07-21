@@ -67,6 +67,8 @@ export class HexTokenRenderer {
     this._spreadHoverAnchorKey = null;
     /** @type {number|null} Deferred crowded-hex clear timer */
     this._spreadClearTimer = null;
+    /** @type {string} Last processed room transition id */
+    this._lastRoomTransitionId = '';
 
     this._unsubs = [];
   }
@@ -102,7 +104,14 @@ export class HexTokenRenderer {
       this.bus.on('hex:out', ({ q, r } = {}) => {
         this._scheduleSpreadHoverClear(q, r);
       }),
-      this.bus.on('room:changed', () => {
+      this.bus.on('room:changed', ({ transition } = {}) => {
+        const transitionId = String(transition?.id || '').trim();
+        if (transitionId && transitionId === this._lastRoomTransitionId) {
+          return;
+        }
+        if (transitionId) {
+          this._lastRoomTransitionId = transitionId;
+        }
         this._clearAll();
       })
     );

@@ -22,26 +22,29 @@ function assert(condition, message) {
   }
 }
 
-const serviceSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/services/navigate-location-service.js'), 'utf8');
 const navigatePanelServiceSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/services/action-rail-navigate-panel-service.js'), 'utf8');
+const legacyHexmapSource = fs.readFileSync(path.resolve(__dirname, '../js/hexmap.js'), 'utf8');
 const panelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
 const navigationSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/NavigationSystem.js'), 'utf8');
 
 console.log('\n=== Action rail navigate service contract ===');
 
 assert(
-  serviceSource.includes('export async function fetchVisitedNavigateLocationGroups(campaignId) {')
-    && serviceSource.includes("fetch(`/api/campaign/${numericCampaignId}/visited-locations`")
-    && serviceSource.includes("throw new Error(data.error || 'Unable to load visited locations.');"),
-  'navigate-location service owns the visited-locations API fetch + canonical error contract'
+  !navigatePanelServiceSource.includes("import { fetchVisitedNavigateLocationGroups } from './navigate-location-service.js';")
+    && navigatePanelServiceSource.includes('const groups = collectNavigateExitGroups(panel, context);')
+    && navigatePanelServiceSource.includes("title: 'Room exits'")
+    && !navigatePanelServiceSource.includes('collectVisitedNavigateLocationGroups(')
+    && !navigatePanelServiceSource.includes('Known destinations'),
+  'navigate panel service renders direct room exits only and does not merge known destinations'
 );
 
 assert(
-  navigatePanelServiceSource.includes("import { fetchVisitedNavigateLocationGroups } from './navigate-location-service.js';")
-    && navigatePanelServiceSource.includes('panel.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)')
-    && navigatePanelServiceSource.includes('panel.navigateLocationsCampaignId === campaignId && Array.isArray(panel.navigateLocationGroups)')
-    && !navigatePanelServiceSource.includes('fetch(`/api/campaign/${campaignId}/visited-locations`'),
-  'navigate panel service owns visited-location preload behavior via shared navigate-location API service'
+  !legacyHexmapSource.includes("import { fetchVisitedNavigateLocationGroups } from './v2/services/navigate-location-service.js';")
+    && legacyHexmapSource.includes('const groups = this.collectNavigateLocationGroups(context);')
+    && !legacyHexmapSource.includes('const visitedGroups = this.collectVisitedNavigateLocationGroups(context, campaignId);')
+    && !legacyHexmapSource.includes('const questTargetGroups = this.collectQuestTargetNavigateLocationGroups(context, routeGroups, visitedGroups);')
+    && !legacyHexmapSource.includes('Known destinations'),
+  'legacy hexmap navigation also renders direct room exits only'
 );
 
 assert(
@@ -54,7 +57,10 @@ assert(
 assert(
   !navigationSystemSource.includes("import { fetchVisitedNavigateLocationGroups } from '../services/navigate-location-service.js';")
     && !navigationSystemSource.includes('ensureNavigateLocationGroups(')
-    && navigationSystemSource.includes("this.bus.on('user:navigate', (d) => this.executeDirectNavigate(d?.button))"),
+    && navigationSystemSource.includes("this.bus.on('user:navigate', (d) => this.executeDirectNavigate(d?.button))")
+    && navigationSystemSource.includes('const authoritativeState = await this._getAuthoritativeCoordinatorState(coordinator, hexmap);')
+    && navigationSystemSource.includes('await this.shell.loadRuntimeStateBundle({')
+    && navigationSystemSource.includes('room_id: nextRoomId,'),
   'NavigationSystem owns only navigate execution; visited-location preloading stays in ActionRailPanel'
 );
 

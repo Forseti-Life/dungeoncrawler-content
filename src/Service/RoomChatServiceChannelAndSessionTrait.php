@@ -82,6 +82,10 @@ trait RoomChatServiceChannelAndSessionTrait {
           'stats' => $meta['stats'] ?? [],
           'role' => $live_entity['role'] ?? 'neutral',
           'initial_attitude' => $live_entity['attitude'] ?? 'indifferent',
+          'location_type' => 'room',
+          'location_ref' => $room_id,
+          'room_id' => $room_id,
+          'last_room_id' => $room_id,
         ];
       }
       $this->psychologyService->getOrCreateProfile($campaign_id, $npc_ref, $seed_data);
@@ -101,14 +105,19 @@ trait RoomChatServiceChannelAndSessionTrait {
       $npc_context = $live_entity['description'] ?? '';
     }
 
+    $actor_action_context = $this->buildCanonicalNpcActionAvailabilityContext(
+      $dungeon_data,
+      (string) $room_id,
+      (string) ($npc_ref ?: $target_entity),
+      $live_entity
+    );
+
     // Build the prompt with full NPC context.
-    // TODO(actor-action-availability): Replace this descriptive tool/action text
-    // with the same canonical actor action-availability envelope used by
-    // encounter AI so freeform actor prompts get authoritative legal actions.
     $prompt = NpcPromptAssembler::buildDirectReplyUserPrompt(
       $session_context,
       $scene_parts,
       $npc_context,
+      $actor_action_context,
       $target_name,
       $source_ability,
       $history_lines
@@ -209,7 +218,7 @@ trait RoomChatServiceChannelAndSessionTrait {
     $this->bridgeChannelReplyToSessionSystem(
       $campaign_id, $room_id, $channel_key, $target_name, $target_entity, $response_text
     );
-    $this->applyConversationQuestTouchpoint($campaign_id, $character_id, $room_id, $npc_ref, $target_name);
+    $this->applyConversationQuestTouchpoint($campaign_id, $character_id, $room_id, $npc_ref, $target_name, [], $player_msg);
 
     // Record inner monologue: NPC reacts privately to what the player said.
     if ($npc_ref) {
@@ -957,6 +966,62 @@ trait RoomChatServiceChannelAndSessionTrait {
 
     $dungeon_data = is_array($snapshot['dungeon_data'] ?? NULL) ? $snapshot['dungeon_data'] : [];
     return (($dungeon_data['game_state']['phase'] ?? '') === 'encounter');
+  }
+
+  /**
+   * Build canonical actor action-availability context for NPC dialogue prompts.
+   */
+  protected function buildCanonicalNpcActionAvailabilityContext(
+    array $dungeon_data,
+    string $room_id,
+    string $entity_ref,
+    array $live_entity = []
+  ): string {
+    $actor_id = trim((string) (
+      $live_entity['entity_instance_id']
+      ?? $live_entity['instance_id']
+      ?? $live_entity['state']['metadata']['runtime_entity_id']
+      ?? $entity_ref
+    ));
+    if ($actor_id === '') {
+      return '';
+    }
+
+    $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : [];
+    $game_state['encounter_context'] = is_array($game_state['encounter_context'] ?? NULL) ? $game_state['encounter_context'] : [];
+    if (trim((string) ($game_state['encounter_context']['room_id'] ?? '')) === '') {
+      $game_state['encounter_context']['room_id'] = $room_id !== '' ? $room_id : (string) ($dungeon_data['active_room_id'] ?? '');
+    }
+    if (trim((string) ($game_state['encounter_context']['mode'] ?? '')) === '') {
+      $game_state['encounter_context']['mode'] = empty($game_state['encounter_id']) ? 'room_scene' : 'encounter';
+    }
+    $game_state['turn'] = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
+    if (trim((string) ($game_state['turn']['entity'] ?? '')) === '') {
+      $game_state['turn']['entity'] = $actor_id;
+    }
+    if (!is_numeric($game_state['turn']['actions_remaining'] ?? NULL)) {
+      $game_state['turn']['actions_remaining'] = 3;
+    }
+    if (!array_key_exists('reaction_available', $game_state['turn'])) {
+      $game_state['turn']['reaction_available'] = FALSE;
+    }
+
+    $availability = $this->actorActionAvailabilityService->resolveEncounterAvailability(
+      $game_state,
+      $dungeon_data,
+      $actor_id
+    );
+    $payload = [
+      'allowed_actions' => is_array($availability['available_actions'] ?? NULL) ? $availability['available_actions'] : [],
+      'action_contract' => is_array($availability['action_contract'] ?? NULL) ? $availability['action_contract'] : [],
+      'actions_available_to_me_this_turn' => is_array($availability['availability_envelope'] ?? NULL) ? $availability['availability_envelope'] : [],
+    ];
+    $encoded = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if (!is_string($encoded) || trim($encoded) === '') {
+      return '';
+    }
+
+    return "=== CANONICAL ACTION AVAILABILITY ===\n" . $encoded;
   }
 
   // =========================================================================

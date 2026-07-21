@@ -15,10 +15,23 @@ use Psr\Log\LoggerInterface;
  * - Generating objectives with target values
  * - Scaling rewards based on party level
  * - Creating campaign quest instances
+ *
+ * Validation pair: QuestDestinationValidatorService,
+ * ObjectiveTypeService objective-phase assertions, and
+ * StateValidationService quest-summary validation.
  */
 class QuestGeneratorService {
 
   public const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v2';
+  private const INTRO_GAME_MECHANICS_TEMPLATE_IDS = [
+    'tavern_storyline_leads',
+    'gather_wine',
+    'gather_torch_components',
+    'collect_spellbooks',
+  ];
+  private const INTRO_GAME_MECHANICS_STORYLINE_ID = 'introduction-to-game-mechanics';
+  private const INTRO_GAME_MECHANICS_CHAPTER_ID = 'intro-mechanics';
+  private const INTRO_GAME_MECHANICS_SCENE_ID = 'tavern-foundations';
 
   /**
    * The database connection.
@@ -61,12 +74,13 @@ class QuestGeneratorService {
   /**
    * Objective type service.
    */
-  protected ObjectiveTypeService $objectiveTypeService;
+  protected ?ObjectiveTypeService $objectiveTypeService;
 
   /**
    * Quest destination validator service.
    */
   protected ?QuestDestinationValidatorService $questDestinationValidator = NULL;
+  protected ?NavigationRuntimeService $navigationRuntime = NULL;
 
   /**
    * Constructs a QuestGeneratorService object.
@@ -85,15 +99,17 @@ class QuestGeneratorService {
     StateValidationService $state_validation_service,
     ?ObjectiveTypeService $objective_type_service = NULL,
     ?StorylineManagerService $storyline_manager = NULL,
-    ?QuestDestinationValidatorService $quest_destination_validator = NULL
+    ?QuestDestinationValidatorService $quest_destination_validator = NULL,
+    ?NavigationRuntimeService $navigation_runtime = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->numberGeneration = $number_generation;
     $this->stateValidationService = $state_validation_service;
-    $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
+    $this->objectiveTypeService = $objective_type_service;
     $this->storylineManager = $storyline_manager;
-    $this->questDestinationValidator = $quest_destination_validator ?? new QuestDestinationValidatorService();
+    $this->questDestinationValidator = $quest_destination_validator;
+    $this->navigationRuntime = $navigation_runtime;
   }
 
   /**
@@ -155,13 +171,29 @@ class QuestGeneratorService {
         $variables,
         $context
       );
+      $this->assertNoUnresolvedTemplateTokens(
+        (string) $quest_name,
+        (string) $quest_description,
+        $generated_objectives,
+        $template_id,
+        $campaign_id
+      );
 
       // Validate quest destinations (hard-fail if invalid)
       if (!empty($generated_objectives)) {
         try {
-          $this->questDestinationValidator->validateQuestObjectives(
+          $dungeon_data = $this->getDungeonDataForContext($campaign_id, $context);
+          $this->materializeCanonicalDestinationRoomsForObjectives(
+            $campaign_id,
+            $context,
+            $dungeon_data,
+            $generated_objectives
+          );
+          $canonical_destination_anchors = $this->buildCanonicalDestinationAnchorsForObjectives($generated_objectives);
+          $this->getQuestDestinationValidator()->validateQuestObjectives(
             ['quest_id' => $template_id, 'objectives' => $generated_objectives],
-            $this->getDungeonDataForContext($campaign_id, $context)
+            $dungeon_data,
+            $canonical_destination_anchors
           );
         } catch (\InvalidArgumentException $e) {
           $this->logger->error('Quest destination validation failed: @error', ['@error' => $e->getMessage()]);
@@ -185,6 +217,24 @@ class QuestGeneratorService {
         'source_template_id' => $template_id,
         'generated_objectives' => $generated_objectives,
       ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+      $story_impact = json_decode((string) ($template['story_impact'] ?? '{}'), TRUE);
+      if (!is_array($story_impact)) {
+        $story_impact = [];
+      }
+      $storyline_id = $this->normalizeNullableString($context['storyline_id'] ?? ($story_impact['storyline_id'] ?? NULL));
+      $storyline_chapter_id = $this->normalizeNullableString($context['storyline_chapter_id'] ?? ($story_impact['chapter_id'] ?? NULL));
+      $storyline_scene_id = $this->normalizeNullableString($context['storyline_scene_id'] ?? ($story_impact['scene_id'] ?? NULL));
+      if (in_array($template_id, self::INTRO_GAME_MECHANICS_TEMPLATE_IDS, TRUE)) {
+        $storyline_id = self::INTRO_GAME_MECHANICS_STORYLINE_ID;
+        $storyline_chapter_id = self::INTRO_GAME_MECHANICS_CHAPTER_ID;
+        $storyline_scene_id = self::INTRO_GAME_MECHANICS_SCENE_ID;
+      }
+      $quest_location_id = $this->resolveQuestLocationAnchor(
+        $context,
+        $template,
+        $generated_objectives,
+        $storyline_scene_id
+      );
       $quest_data = [
         'campaign_id' => $campaign_id,
         'quest_id' => $quest_id,
@@ -204,7 +254,10 @@ class QuestGeneratorService {
         'generated_rewards' => json_encode($generated_rewards),
         'status' => (string) ($context['initial_status'] ?? 'offered'),
         'giver_npc_id' => $context['giver_npc_id'] ?? NULL,
-        'location_id' => $context['location'] ?? NULL,
+        'location_id' => $quest_location_id,
+        'storyline_id' => $storyline_id,
+        'storyline_chapter_id' => $storyline_chapter_id,
+        'storyline_scene_id' => $storyline_scene_id,
         'created_at' => \Drupal::time()->getRequestTime(),
         'available_at' => \Drupal::time()->getRequestTime(),
         'expires_at' => isset($template['time_limit_hours']) ?
@@ -223,6 +276,84 @@ class QuestGeneratorService {
       $this->logger->error('Quest generation failed: @error', ['@error' => $e->getMessage()]);
       throw $e;
     }
+  }
+
+  /**
+   * Resolve the canonical runtime location anchor for a generated quest row.
+   *
+   * Storyline scene IDs (for example "grandmothers-request") are not travel
+   * locations. When context location is scene-scoped, prefer the objective or
+   * template room anchor so room-touchpoint activation remains deterministic.
+   *
+   * @param array<string, mixed> $context
+   * @param array<string, mixed> $template
+   * @param array<int, mixed> $generated_objectives
+   */
+  protected function resolveQuestLocationAnchor(
+    array $context,
+    array $template,
+    array $generated_objectives,
+    ?string $storyline_scene_id
+  ): ?string {
+    $context_location = $this->normalizeNullableString($context['location'] ?? ($context['location_id'] ?? NULL));
+    $template_entry_location = $this->normalizeNullableString($template['entry_point_location_id'] ?? NULL);
+    $objective_location = $this->extractPrimaryObjectiveLocationId($generated_objectives);
+
+    if ($context_location === NULL || $context_location === '') {
+      return $objective_location ?? $template_entry_location;
+    }
+
+    if (
+      $storyline_scene_id !== NULL
+      && $storyline_scene_id !== ''
+      && strcasecmp($context_location, $storyline_scene_id) === 0
+    ) {
+      return $objective_location ?? $template_entry_location ?? $context_location;
+    }
+
+    return $context_location;
+  }
+
+  /**
+   * Extract the first authored objective location anchor from quest phases.
+   */
+  protected function extractPrimaryObjectiveLocationId(array $generated_objectives): ?string {
+    foreach ($generated_objectives as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      foreach ($this->extractObjectiveLocationFromNodes((array) ($phase['objectives'] ?? [])) as $location_id) {
+        if ($location_id !== NULL && $location_id !== '') {
+          return $location_id;
+        }
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Walk nested objective nodes and collect location anchors in stable order.
+   *
+   * @param array<int, mixed> $nodes
+   * @return array<int, string|null>
+   */
+  protected function extractObjectiveLocationFromNodes(array $nodes): array {
+    $locations = [];
+    foreach ($nodes as $node) {
+      if (!is_array($node)) {
+        continue;
+      }
+      $locations[] = $this->normalizeNullableString($node['location_id'] ?? ($node['destination_id'] ?? NULL));
+      $children = is_array($node['children'] ?? NULL) ? $node['children'] : [];
+      if ($children !== []) {
+        foreach ($this->extractObjectiveLocationFromNodes($children) as $child_location) {
+          $locations[] = $child_location;
+        }
+      }
+    }
+
+    return $locations;
   }
 
   /**
@@ -735,10 +866,10 @@ class QuestGeneratorService {
   }
 
   /**
-   * Load storyline contacts keyed by entity id.
+   * Load storyline contacts keyed by runtime entity id.
    *
    * @return array<string, string>
-   *   Entity id => display name.
+   *   Runtime entity id => display name.
    */
   protected function loadStorylineContacts(int $campaign_id, ?string $storyline_id): array {
     if ($campaign_id <= 0 || $storyline_id === NULL || $storyline_id === '') {
@@ -785,10 +916,10 @@ class QuestGeneratorService {
         if (!is_array($contact)) {
           continue;
         }
-        $entity_id = trim((string) ($contact['entity_id'] ?? ''));
+        $runtime_entity_id = trim((string) ($contact['runtime_entity_id'] ?? ''));
         $display_name = trim((string) ($contact['display_name'] ?? ''));
-        if ($entity_id !== '' && $display_name !== '') {
-          $contacts[$entity_id] = $display_name;
+        if ($runtime_entity_id !== '' && $display_name !== '') {
+          $contacts[$runtime_entity_id] = $display_name;
         }
       }
     }
@@ -801,7 +932,7 @@ class QuestGeneratorService {
    * Return the canonical objective type options for quest authoring.
    */
   public function getObjectiveTypeOptions(): array {
-    return $this->objectiveTypeService->getObjectiveTypeOptions();
+    return $this->getObjectiveTypeService()->getObjectiveTypeOptions();
   }
 
   /**
@@ -1199,6 +1330,31 @@ class QuestGeneratorService {
    *   Template variable hints keyed by variable name.
    */
   protected function loadQuestAssociationContextHints(int $campaign_id, string $location_id, string $template_id, array $template = []): array {
+    if ($campaign_id <= 0 || $location_id === '' || $template_id === '') {
+      return [];
+    }
+
+    $hints = $this->loadQuestAssociationHintsFromCampaignRoom($campaign_id, $location_id, $template_id, $template);
+    $canonical_hints = $this->loadQuestAssociationHintsFromCanonicalRoom($location_id, $template_id, $template);
+    if ($hints === []) {
+      return $canonical_hints;
+    }
+
+    foreach ($canonical_hints as $key => $value) {
+      if (!isset($hints[$key]) || trim((string) $hints[$key]) === '') {
+        $hints[$key] = $value;
+      }
+    }
+
+    return $hints;
+  }
+
+  /**
+   * Load variable hints from campaign room instance associations.
+   *
+   * @return array<string,string>
+   */
+  protected function loadQuestAssociationHintsFromCampaignRoom(int $campaign_id, string $location_id, string $template_id, array $template = []): array {
     if (
       $campaign_id <= 0
       || $location_id === ''
@@ -1215,13 +1371,64 @@ class QuestGeneratorService {
       ->range(0, 1)
       ->execute()
       ->fetchAssoc();
-    $contents = is_array($row) ? (json_decode((string) ($row['contents_data'] ?? '{}'), TRUE) ?: []) : [];
-    if (!is_array($contents)) {
+    if (!is_array($row)) {
+      return [];
+    }
+
+    return $this->extractQuestAssociationHints(
+      (string) ($row['name'] ?? ''),
+      json_decode((string) ($row['contents_data'] ?? '{}'), TRUE),
+      $template_id,
+      $template
+    );
+  }
+
+  /**
+   * Load variable hints from canonical room associations.
+   *
+   * @return array<string,string>
+   */
+  protected function loadQuestAssociationHintsFromCanonicalRoom(string $location_id, string $template_id, array $template = []): array {
+    if ($location_id === '' || $template_id === '') {
+      return [];
+    }
+
+    $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['name', 'contents_data']);
+    $query->condition(
+      $query->orConditionGroup()
+        ->condition('room_id', $location_id)
+        ->condition('source_room_id', $location_id)
+    );
+    $row = $query->range(0, 1)->execute()->fetchAssoc();
+    if (!is_array($row)) {
+      return [];
+    }
+
+    return $this->extractQuestAssociationHints(
+      (string) ($row['name'] ?? ''),
+      json_decode((string) ($row['contents_data'] ?? '{}'), TRUE),
+      $template_id,
+      $template
+    );
+  }
+
+  /**
+   * Build item/target hints from room contents for a quest template.
+   *
+   * @param mixed $decoded_contents
+   *   Decoded room contents payload.
+   *
+   * @return array<string,string>
+   */
+  protected function extractQuestAssociationHints(string $room_name, $decoded_contents, string $template_id, array $template = []): array {
+    $contents = is_array($decoded_contents) ? $decoded_contents : [];
+    if ($contents === []) {
       return [];
     }
 
     $hints = [];
-    $room_name = is_array($row) ? trim((string) ($row['name'] ?? '')) : '';
+    $room_name = trim($room_name);
     if ($room_name !== '') {
       $hints['room_name'] = $room_name;
     }
@@ -1259,6 +1466,43 @@ class QuestGeneratorService {
     }
 
     return $hints;
+  }
+
+  /**
+   * Hard-fail quest generation if unresolved template tokens remain.
+   */
+  protected function assertNoUnresolvedTemplateTokens(
+    string $quest_name,
+    string $quest_description,
+    array $generated_objectives,
+    string $template_id,
+    int $campaign_id
+  ): void {
+    $has_token = static fn(string $value): bool => preg_match('/\{[a-z_][a-z0-9_]*\}/i', $value) === 1;
+    if ($has_token($quest_name)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Quest template token resolution failed for %s in campaign %d: unresolved token in quest name "%s".',
+        $template_id,
+        $campaign_id,
+        $quest_name
+      ));
+    }
+    if ($has_token($quest_description)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Quest template token resolution failed for %s in campaign %d: unresolved token in quest description.',
+        $template_id,
+        $campaign_id
+      ));
+    }
+
+    $encoded = json_encode($generated_objectives, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (is_string($encoded) && $has_token($encoded)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Quest template token resolution failed for %s in campaign %d: unresolved token in generated objectives.',
+        $template_id,
+        $campaign_id
+      ));
+    }
   }
 
   /**
@@ -1301,7 +1545,7 @@ class QuestGeneratorService {
     array $variables,
     array $context
   ): array {
-    $this->objectiveTypeService->assertObjectivePhases($objectives_schema);
+    $this->getObjectiveTypeService()->assertObjectivePhases($objectives_schema);
     $objectives = [];
 
     foreach ($objectives_schema as $phase_data) {
@@ -1329,7 +1573,7 @@ class QuestGeneratorService {
   protected function generateObjectiveNode(array $objective_schema, array $variables, array $context): array {
     $generated_obj = [
       'objective_id' => trim((string) ($objective_schema['objective_id'] ?? $objective_schema['id'] ?? 'objective')),
-      'type' => $this->objectiveTypeService->determineObjectiveType($objective_schema),
+      'type' => $this->getObjectiveTypeService()->determineObjectiveType($objective_schema),
       'description' => $this->resolveVariables((string) ($objective_schema['description'] ?? $objective_schema['objective_id'] ?? 'Objective'), $variables),
       'completed' => !empty($objective_schema['completed']),
     ];
@@ -2044,7 +2288,7 @@ class QuestGeneratorService {
   protected function normalizeQuestObjective(array $objective): array {
     $normalized = [
       'objective_id' => trim((string) ($objective['objective_id'] ?? $objective['id'] ?? 'objective')),
-      'type' => $this->objectiveTypeService->determineObjectiveType($objective),
+      'type' => $this->getObjectiveTypeService()->determineObjectiveType($objective),
       'description' => trim((string) ($objective['description'] ?? $objective['objective_id'] ?? 'Objective')),
       'completed' => !empty($objective['completed']),
     ];
@@ -2098,21 +2342,157 @@ class QuestGeneratorService {
    * Return nested child-objective definitions from any supported objective shape.
    */
   protected function extractNestedObjectiveDefinitions(array $objective): array {
-    return $this->objectiveTypeService->extractNestedObjectiveDefinitions($objective);
+    return $this->getObjectiveTypeService()->extractNestedObjectiveDefinitions($objective);
   }
 
   /**
    * Normalize objective completion criteria into a stable contract.
    */
   protected function normalizeObjectiveCompletionCriteria(mixed $criteria, array $objective): array {
-    return $this->objectiveTypeService->normalizeCompletionCriteria($criteria, $objective);
+    return $this->getObjectiveTypeService()->normalizeCompletionCriteria($criteria, $objective);
   }
 
   /**
    * Build default completion rules for one objective node.
    */
   protected function buildDefaultObjectiveCompletionCriteria(array $objective): array {
-    return $this->objectiveTypeService->buildDefaultCompletionCriteria($objective);
+    return $this->getObjectiveTypeService()->buildDefaultCompletionCriteria($objective);
+  }
+
+  /**
+   * Resolve required objective type service dependency.
+   */
+  protected function getObjectiveTypeService(): ObjectiveTypeService {
+    if (!($this->objectiveTypeService instanceof ObjectiveTypeService)) {
+      throw new \RuntimeException('ObjectiveTypeService is required for quest generation objective contract handling.');
+    }
+
+    return $this->objectiveTypeService;
+  }
+
+  /**
+   * Resolve required quest destination validator dependency.
+   */
+  protected function getQuestDestinationValidator(): QuestDestinationValidatorService {
+    if (!($this->questDestinationValidator instanceof QuestDestinationValidatorService)) {
+      throw new \RuntimeException('QuestDestinationValidatorService is required for quest destination contract validation.');
+    }
+
+    return $this->questDestinationValidator;
+  }
+
+  /**
+   * Build canonical destination anchors for objective destination validation.
+   *
+   * Allows quest destinations to resolve against canonical room library ids
+   * (room_id/source_room_id/name) even when the room is not yet materialized in
+   * the active campaign dungeon payload.
+   *
+   * @param array<int, mixed> $objective_phases
+   *   Objective phases payload.
+   *
+   * @return array<string, bool>
+   *   Canonical destination anchors keyed by exact identifier.
+   */
+  protected function buildCanonicalDestinationAnchorsForObjectives(array $objective_phases): array {
+    $destination_refs = [];
+    foreach ($this->collectObjectiveDestinationRefs($objective_phases) as $destination_ref) {
+      $destination_refs[$destination_ref] = TRUE;
+    }
+    if ($destination_refs === []) {
+      return [];
+    }
+
+    $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id', 'name']);
+    $or = $query->orConditionGroup();
+    foreach (array_keys($destination_refs) as $destination_ref) {
+      $or->condition('room_id', $destination_ref);
+      $or->condition('source_room_id', $destination_ref);
+      $or->condition('name', $destination_ref);
+    }
+    $rows = $query
+      ->condition($or)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $anchors = [];
+    foreach ((array) $rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $room_id = trim((string) ($row['room_id'] ?? ''));
+      $source_room_id = trim((string) ($row['source_room_id'] ?? ''));
+      $name = trim((string) ($row['name'] ?? ''));
+      if ($room_id !== '') {
+        $anchors[$room_id] = TRUE;
+      }
+      if ($source_room_id !== '') {
+        $anchors[$source_room_id] = TRUE;
+      }
+      if ($name !== '') {
+        $anchors[$name] = TRUE;
+      }
+    }
+
+    return $anchors;
+  }
+
+  /**
+   * Collect destination references from phased/nested objective payloads.
+   *
+   * @param array<int, mixed> $objective_phases
+   *   Objective phases payload.
+   *
+   * @return array<int, string>
+   *   Unique destination/location refs.
+   */
+  protected function collectObjectiveDestinationRefs(array $objective_phases): array {
+    $refs = [];
+    foreach ($objective_phases as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $objectives = is_array($entry['objectives'] ?? NULL)
+        ? $entry['objectives']
+        : [$entry];
+      foreach ($this->collectObjectiveDestinationRefsFromNodes($objectives) as $ref) {
+        $refs[$ref] = TRUE;
+      }
+    }
+    return array_values(array_keys($refs));
+  }
+
+  /**
+   * Collect destination references from nested objective nodes.
+   *
+   * @param array<int, mixed> $objectives
+   *   Objective nodes.
+   *
+   * @return array<int, string>
+   *   Destination refs.
+   */
+  protected function collectObjectiveDestinationRefsFromNodes(array $objectives): array {
+    $refs = [];
+    foreach ($objectives as $objective) {
+      if (!is_array($objective)) {
+        continue;
+      }
+
+      foreach (['destination', 'destination_id', 'location', 'location_id'] as $field) {
+        $value = trim((string) ($objective[$field] ?? ''));
+        if ($value !== '') {
+          $refs[$value] = TRUE;
+        }
+      }
+
+      $children = is_array($objective['children'] ?? NULL) ? $objective['children'] : [];
+      foreach ($this->collectObjectiveDestinationRefsFromNodes($children) as $child_ref) {
+        $refs[$child_ref] = TRUE;
+      }
+    }
+
+    return array_values(array_keys($refs));
   }
 
   /**
@@ -3048,9 +3428,9 @@ class QuestGeneratorService {
     }
 
     foreach (array_values(array_filter($storyline_contacts, 'is_array')) as $contact) {
-      $entity_id = $this->normalizeNullableString($contact['entity_id'] ?? NULL);
+      $runtime_entity_id = $this->normalizeNullableString($contact['runtime_entity_id'] ?? NULL);
       $display_name = $this->normalizeNullableString($contact['display_name'] ?? NULL);
-      if ($entity_id !== NULL && $entity_id === $target) {
+      if ($runtime_entity_id !== NULL && $runtime_entity_id === $target) {
         return $contact;
       }
       if ($display_name !== NULL && strcasecmp($display_name, $target) === 0) {
@@ -3474,6 +3854,11 @@ class QuestGeneratorService {
       return 'Complete the nested objectives for this objective.';
     }
 
+    $explicit_next_step = trim((string) ($objective['next_step'] ?? ''));
+    if ($explicit_next_step !== '') {
+      return $explicit_next_step;
+    }
+
     $type = strtolower(trim((string) ($objective['type'] ?? '')));
     $target = trim((string) ($objective['target'] ?? $objective['item'] ?? $location['label'] ?? ''));
 
@@ -3791,6 +4176,163 @@ class QuestGeneratorService {
   }
 
   /**
+   * Materialize canonical destination rooms referenced by objectives when absent.
+   *
+   * @param int $campaign_id
+   *   Campaign id.
+   * @param array<string, mixed> $context
+   *   Quest generation context.
+   * @param array<string, mixed> $dungeon_data
+   *   Active dungeon payload (mutated in-place).
+   * @param array<int, mixed> $objective_phases
+   *   Objective phase payload.
+   */
+  protected function materializeCanonicalDestinationRoomsForObjectives(
+    int $campaign_id,
+    array $context,
+    array &$dungeon_data,
+    array $objective_phases
+  ): void {
+    if ($campaign_id <= 0) {
+      return;
+    }
+
+    $destination_refs = $this->collectObjectiveDestinationRefs($objective_phases);
+    if ($destination_refs === []) {
+      return;
+    }
+
+    $missing_refs = [];
+    foreach ($destination_refs as $destination_ref) {
+      if (!$this->dungeonPayloadContainsLocation($dungeon_data, $destination_ref)) {
+        $missing_refs[$destination_ref] = TRUE;
+      }
+    }
+    if ($missing_refs === []) {
+      return;
+    }
+
+    $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data'])
+      ->orderBy('updated', 'DESC');
+    $or = $query->orConditionGroup();
+    foreach (array_keys($missing_refs) as $destination_ref) {
+      $or->condition('room_id', $destination_ref);
+      $or->condition('source_room_id', $destination_ref);
+      $or->condition('name', $destination_ref);
+    }
+    $canonical_rows = $query
+      ->condition($or)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $canonical_by_ref = [];
+    foreach ((array) $canonical_rows as $canonical_row) {
+      if (!is_array($canonical_row)) {
+        continue;
+      }
+      foreach ([
+        trim((string) ($canonical_row['room_id'] ?? '')),
+        trim((string) ($canonical_row['source_room_id'] ?? '')),
+        trim((string) ($canonical_row['name'] ?? '')),
+      ] as $ref_key) {
+        if ($ref_key !== '' && !isset($canonical_by_ref[$ref_key])) {
+          $canonical_by_ref[$ref_key] = $canonical_row;
+        }
+      }
+    }
+
+    $changed = FALSE;
+    $now = \Drupal::time()->getRequestTime();
+    foreach (array_keys($missing_refs) as $destination_ref) {
+      if (!isset($canonical_by_ref[$destination_ref])) {
+        continue;
+      }
+      $canonical_row = $canonical_by_ref[$destination_ref];
+      $room_id = trim((string) ($canonical_row['room_id'] ?? ''));
+      if ($room_id === '' || $this->dungeonPayloadContainsLocation($dungeon_data, $room_id)) {
+        continue;
+      }
+
+      $this->requireNavigationRuntime()->materializeCanonicalRoomForCampaign(
+        $campaign_id,
+        $dungeon_data,
+        $room_id,
+        [
+          'require_connector_to_existing_room' => TRUE,
+          'explored' => FALSE,
+          'visibility' => 'hidden',
+        ]
+      );
+
+      $this->database->merge('dc_campaign_room_states')
+        ->keys([
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+        ])
+        ->fields([
+          'is_cleared' => 0,
+          'fog_state' => json_encode([
+            'visibility' => 'initial',
+            'discovered_hexes' => [],
+            'runtime_room_items_seeded' => TRUE,
+            'source' => 'quest_destination_materialization',
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'last_visited' => 0,
+          'updated' => $now,
+        ])
+        ->execute();
+
+      $changed = TRUE;
+    }
+
+    if (!$changed) {
+      return;
+    }
+
+    $target_dungeon_id = $this->resolveDungeonIdForContext($campaign_id, $context, $dungeon_data);
+    if ($target_dungeon_id === '') {
+      return;
+    }
+
+    $this->database->update('dc_campaign_dungeons')
+      ->fields([
+        'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => $now,
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('dungeon_id', $target_dungeon_id)
+      ->execute();
+  }
+
+  /**
+   * Resolve the target dungeon_id for context-scoped materialization writes.
+   */
+  protected function resolveDungeonIdForContext(int $campaign_id, array $context, array $dungeon_data): string {
+    $context_map_id = trim((string) ($context['map_id'] ?? $context['dungeon_id'] ?? ''));
+    if ($context_map_id !== '') {
+      return $context_map_id;
+    }
+
+    $payload_dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['map_id']
+      ?? ''
+    ));
+    if ($payload_dungeon_id !== '') {
+      return $payload_dungeon_id;
+    }
+
+    $rows = $this->loadCampaignDungeonRows($campaign_id);
+    $row = $rows[0] ?? NULL;
+    if (!is_array($row)) {
+      return '';
+    }
+    return trim((string) ($row['dungeon_id'] ?? ''));
+  }
+
+  /**
    * Load campaign dungeon rows, optionally scoped to one dungeon_id.
    *
    * @return array<int, array<string, mixed>>
@@ -3813,6 +4355,19 @@ class QuestGeneratorService {
     }
 
     return array_values(array_map(static fn($row): array => is_array($row) ? $row : (array) $row, $rows));
+  }
+
+  protected function requireNavigationRuntime(): NavigationRuntimeService {
+    if ($this->navigationRuntime instanceof NavigationRuntimeService) {
+      return $this->navigationRuntime;
+    }
+
+    $service = \Drupal::service('dungeoncrawler_content.navigation_runtime');
+    if (!($service instanceof NavigationRuntimeService)) {
+      throw new \RuntimeException('NavigationRuntimeService is required for quest destination room instantiation.');
+    }
+    $this->navigationRuntime = $service;
+    return $this->navigationRuntime;
   }
 
   /**

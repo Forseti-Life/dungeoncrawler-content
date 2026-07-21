@@ -25065,6 +25065,111 @@ function dungeoncrawler_content_update_10159() {
 }
 
 /**
+ * Create immutable GM mutation audit ledger table.
+ */
+function dungeoncrawler_content_update_10160() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+
+  if ($schema_handler->tableExists('dc_gm_mutation_audit')) {
+    return t('GM mutation audit ledger already exists.');
+  }
+
+  $schema_handler->createTable('dc_gm_mutation_audit', [
+    'description' => 'Immutable audit ledger for privileged GM mutation tools.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'tool' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ],
+      'operation' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ],
+      'target_table' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ],
+      'principal_actor_id' => [
+        'type' => 'varchar',
+        'length' => 191,
+        'not null' => TRUE,
+      ],
+      'principal_character_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'principal_uid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'actor_role' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+      ],
+      'ownership_domain' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+      ],
+      'correlation_id' => [
+        'type' => 'varchar',
+        'length' => 191,
+        'not null' => TRUE,
+      ],
+      'payload_hash' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+      ],
+      'before_hash' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+      ],
+      'after_hash' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+      ],
+      'created' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'campaign_id' => ['campaign_id'],
+      'tool' => ['tool'],
+      'correlation_id' => ['correlation_id'],
+      'created' => ['created'],
+    ],
+    'unique keys' => [
+      'correlation_operation' => ['correlation_id', 'campaign_id', 'tool', 'operation'],
+    ],
+  ]);
+
+  return t('Created immutable GM mutation audit ledger table dc_gm_mutation_audit.');
+}
+
+/**
  * Resolve a connector endpoint hex from one room layout and target room.
  *
  * Prefers explicit layout_data.exits target coordinate; falls back to

@@ -84,8 +84,8 @@ class CanonicalActionRegistryService {
     ],
     'navigate_to_location' => [
       'label' => 'Navigate to location',
-      'validator' => 'RoomChatService::generateRealityCheckedGmResponse',
-      'executor' => 'RoomChatService::handleNavigationActions',
+      'validator' => 'NavigationRuntimeService::validateNavigationActionPayload',
+      'executor' => 'NavigationRuntimeService::handleNavigationActions',
       'scope' => 'room',
       'status' => 'active',
     ],
@@ -360,7 +360,7 @@ class CanonicalActionRegistryService {
       'apply_quest_touchpoint' => [
         'category' => 'quest',
         'route' => 'quest_progression',
-        'input_schema' => 'quest_touchpoint',
+        'input_schema' => 'quest_touchpoint_ingest',
         'receipt_schema' => 'quest_progress_receipt',
       ],
     ];

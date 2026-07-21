@@ -11,10 +11,10 @@ namespace Drupal\dungeoncrawler_content\Service;
 class QuestDestinationValidatorService {
 
   /**
-   * Validates a single quest objective destination.
+   * Validates a single quest objective destination/location contract.
    *
    * @param array $objective
-   *   The objective data with optional 'destination' or 'destination_id' field.
+   *   The objective data with optional destination/location reference fields.
    * @param array $dungeon_data
    *   The dungeon data array containing 'rooms' definition.
    *
@@ -23,17 +23,23 @@ class QuestDestinationValidatorService {
    */
   public function validateQuestDestination(
     array $objective,
-    array $dungeon_data
+    array $dungeon_data,
+    array $canonical_destinations = []
   ): void {
-    $destination = trim((string) ($objective['destination'] ?? 
-                                  $objective['destination_id'] ?? ''));
+    $destination = trim((string) (
+      $objective['destination'] ??
+      $objective['destination_id'] ??
+      $objective['location'] ??
+      $objective['location_id'] ??
+      ''
+    ));
     
     if ($destination === '') {
       return; // No destination required
     }
 
     $room = $this->findRoomByIdOrName($dungeon_data, $destination);
-    if (!$room) {
+    if (!$room && !isset($canonical_destinations[$destination])) {
       throw new \InvalidArgumentException(
         "Quest destination '{$destination}' not found in dungeon. " .
         "Must match a room_id or room name exactly (case-sensitive)."
@@ -54,18 +60,85 @@ class QuestDestinationValidatorService {
    */
   public function validateQuestObjectives(
     array $quest,
-    array $dungeon_data
+    array $dungeon_data,
+    array $canonical_destinations = []
   ): void {
-    $objectives = (array) ($quest['objectives'] ?? []);
-    
-    foreach ($objectives as $index => $objective) {
+    $objective_nodes = $this->collectQuestObjectiveNodes($quest);
+    $quest_label = trim((string) ($quest['quest_id'] ?? ''));
+    if ($quest_label === '') {
+      $quest_label = 'unknown';
+    }
+    foreach ($objective_nodes as $node) {
+      $objective = is_array($node['objective'] ?? NULL) ? $node['objective'] : [];
+      $path = (string) ($node['path'] ?? 'objective');
       try {
-        $this->validateQuestDestination($objective, $dungeon_data);
+        $this->validateQuestDestination($objective, $dungeon_data, $canonical_destinations);
       } catch (\InvalidArgumentException $e) {
         throw new \InvalidArgumentException(
-          "Quest '{$quest['quest_id']}' objective {$index}: {$e->getMessage()}"
+          "Quest '{$quest_label}' {$path}: {$e->getMessage()}"
         );
       }
+    }
+  }
+
+  /**
+   * Collect quest objective nodes across phased and nested objective trees.
+   *
+   * Supports legacy flat quest['objectives'] payloads and phased payloads where
+   * quest['objectives'] is a list of phase objects containing objectives[].
+   *
+   * @param array<string, mixed> $quest
+   *   Quest payload.
+   *
+   * @return array<int, array{objective: array<string, mixed>, path: string}>
+   *   Objective node list with diagnostic paths.
+   */
+  protected function collectQuestObjectiveNodes(array $quest): array {
+    $nodes = [];
+    $objectives = (array) ($quest['objectives'] ?? []);
+
+    foreach ($objectives as $index => $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+
+      if (is_array($entry['objectives'] ?? NULL)) {
+        foreach ((array) $entry['objectives'] as $objective_index => $objective) {
+          if (!is_array($objective)) {
+            continue;
+          }
+          $this->collectObjectiveNodesRecursive($objective, "phase[{$index}].objective[{$objective_index}]", $nodes);
+        }
+        continue;
+      }
+
+      $this->collectObjectiveNodesRecursive($entry, "objective[{$index}]", $nodes);
+    }
+
+    return $nodes;
+  }
+
+  /**
+   * Recursively collect one objective node and its child objective nodes.
+   *
+   * @param array<string, mixed> $objective
+   *   Objective node.
+   * @param string $path
+   *   Objective path.
+   * @param array<int, array{objective: array<string, mixed>, path: string}> $nodes
+   *   Node list (mutated).
+   */
+  protected function collectObjectiveNodesRecursive(array $objective, string $path, array &$nodes): void {
+    $nodes[] = [
+      'objective' => $objective,
+      'path' => $path,
+    ];
+
+    foreach ((array) ($objective['children'] ?? []) as $child_index => $child) {
+      if (!is_array($child)) {
+        continue;
+      }
+      $this->collectObjectiveNodesRecursive($child, "{$path}.children[{$child_index}]", $nodes);
     }
   }
 

@@ -34,6 +34,8 @@ export class MerchantPanel {
     this.activeGameShellTab = null;
     this.currentCharacterInventoryContext = null;
     this._cachedOccupants = [];
+    this._lastRoomChangedTransitionId = '';
+    this._lastOccupantsChangedTransitionId = '';
   }
 
   init(dungeonData, stateManager, inventoryPanel = null) {
@@ -94,10 +96,24 @@ export class MerchantPanel {
 
     this._unsubs.push(
       this.bus.on('room:changed', (d) => {
+        const transitionId = String(d?.transition?.id || '').trim();
+        if (transitionId && transitionId === this._lastRoomChangedTransitionId) {
+          return;
+        }
+        if (transitionId) {
+          this._lastRoomChangedTransitionId = transitionId;
+        }
         this._cachedOccupants = [];
         this._buildMerchantEntriesFromOccupants(d?.roomId, []);
       }),
       this.bus.on('room:occupants-changed', (d) => {
+        const transitionId = String(d?.transition?.id || '').trim();
+        if (transitionId && transitionId === this._lastOccupantsChangedTransitionId) {
+          return;
+        }
+        if (transitionId) {
+          this._lastOccupantsChangedTransitionId = transitionId;
+        }
         this._cachedOccupants = d?.occupants ?? [];
         const entries = this._buildMerchantEntriesFromOccupants(d?.roomId, this._cachedOccupants);
         this.logMerchantPanelTrace('occupants-changed', {

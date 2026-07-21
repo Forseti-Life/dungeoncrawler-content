@@ -67,29 +67,37 @@ class ConnectorDefinitionService {
     $connection_id = $this->deriveConnectionId($data);
     $now = time();
 
-    $this->database->merge('dungeoncrawler_content_connections')
-      ->keys(['connection_id' => $connection_id])
-      ->fields([
-        'dungeon_id' => (string) $data['dungeon_id'],
-        'from_room_id' => (string) $data['from_room_id'],
-        'to_room_id' => (string) $data['to_room_id'],
-        'from_hex_q' => $endpoint_hexes['from_hex']['q'],
-        'from_hex_r' => $endpoint_hexes['from_hex']['r'],
-        'to_hex_q' => $endpoint_hexes['to_hex']['q'],
-        'to_hex_r' => $endpoint_hexes['to_hex']['r'],
-        'direction' => (string) ($data['direction'] ?? 'bidirectional'),
-        'kind' => (string) ($data['kind'] ?? 'hallway'),
-        'default_state' => (string) ($data['default_state'] ?? 'open'),
-        'trap_data' => isset($data['trap_data']) ? json_encode($data['trap_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
-        'lock_data' => isset($data['lock_data']) ? json_encode($data['lock_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
-        'requirements_data' => isset($data['requirements_data']) ? json_encode($data['requirements_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
-        'description' => isset($data['description']) ? (string) $data['description'] : NULL,
-        'travel_cost' => max(0, (int) ($data['travel_cost'] ?? 0)),
-        'is_discovered_default' => empty($data['is_discovered_default']) ? 0 : 1,
-        'updated' => $now,
-      ])
-      ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+    $fields = [
+      'dungeon_id' => (string) $data['dungeon_id'],
+      'from_room_id' => (string) $data['from_room_id'],
+      'to_room_id' => (string) $data['to_room_id'],
+      'from_hex_q' => $endpoint_hexes['from_hex']['q'],
+      'from_hex_r' => $endpoint_hexes['from_hex']['r'],
+      'to_hex_q' => $endpoint_hexes['to_hex']['q'],
+      'to_hex_r' => $endpoint_hexes['to_hex']['r'],
+      'direction' => (string) ($data['direction'] ?? 'bidirectional'),
+      'kind' => (string) ($data['kind'] ?? 'hallway'),
+      'default_state' => (string) ($data['default_state'] ?? 'open'),
+      'trap_data' => isset($data['trap_data']) ? json_encode($data['trap_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
+      'lock_data' => isset($data['lock_data']) ? json_encode($data['lock_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
+      'requirements_data' => isset($data['requirements_data']) ? json_encode($data['requirements_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
+      'description' => isset($data['description']) ? (string) $data['description'] : NULL,
+      'travel_cost' => max(0, (int) ($data['travel_cost'] ?? 0)),
+      'is_discovered_default' => empty($data['is_discovered_default']) ? 0 : 1,
+      'updated' => $now,
+    ];
+    $updated_rows = $this->database->update('dungeoncrawler_content_connections')
+      ->fields($fields)
+      ->condition('connection_id', $connection_id)
       ->execute();
+    if ((int) $updated_rows === 0) {
+      $this->database->insert('dungeoncrawler_content_connections')
+        ->fields($fields + [
+          'connection_id' => $connection_id,
+          'created' => $now,
+        ])
+        ->execute();
+    }
 
     return $connection_id;
   }
@@ -260,7 +268,10 @@ class ConnectorDefinitionService {
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
     if (!is_array($rows) || $rows === []) {
-      return [];
+      throw new \InvalidArgumentException(sprintf(
+        'Connector sync contract violation: canonical room layout rows are missing for dungeon %s.',
+        $dungeon_id
+      ));
     }
 
     $connectors = [];
@@ -275,6 +286,21 @@ class ConnectorDefinitionService {
       }
 
       $layout_data = json_decode((string) ($row['layout_data'] ?? ''), TRUE);
+      if (!is_array($layout_data)) {
+        throw new \InvalidArgumentException(sprintf(
+          'Connector sync contract violation: room %s in dungeon %s has invalid layout_data JSON.',
+          $from_room_id,
+          $dungeon_id
+        ));
+      }
+      $layout_hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+      if ($layout_hexes === []) {
+        throw new \InvalidArgumentException(sprintf(
+          'Connector sync contract violation: room %s in dungeon %s has no layout_data.hexes.',
+          $from_room_id,
+          $dungeon_id
+        ));
+      }
       $exit_links = is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [];
       foreach ($exit_links as $exit_link) {
         if (!is_array($exit_link)) {
@@ -349,31 +375,41 @@ class ConnectorDefinitionService {
     $connection_id = $this->deriveConnectionId($data);
     $now = time();
 
-    $this->database->merge('dc_campaign_connections')
-      ->keys(['campaign_id' => $campaign_id, 'connection_id' => $connection_id])
-      ->fields([
-        'dungeon_id' => (string) $data['dungeon_id'],
-        'from_room_id' => (string) $data['from_room_id'],
-        'to_room_id' => (string) $data['to_room_id'],
-        'from_hex_q' => $endpoint_hexes['from_hex']['q'],
-        'from_hex_r' => $endpoint_hexes['from_hex']['r'],
-        'to_hex_q' => $endpoint_hexes['to_hex']['q'],
-        'to_hex_r' => $endpoint_hexes['to_hex']['r'],
-        'direction' => (string) ($data['direction'] ?? 'bidirectional'),
-        'kind' => (string) ($data['kind'] ?? 'hallway'),
-        'state' => (string) ($data['state'] ?? $data['default_state'] ?? 'open'),
-        'trap_data' => isset($data['trap_data']) ? json_encode($data['trap_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
-        'lock_data' => isset($data['lock_data']) ? json_encode($data['lock_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
-        'requirements_data' => isset($data['requirements_data']) ? json_encode($data['requirements_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
-        'description' => isset($data['description']) ? (string) $data['description'] : NULL,
-        'travel_cost' => max(0, (int) ($data['travel_cost'] ?? 0)),
-        'is_discovered' => empty($data['is_discovered_default']) && empty($data['is_discovered']) ? 0 : 1,
-        'is_passable' => $this->computeIsPassable((string) ($data['state'] ?? $data['default_state'] ?? 'open')),
-        'source_connection_id' => isset($data['connection_id']) ? (string) $data['connection_id'] : NULL,
-        'updated' => $now,
-      ])
-      ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
+    $fields = [
+      'dungeon_id' => (string) $data['dungeon_id'],
+      'from_room_id' => (string) $data['from_room_id'],
+      'to_room_id' => (string) $data['to_room_id'],
+      'from_hex_q' => $endpoint_hexes['from_hex']['q'],
+      'from_hex_r' => $endpoint_hexes['from_hex']['r'],
+      'to_hex_q' => $endpoint_hexes['to_hex']['q'],
+      'to_hex_r' => $endpoint_hexes['to_hex']['r'],
+      'direction' => (string) ($data['direction'] ?? 'bidirectional'),
+      'kind' => (string) ($data['kind'] ?? 'hallway'),
+      'state' => (string) ($data['state'] ?? $data['default_state'] ?? 'open'),
+      'trap_data' => isset($data['trap_data']) ? json_encode($data['trap_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
+      'lock_data' => isset($data['lock_data']) ? json_encode($data['lock_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
+      'requirements_data' => isset($data['requirements_data']) ? json_encode($data['requirements_data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : NULL,
+      'description' => isset($data['description']) ? (string) $data['description'] : NULL,
+      'travel_cost' => max(0, (int) ($data['travel_cost'] ?? 0)),
+      'is_discovered' => empty($data['is_discovered_default']) && empty($data['is_discovered']) ? 0 : 1,
+      'is_passable' => $this->computeIsPassable((string) ($data['state'] ?? $data['default_state'] ?? 'open')),
+      'source_connection_id' => isset($data['connection_id']) ? (string) $data['connection_id'] : NULL,
+      'updated' => $now,
+    ];
+    $updated_rows = $this->database->update('dc_campaign_connections')
+      ->fields($fields)
+      ->condition('campaign_id', $campaign_id)
+      ->condition('connection_id', $connection_id)
       ->execute();
+    if ((int) $updated_rows === 0) {
+      $this->database->insert('dc_campaign_connections')
+        ->fields($fields + [
+          'campaign_id' => $campaign_id,
+          'connection_id' => $connection_id,
+          'created' => $now,
+        ])
+        ->execute();
+    }
 
     return $connection_id;
   }
@@ -622,7 +658,11 @@ class ConnectorDefinitionService {
       ->condition('room_id', array_keys($room_ids), 'IN')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
+    if (!is_array($rows) || $rows === []) {
+      throw new \InvalidArgumentException('Connector layout contract violation: no canonical room layout rows found for dungeon payload room IDs.');
+    }
     $layout_map = [];
+    $seen_room_ids = [];
     foreach ((array) $rows as $row) {
       if (!is_array($row)) {
         continue;
@@ -631,10 +671,29 @@ class ConnectorDefinitionService {
       if ($room_id === '') {
         continue;
       }
+      $seen_room_ids[$room_id] = TRUE;
       $layout = json_decode((string) ($row['layout_data'] ?? ''), TRUE);
-      if (is_array($layout)) {
-        $layout_map[$room_id] = $layout;
+      if (!is_array($layout)) {
+        throw new \InvalidArgumentException(sprintf(
+          'Connector layout contract violation: canonical room %s has invalid layout_data JSON.',
+          $room_id
+        ));
       }
+      $layout_hexes = is_array($layout['hexes'] ?? NULL) ? $layout['hexes'] : [];
+      if ($layout_hexes === []) {
+        throw new \InvalidArgumentException(sprintf(
+          'Connector layout contract violation: canonical room %s has no layout_data.hexes.',
+          $room_id
+        ));
+      }
+      $layout_map[$room_id] = $layout;
+    }
+    $missing_room_ids = array_values(array_diff(array_keys($room_ids), array_keys($seen_room_ids)));
+    if ($missing_room_ids !== []) {
+      throw new \InvalidArgumentException(sprintf(
+        'Connector layout contract violation: missing canonical room rows for room IDs: %s',
+        implode(', ', $missing_room_ids)
+      ));
     }
 
     return $layout_map;

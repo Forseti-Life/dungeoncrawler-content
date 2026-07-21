@@ -2,6 +2,7 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Exception\QuestTemplateReferenceIntegrityException;
 use Drupal\dungeoncrawler_content\Service\RoomChat\RoomNpcProfileGatherer;
 
 trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
@@ -108,11 +109,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     ]))));
 
     if ($this->looksLikeQuestTurnInHandoff($normalized)) {
-      return match ($attitude) {
-        'friendly', 'helpful' => '"Got it. I\'ll take those now and verify this handoff against the current objective."',
-        'unfriendly', 'hostile' => '"Fine. Leave them here. I\'ll verify the handoff against your current objective."',
-        default => '"Understood. Hand them over and I\'ll verify this handoff against your current objective."',
-      };
+      return '"Thank you!"';
     }
 
     $asks_for_leads = $this->textContainsAny($normalized, [
@@ -121,14 +118,14 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       'story', 'stories', 'storyline', 'storylines', 'module', 'modules',
     ]) || $this->looksLikeImplicitLeadRequest($normalized);
     if ($asks_for_leads) {
-      $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+      $available_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data, $character_id);
       if ($available_quest_offer !== NULL) {
         $this->applyDirectQuestgiverDialogueQuestState($campaign_id, $character_id, $entity_ref, $display_name, $room_id, $dungeon_data);
-        $refreshed_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+        $refreshed_quest_offer = $this->buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data, $character_id, FALSE);
         return $refreshed_quest_offer ?? $available_quest_offer;
       }
 
-      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data);
+      $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id);
       if ($brokered_leads !== NULL) {
         return $brokered_leads;
       }
@@ -619,7 +616,8 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     string $display_name,
     string $player_message = '',
     string $room_id = '',
-    array $dungeon_data = []
+    array $dungeon_data = [],
+    ?int $character_id = NULL
   ): ?string {
     $contacts = $this->loadBrokeredStorylineContacts($campaign_id, $entity_ref);
     if ($contacts === []) {
@@ -643,7 +641,8 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       $display_name,
       $room_id,
       $dungeon_data,
-      $selected_contact
+      $selected_contact,
+      $character_id
     );
 
     $storyline_name = trim((string) ($selected_contact['name'] ?? ''));
@@ -679,59 +678,67 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     string $display_name,
     string $room_id,
     array $dungeon_data,
-    array $selected_contact
+    array $selected_contact,
+    ?int $character_id = NULL
   ): void {
     $storyline_template_id = trim((string) ($selected_contact['template_id'] ?? $selected_contact['storyline_id'] ?? ''));
-    if ($campaign_id <= 0 || $storyline_template_id === '' || !\Drupal::hasService('dungeoncrawler_content.quest_generator')) {
+    if (
+      $campaign_id <= 0
+      || $storyline_template_id === ''
+      || !\Drupal::hasService('dungeoncrawler_content.quest_generator')
+    ) {
       return;
     }
+    $activation_character_id = $character_id !== NULL
+      ? $this->resolveQuestActivationCharacterId($campaign_id, (int) $character_id)
+      : NULL;
 
     $quest_template_id = $this->resolveBrokeredStorylinePrimaryQuestTemplateId($storyline_template_id, $selected_contact);
     if ($quest_template_id === '') {
       return;
     }
+    $this->assertCanonicalQuestTemplateReferenceExists(
+      $campaign_id,
+      $quest_template_id,
+      $room_id,
+      'brokered_storyline_lead'
+    );
 
-    $existing = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q', ['quest_id', 'status'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('source_template_id', $quest_template_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (is_array($existing) && !empty($existing['quest_id'])) {
-      $status = strtolower(trim((string) ($existing['status'] ?? '')));
-      if ($status === 'lead') {
-        $this->database->update('dc_campaign_quests')
-          ->fields(['status' => 'offered'])
-          ->condition('campaign_id', $campaign_id)
-          ->condition('quest_id', (string) $existing['quest_id'])
-          ->execute();
+    $this->requireStorylineQuestLifecycleService()
+      ->ensureOfferedQuestFromTemplate($campaign_id, $quest_template_id, function () use (
+      $campaign_id,
+      $quest_template_id,
+      $entity_ref,
+      $display_name,
+      $room_id,
+      $dungeon_data,
+      $selected_contact
+    ): array {
+
+      /** @var \Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator */
+      $quest_generator = \Drupal::service('dungeoncrawler_content.quest_generator');
+      $canonical_room_id = trim((string) (
+        $selected_contact['lead_location']['scene_id']
+        ?? $selected_contact['quest_giver']['relationship_state']['scene_id']
+        ?? $selected_contact['lead_location']['chapter_id']
+        ?? $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data)
+        ?? $room_id
+      ));
+      if ($canonical_room_id === '') {
+        $canonical_room_id = 'tavern_entrance';
       }
-      return;
-    }
+      $giver_npc_id = $this->resolveCampaignQuestgiverNpcId($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
+      $generation_context = [
+        'location' => $canonical_room_id,
+        'initial_status' => 'offered',
+        'dungeon_data' => $dungeon_data,
+      ];
+      if ($giver_npc_id !== NULL) {
+        $generation_context['giver_npc_id'] = $giver_npc_id;
+      }
 
-    /** @var \Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator */
-    $quest_generator = \Drupal::service('dungeoncrawler_content.quest_generator');
-    $canonical_room_id = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data) ?? $room_id;
-    if ($canonical_room_id === '') {
-      $canonical_room_id = 'tavern_entrance';
-    }
-    $giver_npc_id = $this->resolveCampaignQuestgiverNpcId($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
-    $generation_context = [
-      'location' => $canonical_room_id,
-      'initial_status' => 'offered',
-      'dungeon_data' => $dungeon_data,
-    ];
-    if ($giver_npc_id !== NULL) {
-      $generation_context['giver_npc_id'] = $giver_npc_id;
-    }
-
-    $quest_data = $quest_generator->generateQuestFromTemplate($quest_template_id, $campaign_id, $generation_context);
-    if ($quest_data !== []) {
-      $this->database->insert('dc_campaign_quests')
-        ->fields($quest_data)
-        ->execute();
-    }
+      return $quest_generator->generateQuestFromTemplate($quest_template_id, $campaign_id, $generation_context);
+    }, $activation_character_id);
   }
 
   /**
@@ -859,7 +866,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
 
     $clauses = [];
     if ($quest_name !== '') {
-      $clauses[] = 'I have work for you: ' . $quest_name;
+      $clauses[] = 'I have an assignment for you: ' . $quest_name;
     }
     if ($objective_hint !== '') {
       $clauses[] = $this->trimNpcDialogueClause($objective_hint);
@@ -882,14 +889,18 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     string $entity_ref,
     string $display_name,
     string $room_id,
-    array $dungeon_data = []
+    array $dungeon_data = [],
+    ?int $character_id = NULL,
+    bool $materialize = TRUE
   ): ?string {
     $giver_npc_id = $this->resolveCampaignQuestgiverNpcId($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data);
     if ($giver_npc_id === NULL) {
       return NULL;
     }
 
-    $this->ensureQuestgiverRoomQuestsMaterialized($campaign_id, $giver_npc_id, $room_id, $dungeon_data);
+    if ($materialize) {
+      $this->ensureQuestgiverRoomQuestsMaterialized($campaign_id, $giver_npc_id, $room_id, $dungeon_data, $character_id);
+    }
 
     $location_candidates = array_values(array_unique(array_filter([
       $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data),
@@ -897,10 +908,10 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     ], static fn($value): bool => is_string($value) && $value !== '')));
 
     $query = $this->database->select('dc_campaign_quests', 'q')
-      ->fields('q', ['quest_id', 'quest_name', 'quest_description', 'generated_objectives', 'status', 'location_id'])
+      ->fields('q', ['campaign_id', 'quest_id', 'source_template_id', 'quest_name', 'quest_description', 'generated_objectives', 'status', 'location_id', 'created_at'])
       ->condition('campaign_id', $campaign_id)
       ->condition('giver_npc_id', $giver_npc_id)
-      ->condition('status', ['offered', 'active'], 'IN')
+      ->condition('status', $this->getDialogueOpenQuestStatuses(), 'IN')
       ->range(0, 8);
 
     if ($location_candidates !== []) {
@@ -912,11 +923,41 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       return NULL;
     }
 
-    usort($rows, static function (object $a, object $b): int {
+    $deduped_rows = [];
+    foreach ($rows as $row) {
+      if (!is_object($row)) {
+        continue;
+      }
+      $template_key = trim((string) ($row->source_template_id ?? ''));
+      if ($template_key === '') {
+        $template_key = trim((string) ($row->quest_id ?? ''));
+      }
+      if ($template_key === '') {
+        continue;
+      }
+      $status = strtolower((string) ($row->status ?? ''));
+      $rank = $this->getDialogueOpenStatusRank($status);
+      $created_at = (int) ($row->created_at ?? 0);
+      if (!isset($deduped_rows[$template_key])) {
+        $deduped_rows[$template_key] = ['rank' => $rank, 'created_at' => $created_at, 'row' => $row];
+        continue;
+      }
+      $existing = $deduped_rows[$template_key];
+      if (
+        $rank < (int) ($existing['rank'] ?? PHP_INT_MAX)
+        || ($rank === (int) ($existing['rank'] ?? PHP_INT_MAX) && $created_at >= (int) ($existing['created_at'] ?? 0))
+      ) {
+        $deduped_rows[$template_key] = ['rank' => $rank, 'created_at' => $created_at, 'row' => $row];
+      }
+    }
+
+    $rows = array_values(array_map(static fn(array $entry): object => $entry['row'], $deduped_rows));
+
+    usort($rows, function (object $a, object $b): int {
       $status_a = strtolower((string) ($a->status ?? ''));
       $status_b = strtolower((string) ($b->status ?? ''));
       if ($status_a !== $status_b) {
-        return $status_a === 'offered' ? -1 : 1;
+        return $this->getDialogueOpenStatusRank($status_a) <=> $this->getDialogueOpenStatusRank($status_b);
       }
       return strcmp((string) ($a->quest_name ?? ''), (string) ($b->quest_name ?? ''));
     });
@@ -955,28 +996,39 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
    */
 
   protected function buildQuestgiverQuestDialogueLine(object $row, string $display_name = ''): ?string {
-    $quest_name = trim((string) ($row->quest_name ?? ''));
+    $dialogue_variables = $this->buildQuestgiverDialogueTemplateVariables($row);
+    $quest_name = $this->resolveQuestgiverDialogueTemplateTokens(
+      trim((string) ($row->quest_name ?? '')),
+      $dialogue_variables
+    );
     if ($quest_name === '') {
       return NULL;
     }
 
-    $objective_hint = $this->extractQuestgiverObjectiveHint((string) ($row->generated_objectives ?? ''));
+    $objective_hint = $this->resolveQuestgiverDialogueTemplateTokens(
+      $this->extractQuestgiverObjectiveHint((string) ($row->generated_objectives ?? '')),
+      $dialogue_variables
+    );
     $objective_hint = $this->sanitizeQuestgiverObjectiveHintForSpeaker($objective_hint, $display_name);
-    $description_hint = trim((string) ($row->quest_description ?? ''));
+    $description_hint = $this->resolveQuestgiverDialogueTemplateTokens(
+      trim((string) ($row->quest_description ?? '')),
+      $dialogue_variables
+    );
     $status = strtolower(trim((string) ($row->status ?? 'offered')));
 
+    // TODO: Replace generic questgiver phrasing with an actor-specific dialogue tree subsystem.
     if ($status === 'active') {
-      $line = 'You are already on ' . $quest_name . '.';
+      $line = "You're currently working on " . $quest_name . '.';
       if ($objective_hint !== '') {
-        $line .= ' Start with: ' . $this->trimNpcDialogueClause($objective_hint);
+        $line .= ' Start by ' . $this->trimNpcDialogueClause($objective_hint);
       }
       elseif ($description_hint !== '') {
-        $line .= ' Follow this lead: ' . $this->trimNpcDialogueClause($description_hint);
+        $line .= ' A good place to begin is ' . $this->trimNpcDialogueClause($description_hint);
       }
       return $line;
     }
 
-    $line = 'I have work for you: ' . $quest_name . '.';
+    $line = 'I have an assignment for you: ' . $quest_name . '.';
     if ($objective_hint !== '') {
       $line .= ' ' . $this->trimNpcDialogueClause($objective_hint);
     }
@@ -1015,7 +1067,187 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       return '';
     }
 
+    // Avoid pronoun-only remnants after removing "Speak to {current NPC}".
+    $rewritten = preg_replace('/\b(his|her|their)\b/i', 'a', $rewritten, 1) ?? $rewritten;
+    $rewritten = preg_replace('/\s{2,}/', ' ', $rewritten) ?? $rewritten;
+
     return ucfirst($rewritten);
+  }
+
+  /**
+   * Resolve concrete values for template placeholders used in questgiver dialogue.
+   *
+   * @return array<string,string>
+   *   Token map such as ['item_name' => 'Wine Bottles', 'target_count' => '5'].
+   */
+  protected function buildQuestgiverDialogueTemplateVariables(object $row): array {
+    $campaign_id = (int) ($row->campaign_id ?? 0);
+    $location_id = trim((string) ($row->location_id ?? ''));
+    $template_id = trim((string) ($row->source_template_id ?? ''));
+    if ($campaign_id <= 0 || $location_id === '' || $template_id === '') {
+      return [];
+    }
+
+    $hints = $this->loadQuestgiverDialogueAssociationHintsFromCampaignRoom($campaign_id, $location_id, $template_id);
+    $canonical_hints = $this->loadQuestgiverDialogueAssociationHintsFromCanonicalRoom($location_id, $template_id);
+    if ($hints === []) {
+      $hints = $canonical_hints;
+    }
+    elseif ($canonical_hints !== []) {
+      foreach ($canonical_hints as $key => $value) {
+        if (!isset($hints[$key]) || trim((string) $hints[$key]) === '') {
+          $hints[$key] = $value;
+        }
+      }
+    }
+
+    return $hints;
+  }
+
+  /**
+   * Read quest-association item/title hints from a campaign room instance.
+   *
+   * @return array<string,string>
+   */
+  protected function loadQuestgiverDialogueAssociationHintsFromCampaignRoom(int $campaign_id, string $location_id, string $template_id): array {
+    if (
+      $campaign_id <= 0
+      || $location_id === ''
+      || $template_id === ''
+      || !$this->database->schema()->tableExists('dc_campaign_rooms')
+    ) {
+      return [];
+    }
+
+    $row = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['name', 'contents_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $location_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return [];
+    }
+
+    return $this->extractQuestgiverDialogueAssociationHints(
+      (string) ($row['name'] ?? ''),
+      json_decode((string) ($row['contents_data'] ?? '{}'), TRUE),
+      $template_id
+    );
+  }
+
+  /**
+   * Read quest-association item/title hints from canonical room content.
+   *
+   * @return array<string,string>
+   */
+  protected function loadQuestgiverDialogueAssociationHintsFromCanonicalRoom(string $location_id, string $template_id): array {
+    if ($location_id === '' || $template_id === '') {
+      return [];
+    }
+
+    $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['name', 'contents_data']);
+    $query->condition(
+      $query->orConditionGroup()
+        ->condition('room_id', $location_id)
+        ->condition('source_room_id', $location_id)
+    );
+    $row = $query->range(0, 1)->execute()->fetchAssoc();
+    if (!is_array($row)) {
+      return [];
+    }
+
+    return $this->extractQuestgiverDialogueAssociationHints(
+      (string) ($row['name'] ?? ''),
+      json_decode((string) ($row['contents_data'] ?? '{}'), TRUE),
+      $template_id
+    );
+  }
+
+  /**
+   * Build dialogue placeholder hints from room contents.
+   *
+   * @param mixed $decoded_contents
+   *   Decoded room contents payload.
+   *
+   * @return array<string,string>
+   */
+  protected function extractQuestgiverDialogueAssociationHints(string $room_name, $decoded_contents, string $template_id): array {
+    $contents = is_array($decoded_contents) ? $decoded_contents : [];
+    if ($contents === []) {
+      return [];
+    }
+
+    $hints = [];
+    $room_name = trim($room_name);
+    if ($room_name !== '') {
+      $hints['room_name'] = $room_name;
+    }
+
+    foreach ((array) ($contents['npcs'] ?? []) as $npc) {
+      if (!is_array($npc)) {
+        continue;
+      }
+      foreach ((array) ($npc['quests'] ?? []) as $quest) {
+        if (!is_array($quest) || trim((string) ($quest['quest_id'] ?? '')) !== $template_id) {
+          continue;
+        }
+        $item_name = $this->deriveQuestgiverDialogueItemNameFromQuestLabel((string) ($quest['title'] ?? ''));
+        if ($item_name !== '') {
+          $hints['item_name'] = $item_name;
+        }
+      }
+    }
+
+    $associated_item_names = [];
+    foreach ((array) ($contents['items'] ?? []) as $item) {
+      if (!is_array($item) || trim((string) ($item['quest_association'] ?? '')) !== $template_id) {
+        continue;
+      }
+      $name = trim((string) ($item['name'] ?? ''));
+      if ($name !== '') {
+        $associated_item_names[$name] = ($associated_item_names[$name] ?? 0) + 1;
+      }
+    }
+    if ($associated_item_names !== []) {
+      arsort($associated_item_names);
+      $hints['item_name'] = $hints['item_name'] ?? (string) array_key_first($associated_item_names);
+      $hints['target_count'] = (string) array_sum($associated_item_names);
+    }
+
+    return $hints;
+  }
+
+  /**
+   * Derive a concrete item name from a questgiver-facing quest title.
+   */
+  protected function deriveQuestgiverDialogueItemNameFromQuestLabel(string $label): string {
+    $label = trim($label);
+    if ($label === '') {
+      return '';
+    }
+    if (preg_match('/^(?:collect|gather|recover|find|bring)\s+(.+)$/i', $label, $matches) !== 1) {
+      return $label;
+    }
+    return trim((string) ($matches[1] ?? ''));
+  }
+
+  /**
+   * Resolve supported template tokens in dialogue text.
+   */
+  protected function resolveQuestgiverDialogueTemplateTokens(string $value, array $variables): string {
+    if ($value === '' || $variables === []) {
+      return $value;
+    }
+    foreach ($variables as $key => $resolved_value) {
+      if (!is_string($resolved_value) || $resolved_value === '') {
+        continue;
+      }
+      $value = str_replace('{' . $key . '}', $resolved_value, $value);
+    }
+    return $value;
   }
 
   /**
@@ -1048,7 +1280,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       ->fields('q')
       ->condition('campaign_id', $campaign_id)
       ->condition('giver_npc_id', $giver_npc_id)
-      ->condition('status', ['offered', 'active', 'ready_for_turn_in'], 'IN');
+      ->condition('status', $this->getDialogueOpenQuestStatuses(), 'IN');
 
     if ($location_candidates !== []) {
       $query->condition('location_id', $location_candidates, 'IN');
@@ -1081,7 +1313,11 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       return NULL;
     }
 
-    $giver_name = trim((string) ($best_match['giver_name'] ?? ''));
+    $giver_name = $this->resolveQuestgiverDisplayNameByNpcId(
+      $campaign_id,
+      (int) ($best_match['giver_npc_id'] ?? 0),
+      trim((string) ($best_match['giver_name'] ?? ''))
+    );
     if ($giver_name === '') {
       return NULL;
     }
@@ -1093,7 +1329,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
    * Materialize canonical quest rows for quests authored directly on a room questgiver.
    */
 
-  protected function ensureQuestgiverRoomQuestsMaterialized(int $campaign_id, int $giver_npc_id, string $room_id, array $dungeon_data = []): void {
+  protected function ensureQuestgiverRoomQuestsMaterialized(int $campaign_id, int $giver_npc_id, string $room_id, array $dungeon_data = [], ?int $character_id = NULL): void {
     if ($campaign_id <= 0 || $giver_npc_id <= 0 || $room_id === '') {
       return;
     }
@@ -1153,38 +1389,132 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     if ($template_ids === [] || !\Drupal::hasService('dungeoncrawler_content.quest_generator')) {
       return;
     }
+    foreach ($template_ids as $template_id) {
+      $this->assertCanonicalQuestTemplateReferenceExists(
+        $campaign_id,
+        $template_id,
+        $canonical_room_id,
+        'room_npc_quest_reference'
+      );
+    }
+
+    $open_statuses = $this->getDialogueOpenQuestStatuses();
+    $existing_open_templates = [];
+    $existing_rows = $this->database->select('dc_campaign_quests', 'q')
+      ->fields('q', ['source_template_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('source_template_id', $template_ids, 'IN')
+      ->condition('status', $open_statuses, 'IN')
+      ->execute()
+      ->fetchCol();
+    foreach ($existing_rows as $existing_template_id) {
+      $normalized_existing_template_id = trim((string) $existing_template_id);
+      if ($normalized_existing_template_id !== '') {
+        $existing_open_templates[$normalized_existing_template_id] = TRUE;
+      }
+    }
 
     /** @var \Drupal\dungeoncrawler_content\Service\QuestGeneratorService $quest_generator */
     $quest_generator = \Drupal::service('dungeoncrawler_content.quest_generator');
     $environment_tags = json_decode((string) ($room_row['environment_tags'] ?? '[]'), TRUE);
     $environment_tags = is_array($environment_tags) ? $environment_tags : [];
+    $activation_character_id = $character_id !== NULL
+      ? $this->resolveQuestActivationCharacterId($campaign_id, (int) $character_id)
+      : NULL;
 
     foreach ($template_ids as $template_id) {
-      $exists = $this->database->select('dc_campaign_quests', 'q')
-        ->fields('q', ['quest_id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('source_template_id', $template_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-      if ($exists) {
+      if (!empty($existing_open_templates[$template_id])) {
         continue;
       }
-
-      $quest_data = $quest_generator->generateQuestFromTemplate($template_id, $campaign_id, [
-        'party_level' => 1,
-        'difficulty' => 'moderate',
-        'location' => $canonical_room_id,
-        'location_tags' => $environment_tags,
-        'giver_npc_id' => $giver_npc_id,
-        'initial_status' => 'offered',
-        'dungeon_data' => $dungeon_data,
-      ]);
-      if ($quest_data !== []) {
-        $this->database->insert('dc_campaign_quests')
-          ->fields($quest_data)
-          ->execute();
+      if ($this->requireStorylineQuestLifecycleService()->hasCompletedQuestForTemplate($campaign_id, $template_id)) {
+        $this->logger->info('Quest template {template_id} already completed in campaign {campaign_id}; skipping room materialization.', [
+          'template_id' => $template_id,
+          'campaign_id' => $campaign_id,
+        ]);
+        continue;
       }
+      $this->requireStorylineQuestLifecycleService()
+        ->ensureOfferedQuestFromTemplate($campaign_id, $template_id, function () use (
+        $campaign_id,
+        $template_id,
+        $quest_generator,
+        $canonical_room_id,
+        $environment_tags,
+        $giver_npc_id,
+        $dungeon_data
+      ): array {
+        return $quest_generator->generateQuestFromTemplate($template_id, $campaign_id, [
+          'party_level' => 1,
+          'difficulty' => 'moderate',
+          'location' => $canonical_room_id,
+          'location_tags' => $environment_tags,
+          'giver_npc_id' => $giver_npc_id,
+          'initial_status' => 'offered',
+          'dungeon_data' => $dungeon_data,
+        ]);
+      }, $activation_character_id);
+
+    }
+  }
+
+  /**
+   * Resolve quest lifecycle service from RoomChat service context.
+   */
+  protected function requireStorylineQuestLifecycleService(): StorylineQuestLifecycleService {
+    if ($this->storylineQuestLifecycleService === NULL) {
+      throw new \RuntimeException('StorylineQuestLifecycleService is required for quest lifecycle mutations.');
+    }
+    return $this->storylineQuestLifecycleService;
+  }
+
+  /**
+   * Guard room-authored quest references against canonical template drift.
+   */
+  protected function assertCanonicalQuestTemplateReferenceExists(
+    int $campaign_id,
+    string $quest_template_id,
+    string $room_id,
+    string $source_context
+  ): void {
+    $normalized_template_id = trim($quest_template_id);
+    if ($normalized_template_id === '') {
+      throw new QuestTemplateReferenceIntegrityException(sprintf(
+        'Quest template reference integrity violation: empty quest_template_id for campaign %d room %s source %s.',
+        $campaign_id,
+        $room_id !== '' ? $room_id : '(unknown)',
+        $source_context
+      ));
+    }
+
+    $schema = $this->database->schema();
+    if (
+      !$schema->tableExists('dc_canonical_quests')
+      || !$schema->fieldExists('dc_canonical_quests', 'template_id')
+    ) {
+      throw new QuestTemplateReferenceIntegrityException(sprintf(
+        'Quest template reference integrity violation: canonical quest table contract unavailable while resolving template %s (campaign %d room %s source %s).',
+        $normalized_template_id,
+        $campaign_id,
+        $room_id !== '' ? $room_id : '(unknown)',
+        $source_context
+      ));
+    }
+
+    $exists = $this->database->select('dc_canonical_quests', 'q')
+      ->fields('q', ['template_id'])
+      ->condition('template_id', $normalized_template_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    if (!is_string($exists) || trim($exists) === '') {
+      throw new QuestTemplateReferenceIntegrityException(sprintf(
+        'Quest template reference integrity violation: campaign %d room %s source %s references missing canonical quest template %s.',
+        $campaign_id,
+        $room_id !== '' ? $room_id : '(unknown)',
+        $source_context,
+        $normalized_template_id
+      ));
     }
   }
 
@@ -1201,7 +1531,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     $query = $this->database->select('dc_campaign_quests', 'q')
       ->fields('q', ['quest_name', 'quest_description', 'generated_objectives', 'giver_npc_id', 'status'])
       ->condition('q.campaign_id', $campaign_id)
-      ->condition('q.status', ['lead', 'offered', 'active'], 'IN')
+      ->condition('q.status', $this->getDialogueOpenQuestStatuses(), 'IN')
       ->range(0, 24);
     $query->leftJoin('dc_campaign_characters', 'c', 'c.id = q.giver_npc_id');
     $query->addField('c', 'name', 'giver_name');
@@ -1212,6 +1542,30 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
 
     $rows = $query->execute()->fetchAll();
     return array_map(static fn(object $row): array => (array) $row, $rows ?: []);
+  }
+
+  /**
+   * Return open quest statuses used by room dialogue pathways.
+   *
+   * @return array<int, string>
+   *   Open status ids.
+   */
+  protected function getDialogueOpenQuestStatuses(): array {
+    return ['active', 'ready_for_turn_in', 'offered', 'lead', 'available'];
+  }
+
+  /**
+   * Rank open quest statuses for deterministic dialogue ordering.
+   */
+  protected function getDialogueOpenStatusRank(string $status): int {
+    return match (strtolower(trim($status))) {
+      'active' => 0,
+      'ready_for_turn_in' => 1,
+      'offered' => 2,
+      'lead' => 3,
+      'available' => 4,
+      default => 99,
+    };
   }
 
   /**
@@ -1310,6 +1664,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     }
 
     $contacts = $this->relationshipManager->getCampaignStorylineContacts($campaign_id, $canonical_entity_ref);
+    $contacts = $this->filterOfferableBrokeredStorylineContacts($campaign_id, $contacts);
     $this->logger->info('Brokered storyline contacts loaded: campaign={campaign_id} entity_ref={entity_ref} canonical_entity_ref={canonical_entity_ref} contact_count={contact_count} contact_templates={contact_templates}', [
       'campaign_id' => $campaign_id,
       'entity_ref' => $entity_ref,
@@ -1320,6 +1675,42 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       }, $contacts)))),
     ]);
     return $contacts;
+  }
+
+  /**
+   * Filter brokered storyline contacts to templates that are still offerable.
+   *
+   * @param array<int, array<string, mixed>> $contacts
+   *   Brokered contacts from relationship state.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Contacts whose primary quest template is not already completed.
+   */
+  protected function filterOfferableBrokeredStorylineContacts(int $campaign_id, array $contacts): array {
+    if ($campaign_id <= 0 || $contacts === []) {
+      return [];
+    }
+
+    $filtered = [];
+    foreach ($contacts as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+      $storyline_template_id = trim((string) ($contact['template_id'] ?? $contact['storyline_id'] ?? ''));
+      if ($storyline_template_id === '') {
+        continue;
+      }
+      $quest_template_id = $this->resolveBrokeredStorylinePrimaryQuestTemplateId($storyline_template_id, $contact);
+      if ($quest_template_id === '') {
+        continue;
+      }
+      if ($this->requireStorylineQuestLifecycleService()->hasCompletedQuestForTemplate($campaign_id, $quest_template_id)) {
+        continue;
+      }
+      $filtered[] = $contact;
+    }
+
+    return array_values($filtered);
   }
 
   /**
@@ -1339,6 +1730,10 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
    */
 
   protected function looksLikeImplicitLeadRequest(string $normalized_message): bool {
+    if (str_contains($normalized_message, 'what about you')) {
+      return TRUE;
+    }
+
     return $this->textContainsAny($normalized_message, [
       'you have any',
       'got any',
@@ -1454,7 +1849,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
         if (
           is_array($contact)
           && (string) ($contact['role'] ?? '') === 'quest_giver'
-          && strtolower(trim((string) ($contact['entity_id'] ?? ''))) === strtolower(trim($entity_ref))
+          && strtolower(trim((string) ($contact['runtime_entity_id'] ?? ''))) === strtolower(trim($entity_ref))
         ) {
           $storyline_row['storyline_data'] = $storyline_data;
           return $storyline_row;
@@ -1476,6 +1871,8 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     string $room_id,
     array $dungeon_data = []
   ): ?int {
+    $normalized_entity_ref = $this->normalizeQuestgiverIdentityToken($entity_ref);
+    $normalized_display_name = $this->normalizeQuestgiverIdentityToken($display_name);
     $room_slug = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data);
     $query = $this->database->select('dc_campaign_characters', 'c')
       ->fields('c', ['id', 'name', 'role', 'instance_id', 'last_room_id', 'location_ref'])
@@ -1497,7 +1894,23 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     foreach ($rows as $row) {
       $resolved = $this->resolveCampaignCharacterNpcProfile($campaign_id, $row);
       $resolved_ref = strtolower(trim((string) ($resolved['entity_ref'] ?? '')));
+      $resolved_display_name = trim((string) (($resolved['profile']['display_name'] ?? '')));
       if ($resolved_ref !== '' && $resolved_ref === strtolower(trim($entity_ref))) {
+        return (int) ($row->id ?? 0) ?: NULL;
+      }
+      if (
+        $normalized_entity_ref !== ''
+        && $this->normalizeQuestgiverIdentityToken($resolved_ref) === $normalized_entity_ref
+      ) {
+        return (int) ($row->id ?? 0) ?: NULL;
+      }
+      if (
+        $normalized_display_name !== ''
+        && $this->normalizeQuestgiverIdentityToken($resolved_display_name) === $normalized_display_name
+      ) {
+        return (int) ($row->id ?? 0) ?: NULL;
+      }
+      if ($display_name !== '' && $resolved_display_name !== '' && $this->questgiverNamesLikelyAlias($display_name, $resolved_display_name)) {
         return (int) ($row->id ?? 0) ?: NULL;
       }
 
@@ -1505,9 +1918,111 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       if ($display_name !== '' && $row_name !== '' && $row_name === strtolower(trim($display_name))) {
         return (int) ($row->id ?? 0) ?: NULL;
       }
+      if (
+        $normalized_display_name !== ''
+        && $this->normalizeQuestgiverIdentityToken((string) ($row->name ?? '')) === $normalized_display_name
+      ) {
+        return (int) ($row->id ?? 0) ?: NULL;
+      }
+      if ($display_name !== '' && $row_name !== '' && $this->questgiverNamesLikelyAlias($display_name, (string) ($row->name ?? ''))) {
+        return (int) ($row->id ?? 0) ?: NULL;
+      }
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve a human-facing questgiver display name for redirect dialogue.
+   */
+  protected function resolveQuestgiverDisplayNameByNpcId(int $campaign_id, int $giver_npc_id, string $fallback_name = ''): string {
+    if ($campaign_id <= 0 || $giver_npc_id <= 0) {
+      return trim($fallback_name);
+    }
+
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'name', 'role', 'instance_id', 'last_room_id', 'location_ref'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $giver_npc_id)
+      ->condition('type', 'npc')
+      ->range(0, 1)
+      ->execute()
+      ->fetchObject();
+    if (!is_object($row)) {
+      return trim($fallback_name);
+    }
+
+    $resolved = $this->resolveCampaignCharacterNpcProfile($campaign_id, $row);
+    $profile_name = trim((string) (($resolved['profile']['display_name'] ?? '')));
+    if ($profile_name !== '') {
+      return $profile_name;
+    }
+
+    $row_name = trim((string) ($row->name ?? ''));
+    if ($row_name !== '') {
+      return $row_name;
+    }
+
+    return trim($fallback_name);
+  }
+
+  /**
+   * Normalize NPC identity strings for alias matching.
+   */
+  protected function normalizeQuestgiverIdentityToken(string $value): string {
+    $value = strtolower(trim($value));
+    if ($value === '') {
+      return '';
+    }
+    $value = preg_replace('/^npc[_-]?/', '', $value) ?? $value;
+    $value = preg_replace('/[_\\-]+/', ' ', $value) ?? $value;
+    $value = preg_replace('/[^a-z0-9 ]+/', '', $value) ?? $value;
+    $value = preg_replace('/\\b(the|npc)\\b/', ' ', $value) ?? $value;
+    $value = preg_replace('/\\s+/', ' ', $value) ?? $value;
+    return trim($value);
+  }
+
+  /**
+   * Determine if two display names likely refer to the same questgiver alias.
+   */
+  protected function questgiverNamesLikelyAlias(string $left, string $right): bool {
+    $tokenize = function (string $value): array {
+      $value = $this->normalizeQuestgiverIdentityToken($value);
+      if ($value === '') {
+        return [];
+      }
+      $tokens = array_values(array_filter(explode(' ', $value), static fn(string $token): bool => strlen($token) >= 4));
+      return array_values(array_unique($tokens));
+    };
+
+    $left_tokens = $tokenize($left);
+    $right_tokens = $tokenize($right);
+    if ($left_tokens === [] || $right_tokens === []) {
+      return FALSE;
+    }
+
+    $overlap = array_values(array_intersect($left_tokens, $right_tokens));
+    if ($overlap === []) {
+      $is_grandmother_alias = static function (array $tokens): bool {
+        $token_map = array_fill_keys($tokens, TRUE);
+        if (isset($token_map['grandmother']) || isset($token_map['grandma'])) {
+          return TRUE;
+        }
+        return isset($token_map['old']) && isset($token_map['lady']);
+      };
+      if ($is_grandmother_alias($left_tokens) && $is_grandmother_alias($right_tokens)) {
+        return TRUE;
+      }
+      return FALSE;
+    }
+
+    foreach ($overlap as $token) {
+      if (strlen($token) >= 6) {
+        return TRUE;
+      }
+    }
+
+    return count($overlap) >= 2;
   }
 
   /**

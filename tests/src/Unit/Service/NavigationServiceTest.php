@@ -631,6 +631,44 @@ class NavigationServiceTest extends UnitTestCase {
   }
 
   /**
+   * Quest destinations resolve canonical source_room_id aliases.
+   */
+  public function testBuildNavigationCapabilitiesWithQuestTargetsResolvesBySourceRoomIdAlias(): void {
+    $dungeon = [
+      'connections' => [],
+      'rooms' => [
+        ['room_id' => 'aca99b77-e480-4d34-bd28-0314dce5cd7f', 'source_room_id' => 'tavern_entrance', 'name' => 'The Gilded Tankard'],
+        ['room_id' => 'market_square', 'source_room_id' => 'market_square', 'name' => 'Market Square'],
+      ],
+    ];
+
+    $active_quests = [
+      [
+        'quest_id' => 'quest-1',
+        'generated_objectives' => [
+          [
+            'phase' => 1,
+            'objectives' => [
+              ['location_id' => 'tavern_entrance'],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $capabilities = $this->service->buildNavigationCapabilitiesWithQuestTargets(
+      $dungeon,
+      'market_square',
+      $active_quests
+    );
+
+    $quest_caps = array_values(array_filter($capabilities, static fn(array $capability): bool => !empty($capability['quest_reference'])));
+    $this->assertCount(1, $quest_caps);
+    $this->assertSame('aca99b77-e480-4d34-bd28-0314dce5cd7f', (string) ($quest_caps[0]['target_room_id'] ?? ''));
+    $this->assertSame(['quest-1'], (array) ($quest_caps[0]['quest_ids'] ?? []));
+  }
+
+  /**
    * Invalid quest destinations hard-fail contract validation.
    */
   public function testBuildNavigationCapabilitiesWithQuestTargetsRejectsInvalidDestination(): void {
@@ -1195,6 +1233,59 @@ class NavigationServiceTest extends UnitTestCase {
     $this->assertCount(1, $market_cap);
     $this->assertFalse($market_cap[0]['available'] ?? TRUE);
     $this->assertSame('missing_road_path', $market_cap[0]['blocked_reason'] ?? NULL);
+  }
+
+  /**
+   * Tests RoutingPlanner resolves the shortest multi-hop room route.
+   */
+  public function testResolveRoomRoutePlanFindsShortestMultiHopPath(): void {
+    $dungeon = [
+      'connections' => [
+        ['from_room' => 'grandma', 'to_room' => 'tavern', 'destination_type' => 'room', 'type' => 'passage'],
+        ['from_room' => 'tavern', 'to_room' => 'streets', 'destination_type' => 'room', 'type' => 'passage'],
+        ['from_room' => 'streets', 'to_room' => 'tomb', 'destination_type' => 'room', 'type' => 'passage'],
+        ['from_room' => 'grandma', 'to_room' => 'detour', 'destination_type' => 'room', 'type' => 'passage'],
+        ['from_room' => 'detour', 'to_room' => 'market', 'destination_type' => 'room', 'type' => 'passage'],
+      ],
+      'rooms' => [
+        ['room_id' => 'grandma', 'name' => 'Grandma House'],
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'streets', 'name' => 'Streets'],
+        ['room_id' => 'tomb', 'name' => 'Tomb'],
+        ['room_id' => 'detour', 'name' => 'Detour'],
+        ['room_id' => 'market', 'name' => 'Market'],
+      ],
+    ];
+
+    $route = $this->service->resolveRoomRoutePlan($dungeon, 'grandma', 'tomb');
+
+    $this->assertNotNull($route);
+    $this->assertSame(['grandma', 'tavern', 'streets', 'tomb'], $route['path_room_ids'] ?? NULL);
+    $this->assertSame('tavern', $route['next_room_id'] ?? NULL);
+    $this->assertSame(3, $route['hop_count'] ?? NULL);
+    $this->assertFalse($route['is_direct'] ?? TRUE);
+  }
+
+  /**
+   * Tests RoutingPlanner returns NULL when no available path exists.
+   */
+  public function testResolveRoomRoutePlanReturnsNullWhenRouteMissing(): void {
+    $dungeon = [
+      'connections' => [
+        ['from_room' => 'grandma', 'to_room' => 'tavern', 'destination_type' => 'room', 'type' => 'passage'],
+        ['from_room' => 'market', 'to_room' => 'tomb', 'destination_type' => 'room', 'type' => 'passage'],
+      ],
+      'rooms' => [
+        ['room_id' => 'grandma', 'name' => 'Grandma House'],
+        ['room_id' => 'tavern', 'name' => 'Tavern'],
+        ['room_id' => 'market', 'name' => 'Market'],
+        ['room_id' => 'tomb', 'name' => 'Tomb'],
+      ],
+    ];
+
+    $route = $this->service->resolveRoomRoutePlan($dungeon, 'grandma', 'tomb');
+
+    $this->assertNull($route);
   }
 
   /**

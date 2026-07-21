@@ -7,6 +7,9 @@ namespace Drupal\dungeoncrawler_content\Service\GmSubsystem;
  *
  * This is a behavior-preserving extraction from RoomChatService::generateGmReply()
  * so fallback generation orchestration can evolve behind a stable boundary.
+ *
+ * Validation pair: consumed by GmTurnCoordinatorService orchestration contract
+ * (cache-hit/miss + generation handoff semantics).
  */
 class GmGenerationPolicy {
 
@@ -62,4 +65,3 @@ class GmGenerationPolicy {
   }
 
 }
-

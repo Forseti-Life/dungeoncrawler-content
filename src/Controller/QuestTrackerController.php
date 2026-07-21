@@ -72,12 +72,48 @@ class QuestTrackerController extends ControllerBase {
    * Partition quest rows into the canonical quest summary buckets.
    */
   protected function partitionQuestRowsForSummary(array $rows): array {
+    $deduped_rows = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+
+      $template_key = $this->resolveQuestSummaryTemplateKey($row);
+      if ($template_key === '') {
+        continue;
+      }
+
+      $rank = $this->rankQuestSummaryRow($row);
+      $updated_at = (int) ($row['last_updated'] ?? 0);
+      $created_at = (int) ($row['created_at'] ?? 0);
+
+      if (!isset($deduped_rows[$template_key])) {
+        $deduped_rows[$template_key] = [
+          'rank' => $rank,
+          'updated_at' => $updated_at,
+          'created_at' => $created_at,
+          'row' => $row,
+        ];
+        continue;
+      }
+
+      $existing = $deduped_rows[$template_key];
+      if ($this->shouldReplaceQuestSummaryRow($rank, $updated_at, $created_at, $existing)) {
+        $deduped_rows[$template_key] = [
+          'rank' => $rank,
+          'updated_at' => $updated_at,
+          'created_at' => $created_at,
+          'row' => $row,
+        ];
+      }
+    }
+
     $active = [];
     $offers = [];
     $leads = [];
     $completed = [];
 
-    foreach ($rows as $row) {
+    foreach (array_values(array_map(static fn(array $entry): array => $entry['row'], $deduped_rows)) as $row) {
       if (!is_array($row)) {
         continue;
       }
@@ -106,6 +142,60 @@ class QuestTrackerController extends ControllerBase {
       'leads' => $leads,
       'completed' => $completed,
     ];
+  }
+
+  /**
+   * Resolve a stable template key for quest-summary dedupe.
+   */
+  protected function resolveQuestSummaryTemplateKey(array $row): string {
+    $template_key = trim((string) ($row['source_template_id'] ?? ''));
+    if ($template_key !== '') {
+      return $template_key;
+    }
+    return trim((string) ($row['quest_id'] ?? ''));
+  }
+
+  /**
+   * Rank a quest row by canonical summary bucket priority.
+   */
+  protected function rankQuestSummaryRow(array $row): int {
+    $status = strtolower(trim((string) ($row['status'] ?? '')));
+    return match (TRUE) {
+      in_array($status, ['active', 'ready_for_turn_in'], TRUE) => 1,
+      $status === 'offered' => 2,
+      $status === 'lead' => 3,
+      (!empty($row['completed_at']) || $status === 'completed') => 4,
+      default => 5,
+    };
+  }
+
+  /**
+   * Determine whether the incoming row should replace the current dedupe winner.
+   */
+  protected function shouldReplaceQuestSummaryRow(
+    int $candidate_rank,
+    int $candidate_updated_at,
+    int $candidate_created_at,
+    array $existing
+  ): bool {
+    $existing_rank = (int) ($existing['rank'] ?? PHP_INT_MAX);
+    if ($candidate_rank < $existing_rank) {
+      return TRUE;
+    }
+    if ($candidate_rank > $existing_rank) {
+      return FALSE;
+    }
+
+    $existing_updated = (int) ($existing['updated_at'] ?? 0);
+    if ($candidate_updated_at > $existing_updated) {
+      return TRUE;
+    }
+    if ($candidate_updated_at < $existing_updated) {
+      return FALSE;
+    }
+
+    $existing_created = (int) ($existing['created_at'] ?? 0);
+    return $candidate_created_at >= $existing_created;
   }
 
   /**
@@ -199,9 +289,7 @@ class QuestTrackerController extends ControllerBase {
         ], 400);
       }
 
-      $quest_tracker = \Drupal::service('dungeoncrawler_content.quest_tracker');
-
-      $result = $quest_tracker->startQuest($campaign_id, $quest_id, $character_id, $party_id);
+      $result = $this->questTracker->startQuest($campaign_id, $quest_id, $character_id, $party_id);
 
       if (!$result) {
         return new JsonResponse([
@@ -260,13 +348,11 @@ class QuestTrackerController extends ControllerBase {
         }
       }
 
-      $quest_tracker = \Drupal::service('dungeoncrawler_content.quest_tracker');
-
       $entity_type = $payload['entity_type'] ?? 'party';
       $amount = (int) ($payload['amount'] ?? 1);
       $character_id = !empty($payload['character_id']) ? (int) $payload['character_id'] : NULL;
 
-      $result = $quest_tracker->updateObjectiveProgress(
+      $result = $this->questTracker->updateObjectiveProgress(
         $campaign_id,
         $quest_id,
         $payload['objective_id'],
@@ -337,9 +423,7 @@ class QuestTrackerController extends ControllerBase {
 
       $outcome = $payload['outcome'] ?? 'success';
 
-      $quest_tracker = \Drupal::service('dungeoncrawler_content.quest_tracker');
-
-      $result = $quest_tracker->completeQuest(
+      $result = $this->questTracker->completeQuest(
         $campaign_id,
         $quest_id,
         $character_id,
@@ -390,10 +474,8 @@ class QuestTrackerController extends ControllerBase {
         'character_id' => (int) $character_id,
       ]);
 
-      $quest_tracker = \Drupal::service('dungeoncrawler_content.quest_tracker');
-
-      $tracking = $quest_tracker->getCharacterQuestTracking($campaign_id, (int) $character_id);
-      $log = $quest_tracker->getCharacterQuestLog($campaign_id, (int) $character_id);
+      $tracking = $this->questTracker->getCharacterQuestTracking($campaign_id, (int) $character_id);
+      $log = $this->questTracker->getCharacterQuestLog($campaign_id, (int) $character_id);
       $journal_tracking = array_map([$this, 'normalizeQuestJournalTrackingEntry'], $tracking);
       $journal_log = array_map([$this, 'normalizeQuestJournalLogEntry'], $log);
       ['active' => $active, 'offers' => $offers, 'leads' => $leads, 'completed' => $completed] = $this->partitionQuestRowsForSummary($tracking);
@@ -450,10 +532,8 @@ class QuestTrackerController extends ControllerBase {
    */
   public function getCampaignQuestJournal(int $campaign_id): JsonResponse {
     try {
-      $quest_tracker = \Drupal::service('dungeoncrawler_content.quest_tracker');
-
-      $tracking = $quest_tracker->getCampaignQuestTracking($campaign_id);
-      $log = $quest_tracker->getCampaignQuestLog($campaign_id);
+      $tracking = $this->questTracker->getCampaignQuestTracking($campaign_id);
+      $log = $this->questTracker->getCampaignQuestLog($campaign_id);
       $campaign_tracking = array_map([$this, 'normalizeQuestJournalTrackingEntry'], $tracking);
       $campaign_log = array_map([$this, 'normalizeQuestJournalLogEntry'], $log);
 
@@ -497,6 +577,17 @@ class QuestTrackerController extends ControllerBase {
         return new JsonResponse([
           'success' => FALSE,
           'error' => 'Invalid request body',
+        ], 400);
+      }
+
+      /** @var \Drupal\dungeoncrawler_content\Service\StateValidationService $state_validation */
+      $state_validation = \Drupal::service('dungeoncrawler_content.state_validation_service');
+      $validation = $state_validation->validateQuestTouchpointIngest($payload);
+      if (empty($validation['valid'])) {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'Invalid quest touchpoint ingest payload',
+          'details' => array_values(array_filter(array_map('strval', (array) ($validation['errors'] ?? [])))),
         ], 400);
       }
 
@@ -598,10 +689,28 @@ class QuestTrackerController extends ControllerBase {
    */
   public function resolveTouchpointConfirmation(int $campaign_id, string $confirmation_id, Request $request): JsonResponse {
     try {
-      $payload = json_decode($request->getContent(), TRUE) ?? [];
-      $resolution = (string) ($payload['resolution'] ?? 'rejected');
+      $payload = json_decode($request->getContent(), TRUE);
+      if (!is_array($payload)) {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'Invalid request body',
+        ], 400);
+      }
+
+      /** @var \Drupal\dungeoncrawler_content\Service\StateValidationService $state_validation */
+      $state_validation = \Drupal::service('dungeoncrawler_content.state_validation_service');
+      $payload_validation = $state_validation->validateQuestConfirmationResolve($payload);
+      if (empty($payload_validation['valid'])) {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'Invalid quest confirmation resolve payload',
+          'details' => array_values(array_filter(array_map('strval', (array) ($payload_validation['errors'] ?? [])))),
+        ], 400);
+      }
+
+      $resolution = (string) $payload['resolution'];
       $selected_objective_id = !empty($payload['selected_objective_id']) ? (string) $payload['selected_objective_id'] : NULL;
-      $resolved_by = (string) ($payload['resolved_by'] ?? 'gm');
+      $resolved_by = (string) $payload['resolved_by'];
 
       /** @var \Drupal\dungeoncrawler_content\Service\QuestConfirmationService $confirmation_service */
       $confirmation_service = \Drupal::service('dungeoncrawler_content.quest_confirmation');
@@ -645,6 +754,15 @@ class QuestTrackerController extends ControllerBase {
           }
           $touchpoint_payload['touchpoint']['confidence'] = 'high';
           $touchpoint_payload['touchpoint']['matching_mode'] = 'typed_receipt';
+
+          $touchpoint_validation = $state_validation->validateQuestTouchpointIngest($touchpoint_payload);
+          if (empty($touchpoint_validation['valid'])) {
+            return new JsonResponse([
+              'success' => FALSE,
+              'error' => 'Resolved touchpoint payload failed quest touchpoint contract validation',
+              'details' => array_values(array_filter(array_map('strval', (array) ($touchpoint_validation['errors'] ?? [])))),
+            ], 400);
+          }
 
           /** @var \Drupal\dungeoncrawler_content\Service\QuestTouchpointService $touchpoint_service */
           $touchpoint_service = \Drupal::service('dungeoncrawler_content.quest_touchpoint');

@@ -6,8 +6,14 @@ use Drupal\dungeoncrawler_content\Service\RoomChat\FallbackAutomationDecisionBui
 
 trait RoomChatServiceCoreFlowTrait {
 
-  public function getChatHistory(int $campaign_id, string $room_id, string $channel = 'room', ?int $character_id = NULL): array {
-    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
+  public function getChatHistory(
+    int $campaign_id,
+    string $room_id,
+    string $channel = 'room',
+    ?int $character_id = NULL,
+    ?string $map_id = NULL
+  ): array {
+    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id, $map_id);
     $dungeon_data = $dungeon_snapshot['dungeon_data'];
     return $this->roomChatHistoryProjector->projectHistory(
       $dungeon_data,
@@ -17,6 +23,19 @@ trait RoomChatServiceCoreFlowTrait {
       $this->channelManager,
       $this->encounterTranscriptPrefixService
     );
+  }
+
+  /**
+   * Build normalized GM reply orchestration entry context.
+   */
+  protected function buildGmReplyEntryContext(int $campaign_id, string $room_id, string $channel, bool $is_gm_direct_channel): array {
+    return [
+      'campaign_id' => $campaign_id,
+      'room_id' => $room_id,
+      'channel' => $channel,
+      'speaker_type' => 'player',
+      'is_gm_direct_channel' => $is_gm_direct_channel,
+    ];
   }
 
   /**
@@ -360,20 +379,21 @@ trait RoomChatServiceCoreFlowTrait {
     }
 
     // Find the room index — rooms may be keyed by room_id or numerically indexed.
-    $created_room = FALSE;
     $room_index = $this->roomLocator->findRoomIndex($dungeon_data['rooms'], $room_id);
     if ($room_index === NULL) {
-      // Room doesn't exist yet; append a new entry.
-      $dungeon_data['rooms'][] = ['room_id' => $room_id, 'chat' => []];
-      $room_index = array_key_last($dungeon_data['rooms']);
-      $created_room = TRUE;
+      throw new \RuntimeException(sprintf(
+        'Room chat contract violation: campaign %d room %s is not materialized in dungeon %s.',
+        $campaign_id,
+        $room_id,
+        $dungeon_id !== '' ? $dungeon_id : 'unknown'
+      ));
     }
     if (!isset($dungeon_data['rooms'][$room_index]['chat'])) {
       $dungeon_data['rooms'][$room_index]['chat'] = [];
     }
     $this->recordDebugStage('resolve_room', $stage_started_at, [
       'room_index' => $room_index,
-      'created_room' => $created_room,
+      'created_room' => FALSE,
     ]);
 
     $stage_started_at = hrtime(true);
@@ -546,7 +566,15 @@ trait RoomChatServiceCoreFlowTrait {
     $quest_updates_pre_npc = [];
     $char_data = $character_id ? $this->actionProcessor->loadCharacterData($character_id) : NULL;
     if ($type === 'player' && !$suppress_gm) {
-      if ($channel === 'room') {
+      $channel_def = $channel === 'room'
+        ? ['type' => 'room', 'gm_responds' => TRUE]
+        : (is_array($dungeon_data['rooms'][$room_index]['channels'][$channel] ?? NULL) ? $dungeon_data['rooms'][$room_index]['channels'][$channel] : []);
+      $is_gm_direct_channel = $channel === 'room'
+        || !empty($channel_def['gm_responds'])
+        || ((string) ($channel_def['type'] ?? '') === 'gm_private')
+        || str_starts_with($channel, 'gm_private:');
+
+      if ($is_gm_direct_channel) {
         $stage_started_at = hrtime(true);
         $this->ensureCurrentRoomNpcProfiles($campaign_id, $room_id, $dungeon_data, $room_index);
         $this->recordDebugStage('ensure_room_npc_profiles', $stage_started_at);
@@ -558,13 +586,16 @@ trait RoomChatServiceCoreFlowTrait {
           'channel' => $channel,
         ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
         $stage_started_at = hrtime(true);
-        $gm_result = $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $encounter_prefix);
+        $gm_result = $this->gmReplyOrchestration->generateRoomReply(
+          fn (): ?array => $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $encounter_prefix, $channel),
+          $this->buildGmReplyEntryContext($campaign_id, $room_id, $channel, $is_gm_direct_channel)
+        );
         $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
           'generated' => $gm_result !== NULL,
+          'gm_channel' => $channel,
         ]);
       } else {
         // Private channel: target NPC responds.
-        $channel_def = $dungeon_data['rooms'][$room_index]['channels'][$channel] ?? [];
         $this->reportProgress($progress_callback, 'gm_reply_generating', [
           'channel' => $channel,
         ] + $this->buildEncounterProgressSnapshotFromDungeonData($dungeon_data));
@@ -852,9 +883,12 @@ trait RoomChatServiceCoreFlowTrait {
       : NULL;
 
     $stage_started_at = hrtime(true);
-    $gm_result = $channel === 'room'
-      ? $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $encounter_prefix)
-      : $this->generateQueuedChannelReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $channel);
+    $gm_result = $this->gmReplyOrchestration->generateQueuedReply(
+      fn (): ?array => $channel === 'room'
+        ? $this->generateGmReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $encounter_prefix, $channel)
+        : $this->generateQueuedChannelReply($campaign_id, $room_id, $room_index, $dungeon_id, $dungeon_data, $character_id, $channel),
+      $this->buildGmReplyEntryContext($campaign_id, $room_id, $channel, TRUE)
+    );
     $this->recordDebugStage('generate_gm_reply', $stage_started_at, [
       'generated' => $gm_result !== NULL,
       'queued_player_count' => count($queued_player_messages),

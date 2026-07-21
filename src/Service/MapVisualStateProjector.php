@@ -18,6 +18,12 @@ class MapVisualStateProjector {
     'hud',
   ];
 
+  protected ?NavigationService $navigationService;
+
+  public function __construct(?NavigationService $navigation_service = NULL) {
+    $this->navigationService = $navigation_service;
+  }
+
   /**
    * Build canonical visual map state from the current hexmap payload.
    */
@@ -786,7 +792,10 @@ class MapVisualStateProjector {
       return $rooms;
     }
 
-    $navigation_service = new NavigationService();
+    if ($this->navigationService === NULL) {
+      throw new \RuntimeException('Map visual projection contract violation: NavigationService is required; fallback navigation construction is not supported.');
+    }
+    $navigation_service = $this->navigationService;
     $capabilities = $navigation_service->buildNavigationCapabilitiesWithQuestTargets($dungeon_payload, $active_room_id, $quest_entries);
     $quest_capabilities = array_values(array_filter($capabilities, static fn(array $capability): bool => !empty($capability['quest_reference'])));
     if ($quest_capabilities === []) {

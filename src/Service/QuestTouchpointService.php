@@ -29,6 +29,7 @@ class QuestTouchpointService {
    * @var \Drupal\Component\Datetime\TimeInterface
    */
   protected TimeInterface $time;
+  protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
 
   /**
    * Constructor.
@@ -37,12 +38,14 @@ class QuestTouchpointService {
     QuestTrackerService $quest_tracker,
     QuestConfirmationService $confirmation_service,
     KeyValueFactoryInterface $key_value_factory,
-    TimeInterface $time
+    TimeInterface $time,
+    StorylineQuestLifecycleService $storyline_quest_lifecycle_service
   ) {
     $this->questTracker = $quest_tracker;
     $this->confirmationService = $confirmation_service;
     $this->fingerprintStore = $key_value_factory->get('dungeoncrawler_content.quest_touchpoint_fingerprints');
     $this->time = $time;
+    $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
   }
 
   /**
@@ -61,7 +64,6 @@ class QuestTouchpointService {
     }
 
     $objective_type = strtolower((string) ($touchpoint['objective_type'] ?? ''));
-    $objective_id_hint = trim((string) ($touchpoint['objective_id'] ?? ''));
     if ($objective_type === '') {
       return [
         'success' => FALSE,
@@ -82,19 +84,46 @@ class QuestTouchpointService {
       ];
     }
 
+    $room_id = trim((string) ($touchpoint['room_id'] ?? $touchpoint['location_id'] ?? ''));
+    if ($room_id !== '') {
+      $this->activateOpenRoomQuests($campaign_id, $character_id, $room_id);
+    }
+
     $active_quests = $this->questTracker->getActiveQuests($campaign_id, $character_id);
     $candidates = $this->findObjectiveCandidates($active_quests, $touchpoint, $objective_type);
     if ($candidates === []) {
-      $room_id = trim((string) ($touchpoint['room_id'] ?? $touchpoint['location_id'] ?? ''));
       if ($room_id !== '') {
-        $offered_quests = $this->questTracker->getOfferQuests($campaign_id, $room_id, $character_id);
-        $offered_candidates = $this->findObjectiveCandidates($offered_quests, $touchpoint, $objective_type);
-        if ($offered_candidates !== []) {
-          foreach ($offered_candidates as &$candidate) {
-            $candidate['requires_start'] = TRUE;
+        $open_quests = $this->loadOpenRoomQuests($campaign_id, $room_id);
+        $open_candidates = $this->findObjectiveCandidates($open_quests, $touchpoint, $objective_type);
+        if ($open_candidates !== []) {
+          $started_quest_ids = $this->activateOpenQuestCandidates($campaign_id, $character_id, $open_candidates);
+          if ($started_quest_ids === []) {
+            return [
+              'success' => TRUE,
+              'decision' => 'NO_ACTION',
+              'reason' => 'Matching objective belongs to an open quest, but activation failed.',
+            ];
           }
-          unset($candidate);
-          $candidates = $offered_candidates;
+
+          $candidates = array_values(array_filter(
+            $open_candidates,
+            static fn(array $candidate): bool => in_array((string) ($candidate['quest_id'] ?? ''), $started_quest_ids, TRUE)
+          ));
+
+          if ($candidates !== []) {
+            $active_quests = $this->questTracker->getActiveQuests($campaign_id, $character_id);
+            $active_candidates = $this->findObjectiveCandidates($active_quests, $touchpoint, $objective_type);
+            if ($active_candidates !== []) {
+              $candidates = $active_candidates;
+            }
+          }
+        }
+        else {
+          return [
+            'success' => TRUE,
+            'decision' => 'NO_ACTION',
+            'reason' => 'No active objective matched touchpoint',
+          ];
         }
       }
     }
@@ -132,29 +161,10 @@ class QuestTouchpointService {
       && $this->shouldAutoApplyAllInteractCandidates($touchpoint, $candidates, $objective_type, $confidence)
     ) {
       $applied_objectives = [];
-      $started_quests = [];
       foreach ($candidates as $candidate) {
         $progress_character_id = (int) ($candidate['progress_character_id'] ?? 0);
         if ($progress_character_id <= 0) {
           $progress_character_id = $character_id;
-        }
-
-        if (!empty($candidate['requires_start'])) {
-          $started = $this->questTracker->startQuest($campaign_id, (string) $candidate['quest_id'], $character_id);
-          if (!$started) {
-            return [
-              'success' => FALSE,
-              'decision' => 'NO_ACTION',
-              'error' => sprintf('Failed to start offered quest "%s" before applying touchpoint progress.', (string) $candidate['quest_id']),
-            ];
-          }
-          if ($this->shouldDeferStartedQuestObjectiveProgress($touchpoint, $objective_id_hint)) {
-            $started_quests[] = [
-              'quest_id' => (string) $candidate['quest_id'],
-              'objective_id' => (string) $candidate['objective_id'],
-            ];
-            continue;
-          }
         }
 
         $result = $this->questTracker->updateObjectiveProgress(
@@ -195,22 +205,11 @@ class QuestTouchpointService {
         'applied_at' => $this->time->getRequestTime(),
       ]);
 
-      if ($applied_objectives === [] && $started_quests !== []) {
-        return [
-          'success' => TRUE,
-          'decision' => 'STARTED_QUEST',
-          'requires_confirmation' => FALSE,
-          'started_quests' => $started_quests,
-          'reason' => 'Offered quest started; explicit follow-up interaction is required before objective progress is recorded.',
-        ];
-      }
-
       return [
         'success' => TRUE,
         'decision' => 'APPLY_PROGRESS',
         'requires_confirmation' => FALSE,
         'applied_objectives' => $applied_objectives,
-        'started_quests' => $started_quests,
       ];
     }
 
@@ -237,35 +236,6 @@ class QuestTouchpointService {
     $progress_character_id = (int) ($match['progress_character_id'] ?? 0);
     if ($progress_character_id <= 0) {
       $progress_character_id = $character_id;
-    }
-
-    if (!empty($match['requires_start'])) {
-      $started = $this->questTracker->startQuest($campaign_id, (string) $match['quest_id'], $character_id);
-      if (!$started) {
-        return [
-          'success' => FALSE,
-          'decision' => 'NO_ACTION',
-          'error' => 'Failed to start offered quest before applying touchpoint progress',
-        ];
-      }
-      if ($this->shouldDeferStartedQuestObjectiveProgress($touchpoint, $objective_id_hint)) {
-        $this->fingerprintStore->set($fingerprint, [
-          'campaign_id' => $campaign_id,
-          'character_id' => $character_id,
-          'quest_id' => $match['quest_id'],
-          'objective_id' => $match['objective_id'],
-          'applied_at' => $this->time->getRequestTime(),
-        ]);
-
-        return [
-          'success' => TRUE,
-          'decision' => 'STARTED_QUEST',
-          'requires_confirmation' => FALSE,
-          'quest_id' => $match['quest_id'],
-          'objective_id' => $match['objective_id'],
-          'reason' => 'Offered quest started; explicit follow-up interaction is required before objective progress is recorded.',
-        ];
-      }
     }
 
     $result = $this->questTracker->updateObjectiveProgress(
@@ -326,18 +296,6 @@ class QuestTouchpointService {
     }
 
     return TRUE;
-  }
-
-  /**
-   * Require explicit objective resolution after direct dialogue starts an offered quest.
-   */
-  protected function shouldDeferStartedQuestObjectiveProgress(array $touchpoint, string $objective_id_hint): bool {
-    if ($objective_id_hint !== '') {
-      return FALSE;
-    }
-
-    $matching_mode = strtolower(trim((string) ($touchpoint['matching_mode'] ?? '')));
-    return $matching_mode === 'direct_npc_dialogue';
   }
 
   /**
@@ -450,22 +408,67 @@ class QuestTouchpointService {
   }
 
   /**
+   * Start offered quests for matched candidates and return started quest IDs.
+   *
+   * @return array<int, string>
+   *   Started quest IDs.
+   */
+  protected function activateOpenQuestCandidates(int $campaign_id, int $character_id, array $open_candidates): array {
+    $candidates_by_quest_id = [];
+    foreach ($open_candidates as $candidate) {
+      if (!is_array($candidate)) {
+        continue;
+      }
+      $quest_id = trim((string) ($candidate['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+      if (!array_key_exists($quest_id, $candidates_by_quest_id)) {
+        $candidates_by_quest_id[$quest_id] = $candidate;
+      }
+    }
+
+    $started = [];
+    foreach ($candidates_by_quest_id as $quest_id => $candidate) {
+      $status = strtolower(trim((string) ($candidate['quest_status'] ?? '')));
+      if (in_array($status, ['lead', 'available'], TRUE)) {
+        $this->storylineQuestLifecycleService->setQuestStatusByQuestId(
+          $campaign_id,
+          $quest_id,
+          'offered',
+          [$status]
+        );
+      }
+      if ($this->questTracker->startQuest($campaign_id, $quest_id, $character_id)) {
+        $started[] = $quest_id;
+      }
+    }
+
+    return $started;
+  }
+
+  /**
    * Build dedupe fingerprint for the touchpoint.
    */
   protected function buildFingerprint(int $campaign_id, int $character_id, array $touchpoint, int $occurred_at): string {
     $objective_id = (string) ($touchpoint['objective_id'] ?? '');
     $entity_ref = (string) ($touchpoint['entity_ref'] ?? $touchpoint['item_ref'] ?? $touchpoint['npc_ref'] ?? '');
     $room_id = (string) ($touchpoint['room_id'] ?? $touchpoint['location_id'] ?? '');
+    $player_message = trim((string) ($touchpoint['player_message'] ?? $touchpoint['message'] ?? ''));
     $bucket = (int) floor($occurred_at / 30);
-
-    return sha1(implode('|', [
+    $parts = [
       (string) $campaign_id,
       (string) $character_id,
       strtolower($objective_id),
       strtolower($entity_ref),
       strtolower($room_id),
       (string) $bucket,
-    ]));
+    ];
+    if ($player_message !== '') {
+      $parts[] = strtolower((string) preg_replace('/\s+/', ' ', $player_message));
+    }
+
+    return sha1(implode('|', $parts));
   }
 
   /**
@@ -518,13 +521,156 @@ class QuestTouchpointService {
           'quest_name' => $quest_name,
           'objective_id' => $candidate_objective_id,
           'objective_type' => $candidate_type,
+          'quest_status' => strtolower((string) ($quest['status'] ?? '')),
           'progress_character_id' => (int) ($quest['character_id'] ?? 0),
           'label' => (string) ($objective['description'] ?? $candidate_objective_id),
         ];
       }
+
     }
 
     return $matches;
+  }
+
+  /**
+   * Load open room quests that should be treated as activatable.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Open room quest rows.
+   */
+  protected function loadOpenRoomQuests(int $campaign_id, string $room_id): array {
+    if ($campaign_id <= 0 || trim($room_id) === '') {
+      return [];
+    }
+    $room_id = trim($room_id);
+    $status_allowlist = ['active', 'ready_for_turn_in', 'offered', 'lead', 'available'];
+    return array_values(array_filter(
+      $this->questTracker->getCampaignQuestTracking($campaign_id),
+      function (array $quest) use ($room_id, $status_allowlist): bool {
+        if (!is_array($quest)) {
+          return FALSE;
+        }
+        if (!$this->questTargetsRoom($quest, $room_id)) {
+          return FALSE;
+        }
+        if (!empty($quest['completed_at'])) {
+          return FALSE;
+        }
+        return in_array(strtolower(trim((string) ($quest['status'] ?? ''))), $status_allowlist, TRUE);
+      }
+    ));
+  }
+
+  /**
+   * Determine whether a quest is anchored to the provided room.
+   */
+  protected function questTargetsRoom(array $quest, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    if (trim((string) ($quest['location_id'] ?? '')) === $room_id) {
+      return TRUE;
+    }
+
+    foreach ($this->extractQuestObjectivePhases($quest) as $phase) {
+      if (!is_array($phase)) {
+        continue;
+      }
+      foreach ($this->extractObjectivesFromPhase($phase) as $objective) {
+        if (!is_array($objective)) {
+          continue;
+        }
+        if (trim((string) ($objective['location_id'] ?? '')) === $room_id) {
+          return TRUE;
+        }
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Extract objective phase rows from runtime or generated quest data.
+   *
+   * @return array<int, mixed>
+   *   Objective phases.
+   */
+  protected function extractQuestObjectivePhases(array $quest): array {
+    foreach (['objective_states', 'generated_objectives'] as $field) {
+      $value = $quest[$field] ?? [];
+      if (is_array($value) && $value !== []) {
+        return $value;
+      }
+      if (is_string($value) && trim($value) !== '') {
+        $decoded = json_decode($value, TRUE);
+        if (is_array($decoded) && $decoded !== []) {
+          return $decoded;
+        }
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Flatten phase objectives and nested child objective nodes.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Flat objective list.
+   */
+  protected function extractObjectivesFromPhase(array $phase): array {
+    $stack = [];
+    foreach ((array) ($phase['objectives'] ?? []) as $objective) {
+      if (is_array($objective)) {
+        $stack[] = $objective;
+      }
+    }
+
+    $flattened = [];
+    while ($stack !== []) {
+      $objective = array_pop($stack);
+      if (!is_array($objective)) {
+        continue;
+      }
+      $flattened[] = $objective;
+      foreach ((array) ($objective['children'] ?? []) as $child) {
+        if (is_array($child)) {
+          $stack[] = $child;
+        }
+      }
+    }
+
+    return $flattened;
+  }
+
+  /**
+   * Promote and start all open room quests so journal state is active-aligned.
+   */
+  protected function activateOpenRoomQuests(int $campaign_id, int $character_id, string $room_id): void {
+    if ($campaign_id <= 0 || $character_id <= 0 || trim($room_id) === '') {
+      return;
+    }
+    foreach ($this->loadOpenRoomQuests($campaign_id, $room_id) as $quest) {
+      if (!is_array($quest)) {
+        continue;
+      }
+      $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+      $status = strtolower(trim((string) ($quest['status'] ?? '')));
+      if (in_array($status, ['lead', 'available'], TRUE)) {
+        $this->storylineQuestLifecycleService->setQuestStatusByQuestId(
+          $campaign_id,
+          $quest_id,
+          'offered',
+          [$status]
+        );
+      }
+      $this->questTracker->startQuest($campaign_id, $quest_id, $character_id);
+    }
   }
 
   /**
@@ -536,9 +682,30 @@ class QuestTouchpointService {
       $current_phase = 1;
     }
 
-    $phase_rows = json_decode((string) ($quest['objective_states'] ?? '[]'), TRUE);
-    if (!is_array($phase_rows) || $phase_rows === []) {
-      $phase_rows = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE);
+    $phase_rows = [];
+
+    $objective_states = $quest['objective_states'] ?? [];
+    if (is_array($objective_states)) {
+      $phase_rows = $objective_states;
+    }
+    elseif (is_string($objective_states) && trim($objective_states) !== '') {
+      $decoded = json_decode($objective_states, TRUE);
+      if (is_array($decoded)) {
+        $phase_rows = $decoded;
+      }
+    }
+
+    if ($phase_rows === []) {
+      $generated_objectives = $quest['generated_objectives'] ?? [];
+      if (is_array($generated_objectives)) {
+        $phase_rows = $generated_objectives;
+      }
+      elseif (is_string($generated_objectives) && trim($generated_objectives) !== '') {
+        $decoded = json_decode($generated_objectives, TRUE);
+        if (is_array($decoded)) {
+          $phase_rows = $decoded;
+        }
+      }
     }
 
     if (!is_array($phase_rows)) {

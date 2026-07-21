@@ -67,20 +67,20 @@ This document tracks the implementation status of the PF2e combat/encounter engi
 
 ## Actor Psychology Integration (Next-Action Path)
 
-Combat NPC next-action selection receives psychology context from `EncounterPhaseHandler::buildNpcContext()`, which injects:
+Combat NPC next-action selection receives psychology context from the canonical `NpcPsychologyService::buildUnifiedActorContext()` envelope (consumed by `EncounterActorContextBuilder::buildActorContext()`, invoked by `EncounterPhaseHandler::buildNpcContext()` compatibility wrapper), which injects:
 
-- `current_actor_profile` via `buildNpcDecisionProfile()`
-- `npc_psychology` via `buildNpcPsychologyContext()`
+- `current_actor_profile` from `buildUnifiedActorContext()['decision_profile']`
+- `npc_psychology` from `buildUnifiedActorContext()['combat_psychology_context']`
 - `current_actor_tactical_intent` via `buildNpcTacticalIntentContract()`
 
 ### Profile Resolution and Fallbacks
 
-- `loadCombatantPsychologyProfile()` resolves `entity_ref` from encounter participants first, then falls back to `entity_id` if needed.
-- If no profile exists, `buildNpcDecisionProfile()` emits a deterministic neutral fallback (`attitude=indifferent`, normalized axes, default goals).
+- Encounter actor context resolves `entity_ref` from encounter participants first, then loads profile through `NpcPsychologyService::loadProfile()` in the shared builder path.
+- If no profile exists, `buildUnifiedActorContext()` emits a deterministic neutral fallback (`attitude=indifferent`, normalized axes, default goals).
 
 ### Decision Context Shape
 
-`buildNpcDecisionProfile()` provides structured fields used by encounter AI recommendation flows:
+`buildUnifiedActorContext()['decision_profile']` provides structured fields used by encounter AI recommendation flows:
 
 - display/identity: `display_name`
 - stance: `attitude`
@@ -88,16 +88,40 @@ Combat NPC next-action selection receives psychology context from `EncounterPhas
 - intent drivers: `motivations`, `fears`, `bonds`, `goals`
 - short memory: `latest_thought` (last inner-monologue thought/emotion/event)
 
-`buildNpcPsychologyContext()` provides a narrative behavioral block that maps axes + attitude into tactical hints (retreat/reckless behavior, focus-fire discipline, strategic targeting, diplomacy likelihood), and appends recent relevant thoughts when present.
+`buildUnifiedActorContext()['combat_psychology_context']` provides a narrative behavioral block that maps axes + attitude into tactical hints (retreat/reckless behavior, focus-fire discipline, strategic targeting, diplomacy likelihood), and appends recent relevant thoughts when present.
 
 This makes encounter "next action" recommendation actor-specific without relying on static behavior assumptions.
 
+### Subsystem Component Breakdown (Next-Action Path)
+
+| Component | Responsibility | Key surfaces |
+|---|---|---|
+| Encounter context assembler | Build actor-scoped next-action context envelope, including psychology contracts | `EncounterActorContextBuilder::buildActorContext()` (called by `EncounterPhaseHandler::buildNpcContext()`) |
+| Unified profile resolver | Resolve and normalize psychology profile once for both chat and action lanes | `NpcPsychologyService::buildUnifiedActorContext()` |
+| Structured psychology contract | Emit deterministic object payload for model decision steering | `buildUnifiedActorContext()['decision_profile']` (`current_actor_profile`) |
+| Narrative psychology contract | Emit formatted combat-personality guidance + recent mindset text | `buildUnifiedActorContext()['combat_psychology_context']` (`npc_psychology`) |
+| Tactical intent contract | Emit separate current-turn tactical intent aligned with actor state | `EncounterPhaseHandler::buildNpcTacticalIntentContract()` |
+| AI provider boundary | Inject structured/narrative psychology into encounter model payload | `AiConversationEncounterAiProvider` |
+
+### Recommendation Response Contract Hardening (2026-07-20)
+
+- Encounter AI recommendations are now contract-bound to the current action surface:
+  - context emits `action_contract_hash`,
+  - model response must return matching `contract_version`.
+- Runtime validator enforces required top-level fields and strict action payload shape before action seeding.
+- Action-specific parameter requirements are hard-gated:
+  - `talk` => `parameters.message`
+  - `stride` / `step` => `parameters.target_hex.{q,r}`
+  - `transition` => `parameters.target_room_id`
+  - `cast_spell` / `use_feat` / `use_consumable` / `activate_item` / `trigger_hazard` => `parameters.option_id`
+- Invalid or malformed recommendation payloads now surface as explicit contract violations instead of being auto-healed via deterministic fallback in NPC autoplay.
+
 ### 2026-07-08 Conformance Refresh
 
-- Encounter-side psychology contract remains anchored in `EncounterPhaseHandler`:
-  - `buildNpcDecisionProfile()`,
-  - `buildNpcPsychologyContext()`,
-  - `loadCombatantPsychologyProfile()` with `entity_ref`-first resolution.
+- Encounter-side psychology contract now consumes the same canonical actor-context builder path used by dialogue:
+  - `NpcPsychologyService::buildUnifiedActorContext()`,
+  - consumed via `EncounterActorContextBuilder`,
+  - exposed through `EncounterPhaseHandler` compatibility wrappers.
 - RoomChat decomposition work did not alter next-action psychology payload shape (`current_actor_profile`, `npc_psychology`) used by encounter recommendation flows.
 
 ---

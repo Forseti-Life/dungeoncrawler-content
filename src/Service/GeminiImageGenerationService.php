@@ -11,6 +11,9 @@ use GuzzleHttp\Exception\GuzzleException;
 
 /**
  * Stub integration service for Gemini image generation.
+ *
+ * Validation pair: no dedicated validator service; API payload/response
+ * contracts are enforced inline by provider integration logic.
  */
 class GeminiImageGenerationService {
 

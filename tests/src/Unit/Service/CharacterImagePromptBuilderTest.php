@@ -27,7 +27,7 @@ class CharacterImagePromptBuilderTest extends UnitTestCase {
       'portrait_generate' => 1,
     ]);
 
-    $this->assertStringContainsString('Full-body fantasy portrait of a weasel familiar companion', $prompt);
+    $this->assertStringContainsString('Full-body portrait illustration of a weasel familiar companion', $prompt);
     $this->assertStringContainsString('Familiar profile — Species: Weasel. Description: Bound weasel familiar ally. Abilities: Speech, Tough.', $prompt);
     $this->assertStringContainsString('non-anthropomorphic anatomy', $prompt);
     $this->assertStringContainsString('Do not depict humanoid posture', $prompt);

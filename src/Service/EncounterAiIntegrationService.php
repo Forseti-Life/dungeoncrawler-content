@@ -99,6 +99,7 @@ class EncounterAiIntegrationService {
     $actions_available_to_me_this_turn = is_array($availability['availability_envelope'] ?? NULL)
       ? $availability['availability_envelope']
       : [];
+    $action_contract_hash = $this->buildActionContractHash($actor_action_contract, $allowed_actions);
 
     return [
       'campaign_id' => $campaign_id,
@@ -110,6 +111,7 @@ class EncounterAiIntegrationService {
       'participants' => $participants,
       'allowed_actions' => $allowed_actions,
       'action_contract' => $actor_action_contract,
+      'action_contract_hash' => $action_contract_hash,
       'action_option_families' => is_array($actor_action_contract['action_option_families'] ?? NULL)
         ? $actor_action_contract['action_option_families']
         : [],
@@ -130,6 +132,9 @@ class EncounterAiIntegrationService {
   public function requestNpcActionRecommendation(array $context): array {
     $recommendation = $this->provider->recommendNpcAction($context);
     $validation = $this->validateRecommendation($recommendation, $context);
+    if (empty($validation['valid'])) {
+      throw new \RuntimeException('Encounter AI recommendation contract violation: ' . implode('; ', (array) ($validation['errors'] ?? [])));
+    }
 
     $this->loggerFactory->get('dungeoncrawler_content')->notice('Encounter AI recommendation preview generated.', [
       'encounter_id' => (int) ($context['encounter_id'] ?? 0),
@@ -178,6 +183,10 @@ class EncounterAiIntegrationService {
    */
   public function validateRecommendation(array $recommendation, array $context): array {
     $errors = [];
+    $shape_errors = $this->validateRecommendationShape($recommendation, $context);
+    if ($shape_errors !== []) {
+      $errors = array_merge($errors, $shape_errors);
+    }
 
     $current_actor = is_array($context['current_actor'] ?? NULL) ? $context['current_actor'] : [];
     $current_actor_ref = $this->resolveCurrentActorId($current_actor);
@@ -229,6 +238,210 @@ class EncounterAiIntegrationService {
       'valid' => count($errors) === 0,
       'errors' => $errors,
     ];
+  }
+
+  /**
+   * Validate strict recommendation shape and action-parameter requirements.
+   *
+   * @param array<string, mixed> $recommendation
+   *   Provider recommendation payload.
+   * @param array<string, mixed> $context
+   *   Encounter context payload.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateRecommendationShape(array $recommendation, array $context): array {
+    $errors = [];
+    foreach (['version', 'actor_instance_id', 'recommended_action', 'decision_reason', 'decision_basis', 'confidence', 'contract_version'] as $required_field) {
+      if (!array_key_exists($required_field, $recommendation)) {
+        $errors[] = sprintf('missing required field "%s".', $required_field);
+      }
+    }
+
+    $version = trim((string) ($recommendation['version'] ?? ''));
+    if ($version === '') {
+      $errors[] = 'version must be a non-empty string.';
+    }
+
+    $decision_reason = trim((string) ($recommendation['decision_reason'] ?? ''));
+    if ($decision_reason === '') {
+      $errors[] = 'decision_reason must be a non-empty string.';
+    }
+
+    $confidence_raw = $recommendation['confidence'] ?? NULL;
+    if (!is_numeric($confidence_raw)) {
+      $errors[] = 'confidence must be numeric.';
+    }
+    else {
+      $confidence = (float) $confidence_raw;
+      if ($confidence < 0.0 || $confidence > 1.0) {
+        $errors[] = 'confidence must be between 0 and 1.';
+      }
+    }
+
+    $decision_basis = $recommendation['decision_basis'] ?? NULL;
+    if (!is_array($decision_basis)) {
+      $errors[] = 'decision_basis must be an object.';
+    }
+    else {
+      foreach (['used_profile', 'used_psychology', 'used_availability'] as $basis_flag) {
+        if (!array_key_exists($basis_flag, $decision_basis) || !is_bool($decision_basis[$basis_flag])) {
+          $errors[] = sprintf('decision_basis.%s must be a boolean.', $basis_flag);
+        }
+      }
+    }
+
+    $recommended_action = $recommendation['recommended_action'] ?? NULL;
+    if (!is_array($recommended_action)) {
+      $errors[] = 'recommended_action must be an object.';
+      return $errors;
+    }
+
+    foreach (['type', 'action_cost', 'parameters'] as $required_action_field) {
+      if (!array_key_exists($required_action_field, $recommended_action)) {
+        $errors[] = sprintf('recommended_action.%s is required.', $required_action_field);
+      }
+    }
+
+    $action_type = strtolower(trim((string) ($recommended_action['type'] ?? '')));
+    if ($action_type === '') {
+      $errors[] = 'recommended_action.type must be a non-empty string.';
+    }
+
+    if (!is_numeric($recommended_action['action_cost'] ?? NULL)) {
+      $errors[] = 'recommended_action.action_cost must be numeric.';
+    }
+
+    $parameters = $recommended_action['parameters'] ?? NULL;
+    if (!is_array($parameters)) {
+      $errors[] = 'recommended_action.parameters must be an object.';
+    }
+
+    $target = $recommended_action['target_instance_id'] ?? NULL;
+    if (!is_null($target) && !is_string($target)) {
+      $errors[] = 'recommended_action.target_instance_id must be string or null.';
+    }
+
+    $action_context = $this->resolveValidationActionContext($context, is_array($context['current_actor'] ?? NULL) ? $context['current_actor'] : []);
+    $action_definition = $action_context['action_definitions'][$action_type] ?? NULL;
+    if (is_array($action_definition)) {
+      $targeting = strtolower(trim((string) ($action_definition['targeting'] ?? '')));
+      if (in_array($targeting, ['hostile_entity', 'entity_or_object', 'entity_or_room', 'connected_room', 'room_hazard'], TRUE)) {
+        if (!is_string($target) || trim($target) === '') {
+          $errors[] = sprintf('recommended_action.target_instance_id is required for targeting "%s".', $targeting);
+        }
+      }
+    }
+
+    if (is_array($parameters) && $action_type !== '') {
+      $errors = array_merge($errors, $this->validateActionSpecificParameters($action_type, $parameters));
+    }
+
+    $expected_contract_hash = $this->resolveContextActionContractHash($context);
+    $contract_version = trim((string) ($recommendation['contract_version'] ?? ''));
+    if ($contract_version === '') {
+      $errors[] = 'contract_version must be a non-empty string.';
+    }
+    elseif ($expected_contract_hash !== '' && $contract_version !== $expected_contract_hash) {
+      $errors[] = 'contract_version does not match current action contract hash.';
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Validate action-type-specific required parameters.
+   *
+   * @param string $action_type
+   *   Recommended action type.
+   * @param array<string, mixed> $parameters
+   *   Recommended action parameter map.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  protected function validateActionSpecificParameters(string $action_type, array $parameters): array {
+    $errors = [];
+    if ($action_type === 'talk') {
+      $message = trim((string) ($parameters['message'] ?? ''));
+      if ($message === '') {
+        $errors[] = 'recommended_action.parameters.message is required for talk.';
+      }
+    }
+
+    if (in_array($action_type, ['cast_spell', 'use_feat', 'use_consumable', 'activate_item', 'trigger_hazard'], TRUE)) {
+      $option_id = trim((string) ($parameters['option_id'] ?? ''));
+      if ($option_id === '') {
+        $errors[] = sprintf('recommended_action.parameters.option_id is required for %s.', $action_type);
+      }
+    }
+
+    if (in_array($action_type, ['stride', 'step'], TRUE)) {
+      $target_hex = $parameters['target_hex'] ?? NULL;
+      $has_q = is_array($target_hex) && is_numeric($target_hex['q'] ?? NULL);
+      $has_r = is_array($target_hex) && is_numeric($target_hex['r'] ?? NULL);
+      if (!$has_q || !$has_r) {
+        $errors[] = sprintf('recommended_action.parameters.target_hex.{q,r} is required for %s.', $action_type);
+      }
+    }
+
+    if ($action_type === 'transition') {
+      $target_room_id = trim((string) ($parameters['target_room_id'] ?? ''));
+      if ($target_room_id === '') {
+        $errors[] = 'recommended_action.parameters.target_room_id is required for transition.';
+      }
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Resolve deterministic hash representing the current action contract.
+   *
+   * @param array<string, mixed> $action_contract
+   *   Canonical action contract.
+   * @param array<int, string> $allowed_actions
+   *   Currently allowed action IDs.
+   */
+  protected function buildActionContractHash(array $action_contract, array $allowed_actions): string {
+    $payload = [
+      'available_actions' => array_values(array_unique(array_map(
+        static fn($action): string => strtolower(trim((string) $action)),
+        $allowed_actions
+      ))),
+      'action_contract' => $action_contract,
+    ];
+    return hash('sha256', (string) json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+  }
+
+  /**
+   * Resolve expected contract hash from context or derive it from action fields.
+   *
+   * @param array<string, mixed> $context
+   *   Encounter context payload.
+   */
+  protected function resolveContextActionContractHash(array $context): string {
+    $existing = trim((string) ($context['action_contract_hash'] ?? ''));
+    if ($existing !== '') {
+      return $existing;
+    }
+
+    $availability = is_array($context['actions_available_to_me_this_turn'] ?? NULL)
+      ? $context['actions_available_to_me_this_turn']
+      : [];
+    $action_contract = is_array($availability['action_contract'] ?? NULL)
+      ? $availability['action_contract']
+      : (is_array($context['action_contract'] ?? NULL) ? $context['action_contract'] : []);
+    $allowed_actions = is_array($availability['available_actions'] ?? NULL)
+      ? $availability['available_actions']
+      : (is_array($context['allowed_actions'] ?? NULL) ? $context['allowed_actions'] : []);
+
+    if ($action_contract === [] && $allowed_actions === []) {
+      return '';
+    }
+
+    return $this->buildActionContractHash($action_contract, $allowed_actions);
   }
 
   /**

@@ -22,14 +22,14 @@ class GameMasterSubsystemService {
   protected const HANDOFF_REASON_NO_TURN_CONTROL_MATCH = 'no_deterministic_turn_control_match';
 
   protected GameCoordinatorService $coordinator;
-  protected RoomChatService $roomChatService;
+  protected GmActorHarnessService $gmActorHarness;
 
   /**
    * Constructor.
    */
-  public function __construct(GameCoordinatorService $coordinator, RoomChatService $room_chat_service) {
+  public function __construct(GameCoordinatorService $coordinator, GmActorHarnessService $gm_actor_harness) {
     $this->coordinator = $coordinator;
-    $this->roomChatService = $room_chat_service;
+    $this->gmActorHarness = $gm_actor_harness;
   }
 
   /**
@@ -101,45 +101,16 @@ class GameMasterSubsystemService {
       $speaker = $requested_speaker !== '' ? $requested_speaker : 'Player';
     }
     $route['intent']['params']['speaker'] = $speaker;
-    $defer_npc_interjections = FALSE;
-    $chat_result = $this->roomChatService->postMessage(
+    $chat_result = $this->gmActorHarness->handlePlayerRoomChat(
       $campaign_id,
       $room_id,
-      $speaker,
-      $message,
-      'player',
+      $actor_id,
       $character_id,
-      'room',
-      $defer_npc_interjections,
+      $message,
       $suppress_gm,
-      NULL,
-      [
-        '_validated_encounter_room_chat' => TRUE,
-      ]
+      $speaker,
+      $route
     );
-    $state = $this->coordinator->getFullState($campaign_id);
-    $action_availability = $this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
-    foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase', 'encounter_id', 'round', 'turn', 'state_version', 'active_room_id'] as $response_key) {
-      if (array_key_exists($response_key, $state)) {
-        $chat_result[$response_key] = $state[$response_key];
-      }
-    }
-    $chat_result['available_actions'] = is_array($action_availability['available_actions'] ?? NULL)
-      ? $action_availability['available_actions']
-      : [];
-    $chat_result['action_contract'] = is_array($action_availability['action_contract'] ?? NULL)
-      ? $action_availability['action_contract']
-      : NULL;
-    $chat_result['action_option_families'] = is_array($chat_result['action_contract']['action_option_families'] ?? NULL)
-      ? $chat_result['action_contract']['action_option_families']
-      : [];
-    if (isset($chat_result['message']) && !is_array($chat_result['message']) && isset($chat_result['speaker'])) {
-      $chat_result['message'] = [
-        'speaker' => (string) $chat_result['speaker'],
-        'message' => (string) $chat_result['message'],
-        'type' => 'player',
-      ];
-    }
     $chat_result['gm_subsystem'] = $this->buildResponseEnvelope($route, $room_id);
 
     return $chat_result;

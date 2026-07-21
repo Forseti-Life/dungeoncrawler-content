@@ -27,7 +27,7 @@
       "uid": 1,
       "role": "npc",
       "state_data": {
-        "name": "The Kind Old Lady",
+        "name": "Grandmother",
         "class": "quest_giver",
         "level": 1,
         "hp_current": 12,

@@ -1501,21 +1501,21 @@ class StorylineExplorerPageController extends ControllerBase {
         'generator' => 'StorylineRealizationService::realizeStorylineNpcs + realizeStorylineAssets',
         'action' => 'Fix unsupported or malformed entity_type entries, then rerun storyline realization.',
       ],
-      'task_contract' => [
-        'label' => 'task_contract',
-        'validator' => 'StorylineExplorerPageController::collectTaskContractDiagnostics',
+      'task_contracts' => [
+        'label' => 'task_contracts',
+        'validator' => 'StorylineManagerService::validateTaskContractsStage',
         'generator' => 'QuestGeneratorService::generateQuestFromTemplate',
         'action' => 'Fix task/children/completion_criteria contracts and regenerate runtime quest rows.',
       ],
       'entity_linkage' => [
         'label' => 'entity_linkage',
-        'validator' => 'StorylineExplorerPageController::collectEntityLinkageDiagnostics',
+        'validator' => 'StorylineManagerService::validateEntityLinkageStage',
         'generator' => 'StorylineRealizationService::realizeStorylineNpcs (via StorylineManagerService::finalizePersistedCampaignStoryline)',
         'action' => 'When actor targets are missing (for example tal-mission-handler), add/anchor the actor and rerun NPC realization to register dc_campaign_characters.',
       ],
       'dungeon_room_contracts' => [
         'label' => 'dungeon_room_contracts',
-        'validator' => 'StorylineExplorerPageController::collectDungeonRoomDiagnostics',
+        'validator' => 'StorylineManagerService::validateDungeonRoomContractsStage',
         'generator' => 'StorylineRealizationService::realizeStorylineAssets',
         'action' => 'Fix dungeon/room canonical contracts and rerun storyline asset realization.',
       ],
@@ -1648,25 +1648,23 @@ class StorylineExplorerPageController extends ControllerBase {
           'errors' => $raw_definition_errors,
         ];
 
-        // Stage 6 — task contract (via StorylineGenerationService if available).
-        $task_errors = $this->collectTaskContractDiagnostics($template_data, $selected_quest_id);
-        $stages['task_contract'] = [
-          'valid' => $task_errors === [],
-          'errors' => $task_errors,
-        ];
+        // Stage 6 — task contract (core canonical validator).
+        $task_errors = array_values(array_filter(
+          array_map('strval', is_array($stages['task_contracts']['errors'] ?? NULL) ? $stages['task_contracts']['errors'] : (is_array($stages['task_contract']['errors'] ?? NULL) ? $stages['task_contract']['errors'] : [])),
+          static fn(string $error): bool => trim($error) !== ''
+        ));
         if ($task_errors !== []) {
           $validator_status = 'fail';
           foreach ($task_errors as $error) {
-            $validator_errors[] = '[task_contract] ' . $error;
+            $validator_errors[] = '[task_contracts] ' . $error;
           }
         }
 
-        // Stage 7 — entity linkage (via StorylineGenerationService if available).
-        $entity_errors = $this->collectEntityLinkageDiagnostics($template_data, $selected_quest_id);
-        $stages['entity_linkage'] = [
-          'valid' => $entity_errors === [],
-          'errors' => $entity_errors,
-        ];
+        // Stage 7 — entity linkage (core canonical validator).
+        $entity_errors = array_values(array_filter(
+          array_map('strval', is_array($stages['entity_linkage']['errors'] ?? NULL) ? $stages['entity_linkage']['errors'] : []),
+          static fn(string $error): bool => trim($error) !== ''
+        ));
         if ($entity_errors !== []) {
           $validator_status = 'fail';
           foreach ($entity_errors as $error) {
@@ -1687,13 +1685,9 @@ class StorylineExplorerPageController extends ControllerBase {
           ? $dungeon_room_diagnostics['rows']
           : [];
         $dungeon_room_errors = array_values(array_filter(
-          array_map('strval', is_array($dungeon_room_diagnostics['errors'] ?? NULL) ? $dungeon_room_diagnostics['errors'] : []),
+          array_map('strval', is_array($stages['dungeon_room_contracts']['errors'] ?? NULL) ? $stages['dungeon_room_contracts']['errors'] : []),
           static fn(string $error): bool => trim($error) !== ''
         ));
-        $stages['dungeon_room_contracts'] = [
-          'valid' => $dungeon_room_errors === [],
-          'errors' => $dungeon_room_errors,
-        ];
         if ($dungeon_room_errors !== []) {
           $validator_status = 'fail';
           foreach ($dungeon_room_errors as $error) {
@@ -2521,12 +2515,7 @@ class StorylineExplorerPageController extends ControllerBase {
           if ($selected_quest_id !== '' && $quest_id !== $selected_quest_id) {
             continue;
           }
-          try {
-            $phases = $this->storylineManager->getCanonicalQuestTemplateObjectivePhases($quest_id);
-          }
-          catch (\Throwable $e) {
-            continue;
-          }
+          $phases = $this->loadQuestObjectivePhasesForDiagnostics($quest_id, $errors, FALSE);
           if ($phases === NULL || $phases === []) {
             continue;
           }
@@ -2721,12 +2710,7 @@ class StorylineExplorerPageController extends ControllerBase {
           if ($selected_quest_id !== '' && $quest_id !== $selected_quest_id) {
             continue;
           }
-          try {
-            $phases = $this->storylineManager->getCanonicalQuestTemplateObjectivePhases($quest_id);
-          }
-          catch (\Throwable) {
-            continue;
-          }
+          $phases = $this->loadQuestObjectivePhasesForDiagnostics($quest_id, $location_reference_paths, TRUE);
           if (!is_array($phases) || $phases === []) {
             continue;
           }
@@ -2903,6 +2887,42 @@ class StorylineExplorerPageController extends ControllerBase {
       'actors' => $actor_rows,
       'locations' => $location_rows,
     ];
+  }
+
+  /**
+   * Load canonical quest objective phases for diagnostics with explicit policy.
+   *
+   * @param array<int|string, mixed> $errors
+   *   Error collector for non-throwing mode.
+   * @param bool $throw_on_error
+   *   When true, raise RuntimeException instead of appending diagnostics.
+   *
+   * @return array<int, mixed>|null
+   *   Objective phases, or NULL if unavailable in non-throwing mode.
+   */
+  protected function loadQuestObjectivePhasesForDiagnostics(string $quest_id, array &$errors, bool $throw_on_error): ?array {
+    try {
+      return $this->storylineManager->getCanonicalQuestTemplateObjectivePhases($quest_id);
+    }
+    catch (\Throwable $e) {
+      if ($throw_on_error) {
+        throw new \RuntimeException(
+          sprintf(
+            'Failed to load canonical quest template objective phases for "%s": %s',
+            $quest_id,
+            $e->getMessage()
+          ),
+          0,
+          $e
+        );
+      }
+      $errors[] = sprintf(
+        'quest.%s: failed to load canonical quest template objective phases: %s',
+        $quest_id,
+        $e->getMessage()
+      );
+      return NULL;
+    }
   }
 
   /**

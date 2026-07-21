@@ -42,6 +42,27 @@ class GameCoordinatorService {
   protected const ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB = 2.0;
   protected const DEFAULT_ACTIVE_PHASE = 'encounter';
   protected const DEPRECATED_PHASES = ['exploration'];
+  protected const FORBIDDEN_INTENT_CAPABILITY_KEYS = [
+    'cmd',
+    'command',
+    'shell',
+    'script',
+    'exec',
+    'execute',
+    'subprocess',
+    'terminal',
+    'tool',
+    'tool_call',
+    'tool_name',
+    'bash',
+    'sh',
+    'powershell',
+    'drush',
+    'git',
+    'curl',
+    'wget',
+    'system',
+  ];
 
   /**
    * Default game state structure for new sessions.
@@ -80,6 +101,7 @@ class GameCoordinatorService {
   protected Connection $database;
 
   protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
+  protected RuntimeBootstrapService $runtimeBootstrap;
 
   /**
    * @var \Psr\Log\LoggerInterface
@@ -138,6 +160,7 @@ class GameCoordinatorService {
     EncounterPhaseHandler $encounter_handler,
     AiGmService $ai_gm_service,
     CampaignTimeResolverService $campaign_time_resolver,
+    RuntimeBootstrapService $runtime_bootstrap,
     ?NarrationEngine $narration_engine = NULL,
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
     ?FileUrlGeneratorInterface $file_url_generator = NULL
@@ -148,6 +171,7 @@ class GameCoordinatorService {
     $this->eventLogger = $event_logger;
     $this->aiGmService = $ai_gm_service;
     $this->campaignTimeResolver = $campaign_time_resolver;
+    $this->runtimeBootstrap = $runtime_bootstrap;
     $this->narrationEngine = $narration_engine;
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
@@ -168,7 +192,9 @@ class GameCoordinatorService {
       return [];
     }
 
-    $events = $handler->advanceNonPlayerTurnsToNextPlayer($game_state, $dungeon_data, $campaign_id)['events'] ?? [];
+    $reseed_events = $handler->ensureRoomScenePlayerParticipant($game_state, $dungeon_data, $campaign_id)['events'] ?? [];
+    $advance_events = $handler->advanceNonPlayerTurnsToNextPlayer($game_state, $dungeon_data, $campaign_id)['events'] ?? [];
+    $events = array_merge($reseed_events, $advance_events);
     if ($events === []) {
       return [];
     }
@@ -209,6 +235,25 @@ class GameCoordinatorService {
    *   - error: string|null
    */
   public function processAction(int $campaign_id, array $intent): array {
+    $runtime_character_id = (int) (
+      $intent['params']['character_id']
+      ?? $intent['character_id']
+      ?? 0
+    );
+    if ($runtime_character_id > 0) {
+      $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $runtime_character_id);
+    }
+    else {
+      $runtime_actor_id = trim((string) ($intent['actor'] ?? ''));
+      $resolved_runtime_character_id = $this->runtimeBootstrap->resolveRuntimeCharacterIdForActor($campaign_id, $runtime_actor_id);
+      if ($resolved_runtime_character_id !== NULL) {
+        $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $resolved_runtime_character_id);
+      }
+      else {
+        $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+      }
+    }
+
     $actor_id = trim((string) ($intent['actor'] ?? ''));
     if ($actor_id === '') {
       $character_hint = (int) (
@@ -223,6 +268,10 @@ class GameCoordinatorService {
           $intent['actor'] = $actor_id;
         }
       }
+    }
+    $capability_violation = $this->validateActorCapabilityBoundary($intent);
+    if (is_string($capability_violation) && $capability_violation !== '') {
+      return $this->errorResponse('actor_capability_violation:' . $capability_violation);
     }
 
     // 1. Load dungeon data and game state.
@@ -391,6 +440,7 @@ class GameCoordinatorService {
    *   Full game state payload for the client.
    */
   public function getFullState(int $campaign_id): array {
+    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
     $dungeon_data = $this->loadDungeonData($campaign_id);
     if (!$dungeon_data) {
       return $this->errorResponse('Campaign dungeon data not found.');
@@ -620,6 +670,7 @@ class GameCoordinatorService {
    *   Transition result.
    */
   public function transitionPhase(int $campaign_id, string $target_phase, array $context = []): array {
+    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
     $dungeon_data = $this->loadDungeonData($campaign_id);
     if (!$dungeon_data) {
       return $this->errorResponse('Campaign dungeon data not found.');
@@ -684,6 +735,7 @@ class GameCoordinatorService {
    * persisted combat engine onto the current room encounter framework.
    */
   public function startCombatEncounter(int $campaign_id, array $context = []): array {
+    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
     $dungeon_data = $this->loadDungeonData($campaign_id);
     if (!$dungeon_data) {
       return $this->errorResponse('Campaign dungeon data not found.');
@@ -781,6 +833,7 @@ class GameCoordinatorService {
    *   Array of events.
    */
   public function getEventsSince(int $campaign_id, int $since_cursor = 0): array {
+    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
     $dungeon_data = $this->loadDungeonData($campaign_id);
     if (!$dungeon_data) {
       return ['success' => FALSE, 'events' => [], 'error' => 'Dungeon data not found.'];
@@ -895,15 +948,16 @@ class GameCoordinatorService {
    */
   protected function loadDungeonData(int $campaign_id, ?string $preferred_actor_id = NULL): ?array {
     try {
-      $row = $this->database->select('dc_campaign_dungeons', 'd')
-        ->fields('d', ['id', 'dungeon_id', 'dungeon_data'])
-        ->condition('d.campaign_id', $campaign_id)
-        ->execute()
-        ->fetchAssoc();
+      $runtime_character_id = NULL;
+      if (is_string($preferred_actor_id) && trim($preferred_actor_id) !== '') {
+        $runtime_character_id = $this->runtimeBootstrap->resolveRuntimeCharacterIdForActor($campaign_id, trim($preferred_actor_id));
+      }
+      $row = $this->runtimeBootstrap->loadAuthoritativeDungeonRowForRuntimeRead($campaign_id, $runtime_character_id);
 
       if (!empty($row['dungeon_data'])) {
         $decoded = json_decode($row['dungeon_data'], TRUE) ?: NULL;
         if (is_array($decoded)) {
+          $decoded['campaign_id'] = $campaign_id;
           if (trim((string) ($decoded['dungeon_id'] ?? '')) === '') {
             $decoded['dungeon_id'] = trim((string) ($row['dungeon_id'] ?? ''));
           }
@@ -1224,6 +1278,52 @@ class GameCoordinatorService {
   protected function buildActionContract(?PhaseHandlerInterface $handler, array $game_state, array $dungeon_data, ?string $actor_id = NULL): ?array {
     if ($handler !== NULL && method_exists($handler, 'getClientActionContract')) {
       return $handler->getClientActionContract($game_state, $dungeon_data, $actor_id);
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Enforce deny-by-default capability boundary for gameplay intents.
+   *
+   * Returns a violation code when the intent payload attempts to include
+   * command/system capability hints that are outside canonical gameplay scope.
+   */
+  protected function validateActorCapabilityBoundary(array $intent): ?string {
+    $params = $intent['params'] ?? [];
+    if ($params !== [] && !is_array($params)) {
+      return 'intent_params_not_object';
+    }
+
+    $intent_type = strtolower(trim((string) ($intent['type'] ?? '')));
+    if ($intent_type !== '' && in_array($intent_type, self::FORBIDDEN_INTENT_CAPABILITY_KEYS, TRUE)) {
+      return 'forbidden_intent_type_' . $intent_type;
+    }
+
+    $forbidden_key_path = $this->findForbiddenCapabilityKeyPath($intent, 'intent');
+    if (is_string($forbidden_key_path) && $forbidden_key_path !== '') {
+      return 'forbidden_capability_key_' . $forbidden_key_path;
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Find the first forbidden capability key path in an intent payload.
+   */
+  protected function findForbiddenCapabilityKeyPath(array $payload, string $path_prefix): ?string {
+    foreach ($payload as $key => $value) {
+      $normalized_key = strtolower(trim((string) $key));
+      $current_path = $path_prefix . '.' . $normalized_key;
+      if (in_array($normalized_key, self::FORBIDDEN_INTENT_CAPABILITY_KEYS, TRUE)) {
+        return $current_path;
+      }
+      if (is_array($value)) {
+        $nested_path = $this->findForbiddenCapabilityKeyPath($value, $current_path);
+        if (is_string($nested_path) && $nested_path !== '') {
+          return $nested_path;
+        }
+      }
     }
 
     return NULL;

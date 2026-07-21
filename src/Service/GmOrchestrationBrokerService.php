@@ -236,10 +236,24 @@ class GmOrchestrationBrokerService {
       ];
     }
 
-    $result = $this->questTouchpointService->ingestEvent($campaign_id, [
+    $ingest_payload = [
       'character_id' => $spec['character_id'],
       'touchpoint' => $spec['touchpoint'],
-    ]);
+    ];
+    $payload_validation = $this->validateQuestTouchpointIngressPayload($ingest_payload);
+    if (empty($payload_validation['valid'])) {
+      $errors = array_values(array_filter(array_map('strval', (array) ($payload_validation['errors'] ?? []))));
+      $this->canonicalActionRegistry->recordUsage($campaign_id, 'apply_quest_touchpoint', 'rejected', [
+        'character_id' => $spec['character_id'],
+        'errors' => $errors,
+      ]);
+      return [
+        'success' => FALSE,
+        'error' => $errors !== [] ? implode(' ', $errors) : 'Quest touchpoint contract validation failed.',
+      ];
+    }
+
+    $result = $this->questTouchpointService->ingestEvent($campaign_id, $ingest_payload);
     if (empty($result['success'])) {
       $this->canonicalActionRegistry->recordUsage($campaign_id, 'apply_quest_touchpoint', 'rejected', [
         'character_id' => $spec['character_id'],
@@ -272,7 +286,7 @@ class GmOrchestrationBrokerService {
     }
 
     $quest = $action['details']['quest'] ?? [];
-    $result = $this->questTouchpointService->ingestEvent($campaign_id, [
+    $ingest_payload = [
       'character_id' => $character_id,
       'touchpoint' => [
         'objective_type' => $quest['objective_type'] ?? '',
@@ -284,7 +298,22 @@ class GmOrchestrationBrokerService {
         'room_id' => $room_id,
         'confidence' => $quest['confidence'] ?? 'high',
       ],
-    ]);
+    ];
+    $payload_validation = $this->validateQuestTouchpointIngressPayload($ingest_payload);
+    if (empty($payload_validation['valid'])) {
+      $errors = array_values(array_filter(array_map('strval', (array) ($payload_validation['errors'] ?? []))));
+      $this->canonicalActionRegistry->recordUsage($campaign_id, 'quest_turn_in', 'rejected', [
+        'room_id' => $room_id,
+        'character_id' => $character_id,
+        'errors' => $errors,
+      ]);
+      return [
+        'success' => FALSE,
+        'error' => $errors !== [] ? implode(' ', $errors) : 'Quest turn-in touchpoint contract validation failed.',
+      ];
+    }
+
+    $result = $this->questTouchpointService->ingestEvent($campaign_id, $ingest_payload);
 
     if (empty($result['success'])) {
       $this->canonicalActionRegistry->recordUsage($campaign_id, 'quest_turn_in', 'rejected', [
@@ -647,6 +676,21 @@ class GmOrchestrationBrokerService {
       'character_id' => $resolved_character_id,
       'touchpoint' => $touchpoint,
     ];
+  }
+
+  /**
+   * Validate quest touchpoint ingress payloads against the canonical contract.
+   */
+  protected function validateQuestTouchpointIngressPayload(array $payload): array {
+    $state_validation = $this->serviceContainer->get('dungeoncrawler_content.state_validation_service');
+    if (!($state_validation instanceof StateValidationService)) {
+      return [
+        'valid' => FALSE,
+        'errors' => ['Runtime contract validation service is unavailable for quest touchpoint ingress.'],
+      ];
+    }
+
+    return $state_validation->validateQuestTouchpointIngest($payload);
   }
 
   /**

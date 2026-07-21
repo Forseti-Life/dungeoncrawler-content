@@ -11,6 +11,7 @@ use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\QuestTouchpointService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
+use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -191,9 +192,32 @@ class QuestTrackerControllerTest extends UnitTestCase {
         'decision' => 'APPLY_PROGRESS',
       ]);
 
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->expects($this->once())
+      ->method('validateQuestConfirmationResolve')
+      ->with($this->callback(static function (array $payload): bool {
+        return ($payload['resolution'] ?? '') === 'approved'
+          && ($payload['resolved_by'] ?? '') === 'gm';
+      }))
+      ->willReturn([
+        'valid' => TRUE,
+        'errors' => [],
+      ]);
+    $state_validation->expects($this->once())
+      ->method('validateQuestTouchpointIngest')
+      ->with($this->callback(static function (array $payload): bool {
+        return (int) ($payload['character_id'] ?? 0) === 99
+          && ($payload['touchpoint']['objective_type'] ?? '') === 'interact';
+      }))
+      ->willReturn([
+        'valid' => TRUE,
+        'errors' => [],
+      ]);
+
     $container = new ContainerBuilder();
     $container->set('dungeoncrawler_content.quest_confirmation', $confirmation_service);
     $container->set('dungeoncrawler_content.quest_touchpoint', $touchpoint_service);
+    $container->set('dungeoncrawler_content.state_validation_service', $state_validation);
     \Drupal::setContainer($container);
 
     $controller = new QuestTrackerController(
@@ -221,6 +245,108 @@ class QuestTrackerControllerTest extends UnitTestCase {
     $this->assertSame(200, $response->getStatusCode());
     $this->assertTrue($data['success']);
     $this->assertSame('APPLY_PROGRESS', $data['apply_result']['decision']);
+  }
+
+  /**
+   * @covers ::ingestTouchpoint
+   */
+  public function testIngestTouchpointRejectsInvalidContractPayload(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->expects($this->once())
+      ->method('validateQuestTouchpointIngest')
+      ->willReturn([
+        'valid' => FALSE,
+        'errors' => ['touchpoint.objective_type is required'],
+      ]);
+
+    $touchpoint_service = $this->createMock(QuestTouchpointService::class);
+    $touchpoint_service->expects($this->never())->method('ingestEvent');
+
+    $container = new ContainerBuilder();
+    $container->set('dungeoncrawler_content.state_validation_service', $state_validation);
+    $container->set('dungeoncrawler_content.quest_touchpoint', $touchpoint_service);
+    \Drupal::setContainer($container);
+
+    $controller = new QuestTrackerController(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(QuestGeneratorService::class),
+      $this->createMock(QuestTrackerService::class)
+    );
+
+    $response = $controller->ingestTouchpoint(85, Request::create(
+      '/api/campaign/85/quest-touchpoints',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'character_id' => 99,
+        'touchpoint' => [],
+      ])
+    ));
+    $data = json_decode($response->getContent(), TRUE);
+
+    $this->assertSame(400, $response->getStatusCode());
+    $this->assertFalse($data['success']);
+    $this->assertSame('Invalid quest touchpoint ingest payload', $data['error']);
+  }
+
+  /**
+   * @covers ::resolveTouchpointConfirmation
+   */
+  public function testResolveTouchpointConfirmationRejectsInvalidResolveContractPayload(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $state_validation = $this->createMock(StateValidationService::class);
+    $state_validation->expects($this->once())
+      ->method('validateQuestConfirmationResolve')
+      ->willReturn([
+        'valid' => FALSE,
+        'errors' => ['resolved_by is required'],
+      ]);
+
+    $confirmation_service = $this->createMock(QuestConfirmationService::class);
+    $confirmation_service->expects($this->never())->method('get');
+
+    $container = new ContainerBuilder();
+    $container->set('dungeoncrawler_content.state_validation_service', $state_validation);
+    $container->set('dungeoncrawler_content.quest_confirmation', $confirmation_service);
+    $container->set('dungeoncrawler_content.quest_touchpoint', $this->createMock(QuestTouchpointService::class));
+    \Drupal::setContainer($container);
+
+    $controller = new QuestTrackerController(
+      $this->createMock(Connection::class),
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(QuestGeneratorService::class),
+      $this->createMock(QuestTrackerService::class)
+    );
+
+    $response = $controller->resolveTouchpointConfirmation(85, 'qcf_123', Request::create(
+      '/api/campaign/85/quest-confirmations/qcf_123/resolve',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'resolution' => 'approved',
+      ])
+    ));
+    $data = json_decode($response->getContent(), TRUE);
+
+    $this->assertSame(400, $response->getStatusCode());
+    $this->assertFalse($data['success']);
+    $this->assertSame('Invalid quest confirmation resolve payload', $data['error']);
   }
 
   /**

@@ -16,6 +16,9 @@ use Psr\Log\LoggerInterface;
  * - Building encounters within XP budget
  * - Validating threat levels
  *
+ * Validation pair: no dedicated validator service; threat/budget checks are
+ * enforced in-generator.
+ *
  * @see /docs/dungeoncrawler/ROOM_DUNGEON_GENERATOR_ARCHITECTURE.md
  */
 class EncounterGeneratorService {

@@ -6,6 +6,9 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 
 /**
  * Provider-agnostic integration layer for image generation.
+ *
+ * Validation pair: no dedicated validator service; enforces provider readiness
+ * and response-shape contracts across provider adapters.
  */
 class ImageGenerationIntegrationService {
 

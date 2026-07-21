@@ -379,7 +379,11 @@ export class RoomViewPanel {
   }
 
   loadActiveRoomView(roomId, options = {}) {
-    this.bus.emit('room:view-reload-requested', { roomId, ...options });
+    this.bus.emit('room:view-refresh-intent', {
+      roomId,
+      ...options,
+      reason: options?.reason || 'room-view-panel',
+    });
   }
 
   setCachedRoomViewPayload(cacheKey, payload) {

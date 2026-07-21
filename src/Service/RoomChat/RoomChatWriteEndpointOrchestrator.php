@@ -40,6 +40,9 @@ class RoomChatWriteEndpointOrchestrator {
     if ($channel === 'room' && !$is_player_turn) {
       throw new \InvalidArgumentException('Only player messages may be posted to the room channel.', 400);
     }
+    if (str_starts_with($channel, 'gm_private:') && !$is_player_turn) {
+      throw new \InvalidArgumentException('Only player messages may be posted to a GM private channel.', 400);
+    }
 
     // stream: use NDJSON streaming for player turns so the client can render
     // player ack, progress, primary reply, and any follow-up reactions

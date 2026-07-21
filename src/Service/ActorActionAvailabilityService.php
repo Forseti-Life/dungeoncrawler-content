@@ -415,7 +415,7 @@ class ActorActionAvailabilityService {
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($spells),
-        'is_action_currently_legal' => $is_active_turn_actor && $actions_remaining >= 2 && $spells !== [],
+        'is_action_currently_legal' => TRUE,
         'options' => $spells,
       ],
       'use_feat' => [
@@ -423,7 +423,7 @@ class ActorActionAvailabilityService {
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($feats),
-        'is_action_currently_legal' => $is_active_turn_actor && $actions_remaining >= 1 && $feats !== [],
+        'is_action_currently_legal' => TRUE,
         'options' => $feats,
       ],
       'use_consumable' => [
@@ -431,7 +431,7 @@ class ActorActionAvailabilityService {
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($consumables),
-        'is_action_currently_legal' => $is_active_turn_actor && $actions_remaining >= 1 && $consumables !== [],
+        'is_action_currently_legal' => TRUE,
         'options' => $consumables,
       ],
       'activate_item' => [
@@ -439,7 +439,7 @@ class ActorActionAvailabilityService {
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($item_activations),
-        'is_action_currently_legal' => $is_active_turn_actor && $actions_remaining >= 1 && $item_activations !== [],
+        'is_action_currently_legal' => TRUE,
         'options' => $item_activations,
       ],
       'trigger_hazard' => [
@@ -447,7 +447,7 @@ class ActorActionAvailabilityService {
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($hazard_actions),
-        'is_action_currently_legal' => $is_active_turn_actor && $actions_remaining >= 1 && $hazard_actions !== [],
+        'is_action_currently_legal' => TRUE,
         'options' => $hazard_actions,
       ],
     ];

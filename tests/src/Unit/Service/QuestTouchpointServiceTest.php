@@ -230,7 +230,42 @@ class QuestTouchpointServiceTest extends UnitTestCase {
   }
 
   /**
-   * Offered direct-dialogue quests start without auto-completing accept objectives.
+   * Distinct direct dialogue messages must not share a dedupe fingerprint.
+   */
+  public function testBuildFingerprintIncludesPlayerMessageForDialogueTouchpoints(): void {
+    $store = $this->createMock(KeyValueStoreInterface::class);
+    $factory = $this->createMock(KeyValueFactoryInterface::class);
+    $factory->method('get')->willReturn($store);
+
+    $service = new class(
+      $this->createMock(QuestTrackerService::class),
+      $this->createMock(QuestConfirmationService::class),
+      $factory,
+      $this->createMock(TimeInterface::class)
+    ) extends QuestTouchpointService {
+      public function exposedBuildFingerprint(int $campaign_id, int $character_id, array $touchpoint, int $occurred_at): string {
+        return $this->buildFingerprint($campaign_id, $character_id, $touchpoint, $occurred_at);
+      }
+    };
+
+    $base_touchpoint = [
+      'objective_type' => 'interact',
+      'npc_ref' => 'Eldric',
+      'entity_ref' => 'npc_tavern_keeper',
+      'room_id' => 'tavern_entrance',
+      'matching_mode' => 'direct_npc_dialogue',
+    ];
+
+    $same_message = $service->exposedBuildFingerprint(415, 2013, $base_touchpoint + ['player_message' => 'Eldric, here is your stuff.'], 1784123518);
+    $same_message_again = $service->exposedBuildFingerprint(415, 2013, $base_touchpoint + ['player_message' => 'Eldric, here is your stuff.'], 1784123518);
+    $different_message = $service->exposedBuildFingerprint(415, 2013, $base_touchpoint + ['player_message' => 'Eldric, what jobs do you have for me?'], 1784123518);
+
+    $this->assertSame($same_message, $same_message_again);
+    $this->assertNotSame($same_message, $different_message);
+  }
+
+  /**
+   * Deterministic offered quest matches auto-start and apply progress.
    */
   public function testIngestEventStartsOfferedQuestBeforeApplyingProgress(): void {
     $store = $this->createMock(KeyValueStoreInterface::class);
@@ -244,10 +279,10 @@ class QuestTouchpointServiceTest extends UnitTestCase {
     $factory->method('get')->willReturn($store);
 
     $quest_tracker = $this->createMock(QuestTrackerService::class);
-    $quest_tracker->expects($this->once())
+    $quest_tracker->expects($this->exactly(2))
       ->method('getActiveQuests')
       ->with(85, 99)
-      ->willReturn([]);
+      ->willReturnOnConsecutiveCalls([], [$this->buildOfferedQuestRow()]);
     $quest_tracker->expects($this->once())
       ->method('getOfferQuests')
       ->with(85, 'crossroads', 99)
@@ -256,8 +291,13 @@ class QuestTouchpointServiceTest extends UnitTestCase {
       ->method('startQuest')
       ->with(85, 'rescue_merchant_offered', 99)
       ->willReturn(TRUE);
-    $quest_tracker->expects($this->never())
-      ->method('updateObjectiveProgress');
+    $quest_tracker->expects($this->once())
+      ->method('updateObjectiveProgress')
+      ->with(85, 'rescue_merchant_offered', 'escort_to_safety_runtime_1', 1, 99)
+      ->willReturn([
+        'success' => TRUE,
+        'objective_completed' => TRUE,
+      ]);
 
     $confirmation_service = $this->createMock(QuestConfirmationService::class);
     $confirmation_service->expects($this->never())
@@ -279,8 +319,9 @@ class QuestTouchpointServiceTest extends UnitTestCase {
     ]);
 
     $this->assertTrue($result['success']);
-    $this->assertSame('STARTED_QUEST', $result['decision']);
+    $this->assertSame('APPLY_PROGRESS', $result['decision']);
     $this->assertSame('rescue_merchant_offered', $result['quest_id']);
+    $this->assertSame('escort_to_safety_runtime_1', $result['objective_id']);
   }
 
   /**

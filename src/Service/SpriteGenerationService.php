@@ -10,6 +10,9 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
  * Checks GeneratedImageRepository for existing sprites keyed by sprite_id.
  * When none exist, generates one via the image generation integration layer,
  * persists the result, and returns the URL.
+ *
+ * Validation pair: no dedicated validator service; relies on image integration
+ * provider contracts and generated-image repository persistence checks.
  */
 class SpriteGenerationService {
 

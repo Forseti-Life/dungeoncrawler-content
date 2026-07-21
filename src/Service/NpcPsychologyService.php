@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\IntegrityConstraintViolationException;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\ai_conversation\Service\AIApiService;
 use Psr\Log\LoggerInterface;
@@ -229,6 +230,17 @@ class NpcPsychologyService {
           'updated' => $now,
         ])
         ->execute();
+    }
+    catch (IntegrityConstraintViolationException $e) {
+      $existing = $this->loadProfile($campaign_id, $canonical_ref);
+      if ($existing !== NULL) {
+        return $existing;
+      }
+      $this->logger->error('Failed to create NPC psychology for @ref: @err', [
+        '@ref' => $canonical_ref,
+        '@err' => $e->getMessage(),
+      ]);
+      throw $e;
     }
     catch (\Exception $e) {
       $this->logger->error('Failed to create NPC psychology for @ref: @err', [
@@ -663,33 +675,48 @@ class NpcPsychologyService {
   // -------------------------------------------------------------------------
 
   /**
-   * Build a full character sheet context string for AI prompt injection.
-   *
-   * This is the primary method called by RoomChatService and EncounterPhaseHandler
-   * to give the AI everything it needs to portray the NPC authentically.
+   * Build unified actor context shared by chat and action decision lanes.
    *
    * @param int $campaign_id
    *   Campaign ID.
    * @param string $entity_ref
-   *   NPC entity reference.
+   *   Actor entity reference.
    * @param array $live_entity
-   *   Optional live entity_instance data from dungeon_data (for real-time HP etc).
+   *   Optional live actor snapshot used for display/stats context.
    *
-   * @return string
-   *   Formatted context string ready for prompt injection.
+   * @return array
+   *   Canonical actor context envelope.
    */
-  public function buildNpcContextForPrompt(int $campaign_id, string $entity_ref, array $live_entity = []): string {
-    $profile = $this->loadProfile($campaign_id, $entity_ref);
-
+  public function buildUnifiedActorContext(int $campaign_id, string $entity_ref, array $live_entity = []): array {
+    $resolved_name = $this->resolveLiveEntityDisplayName($live_entity, $entity_ref);
+    $profile = $campaign_id > 0 ? $this->loadProfile($campaign_id, $entity_ref) : NULL;
     if (!$profile) {
-      // Minimal context if no profile exists yet.
-      $name = $live_entity['state']['metadata']['display_name']
-        ?? $live_entity['name']
-        ?? $entity_ref;
-      return "You are {$name}. No detailed background is available.";
+      $decision_profile = $this->buildDefaultDecisionProfile($resolved_name);
+      return [
+        'entity_ref' => $entity_ref,
+        'profile' => NULL,
+        'decision_profile' => $decision_profile,
+        'combat_psychology_context' => '',
+        'prompt_context' => "You are {$decision_profile['display_name']}. No detailed background is available.",
+      ];
     }
 
-    return $this->buildCharacterSheetContext($profile, $live_entity);
+    $decision_profile = $this->buildDecisionProfileFromProfile($profile, $resolved_name);
+    return [
+      'entity_ref' => $entity_ref,
+      'profile' => $profile,
+      'decision_profile' => $decision_profile,
+      'combat_psychology_context' => $this->buildCombatPsychologyContextFromDecisionProfile($decision_profile),
+      'prompt_context' => $this->buildCharacterSheetContext($profile, $live_entity),
+    ];
+  }
+
+  /**
+   * Build a full character sheet context string for AI prompt injection.
+   */
+  public function buildNpcContextForPrompt(int $campaign_id, string $entity_ref, array $live_entity = []): string {
+    $context = $this->buildUnifiedActorContext($campaign_id, $entity_ref, $live_entity);
+    return (string) ($context['prompt_context'] ?? '');
   }
 
   /**
@@ -707,6 +734,7 @@ class NpcPsychologyService {
     if (!empty($sheet['ancestry'])) {
       $parts[] = "Ancestry/Race: {$sheet['ancestry']}";
     }
+
     if (!empty($sheet['class'])) {
       $parts[] = "Class: {$sheet['class']}";
     }
@@ -842,6 +870,135 @@ class NpcPsychologyService {
     }
 
     return $context;
+  }
+
+  /**
+   * Build normalized decision profile fields from a psychology profile.
+   */
+  protected function buildDecisionProfileFromProfile(array $profile, string $fallback_name): array {
+    $attitude = strtolower(trim((string) ($profile['attitude'] ?? 'indifferent')));
+    if (!in_array($attitude, self::ATTITUDE_LADDER, TRUE)) {
+      $attitude = 'indifferent';
+    }
+
+    $sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
+    $goals = $this->normalizeGoals($sheet['goals'] ?? [], (string) ($profile['motivations'] ?? ''));
+    $monologue = is_array($profile['inner_monologue'] ?? NULL) ? $profile['inner_monologue'] : [];
+    $latest_thought = NULL;
+    if ($monologue !== []) {
+      $last = end($monologue);
+      if (is_array($last)) {
+        $latest_thought = [
+          'thought' => (string) ($last['thought'] ?? ''),
+          'emotion' => (string) ($last['emotion'] ?? ''),
+          'event_type' => (string) ($last['event_type'] ?? $last['event'] ?? ''),
+        ];
+      }
+    }
+
+    return [
+      'display_name' => (string) ($profile['display_name'] ?? $fallback_name),
+      'attitude' => $attitude,
+      'personality_traits' => (string) ($profile['personality_traits'] ?? ''),
+      'personality_axes' => $this->normalizePersonalityAxes(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []),
+      'motivations' => (string) ($profile['motivations'] ?? ''),
+      'fears' => (string) ($profile['fears'] ?? ''),
+      'bonds' => (string) ($profile['bonds'] ?? ''),
+      'goals' => $goals,
+      'latest_thought' => $latest_thought,
+    ];
+  }
+
+  /**
+   * Build deterministic neutral decision profile when no stored profile exists.
+   */
+  protected function buildDefaultDecisionProfile(string $display_name): array {
+    return [
+      'display_name' => $display_name,
+      'attitude' => 'indifferent',
+      'personality_traits' => '',
+      'personality_axes' => self::PERSONALITY_AXES,
+      'motivations' => '',
+      'fears' => '',
+      'bonds' => '',
+      'goals' => self::DEFAULT_GOALS,
+      'latest_thought' => NULL,
+    ];
+  }
+
+  /**
+   * Build encounter-action psychology text from canonical decision profile.
+   */
+  protected function buildCombatPsychologyContextFromDecisionProfile(array $decision_profile): string {
+    $parts = [];
+    $parts[] = '=== NPC COMBAT PERSONALITY ===';
+    $parts[] = 'Name: ' . (string) ($decision_profile['display_name'] ?? 'Unknown');
+    $attitude = (string) ($decision_profile['attitude'] ?? 'indifferent');
+    $parts[] = 'Attitude toward party: ' . $attitude;
+
+    $traits = trim((string) ($decision_profile['personality_traits'] ?? ''));
+    if ($traits !== '') {
+      $parts[] = 'Personality: ' . $traits;
+    }
+    $motivations = trim((string) ($decision_profile['motivations'] ?? ''));
+    if ($motivations !== '') {
+      $parts[] = 'Fighting motivation: ' . $motivations;
+    }
+    $goals = is_array($decision_profile['goals'] ?? NULL) ? $decision_profile['goals'] : [];
+    if ($goals !== []) {
+      $parts[] = 'Goals: ' . implode(', ', $goals);
+    }
+
+    $axes = $this->normalizePersonalityAxes(is_array($decision_profile['personality_axes'] ?? NULL) ? $decision_profile['personality_axes'] : []);
+    $hints = [];
+    $boldness = $axes['boldness'] ?? 5;
+    if ($boldness <= 3) {
+      $hints[] = 'Will try to flee or surrender if below 25% HP';
+    }
+    elseif ($boldness >= 8) {
+      $hints[] = 'Fights recklessly to the death, never retreats';
+    }
+
+    $discipline = $axes['discipline'] ?? 5;
+    if ($discipline >= 7) {
+      $hints[] = 'Coordinates with allies, focuses fire on wounded targets';
+    }
+    elseif ($discipline <= 3) {
+      $hints[] = 'Fights chaotically, may switch targets randomly';
+    }
+
+    $cunning = $axes['cunning'] ?? 5;
+    if ($cunning >= 7) {
+      $hints[] = 'Targets the weakest or most dangerous PC strategically';
+    }
+
+    $empathy = $axes['empathy'] ?? 5;
+    if ($empathy >= 7 && in_array($attitude, ['friendly', 'helpful'], TRUE)) {
+      $hints[] = 'May refuse to fight, or try to end combat through diplomacy';
+    }
+    if ($hints !== []) {
+      $parts[] = 'Combat behavior: ' . implode('; ', $hints);
+    }
+
+    $latest = is_array($decision_profile['latest_thought'] ?? NULL) ? $decision_profile['latest_thought'] : NULL;
+    $latest_text = trim((string) ($latest['thought'] ?? ''));
+    if ($latest_text !== '') {
+      $emotion = (string) ($latest['emotion'] ?? 'neutral');
+      $parts[] = 'Current mindset: "' . $latest_text . '" (feeling ' . $emotion . ')';
+    }
+
+    return implode("\n", $parts);
+  }
+
+  /**
+   * Resolve a stable display name from a live entity snapshot.
+   */
+  protected function resolveLiveEntityDisplayName(array $live_entity, string $entity_ref): string {
+    $name = $live_entity['state']['metadata']['display_name']
+      ?? $live_entity['name']
+      ?? $entity_ref;
+    $name = trim((string) $name);
+    return $name !== '' ? $name : $entity_ref;
   }
 
   /**
@@ -1414,7 +1571,7 @@ class NpcPsychologyService {
       ->range(0, 1);
     $row = $query->execute()->fetchAssoc();
     if (is_array($row) && !empty($row)) {
-      return $row;
+      return $this->applyRoomScopedLocationFromSeed($campaign_id, $row, $seed_data);
     }
 
     $display_name = trim((string) ($seed_data['display_name'] ?? ''));
@@ -1427,7 +1584,7 @@ class NpcPsychologyService {
         ->execute()
         ->fetchAll(\PDO::FETCH_ASSOC);
       if (count($name_matches) === 1) {
-        return $name_matches[0];
+        return $this->applyRoomScopedLocationFromSeed($campaign_id, $name_matches[0], $seed_data);
       }
     }
 
@@ -1493,6 +1650,7 @@ class NpcPsychologyService {
       'backstory' => (string) ($seed_data['backstory'] ?? ''),
       'stats' => $stats,
     ];
+    $location_seed = $this->normalizeCanonicalActorLocationSeed($seed_data);
 
     $actor_id = (int) $this->database->insert('dc_campaign_characters')
       ->fields([
@@ -1506,8 +1664,8 @@ class NpcPsychologyService {
         'instance_id' => $instance_id,
         'type' => $actor_type,
         'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
-        'location_type' => 'global',
-        'location_ref' => '',
+        'location_type' => $location_seed['location_type'],
+        'location_ref' => $location_seed['location_ref'],
         'updated' => $now,
         'name' => $name,
         'level' => max(1, (int) ($seed_data['level'] ?? 1)),
@@ -1526,7 +1684,7 @@ class NpcPsychologyService {
         'experience_points' => 0,
         'position_q' => 0,
         'position_r' => 0,
-        'last_room_id' => '',
+        'last_room_id' => $location_seed['last_room_id'],
         'version' => 1,
         'lifecycle_state' => $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc',
       ])
@@ -1546,6 +1704,86 @@ class NpcPsychologyService {
       ));
     }
     return $row;
+  }
+
+  /**
+   * Promote global NPC actor rows to room scope when room context is available.
+   *
+   * @param array<string, mixed> $row
+   * @param array<string, mixed> $seed_data
+   *
+   * @return array<string, mixed>
+   */
+  protected function applyRoomScopedLocationFromSeed(int $campaign_id, array $row, array $seed_data): array {
+    $location_seed = $this->normalizeCanonicalActorLocationSeed($seed_data);
+    if ($location_seed['location_type'] !== 'room' || $location_seed['location_ref'] === '') {
+      return $row;
+    }
+
+    $actor_id = (int) ($row['id'] ?? 0);
+    $actor_type = strtolower(trim((string) ($row['type'] ?? '')));
+    $current_location_type = strtolower(trim((string) ($row['location_type'] ?? '')));
+    $current_location_ref = trim((string) ($row['location_ref'] ?? ''));
+    $current_last_room_id = trim((string) ($row['last_room_id'] ?? ''));
+    $is_unscoped = in_array($current_location_type, ['', 'global', 'roster'], TRUE)
+      && $current_location_ref === ''
+      && $current_last_room_id === '';
+    if ($actor_id <= 0 || $actor_type !== 'npc' || !$is_unscoped) {
+      return $row;
+    }
+
+    $now = time();
+    $updated = $this->database->update('dc_campaign_characters')
+      ->fields([
+        'location_type' => 'room',
+        'location_ref' => $location_seed['location_ref'],
+        'last_room_id' => $location_seed['last_room_id'],
+        'updated' => $now,
+        'changed' => $now,
+      ])
+      ->condition('id', $actor_id)
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+    if ($updated <= 0) {
+      return $row;
+    }
+
+    $reloaded = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c')
+      ->condition('id', $actor_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return is_array($reloaded) && !empty($reloaded) ? $reloaded : $row;
+  }
+
+  /**
+   * Build canonical actor location fields from optional seed data.
+   *
+   * @param array<string, mixed> $seed_data
+   *
+   * @return array{location_type:string,location_ref:string,last_room_id:string}
+   */
+  protected function normalizeCanonicalActorLocationSeed(array $seed_data): array {
+    $location_type = strtolower(trim((string) ($seed_data['location_type'] ?? '')));
+    $location_ref = trim((string) ($seed_data['location_ref'] ?? ''));
+    $room_id = trim((string) ($seed_data['room_id'] ?? ''));
+    $last_room_id = trim((string) ($seed_data['last_room_id'] ?? ''));
+
+    $room_anchor = $location_ref !== '' ? $location_ref : ($room_id !== '' ? $room_id : $last_room_id);
+    if ($room_anchor === '') {
+      return [
+        'location_type' => 'global',
+        'location_ref' => '',
+        'last_room_id' => '',
+      ];
+    }
+
+    return [
+      'location_type' => $location_type !== '' && $location_type !== 'global' ? $location_type : 'room',
+      'location_ref' => $location_ref !== '' ? $location_ref : $room_anchor,
+      'last_room_id' => $last_room_id !== '' ? $last_room_id : $room_anchor,
+    ];
   }
 
 }

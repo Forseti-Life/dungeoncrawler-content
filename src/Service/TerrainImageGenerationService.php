@@ -7,6 +7,9 @@ use Drupal\Core\Extension\ModuleExtensionList;
 
 /**
  * Generates terrain and habitat images using the image generation integration.
+ *
+ * Validation pair: no dedicated validator service; relies on image integration
+ * provider contracts and generated-image repository persistence checks.
  */
 class TerrainImageGenerationService {
 

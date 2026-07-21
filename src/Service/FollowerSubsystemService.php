@@ -487,7 +487,7 @@ class FollowerSubsystemService {
       $canonical = isset($working['character']) && is_array($working['character'])
         ? $working['character']
         : $working;
-      $persisted_record = $this->resolvePersistedActorRecord($canonical, $follower_kind, $owner_character_id);
+      $persisted_record = $this->resolvePersistedActorRecord($canonical, $follower_kind, $owner_character_id, FALSE);
       if ($persisted_record !== NULL && !$this->persistedActorRecordNeedsRefresh($follower_kind, $persisted_record)) {
         continue;
       }
@@ -1060,8 +1060,11 @@ class FollowerSubsystemService {
 
   /**
    * Resolve persisted authoritative follower actor record from character data.
+   *
+   * When strict=false, mismatched legacy records are treated as stale and ignored
+   * so callers can regenerate canonical records deterministically.
    */
-  protected function resolvePersistedActorRecord(array $char_data, string $follower_kind, int $owner_character_id): ?array {
+  protected function resolvePersistedActorRecord(array $char_data, string $follower_kind, int $owner_character_id, bool $strict = TRUE): ?array {
     $follower_kind = $this->normalizeFollowerKind($follower_kind);
     $sources = [];
 
@@ -1086,10 +1089,13 @@ class FollowerSubsystemService {
       $record_kind = strtolower(trim((string) ($metadata['follower_kind'] ?? '')));
       $record_owner = $this->normalizePositiveInt($metadata['owner_character_id'] ?? 0);
       if ($record_kind !== $follower_kind || $record_owner !== $owner_character_id) {
-        throw new \RuntimeException(sprintf(
-          'Persisted follower actor record mismatch for follower kind "%s".',
-          $follower_kind
-        ));
+        if ($strict) {
+          throw new \RuntimeException(sprintf(
+            'Persisted follower actor record mismatch for follower kind "%s".',
+            $follower_kind
+          ));
+        }
+        continue;
       }
       return $record;
     }

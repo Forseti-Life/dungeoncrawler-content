@@ -12,7 +12,7 @@
       "notes": "Eldric knows the grandmother at Grandma's House and can recommend adventurers to help her.",
       "relationship_data": {
         "source_display_name": "Eldric",
-        "target_display_name": "The Kind Old Lady",
+        "target_display_name": "Grandmother",
         "storyline_template_id": "little-trouble-in-big-absalom",
         "seeded_default": true
       }
@@ -28,7 +28,7 @@
       "status": "known",
       "notes": "The grandmother trusts Eldric to send reliable help.",
       "relationship_data": {
-        "source_display_name": "The Kind Old Lady",
+        "source_display_name": "Grandmother",
         "target_display_name": "Eldric",
         "storyline_template_id": "little-trouble-in-big-absalom",
         "seeded_default": true

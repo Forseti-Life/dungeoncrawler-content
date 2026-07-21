@@ -223,23 +223,16 @@ class RoomGeneratorService {
       $library_room = $this->ensureCanonicalContracts($library_room, $library_room_id);
       if ($should_persist_room) {
         // Persist the library instance to the campaign cache.
-        try {
-          $db_id = $this->persistRoom($context, $library_room);
-          if ($db_id) {
-            $library_room['db_id'] = $db_id;
-          }
-          // Update source_room_id link.
-          if (!empty($library_room['_library_source'])) {
-            $this->database->update('dc_campaign_rooms')
-              ->fields(['source_room_id' => $library_room['_library_source']])
-              ->condition('id', $db_id)
-              ->execute();
-          }
+        $db_id = $this->persistRoom($context, $library_room);
+        if ($db_id) {
+          $library_room['db_id'] = $db_id;
         }
-        catch (\Exception $e) {
-          $this->logger->warning('Failed to persist library room: @error', [
-            '@error' => $e->getMessage(),
-          ]);
+        // Update source_room_id link.
+        if (!empty($library_room['_library_source'])) {
+          $this->database->update('dc_campaign_rooms')
+            ->fields(['source_room_id' => $library_room['_library_source']])
+            ->condition('id', $db_id)
+            ->execute();
         }
       }
       $this->prefetchRoomViewImage($library_room, $context);
@@ -315,36 +308,22 @@ class RoomGeneratorService {
     $room_data = $this->ensureCanonicalContracts($room_data, $room_id);
 
     // Step 6: Validate against room.schema.json
-    try {
-      if (method_exists($this->schemaLoader, 'validate')) {
-        $validated = $this->schemaLoader->validate('room', $room_data);
-        if (!$validated) {
-          $this->logger->warning('Room data failed schema validation for @name — proceeding with unvalidated data', [
-            '@name' => $room_data['name'],
-          ]);
-        }
-      }
+    if (!method_exists($this->schemaLoader, 'validate')) {
+      throw new \RuntimeException('Room generation contract violation: room schema validator is unavailable.');
     }
-    catch (\Throwable $e) {
-      // Schema validation is non-blocking; log and continue.
-      $this->logger->notice('Schema validation unavailable: @msg', [
-        '@msg' => $e->getMessage(),
-      ]);
+    $validated = $this->schemaLoader->validate('room', $room_data);
+    if (!$validated) {
+      throw new \RuntimeException(sprintf(
+        'Room generation contract violation: room %s failed schema validation.',
+        (string) ($room_data['room_id'] ?? 'unknown')
+      ));
     }
 
     // Step 7: Persist to database unless deferred to dungeon-level transaction.
     if ($should_persist_room) {
-      try {
-        $db_id = $this->persistRoom($context, $room_data);
-        if ($db_id) {
-          $room_data['db_id'] = $db_id;
-        }
-      }
-      catch (\Exception $e) {
-        $this->logger->error('Failed to persist room @name: @error', [
-          '@name' => $room_data['name'],
-          '@error' => $e->getMessage(),
-        ]);
+      $db_id = $this->persistRoom($context, $room_data);
+      if ($db_id) {
+        $room_data['db_id'] = $db_id;
       }
     }
 

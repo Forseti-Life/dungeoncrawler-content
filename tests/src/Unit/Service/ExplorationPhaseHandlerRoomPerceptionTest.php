@@ -3,7 +3,9 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\Select;
 use Drupal\Core\Database\Query\Update;
+use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\dungeoncrawler_content\Service\AiGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
@@ -12,6 +14,7 @@ use Drupal\dungeoncrawler_content\Service\ExplorationPhaseHandler;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
+use Drupal\dungeoncrawler_content\Service\StorylineQuestLifecycleService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
 
@@ -81,7 +84,8 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       $this->createMock(DungeonStateService::class),
       $this->createMock(CharacterStateService::class),
       $roller,
-      $this->createMock(AiGmService::class)
+      $this->createMock(AiGmService::class),
+      $this->createMock(StorylineQuestLifecycleService::class)
     ) extends ExplorationPhaseHandler {
       protected function hasPendingQuestSearchDiscovery(int $campaign_id, string $actor_id, array $params, array $dungeon_data): bool {
         return TRUE;
@@ -318,7 +322,8 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       $this->createMock(DungeonStateService::class),
       $this->createMock(CharacterStateService::class),
       $roller,
-      $this->createMock(AiGmService::class)
+      $this->createMock(AiGmService::class),
+      $this->createMock(StorylineQuestLifecycleService::class)
     ) extends ExplorationPhaseHandler {
       protected function resolveAllQuestSearchCollectibleDiscoveries(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): array {
         return [
@@ -385,7 +390,8 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       $this->createMock(DungeonStateService::class),
       $this->createMock(CharacterStateService::class),
       $roller,
-      $this->createMock(AiGmService::class)
+      $this->createMock(AiGmService::class),
+      $this->createMock(StorylineQuestLifecycleService::class)
     ) extends ExplorationPhaseHandler {
       protected function resolveAllQuestSearchCollectibleDiscoveries(int $campaign_id, string $actor_id, array $params, array &$dungeon_data): array {
         return [
@@ -705,6 +711,71 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::countCharacterQuestCollectiblesForObjective
+   */
+  public function testCollectibleCountUsesObjectiveItemWhenQuestTagsAreAbsent(): void {
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAll')
+      ->with(\PDO::FETCH_ASSOC)
+      ->willReturn([
+        [
+          'state_data' => json_encode([
+            'name' => 'Ledger Entry',
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'quantity' => 2,
+          'item_id' => 'ledger-entry',
+        ],
+      ]);
+
+    $select = $this->createMock(Select::class);
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->willReturnSelf();
+    $select->method('execute')->willReturn($statement);
+
+    $database = $this->createMock(Connection::class);
+    $database->expects($this->once())
+      ->method('select')
+      ->with('dc_campaign_item_instances', 'i')
+      ->willReturn($select);
+
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+
+    $handler = new class(
+      $database,
+      $logger_factory,
+      $this->createMock(RoomChatService::class),
+      $this->createMock(DungeonStateService::class),
+      $this->createMock(CharacterStateService::class),
+      $this->createMock(NumberGenerationService::class),
+      $this->createMock(AiGmService::class),
+      $this->createMock(StorylineQuestLifecycleService::class)
+    ) extends ExplorationPhaseHandler {
+      public function countCollectibles(
+        int $campaign_id,
+        int $character_id,
+        string $quest_id,
+        string $objective_id,
+        string $quest_source = '',
+        string $objective_item = ''
+      ): int {
+        return $this->countCharacterQuestCollectiblesForObjective(
+          $campaign_id,
+          $character_id,
+          $quest_id,
+          $objective_id,
+          $quest_source,
+          $objective_item
+        );
+      }
+    };
+
+    $count = $handler->countCollectibles(42, 17, 'tavern_storyline_leads', 'collect_ledger', '', 'Ledger Entry');
+
+    $this->assertSame(2, $count);
+  }
+
+  /**
    * Builds a handler with the provided dice roller.
    */
   private function buildHandler(NumberGenerationService $roller, ?NarrationEngine $narration_engine = NULL): ExplorationPhaseHandler {
@@ -718,6 +789,7 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
 
     $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
     $logger_factory->method('get')->willReturn($this->createMock(LoggerInterface::class));
+    $storyline_quest_lifecycle_service = $this->createMock(StorylineQuestLifecycleService::class);
 
     return new ExplorationPhaseHandler(
       $database,
@@ -727,6 +799,7 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
       $this->createMock(CharacterStateService::class),
       $roller,
       $this->createMock(AiGmService::class),
+      $storyline_quest_lifecycle_service,
       $narration_engine
     );
   }
@@ -768,6 +841,13 @@ class ExplorationPhaseHandlerRoomPerceptionTest extends UnitTestCase {
           'room_type' => 'storehouse',
           'lighting' => ['level' => 'dim_light'],
           'terrain' => ['type' => 'flooded_stone'],
+          'hexes' => [
+            [
+              'q' => 0,
+              'r' => 0,
+              'h3_index_res14' => '8f28308280f18ff',
+            ],
+          ],
           'gameplay_state' => [
             'search_dc' => 15,
             'sensory_details' => [

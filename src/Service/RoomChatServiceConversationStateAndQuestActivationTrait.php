@@ -881,6 +881,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     }
 
     $location_id = $this->resolveRoomSlugForQuery($campaign_id, $room_id, $dungeon_data) ?? $room_id;
+    $this->ensureRoomStorylineRuntimeContactsMaterialized($campaign_id, $room_id, $location_id);
 
     $matches = $this->questTracker->findMentionedAvailableQuests(
       $campaign_id,
@@ -954,6 +955,23 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     }
 
     return $updates;
+  }
+
+  /**
+   * Materialize room-scoped storyline contacts required for runtime activation.
+   */
+  protected function ensureRoomStorylineRuntimeContactsMaterialized(int $campaign_id, string $room_id, string $location_id): void {
+    if ($campaign_id <= 0 || !$this->storylineManager) {
+      return;
+    }
+
+    $candidates = array_values(array_unique(array_filter([
+      trim($room_id),
+      trim($location_id),
+    ])));
+    foreach ($candidates as $candidate) {
+      $this->storylineManager->ensureRoomRuntimeMaterializationContractsResolved($campaign_id, $candidate);
+    }
   }
 
   /**

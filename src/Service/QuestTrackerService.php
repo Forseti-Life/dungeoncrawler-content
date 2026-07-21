@@ -6,6 +6,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\IntegrityConstraintViolationException;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\dungeoncrawler_content\Exception\StorylineSyncContractException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -53,7 +54,7 @@ class QuestTrackerService {
   /**
    * Objective type service.
    */
-  protected ObjectiveTypeService $objectiveTypeService;
+  protected ?ObjectiveTypeService $objectiveTypeService;
 
   /**
    * Optional chat-session manager for narrator quest updates.
@@ -69,6 +70,11 @@ class QuestTrackerService {
    * Inventory management service for reward item grants.
    */
   protected ?InventoryManagementService $inventoryManagementService;
+
+  /**
+   * Quest prerequisite validator service.
+   */
+  protected ?QuestValidatorService $questValidatorService;
 
   /**
    * Constructs a QuestTrackerService object.
@@ -88,16 +94,18 @@ class QuestTrackerService {
     ?ObjectiveTypeService $objective_type_service = NULL,
     ?ChatSessionManager $chat_session_manager = NULL,
     ?CharacterStateService $character_state_service = NULL,
-    ?InventoryManagementService $inventory_management_service = NULL
+    ?InventoryManagementService $inventory_management_service = NULL,
+    ?QuestValidatorService $quest_validator_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
     $this->time = $time;
     $this->storylineManager = $storyline_manager;
-    $this->objectiveTypeService = $objective_type_service ?? new ObjectiveTypeService();
+    $this->objectiveTypeService = $objective_type_service;
     $this->chatSessionManager = $chat_session_manager;
     $this->characterStateService = $character_state_service;
     $this->inventoryManagementService = $inventory_management_service;
+    $this->questValidatorService = $quest_validator_service;
     if (
       $this->chatSessionManager === NULL
       && \Drupal::hasService('dungeoncrawler_content.chat_session_manager')
@@ -154,18 +162,47 @@ class QuestTrackerService {
       }
 
       $quest_status = strtolower(trim((string) ($quest['status'] ?? '')));
-      if ($quest_status !== 'offered') {
+      $has_active_progress = $this->hasActiveProgress($campaign_id, $quest_id, $character_id, $party_id);
+      if (
+        $character_id !== NULL
+        && $character_id > 0
+        && !$this->isPlayerCharacterQuestScope($campaign_id, $character_id)
+      ) {
+        throw new \InvalidArgumentException(sprintf(
+          'Quest start rejected for non-player scope (campaign=%d quest=%s character=%d).',
+          $campaign_id,
+          $quest_id,
+          $character_id
+        ));
+      }
+      if ($quest_status !== 'offered' && $quest_status !== 'active' && $quest_status !== 'ready_for_turn_in') {
         $this->logger->warning('Quest cannot be started from status @status: @quest', [
           '@status' => $quest_status !== '' ? $quest_status : 'unknown',
           '@quest' => $quest_id,
         ]);
         return FALSE;
       }
+      if ($has_active_progress) {
+        $progress_record = $this->loadProgressByScope($campaign_id, $quest_id, $character_id, $party_id);
+        $active_phase = max(1, (int) ($progress_record['current_phase'] ?? 1));
+        $this->materializeCollectQuestItemsForActivePhase($campaign_id, $quest, $active_phase);
+        return TRUE;
+      }
 
-      // Check if already started
-      if ($this->hasActiveProgress($campaign_id, $quest_id, $character_id, $party_id)) {
-        $this->logger->warning('Quest already active: @quest', ['@quest' => $quest_id]);
-        return FALSE;
+      if ($character_id !== NULL && $character_id > 0) {
+        if ($this->questValidatorService === NULL) {
+          throw new \RuntimeException('QuestValidatorService is required to enforce quest prerequisite contracts.');
+        }
+        $prerequisite_validation = $this->questValidatorService->validatePrerequisites($campaign_id, $quest_id, $character_id);
+        if (empty($prerequisite_validation['valid'])) {
+          $missing = array_values(array_filter(array_map('strval', (array) ($prerequisite_validation['missing'] ?? []))));
+          $this->logger->warning('Quest prerequisites not met for quest @quest (character @character): @missing', [
+            '@quest' => $quest_id,
+            '@character' => $character_id,
+            '@missing' => $missing !== [] ? implode('; ', $missing) : 'unknown prerequisite failure',
+          ]);
+          return FALSE;
+        }
       }
 
       // Initialize objective states.
@@ -178,6 +215,28 @@ class QuestTrackerService {
       }
       $this->assertQuestActivationDestinationContracts($campaign_id, $quest, $objectives);
       $objective_states = $this->initializeObjectiveStates($objectives);
+      $progress_phase = 1;
+      $unscoped_progress = NULL;
+      $reconciled_from_unscoped_progress = FALSE;
+      if ($quest_status !== 'offered') {
+        $unscoped_progress = $this->loadProgressByScope($campaign_id, $quest_id, NULL, NULL);
+        if (is_array($unscoped_progress)) {
+          $reconciled_from_unscoped_progress = TRUE;
+          $progress_phase = max(1, (int) ($unscoped_progress['current_phase'] ?? 1));
+          $seed_states = json_decode((string) ($unscoped_progress['objective_states'] ?? '[]'), TRUE);
+          if (is_array($seed_states) && $seed_states !== []) {
+            $objective_states = $seed_states;
+          }
+        }
+      }
+      if (
+        $character_id !== NULL
+        && $character_id > 0
+        && $party_id === NULL
+        && is_array($unscoped_progress)
+      ) {
+        $this->promoteUnscopedProgressToCharacterScope($campaign_id, $quest_id, $character_id, $unscoped_progress);
+      }
 
       $this->ensureProgressRecord(
         $campaign_id,
@@ -185,50 +244,84 @@ class QuestTrackerService {
         $character_id,
         $party_id,
         $objective_states,
-        1
+        $progress_phase
       );
 
-      // Update quest status to active
-      $this->database->update('dc_campaign_quests')
-        ->fields(['status' => 'active'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('quest_id', $quest_id)
-        ->execute();
+      if ($quest_status === 'offered') {
+        // Update quest status to active.
+        $this->database->update('dc_campaign_quests')
+          ->fields(['status' => 'active'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('quest_id', $quest_id)
+          ->execute();
+      }
 
-      $this->materializeCollectQuestItemsForActivePhase($campaign_id, $quest);
+      $this->materializeCollectQuestItemsForActivePhase($campaign_id, $quest, $progress_phase);
 
-      // Log event
-      $this->logQuestEvent(
-        $campaign_id,
-        $quest_id,
-        'started',
-        ['started_by' => $character_id ?? $party_id],
-        'Quest started: ' . $quest['quest_name'],
-        $character_id
-      );
+      if (!$reconciled_from_unscoped_progress) {
+        // Log a canonical start event only for first activation, not for
+        // scope-reconciliation promotions of existing active progress.
+        $this->logQuestEvent(
+          $campaign_id,
+          $quest_id,
+          'started',
+          ['started_by' => $character_id ?? $party_id],
+          'Quest started: ' . $quest['quest_name'],
+          $character_id
+        );
 
-      $this->logger->info('Started quest @quest for @entity', [
-        '@quest' => $quest_id,
-        '@entity' => $character_id ? "character $character_id" : "party $party_id",
-      ]);
+        $this->logger->info('Started quest @quest for @entity', [
+          '@quest' => $quest_id,
+          '@entity' => $character_id ? "character $character_id" : "party $party_id",
+        ]);
+      }
 
-      $this->notifyStorylineManager($campaign_id, $quest_id, 'quest_started', $character_id, [
-        'party_id' => $party_id,
-        'status' => 'active',
-      ]);
+      if ($quest_status === 'offered') {
+        $this->notifyStorylineManager($campaign_id, $quest_id, 'quest_started', $character_id, [
+          'party_id' => $party_id,
+          'status' => 'active',
+        ]);
+      }
 
       return TRUE;
     }
     catch (\Exception $e) {
+      if ($e instanceof \InvalidArgumentException) {
+        throw $e;
+      }
+      if ($this->isContractCriticalStorylineSyncFailure($e)) {
+        throw $e;
+      }
       $this->logger->error('Failed to start quest: @error', ['@error' => $e->getMessage()]);
       return FALSE;
     }
   }
 
   /**
+   * Validate that a quest-character scope points at an active player character.
+   */
+  protected function isPlayerCharacterQuestScope(int $campaign_id, int $character_id): bool {
+    if ($campaign_id <= 0 || $character_id <= 0) {
+      return FALSE;
+    }
+
+    $matches = $this->database->select('dc_campaign_characters', 'cc')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $character_id)
+      ->condition('type', 'pc')
+      ->condition('role', 'player')
+      ->condition('is_active', 1)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+
+    return (int) $matches > 0;
+  }
+
+  /**
    * Ensure active-phase collect objectives have room item instances to collect.
    */
-  protected function materializeCollectQuestItemsForActivePhase(int $campaign_id, array $quest): void {
+  protected function materializeCollectQuestItemsForActivePhase(int $campaign_id, array $quest, int $active_phase = 1): void {
     if (
       $campaign_id <= 0
       || !$this->database->schema()->tableExists('dc_campaign_item_instances')
@@ -251,7 +344,7 @@ class QuestTrackerService {
     }
     $fallback_room_id = trim((string) ($quest['location_id'] ?? ''));
     $now = $this->time->getRequestTime();
-    $collect_objectives = $this->collectQuestCollectObjectivesForPhase($objective_states, 1);
+    $collect_objectives = $this->collectQuestCollectObjectivesForPhase($objective_states, max(1, $active_phase));
 
     foreach ($collect_objectives as $objective) {
       if (!is_array($objective)) {
@@ -508,6 +601,9 @@ class QuestTrackerService {
       ];
     }
     catch (\Exception $e) {
+      if ($this->isContractCriticalStorylineSyncFailure($e)) {
+        throw $e;
+      }
       $this->logger->error('Failed to update objective: @error', ['@error' => $e->getMessage()]);
       return ['success' => FALSE, 'error' => $e->getMessage()];
     }
@@ -1508,13 +1604,53 @@ class QuestTrackerService {
    *   Array of active quests with progress.
    */
   public function getActiveQuests(int $campaign_id, int $character_id): array {
-    return array_values(array_filter(
+    $active = array_values(array_filter(
       $this->loadCharacterQuestRows($campaign_id, $character_id),
       static function (array $quest): bool {
         return in_array(strtolower((string) ($quest['status'] ?? '')), ['active', 'ready_for_turn_in'], TRUE)
           && empty($quest['completed_at']);
       }
     ));
+
+    $reconciled = FALSE;
+    foreach ($active as $quest) {
+      $quest_id = trim((string) ($quest['quest_id'] ?? ''));
+      if ($quest_id === '') {
+        continue;
+      }
+      $progress_character_id = isset($quest['character_id']) ? (int) $quest['character_id'] : 0;
+      if ($progress_character_id > 0) {
+        continue;
+      }
+      if ($this->startQuest($campaign_id, $quest_id, $character_id)) {
+        $reconciled = TRUE;
+      }
+    }
+
+    if ($reconciled) {
+      $active = array_values(array_filter(
+        $this->loadCharacterQuestRows($campaign_id, $character_id),
+        static function (array $quest): bool {
+          return in_array(strtolower((string) ($quest['status'] ?? '')), ['active', 'ready_for_turn_in'], TRUE)
+            && empty($quest['completed_at']);
+        }
+      ));
+    }
+
+    $hydrated = [];
+    foreach ($active as $quest) {
+      if (!is_array($quest)) {
+        continue;
+      }
+
+      $quest = $this->normalizeQuestPromptRow($quest);
+      $current_phase = max(1, (int) ($quest['current_phase'] ?? 1));
+      $quest['current_objectives'] = $this->getObjectivesForPhase($quest, $current_phase, TRUE);
+      $quest['next_objectives'] = $this->getObjectivesForPhase($quest, $current_phase + 1, FALSE);
+      $hydrated[] = $quest;
+    }
+
+    return $hydrated;
   }
 
   /**
@@ -1644,7 +1780,7 @@ class QuestTrackerService {
       $merged_rows[] = $merged;
     }
 
-    return $merged_rows;
+    return $this->dedupeOpenQuestRowsByTemplate($merged_rows);
   }
 
   /**
@@ -1713,7 +1849,103 @@ class QuestTrackerService {
       $merged_rows[] = $merged;
     }
 
-    return $merged_rows;
+    return $this->dedupeOpenQuestRowsByTemplate($merged_rows);
+  }
+
+  /**
+   * Deduplicate open quest rows by source template to prevent split progression.
+   *
+   * @param array<int, array<string, mixed>> $rows
+   *   Quest rows with merged progress.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Rows with at most one open row per source_template_id.
+   */
+  protected function dedupeOpenQuestRowsByTemplate(array $rows): array {
+    if ($rows === []) {
+      return [];
+    }
+
+    $open_status_rank = [
+      'active' => 0,
+      'ready_for_turn_in' => 1,
+      'offered' => 2,
+      'lead' => 3,
+      'available' => 4,
+    ];
+
+    $deduped = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+
+      $status = strtolower(trim((string) ($row['status'] ?? '')));
+      $template_id = trim((string) ($row['source_template_id'] ?? ''));
+      $quest_id = trim((string) ($row['quest_id'] ?? ''));
+
+      if ($quest_id === '') {
+        continue;
+      }
+
+      $is_open = isset($open_status_rank[$status]);
+      if ($template_id === '' || !$is_open) {
+        $deduped[] = $row;
+        continue;
+      }
+
+      $key = 'template:' . $template_id;
+      if (!isset($deduped[$key])) {
+        $deduped[$key] = $row;
+        continue;
+      }
+
+      $existing = $deduped[$key];
+      $existing_status = strtolower(trim((string) ($existing['status'] ?? '')));
+      $existing_rank = $open_status_rank[$existing_status] ?? 99;
+      $candidate_rank = $open_status_rank[$status] ?? 99;
+      $existing_phase = max(1, (int) ($existing['current_phase'] ?? 1));
+      $candidate_phase = max(1, (int) ($row['current_phase'] ?? 1));
+      $existing_updated = (int) ($existing['last_updated'] ?? $existing['updated_at'] ?? 0);
+      $candidate_updated = (int) ($row['last_updated'] ?? $row['updated_at'] ?? 0);
+      $existing_created = (int) ($existing['created_at'] ?? 0);
+      $candidate_created = (int) ($row['created_at'] ?? 0);
+      $existing_id = (int) ($existing['id'] ?? 0);
+      $candidate_id = (int) ($row['id'] ?? 0);
+
+      $replace = FALSE;
+      if ($candidate_rank < $existing_rank) {
+        $replace = TRUE;
+      }
+      elseif ($candidate_rank === $existing_rank && $candidate_phase > $existing_phase) {
+        $replace = TRUE;
+      }
+      elseif ($candidate_rank === $existing_rank && $candidate_phase === $existing_phase && $candidate_updated > $existing_updated) {
+        $replace = TRUE;
+      }
+      elseif ($candidate_rank === $existing_rank && $candidate_phase === $existing_phase && $candidate_updated === $existing_updated && $candidate_created > $existing_created) {
+        $replace = TRUE;
+      }
+      elseif ($candidate_rank === $existing_rank && $candidate_phase === $existing_phase && $candidate_updated === $existing_updated && $candidate_created === $existing_created && $candidate_id > $existing_id) {
+        $replace = TRUE;
+      }
+
+      if ($replace) {
+        $deduped[$key] = $row;
+      }
+    }
+
+    $normalized = array_values(array_filter($deduped, 'is_array'));
+    usort($normalized, static function (array $a, array $b): int {
+      $a_created = (int) ($a['created_at'] ?? 0);
+      $b_created = (int) ($b['created_at'] ?? 0);
+      if ($a_created !== $b_created) {
+        return $b_created <=> $a_created;
+      }
+      return ((int) ($b['id'] ?? 0)) <=> ((int) ($a['id'] ?? 0));
+    });
+
+    return $normalized;
   }
 
   /**
@@ -2223,6 +2455,43 @@ class QuestTrackerService {
 
     $result = $query->execute()->fetchAssoc();
     return $result ?: NULL;
+  }
+
+  /**
+   * Promote one unscoped progress row to a character scope.
+   *
+   * @param array<string,mixed> $unscoped_progress
+   *   Progress row loaded with NULL character_id/party_id scope.
+   */
+  protected function promoteUnscopedProgressToCharacterScope(
+    int $campaign_id,
+    string $quest_id,
+    int $character_id,
+    array $unscoped_progress
+  ): void {
+    if ($campaign_id <= 0 || trim($quest_id) === '' || $character_id <= 0) {
+      throw new \InvalidArgumentException('Progress promotion requires campaign_id, quest_id, and character_id.');
+    }
+
+    $progress_row_id = isset($unscoped_progress['id']) && is_numeric($unscoped_progress['id'])
+      ? (int) $unscoped_progress['id']
+      : 0;
+    if ($progress_row_id <= 0) {
+      return;
+    }
+
+    $this->database->update('dc_campaign_quest_progress')
+      ->fields([
+        'character_id' => $character_id,
+        'party_id' => NULL,
+        'last_updated' => $this->time->getRequestTime(),
+      ])
+      ->condition('id', $progress_row_id)
+      ->condition('campaign_id', $campaign_id)
+      ->condition('quest_id', $quest_id)
+      ->condition('character_id', NULL, 'IS NULL')
+      ->condition('party_id', NULL, 'IS NULL')
+      ->execute();
   }
 
   /**
@@ -2902,7 +3171,7 @@ class QuestTrackerService {
    * Apply progress to a single objective node.
    */
   protected function applyObjectiveNodeProgress(array &$objective, int $progress): void {
-    $this->objectiveTypeService->applyProgress($objective, $progress);
+    $this->getObjectiveTypeService()->applyProgress($objective, $progress);
   }
 
   /**
@@ -3011,14 +3280,14 @@ class QuestTrackerService {
    * Refresh the computed completion state for one objective node.
    */
   protected function refreshObjectiveCompletionState(array &$objective): bool {
-    return $this->objectiveTypeService->refreshCompletion($objective);
+    return $this->getObjectiveTypeService()->refreshCompletion($objective);
   }
 
   /**
    * Determine whether every objective in a collection is complete.
    */
   protected function areObjectiveCollectionCompleted(array $objectives): bool {
-    return $this->objectiveTypeService->areObjectiveCollectionCompleted($objectives);
+    return $this->getObjectiveTypeService()->areObjectiveCollectionCompleted($objectives);
   }
 
   /**
@@ -3092,7 +3361,18 @@ class QuestTrackerService {
    * Resolve completion criteria for an objective, defaulting when omitted.
    */
   protected function resolveObjectiveCompletionCriteria(array $objective): array {
-    return $this->objectiveTypeService->normalizeCompletionCriteria($objective['completion_criteria'] ?? [], $objective);
+    return $this->getObjectiveTypeService()->normalizeCompletionCriteria($objective['completion_criteria'] ?? [], $objective);
+  }
+
+  /**
+   * Resolve required objective type service for quest objective state logic.
+   */
+  protected function getObjectiveTypeService(): ObjectiveTypeService {
+    if (!($this->objectiveTypeService instanceof ObjectiveTypeService)) {
+      throw new \RuntimeException('ObjectiveTypeService is required for quest objective state validation and progression.');
+    }
+
+    return $this->objectiveTypeService;
   }
 
   /**
@@ -3132,7 +3412,7 @@ class QuestTrackerService {
   }
 
   /**
-   * Notifies storyline orchestration without breaking quest flows on failures.
+   * Notifies storyline orchestration for contract-critical quest state changes.
    */
   protected function notifyStorylineManager(
     int $campaign_id,
@@ -3141,12 +3421,17 @@ class QuestTrackerService {
     ?int $character_id,
     array $event_data = []
   ): void {
-    if ($this->storylineManager === NULL) {
-      return;
+    $storyline_manager = $this->resolveStorylineManagerService();
+    if ($storyline_manager === NULL) {
+      throw new StorylineSyncContractException(sprintf(
+        'Storyline synchronization failed for quest "%s": StorylineManagerService is required for event "%s".',
+        $quest_id,
+        $event_type
+      ));
     }
 
     try {
-      $this->storylineManager->recordQuestStateChange(
+      $storyline_manager->recordQuestStateChange(
         $campaign_id,
         $quest_id,
         $event_type,
@@ -3155,11 +3440,40 @@ class QuestTrackerService {
       );
     }
     catch (\Throwable $throwable) {
-      $this->logger->warning('Storyline sync skipped for quest @quest: @message', [
-        '@quest' => $quest_id,
-        '@message' => $throwable->getMessage(),
-      ]);
+      throw new StorylineSyncContractException(sprintf(
+        'Storyline synchronization failed for quest "%s" on event "%s": %s',
+        $quest_id,
+        $event_type,
+        $throwable->getMessage()
+      ), 0, $throwable);
     }
+  }
+
+  /**
+   * Identify contract-critical sync failures that must not degrade to soft-fail.
+   */
+  protected function isContractCriticalStorylineSyncFailure(\Throwable $throwable): bool {
+    return $throwable instanceof StorylineSyncContractException;
+  }
+
+  /**
+   * Resolve storyline manager lazily to avoid constructor-time DI ordering drift.
+   */
+  protected function resolveStorylineManagerService(): ?StorylineManagerService {
+    if ($this->storylineManager instanceof StorylineManagerService) {
+      return $this->storylineManager;
+    }
+    if (!\Drupal::hasService('dungeoncrawler_content.storyline_manager')) {
+      return NULL;
+    }
+
+    $candidate = \Drupal::service('dungeoncrawler_content.storyline_manager');
+    if ($candidate instanceof StorylineManagerService) {
+      $this->storylineManager = $candidate;
+      return $this->storylineManager;
+    }
+
+    return NULL;
   }
 
   /**
@@ -3265,6 +3579,11 @@ class QuestTrackerService {
         ->condition('quest_id', $quest_id)
         ->condition('character_id', $character_id, is_null($character_id) ? 'IS NULL' : '=')
         ->execute();
+
+      $quest = $this->loadCampaignQuest($campaign_id, $quest_id);
+      if (is_array($quest) && $quest !== []) {
+        $this->materializeCollectQuestItemsForActivePhase($campaign_id, $quest, (int) $new_phase);
+      }
 
       if ($log_event) {
         $this->logQuestEvent(

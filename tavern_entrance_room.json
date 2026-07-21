@@ -128,9 +128,9 @@
             "description": "Help brighten the tavern by collecting torch components"
           },
           {
-            "quest_id": "quiet_the_back_room",
-            "title": "Quiet the Back Room",
-            "description": "Investigate disruptive late-night visitors and restore order without starting a brawl."
+            "quest_id": "tavern_storyline_leads",
+            "title": "Ask About Storyline Leads",
+            "description": "Get Eldric's latest actionable leads and choose which thread to pursue."
           }
         ]
       },

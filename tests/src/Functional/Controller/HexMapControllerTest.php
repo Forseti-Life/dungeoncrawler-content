@@ -330,7 +330,7 @@ class HexMapControllerTest extends BrowserTestBase {
     $this->assertSession()->statusCodeEquals(200);
 
     $runtime_row = $database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', ['id', 'instance_id', 'default_character_data'])
+      ->fields('cc', ['id', 'instance_id', 'state_data', 'default_character_data'])
       ->condition('campaign_id', $campaign_id)
       ->condition('character_id', $library_character_id)
       ->condition('type', 'pc')
@@ -350,6 +350,10 @@ class HexMapControllerTest extends BrowserTestBase {
     $this->assertSame((int) $runtime_row['id'], (int) $launch_context['character_id']);
     $this->assertSame('Test Hero', $launch_character['name']);
     $this->assertSame((string) $runtime_row['instance_id'], (string) $launch_character['instanceId']);
+    $runtime_state = json_decode((string) ($runtime_row['state_data'] ?? '{}'), TRUE);
+    $this->assertIsArray($runtime_state);
+    $this->assertSame((string) $campaign_id, (string) ($runtime_state['campaignId'] ?? ''));
+    $this->assertSame((string) $runtime_row['instance_id'], (string) ($runtime_state['instanceId'] ?? ''));
     $this->assertStringContainsString('magic-missile', (string) $runtime_row['default_character_data']);
     $this->assertSame('Magic Missile', $launch_character['spells']['preparedSpells'][0]['name']);
     $this->assertSame('Reach Spell', $launch_character['feats'][0]['name']);

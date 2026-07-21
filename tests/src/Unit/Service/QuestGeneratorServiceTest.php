@@ -194,6 +194,35 @@ class QuestGeneratorServiceTest extends UnitTestCase {
   }
 
   /**
+   * Verifies storyline contact targeting resolves against runtime instance ids.
+   */
+  public function testResolveStorylineContactForObjectiveUsesRuntimeEntityId(): void {
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->createMock(LoggerChannelFactoryInterface::class),
+      $this->createMock(NumberGenerationService::class),
+      $this->createMock(StateValidationService::class)
+    ) extends QuestGeneratorService {
+      public function exposedResolveStorylineContactForObjective(array $objective, array $storyline_contacts): ?array {
+        return $this->resolveStorylineContactForObjective($objective, $storyline_contacts);
+      }
+    };
+
+    $contact = $service->exposedResolveStorylineContactForObjective([
+      'target' => 'npc_storyline-broker',
+    ], [
+      [
+        'entity_id' => 'storyline-broker',
+        'runtime_entity_id' => 'npc_storyline-broker',
+        'display_name' => 'Eldric',
+      ],
+    ]);
+
+    $this->assertIsArray($contact);
+    $this->assertSame('npc_storyline-broker', $contact['runtime_entity_id']);
+  }
+
+  /**
    * Verifies collect objectives use canonical generated counts and criteria.
    */
   public function testGenerateCollectObjectiveUsesTargetCountRangeForCriteria(): void {

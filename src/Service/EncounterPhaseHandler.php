@@ -22,6 +22,10 @@ use Psr\Log\LoggerInterface;
  *   while non-player turns are resolved by authoritative handler logic.
  */
 class EncounterPhaseHandler implements EncounterMasterInterface {
+  protected const ROOM_SCENE_ERR_MISSING_PLAYER_PARTICIPANT = 'room_scene_initiative_missing_player_participant';
+  protected const ROOM_SCENE_ERR_RESEED_MISSING_ROOM = 'room_scene_reseed_failed_missing_room';
+  protected const ROOM_SCENE_ERR_RESEED_NO_PLAYER_CANDIDATE = 'room_scene_reseed_failed_no_player_candidate';
+  protected const ROOM_SCENE_ERR_START_MISSING_PLAYER = 'room_scene_start_failed_missing_player_participant';
 
   /**
    * @var \Drupal\Core\Database\Connection
@@ -118,11 +122,42 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected ?ExplorationPhaseHandler $explorationPhaseHandler;
 
   protected ?NavigationService $navigationService;
+  protected ?NavigationRuntimeService $navigationRuntime;
 
   /**
    * Shared actor action-availability resolver.
    */
   protected ActorActionAvailabilityService $actionAvailability;
+
+  /**
+   * Shared encounter actor context builder.
+   */
+  protected EncounterActorContextBuilder $actorContextBuilder;
+
+  /**
+   * Shared actor autoplay coordinator.
+   */
+  protected ActorAutoplayCoordinator $actorAutoplayCoordinator;
+
+  /**
+   * Shared room-scene encounter coordinator.
+   */
+  protected RoomSceneEncounterCoordinator $roomSceneEncounterCoordinator;
+
+  /**
+   * Shared canonical projection coordinator.
+   */
+  protected CanonicalProjectionService $canonicalProjectionService;
+
+  /**
+   * Shared encounter action executor.
+   */
+  protected EncounterActionExecutor $encounterActionExecutor;
+
+  /**
+   * Shared encounter intent router.
+   */
+  protected EncounterIntentRouter $encounterIntentRouter;
 
   /**
    * Canonical client-facing encounter action definitions.
@@ -269,7 +304,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     ?RoomChatService $room_chat_service = NULL,
     ?ExplorationPhaseHandler $exploration_phase_handler = NULL,
     ?NavigationService $navigation_service = NULL,
-    ?ActorActionAvailabilityService $action_availability = NULL
+    ?ActorActionAvailabilityService $action_availability = NULL,
+    ?NavigationRuntimeService $navigation_runtime = NULL,
+    ?EncounterActorContextBuilder $actor_context_builder = NULL,
+    ?ActorAutoplayCoordinator $actor_autoplay_coordinator = NULL,
+    ?RoomSceneEncounterCoordinator $room_scene_encounter_coordinator = NULL,
+    ?CanonicalProjectionService $canonical_projection_service = NULL,
+    ?EncounterActionExecutor $encounter_action_executor = NULL,
+    ?EncounterIntentRouter $encounter_intent_router = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -293,6 +335,38 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->explorationPhaseHandler = $exploration_phase_handler;
     $this->navigationService = $navigation_service;
     $this->actionAvailability = $action_availability ?? new ActorActionAvailabilityService();
+    $this->navigationRuntime = $navigation_runtime;
+    $this->actorContextBuilder = $actor_context_builder ?? new EncounterActorContextBuilder(
+      $this->psychologyService,
+      $this->actionAvailability
+    );
+    $this->actorAutoplayCoordinator = $actor_autoplay_coordinator ?? new ActorAutoplayCoordinator(
+      $this->encounterAiService,
+      $this->hazardService,
+      $this->roomChatService,
+      $this->configFactory,
+      $logger_factory
+    );
+    $this->roomSceneEncounterCoordinator = $room_scene_encounter_coordinator ?? new RoomSceneEncounterCoordinator();
+    $this->canonicalProjectionService = $canonical_projection_service ?? new CanonicalProjectionService(
+      $this->encounterStore,
+      $this->characterStateService,
+      $logger_factory
+    );
+    $this->encounterActionExecutor = $encounter_action_executor ?? new EncounterActionExecutor(
+      $this->encounterStore,
+      $this->combatEngine,
+      $this->magicItemService,
+      $this->roomChatService,
+      $this->characterStateService,
+      $this->spellCatalog,
+      $this->numberGenerationService,
+      $this->combatCalculator,
+      $this->canonicalProjectionService,
+      $logger_factory,
+      $this->movementResolver
+    );
+    $this->encounterIntentRouter = $encounter_intent_router ?? new EncounterIntentRouter();
   }
 
   /**
@@ -469,16 +543,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $room_exists = $this->findRoomById($dungeon_data, $target_room) !== NULL;
       $connection = $this->resolveRoomTransitionCapability($dungeon_data, $target_room, $intent['params'] ?? []);
       if ($connection === NULL) {
-        $this->logger->warning('Encounter transition validation rejected as unreachable: actor={actor} target_room={target_room} active_room={active_room} room_exists={room_exists} connection_id={connection_id}', [
+        $unreachable_diagnostics = $this->buildTransitionUnreachableDiagnostics($dungeon_data, $target_room);
+        $this->logger->warning('Encounter transition validation rejected as unreachable: actor={actor} target_room={target_room} active_room={active_room} room_exists={room_exists} connection_id={connection_id} suggested_via_room={suggested_via_room} available_targets={available_targets}', [
           'actor' => $actor_id,
           'target_room' => $target_room,
           'active_room' => (string) ($dungeon_data['active_room_id'] ?? ''),
           'room_exists' => $room_exists ? 1 : 0,
           'connection_id' => (string) ($intent['params']['connection_id'] ?? ''),
+          'suggested_via_room' => (string) ($unreachable_diagnostics['suggested_via_room_id'] ?? ''),
+          'available_targets' => implode(', ', (array) ($unreachable_diagnostics['available_targets'] ?? [])),
         ]);
+        $reason = "Room '$target_room' is not reachable from the active room.";
+        $suggested_via_room_id = (string) ($unreachable_diagnostics['suggested_via_room_id'] ?? '');
+        if ($suggested_via_room_id !== '') {
+          $reason .= sprintf(
+            " Route hint: transition to '%s' first, then to '%s'.",
+            $this->resolveRoomLabelById($dungeon_data, $suggested_via_room_id),
+            $this->resolveRoomLabelById($dungeon_data, $target_room)
+          );
+        }
         return [
           'valid' => FALSE,
-          'reason' => "Room '$target_room' is not reachable from the active room.",
+          'reason' => $reason,
         ];
       }
       if (empty($connection['available'])) {
@@ -592,6 +678,21 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * {@inheritdoc}
    */
   public function processIntent(array $intent, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    return $this->encounterIntentRouter->routeIntent(
+      $intent,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      function (array $core_intent, array &$core_game_state, array &$core_dungeon_data, int $core_campaign_id): array {
+        return $this->processIntentCore($core_intent, $core_game_state, $core_dungeon_data, $core_campaign_id);
+      }
+    );
+  }
+
+  /**
+   * Core encounter intent orchestration implementation.
+   */
+  protected function processIntentCore(array $intent, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $type = $intent['type'] ?? '';
     $actor_id = $intent['actor'] ?? NULL;
     $target_id = $intent['target'] ?? NULL;
@@ -621,11 +722,58 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         !empty($game_state['turn']['metamagic_pending'][$actor_id])) {
       unset($game_state['turn']['metamagic_pending'][$actor_id]);
     }
-
-    switch ($type) {
-
-      case 'transition':
-        $result = $this->enterRoomFramework($actor_id, (string) ($params['target_room_id'] ?? ''), $params, $game_state, $dungeon_data, $campaign_id);
+    $rest_route = $this->encounterIntentRouter->routeRestAction(
+      $type,
+      $actor_id,
+      $target_id,
+      $params,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      function (?string $aid, ?string $tid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+        return $this->processTreatWoundsRestAction($aid, $tid, $action_params, $state, $dungeon, $cid);
+      },
+      function (?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+        return $this->processRefocusRestAction($aid, $action_params, $state, $dungeon, $cid);
+      },
+      function (?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+        return $this->processRepairRestAction($aid, $action_params, $state, $dungeon, $cid);
+      },
+      function (?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+        return $this->processDailyPreparationsRestAction($aid, $action_params, $state, $dungeon, $cid);
+      }
+    );
+    if (!empty($rest_route['handled'])) {
+      $result = (array) ($rest_route['result'] ?? []);
+      if (!empty($result['error'])) {
+        return [
+          'success' => FALSE,
+          'result' => ['error' => $result['error']],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ];
+      }
+      $mutations = $result['mutations'] ?? [];
+      $events = array_merge($events, $result['events'] ?? []);
+      $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
+      $narration = $result['narration'] ?? NULL;
+    }
+    else {
+      $transition_route = $this->encounterIntentRouter->routeTransitionAction(
+        $type,
+        $actor_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (?string $aid, string $target_room_id, array $transition_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->enterRoomFramework($aid, $target_room_id, $transition_params, $state, $dungeon, $cid);
+        }
+      );
+      if (!empty($transition_route['handled'])) {
+        $result = (array) ($transition_route['result'] ?? []);
         if (!empty($result['error'])) {
           $this->logger->warning('Encounter transition execution failed: campaign={campaign_id} actor={actor} target_room={target_room} active_room={active_room} error={error}', [
             'campaign_id' => $campaign_id,
@@ -647,2963 +795,665 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $events = array_merge($events, $result['events'] ?? []);
         $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
         $narration = $result['narration'] ?? NULL;
-        break;
-
-      case 'treat_wounds':
-        $result = $this->processTreatWoundsRestAction($actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
-        if (!empty($result['error'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => $result['error']],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $mutations = $result['mutations'] ?? [];
-        $events = array_merge($events, $result['events'] ?? []);
-        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
-        $narration = $result['narration'] ?? NULL;
-        break;
-
-      case 'refocus':
-        $result = $this->processRefocusRestAction($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        if (!empty($result['error'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => $result['error']],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $mutations = $result['mutations'] ?? [];
-        $events = array_merge($events, $result['events'] ?? []);
-        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
-        $narration = $result['narration'] ?? NULL;
-        break;
-
-      case 'repair':
-        $result = $this->processRepairRestAction($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        if (!empty($result['error'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => $result['error']],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $mutations = $result['mutations'] ?? [];
-        $events = array_merge($events, $result['events'] ?? []);
-        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
-        $narration = $result['narration'] ?? NULL;
-        break;
-
-      case 'daily_preparations':
-        $result = $this->processDailyPreparationsRestAction($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        if (!empty($result['error'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => $result['error']],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $mutations = $result['mutations'] ?? [];
-        $events = array_merge($events, $result['events'] ?? []);
-        $time_effects = array_merge($time_effects, $result['time_effects'] ?? []);
-        $narration = $result['narration'] ?? NULL;
-        break;
-
-      case 'strike':
-        $result = $this->processStrike($encounter_id, $actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $result['mutations'] ?? [];
-        $narration = $result['narration'] ?? NULL;
-
-        // Consume 1 action.
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $game_state['turn']['attacks_this_turn'] = ($game_state['turn']['attacks_this_turn'] ?? 0) + 1;
-
-        // DEF-2218: Attacking breaks cover — cover_active cleared on any attack.
-        if (!empty($game_state['entities'][$actor_id]['cover_active'])) {
-          $game_state['entities'][$actor_id]['cover_active'] = FALSE;
-        }
-
-        // GAP-2265: Airborne creature attacking uses 2 air this turn (attack/spell = double air cost).
-        {
-          $enc_air_st = $this->encounterStore->loadEncounter($encounter_id);
-          $ptcp_air_st = $enc_air_st ? $this->findEncounterParticipantByEntityId($enc_air_st, $actor_id) : NULL;
-          if ($ptcp_air_st) {
-            $edata_air_st = !empty($ptcp_air_st['entity_ref']) ? json_decode($ptcp_air_st['entity_ref'], TRUE) : [];
-            if (!empty($edata_air_st['airborne'])) {
-              $edata_air_st['air_decrement_this_turn'] = 2;
-              $this->encounterStore->updateParticipant((int) $ptcp_air_st['id'], ['entity_ref' => json_encode($edata_air_st)]);
-            }
-          }
-        }
-
-        $events[] = GameEventLogger::buildEvent('strike', 'encounter', $actor_id, [
-          'target' => $target_id,
-          'roll' => $result['roll'] ?? NULL,
-          'total' => $result['total'] ?? NULL,
-          'dc' => $result['ac'] ?? NULL,
-          'degree' => $result['degree'] ?? NULL,
-          'damage' => $result['damage'] ?? NULL,
-          'round' => $game_state['round'] ?? NULL,
-        ], $narration, $target_id);
-
-        // Queue strike for perception-filtered narration.
-        $attacker_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-        $target_name = $this->resolveEntityName($target_id, $game_state, $dungeon_data);
-        $degree_text = $result['degree'] ?? 'unknown';
-        $damage_val = $result['damage'] ?? 0;
-        $strike_desc = match ($degree_text) {
-          'critical_success' => sprintf('%s critically strikes %s for %d damage!', $attacker_name, $target_name, $damage_val),
-          'success' => sprintf('%s strikes %s for %d damage.', $attacker_name, $target_name, $damage_val),
-          'failure' => sprintf('%s swings at %s but misses.', $attacker_name, $target_name),
-          'critical_failure' => sprintf('%s fumbles an attack at %s!', $attacker_name, $target_name),
-          default => sprintf('%s attacks %s.', $attacker_name, $target_name),
-        };
-        $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-          'type' => 'action',
-          'speaker' => $attacker_name,
-          'speaker_type' => 'player',
-          'speaker_ref' => '',
-          'content' => $strike_desc,
-          'visibility' => 'public',
-          'mechanical_data' => [
-            'attack_roll' => $result['roll'] ?? NULL,
-            'total' => $result['total'] ?? NULL,
-            'ac' => $result['ac'] ?? NULL,
-            'degree' => $degree_text,
-            'damage' => $damage_val,
-            'weapon' => $params['weapon'] ?? NULL,
-          ],
-        ]);
-        $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-          'type' => 'dice_roll',
-          'speaker' => 'System',
-          'speaker_type' => 'system',
-          'speaker_ref' => '',
-          'content' => sprintf('%s attack roll %d vs AC %d: %s.', $attacker_name, (int) ($result['total'] ?? 0), (int) ($result['ac'] ?? 0), $degree_text),
-          'mechanical_data' => [
-            'action' => 'strike',
-            'roll' => $result['roll'] ?? NULL,
-            'total' => $result['total'] ?? NULL,
-            'dc' => $result['ac'] ?? NULL,
-            'degree' => $degree_text,
-            'weapon' => $params['weapon'] ?? NULL,
-            'target' => $target_id,
-          ],
-          'visibility' => 'public',
-        ]);
-        // Also queue mechanical damage event if hit.
-        if ($damage_val > 0) {
-          $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-            'type' => 'damage_applied',
-            'speaker' => 'System',
-            'speaker_type' => 'system',
-            'speaker_ref' => $actor_id,
-            'content' => sprintf('%s takes %d damage.', $target_name, $damage_val),
-            'mechanical_data' => [
-              'target' => $target_id,
-              'damage' => $damage_val,
-              'damage_type' => $result['damage_type'] ?? 'physical',
-            ],
-            'visibility' => 'public',
-          ]);
-        }
-
-        break;
-
-      case 'stride':
-        $result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $result['mutations'] ?? [];
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-
-        // DEF-2218: Moving breaks cover — cover_active cleared on any stride.
-        if (!empty($game_state['entities'][$actor_id]['cover_active'])) {
-          $game_state['entities'][$actor_id]['cover_active'] = FALSE;
-        }
-
-        // Track stride distance for High Jump / Long Jump prerequisite checks.
-        $game_state['turn']['last_stride_ft'] = (int) ($params['distance_ft'] ?? 25);
-
-        $events[] = GameEventLogger::buildEvent('stride', 'encounter', $actor_id, [
-          'from' => $params['from_hex'] ?? NULL,
-          'to' => $params['to_hex'] ?? NULL,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'cast_spell':
-        $spell_name = $params['spell_name'] ?? 'unknown';
-        $action_cost = $params['action_cost'] ?? 2;
-        $result = $this->processCastSpell($encounter_id, $actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $result['mutations'] ?? [];
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
-
-        // DEF-2218: Casting a spell breaks cover (manipulate trait — cover lost on any attacking action).
-        if (!empty($game_state['entities'][$actor_id]['cover_active'])) {
-          $game_state['entities'][$actor_id]['cover_active'] = FALSE;
-        }
-
-        // GAP-2265: Airborne creature casting a spell uses 2 air this turn.
-        {
-          $enc_air_cs = $this->encounterStore->loadEncounter($encounter_id);
-          $ptcp_air_cs = $enc_air_cs ? $this->findEncounterParticipantByEntityId($enc_air_cs, $actor_id) : NULL;
-          if ($ptcp_air_cs) {
-            $edata_air_cs = !empty($ptcp_air_cs['entity_ref']) ? json_decode($ptcp_air_cs['entity_ref'], TRUE) : [];
-            if (!empty($edata_air_cs['airborne'])) {
-              $edata_air_cs['air_decrement_this_turn'] = 2;
-              $this->encounterStore->updateParticipant((int) $ptcp_air_cs['id'], ['entity_ref' => json_encode($edata_air_cs)]);
-            }
-          }
-        }
-
-        $events[] = GameEventLogger::buildEvent('cast_spell', 'encounter', $actor_id, [
-          'spell' => $spell_name,
-          'action_cost' => $action_cost,
-          'round' => $game_state['round'] ?? NULL,
-        ], $result['narration'] ?? NULL, $target_id);
-
-        // Queue spell cast for narration.
-        $caster_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-        $spell_target_name = $target_id ? $this->resolveEntityName($target_id, $game_state, $dungeon_data) : NULL;
-        $spell_desc = $spell_target_name
-          ? sprintf('%s casts %s targeting %s.', $caster_name, $spell_name, $spell_target_name)
-          : sprintf('%s casts %s.', $caster_name, $spell_name);
-        $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-          'type' => 'action',
-          'speaker' => $caster_name,
-          'speaker_type' => 'player',
-          'speaker_ref' => $actor_id,
-          'content' => $spell_desc,
-          'visibility' => 'public',
-          'mechanical_data' => [
-            'spell_name' => $spell_name,
-            'spell_level' => $params['spell_level'] ?? NULL,
-            'action_cost' => $action_cost,
-            'target' => $target_id,
-          ],
-        ]);
-
-        break;
-
-      case 'skill': {
-        $skill_name = trim((string) ($params['skill_name'] ?? $params['skill'] ?? 'Skill'));
-        $skill_bonus = NULL;
-        if (isset($params['skill_bonus'])) {
-          $skill_bonus = (int) $params['skill_bonus'];
-        }
-        elseif (isset($params['skill_modifier'])) {
-          $skill_bonus = (int) $params['skill_modifier'];
-        }
-
-        $action_cost = $this->getActionCost($type, $params);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
-
-        $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-        $result = [
-          'summary' => sprintf(
-            '%s uses %s%s.',
-            $actor_name,
-            $skill_name,
-            $skill_bonus !== NULL ? sprintf(' (%+d)', $skill_bonus) : ''
-          ),
-          'skill_name' => $skill_name,
-          'skill_bonus' => $skill_bonus,
-        ];
-
-        $events[] = GameEventLogger::buildEvent('skill', 'encounter', $actor_id, [
-          'skill_name' => $skill_name,
-          'skill_bonus' => $skill_bonus,
-          'action_cost' => $action_cost,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
       }
-
-      case 'feat': {
-        $feat_name = trim((string) ($params['feat_name'] ?? $params['featName'] ?? 'Feat action'));
-        $feat_id = $params['feat_id'] ?? $params['featId'] ?? NULL;
-
-        $action_cost = $this->getActionCost($type, $params);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
-
-        $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-        $result = [
-          'summary' => sprintf('%s uses %s.', $actor_name, $feat_name),
-          'feat_name' => $feat_name,
-          'feat_id' => $feat_id,
-        ];
-
-        $events[] = GameEventLogger::buildEvent('feat', 'encounter', $actor_id, [
-          'feat_name' => $feat_name,
-          'feat_id' => $feat_id,
-          'action_cost' => $action_cost,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
+      else {
+      $primary_route = $this->encounterIntentRouter->routePrimaryCombatAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeStrikeIntentExecution($eid, $aid, $tid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeStrideIntentExecution($eid, $aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeCastSpellIntentExecution($eid, $aid, $tid, $action_params, $state, $dungeon, $cid);
+        }
+      );
+      if (!empty($primary_route['handled'])) {
+        $payload = (array) ($primary_route['payload'] ?? []);
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? [];
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
+        if (array_key_exists('narration', $payload)) {
+          $narration = $payload['narration'];
+        }
       }
-
-      case 'consume_item': {
-        $character_id_ci = $params['character_id'] ?? $params['characterId'] ?? NULL;
-        $item_ci = is_array($params['item'] ?? NULL) ? $params['item'] : [];
-        $item_name_ci = trim((string) ($item_ci['name'] ?? $item_ci['id'] ?? $item_ci['item_id'] ?? 'consumable'));
-        if (!$character_id_ci || $item_name_ci === '') {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'consume_item requires params.character_id and params.item.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
+      else {
+      $skill_feat_route = $this->encounterIntentRouter->routeSkillFeatAction(
+        $type,
+        $actor_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        function (?string $aid, array $action_params, array &$state, array &$dungeon): array {
+          return $this->routeSkillIntentExecution($aid, $action_params, $state, $dungeon);
+        },
+        function (?string $aid, array $action_params, array &$state, array &$dungeon): array {
+          return $this->routeFeatIntentExecution($aid, $action_params, $state, $dungeon);
         }
-
-        $action_cost = $this->getActionCost($type, $params);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
-
-        try {
-          $inventory_ci = $this->characterStateService->updateInventory(
-            (string) $character_id_ci,
-            'consume',
-            $item_ci,
-            $campaign_id > 0 ? $campaign_id : NULL,
-            $actor_id
-          );
-          $effects_ci = $this->characterStateService->applyConsumableEffects(
-            (string) $character_id_ci,
-            $item_ci,
-            $campaign_id > 0 ? $campaign_id : NULL,
-            $actor_id
-          );
-        }
-        catch (\InvalidArgumentException $exception) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => $exception->getMessage()],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-
-        if (
-          !empty($effects_ci['focus_points'])
-          || !empty($effects_ci['spell_slots'])
-        ) {
-          $this->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data);
-        }
-        if (
-          !empty($effects_ci['nutrition_days'])
-          || !empty($effects_ci['hydration_days'])
-        ) {
-          $this->syncCanonicalSurvivalProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data);
-        }
-
-        $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-        $result = [
-          'summary' => sprintf('%s uses %s.', $actor_name, $item_name_ci),
-          'item_name' => $item_name_ci,
-          'effects' => $effects_ci,
-          'inventory' => $inventory_ci,
-        ];
-
-        $events[] = GameEventLogger::buildEvent('consume_item', 'encounter', $actor_id, [
-          'item_name' => $item_name_ci,
-          'effects' => $effects_ci,
-          'action_cost' => $action_cost,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
+      );
+      if (!empty($skill_feat_route['handled'])) {
+        $payload = (array) ($skill_feat_route['payload'] ?? []);
+        $result = (array) ($payload['result'] ?? []);
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // dc-cr-spells-ch07: Declare metamagic — free action before cast_spell.
-      // Subsequent non-cast_spell action wastes the metamagic (cleared above).
-      // -----------------------------------------------------------------------
-      case 'declare_metamagic': {
-        $metamagic_id_dm = $params['metamagic_id'] ?? NULL;
-        if (!$metamagic_id_dm) {
-          return ['success' => FALSE, 'result' => ['error' => 'declare_metamagic requires params.metamagic_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      else {
+      $consume_meta_route = $this->encounterIntentRouter->routeConsumableAndMetamagicAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeConsumeItemIntentExecution($eid, $aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeDeclareMetamagicIntentExecution($aid, $action_params, $state);
         }
-        $game_state['turn']['metamagic_pending'][$actor_id] = $metamagic_id_dm;
-        $result = ['declared' => TRUE, 'metamagic_id' => $metamagic_id_dm];
-        $events[] = GameEventLogger::buildEvent('declare_metamagic', 'encounter', $actor_id, ['metamagic_id' => $metamagic_id_dm, 'round' => $game_state['round'] ?? NULL]);
-        break;
+      );
+      if (!empty($consume_meta_route['handled'])) {
+        $payload = (array) ($consume_meta_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
+        }
+        $result = (array) ($payload['result'] ?? []);
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      case 'interact':
-        if (!$encounter_id || $this->isRoomSceneMode($game_state)) {
-          $result = ['interacted' => TRUE];
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-          $events[] = GameEventLogger::buildEvent('interact', 'encounter', $actor_id, [
-            'target' => $target_id,
-            'round' => $game_state['round'] ?? NULL,
-          ]);
-          break;
+      else {
+      $interact_talk_route = $this->encounterIntentRouter->routeInteractTalkAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeInteractIntentExecution($eid, $aid, $tid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeTalkIntentExecution($aid, $tid, $action_params, $state, $dungeon, $cid);
         }
-        $result = $this->processInteract($encounter_id, $actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $result['mutations'] ?? [];
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-
-        $events[] = GameEventLogger::buildEvent('interact', 'encounter', $actor_id, [
-          'target' => $target_id,
-          'interaction' => $params['interaction_type'] ?? 'generic',
-          'round' => $game_state['round'] ?? NULL,
-        ], NULL, $target_id);
-        break;
-
-      case 'talk':
-        $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
-        $params['_encounter_turn_ctx'] = $turn_ctx;
-
-        $result = $this->processTalk($actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
-        if (!empty($result['error'])) {
-          return [
-            'success' => FALSE,
-            'result' => $result,
-            'mutations' => $result['mutations'] ?? [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
+      );
+      if (!empty($interact_talk_route['handled'])) {
+        $payload = (array) ($interact_talk_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        $mutations = $result['mutations'] ?? [];
-        $narration = $result['narration'] ?? NULL;
-
-        // Talk consumes exactly 1 action in encounter.
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        if ($this->isRoomSceneMode($game_state)) {
-          $result['remaining_turn_prompt'] = $this->buildRemainingRoomSceneActionPrompt($actor_id, $game_state, $dungeon_data);
-          if (is_array($result['remaining_turn_prompt'])) {
-            $result['turn_logs'] = array_values(array_merge(
-              is_array($result['turn_logs'] ?? NULL) ? $result['turn_logs'] : [],
-              [$result['remaining_turn_prompt']]
-            ));
-          }
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
+        if (array_key_exists('narration', $payload)) {
+          $narration = $payload['narration'];
         }
-
-        $events[] = GameEventLogger::buildEvent('talk', 'encounter', $actor_id, [
-          'message' => $result['message'] ?? '',
-          'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
-          'turn_index' => $turn_ctx['turn_index_raw'] ?? ($game_state['turn']['index'] ?? NULL),
-          'actor_name' => $turn_ctx['actor_name'] ?? NULL,
-          'gm_response_generated' => !empty($result['gm_response']),
-          'state_diff_present' => !empty($result['state_diff']),
-        ], $narration, $target_id);
-        break;
-
-      case 'end_turn':
-      case 'choose_not_to_act':
-        if ($type === 'choose_not_to_act') {
-          $params['reason'] = trim((string) ($params['reason'] ?? 'chooses not to act'));
-        }
-
-        // Capture turn context before any turn/round advance.
-        $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
-
-        $result = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
-        $time_effects = array_merge($time_effects, $this->buildRoundElapsedTimeEffects($result, $actor_id, $dungeon_data));
-        $mutations = $result['mutations'] ?? [];
-        $narration = $result['narration'] ?? NULL;
-        $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-        $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
-        $fallback_narration = $type === 'choose_not_to_act'
-          ? sprintf('%s chooses not to act.', $actor_name)
-          : sprintf('%s ends their turn.', $actor_name);
-        $resolved_narration = (is_string($narration) && trim($narration) !== '') ? $narration : $fallback_narration;
-        $resolved_narration = $this->prefixEncounterChatLine($turn_ctx, $resolved_narration);
-
-        $events[] = GameEventLogger::buildEvent($type, 'encounter', $actor_id, [
-          'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
-          'room_id' => $resolved_room_id,
-          'actor_name' => $actor_name,
-          'turn_index' => $turn_ctx['turn_index_raw'] ?? NULL,
-          'actions_remaining' => $result['actions_remaining_before_end'] ?? NULL,
-          'reason' => $params['reason'] ?? NULL,
-        ], $resolved_narration);
-        if ($actor_id && ($result['actions_remaining_before_end'] ?? 0) > 0) {
-          $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-            'type' => 'choose_not_to_act',
-            'speaker' => 'Narrator',
-            'speaker_type' => 'narrator',
-            'speaker_ref' => '',
-            'content' => $this->prefixEncounterChatLine($turn_ctx, sprintf('%s chooses not to use %d remaining action(s).', $actor_name, (int) $result['actions_remaining_before_end'])),
-            'visibility' => 'public',
-            'mechanical_data' => [
-              'actor_id' => $actor_id,
-              'actor_name' => $actor_name,
-              'room_id' => $resolved_room_id,
-              'actions_remaining' => (int) $result['actions_remaining_before_end'],
-              'reason' => $params['reason'] ?? NULL,
-            ],
-          ], $resolved_room_id);
-        }
-
-        // End turn may trigger NPC auto-play, which generates additional events.
-        if (!empty($result['npc_events'])) {
-          $events = array_merge($events, $result['npc_events']);
-        }
-
-        break;
-
-      case 'delay':
-        $delay_remaining = $game_state['turn']['actions_remaining'] ?? 0;
-        $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
-        $result = [
-          'delayed' => TRUE,
-          'remaining_actions' => $delay_remaining,
-        ];
-        $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-        $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
-        $events[] = GameEventLogger::buildEvent('delay', 'encounter', $actor_id, [
-          'remaining_actions' => $delay_remaining,
-          'round' => $game_state['round'] ?? NULL,
-        ], $this->prefixEncounterChatLine($turn_ctx, sprintf('%s delays until the end of the round.', $actor_name)));
-        $delay_after_actor_id = trim((string) ($params['delay_until_actor_id'] ?? ''));
-        if ($actor_id && is_array($game_state['initiative_order'] ?? NULL) && $game_state['initiative_order'] !== []) {
-          $delay_plan = $this->buildDelayedInitiativePlan(
-            $game_state['initiative_order'],
-            $actor_id,
-            (int) ($game_state['turn']['index'] ?? 0),
-            (int) $delay_remaining,
-            $delay_after_actor_id !== '' ? $delay_after_actor_id : NULL
-          );
-          $game_state['initiative_order'] = $delay_plan['initiative_order'];
-          $game_state['turn']['index'] = $delay_plan['pre_advance_index'];
-          $game_state['turn']['delayed'] = TRUE;
-          $game_state['turn']['delayed_actions_remaining'] = (int) $delay_remaining;
-        }
-        $game_state['turn']['actions_remaining'] = 0;
-        $advance = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
-        $time_effects = array_merge($time_effects, $this->buildRoundElapsedTimeEffects($advance, $actor_id, $dungeon_data));
-        if ($actor_id && $delay_remaining > 0) {
-          $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-            'type' => 'delay',
-            'speaker' => 'Narrator',
-            'speaker_type' => 'narrator',
-            'speaker_ref' => '',
-            'content' => $this->prefixEncounterChatLine($turn_ctx, sprintf('%s delays with %d action(s) still unused.', $actor_name, (int) $delay_remaining)),
-            'visibility' => 'public',
-            'mechanical_data' => [
-              'actor_id' => $actor_id,
-              'actor_name' => $actor_name,
-              'room_id' => $resolved_room_id,
-              'remaining_actions' => (int) $delay_remaining,
-            ],
-          ], $resolved_room_id);
-        }
-        if (!empty($advance['npc_events'])) {
-          $events = array_merge($events, $advance['npc_events']);
-        }
-        break;
-
-      case 'delay_reenter':
-        // REQ 2193: Re-enter initiative after delay, restoring stored actions.
-        if (empty($game_state['turn']['delayed'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Not currently delayed.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $reenter_actions = $game_state['turn']['delayed_actions_remaining'] ?? 0;
-        $game_state['turn']['delayed'] = FALSE;
-        $game_state['turn']['actions_remaining'] = $reenter_actions;
-        $result = ['reentered' => TRUE, 'actions_restored' => $reenter_actions];
-        $events[] = GameEventLogger::buildEvent('delay_reenter', 'encounter', $actor_id, [
-          'actions_restored' => $reenter_actions,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'ready':
-        // REQ 2203-2205: 2-action activity; store trigger action + MAP at time of readying.
-        $ready_action = $params['ready_action'] ?? NULL;
-        $ready_trigger = $params['ready_trigger'] ?? NULL;
-        if (!$ready_action || !$ready_trigger) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'ready_action and ready_trigger are required.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        // REQ 2205: Cannot Ready a free action that already has its own trigger.
-        if (!empty($params['is_triggered_free_action'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Cannot Ready a free action that already has a trigger.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $game_state['turn']['ready'] = [
-          'action' => $ready_action,
-          'trigger' => $ready_trigger,
-          'map_at_ready' => $game_state['turn']['attacks_this_turn'] ?? 0,
-        ];
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-        $result = ['readied' => TRUE, 'action' => $ready_action, 'trigger' => $ready_trigger];
-        $events[] = GameEventLogger::buildEvent('ready', 'encounter', $actor_id, [
-          'action' => $ready_action,
-          'trigger' => $ready_trigger,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'stand':
-        // REQ 2213: Remove prone condition. 1 action.
-        $enc_stand = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_stand = $enc_stand ? $this->findEncounterParticipantByEntityId($enc_stand, $actor_id) : NULL;
-        if ($ptcp_stand) {
-          $pid_stand = (int) $ptcp_stand['id'];
-          foreach ($this->conditionManager->getActiveConditions($pid_stand, $encounter_id) as $cid => $crow) {
-            if ($crow['condition_type'] === 'prone') {
-              $this->conditionManager->removeCondition($pid_stand, $cid, $encounter_id);
-              break;
-            }
-          }
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['stood' => TRUE];
-        $events[] = GameEventLogger::buildEvent('stand', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]);
-        break;
-
-      case 'drop_prone':
-        // REQ 2196: Apply prone condition. 1 action.
-        $enc_dp = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_dp = $enc_dp ? $this->findEncounterParticipantByEntityId($enc_dp, $actor_id) : NULL;
-        if ($ptcp_dp) {
-          $pid_dp = (int) $ptcp_dp['id'];
-          $this->conditionManager->applyCondition($pid_dp, 'prone', 1, 'persistent', 'drop_prone', $encounter_id);
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['prone' => TRUE];
-        $events[] = GameEventLogger::buildEvent('drop_prone', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]);
-        break;
-
-      case 'step':
-        // REQ 2214-2215: Move exactly 5 ft without triggering AoO. 1 action.
-        // REQ 2251: Cannot Step into difficult terrain.
-        if (empty($params['to_hex'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Missing to_hex.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        // REQ 2251: Reject if destination is difficult terrain.
-        if ($this->movementResolver && $this->movementResolver->isDifficultTerrain($params['to_hex'], $dungeon_data)) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Cannot Step into difficult terrain.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $step_move = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $step_move['mutations'] ?? [];
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $game_state['turn']['last_move_type'] = 'step';
-        $result = ['stepped' => TRUE, 'to_hex' => $params['to_hex']];
-        $events[] = GameEventLogger::buildEvent('step', 'encounter', $actor_id, [
-          'to' => $params['to_hex'],
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'crawl':
-        // REQ 2192: Move 5 ft while prone; requires Speed >= 10. 1 action.
-        if (empty($params['to_hex'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Missing to_hex.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $enc_crawl = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_crawl = $enc_crawl ? $this->findEncounterParticipantByEntityId($enc_crawl, $actor_id) : NULL;
-        if (!$ptcp_crawl) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Participant not found.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $pid_crawl = (int) $ptcp_crawl['id'];
-        if (!$this->conditionManager->hasCondition($pid_crawl, 'prone', $encounter_id)) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Must be prone to Crawl.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        if ((int) ($ptcp_crawl['speed'] ?? 25) < 10) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Speed is too low to Crawl (requires Speed >= 10 ft).'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $crawl_move = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $crawl_move['mutations'] ?? [];
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['crawled' => TRUE, 'to_hex' => $params['to_hex']];
-        $events[] = GameEventLogger::buildEvent('crawl', 'encounter', $actor_id, [
-          'to' => $params['to_hex'],
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'leap':
-        // REQ 2201-2202: Jump up to 10 ft (Speed 15+) or 15 ft (Speed 30+). 1 action.
-        if (empty($params['to_hex'])) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Missing to_hex.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $enc_leap = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_leap = $enc_leap ? $this->findEncounterParticipantByEntityId($enc_leap, $actor_id) : NULL;
-        $leap_speed = (int) ($ptcp_leap['speed'] ?? 25);
-        $max_leap_ft = $leap_speed >= 30 ? 15 : 10;
-        $leap_move = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $leap_move['mutations'] ?? [];
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['leaped' => TRUE, 'to_hex' => $params['to_hex'], 'max_leap_ft' => $max_leap_ft];
-        $events[] = GameEventLogger::buildEvent('leap', 'encounter', $actor_id, [
-          'to' => $params['to_hex'],
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'escape':
-        // REQ 2197-2199: Roll vs grapple DC; attack trait applies MAP. 1 action.
-        $result = $this->processEscape($encounter_id, $actor_id, $params, $game_state);
-        $mutations = $result['mutations'] ?? [];
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $events[] = GameEventLogger::buildEvent('escape', 'encounter', $actor_id, [
-          'degree' => $result['degree'] ?? NULL,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'seek':
-        // REQ 2207-2210: Secret Perception roll vs each target's Stealth DC. 1 action.
-        $result = $this->processSeek($encounter_id, $actor_id, $params, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $events[] = GameEventLogger::buildEvent('seek', 'encounter', $actor_id, [
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'search':
-        if (!$this->explorationPhaseHandler) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Room search handler is unavailable.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $result = $this->explorationPhaseHandler->processSearch($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mechanical_result = $result;
-        $mutations = $result['mutations'] ?? [];
-        $narration = $result['narration'] ?? NULL;
-        if (!empty($game_state['turn'])) {
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        }
-        $public_discoveries = $this->buildPublicSearchDiscoveries($result['discoveries'] ?? []);
-        if ($public_discoveries !== [] || (is_string($narration) && trim($narration) !== '')) {
-          $events[] = GameEventLogger::buildEvent('search', 'encounter', $actor_id, [
-            'discoveries' => $public_discoveries,
-            'round' => $game_state['round'] ?? NULL,
-          ], $narration);
-        }
-        $result = $this->buildPublicSearchResult($result);
-        break;
-
-      case 'sense_motive':
-        // REQ 2211-2212: Secret Perception vs Deception; track retry cooldown. 1 action.
-        {
-          $sm_bonus = (int) ($params['perception_bonus'] ?? 0);
-          $sm_dc = (int) ($params['deception_dc'] ?? 15);
-          $sm_d20 = $this->numberGenerationService->rollPathfinderDie(20);
-          $sm_total = $sm_d20 + $sm_bonus;
-          $sm_degree = $this->combatCalculator->calculateDegreeOfSuccess($sm_total, $sm_dc, $sm_d20);
-          if (!isset($game_state['sense_motive'])) {
-            $game_state['sense_motive'] = [];
-          }
-          if (!isset($game_state['sense_motive'][$actor_id])) {
-            $game_state['sense_motive'][$actor_id] = [];
-          }
-          // Track last-used round for retry cooldown (REQ 2212).
-          $game_state['sense_motive'][$actor_id][$target_id] = $game_state['round'] ?? 0;
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-          // Secret result: return degree only (not raw d20) to caller.
-          $result = ['sense_motive' => TRUE, 'degree' => $sm_degree];
-          $events[] = GameEventLogger::buildEvent('sense_motive', 'encounter', $actor_id, [
-            'round' => $game_state['round'] ?? NULL,
-          ], NULL, $target_id);
-        }
-        break;
-
-      case 'take_cover':
-        // REQ 2218: Upgrade cover tier (none→standard, standard→greater). 1 action.
-        if (!isset($game_state['entities'])) {
-          $game_state['entities'] = [];
-        }
-        if (!isset($game_state['entities'][$actor_id])) {
-          $game_state['entities'][$actor_id] = [];
-        }
-        $cur_cover = $game_state['entities'][$actor_id]['cover'] ?? 'none';
-        $new_cover = ($cur_cover === 'standard') ? 'greater' : 'standard';
-        $game_state['entities'][$actor_id]['cover'] = $new_cover;
-        $game_state['entities'][$actor_id]['cover_active'] = TRUE;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['cover' => $new_cover, 'cover_active' => TRUE];
-        $events[] = GameEventLogger::buildEvent('take_cover', 'encounter', $actor_id, [
-          'cover' => $new_cover,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'release':
-        // REQ 2206: Free action; drop held item; does not trigger manipulate-trait reactions.
-        $rel_item = $params['item_id'] ?? NULL;
-        if (!empty($dungeon_data['entities'])) {
-          foreach ($dungeon_data['entities'] as &$rel_ent) {
-            $rel_iid = $rel_ent['entity_instance_id'] ?? ($rel_ent['instance_id'] ?? ($rel_ent['id'] ?? NULL));
-            if ($rel_iid === $actor_id) {
-              if ($rel_item && isset($rel_ent['equipment']['held'][$rel_item])) {
-                unset($rel_ent['equipment']['held'][$rel_item]);
-              }
-              break;
-            }
-          }
-          unset($rel_ent);
-        }
-        // Free action: no standard action deducted.
-        $result = ['released' => TRUE, 'item_id' => $rel_item];
-        $events[] = GameEventLogger::buildEvent('release', 'encounter', $actor_id, [
-          'item_id' => $rel_item,
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-        break;
-
-      case 'aid_setup':
-        // REQ 2190: Prepare Aid for a target ally. 1 action (on a previous turn).
-        if (!isset($game_state['turn']['aid_prepared'])) {
-          $game_state['turn']['aid_prepared'] = [];
-        }
-        $aid_skill = $params['skill'] ?? 'generic';
-        $game_state['turn']['aid_prepared'][$actor_id][$target_id] = $aid_skill;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['aid_prepared' => TRUE, 'target' => $target_id, 'skill' => $aid_skill];
-        $events[] = GameEventLogger::buildEvent('aid_setup', 'encounter', $actor_id, [
-          'target' => $target_id,
-          'round' => $game_state['round'] ?? NULL,
-        ], NULL, $target_id);
-        break;
-
-      case 'aid':
-        // REQ 2190-2191: Reaction; verify aid was prepared, roll check vs DC 20.
-        $result = $this->processAid($actor_id, $target_id, $params, $game_state);
-        $mutations = $result['mutations'] ?? [];
-        $events[] = GameEventLogger::buildEvent('aid', 'encounter', $actor_id, [
-          'target' => $target_id,
-          'degree' => $result['degree'] ?? NULL,
-          'aid_bonus' => $result['aid_bonus'] ?? 0,
-          'round' => $game_state['round'] ?? NULL,
-        ], NULL, $target_id);
-        break;
-
-      case 'reaction':
-        // Reaction: spend reaction resource.
-        $reaction_available = $game_state['turn']['reaction_available'] ?? TRUE;
-        if (!$reaction_available) {
-          return [
-            'success' => FALSE,
-            'result' => ['error' => 'Reaction already spent this round.'],
-            'mutations' => [],
-            'events' => [],
-            'phase_transition' => NULL,
-            'narration' => NULL,
-          ];
-        }
-        $game_state['turn']['reaction_available'] = FALSE;
-        // GAP-2204: If firing a readied action that is a strike, restore MAP count
-        // from map_at_ready so the attack uses the MAP that was active when Ready was declared.
-        $ready_data = $game_state['turn']['ready'] ?? NULL;
-        if ($ready_data && ($ready_data['action'] ?? '') === 'strike') {
-          $game_state['turn']['attacks_this_turn'] = (int) ($ready_data['map_at_ready'] ?? 0);
-        }
-        $result = ['reaction_used' => TRUE, 'reaction_type' => $params['reaction_type'] ?? 'generic'];
-        $events[] = GameEventLogger::buildEvent('reaction', 'encounter', $actor_id, [
-          'reaction_type' => $params['reaction_type'] ?? 'generic',
-          'round' => $game_state['round'] ?? NULL,
-        ], NULL, $target_id);
-        break;
-
-      // -----------------------------------------------------------------------
-      // REQ 2280: Hero Point Reroll — spend 1 hero point to reroll an attack.
-      // Free action; must be declared before the attack result is used.
-      // -----------------------------------------------------------------------
-      case 'hero_point_reroll': {
-        $original_roll = (int) ($params['original_roll'] ?? 0);
-        $reroll = $this->calculator->heroPointReroll($original_roll);
-        // Deduct 1 hero point from entity_ref.
-        $enc_hpr = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_hpr = $enc_hpr ? $this->findEncounterParticipantByEntityId($enc_hpr, $actor_id) : NULL;
-        if ($ptcp_hpr) {
-          $edata_hpr = !empty($ptcp_hpr['entity_ref']) ? json_decode($ptcp_hpr['entity_ref'], TRUE) : [];
-          $hero_points = max(0, (int) ($edata_hpr['hero_points'] ?? 0) - 1);
-          $edata_hpr['hero_points'] = $hero_points;
-          $this->encounterStore->updateParticipant((int) $ptcp_hpr['id'], ['entity_ref' => json_encode($edata_hpr)]);
-        }
-        $result = $reroll + ['hero_points_spent' => 1];
-        $events[] = GameEventLogger::buildEvent('hero_point_reroll', 'encounter', $actor_id, [
-          'original_roll' => $original_roll,
-          'new_roll'      => $reroll['new_roll'],
-          'round'         => $game_state['round'] ?? NULL,
-        ], NULL, $target_id);
-        break;
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 2281: Heroic Recovery (spend all Hero Points) — removes dying,
-      // does NOT add wounded, keeps HP at 0. Reaction; costs no actions.
-      // -----------------------------------------------------------------------
-      case 'heroic_recovery_all_points': {
-        $ptcp_id_hrap = $actor_id;
-        if (is_string($ptcp_id_hrap)) {
-          // Resolve actor entity_id → participant DB id.
-          $enc_hrap = $this->encounterStore->loadEncounter($encounter_id);
-          $ptcp_hrap = $enc_hrap ? $this->findEncounterParticipantByEntityId($enc_hrap, $actor_id) : NULL;
-          $ptcp_id_hrap = $ptcp_hrap ? (int) $ptcp_hrap['id'] : NULL;
+      else {
+      $turn_flow_route = $this->encounterIntentRouter->routeTurnFlowAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (string $action_type, ?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeEndTurnIntentExecution($action_type, $eid, $aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeDelayIntentExecution($eid, $aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?string $aid, array &$state): array {
+          return $this->routeDelayReenterIntentExecution($aid, $state);
         }
-        if (!$ptcp_id_hrap) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      );
+      if (!empty($turn_flow_route['handled'])) {
+        $payload = (array) ($turn_flow_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        // Clear hero_points in entity_ref (spend all).
-        $enc_hrap2 = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_hrap2 = $enc_hrap2 ? $this->findEncounterParticipantByEntityId($enc_hrap2, $actor_id) : NULL;
-        if ($ptcp_hrap2) {
-          $edata_hrap = !empty($ptcp_hrap2['entity_ref']) ? json_decode($ptcp_hrap2['entity_ref'], TRUE) : [];
-          $edata_hrap['hero_points'] = 0;
-          $this->encounterStore->updateParticipant((int) $ptcp_hrap2['id'], ['entity_ref' => json_encode($edata_hrap)]);
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
+        $time_effects = array_merge($time_effects, (array) ($payload['time_effects'] ?? []));
+        if (array_key_exists('narration', $payload)) {
+          $narration = $payload['narration'];
         }
-        $hrap_result = $this->hpManager->heroicRecoveryAllPoints($ptcp_id_hrap, $encounter_id);
-        $result = $hrap_result;
-        $events[] = GameEventLogger::buildEvent('heroic_recovery_all_points', 'encounter', $actor_id, [
-          'dying_removed' => $hrap_result['dying_removed'] ?? FALSE,
-          'round'         => $game_state['round'] ?? NULL,
-        ]);
-        break;
       }
-
-      // -----------------------------------------------------------------------
-      // -----------------------------------------------------------------------
-      // REQ 1619–1620: Climb [1 action, Move] — Athletics vs climb DC.
-      // -----------------------------------------------------------------------
-      case 'climb': {
-        $enc_cl = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_cl = $enc_cl ? $this->findEncounterParticipantByEntityId($enc_cl, $actor_id) : NULL;
-        if (!$ptcp_cl) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      else {
+      $ready_reaction_route = $this->encounterIntentRouter->routeReadyReactionAction(
+        $type,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeReadyIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeReactionIntentExecution($aid, $tid, $action_params, $state);
         }
-        $entity_cl = !empty($ptcp_cl['entity_ref']) ? json_decode($ptcp_cl['entity_ref'], TRUE) : [];
-        $has_climb_speed = !empty($entity_cl['climb_speed']) && (int) $entity_cl['climb_speed'] > 0;
-        $land_speed = (int) ($entity_cl['speed'] ?? 25);
-        $athletics_cl = (int) ($params['athletics_bonus'] ?? 0);
-        $climb_dc = (int) ($params['climb_dc'] ?? 15);
-
-        // GAP-2234: Characters with a climb Speed auto-succeed at Climb (no roll needed)
-        // and gain a +4 circumstance bonus to Athletics if a check is required.
-        if ($has_climb_speed) {
-          $athletics_cl += 4;
-          // Auto-succeed: skip the roll and treat as success.
-          $d20_cl = 0;
-          $total_cl = 0;
-          $degree_cl = 'success';
-          $feet_moved = (int) $entity_cl['climb_speed'];
+      );
+      if (!empty($ready_reaction_route['handled'])) {
+        $payload = (array) ($ready_reaction_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        else {
-          $d20_cl = $this->numberGenerationService->rollPathfinderDie(20);
-          $total_cl = $d20_cl + $athletics_cl;
-          $degree_cl = $this->combatCalculator->calculateDegreeOfSuccess($total_cl, $climb_dc, $d20_cl);
-          $feet_moved = 0;
-          if ($degree_cl === 'critical_success') {
-            $feet_moved = max(10, (int) round($land_speed / 2));
-          }
-          elseif ($degree_cl === 'success') {
-            $feet_moved = max(5, (int) round($land_speed / 4));
-          }
-          elseif ($degree_cl === 'critical_failure') {
-            // Character falls and lands prone.
-            $feet_fallen = (int) ($params['height_ft'] ?? 10);
-            $soft_surface = !empty($params['soft_surface']);
-            if ($ptcp_cl && $this->hpManager) {
-              $this->hpManager->applyFallDamage((int) $ptcp_cl['id'], $feet_fallen, $encounter_id, $soft_surface);
-            }
-          }
-        }
-
-        $fell = ($degree_cl === 'critical_failure');
-
-        // Flat-footed during climb unless character has a climb Speed.
-        if (!$has_climb_speed && !$fell) {
-          $this->conditionManager->applyCondition((int) $ptcp_cl['id'], 'flat_footed', 0, ['type' => 'encounter', 'remaining' => 1], 'climb', $encounter_id);
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['climbed' => !$fell, 'degree' => $degree_cl, 'feet_moved' => $feet_moved, 'fell' => $fell, 'd20' => $d20_cl, 'total' => $total_cl];
-        $events[] = GameEventLogger::buildEvent('climb', 'encounter', $actor_id, ['degree' => $degree_cl, 'fell' => $fell, 'round' => $game_state['round'] ?? NULL]);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1621–1625: Force Open [1 action, Attack] — Athletics vs Fortitude DC.
-      // -----------------------------------------------------------------------
-      case 'force_open': {
-        $has_crowbar = !empty($params['has_crowbar']);
-        $athletics_fo = (int) ($params['athletics_bonus'] ?? 0);
-        $item_penalty = $has_crowbar ? 0 : -2;
-        $fo_dc = (int) ($params['object_dc'] ?? 20);
-        $attacks_this_turn = $game_state['turn']['attacks_this_turn'] ?? 0;
-        $map_fo = $this->combatCalculator->calculateMultipleAttackPenalty($attacks_this_turn, !empty($params['is_agile']));
-        $d20_fo = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_fo = $d20_fo + $athletics_fo + $item_penalty + $map_fo;
-        $degree_fo = $this->combatCalculator->calculateDegreeOfSuccess($total_fo, $fo_dc, $d20_fo);
-
-        $jammed = FALSE;
-        $broken = FALSE;
-        $opened = FALSE;
-        if ($degree_fo === 'critical_success') {
-          $opened = TRUE;
+      else {
+      $aid_route = $this->encounterIntentRouter->routeAidAction(
+        $type,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        function (?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeAidSetupIntentExecution($aid, $tid, $action_params, $state);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeAidIntentExecution($aid, $tid, $action_params, $state);
         }
-        elseif ($degree_fo === 'success') {
-          $opened = TRUE;
-          $broken = TRUE;
+      );
+      if (!empty($aid_route['handled'])) {
+        $payload = (array) ($aid_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        elseif ($degree_fo === 'critical_failure') {
-          $jammed = TRUE;
-          // Track jammed penalty for future attempts.
-          if (!isset($game_state['force_open_jammed'])) {
-            $game_state['force_open_jammed'] = [];
-          }
-          $target_obj = $params['object_id'] ?? $target_id;
-          $game_state['force_open_jammed'][$target_obj] = ($game_state['force_open_jammed'][$target_obj] ?? 0) - 2;
-        }
-
-        $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['opened' => $opened, 'broken' => $broken, 'jammed' => $jammed, 'degree' => $degree_fo, 'd20' => $d20_fo, 'total' => $total_fo];
-        $events[] = GameEventLogger::buildEvent('force_open', 'encounter', $actor_id, ['degree' => $degree_fo, 'opened' => $opened, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1626–1631: Grapple [1 action, Attack] — Athletics vs Fortitude DC.
-      // -----------------------------------------------------------------------
-      case 'grapple': {
-        $result = $this->processGrapple($encounter_id, $actor_id, $target_id, $params, $game_state);
-        $mutations = $result['mutations'] ?? [];
-        $game_state['turn']['attacks_this_turn'] = ($game_state['turn']['attacks_this_turn'] ?? 0) + 1;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $events[] = GameEventLogger::buildEvent('grapple', 'encounter', $actor_id, ['degree' => $result['degree'] ?? NULL, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
+      else {
+      $hero_point_route = $this->encounterIntentRouter->routeHeroPointAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeHeroPointRerollIntentExecution($eid, $aid, $tid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, array &$state): array {
+          return $this->routeHeroicRecoveryAllPointsIntentExecution($eid, $aid, $state);
+        }
+      );
+      if (!empty($hero_point_route['handled'])) {
+        $payload = (array) ($hero_point_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
+        }
+        $result = (array) ($payload['result'] ?? []);
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1632–1636: High Jump [2 actions] — Stride ≥10 ft + Athletics vs DC.
-      // -----------------------------------------------------------------------
-      case 'high_jump': {
-        // Requires a prior Stride of ≥10 ft this turn.
-        $prior_stride_ft = (int) ($game_state['turn']['last_stride_ft'] ?? 0);
-        if ($prior_stride_ft < 10) {
-          // Auto-fail — no prone applied.
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-          $result = ['jumped' => FALSE, 'auto_fail' => TRUE, 'reason' => 'No prior Stride of ≥10 ft'];
-          $events[] = GameEventLogger::buildEvent('high_jump', 'encounter', $actor_id, ['auto_fail' => TRUE, 'round' => $game_state['round'] ?? NULL]);
-          break;
+      else {
+      $movement_route = $this->encounterIntentRouter->routeMovementUtilityAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (?int $eid, ?string $aid, array &$state): array {
+          return $this->routeStandIntentExecution($eid, $aid, $state);
+        },
+        function (?int $eid, ?string $aid, array &$state): array {
+          return $this->routeDropProneIntentExecution($eid, $aid, $state);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeStepIntentExecution($eid, $aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeCrawlIntentExecution($eid, $aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeLeapIntentExecution($eid, $aid, $action_params, $state, $dungeon, $cid);
         }
-
-        $dc_hj = (int) ($params['dc'] ?? 30);
-        $athletics_hj = (int) ($params['athletics_bonus'] ?? 0);
-        $d20_hj = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_hj = $d20_hj + $athletics_hj;
-        $degree_hj = $this->combatCalculator->calculateDegreeOfSuccess($total_hj, $dc_hj, $d20_hj);
-
-        $height_ft = 0;
-        $fell_prone = FALSE;
-        if ($degree_hj === 'critical_success') {
-          $height_ft = 8;
+      );
+      if (!empty($movement_route['handled'])) {
+        $payload = (array) ($movement_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        elseif ($degree_hj === 'success') {
-          $height_ft = 5;
-        }
-        elseif ($degree_hj === 'failure') {
-          // Normal Leap.
-          $height_ft = 0;
-        }
-        elseif ($degree_hj === 'critical_failure') {
-          $fell_prone = TRUE;
-          $enc_hj = $this->encounterStore->loadEncounter($encounter_id);
-          $ptcp_hj = $enc_hj ? $this->findEncounterParticipantByEntityId($enc_hj, $actor_id) : NULL;
-          if ($ptcp_hj) {
-            $this->conditionManager->applyCondition((int) $ptcp_hj['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'high_jump', $encounter_id);
-          }
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-        $result = ['jumped' => !$fell_prone, 'height_ft' => $height_ft, 'degree' => $degree_hj, 'fell_prone' => $fell_prone, 'd20' => $d20_hj, 'total' => $total_hj];
-        $events[] = GameEventLogger::buildEvent('high_jump', 'encounter', $actor_id, ['degree' => $degree_hj, 'height_ft' => $height_ft, 'round' => $game_state['round'] ?? NULL]);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1637–1640: Long Jump [2 actions] — Stride ≥10 ft + Athletics vs DC.
-      // -----------------------------------------------------------------------
-      case 'long_jump': {
-        $prior_stride_ft = (int) ($game_state['turn']['last_stride_ft'] ?? 0);
-        if ($prior_stride_ft < 10) {
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-          $result = ['jumped' => FALSE, 'auto_fail' => TRUE, 'reason' => 'No prior Stride of ≥10 ft'];
-          $events[] = GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, ['auto_fail' => TRUE, 'round' => $game_state['round'] ?? NULL]);
-          break;
+      else {
+      $defensive_route = $this->encounterIntentRouter->routeDefensiveReactionAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeArrestFallIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeGrabEdgeIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeShieldBlockIntentExecution($eid, $aid, $tid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeAttackOfOpportunityIntentExecution($eid, $aid, $tid, $action_params, $state);
         }
-
-        $target_ft = (int) ($params['target_ft'] ?? 10);
-        $enc_lj = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_lj = $enc_lj ? $this->findEncounterParticipantByEntityId($enc_lj, $actor_id) : NULL;
-        $entity_lj = $ptcp_lj && !empty($ptcp_lj['entity_ref']) ? json_decode($ptcp_lj['entity_ref'], TRUE) : [];
-        $speed_lj = (int) ($entity_lj['speed'] ?? $ptcp_lj['speed'] ?? 25);
-
-        // Cap at character Speed.
-        if ($target_ft > $speed_lj) {
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-          $result = ['jumped' => FALSE, 'auto_fail' => TRUE, 'reason' => 'Target distance exceeds Speed'];
-          $events[] = GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, ['auto_fail' => TRUE, 'reason' => 'speed_cap', 'round' => $game_state['round'] ?? NULL]);
-          break;
+      );
+      if (!empty($defensive_route['handled'])) {
+        $payload = (array) ($defensive_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-
-        $dc_lj = $target_ft; // DC = distance in feet.
-        $athletics_lj = (int) ($params['athletics_bonus'] ?? 0);
-        $d20_lj = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_lj = $d20_lj + $athletics_lj;
-        $degree_lj = $this->combatCalculator->calculateDegreeOfSuccess($total_lj, $dc_lj, $d20_lj);
-
-        $distance_ft = 0;
-        $fell_prone = FALSE;
-        if (in_array($degree_lj, ['critical_success', 'success'], TRUE)) {
-          $distance_ft = $target_ft;
-        }
-        elseif ($degree_lj === 'failure') {
-          // Normal Leap.
-          $distance_ft = 0;
-        }
-        elseif ($degree_lj === 'critical_failure') {
-          // Normal Leap + prone.
-          $fell_prone = TRUE;
-          if ($ptcp_lj) {
-            $this->conditionManager->applyCondition((int) $ptcp_lj['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'long_jump', $encounter_id);
-          }
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-        $result = ['jumped' => !$fell_prone || $distance_ft > 0, 'distance_ft' => $distance_ft, 'degree' => $degree_lj, 'fell_prone' => $fell_prone, 'd20' => $d20_lj, 'total' => $total_lj];
-        $events[] = GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, ['degree' => $degree_lj, 'distance_ft' => $distance_ft, 'round' => $game_state['round'] ?? NULL]);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1641–1644: Shove [1 action, Attack] — Athletics vs Fortitude DC.
-      // -----------------------------------------------------------------------
-      case 'shove': {
-        $athletics_sh = (int) ($params['athletics_bonus'] ?? 0);
-        $sh_dc = (int) ($params['fortitude_dc'] ?? 15);
-        $attacks_this_turn = $game_state['turn']['attacks_this_turn'] ?? 0;
-        $map_sh = $this->combatCalculator->calculateMultipleAttackPenalty($attacks_this_turn, !empty($params['is_agile']));
-        $d20_sh = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_sh = $d20_sh + $athletics_sh + $map_sh;
-        $degree_sh = $this->combatCalculator->calculateDegreeOfSuccess($total_sh, $sh_dc, $d20_sh);
-
-        $push_ft = 0;
-        $attacker_prone = FALSE;
-        if ($degree_sh === 'critical_success') {
-          $push_ft = 10;
+      else {
+      $utility_skill_route = $this->encounterIntentRouter->routeUtilitySkillAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $params,
+        $game_state,
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeBalanceIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeTumbleThroughIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeManeuverInFlightIntentExecution($aid, $action_params, $state);
         }
-        elseif ($degree_sh === 'success') {
-          $push_ft = 5;
+      );
+      if (!empty($utility_skill_route['handled'])) {
+        $payload = (array) ($utility_skill_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        elseif ($degree_sh === 'critical_failure') {
-          // Attacker falls prone.
-          $enc_sh = $this->encounterStore->loadEncounter($encounter_id);
-          $ptcp_sh = $enc_sh ? $this->findEncounterParticipantByEntityId($enc_sh, $actor_id) : NULL;
-          if ($ptcp_sh) {
-            $this->conditionManager->applyCondition((int) $ptcp_sh['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'shove', $encounter_id);
-          }
-          $attacker_prone = TRUE;
-        }
-
-        // REQ 1643: Forced movement does NOT trigger movement reactions.
-        $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['shoved' => $push_ft > 0, 'push_ft' => $push_ft, 'degree' => $degree_sh, 'forced_movement' => TRUE, 'attacker_prone' => $attacker_prone, 'd20' => $d20_sh, 'total' => $total_sh];
-        $events[] = GameEventLogger::buildEvent('shove', 'encounter', $actor_id, ['degree' => $degree_sh, 'push_ft' => $push_ft, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1645–1649: Swim [1 action, Move] — no check in calm water.
-      // -----------------------------------------------------------------------
-      case 'swim': {
-        $enc_sw = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_sw = $enc_sw ? $this->findEncounterParticipantByEntityId($enc_sw, $actor_id) : NULL;
-        if (!$ptcp_sw) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      else {
+      $social_skill_route = $this->encounterIntentRouter->routeSocialSkillAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        $campaign_id,
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeFeintIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeCreateDiversionIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state, int $cid): array {
+          return $this->routeRequestIntentExecution($aid, $tid, $action_params, $state, $cid);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state, int $cid): array {
+          return $this->routeDemoralizeIntentExecution($eid, $aid, $tid, $action_params, $state, $cid);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeCommandAnimalIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routePerformIntentExecution($aid, $action_params, $state);
         }
-        $entity_sw = !empty($ptcp_sw['entity_ref']) ? json_decode($ptcp_sw['entity_ref'], TRUE) : [];
-
-        $is_calm = !empty($params['calm_water']);
-        $athletics_sw = (int) ($params['athletics_bonus'] ?? 0);
-        $swim_dc = (int) ($params['swim_dc'] ?? 15);
-        $land_speed_sw = (int) ($entity_sw['speed'] ?? 25);
-        $has_swim_speed = !empty($entity_sw['swim_speed']) && (int) $entity_sw['swim_speed'] > 0;
-
-        // GAP-2235: Characters with a swim Speed auto-succeed at Swim (no roll needed)
-        // and gain a +4 circumstance bonus to Athletics if a check is forced.
-        if ($has_swim_speed) {
-          $athletics_sw += 4;
-          $is_calm = TRUE; // Auto-succeed: treat as calm water regardless of actual water state.
+      );
+      if (!empty($social_skill_route['handled'])) {
+        $payload = (array) ($social_skill_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-
-        $degree_sw = 'success';
-        $d20_sw = 0;
-        $total_sw = 0;
-        if (!$is_calm) {
-          $d20_sw = $this->numberGenerationService->rollPathfinderDie(20);
-          $total_sw = $d20_sw + $athletics_sw;
-          $degree_sw = $this->combatCalculator->calculateDegreeOfSuccess($total_sw, $swim_dc, $d20_sw);
-        }
-
-        $feet_moved = 0;
-        $breath_lost = FALSE;
-        if ($degree_sw === 'critical_success') {
-          $feet_moved = max(10, (int) round($land_speed_sw / 2));
-        }
-        elseif ($degree_sw === 'success') {
-          $feet_moved = max(5, (int) round($land_speed_sw / 4));
-        }
-        elseif ($degree_sw === 'critical_failure') {
-          // Costs 1 round of held breath.
-          $breath_lost = TRUE;
-          $held_breath = max(0, (int) ($game_state['entities'][$actor_id]['held_breath_rounds'] ?? 0) - 1);
-          if (!isset($game_state['entities'][$actor_id])) {
-            $game_state['entities'][$actor_id] = [];
-          }
-          $game_state['entities'][$actor_id]['held_breath_rounds'] = $held_breath;
-        }
-
-        // REQ 1647: Air-breathing characters must hold breath; track submerged state.
-        if (empty($entity_sw['water_breathing']) && !$has_swim_speed) {
-          if (!isset($game_state['entities'][$actor_id])) {
-            $game_state['entities'][$actor_id] = [];
-          }
-          $game_state['entities'][$actor_id]['submerged'] = TRUE;
-        }
-
-        // Track swim action for end-of-turn sink rule (REQ 1648).
-        if (!isset($game_state['turn']['swim_actions'])) {
-          $game_state['turn']['swim_actions'] = [];
-        }
-        $game_state['turn']['swim_actions'][$actor_id] = ($game_state['turn']['swim_actions'][$actor_id] ?? 0) + 1;
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['swam' => $feet_moved > 0, 'degree' => $degree_sw, 'feet_moved' => $feet_moved, 'breath_lost' => $breath_lost, 'd20' => $d20_sw, 'total' => $total_sw];
-        $events[] = GameEventLogger::buildEvent('swim', 'encounter', $actor_id, ['degree' => $degree_sw, 'feet_moved' => $feet_moved, 'round' => $game_state['round'] ?? NULL]);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1650–1654: Trip [1 action, Attack] — Athletics vs Reflex DC.
-      // -----------------------------------------------------------------------
-      case 'trip': {
-        $athletics_tr = (int) ($params['athletics_bonus'] ?? 0);
-        $tr_dc = (int) ($params['reflex_dc'] ?? 15);
-        $attacks_this_turn = $game_state['turn']['attacks_this_turn'] ?? 0;
-        $map_tr = $this->combatCalculator->calculateMultipleAttackPenalty($attacks_this_turn, !empty($params['is_agile']));
-        $d20_tr = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_tr = $d20_tr + $athletics_tr + $map_tr;
-        $degree_tr = $this->combatCalculator->calculateDegreeOfSuccess($total_tr, $tr_dc, $d20_tr);
-
-        $enc_tr = $this->encounterStore->loadEncounter($encounter_id);
-        $target_ptcp_tr = $enc_tr ? $this->findEncounterParticipantByEntityId($enc_tr, $target_id) : NULL;
-        $actor_ptcp_tr = $enc_tr ? $this->findEncounterParticipantByEntityId($enc_tr, $actor_id) : NULL;
-
-        $damage_tr = 0;
-        $attacker_prone = FALSE;
-        if ($degree_tr === 'critical_success') {
-          // 1d6 bludgeoning + prone to target.
-          $damage_tr = $this->numberGenerationService->rollPathfinderDie(6);
-          if ($target_ptcp_tr) {
-            $this->hpManager->applyDamage((int) $target_ptcp_tr['id'], $damage_tr, 'bludgeoning', 'trip', $encounter_id);
-            $this->conditionManager->applyCondition((int) $target_ptcp_tr['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
-          }
+      else {
+      $utility_route = $this->encounterIntentRouter->routeEncounterUtilityAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeEscapeIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeSeekIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeSearchIntentExecution($aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeSenseMotiveIntentExecution($aid, $tid, $action_params, $state);
+        },
+        function (?string $aid, array &$state): array {
+          return $this->routeTakeCoverIntentExecution($aid, $state);
+        },
+        function (?string $aid, array $action_params, array &$state, array &$dungeon): array {
+          return $this->routeReleaseIntentExecution($aid, $action_params, $state, $dungeon);
         }
-        elseif ($degree_tr === 'success') {
-          // Prone only.
-          if ($target_ptcp_tr) {
-            $this->conditionManager->applyCondition((int) $target_ptcp_tr['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
-          }
+      );
+      if (!empty($utility_route['handled'])) {
+        $payload = (array) ($utility_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        elseif ($degree_tr === 'critical_failure') {
-          // Attacker falls prone.
-          if ($actor_ptcp_tr) {
-            $this->conditionManager->applyCondition((int) $actor_ptcp_tr['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
-          }
-          $attacker_prone = TRUE;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
+        if (array_key_exists('narration', $payload)) {
+          $narration = $payload['narration'];
         }
-
-        $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['tripped' => in_array($degree_tr, ['critical_success', 'success'], TRUE), 'degree' => $degree_tr, 'damage' => $damage_tr, 'attacker_prone' => $attacker_prone, 'd20' => $d20_tr, 'total' => $total_tr];
-        $events[] = GameEventLogger::buildEvent('trip', 'encounter', $actor_id, ['degree' => $degree_tr, 'damage' => $damage_tr, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
+        if (array_key_exists('mechanical_result', $payload)) {
+          $mechanical_result = $payload['mechanical_result'];
+        }
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1655–1659: Disarm [1 action, Attack, Trained] — Athletics vs Reflex DC.
-      // -----------------------------------------------------------------------
-      case 'disarm': {
-        // REQ 1655: Trained Athletics required.
-        $proficiency_rank = (int) ($params['athletics_proficiency_rank'] ?? 0);
-        if ($proficiency_rank < 1) {
-          return ['success' => FALSE, 'result' => ['error' => 'Disarm requires Trained Athletics.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      else {
+      $athletics_route = $this->encounterIntentRouter->routeAthleticsTacticalAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeClimbIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeForceOpenIntentExecution($aid, $tid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeGrappleIntentExecution($eid, $aid, $tid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeHighJumpIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeLongJumpIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeShoveIntentExecution($eid, $aid, $tid, $action_params, $state);
         }
-
-        $athletics_di = (int) ($params['athletics_bonus'] ?? 0);
-        $di_dc = (int) ($params['reflex_dc'] ?? 15);
-        $attacks_this_turn = $game_state['turn']['attacks_this_turn'] ?? 0;
-        $map_di = $this->combatCalculator->calculateMultipleAttackPenalty($attacks_this_turn, !empty($params['is_agile']));
-        $d20_di = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_di = $d20_di + $athletics_di + $map_di;
-        $degree_di = $this->combatCalculator->calculateDegreeOfSuccess($total_di, $di_dc, $d20_di);
-
-        $enc_di = $this->encounterStore->loadEncounter($encounter_id);
-        $actor_ptcp_di = $enc_di ? $this->findEncounterParticipantByEntityId($enc_di, $actor_id) : NULL;
-
-        $item_dropped = FALSE;
-        $grip_weakened = FALSE;
-        $attacker_flat_footed = FALSE;
-
-        if ($degree_di === 'critical_success') {
-          $item_dropped = TRUE;
+      );
+      if (!empty($athletics_route['handled'])) {
+        $payload = (array) ($athletics_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        elseif ($degree_di === 'success') {
-          // Grip weakened until start of target's next turn.
-          $grip_weakened = TRUE;
-          if (!isset($game_state['grip_weakened'])) {
-            $game_state['grip_weakened'] = [];
-          }
-          $game_state['grip_weakened'][$target_id] = ($game_state['round'] ?? 0) + 1;
-        }
-        elseif ($degree_di === 'critical_failure') {
-          // Attacker becomes flat-footed.
-          if ($actor_ptcp_di) {
-            $this->conditionManager->applyCondition((int) $actor_ptcp_di['id'], 'flat_footed', 0, ['type' => 'encounter', 'remaining' => 1], 'disarm', $encounter_id);
-          }
-          $attacker_flat_footed = TRUE;
-        }
-
-        $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['disarmed' => $item_dropped, 'grip_weakened' => $grip_weakened, 'degree' => $degree_di, 'attacker_flat_footed' => $attacker_flat_footed, 'd20' => $d20_di, 'total' => $total_di];
-        $events[] = GameEventLogger::buildEvent('disarm', 'encounter', $actor_id, ['degree' => $degree_di, 'item_dropped' => $item_dropped, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1688–1692: Administer First Aid [2 actions, Manipulation, Trained]
-      // -----------------------------------------------------------------------
-      case 'administer_first_aid': {
-        $enc_afa = $this->encounterStore->loadEncounter($encounter_id);
-        $actor_ptcp_afa = $enc_afa ? $this->findEncounterParticipantByEntityId($enc_afa, $actor_id) : NULL;
-        $target_ptcp_afa = ($enc_afa && $target_id) ? $this->findEncounterParticipantByEntityId($enc_afa, $target_id) : NULL;
-
-        // REQ 1688: Trained Medicine required.
-        $med_rank_afa = (int) ($params['medicine_proficiency_rank'] ?? 0);
-        if ($med_rank_afa < 1) {
-          return ['success' => FALSE, 'result' => ['error' => 'Administer First Aid requires Trained Medicine.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      else {
+      $athletics_maneuver_route = $this->encounterIntentRouter->routeAthleticsManeuverAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeSwimIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeTripIntentExecution($eid, $aid, $tid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeDisarmIntentExecution($eid, $aid, $tid, $action_params, $state);
         }
-        // REQ 1688: Healer's tools required (improvised = -2 penalty).
-        if (empty($params['has_healers_tools'])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Administer First Aid requires healer\'s tools.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      );
+      if (!empty($athletics_maneuver_route['handled'])) {
+        $payload = (array) ($athletics_maneuver_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-        $tools_penalty_afa = !empty($params['is_improvised_tools']) ? -2 : 0;
-
-        // REQ 1692: Once per round per condition per target.
-        $mode_afa = $params['mode'] ?? 'stabilize';
-        if (!in_array($mode_afa, ['stabilize', 'stop_bleeding'], TRUE)) {
-          return ['success' => FALSE, 'result' => ['error' => "Unknown First Aid mode '{$mode_afa}'. Use 'stabilize' or 'stop_bleeding'."], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $fa_used_key = $target_id . ':' . $mode_afa;
-        $current_round_afa = $game_state['round'] ?? 0;
-        if (isset($game_state['first_aid_used'][$fa_used_key]) && $game_state['first_aid_used'][$fa_used_key] === $current_round_afa) {
-          return ['success' => FALSE, 'result' => ['error' => 'Cannot Administer First Aid on the same condition and target twice in the same round.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-
-        $med_bonus_afa = (int) ($params['medicine_bonus'] ?? 0);
-        $d20_afa = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_afa = $d20_afa + $med_bonus_afa + $tools_penalty_afa;
-
-        $afa_result = $this->processAdministerFirstAid(
-          $target_ptcp_afa,
-          $actor_ptcp_afa,
-          $mode_afa,
-          $total_afa,
-          $d20_afa,
-          $params,
-          $encounter_id
-        );
-
-        $game_state['first_aid_used'][$fa_used_key] = $current_round_afa;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-        $result = array_merge($afa_result, ['d20' => $d20_afa, 'total' => $total_afa, 'mode' => $mode_afa, 'tools_penalty' => $tools_penalty_afa]);
-        $events[] = GameEventLogger::buildEvent('administer_first_aid', 'encounter', $actor_id, ['mode' => $mode_afa, 'degree' => $afa_result['degree'] ?? NULL, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1695–1698: Treat Poison [1 action, Manipulation, Trained]
-      // -----------------------------------------------------------------------
-      case 'treat_poison': {
-        // REQ 1695: Trained Medicine required.
-        $med_rank_tp = (int) ($params['medicine_proficiency_rank'] ?? 0);
-        if ($med_rank_tp < 1) {
-          return ['success' => FALSE, 'result' => ['error' => 'Treat Poison requires Trained Medicine.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      else {
+      $medicine_knowledge_route = $this->encounterIntentRouter->routeMedicineKnowledgeAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeAdministerFirstAidIntentExecution($eid, $aid, $tid, $action_params, $state);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeTreatPoisonIntentExecution($aid, $tid, $action_params, $state);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeBattleMedicineIntentExecution($aid, $tid, $action_params, $state);
+        },
+        function (?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeRecallKnowledgeIntentExecution($aid, $tid, $action_params, $state);
         }
-        // REQ 1695: Healer's tools required.
-        if (empty($params['has_healers_tools'])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Treat Poison requires healer\'s tools.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      );
+      if (!empty($medicine_knowledge_route['handled'])) {
+        $payload = (array) ($medicine_knowledge_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-
-        // REQ 1697: One attempt per creature per poison save.
-        $poison_key_tp = ($target_id ?? $actor_id) . ':poison';
-        if (!empty($game_state['poison_treated'][$poison_key_tp])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Can only treat one poison per save for this target.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-
-        $med_bonus_tp = (int) ($params['medicine_bonus'] ?? 0);
-        $poison_dc_tp = (int) ($params['poison_dc'] ?? 15);
-        $d20_tp = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_tp = $d20_tp + $med_bonus_tp;
-        $degree_tp = $this->combatCalculator->calculateDegreeOfSuccess($total_tp, $poison_dc_tp, $d20_tp);
-
-        $treated_tp = in_array($degree_tp, ['critical_success', 'success'], TRUE);
-        if ($treated_tp) {
-          // REQ 1696: Next poison save is one degree better.
-          $game_state['poison_treated'][$poison_key_tp] = TRUE;
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['treated' => $treated_tp, 'degree' => $degree_tp, 'd20' => $d20_tp, 'total' => $total_tp, 'dc' => $poison_dc_tp];
-        $events[] = GameEventLogger::buildEvent('treat_poison', 'encounter', $actor_id, ['degree' => $degree_tp, 'treated' => $treated_tp, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // Battle Medicine [1 action, Manipulate, General Skill Feat]
-      // Requires: healer's tools + Trained Medicine; same DC/HP table as Treat Wounds.
-      // Does NOT remove wounded condition. Per-healer 1-day immunity per target.
-      // -----------------------------------------------------------------------
-      case 'battle_medicine': {
-        $med_rank_bm = (int) ($params['medicine_proficiency_rank'] ?? 0);
-        if ($med_rank_bm < 1) {
-          return ['success' => FALSE, 'result' => ['error' => 'Battle Medicine requires Trained Medicine.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      else {
+      $stealth_route = $this->encounterIntentRouter->routeStealthSubterfugeAction(
+        $type,
+        $actor_id,
+        $params,
+        $game_state,
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeHideIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeSneakIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeConcealObjectIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routePalmObjectIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeStealIntentExecution($aid, $action_params, $state);
         }
-        if (empty($params['has_healers_tools'])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Battle Medicine requires healer\'s tools.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      );
+      if (!empty($stealth_route['handled'])) {
+        $payload = (array) ($stealth_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-
-        // Per-healer 1-day immunity per target (keyed by actor+target pair).
-        $effective_target_bm = $target_id ?? $actor_id;
-        $bm_immune_key = $actor_id . ':' . $effective_target_bm;
-        if (!empty($game_state['battle_medicine_immune'][$bm_immune_key])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Target is immune to this healer\'s Battle Medicine for 1 day.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-
-        $dc_table_bm   = [1 => 15, 2 => 20, 3 => 30, 4 => 40];
-        $hp_bonus_bm   = [1 => 0,  2 => 10, 3 => 30, 4 => 50];
-        $rank_key_bm   = min(4, max(1, $med_rank_bm));
-        $dc_bm         = (int) ($params['override_dc'] ?? $dc_table_bm[$rank_key_bm]);
-        $med_bonus_bm  = (int) ($params['medicine_bonus'] ?? 0);
-        $item_bonus_bm = !empty($params['is_improvised_tools']) ? -2 : 0;
-
-        $d20_bm  = $this->numberGenerationService->rollPathfinderDie(20);
-        $d8a_bm  = $this->numberGenerationService->rollPathfinderDie(8);
-        $d8b_bm  = $this->numberGenerationService->rollPathfinderDie(8);
-        $total_bm = $d20_bm + $med_bonus_bm + $item_bonus_bm;
-        $degree_bm = $this->combatCalculator->calculateDegreeOfSuccess($total_bm, $dc_bm, $d20_bm);
-
-        $healed_bm = 0;
-        $damage_bm = 0;
-        $mutations_bm = [];
-
-        if ($degree_bm === 'critical_success') {
-          $healed_bm = (($d8a_bm + $d8b_bm) + $hp_bonus_bm[$rank_key_bm]) * 2;
-        }
-        elseif ($degree_bm === 'success') {
-          $healed_bm = ($d8a_bm + $d8b_bm) + $hp_bonus_bm[$rank_key_bm];
-        }
-        elseif ($degree_bm === 'critical_failure') {
-          $damage_bm = $this->numberGenerationService->rollPathfinderDie(8);
-        }
-
-        // Mark immunity (does not remove wounded; healer-specific).
-        $game_state['battle_medicine_immune'][$bm_immune_key] = TRUE;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-
-        $result = [
-          'degree'  => $degree_bm,
-          'healed'  => $healed_bm,
-          'damage'  => $damage_bm,
-          'dc'      => $dc_bm,
-          'd20'     => $d20_bm,
-          'total'   => $total_bm,
-          'removes_wounded' => FALSE,
-          'mutations' => $mutations_bm,
-        ];
-        $events[] = GameEventLogger::buildEvent('battle_medicine', 'encounter', $actor_id, ['degree' => $degree_bm, 'healed' => $healed_bm, 'round' => $game_state['round'] ?? NULL], NULL, $effective_target_bm);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1591–1594, 2329: Recall Knowledge [1 action, Secret]
-      // -----------------------------------------------------------------------
-      case 'recall_knowledge': {
-        // Use provided DC or compute via RecallKnowledgeService.
-        if (!empty($params['dc'])) {
-          $dc_rk = (int) $params['dc'];
+      else {
+      $device_hazard_route = $this->encounterIntentRouter->routeDeviceHazardAction(
+        $type,
+        $actor_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeDisableDeviceIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routePickLockIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state, array &$dungeon): array {
+          return $this->routeDisableHazardIntentExecution($aid, $action_params, $state, $dungeon);
+        },
+        function (?string $aid, array $action_params, array &$state, array &$dungeon): array {
+          return $this->routeAttackHazardIntentExecution($aid, $action_params, $state, $dungeon);
+        },
+        function (?string $aid, array $action_params, array &$state, array &$dungeon): array {
+          return $this->routeCounteractHazardIntentExecution($aid, $action_params, $state, $dungeon);
         }
-        else {
-          $rk_service = new RecallKnowledgeService(new DcAdjustmentService());
-          $dc_result_rk = $rk_service->computeDc(
-            $params['subject_type'] ?? 'general',
-            (int) ($params['level'] ?? 0),
-            $params['rarity'] ?? 'common',
-            (int) ($params['spell_rank'] ?? 0),
-            $params['availability'] ?? 'trained'
-          );
-          $dc_rk = $dc_result_rk['dc'];
+      );
+      if (!empty($device_hazard_route['handled'])) {
+        $payload = (array) ($device_hazard_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-
-        $skill_used_rk = $params['skill_used'] ?? 'arcana';
-        $skill_bonus_rk = (int) ($params['skill_bonus'] ?? 0);
-        $d20_rk = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_rk = $d20_rk + $skill_bonus_rk;
-        $degree_rk = $this->combatCalculator->calculateDegreeOfSuccess($total_rk, $dc_rk, $d20_rk);
-
-        // REQ 2329: Block re-attempts until new information is discovered.
-        $attempt_key_rk = $actor_id . ':' . ($target_id ?? 'general');
-        if (!empty($game_state['recall_knowledge_attempts'][$attempt_key_rk])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Cannot re-attempt Recall Knowledge on the same target without new information.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
+        if (array_key_exists('phase_transition', $payload)) {
+          $phase_transition = $payload['phase_transition'];
         }
-        $game_state['recall_knowledge_attempts'][$attempt_key_rk] = TRUE;
-
-        // Build player-facing output; crit fail presented as truthful (REQ 1594).
-        switch ($degree_rk) {
-          case 'critical_success':
-            $player_msg_rk = 'You recall detailed information about the subject.';
-            $info_rk = $params['known_info'] ?? NULL;
-            $bonus_detail_rk = $params['bonus_detail'] ?? NULL;
-            break;
-
-          case 'success':
-            $player_msg_rk = 'You recall accurate information about the subject.';
-            $info_rk = $params['known_info'] ?? NULL;
-            $bonus_detail_rk = NULL;
-            break;
-
-          case 'failure':
-            $player_msg_rk = 'You fail to recall anything useful.';
-            $info_rk = NULL;
-            $bonus_detail_rk = NULL;
-            break;
-
-          case 'critical_failure':
-          default:
-            // REQ 1594: False info returned; player-facing message appears truthful.
-            $player_msg_rk = 'You recall information about the subject.';
-            $info_rk = $params['false_info'] ?? NULL;
-            $bonus_detail_rk = NULL;
-            break;
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = [
-          'degree' => $degree_rk,
-          'skill_used' => $skill_used_rk,
-          'dc' => $dc_rk,
-          'd20' => $d20_rk,
-          'total' => $total_rk,
-          'player_facing_message' => $player_msg_rk,
-          'info' => $info_rk,
-          'bonus_detail' => $bonus_detail_rk,
-          // secret = true: raw d20 value is server-authoritative; not exposed to player.
-          'secret' => TRUE,
-        ];
-        $events[] = GameEventLogger::buildEvent('recall_knowledge', 'encounter', $actor_id, ['skill_used' => $skill_used_rk, 'degree' => $degree_rk, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1715–1718: Hide [1 action]
-      // Transitions actor from Observed → Hidden vs each observer's Perception DC.
-      // Requires cover or concealment.
-      // -----------------------------------------------------------------------
-      case 'hide': {
-        if (empty($params['has_cover']) && empty($params['has_concealment'])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Hide requires cover or concealment.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      else {
+      $magic_activation_route = $this->encounterIntentRouter->routeMagicActivationAction(
+        $type,
+        $actor_id,
+        $params,
+        $game_state,
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeActivateItemIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeSustainActivationIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeDismissActivationIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeSustainSpellIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeDismissSpellIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeCastFromScrollIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeCastFromStaffIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeCastFromWandIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeOverchargeWandIntentExecution($aid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeActivateTalismanIntentExecution($aid, $action_params, $state);
         }
-
-        $stealth_bonus_h = (int) ($params['stealth_bonus'] ?? 0);
-        // REQ dc-cr-gnome-heritage-chameleon: Chameleon Gnome +2 circumstance bonus to
-        // Stealth when terrain color matches character coloration. PF2e rule: circumstance
-        // bonuses don't stack; only the highest applies.
-        $chameleon_bonus_h = 0;
-        if (($params['heritage'] ?? '') === 'chameleon') {
-          $terrain_color_h = $params['terrain_color_tag'] ?? '';
-          $char_color_h    = $params['coloration_tag'] ?? '';
-          if ($terrain_color_h !== '' && $char_color_h !== '' && $terrain_color_h === $char_color_h) {
-            $existing_circumstance_h = (int) ($params['circumstance_bonus'] ?? 0);
-            $chameleon_bonus_h = max(0, 2 - $existing_circumstance_h);
-            $stealth_bonus_h += $chameleon_bonus_h;
-          }
+      );
+      if (!empty($magic_activation_route['handled'])) {
+        $payload = (array) ($magic_activation_route['payload'] ?? []);
+        $abort_response = $this->mergeRouterRoutePayload($payload, $result, $mutations, $events);
+        if ($abort_response !== NULL) {
+          return $abort_response;
         }
-        $observer_ids_h = $params['observer_ids'] ?? [];
-        $perception_dcs_h = $params['perception_dcs'] ?? [];
-
-        if (!isset($game_state['visibility'])) {
-          $game_state['visibility'] = [];
-        }
-
-        $hide_results = [];
-        foreach ($observer_ids_h as $obs_id) {
-          $perc_dc_h = (int) ($perception_dcs_h[$obs_id] ?? 15);
-          $d20_h = $this->numberGenerationService->rollPathfinderDie(20);
-          $total_h = $d20_h + $stealth_bonus_h;
-          $degree_h = $this->combatCalculator->calculateDegreeOfSuccess($total_h, $perc_dc_h, $d20_h);
-
-          // REQ 1715: Success → Hidden; Failure → Observed (no change if already hidden/undetected).
-          if (in_array($degree_h, ['critical_success', 'success'], TRUE)) {
-            $game_state['visibility'][$obs_id][$actor_id] = 'hidden';
-          }
-          else {
-            $game_state['visibility'][$obs_id][$actor_id] = 'observed';
-          }
-          // Secret: d20 not included in player-visible result.
-          $hide_results[$obs_id] = ['degree' => $degree_h, 'visibility' => $game_state['visibility'][$obs_id][$actor_id]];
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['hide_results' => $hide_results, 'observer_count' => count($observer_ids_h), 'secret' => TRUE, 'chameleon_bonus_applied' => $chameleon_bonus_h > 0 ? $chameleon_bonus_h : NULL];
-        $events[] = GameEventLogger::buildEvent('hide', 'encounter', $actor_id, ['observer_count' => count($observer_ids_h), 'round' => $game_state['round'] ?? NULL]);
-        break;
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1719–1722: Sneak [1 action, Move]
-      // Actor must be Hidden; moves at half speed; Stealth vs Perception at end.
-      // -----------------------------------------------------------------------
-      case 'sneak': {
-        // REQ 1719: Must already be Hidden to at least one observer.
-        $is_hidden_to_any = FALSE;
-        $observer_ids_sn = $params['observer_ids'] ?? [];
-        foreach ($observer_ids_sn as $obs_id) {
-          $vis = $game_state['visibility'][$obs_id][$actor_id] ?? 'observed';
-          if (in_array($vis, ['hidden', 'undetected', 'unnoticed'], TRUE)) {
-            $is_hidden_to_any = TRUE;
-            break;
-          }
+      else {
+      $traversal_route = $this->encounterIntentRouter->routeTraversalUtilityAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeBurrowIntentExecution($eid, $aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state, array &$dungeon, int $cid): array {
+          return $this->routeFlyIntentExecution($eid, $aid, $action_params, $state, $dungeon, $cid);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routeMountIntentExecution($eid, $aid, $tid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeDismountIntentExecution($eid, $aid, $action_params, $state);
         }
-        if (!$is_hidden_to_any && !empty($observer_ids_sn)) {
-          return ['success' => FALSE, 'result' => ['error' => 'Sneak requires Hidden (or Undetected) status. Use Hide first.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
+      );
+      if (!empty($traversal_route['handled'])) {
+        $payload = (array) ($traversal_route['payload'] ?? []);
+        if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+          return $payload['abort_response'];
         }
-
-        // REQ 1720: Move at half speed (enforced by rounding client-provided distance).
-        $speed_sn = (int) ($params['speed'] ?? 25);
-        $half_speed_sn = (int) (floor($speed_sn / 2 / 5) * 5);
-
-        // REQ 1722: Cannot end Sneak in an open location (no cover/concealment).
-        if (empty($params['ends_in_cover']) && empty($params['ends_in_concealment'])) {
-          // Sneak ending in open automatically becomes Observed to all observers.
-          foreach ($observer_ids_sn as $obs_id) {
-            $game_state['visibility'][$obs_id][$actor_id] = 'observed';
-          }
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-          $result = ['sneak_results' => [], 'became_observed' => TRUE, 'half_speed' => $half_speed_sn, 'reason' => 'Ended in open terrain.'];
-          $events[] = GameEventLogger::buildEvent('sneak', 'encounter', $actor_id, ['became_observed' => TRUE, 'round' => $game_state['round'] ?? NULL]);
-          break;
-        }
-
-        $stealth_bonus_sn = (int) ($params['stealth_bonus'] ?? 0);
-        // REQ dc-cr-gnome-heritage-chameleon: Apply chameleon +2 circumstance bonus if terrain matches.
-        $chameleon_bonus_sn = 0;
-        if (($params['heritage'] ?? '') === 'chameleon') {
-          $terrain_color_sn = $params['terrain_color_tag'] ?? '';
-          $char_color_sn    = $params['coloration_tag'] ?? '';
-          if ($terrain_color_sn !== '' && $char_color_sn !== '' && $terrain_color_sn === $char_color_sn) {
-            $existing_circumstance_sn = (int) ($params['circumstance_bonus'] ?? 0);
-            $chameleon_bonus_sn = max(0, 2 - $existing_circumstance_sn);
-            $stealth_bonus_sn += $chameleon_bonus_sn;
-          }
-        }
-        $perception_dcs_sn = $params['perception_dcs'] ?? [];
-
-        $sneak_results = [];
-        foreach ($observer_ids_sn as $obs_id) {
-          $current_vis_sn = $game_state['visibility'][$obs_id][$actor_id] ?? 'observed';
-          if (!in_array($current_vis_sn, ['hidden', 'undetected', 'unnoticed'], TRUE)) {
-            // REQ 1721: Can only Sneak from a Hidden state vs an observer.
-            $sneak_results[$obs_id] = ['degree' => NULL, 'visibility' => 'observed'];
-            continue;
-          }
-
-          $perc_dc_sn = (int) ($perception_dcs_sn[$obs_id] ?? 15);
-          $d20_sn = $this->numberGenerationService->rollPathfinderDie(20);
-          $total_sn = $d20_sn + $stealth_bonus_sn;
-          $degree_sn = $this->combatCalculator->calculateDegreeOfSuccess($total_sn, $perc_dc_sn, $d20_sn);
-
-          // REQ 1720: Success → remain Hidden; Failure → Observed to this observer.
-          if (in_array($degree_sn, ['critical_success', 'success'], TRUE)) {
-            // Keep current visibility (hidden/undetected preserved).
-          }
-          else {
-            $game_state['visibility'][$obs_id][$actor_id] = 'observed';
-          }
-          $sneak_results[$obs_id] = ['degree' => $degree_sn, 'visibility' => $game_state['visibility'][$obs_id][$actor_id]];
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['sneak_results' => $sneak_results, 'half_speed' => $half_speed_sn, 'secret' => TRUE, 'chameleon_bonus_applied' => $chameleon_bonus_sn > 0 ? $chameleon_bonus_sn : NULL];
-        $events[] = GameEventLogger::buildEvent('sneak', 'encounter', $actor_id, ['observer_count' => count($observer_ids_sn), 'round' => $game_state['round'] ?? NULL]);
-        break;
+        $result = (array) ($payload['result'] ?? []);
+        $mutations = $payload['mutations'] ?? $mutations;
+        $events = array_merge($events, (array) ($payload['events'] ?? []));
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1721–1724: Conceal an Object [1 action, Manipulation]
-      // Hides a carried/worn item; observers must Seek to discover it.
-      // -----------------------------------------------------------------------
-      case 'conceal_object': {
-        $stealth_bonus_co = (int) ($params['stealth_bonus'] ?? 0);
-        $observer_ids_co = $params['observer_ids'] ?? [];
-        $perception_dcs_co = $params['perception_dcs'] ?? [];
-        $item_id_co = $params['item_id'] ?? NULL;
-
-        if (!isset($game_state['concealed_objects'])) {
-          $game_state['concealed_objects'] = [];
+      else {
+      $stance_route = $this->encounterIntentRouter->routeStanceAwarenessAction(
+        $type,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeRaiseShieldIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, array $action_params, array &$state): array {
+          return $this->routeAvertGazeIntentExecution($eid, $aid, $action_params, $state);
+        },
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
+          return $this->routePointOutIntentExecution($eid, $aid, $tid, $action_params, $state);
+        },
+        function (?string $aid, array $action_params, array &$state): array {
+          return $this->routeMinorColorShiftIntentExecution($aid, $action_params, $state);
         }
-
-        $co_results = [];
-        $concealed_to_all = TRUE;
-        foreach ($observer_ids_co as $obs_id) {
-          $perc_dc_co = (int) ($perception_dcs_co[$obs_id] ?? 15);
-          $d20_co = $this->numberGenerationService->rollPathfinderDie(20);
-          $total_co = $d20_co + $stealth_bonus_co;
-          $degree_co = $this->combatCalculator->calculateDegreeOfSuccess($total_co, $perc_dc_co, $d20_co);
-
-          if (in_array($degree_co, ['critical_success', 'success'], TRUE)) {
-            $co_results[$obs_id] = ['degree' => $degree_co, 'concealed' => TRUE];
-          }
-          else {
-            $co_results[$obs_id] = ['degree' => $degree_co, 'concealed' => FALSE];
-            $concealed_to_all = FALSE;
-          }
+      );
+      if (!empty($stance_route['handled'])) {
+        $payload = (array) ($stance_route['payload'] ?? []);
+        $abort_response = $this->mergeRouterRoutePayload($payload, $result, $mutations, $events);
+        if ($abort_response !== NULL) {
+          return $abort_response;
         }
-
-        if ($item_id_co && $concealed_to_all && !empty($observer_ids_co)) {
-          $game_state['concealed_objects'][$actor_id . ':' . $item_id_co] = TRUE;
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['concealed_results' => $co_results, 'item_id' => $item_id_co, 'secret' => TRUE];
-        $events[] = GameEventLogger::buildEvent('conceal_object', 'encounter', $actor_id, ['item_id' => $item_id_co, 'round' => $game_state['round'] ?? NULL]);
-        break;
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1747–1750: Palm an Object [1 action, Manipulation]
-      // Hides a small item on the character's person; observers must Seek.
-      // -----------------------------------------------------------------------
-      case 'palm_object': {
-        $stealth_bonus_po = (int) ($params['thievery_bonus'] ?? 0);
-        $observer_ids_po = $params['observer_ids'] ?? [];
-        $perception_dcs_po = $params['perception_dcs'] ?? [];
-        $item_id_po = $params['item_id'] ?? NULL;
-
-        if (!isset($game_state['palmed_objects'])) {
-          $game_state['palmed_objects'] = [];
-        }
-
-        $po_results = [];
-        $palmed_from_all = TRUE;
-        foreach ($observer_ids_po as $obs_id) {
-          $perc_dc_po = (int) ($perception_dcs_po[$obs_id] ?? 15);
-          $d20_po = $this->numberGenerationService->rollPathfinderDie(20);
-          $total_po = $d20_po + $stealth_bonus_po;
-          $degree_po = $this->combatCalculator->calculateDegreeOfSuccess($total_po, $perc_dc_po, $d20_po);
-
-          if (in_array($degree_po, ['critical_success', 'success'], TRUE)) {
-            $po_results[$obs_id] = ['degree' => $degree_po, 'hidden' => TRUE];
-          }
-          else {
-            $po_results[$obs_id] = ['degree' => $degree_po, 'hidden' => FALSE];
-            $palmed_from_all = FALSE;
-          }
-        }
-
-        // REQ 1747: On success vs all observers, item considered hidden until Seek reveals it.
-        if ($item_id_po && $palmed_from_all && !empty($observer_ids_po)) {
-          $game_state['palmed_objects'][$actor_id . ':' . $item_id_po] = TRUE;
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['palm_results' => $po_results, 'item_id' => $item_id_po, 'secret' => TRUE];
-        $events[] = GameEventLogger::buildEvent('palm_object', 'encounter', $actor_id, ['item_id' => $item_id_po, 'round' => $game_state['round'] ?? NULL]);
-        break;
+      else {
       }
-
-      // -----------------------------------------------------------------------
-      // REQ 1751–1752: Steal [1 action, Manipulation]
-      // Takes a small item from a target that is unaware of the attempt.
-      // Crit Failure: target and nearby observers become aware of the attempt.
-      // -----------------------------------------------------------------------
-      case 'steal': {
-        $thievery_bonus_st = (int) ($params['thievery_bonus'] ?? 0);
-        $target_id_st = $params['target_id'] ?? NULL;
-        $observer_ids_st = $params['observer_ids'] ?? [];
-        $perception_dc_st = (int) ($params['perception_dc'] ?? 15);
-        $item_id_st = $params['item_id'] ?? NULL;
-
-        $d20_st = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_st = $d20_st + $thievery_bonus_st;
-        $degree_st = $this->combatCalculator->calculateDegreeOfSuccess($total_st, $perception_dc_st, $d20_st);
-
-        $stolen = FALSE;
-        $observers_alerted = [];
-        if (in_array($degree_st, ['critical_success', 'success'], TRUE)) {
-          $stolen = TRUE;
-          if ($item_id_st) {
-            if (!isset($game_state['stolen_items'])) {
-              $game_state['stolen_items'] = [];
-            }
-            $game_state['stolen_items'][] = ['actor' => $actor_id, 'from' => $target_id_st, 'item_id' => $item_id_st];
-          }
-        }
-        elseif ($degree_st === 'critical_failure') {
-          // REQ 1752: Crit Failure — target and nearby observers become aware.
-          $observers_alerted = array_merge([$target_id_st], $observer_ids_st);
-          $observers_alerted = array_filter($observers_alerted);
-          if (!isset($game_state['steal_awareness'])) {
-            $game_state['steal_awareness'] = [];
-          }
-          foreach ($observers_alerted as $aware_id) {
-            $game_state['steal_awareness'][$aware_id][$actor_id] = TRUE;
-          }
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['degree' => $degree_st, 'stolen' => $stolen, 'observers_alerted' => array_values($observers_alerted), 'secret' => TRUE];
-        $events[] = GameEventLogger::buildEvent('steal', 'encounter', $actor_id, ['target_id' => $target_id_st, 'degree' => $degree_st, 'round' => $game_state['round'] ?? NULL], NULL, $target_id_st);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1748–1750: Disable a Device [2 actions, Manipulation, Trained]
-      // Disarms traps/alarms. Complex devices may need multiple successes.
-      // Crit Failure: triggers the device.
-      // -----------------------------------------------------------------------
-      case 'disable_device': {
-        // REQ 1748: Trained Thievery required.
-        $thievery_rank_dd = (int) ($params['thievery_proficiency_rank'] ?? 0);
-        if ($thievery_rank_dd < 1) {
-          return ['success' => FALSE, 'result' => ['error' => 'Disable a Device requires Trained Thievery.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-
-        $device_id_dd = $params['device_id'] ?? NULL;
-        $dc_dd = (int) ($params['dc'] ?? 20);
-
-        // Improvised tools penalty.
-        $has_tools_dd = !empty($params['has_thieves_tools']);
-        if (!$has_tools_dd) {
-          $dc_dd += 5;
-        }
-
-        $thievery_bonus_dd = (int) ($params['thievery_bonus'] ?? 0);
-        $d20_dd = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_dd = $d20_dd + $thievery_bonus_dd;
-        $degree_dd = $this->combatCalculator->calculateDegreeOfSuccess($total_dd, $dc_dd, $d20_dd);
-
-        $disabled = FALSE;
-        $triggered = FALSE;
-
-        if (!isset($game_state['device_states'])) {
-          $game_state['device_states'] = [];
-        }
-
-        if ($degree_dd === 'critical_failure') {
-          // REQ 1750: Crit Failure triggers the device.
-          $triggered = TRUE;
-          if ($device_id_dd) {
-            $game_state['device_states'][$device_id_dd]['triggered'] = TRUE;
-          }
-        }
-        elseif (in_array($degree_dd, ['critical_success', 'success'], TRUE)) {
-          if ($device_id_dd) {
-            $successes_needed = (int) ($params['successes_needed'] ?? 1);
-            $successes_so_far = (int) ($game_state['device_states'][$device_id_dd]['successes'] ?? 0);
-            $successes_so_far++;
-            $game_state['device_states'][$device_id_dd]['successes'] = $successes_so_far;
-            if ($successes_so_far >= $successes_needed) {
-              $disabled = TRUE;
-              $game_state['device_states'][$device_id_dd]['disabled'] = TRUE;
-            }
-          }
-          else {
-            $disabled = TRUE;
-          }
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-        $result = ['degree' => $degree_dd, 'disabled' => $disabled, 'triggered' => $triggered, 'used_tools' => $has_tools_dd, 'secret' => TRUE];
-        $events[] = GameEventLogger::buildEvent('disable_device', 'encounter', $actor_id, ['device_id' => $device_id_dd, 'degree' => $degree_dd, 'triggered' => $triggered, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1753–1756: Pick a Lock [2 actions, Manipulation, Trained]
-      // DC by lock quality: simple 15, average 20, good 25, superior 30.
-      // No thieves' tools: DC +5.
-      // Crit Failure: lock jammed; no further attempts until repaired.
-      // -----------------------------------------------------------------------
-      case 'pick_lock': {
-        // REQ 1753: Trained Thievery required.
-        $thievery_rank_pl = (int) ($params['thievery_proficiency_rank'] ?? 0);
-        if ($thievery_rank_pl < 1) {
-          return ['success' => FALSE, 'result' => ['error' => 'Pick a Lock requires Trained Thievery.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-
-        $lock_id_pl = $params['lock_id'] ?? NULL;
-
-        // REQ 1756: Jammed lock blocks further attempts.
-        if ($lock_id_pl && !empty($game_state['lock_states'][$lock_id_pl]['jammed'])) {
-          return ['success' => FALSE, 'result' => ['error' => 'This lock is jammed and cannot be picked until repaired.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-
-        // REQ 1754: DC by lock quality.
-        $lock_quality_dcs = ['simple' => 15, 'average' => 20, 'good' => 25, 'superior' => 30];
-        $lock_quality_pl = $params['lock_quality'] ?? 'average';
-        $dc_pl = $lock_quality_dcs[$lock_quality_pl] ?? 20;
-
-        // REQ 1755: Without thieves' tools, DC +5 (improvised).
-        $has_tools_pl = !empty($params['has_thieves_tools']);
-        if (!$has_tools_pl) {
-          $dc_pl += 5;
-        }
-
-        $thievery_bonus_pl = (int) ($params['thievery_bonus'] ?? 0);
-        $d20_pl = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_pl = $d20_pl + $thievery_bonus_pl;
-        $degree_pl = $this->combatCalculator->calculateDegreeOfSuccess($total_pl, $dc_pl, $d20_pl);
-
-        $unlocked = FALSE;
-        $jammed = FALSE;
-
-        if (!isset($game_state['lock_states'])) {
-          $game_state['lock_states'] = [];
-        }
-
-        if ($degree_pl === 'critical_failure') {
-          // REQ 1756: Crit Failure jams the lock.
-          $jammed = TRUE;
-          if ($lock_id_pl) {
-            $game_state['lock_states'][$lock_id_pl]['jammed'] = TRUE;
-          }
-        }
-        elseif (in_array($degree_pl, ['critical_success', 'success'], TRUE)) {
-          $unlocked = TRUE;
-          if ($lock_id_pl) {
-            $game_state['lock_states'][$lock_id_pl]['locked'] = FALSE;
-          }
-        }
-
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-        $result = ['degree' => $degree_pl, 'unlocked' => $unlocked, 'jammed' => $jammed, 'lock_quality' => $lock_quality_pl, 'used_tools' => $has_tools_pl, 'secret' => TRUE];
-        $events[] = GameEventLogger::buildEvent('pick_lock', 'encounter', $actor_id, ['lock_id' => $lock_id_pl, 'lock_quality' => $lock_quality_pl, 'degree' => $degree_pl, 'jammed' => $jammed, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2373–2396: Hazard actions [encounter-phase].
-      // -----------------------------------------------------------------------
-      case 'disable_hazard': {
-        $hazard_id_dh = $params['hazard_id'] ?? NULL;
-        if (!$hazard_id_dh) {
-          return ['success' => FALSE, 'result' => ['error' => 'hazard_id required.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $hazard_ref_dh = &$this->hazardService->findHazardByInstanceId($hazard_id_dh, $dungeon_data);
-        if ($hazard_ref_dh === NULL) {
-          return ['success' => FALSE, 'result' => ['error' => 'Hazard not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $skill_rank_dh = (int) ($params['skill_proficiency_rank'] ?? 0);
-        $skill_bonus_dh = (int) ($params['skill_bonus'] ?? 0);
-        // REQ 2384: disableHazard(entity, skill_bonus, skill_rank) — bonus before rank.
-        $disable_result_dh = $this->hazardService->disableHazard($hazard_ref_dh, $skill_bonus_dh, $skill_rank_dh);
-        $xp_dh = 0;
-        if (!empty($disable_result_dh['disabled'])) {
-          $xp_dh = $this->hazardService->awardHazardXp($game_state, $hazard_ref_dh, (int) ($game_state['party_level'] ?? 1));
-        }
-        $complexity_dh = $hazard_ref_dh['complexity'] ?? 'simple';
-        $phase_transition_dh = NULL;
-        if (!empty($disable_result_dh['triggered']) && $complexity_dh === 'complex') {
-          $initiative_dh = $this->hazardService->rollComplexHazardInitiative($hazard_ref_dh);
-          $phase_transition_dh = ['type' => 'encounter_continue', 'hazard_initiative' => $initiative_dh, 'hazard_id' => $hazard_id_dh];
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-        $result = array_merge($disable_result_dh, ['xp_awarded' => $xp_dh, 'hazard_id' => $hazard_id_dh]);
-        $events[] = GameEventLogger::buildEvent('disable_hazard', 'encounter', $actor_id, ['hazard_id' => $hazard_id_dh, 'degree' => $disable_result_dh['degree'], 'disabled' => $disable_result_dh['disabled'], 'triggered' => $disable_result_dh['triggered'] ?? FALSE, 'round' => $game_state['round'] ?? NULL]);
-        $phase_transition = $phase_transition_dh;
-        break;
-      }
-
-      case 'attack_hazard': {
-        $hazard_id_ah = $params['hazard_id'] ?? NULL;
-        if (!$hazard_id_ah) {
-          return ['success' => FALSE, 'result' => ['error' => 'hazard_id required.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $hazard_ref_ah = &$this->hazardService->findHazardByInstanceId($hazard_id_ah, $dungeon_data);
-        if ($hazard_ref_ah === NULL) {
-          return ['success' => FALSE, 'result' => ['error' => 'Hazard not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $damage_amount_ah = (int) ($params['damage'] ?? 0);
-        $damage_result_ah = $this->hazardService->applyDamageToHazard($hazard_ref_ah, $damage_amount_ah);
-        $xp_ah = 0;
-        if (!empty($damage_result_ah['disabled'])) {
-          $xp_ah = $this->hazardService->awardHazardXp($game_state, $hazard_ref_ah, (int) ($game_state['party_level'] ?? 1));
-        }
-        $complexity_ah = $hazard_ref_ah['complexity'] ?? 'simple';
-        $phase_transition_ah = NULL;
-        if (!empty($damage_result_ah['triggered']) && $complexity_ah === 'complex') {
-          $initiative_ah = $this->hazardService->rollComplexHazardInitiative($hazard_ref_ah);
-          $phase_transition_ah = ['type' => 'encounter_continue', 'hazard_initiative' => $initiative_ah, 'hazard_id' => $hazard_id_ah];
-        }
-        $action_cost_ah = (int) ($params['action_cost'] ?? 1);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost_ah);
-        $result = array_merge($damage_result_ah, ['xp_awarded' => $xp_ah, 'hazard_id' => $hazard_id_ah]);
-        $events[] = GameEventLogger::buildEvent('attack_hazard', 'encounter', $actor_id, ['hazard_id' => $hazard_id_ah, 'damage' => $damage_amount_ah, 'triggered' => $damage_result_ah['triggered'] ?? FALSE, 'disabled' => $damage_result_ah['disabled'] ?? FALSE, 'round' => $game_state['round'] ?? NULL]);
-        $phase_transition = $phase_transition_ah;
-        break;
-      }
-
-      case 'counteract_hazard': {
-        $hazard_id_ch = $params['hazard_id'] ?? NULL;
-        if (!$hazard_id_ch) {
-          return ['success' => FALSE, 'result' => ['error' => 'hazard_id required.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $hazard_ref_ch = &$this->hazardService->findHazardByInstanceId($hazard_id_ch, $dungeon_data);
-        if ($hazard_ref_ch === NULL) {
-          return ['success' => FALSE, 'result' => ['error' => 'Hazard not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $counteract_level_ch = (int) ($params['counteract_level'] ?? 0);
-        $counteract_bonus_ch = (int) ($params['counteract_bonus'] ?? 0);
-        // REQ 2393: Roll d20 + bonus for total; pass natural roll for degree calculation.
-        $d20_ch = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_ch = $d20_ch + $counteract_bonus_ch;
-        $counteract_result_ch = $this->hazardService->counteractMagicalHazard($hazard_ref_ch, $counteract_level_ch, $total_ch, $d20_ch);
-        $xp_ch = 0;
-        if (!empty($counteract_result_ch['counteracted'])) {
-          $xp_ch = $this->hazardService->awardHazardXp($game_state, $hazard_ref_ch, (int) ($game_state['party_level'] ?? 1));
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-        $result = array_merge($counteract_result_ch, ['xp_awarded' => $xp_ch, 'hazard_id' => $hazard_id_ch]);
-        $events[] = GameEventLogger::buildEvent('counteract_hazard', 'encounter', $actor_id, ['hazard_id' => $hazard_id_ch, 'degree' => $counteract_result_ch['degree'], 'counteracted' => $counteract_result_ch['counteracted'] ?? FALSE, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2410–2425: Activate a magic item (encounter phase).
-      // -----------------------------------------------------------------------
-      case 'activate_item': {
-        $item_id_ai   = $params['item_instance_id'] ?? NULL;
-        $item_data_ai = $params['item_data'] ?? [];
-        $component_ai = $params['component'] ?? 'command';
-        if (!$item_id_ai) {
-          return ['success' => FALSE, 'result' => ['error' => 'activate_item requires params.item_instance_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $char_state_ai = $params['char_state'] ?? [];
-        $activate_result_ai = $this->magicItemService->activateItem($actor_id, $item_id_ai, $item_data_ai, $char_state_ai, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($activate_result_ai['actions_cost'] ?? 1));
-        $result = $activate_result_ai;
-        $events[] = GameEventLogger::buildEvent('activate_item', 'encounter', $actor_id, ['item_instance_id' => $item_id_ai, 'success' => $activate_result_ai['success'], 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2416–2420: Sustain an activation (encounter phase).
-      // -----------------------------------------------------------------------
-      case 'sustain_activation': {
-        $item_id_sa = $params['item_instance_id'] ?? NULL;
-        if (!$item_id_sa) {
-          return ['success' => FALSE, 'result' => ['error' => 'sustain_activation requires params.item_instance_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $sustain_result_sa = $this->magicItemService->sustainActivation($actor_id, $item_id_sa, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = $sustain_result_sa;
-        $events[] = GameEventLogger::buildEvent('sustain_activation', 'encounter', $actor_id, ['item_instance_id' => $item_id_sa, 'success' => $sustain_result_sa['success'], 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2421–2424: Dismiss an activation (encounter phase).
-      // -----------------------------------------------------------------------
-      case 'dismiss_activation': {
-        $item_id_da = $params['item_instance_id'] ?? NULL;
-        if (!$item_id_da) {
-          return ['success' => FALSE, 'result' => ['error' => 'dismiss_activation requires params.item_instance_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $dismiss_result_da = $this->magicItemService->dismissActivation($actor_id, $item_id_da, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = $dismiss_result_da;
-        $events[] = GameEventLogger::buildEvent('dismiss_activation', 'encounter', $actor_id, ['item_instance_id' => $item_id_da, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // dc-cr-spells-ch07: Sustain a spell (1 action, Concentrate trait).
-      // Rule: lasts until end of next turn; sustaining > 100 rounds → fatigue + ends.
-      // -----------------------------------------------------------------------
-      case 'sustain_spell': {
-        $spell_id_ss = $params['spell_id'] ?? NULL;
-        if (!$spell_id_ss) {
-          return ['success' => FALSE, 'result' => ['error' => 'sustain_spell requires params.spell_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $current_round_ss = (int) ($game_state['round'] ?? 1);
-        $sustained_ss = $game_state['spells']['sustained'][$actor_id][$spell_id_ss] ?? NULL;
-        if ($sustained_ss === NULL) {
-          return ['success' => FALSE, 'result' => ['error' => "Spell '{$spell_id_ss}' is not currently sustained by this caster."], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $rounds_sustained = $current_round_ss - (int) ($sustained_ss['start_round'] ?? $current_round_ss);
-        if ($rounds_sustained >= MagicItemService::SUSTAIN_FATIGUE_ROUNDS) {
-          // Fatigue applied; spell ends immediately.
-          unset($game_state['spells']['sustained'][$actor_id][$spell_id_ss]);
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-          $result = ['sustained' => FALSE, 'ended' => TRUE, 'reason' => 'exceeded_100_rounds', 'fatigue_applied' => TRUE];
-          $events[] = GameEventLogger::buildEvent('sustain_spell', 'encounter', $actor_id, ['spell_id' => $spell_id_ss, 'ended' => TRUE, 'reason' => 'exceeded_100_rounds', 'round' => $current_round_ss]);
-        }
-        else {
-          $game_state['spells']['sustained'][$actor_id][$spell_id_ss]['last_sustained_round'] = $current_round_ss;
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-          $result = ['sustained' => TRUE, 'rounds_sustained' => $rounds_sustained + 1];
-          $events[] = GameEventLogger::buildEvent('sustain_spell', 'encounter', $actor_id, ['spell_id' => $spell_id_ss, 'rounds_sustained' => $rounds_sustained + 1, 'round' => $current_round_ss]);
-        }
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // dc-cr-spells-ch07: Dismiss a sustained/dismissible spell (1 action, Concentrate).
-      // -----------------------------------------------------------------------
-      case 'dismiss_spell': {
-        $spell_id_ds = $params['spell_id'] ?? NULL;
-        if (!$spell_id_ds) {
-          return ['success' => FALSE, 'result' => ['error' => 'dismiss_spell requires params.spell_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        unset($game_state['spells']['sustained'][$actor_id][$spell_id_ds]);
-        // Also clear round-duration tracking for dismissed spells.
-        unset($game_state['spells']['durations'][$actor_id][$spell_id_ds]);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['dismissed' => TRUE, 'spell_id' => $spell_id_ds];
-        $events[] = GameEventLogger::buildEvent('dismiss_spell', 'encounter', $actor_id, ['spell_id' => $spell_id_ds, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2478–2490: Cast from scroll (encounter phase).
-      // -----------------------------------------------------------------------
-      case 'cast_from_scroll': {
-        $scroll_id_enc   = $params['scroll_instance_id'] ?? NULL;
-        $scroll_data_enc = $params['scroll_data'] ?? [];
-        if (!$scroll_id_enc) {
-          return ['success' => FALSE, 'result' => ['error' => 'cast_from_scroll requires params.scroll_instance_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $char_state_enc = $params['char_state'] ?? [];
-        $scroll_result_enc = $this->magicItemService->castFromScroll($scroll_data_enc, $char_state_enc, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($scroll_result_enc['actions_cost'] ?? 2));
-        $result = $scroll_result_enc;
-        $events[] = GameEventLogger::buildEvent('cast_from_scroll', 'encounter', $actor_id, ['scroll_instance_id' => $scroll_id_enc, 'success' => $scroll_result_enc['success'], 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2511–2520: Cast from staff (encounter phase).
-      // -----------------------------------------------------------------------
-      case 'cast_from_staff': {
-        $staff_id_enc   = $params['staff_instance_id'] ?? NULL;
-        $staff_data_enc = $params['staff_data'] ?? [];
-        $spell_level_enc = (int) ($params['spell_level'] ?? 1);
-        if (!$staff_id_enc) {
-          return ['success' => FALSE, 'result' => ['error' => 'cast_from_staff requires params.staff_instance_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $spell_id_enc   = $params['spell_id'] ?? '';
-        $char_state_enc = $params['char_state'] ?? [];
-        $staff_result_enc = $this->magicItemService->castFromStaff($staff_id_enc, $actor_id, $staff_data_enc, $spell_id_enc, $spell_level_enc, $char_state_enc, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($staff_result_enc['actions_cost'] ?? 2));
-        $result = $staff_result_enc;
-        $events[] = GameEventLogger::buildEvent('cast_from_staff', 'encounter', $actor_id, ['staff_instance_id' => $staff_id_enc, 'spell_level' => $spell_level_enc, 'success' => $staff_result_enc['success'], 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2521–2530: Cast from wand (encounter phase).
-      // -----------------------------------------------------------------------
-      case 'cast_from_wand': {
-        $wand_id_enc   = $params['wand_instance_id'] ?? NULL;
-        $wand_data_enc = $params['wand_data'] ?? [];
-        if (!$wand_id_enc) {
-          return ['success' => FALSE, 'result' => ['error' => 'cast_from_wand requires params.wand_instance_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $char_state_wand = $params['char_state'] ?? [];
-        $wand_result_enc = $this->magicItemService->castFromWand($wand_id_enc, $wand_data_enc, $char_state_wand, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($wand_result_enc['actions_cost'] ?? 2));
-        $result = $wand_result_enc;
-        $events[] = GameEventLogger::buildEvent('cast_from_wand', 'encounter', $actor_id, ['wand_instance_id' => $wand_id_enc, 'success' => $wand_result_enc['success'], 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2531–2535: Overcharge wand (encounter phase).
-      // -----------------------------------------------------------------------
-      case 'overcharge_wand': {
-        $wand_id_ow   = $params['wand_instance_id'] ?? NULL;
-        $wand_data_ow = $params['wand_data'] ?? [];
-        if (!$wand_id_ow) {
-          return ['success' => FALSE, 'result' => ['error' => 'overcharge_wand requires params.wand_instance_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $overcharge_result_ow = $this->magicItemService->overchargeWand($wand_id_ow, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($overcharge_result_ow['actions_cost'] ?? 2));
-        $result = $overcharge_result_ow;
-        $events[] = GameEventLogger::buildEvent('overcharge_wand', 'encounter', $actor_id, ['wand_instance_id' => $wand_id_ow, 'success' => $overcharge_result_ow['success'], 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2549: Activate talisman (encounter phase).
-      // -----------------------------------------------------------------------
-      case 'activate_talisman': {
-        $talisman_id_enc = $params['talisman_instance_id'] ?? NULL;
-        $host_item_id_enc = $params['host_item_instance_id'] ?? $talisman_id_enc;
-        if (!$talisman_id_enc) {
-          return ['success' => FALSE, 'result' => ['error' => 'activate_talisman requires params.talisman_instance_id.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $talisman_result_enc = $this->magicItemService->activateTalisman($host_item_id_enc, $actor_id, $game_state);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($talisman_result_enc['actions_cost'] ?? 1));
-        $result = $talisman_result_enc;
-        $events[] = GameEventLogger::buildEvent('activate_talisman', 'encounter', $actor_id, ['talisman_instance_id' => $talisman_id_enc, 'success' => $talisman_result_enc['success'], 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2221: Burrow — move using burrow speed; tags entity as underground.
-      // -----------------------------------------------------------------------
-      case 'burrow': {
-        $enc_b = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_b = $enc_b ? $this->findEncounterParticipantByEntityId($enc_b, $actor_id) : NULL;
-        if (!$ptcp_b) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $entity_data_b = !empty($ptcp_b['entity_ref']) ? json_decode($ptcp_b['entity_ref'], TRUE) : [];
-        $burrow_speed = (int) ($entity_data_b['burrow_speed'] ?? 0);
-        if ($burrow_speed <= 0) {
-          return ['success' => FALSE, 'result' => ['error' => 'No burrow Speed.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $params['movement_type'] = 'burrow';
-        $burrow_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $burrow_result['mutations'] ?? [];
-        // Tag underground unless ability specifies tunnel creation.
-        $entity_data_b['underground'] = TRUE;
-        if (!empty($entity_data_b['creates_tunnel'])) {
-          $entity_data_b['tunnel_hex'] = $params['to_hex'] ?? NULL;
-        }
-        $this->encounterStore->updateParticipant((int) $ptcp_b['id'], ['entity_ref' => json_encode($entity_data_b)]);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['burrowed' => TRUE, 'to_hex' => $params['to_hex'] ?? NULL];
-        $events[] = GameEventLogger::buildEvent('burrow', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2222-2223: Fly — move using fly speed; tags airborne; hover at 0.
-      // -----------------------------------------------------------------------
-      case 'fly': {
-        $enc_f = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_f = $enc_f ? $this->findEncounterParticipantByEntityId($enc_f, $actor_id) : NULL;
-        if (!$ptcp_f) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $entity_data_f = !empty($ptcp_f['entity_ref']) ? json_decode($ptcp_f['entity_ref'], TRUE) : [];
-        $fly_speed = (int) ($entity_data_f['fly_speed'] ?? 0);
-        if ($fly_speed <= 0) {
-          return ['success' => FALSE, 'result' => ['error' => 'No fly Speed.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $fly_distance = (int) ($params['distance'] ?? 0);
-        // REQ 2223: Fly 0 = hover (stay airborne, costs 1 action).
-        if ($fly_distance === 0) {
-          $entity_data_f['airborne'] = TRUE;
-          $entity_data_f['fly_used_this_turn'] = TRUE;
-          $this->encounterStore->updateParticipant((int) $ptcp_f['id'], ['entity_ref' => json_encode($entity_data_f)]);
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-          $result = ['hovered' => TRUE];
-          $events[] = GameEventLogger::buildEvent('fly', 'encounter', $actor_id, ['hover' => TRUE, 'round' => $game_state['round'] ?? NULL]);
-          break;
-        }
-        // REQ 2222: Upward movement costs 2× (difficult terrain rule).
-        if (!empty($params['upward'])) {
-          $params['movement_type'] = 'fly';
-          // Upward: double the hex cost — pass movement_cost_multiplier for MovementResolverService.
-          $params['upward_movement'] = TRUE;
-        }
-        $params['movement_type'] = 'fly';
-        $fly_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
-        $mutations = $fly_result['mutations'] ?? [];
-        $entity_data_f['airborne'] = TRUE;
-        $entity_data_f['fly_used_this_turn'] = TRUE;
-        $this->encounterStore->updateParticipant((int) $ptcp_f['id'], ['entity_ref' => json_encode($entity_data_f)]);
-        $game_state['turn']['fly_used'] = TRUE;
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['flew' => TRUE, 'to_hex' => $params['to_hex'] ?? NULL];
-        $events[] = GameEventLogger::buildEvent('fly', 'encounter', $actor_id, ['to' => $params['to_hex'] ?? NULL, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2225: Mount — ride adjacent willing larger creature. Dismount = 1 action.
-      // -----------------------------------------------------------------------
-      case 'mount': {
-        $enc_m = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_m = $enc_m ? $this->findEncounterParticipantByEntityId($enc_m, $actor_id) : NULL;
-        $mount_ptcp = $enc_m && $target_id ? $this->findEncounterParticipantByEntityId($enc_m, $target_id) : NULL;
-        if (!$ptcp_m || !$mount_ptcp) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant or mount not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        // Must be adjacent (1-hex distance).
-        $dist_m = $this->movementResolver ? $this->movementResolver->hexDistance(
-          ['q' => (int) ($ptcp_m['position_q'] ?? 0), 'r' => (int) ($ptcp_m['position_r'] ?? 0)],
-          ['q' => (int) ($mount_ptcp['position_q'] ?? 0), 'r' => (int) ($mount_ptcp['position_r'] ?? 0)]
-        ) : 1;
-        if ($dist_m > 1) {
-          return ['success' => FALSE, 'result' => ['error' => 'Mount must be adjacent.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        // GAP-2225: Acrobatics DC 15 check required when mounting in encounter mode.
-        $acrobatics_bonus_m = (int) ($params['acrobatics_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $mount_roll = $this->numberGeneration->rollPathfinderDie(20);
-        $mount_total = $mount_roll + $acrobatics_bonus_m;
-        if ($mount_total < 15) {
-          $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-          return ['success' => FALSE, 'result' => ['error' => 'Acrobatics check failed (DC 15).', 'roll' => $mount_roll, 'bonus' => $acrobatics_bonus_m, 'total' => $mount_total], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $actor_entity_m = !empty($ptcp_m['entity_ref']) ? json_decode($ptcp_m['entity_ref'], TRUE) : [];
-        $actor_entity_m['mounted_on'] = $target_id;
-        $this->encounterStore->updateParticipant((int) $ptcp_m['id'], ['entity_ref' => json_encode($actor_entity_m)]);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['mounted' => TRUE, 'mount_id' => $target_id, 'roll' => $mount_roll, 'total' => $mount_total];
-        $events[] = GameEventLogger::buildEvent('mount', 'encounter', $actor_id, ['mount' => $target_id, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
-      }
-
-      case 'dismount': {
-        $enc_dm = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_dm = $enc_dm ? $this->findEncounterParticipantByEntityId($enc_dm, $actor_id) : NULL;
-        if (!$ptcp_dm) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $actor_entity_dm = !empty($ptcp_dm['entity_ref']) ? json_decode($ptcp_dm['entity_ref'], TRUE) : [];
-        $actor_entity_dm['mounted_on'] = NULL;
-        // Move actor to adjacent hex if provided.
-        $dismount_to = $params['to_hex'] ?? NULL;
-        $update_dm = ['entity_ref' => json_encode($actor_entity_dm)];
-        if ($dismount_to) {
-          $update_dm['position_q'] = (int) ($dismount_to['q'] ?? $ptcp_dm['position_q'] ?? 0);
-          $update_dm['position_r'] = (int) ($dismount_to['r'] ?? $ptcp_dm['position_r'] ?? 0);
-        }
-        $this->encounterStore->updateParticipant((int) $ptcp_dm['id'], $update_dm);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['dismounted' => TRUE];
-        $events[] = GameEventLogger::buildEvent('dismount', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2227: Raise a Shield — 1 action; shield AC bonus active until start of next turn.
-      // -----------------------------------------------------------------------
-      case 'raise_shield': {
-        $enc_rs = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_rs = $enc_rs ? $this->findEncounterParticipantByEntityId($enc_rs, $actor_id) : NULL;
-        if (!$ptcp_rs) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $entity_data_rs = !empty($ptcp_rs['entity_ref']) ? json_decode($ptcp_rs['entity_ref'], TRUE) : [];
-        // Verify entity has a shield in held items.
-        $shield_rs = $this->findHeldShield($entity_data_rs);
-        if (!$shield_rs) {
-          return ['success' => FALSE, 'result' => ['error' => 'No shield in hand.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        if (!empty($shield_rs['broken'])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Shield is broken.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $entity_data_rs['shield_raised'] = TRUE;
-        $entity_data_rs['shield_raised_ac_bonus'] = (int) ($shield_rs['ac_bonus'] ?? 0);
-        $this->encounterStore->updateParticipant((int) $ptcp_rs['id'], ['entity_ref' => json_encode($entity_data_rs)]);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['shield_raised' => TRUE, 'ac_bonus' => $entity_data_rs['shield_raised_ac_bonus']];
-        $events[] = GameEventLogger::buildEvent('raise_shield', 'encounter', $actor_id, ['ac_bonus' => $entity_data_rs['shield_raised_ac_bonus'], 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2220: Avert Gaze — 1 action; +2 circumstance vs gaze effects this turn.
-      // -----------------------------------------------------------------------
-      case 'avert_gaze': {
-        $enc_ag = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_ag = $enc_ag ? $this->findEncounterParticipantByEntityId($enc_ag, $actor_id) : NULL;
-        if (!$ptcp_ag) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $entity_data_ag = !empty($ptcp_ag['entity_ref']) ? json_decode($ptcp_ag['entity_ref'], TRUE) : [];
-        $entity_data_ag['avert_gaze_active'] = TRUE;
-        $this->encounterStore->updateParticipant((int) $ptcp_ag['id'], ['entity_ref' => json_encode($entity_data_ag)]);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['avert_gaze' => TRUE];
-        $events[] = GameEventLogger::buildEvent('avert_gaze', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2226: Point Out — 1 action; reveal undetected target's location to allies.
-      // -----------------------------------------------------------------------
-      case 'point_out': {
-        if (!$target_id) {
-          return ['success' => FALSE, 'result' => ['error' => 'target required for point_out.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $enc_po = $this->encounterStore->loadEncounter($encounter_id);
-        if ($enc_po) {
-          foreach ($enc_po['participants'] ?? [] as $ally_ptcp) {
-            $ally_eid = $ally_ptcp['entity_id'] ?? '';
-            if ($ally_eid === $actor_id) {
-              continue;
-            }
-            // For each ally: upgrade target detection state from undetected → hidden.
-            $ally_entity_data = !empty($ally_ptcp['entity_ref']) ? json_decode($ally_ptcp['entity_ref'], TRUE) : [];
-            $ally_attacker_id = $ally_entity_data['entity_id'] ?? $ally_eid;
-            // Load the target's detection states.
-            $target_ptcp = $this->findEncounterParticipantByEntityId($enc_po, $target_id);
-            if ($target_ptcp) {
-              $target_entity_data = !empty($target_ptcp['entity_ref']) ? json_decode($target_ptcp['entity_ref'], TRUE) : [];
-              $current_state = $target_entity_data['detection_states'][$ally_attacker_id] ?? 'observed';
-              if ($current_state === 'undetected' || $current_state === 'unnoticed') {
-                $target_entity_data['detection_states'][$ally_attacker_id] = 'hidden';
-                $this->encounterStore->updateParticipant((int) $target_ptcp['id'], ['entity_ref' => json_encode($target_entity_data)]);
-              }
-            }
-          }
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['pointed_out' => TRUE, 'target' => $target_id];
-        $events[] = GameEventLogger::buildEvent('point_out', 'encounter', $actor_id, ['target' => $target_id, 'round' => $game_state['round'] ?? NULL], NULL, $target_id);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2219: Arrest a Fall (reaction) — requires fly speed; Acrobatics DC 15.
-      // -----------------------------------------------------------------------
-      case 'arrest_fall': {
-        if (empty($game_state['turn']['reaction_available'] ?? TRUE) === FALSE && ($game_state['turn']['reaction_available'] ?? TRUE) === FALSE) {
-          return ['success' => FALSE, 'result' => ['error' => 'Reaction already spent.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $enc_af = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_af = $enc_af ? $this->findEncounterParticipantByEntityId($enc_af, $actor_id) : NULL;
-        if (!$ptcp_af) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $entity_af = !empty($ptcp_af['entity_ref']) ? json_decode($ptcp_af['entity_ref'], TRUE) : [];
-        if (empty($entity_af['fly_speed'])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Arrest a Fall requires fly Speed.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $acrobatics_bonus = (int) ($params['acrobatics_bonus'] ?? 0);
-        $d20_af = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_af = $d20_af + $acrobatics_bonus;
-        $degree_af = $this->combatCalculator->calculateDegreeOfSuccess($total_af, 15, $d20_af);
-        $feet_fallen = (int) ($params['feet_fallen'] ?? 0);
-        $damage_af = 0;
-        if ($degree_af === 'failure') {
-          // Normal fall damage.
-          $damage_af = (int) floor($feet_fallen / 2);
-        }
-        elseif ($degree_af === 'critical_failure') {
-          // 10 bludgeoning per 20 ft fallen so far.
-          $damage_af = (int) ceil($feet_fallen / 20) * 10;
-        }
-        $game_state['turn']['reaction_available'] = FALSE;
-        $result = ['arrest_fall' => TRUE, 'degree' => $degree_af, 'fall_damage' => $damage_af, 'roll' => $d20_af, 'total' => $total_af];
-        $events[] = GameEventLogger::buildEvent('arrest_fall', 'encounter', $actor_id, ['degree' => $degree_af, 'fall_damage' => $damage_af, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2224: Grab an Edge (reaction) — Reflex DC 15 when falling past handhold.
-      // -----------------------------------------------------------------------
-      case 'grab_edge': {
-        if (($game_state['turn']['reaction_available'] ?? TRUE) === FALSE) {
-          return ['success' => FALSE, 'result' => ['error' => 'Reaction already spent.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $reflex_bonus = (int) ($params['reflex_bonus'] ?? 0);
-        $d20_ge = $this->numberGenerationService->rollPathfinderDie(20);
-        $total_ge = $d20_ge + $reflex_bonus;
-        $degree_ge = $this->combatCalculator->calculateDegreeOfSuccess($total_ge, 15, $d20_ge);
-        $grabbed = in_array($degree_ge, ['critical_success', 'success'], TRUE);
-        if ($grabbed) {
-          // Mark entity clinging to edge.
-          $enc_ge = $this->encounterStore->loadEncounter($encounter_id);
-          $ptcp_ge = $enc_ge ? $this->findEncounterParticipantByEntityId($enc_ge, $actor_id) : NULL;
-          if ($ptcp_ge) {
-            $entity_ge = !empty($ptcp_ge['entity_ref']) ? json_decode($ptcp_ge['entity_ref'], TRUE) : [];
-            $entity_ge['clinging'] = TRUE;
-            $this->encounterStore->updateParticipant((int) $ptcp_ge['id'], ['entity_ref' => json_encode($entity_ge)]);
-          }
-        }
-        $game_state['turn']['reaction_available'] = FALSE;
-        $result = ['grab_edge' => TRUE, 'degree' => $degree_ge, 'grabbed' => $grabbed, 'roll' => $d20_ge, 'total' => $total_ge];
-        $events[] = GameEventLogger::buildEvent('grab_edge', 'encounter', $actor_id, ['degree' => $degree_ge, 'grabbed' => $grabbed, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2231-2232: Shield Block (reaction) — reduce damage by hardness; split remainder.
-      // -----------------------------------------------------------------------
-      case 'shield_block': {
-        if (($game_state['turn']['reaction_available'] ?? TRUE) === FALSE) {
-          return ['success' => FALSE, 'result' => ['error' => 'Reaction already spent.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $enc_sb = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_sb = $enc_sb ? $this->findEncounterParticipantByEntityId($enc_sb, $actor_id) : NULL;
-        if (!$ptcp_sb) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $entity_sb = !empty($ptcp_sb['entity_ref']) ? json_decode($ptcp_sb['entity_ref'], TRUE) : [];
-        // REQ 2232: Shield must have been raised.
-        if (empty($entity_sb['shield_raised'])) {
-          return ['success' => FALSE, 'result' => ['error' => 'Shield must be raised to use Shield Block.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $shield_sb = $this->findHeldShield($entity_sb);
-        if (!$shield_sb) {
-          return ['success' => FALSE, 'result' => ['error' => 'No shield in hand.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $incoming_damage = (int) ($params['incoming_damage'] ?? 0);
-        $hardness = (int) ($shield_sb['hardness'] ?? 0);
-        $reduced = max(0, $incoming_damage - $hardness);
-        $shield_takes = (int) floor($reduced / 2);
-        $entity_takes = $reduced - $shield_takes;
-        // Apply entity damage.
-        if ($entity_takes > 0 && $this->hpManager) {
-          $pid_sb = (int) $ptcp_sb['id'];
-          $this->hpManager->applyDamage($pid_sb, $entity_takes, 'physical', ['source' => 'shield_block_residual'], $encounter_id);
-        }
-        // Apply shield damage.
-        $shield_sb['hp'] = max(0, (int) ($shield_sb['hp'] ?? $shield_sb['max_hp'] ?? 10) - $shield_takes);
-        if ($shield_sb['hp'] <= 0) {
-          $shield_sb['broken'] = TRUE;
-          $entity_sb['shield_raised'] = FALSE;
-        }
-        // Update shield in held items.
-        $entity_sb = $this->updateHeldShield($entity_sb, $shield_sb);
-        $this->encounterStore->updateParticipant((int) $ptcp_sb['id'], ['entity_ref' => json_encode($entity_sb)]);
-        $game_state['turn']['reaction_available'] = FALSE;
-        $result = [
-          'shield_block' => TRUE,
-          'incoming_damage' => $incoming_damage,
-          'hardness' => $hardness,
-          'entity_damage' => $entity_takes,
-          'shield_damage' => $shield_takes,
-          'shield_broken' => $shield_sb['broken'] ?? FALSE,
-        ];
-        $events[] = GameEventLogger::buildEvent('shield_block', 'encounter', $actor_id, [
-          'entity_damage' => $entity_takes,
-          'shield_damage' => $shield_takes,
-          'shield_broken' => $shield_sb['broken'] ?? FALSE,
-          'round' => $game_state['round'] ?? NULL,
-        ], NULL, $target_id);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 2228-2230: Attack of Opportunity (fighter class reaction).
-      // -----------------------------------------------------------------------
-      case 'attack_of_opportunity': {
-        if (($game_state['turn']['reaction_available'] ?? TRUE) === FALSE) {
-          return ['success' => FALSE, 'result' => ['error' => 'Reaction already spent.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        // REQ 2228: Only available with 'attack_of_opportunity' class feature.
-        $enc_aoo = $this->encounterStore->loadEncounter($encounter_id);
-        $ptcp_aoo = $enc_aoo ? $this->findEncounterParticipantByEntityId($enc_aoo, $actor_id) : NULL;
-        if (!$ptcp_aoo) {
-          return ['success' => FALSE, 'result' => ['error' => 'Participant not found.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $entity_aoo = !empty($ptcp_aoo['entity_ref']) ? json_decode($ptcp_aoo['entity_ref'], TRUE) : [];
-        $class_features = $entity_aoo['class_features'] ?? [];
-        if (!in_array('attack_of_opportunity', (array) $class_features, TRUE)) {
-          return ['success' => FALSE, 'result' => ['error' => 'Character does not have Attack of Opportunity class feature.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        if (!$target_id) {
-          return ['success' => FALSE, 'result' => ['error' => 'target required for Attack of Opportunity.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        // REQ 2230: AoO does NOT count toward or apply MAP; pass skip_map flag.
-        $aoo_weapon = $params['weapon'] ?? [];
-        $aoo_weapon['skip_map_count'] = TRUE;
-        // Resolve as a melee Strike without consuming actions or MAP.
-        $aoo_result = $this->processStrike($encounter_id, $actor_id, $target_id, ['weapon' => $aoo_weapon, 'skip_map' => TRUE], $game_state);
-        // REQ 2230: Do NOT decrement attacks_this_turn — AoO is a reaction, not an action.
-        // REQ 2229: Crit + manipulate trigger → disrupt the triggering action.
-        $trigger_type = $params['trigger_type'] ?? '';
-        $disrupted = FALSE;
-        if (($aoo_result['degree'] ?? '') === 'critical_success' && $trigger_type === 'manipulate') {
-          $disrupted = TRUE;
-        }
-        $game_state['turn']['reaction_available'] = FALSE;
-        $result = array_merge($aoo_result, ['attack_of_opportunity' => TRUE, 'disrupted' => $disrupted]);
-        $events[] = GameEventLogger::buildEvent('attack_of_opportunity', 'encounter', $actor_id, [
-          'target' => $target_id,
-          'degree' => $aoo_result['degree'] ?? NULL,
-          'damage' => $aoo_result['damage'] ?? NULL,
-          'disrupted' => $disrupted,
-          'round' => $game_state['round'] ?? NULL,
-        ], NULL, $target_id);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1591: Balance [1 action, Acrobatics — encounter, Secret roll]
-      // Move across difficult terrain; failure = flat-footed for 1 round.
-      // -----------------------------------------------------------------------
-      case 'balance': {
-        $dc        = (int) ($params['dc'] ?? 15);
-        $acrobatics = (int) ($params['acrobatics_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20       = $this->numberGenerationService->rollPathfinderDie(20);
-        $total     = $d20 + $acrobatics;
-        $degree    = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $balanced = in_array($degree, ['success', 'critical_success'], TRUE);
-        if ($degree === 'critical_failure' || $degree === 'failure') {
-          // Flat-footed until start of next turn.
-          $this->conditionManager->applyCondition(
-            (int) $actor_id, 'flat_footed', 0,
-            ['remaining_attacks' => PHP_INT_MAX],
-            'balance_fail',
-            (int) $encounter_id
-          );
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
-        $result = ['balanced' => $balanced, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
-        $events[] = GameEventLogger::buildEvent('balance', 'encounter', $actor_id, $result);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ dc-cr-gnome-heritage-chameleon: Minor Color Shift [1 action]
-      // Chameleon Gnome only. Instantly updates coloration_tag to match current terrain,
-      // enabling the +2 circumstance bonus to Stealth checks in matching terrain.
-      // -----------------------------------------------------------------------
-      case 'minor_color_shift': {
-        if (($params['heritage'] ?? '') !== 'chameleon') {
-          return ['success' => FALSE, 'result' => ['error' => 'Minor Color Shift requires Chameleon Gnome heritage.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        $terrain_color_mcs = trim($params['terrain_color_tag'] ?? '');
-        if ($terrain_color_mcs === '') {
-          return ['success' => FALSE, 'result' => ['error' => 'terrain_color_tag is required.'], 'mutations' => [], 'events' => [], 'phase_transition' => NULL, 'narration' => NULL];
-        }
-        // Update coloration_tag so subsequent Hide/Sneak checks can apply the bonus.
-        $mutations[] = ['type' => 'char_state', 'key' => 'coloration_tag', 'value' => $terrain_color_mcs];
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-        $result = ['coloration_tag' => $terrain_color_mcs, 'action_cost' => 1];
-        $events[] = GameEventLogger::buildEvent('minor_color_shift', 'encounter', $actor_id, ['new_coloration' => $terrain_color_mcs, 'round' => $game_state['round'] ?? NULL]);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1594: Tumble Through [1 action, Acrobatics — encounter]
-      // Move through an enemy's space; fail = movement stops.
-      // -----------------------------------------------------------------------
-      case 'tumble_through': {
-        $target_ref = $params['target_id'] ?? '';
-        $dc         = (int) ($params['dc'] ?? 15);
-        $acrobatics = (int) ($params['acrobatics_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20        = $this->numberGenerationService->rollPathfinderDie(20);
-        $total      = $d20 + $acrobatics;
-        $degree     = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $passed_through = in_array($degree, ['success', 'critical_success'], TRUE);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
-        $result = ['passed_through' => $passed_through, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
-        $events[] = GameEventLogger::buildEvent('tumble_through', 'encounter', $actor_id, $result, NULL, $target_ref);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1598: Maneuver in Flight [1 action, Acrobatics — encounter, aerial]
-      // Perform a difficult maneuver while flying.
-      // -----------------------------------------------------------------------
-      case 'maneuver_in_flight': {
-        $dc         = (int) ($params['dc'] ?? 15);
-        $acrobatics = (int) ($params['acrobatics_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20        = $this->numberGenerationService->rollPathfinderDie(20);
-        $total      = $d20 + $acrobatics;
-        $degree     = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $maneuvered = in_array($degree, ['success', 'critical_success'], TRUE);
-        if ($degree === 'critical_failure') {
-          // Fall on critical failure.
-          $game_state['encounter_state'][$actor_id . '_falling'] = TRUE;
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
-        $result = ['maneuvered' => $maneuvered, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
-        $events[] = GameEventLogger::buildEvent('maneuver_in_flight', 'encounter', $actor_id, $result);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1657: Feint [2 actions, Deception — encounter]
-      // Make target flat-footed: crit success = until end of turn; success = next attack.
-      // -----------------------------------------------------------------------
-      case 'feint': {
-        $target_ref = $params['target_id'] ?? '';
-        $dc         = (int) ($params['dc'] ?? 15);
-        $deception  = (int) ($params['deception_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20        = $this->numberGenerationService->rollPathfinderDie(20);
-        $total      = $d20 + $deception;
-        $degree     = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $feinted = FALSE;
-        if ($degree === 'critical_success') {
-          $feinted = TRUE;
-          // Flat-footed for all attacks through end of turn.
-          $this->conditionManager->applyCondition(
-            (int) $target_ref, 'flat_footed', 0,
-            ['remaining_attacks' => PHP_INT_MAX],
-            'feint_crit',
-            (int) $encounter_id
-          );
-        }
-        elseif ($degree === 'success') {
-          $feinted = TRUE;
-          // Flat-footed for next attack only.
-          $this->conditionManager->applyCondition(
-            (int) $target_ref, 'flat_footed', 0,
-            ['remaining_attacks' => 1],
-            'feint',
-            (int) $encounter_id
-          );
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 2);
-        $result = ['feinted' => $feinted, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
-        $events[] = GameEventLogger::buildEvent('feint', 'encounter', $actor_id, $result, NULL, $target_ref);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1660: Create a Diversion [1 action, Deception — encounter]
-      // Allow actor to Hide by distracting observers; success = briefly hidden.
-      // -----------------------------------------------------------------------
-      case 'create_diversion': {
-        $dc        = (int) ($params['dc'] ?? 15);
-        $deception = (int) ($params['deception_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20       = $this->numberGenerationService->rollPathfinderDie(20);
-        $total     = $d20 + $deception;
-        $degree    = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $diverted = in_array($degree, ['success', 'critical_success'], TRUE);
-        if ($diverted) {
-          $game_state['encounter_state'][$actor_id . '_created_diversion'] = TRUE;
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
-        $result = ['diverted' => $diverted, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
-        $events[] = GameEventLogger::buildEvent('create_diversion', 'encounter', $actor_id, $result);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1677: Request [1 action, Diplomacy — encounter]
-      // Make a request of a willing or friendly target.
-      // -----------------------------------------------------------------------
-      case 'request': {
-        $target_ref = $params['target_id'] ?? '';
-        $base_dc    = (int) ($params['dc'] ?? 15);
-        $dc_context = $this->applyNpcAttitudeToSocialDc($base_dc, $params, $target_id ?: $target_ref, $campaign_id);
-        $dc         = $dc_context['dc'];
-        $diplomacy  = (int) ($params['diplomacy_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20        = $this->numberGenerationService->rollPathfinderDie(20);
-        $total      = $d20 + $diplomacy;
-        $degree     = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $granted = in_array($degree, ['success', 'critical_success'], TRUE);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
-        $result = [
-          'granted' => $granted,
-          'degree' => $degree,
-          'roll' => $total,
-          'dc' => $dc,
-          'base_dc' => $base_dc,
-          'attitude_dc_delta' => $dc_context['delta'],
-        ];
-        if ($dc_context['attitude'] !== NULL) {
-          $result['npc_attitude'] = $dc_context['attitude'];
-        }
-        $events[] = GameEventLogger::buildEvent('request', 'encounter', $actor_id, $result, NULL, $target_ref);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1683: Demoralize [1 action, Intimidation — encounter]
-      // Apply Frightened condition; 10-min immunity per target.
-      // -----------------------------------------------------------------------
-      case 'demoralize': {
-        $target_ref  = $params['target_id'] ?? '';
-        $base_dc     = (int) ($params['dc'] ?? 15);
-        $dc_context  = $this->applyNpcAttitudeToSocialDc($base_dc, $params, $target_id ?: $target_ref, $campaign_id);
-        $dc          = $dc_context['dc'];
-        $intimidation = (int) ($params['intimidation_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20         = $this->numberGenerationService->rollPathfinderDie(20);
-        $total       = $d20 + $intimidation;
-        $degree      = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $immune_key = 'demoralize_immune_' . $target_ref . '_' . $actor_id;
-        $immune     = !empty($game_state['encounter_state'][$immune_key]);
-
-        $demoralized = FALSE;
-        if (!$immune) {
-          $game_state['encounter_state'][$immune_key] = TRUE;
-          if ($degree === 'critical_success') {
-            $demoralized = TRUE;
-            $this->conditionManager->applyCondition((int) $target_ref, 'frightened', 2, [], 'demoralize_crit', (int) $encounter_id);
-          }
-          elseif ($degree === 'success') {
-            $demoralized = TRUE;
-            $this->conditionManager->applyCondition((int) $target_ref, 'frightened', 1, [], 'demoralize', (int) $encounter_id);
-          }
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
-        $result = [
-          'demoralized' => $demoralized,
-          'immune' => $immune,
-          'degree' => $degree,
-          'roll' => $total,
-          'dc' => $dc,
-          'base_dc' => $base_dc,
-          'attitude_dc_delta' => $dc_context['delta'],
-        ];
-        if ($dc_context['attitude'] !== NULL) {
-          $result['npc_attitude'] = $dc_context['attitude'];
-        }
-        $events[] = GameEventLogger::buildEvent('demoralize', 'encounter', $actor_id, $result, NULL, $target_ref);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1700: Command an Animal [1 action, Nature — encounter]
-      // Direct a trained animal; trained companions get DC − 5.
-      // Panic on critical failure (attacks nearest creature).
-      // -----------------------------------------------------------------------
-      case 'command_animal': {
-        $target_ref = $params['target_id'] ?? $actor_id;
-        $dc         = (int) ($params['dc'] ?? 15);
-        if (!empty($params['is_trained_companion'])) {
-          $dc -= 5;
-        }
-        $nature     = (int) ($params['nature_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20        = $this->numberGenerationService->rollPathfinderDie(20);
-        $total      = $d20 + $nature;
-        $degree     = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $obeyed = in_array($degree, ['success', 'critical_success'], TRUE);
-        if ($degree === 'critical_failure') {
-          $game_state['encounter_state']['animal_panicked_' . $target_ref] = TRUE;
-        }
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
-        $result = ['obeyed' => $obeyed, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
-        $events[] = GameEventLogger::buildEvent('command_animal', 'encounter', $actor_id, $result, NULL, $target_ref);
-        break;
-      }
-
-      // -----------------------------------------------------------------------
-      // REQ 1706: Perform [1 action, Performance — encounter]
-      // Entertain during combat (e.g., inspire allies or distract enemies).
-      // -----------------------------------------------------------------------
-      case 'perform': {
-        $dc          = (int) ($params['dc'] ?? 15);
-        $performance = (int) ($params['performance_bonus'] ?? $params['skill_bonus'] ?? 0);
-        $d20         = $this->numberGenerationService->rollPathfinderDie(20);
-        $total       = $d20 + $performance;
-        $degree      = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
-
-        $entertained = in_array($degree, ['success', 'critical_success'], TRUE);
-        $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
-        $result = ['entertained' => $entertained, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
-        $events[] = GameEventLogger::buildEvent('perform', 'encounter', $actor_id, $result);
-        break;
-      }
-
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
+    }
     }
 
     $this->maybeQueueMechanicalSystemLogEntry([
@@ -3647,6 +1497,4693 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   }
 
   /**
+   * Applies a handled router payload into the intent orchestration response state.
+   */
+  protected function mergeRouterRoutePayload(array $payload, array &$result, array &$mutations, array &$events): ?array {
+    if (!empty($payload['abort_response']) && is_array($payload['abort_response'])) {
+      return $payload['abort_response'];
+    }
+    $result = (array) ($payload['result'] ?? []);
+    $mutations = $payload['mutations'] ?? $mutations;
+    $events = array_merge($events, (array) ($payload['events'] ?? []));
+    return NULL;
+  }
+
+  /**
+   * Router seam: execute end-turn intent block with legacy side effects.
+   */
+  protected function routeEndTurnIntentExecution(
+    string $type,
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if ($type === 'choose_not_to_act') {
+      $params['reason'] = trim((string) ($params['reason'] ?? 'chooses not to act'));
+    }
+
+    $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
+    $result = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $result['mutations'] ?? [];
+    $narration = $result['narration'] ?? NULL;
+    $time_effects = $this->buildRoundElapsedTimeEffects($result, $actor_id, $dungeon_data);
+
+    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
+    $fallback_narration = $type === 'choose_not_to_act'
+      ? sprintf('%s chooses not to act.', $actor_name)
+      : sprintf('%s ends their turn.', $actor_name);
+    $resolved_narration = (is_string($narration) && trim($narration) !== '') ? $narration : $fallback_narration;
+    $resolved_narration = $this->prefixEncounterChatLine($turn_ctx, $resolved_narration);
+
+    $events = [
+      GameEventLogger::buildEvent($type, 'encounter', $actor_id, [
+        'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
+        'room_id' => $resolved_room_id,
+        'actor_name' => $actor_name,
+        'turn_index' => $turn_ctx['turn_index_raw'] ?? NULL,
+        'actions_remaining' => $result['actions_remaining_before_end'] ?? NULL,
+        'reason' => $params['reason'] ?? NULL,
+      ], $resolved_narration),
+    ];
+
+    if ($actor_id && ($result['actions_remaining_before_end'] ?? 0) > 0) {
+      $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+        'type' => 'choose_not_to_act',
+        'speaker' => 'Narrator',
+        'speaker_type' => 'narrator',
+        'speaker_ref' => '',
+        'content' => $this->prefixEncounterChatLine($turn_ctx, sprintf('%s chooses not to use %d remaining action(s).', $actor_name, (int) $result['actions_remaining_before_end'])),
+        'visibility' => 'public',
+        'mechanical_data' => [
+          'actor_id' => $actor_id,
+          'actor_name' => $actor_name,
+          'room_id' => $resolved_room_id,
+          'actions_remaining' => (int) $result['actions_remaining_before_end'],
+          'reason' => $params['reason'] ?? NULL,
+        ],
+      ], $resolved_room_id);
+    }
+
+    if (!empty($result['npc_events'])) {
+      $events = array_merge($events, $result['npc_events']);
+    }
+
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => $events,
+      'narration' => $narration,
+      'time_effects' => $time_effects,
+    ];
+  }
+
+  /**
+   * Router seam: execute delay intent block with legacy side effects.
+   */
+  protected function routeDelayIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $delay_remaining = $game_state['turn']['actions_remaining'] ?? 0;
+    $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
+    $result = [
+      'delayed' => TRUE,
+      'remaining_actions' => $delay_remaining,
+    ];
+
+    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
+    $events = [
+      GameEventLogger::buildEvent('delay', 'encounter', $actor_id, [
+        'remaining_actions' => $delay_remaining,
+        'round' => $game_state['round'] ?? NULL,
+      ], $this->prefixEncounterChatLine($turn_ctx, sprintf('%s delays until the end of the round.', $actor_name))),
+    ];
+
+    $delay_after_actor_id = trim((string) ($params['delay_until_actor_id'] ?? ''));
+    if ($actor_id && is_array($game_state['initiative_order'] ?? NULL) && $game_state['initiative_order'] !== []) {
+      $delay_plan = $this->buildDelayedInitiativePlan(
+        $game_state['initiative_order'],
+        $actor_id,
+        (int) ($game_state['turn']['index'] ?? 0),
+        (int) $delay_remaining,
+        $delay_after_actor_id !== '' ? $delay_after_actor_id : NULL
+      );
+      $game_state['initiative_order'] = $delay_plan['initiative_order'];
+      $game_state['turn']['index'] = $delay_plan['pre_advance_index'];
+      $game_state['turn']['delayed'] = TRUE;
+      $game_state['turn']['delayed_actions_remaining'] = (int) $delay_remaining;
+    }
+
+    $game_state['turn']['actions_remaining'] = 0;
+    $advance = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
+    $time_effects = $this->buildRoundElapsedTimeEffects($advance, $actor_id, $dungeon_data);
+
+    if ($actor_id && $delay_remaining > 0) {
+      $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+        'type' => 'delay',
+        'speaker' => 'Narrator',
+        'speaker_type' => 'narrator',
+        'speaker_ref' => '',
+        'content' => $this->prefixEncounterChatLine($turn_ctx, sprintf('%s delays with %d action(s) still unused.', $actor_name, (int) $delay_remaining)),
+        'visibility' => 'public',
+        'mechanical_data' => [
+          'actor_id' => $actor_id,
+          'actor_name' => $actor_name,
+          'room_id' => $resolved_room_id,
+          'remaining_actions' => (int) $delay_remaining,
+        ],
+      ], $resolved_room_id);
+    }
+    if (!empty($advance['npc_events'])) {
+      $events = array_merge($events, $advance['npc_events']);
+    }
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => $events,
+      'narration' => NULL,
+      'time_effects' => $time_effects,
+    ];
+  }
+
+  /**
+   * Router seam: execute delay-reenter intent block with legacy side effects.
+   */
+  protected function routeDelayReenterIntentExecution(
+    ?string $actor_id,
+    array &$game_state
+  ): array {
+    if (empty($game_state['turn']['delayed'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Not currently delayed.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $reenter_actions = $game_state['turn']['delayed_actions_remaining'] ?? 0;
+    $game_state['turn']['delayed'] = FALSE;
+    $game_state['turn']['actions_remaining'] = $reenter_actions;
+
+    return [
+      'result' => ['reentered' => TRUE, 'actions_restored' => $reenter_actions],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('delay_reenter', 'encounter', $actor_id, [
+          'actions_restored' => $reenter_actions,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+      'narration' => NULL,
+      'time_effects' => [],
+    ];
+  }
+
+  /**
+   * Router seam: execute ready intent block with legacy side effects.
+   */
+  protected function routeReadyIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $ready_action = $params['ready_action'] ?? NULL;
+    $ready_trigger = $params['ready_trigger'] ?? NULL;
+    if (!$ready_action || !$ready_trigger) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'ready_action and ready_trigger are required.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    if (!empty($params['is_triggered_free_action'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Cannot Ready a free action that already has a trigger.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $game_state['turn']['ready'] = [
+      'action' => $ready_action,
+      'trigger' => $ready_trigger,
+      'map_at_ready' => $game_state['turn']['attacks_this_turn'] ?? 0,
+    ];
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+
+    return [
+      'result' => ['readied' => TRUE, 'action' => $ready_action, 'trigger' => $ready_trigger],
+      'events' => [
+        GameEventLogger::buildEvent('ready', 'encounter', $actor_id, [
+          'action' => $ready_action,
+          'trigger' => $ready_trigger,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute reaction intent block with legacy side effects.
+   */
+  protected function routeReactionIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $reaction_available = $game_state['turn']['reaction_available'] ?? TRUE;
+    if (!$reaction_available) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Reaction already spent this round.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $game_state['turn']['reaction_available'] = FALSE;
+    $ready_data = $game_state['turn']['ready'] ?? NULL;
+    if ($ready_data && ($ready_data['action'] ?? '') === 'strike') {
+      $game_state['turn']['attacks_this_turn'] = (int) ($ready_data['map_at_ready'] ?? 0);
+    }
+
+    return [
+      'result' => ['reaction_used' => TRUE, 'reaction_type' => $params['reaction_type'] ?? 'generic'],
+      'events' => [
+        GameEventLogger::buildEvent('reaction', 'encounter', $actor_id, [
+          'reaction_type' => $params['reaction_type'] ?? 'generic',
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute aid-setup intent block with legacy side effects.
+   */
+  protected function routeAidSetupIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (!isset($game_state['turn']['aid_prepared'])) {
+      $game_state['turn']['aid_prepared'] = [];
+    }
+    $aid_skill = $params['skill'] ?? 'generic';
+    $game_state['turn']['aid_prepared'][$actor_id][$target_id] = $aid_skill;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+
+    return [
+      'result' => ['aid_prepared' => TRUE, 'target' => $target_id, 'skill' => $aid_skill],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('aid_setup', 'encounter', $actor_id, [
+          'target' => $target_id,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute aid intent block with legacy side effects.
+   */
+  protected function routeAidIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $result = $this->processAid($actor_id, $target_id, $params, $game_state);
+    $mutations = $result['mutations'] ?? [];
+
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => [
+        GameEventLogger::buildEvent('aid', 'encounter', $actor_id, [
+          'target' => $target_id,
+          'degree' => $result['degree'] ?? NULL,
+          'aid_bonus' => $result['aid_bonus'] ?? 0,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute hero-point-reroll intent block with legacy side effects.
+   */
+  protected function routeHeroPointRerollIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $original_roll = (int) ($params['original_roll'] ?? 0);
+    $reroll = $this->calculator->heroPointReroll($original_roll);
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if ($participant) {
+      $entity_ref = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+      $hero_points = max(0, (int) ($entity_ref['hero_points'] ?? 0) - 1);
+      $entity_ref['hero_points'] = $hero_points;
+      $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_ref)]);
+    }
+
+    return [
+      'result' => $reroll + ['hero_points_spent' => 1],
+      'events' => [
+        GameEventLogger::buildEvent('hero_point_reroll', 'encounter', $actor_id, [
+          'original_roll' => $original_roll,
+          'new_roll' => $reroll['new_roll'],
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute heroic-recovery-all-points intent block with legacy side effects.
+   */
+  protected function routeHeroicRecoveryAllPointsIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array &$game_state
+  ): array {
+    $participant_id = $actor_id;
+    if (is_string($participant_id)) {
+      $encounter = $this->encounterStore->loadEncounter($encounter_id);
+      $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+      $participant_id = $participant ? (int) $participant['id'] : NULL;
+    }
+    if (!$participant_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if ($participant) {
+      $entity_ref = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+      $entity_ref['hero_points'] = 0;
+      $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_ref)]);
+    }
+
+    $result = $this->hpManager->heroicRecoveryAllPoints($participant_id, $encounter_id);
+    return [
+      'result' => $result,
+      'events' => [
+        GameEventLogger::buildEvent('heroic_recovery_all_points', 'encounter', $actor_id, [
+          'dying_removed' => $result['dying_removed'] ?? FALSE,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute stand intent block with legacy side effects.
+   */
+  protected function routeStandIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if ($participant) {
+      $participant_id = (int) $participant['id'];
+      foreach ($this->conditionManager->getActiveConditions($participant_id, $encounter_id) as $condition_id => $condition_row) {
+        if ($condition_row['condition_type'] === 'prone') {
+          $this->conditionManager->removeCondition($participant_id, $condition_id, $encounter_id);
+          break;
+        }
+      }
+    }
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['stood' => TRUE],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('stand', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute drop-prone intent block with legacy side effects.
+   */
+  protected function routeDropProneIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if ($participant) {
+      $participant_id = (int) $participant['id'];
+      $this->conditionManager->applyCondition($participant_id, 'prone', 1, 'persistent', 'drop_prone', $encounter_id);
+    }
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['prone' => TRUE],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('drop_prone', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute step intent block with legacy side effects.
+   */
+  protected function routeStepIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if (empty($params['to_hex'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Missing to_hex.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    if ($this->movementResolver && $this->movementResolver->isDifficultTerrain($params['to_hex'], $dungeon_data)) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Cannot Step into difficult terrain.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $move_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $move_result['mutations'] ?? [];
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $game_state['turn']['last_move_type'] = 'step';
+
+    return [
+      'result' => ['stepped' => TRUE, 'to_hex' => $params['to_hex']],
+      'mutations' => $mutations,
+      'events' => [
+        GameEventLogger::buildEvent('step', 'encounter', $actor_id, [
+          'to' => $params['to_hex'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute crawl intent block with legacy side effects.
+   */
+  protected function routeCrawlIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if (empty($params['to_hex'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Missing to_hex.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $participant_id = (int) $participant['id'];
+    if (!$this->conditionManager->hasCondition($participant_id, 'prone', $encounter_id)) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Must be prone to Crawl.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    if ((int) ($participant['speed'] ?? 25) < 10) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Speed is too low to Crawl (requires Speed >= 10 ft).'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $move_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $move_result['mutations'] ?? [];
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+
+    return [
+      'result' => ['crawled' => TRUE, 'to_hex' => $params['to_hex']],
+      'mutations' => $mutations,
+      'events' => [
+        GameEventLogger::buildEvent('crawl', 'encounter', $actor_id, [
+          'to' => $params['to_hex'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute leap intent block with legacy side effects.
+   */
+  protected function routeLeapIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if (empty($params['to_hex'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Missing to_hex.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    $leap_speed = (int) ($participant['speed'] ?? 25);
+    $max_leap_ft = $leap_speed >= 30 ? 15 : 10;
+
+    $move_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $move_result['mutations'] ?? [];
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+
+    return [
+      'result' => ['leaped' => TRUE, 'to_hex' => $params['to_hex'], 'max_leap_ft' => $max_leap_ft],
+      'mutations' => $mutations,
+      'events' => [
+        GameEventLogger::buildEvent('leap', 'encounter', $actor_id, [
+          'to' => $params['to_hex'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute arrest-fall intent block with legacy side effects.
+   */
+  protected function routeArrestFallIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (($game_state['turn']['reaction_available'] ?? TRUE) === FALSE) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Reaction already spent.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $entity_data = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    if (empty($entity_data['fly_speed'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Arrest a Fall requires fly Speed.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $acrobatics_bonus = (int) ($params['acrobatics_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $acrobatics_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, 15, $d20);
+    $feet_fallen = (int) ($params['feet_fallen'] ?? 0);
+    $fall_damage = 0;
+    if ($degree === 'failure') {
+      $fall_damage = (int) floor($feet_fallen / 2);
+    }
+    elseif ($degree === 'critical_failure') {
+      $fall_damage = (int) ceil($feet_fallen / 20) * 10;
+    }
+
+    $game_state['turn']['reaction_available'] = FALSE;
+    return [
+      'result' => [
+        'arrest_fall' => TRUE,
+        'degree' => $degree,
+        'fall_damage' => $fall_damage,
+        'roll' => $d20,
+        'total' => $total,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('arrest_fall', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'fall_damage' => $fall_damage,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute grab-edge intent block with legacy side effects.
+   */
+  protected function routeGrabEdgeIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (($game_state['turn']['reaction_available'] ?? TRUE) === FALSE) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Reaction already spent.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $reflex_bonus = (int) ($params['reflex_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $reflex_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, 15, $d20);
+    $grabbed = in_array($degree, ['critical_success', 'success'], TRUE);
+
+    if ($grabbed) {
+      $encounter = $this->encounterStore->loadEncounter($encounter_id);
+      $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+      if ($participant) {
+        $entity_data = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+        $entity_data['clinging'] = TRUE;
+        $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
+      }
+    }
+
+    $game_state['turn']['reaction_available'] = FALSE;
+    return [
+      'result' => [
+        'grab_edge' => TRUE,
+        'degree' => $degree,
+        'grabbed' => $grabbed,
+        'roll' => $d20,
+        'total' => $total,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('grab_edge', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'grabbed' => $grabbed,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute shield-block intent block with legacy side effects.
+   */
+  protected function routeShieldBlockIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (($game_state['turn']['reaction_available'] ?? TRUE) === FALSE) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Reaction already spent.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $entity_data = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    if (empty($entity_data['shield_raised'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Shield must be raised to use Shield Block.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $shield = $this->findHeldShield($entity_data);
+    if (!$shield) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'No shield in hand.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $incoming_damage = (int) ($params['incoming_damage'] ?? 0);
+    $hardness = (int) ($shield['hardness'] ?? 0);
+    $reduced = max(0, $incoming_damage - $hardness);
+    $shield_takes = (int) floor($reduced / 2);
+    $entity_takes = $reduced - $shield_takes;
+
+    if ($entity_takes > 0 && $this->hpManager) {
+      $this->hpManager->applyDamage((int) $participant['id'], $entity_takes, 'physical', ['source' => 'shield_block_residual'], $encounter_id);
+    }
+
+    $shield['hp'] = max(0, (int) ($shield['hp'] ?? $shield['max_hp'] ?? 10) - $shield_takes);
+    if ($shield['hp'] <= 0) {
+      $shield['broken'] = TRUE;
+      $entity_data['shield_raised'] = FALSE;
+    }
+    $entity_data = $this->updateHeldShield($entity_data, $shield);
+    $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
+
+    $game_state['turn']['reaction_available'] = FALSE;
+    $result = [
+      'shield_block' => TRUE,
+      'incoming_damage' => $incoming_damage,
+      'hardness' => $hardness,
+      'entity_damage' => $entity_takes,
+      'shield_damage' => $shield_takes,
+      'shield_broken' => $shield['broken'] ?? FALSE,
+    ];
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('shield_block', 'encounter', $actor_id, [
+          'entity_damage' => $entity_takes,
+          'shield_damage' => $shield_takes,
+          'shield_broken' => $shield['broken'] ?? FALSE,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute attack-of-opportunity intent block with legacy side effects.
+   */
+  protected function routeAttackOfOpportunityIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (($game_state['turn']['reaction_available'] ?? TRUE) === FALSE) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Reaction already spent.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $entity_data = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $class_features = $entity_data['class_features'] ?? [];
+    if (!in_array('attack_of_opportunity', (array) $class_features, TRUE)) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Character does not have Attack of Opportunity class feature.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    if (!$target_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'target required for Attack of Opportunity.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $weapon = $params['weapon'] ?? [];
+    $weapon['skip_map_count'] = TRUE;
+    $strike_result = $this->processStrike($encounter_id, $actor_id, $target_id, ['weapon' => $weapon, 'skip_map' => TRUE], $game_state);
+
+    $trigger_type = $params['trigger_type'] ?? '';
+    $disrupted = (($strike_result['degree'] ?? '') === 'critical_success' && $trigger_type === 'manipulate');
+    $game_state['turn']['reaction_available'] = FALSE;
+    $result = array_merge($strike_result, ['attack_of_opportunity' => TRUE, 'disrupted' => $disrupted]);
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('attack_of_opportunity', 'encounter', $actor_id, [
+          'target' => $target_id,
+          'degree' => $strike_result['degree'] ?? NULL,
+          'damage' => $strike_result['damage'] ?? NULL,
+          'disrupted' => $disrupted,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute balance intent block with legacy side effects.
+   */
+  protected function routeBalanceIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $dc = (int) ($params['dc'] ?? 15);
+    $acrobatics = (int) ($params['acrobatics_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $acrobatics;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $balanced = in_array($degree, ['success', 'critical_success'], TRUE);
+    if ($degree === 'critical_failure' || $degree === 'failure') {
+      $this->conditionManager->applyCondition(
+        (int) $actor_id,
+        'flat_footed',
+        0,
+        ['remaining_attacks' => PHP_INT_MAX],
+        'balance_fail',
+        (int) $encounter_id
+      );
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $result = ['balanced' => $balanced, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('balance', 'encounter', $actor_id, $result),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute tumble-through intent block with legacy side effects.
+   */
+  protected function routeTumbleThroughIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $target_ref = $params['target_id'] ?? '';
+    $dc = (int) ($params['dc'] ?? 15);
+    $acrobatics = (int) ($params['acrobatics_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $acrobatics;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $passed_through = in_array($degree, ['success', 'critical_success'], TRUE);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $result = ['passed_through' => $passed_through, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('tumble_through', 'encounter', $actor_id, $result, NULL, $target_ref),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute maneuver-in-flight intent block with legacy side effects.
+   */
+  protected function routeManeuverInFlightIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $dc = (int) ($params['dc'] ?? 15);
+    $acrobatics = (int) ($params['acrobatics_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $acrobatics;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $maneuvered = in_array($degree, ['success', 'critical_success'], TRUE);
+    if ($degree === 'critical_failure') {
+      $game_state['encounter_state'][$actor_id . '_falling'] = TRUE;
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $result = ['maneuvered' => $maneuvered, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('maneuver_in_flight', 'encounter', $actor_id, $result),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute feint intent block with legacy side effects.
+   */
+  protected function routeFeintIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $target_ref = $params['target_id'] ?? '';
+    $dc = (int) ($params['dc'] ?? 15);
+    $deception = (int) ($params['deception_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $deception;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $feinted = FALSE;
+    if ($degree === 'critical_success') {
+      $feinted = TRUE;
+      $this->conditionManager->applyCondition((int) $target_ref, 'flat_footed', 0, ['remaining_attacks' => PHP_INT_MAX], 'feint_crit', (int) $encounter_id);
+    }
+    elseif ($degree === 'success') {
+      $feinted = TRUE;
+      $this->conditionManager->applyCondition((int) $target_ref, 'flat_footed', 0, ['remaining_attacks' => 1], 'feint', (int) $encounter_id);
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 2);
+    $result = ['feinted' => $feinted, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('feint', 'encounter', $actor_id, $result, NULL, $target_ref),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute create-diversion intent block with legacy side effects.
+   */
+  protected function routeCreateDiversionIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $dc = (int) ($params['dc'] ?? 15);
+    $deception = (int) ($params['deception_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $deception;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $diverted = in_array($degree, ['success', 'critical_success'], TRUE);
+    if ($diverted) {
+      $game_state['encounter_state'][$actor_id . '_created_diversion'] = TRUE;
+    }
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $result = ['diverted' => $diverted, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('create_diversion', 'encounter', $actor_id, $result),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute request intent block with legacy side effects.
+   */
+  protected function routeRequestIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state,
+    int $campaign_id
+  ): array {
+    $target_ref = $params['target_id'] ?? '';
+    $base_dc = (int) ($params['dc'] ?? 15);
+    $dc_context = $this->applyNpcAttitudeToSocialDc($base_dc, $params, $target_id ?: $target_ref, $campaign_id);
+    $dc = $dc_context['dc'];
+    $diplomacy = (int) ($params['diplomacy_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $diplomacy;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $granted = in_array($degree, ['success', 'critical_success'], TRUE);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $result = [
+      'granted' => $granted,
+      'degree' => $degree,
+      'roll' => $total,
+      'dc' => $dc,
+      'base_dc' => $base_dc,
+      'attitude_dc_delta' => $dc_context['delta'],
+    ];
+    if ($dc_context['attitude'] !== NULL) {
+      $result['npc_attitude'] = $dc_context['attitude'];
+    }
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('request', 'encounter', $actor_id, $result, NULL, $target_ref),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute demoralize intent block with legacy side effects.
+   */
+  protected function routeDemoralizeIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state,
+    int $campaign_id
+  ): array {
+    $target_ref = $params['target_id'] ?? '';
+    $base_dc = (int) ($params['dc'] ?? 15);
+    $dc_context = $this->applyNpcAttitudeToSocialDc($base_dc, $params, $target_id ?: $target_ref, $campaign_id);
+    $dc = $dc_context['dc'];
+    $intimidation = (int) ($params['intimidation_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $intimidation;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $immune_key = 'demoralize_immune_' . $target_ref . '_' . $actor_id;
+    $immune = !empty($game_state['encounter_state'][$immune_key]);
+    $demoralized = FALSE;
+    if (!$immune) {
+      $game_state['encounter_state'][$immune_key] = TRUE;
+      if ($degree === 'critical_success') {
+        $demoralized = TRUE;
+        $this->conditionManager->applyCondition((int) $target_ref, 'frightened', 2, [], 'demoralize_crit', (int) $encounter_id);
+      }
+      elseif ($degree === 'success') {
+        $demoralized = TRUE;
+        $this->conditionManager->applyCondition((int) $target_ref, 'frightened', 1, [], 'demoralize', (int) $encounter_id);
+      }
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $result = [
+      'demoralized' => $demoralized,
+      'immune' => $immune,
+      'degree' => $degree,
+      'roll' => $total,
+      'dc' => $dc,
+      'base_dc' => $base_dc,
+      'attitude_dc_delta' => $dc_context['delta'],
+    ];
+    if ($dc_context['attitude'] !== NULL) {
+      $result['npc_attitude'] = $dc_context['attitude'];
+    }
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('demoralize', 'encounter', $actor_id, $result, NULL, $target_ref),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute command-animal intent block with legacy side effects.
+   */
+  protected function routeCommandAnimalIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $target_ref = $params['target_id'] ?? $actor_id;
+    $dc = (int) ($params['dc'] ?? 15);
+    if (!empty($params['is_trained_companion'])) {
+      $dc -= 5;
+    }
+    $nature = (int) ($params['nature_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $nature;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $obeyed = in_array($degree, ['success', 'critical_success'], TRUE);
+    if ($degree === 'critical_failure') {
+      $game_state['encounter_state']['animal_panicked_' . $target_ref] = TRUE;
+    }
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $result = ['obeyed' => $obeyed, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('command_animal', 'encounter', $actor_id, $result, NULL, $target_ref),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute perform intent block with legacy side effects.
+   */
+  protected function routePerformIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $dc = (int) ($params['dc'] ?? 15);
+    $performance = (int) ($params['performance_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $performance;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $entertained = in_array($degree, ['success', 'critical_success'], TRUE);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $result = ['entertained' => $entertained, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('perform', 'encounter', $actor_id, $result),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute escape intent block with legacy side effects.
+   */
+  protected function routeEscapeIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $result = $this->processEscape($encounter_id, $actor_id, $params, $game_state);
+    $mutations = $result['mutations'] ?? [];
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => [
+        GameEventLogger::buildEvent('escape', 'encounter', $actor_id, [
+          'degree' => $result['degree'] ?? NULL,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute seek intent block with legacy side effects.
+   */
+  protected function routeSeekIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $result = $this->processSeek($encounter_id, $actor_id, $params, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('seek', 'encounter', $actor_id, [
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute search intent block with legacy side effects.
+   */
+  protected function routeSearchIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if (!$this->explorationPhaseHandler) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Room search handler is unavailable.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $search_result = $this->explorationPhaseHandler->processSearch($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mechanical_result = $search_result;
+    $mutations = $search_result['mutations'] ?? [];
+    $narration = $search_result['narration'] ?? NULL;
+    if (!empty($game_state['turn'])) {
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    }
+
+    $events = [];
+    $public_discoveries = $this->buildPublicSearchDiscoveries($search_result['discoveries'] ?? []);
+    if ($public_discoveries !== [] || (is_string($narration) && trim($narration) !== '')) {
+      $events[] = GameEventLogger::buildEvent('search', 'encounter', $actor_id, [
+        'discoveries' => $public_discoveries,
+        'round' => $game_state['round'] ?? NULL,
+      ], $narration);
+    }
+
+    return [
+      'result' => $this->buildPublicSearchResult($search_result),
+      'mutations' => $mutations,
+      'events' => $events,
+      'narration' => $narration,
+      'mechanical_result' => $mechanical_result,
+    ];
+  }
+
+  /**
+   * Router seam: execute sense-motive intent block with legacy side effects.
+   */
+  protected function routeSenseMotiveIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $bonus = (int) ($params['perception_bonus'] ?? 0);
+    $dc = (int) ($params['deception_dc'] ?? 15);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    if (!isset($game_state['sense_motive'])) {
+      $game_state['sense_motive'] = [];
+    }
+    if (!isset($game_state['sense_motive'][$actor_id])) {
+      $game_state['sense_motive'][$actor_id] = [];
+    }
+    $game_state['sense_motive'][$actor_id][$target_id] = $game_state['round'] ?? 0;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+
+    return [
+      'result' => ['sense_motive' => TRUE, 'degree' => $degree],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('sense_motive', 'encounter', $actor_id, [
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute take-cover intent block with legacy side effects.
+   */
+  protected function routeTakeCoverIntentExecution(
+    ?string $actor_id,
+    array &$game_state
+  ): array {
+    if (!isset($game_state['entities'])) {
+      $game_state['entities'] = [];
+    }
+    if (!isset($game_state['entities'][$actor_id])) {
+      $game_state['entities'][$actor_id] = [];
+    }
+    $current_cover = $game_state['entities'][$actor_id]['cover'] ?? 'none';
+    $new_cover = ($current_cover === 'standard') ? 'greater' : 'standard';
+    $game_state['entities'][$actor_id]['cover'] = $new_cover;
+    $game_state['entities'][$actor_id]['cover_active'] = TRUE;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+
+    return [
+      'result' => ['cover' => $new_cover, 'cover_active' => TRUE],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('take_cover', 'encounter', $actor_id, [
+          'cover' => $new_cover,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute release intent block with legacy side effects.
+   */
+  protected function routeReleaseIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data
+  ): array {
+    $item_id = $params['item_id'] ?? NULL;
+    if (!empty($dungeon_data['entities'])) {
+      foreach ($dungeon_data['entities'] as &$entity) {
+        $entity_id = $entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? NULL));
+        if ($entity_id === $actor_id) {
+          if ($item_id && isset($entity['equipment']['held'][$item_id])) {
+            unset($entity['equipment']['held'][$item_id]);
+          }
+          break;
+        }
+      }
+      unset($entity);
+    }
+
+    return [
+      'result' => ['released' => TRUE, 'item_id' => $item_id],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('release', 'encounter', $actor_id, [
+          'item_id' => $item_id,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute climb intent block with legacy side effects.
+   */
+  protected function routeClimbIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $entity_ref = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $has_climb_speed = !empty($entity_ref['climb_speed']) && (int) $entity_ref['climb_speed'] > 0;
+    $land_speed = (int) ($entity_ref['speed'] ?? 25);
+    $athletics = (int) ($params['athletics_bonus'] ?? 0);
+    $climb_dc = (int) ($params['climb_dc'] ?? 15);
+
+    if ($has_climb_speed) {
+      $athletics += 4;
+      $d20 = 0;
+      $total = 0;
+      $degree = 'success';
+      $feet_moved = (int) $entity_ref['climb_speed'];
+    }
+    else {
+      $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+      $total = $d20 + $athletics;
+      $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $climb_dc, $d20);
+      $feet_moved = 0;
+      if ($degree === 'critical_success') {
+        $feet_moved = max(10, (int) round($land_speed / 2));
+      }
+      elseif ($degree === 'success') {
+        $feet_moved = max(5, (int) round($land_speed / 4));
+      }
+      elseif ($degree === 'critical_failure') {
+        $feet_fallen = (int) ($params['height_ft'] ?? 10);
+        $soft_surface = !empty($params['soft_surface']);
+        if ($this->hpManager) {
+          $this->hpManager->applyFallDamage((int) $participant['id'], $feet_fallen, $encounter_id, $soft_surface);
+        }
+      }
+    }
+
+    $fell = ($degree === 'critical_failure');
+    if (!$has_climb_speed && !$fell) {
+      $this->conditionManager->applyCondition((int) $participant['id'], 'flat_footed', 0, ['type' => 'encounter', 'remaining' => 1], 'climb', $encounter_id);
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $result = [
+      'climbed' => !$fell,
+      'degree' => $degree,
+      'feet_moved' => $feet_moved,
+      'fell' => $fell,
+      'd20' => $d20,
+      'total' => $total,
+    ];
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('climb', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'fell' => $fell,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute force-open intent block with legacy side effects.
+   */
+  protected function routeForceOpenIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $has_crowbar = !empty($params['has_crowbar']);
+    $athletics = (int) ($params['athletics_bonus'] ?? 0);
+    $item_penalty = $has_crowbar ? 0 : -2;
+    $dc = (int) ($params['object_dc'] ?? 20);
+    $attacks_this_turn = $game_state['turn']['attacks_this_turn'] ?? 0;
+    $map = $this->combatCalculator->calculateMultipleAttackPenalty($attacks_this_turn, !empty($params['is_agile']));
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $athletics + $item_penalty + $map;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $jammed = FALSE;
+    $broken = FALSE;
+    $opened = FALSE;
+    if ($degree === 'critical_success') {
+      $opened = TRUE;
+    }
+    elseif ($degree === 'success') {
+      $opened = TRUE;
+      $broken = TRUE;
+    }
+    elseif ($degree === 'critical_failure') {
+      $jammed = TRUE;
+      if (!isset($game_state['force_open_jammed'])) {
+        $game_state['force_open_jammed'] = [];
+      }
+      $target_obj = $params['object_id'] ?? $target_id;
+      $game_state['force_open_jammed'][$target_obj] = ($game_state['force_open_jammed'][$target_obj] ?? 0) - 2;
+    }
+
+    $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $result = [
+      'opened' => $opened,
+      'broken' => $broken,
+      'jammed' => $jammed,
+      'degree' => $degree,
+      'd20' => $d20,
+      'total' => $total,
+    ];
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('force_open', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'opened' => $opened,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute grapple intent block with legacy side effects.
+   */
+  protected function routeGrappleIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $result = $this->processGrapple($encounter_id, $actor_id, $target_id, $params, $game_state);
+    $mutations = $result['mutations'] ?? [];
+    $game_state['turn']['attacks_this_turn'] = ($game_state['turn']['attacks_this_turn'] ?? 0) + 1;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => [
+        GameEventLogger::buildEvent('grapple', 'encounter', $actor_id, [
+          'degree' => $result['degree'] ?? NULL,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute high-jump intent block with legacy side effects.
+   */
+  protected function routeHighJumpIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $prior_stride_ft = (int) ($game_state['turn']['last_stride_ft'] ?? 0);
+    if ($prior_stride_ft < 10) {
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+      return [
+        'result' => [
+          'jumped' => FALSE,
+          'auto_fail' => TRUE,
+          'reason' => 'No prior Stride of ≥10 ft',
+        ],
+        'mutations' => [],
+        'events' => [
+          GameEventLogger::buildEvent('high_jump', 'encounter', $actor_id, [
+            'auto_fail' => TRUE,
+            'round' => $game_state['round'] ?? NULL,
+          ]),
+        ],
+      ];
+    }
+
+    $dc = (int) ($params['dc'] ?? 30);
+    $athletics = (int) ($params['athletics_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $athletics;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $height_ft = 0;
+    $fell_prone = FALSE;
+    if ($degree === 'critical_success') {
+      $height_ft = 8;
+    }
+    elseif ($degree === 'success') {
+      $height_ft = 5;
+    }
+    elseif ($degree === 'critical_failure') {
+      $fell_prone = TRUE;
+      $encounter = $this->encounterStore->loadEncounter($encounter_id);
+      $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+      if ($participant) {
+        $this->conditionManager->applyCondition((int) $participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'high_jump', $encounter_id);
+      }
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    return [
+      'result' => [
+        'jumped' => !$fell_prone,
+        'height_ft' => $height_ft,
+        'degree' => $degree,
+        'fell_prone' => $fell_prone,
+        'd20' => $d20,
+        'total' => $total,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('high_jump', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'height_ft' => $height_ft,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute long-jump intent block with legacy side effects.
+   */
+  protected function routeLongJumpIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $prior_stride_ft = (int) ($game_state['turn']['last_stride_ft'] ?? 0);
+    if ($prior_stride_ft < 10) {
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+      return [
+        'result' => [
+          'jumped' => FALSE,
+          'auto_fail' => TRUE,
+          'reason' => 'No prior Stride of ≥10 ft',
+        ],
+        'mutations' => [],
+        'events' => [
+          GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, [
+            'auto_fail' => TRUE,
+            'round' => $game_state['round'] ?? NULL,
+          ]),
+        ],
+      ];
+    }
+
+    $target_ft = (int) ($params['target_ft'] ?? 10);
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    $entity_ref = $participant && !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $speed = (int) ($entity_ref['speed'] ?? $participant['speed'] ?? 25);
+    if ($target_ft > $speed) {
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+      return [
+        'result' => [
+          'jumped' => FALSE,
+          'auto_fail' => TRUE,
+          'reason' => 'Target distance exceeds Speed',
+        ],
+        'mutations' => [],
+        'events' => [
+          GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, [
+            'auto_fail' => TRUE,
+            'reason' => 'speed_cap',
+            'round' => $game_state['round'] ?? NULL,
+          ]),
+        ],
+      ];
+    }
+
+    $dc = $target_ft;
+    $athletics = (int) ($params['athletics_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $athletics;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $distance_ft = 0;
+    $fell_prone = FALSE;
+    if (in_array($degree, ['critical_success', 'success'], TRUE)) {
+      $distance_ft = $target_ft;
+    }
+    elseif ($degree === 'critical_failure') {
+      $fell_prone = TRUE;
+      if ($participant) {
+        $this->conditionManager->applyCondition((int) $participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'long_jump', $encounter_id);
+      }
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    return [
+      'result' => [
+        'jumped' => !$fell_prone || $distance_ft > 0,
+        'distance_ft' => $distance_ft,
+        'degree' => $degree,
+        'fell_prone' => $fell_prone,
+        'd20' => $d20,
+        'total' => $total,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'distance_ft' => $distance_ft,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute shove intent block with legacy side effects.
+   */
+  protected function routeShoveIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $athletics = (int) ($params['athletics_bonus'] ?? 0);
+    $dc = (int) ($params['fortitude_dc'] ?? 15);
+    $attacks_this_turn = $game_state['turn']['attacks_this_turn'] ?? 0;
+    $map = $this->combatCalculator->calculateMultipleAttackPenalty($attacks_this_turn, !empty($params['is_agile']));
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $athletics + $map;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $push_ft = 0;
+    $attacker_prone = FALSE;
+    if ($degree === 'critical_success') {
+      $push_ft = 10;
+    }
+    elseif ($degree === 'success') {
+      $push_ft = 5;
+    }
+    elseif ($degree === 'critical_failure') {
+      $encounter = $this->encounterStore->loadEncounter($encounter_id);
+      $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+      if ($participant) {
+        $this->conditionManager->applyCondition((int) $participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'shove', $encounter_id);
+      }
+      $attacker_prone = TRUE;
+    }
+
+    $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'shoved' => $push_ft > 0,
+        'push_ft' => $push_ft,
+        'degree' => $degree,
+        'forced_movement' => TRUE,
+        'attacker_prone' => $attacker_prone,
+        'd20' => $d20,
+        'total' => $total,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('shove', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'push_ft' => $push_ft,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute swim intent block with legacy side effects.
+   */
+  protected function routeSwimIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $entity_ref = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+
+    $is_calm = !empty($params['calm_water']);
+    $athletics = (int) ($params['athletics_bonus'] ?? 0);
+    $swim_dc = (int) ($params['swim_dc'] ?? 15);
+    $land_speed = (int) ($entity_ref['speed'] ?? 25);
+    $has_swim_speed = !empty($entity_ref['swim_speed']) && (int) $entity_ref['swim_speed'] > 0;
+    if ($has_swim_speed) {
+      $athletics += 4;
+      $is_calm = TRUE;
+    }
+
+    $degree = 'success';
+    $d20 = 0;
+    $total = 0;
+    if (!$is_calm) {
+      $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+      $total = $d20 + $athletics;
+      $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $swim_dc, $d20);
+    }
+
+    $feet_moved = 0;
+    $breath_lost = FALSE;
+    if ($degree === 'critical_success') {
+      $feet_moved = max(10, (int) round($land_speed / 2));
+    }
+    elseif ($degree === 'success') {
+      $feet_moved = max(5, (int) round($land_speed / 4));
+    }
+    elseif ($degree === 'critical_failure') {
+      $breath_lost = TRUE;
+      $held_breath = max(0, (int) ($game_state['entities'][$actor_id]['held_breath_rounds'] ?? 0) - 1);
+      if (!isset($game_state['entities'][$actor_id])) {
+        $game_state['entities'][$actor_id] = [];
+      }
+      $game_state['entities'][$actor_id]['held_breath_rounds'] = $held_breath;
+    }
+
+    if (empty($entity_ref['water_breathing']) && !$has_swim_speed) {
+      if (!isset($game_state['entities'][$actor_id])) {
+        $game_state['entities'][$actor_id] = [];
+      }
+      $game_state['entities'][$actor_id]['submerged'] = TRUE;
+    }
+
+    if (!isset($game_state['turn']['swim_actions'])) {
+      $game_state['turn']['swim_actions'] = [];
+    }
+    $game_state['turn']['swim_actions'][$actor_id] = ($game_state['turn']['swim_actions'][$actor_id] ?? 0) + 1;
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'swam' => $feet_moved > 0,
+        'degree' => $degree,
+        'feet_moved' => $feet_moved,
+        'breath_lost' => $breath_lost,
+        'd20' => $d20,
+        'total' => $total,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('swim', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'feet_moved' => $feet_moved,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute trip intent block with legacy side effects.
+   */
+  protected function routeTripIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $athletics = (int) ($params['athletics_bonus'] ?? 0);
+    $dc = (int) ($params['reflex_dc'] ?? 15);
+    $attacks_this_turn = $game_state['turn']['attacks_this_turn'] ?? 0;
+    $map = $this->combatCalculator->calculateMultipleAttackPenalty($attacks_this_turn, !empty($params['is_agile']));
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $athletics + $map;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $target_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $target_id) : NULL;
+    $actor_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+
+    $damage = 0;
+    $attacker_prone = FALSE;
+    if ($degree === 'critical_success') {
+      $damage = $this->numberGenerationService->rollPathfinderDie(6);
+      if ($target_participant) {
+        $this->hpManager->applyDamage((int) $target_participant['id'], $damage, 'bludgeoning', 'trip', $encounter_id);
+        $this->conditionManager->applyCondition((int) $target_participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
+      }
+    }
+    elseif ($degree === 'success') {
+      if ($target_participant) {
+        $this->conditionManager->applyCondition((int) $target_participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
+      }
+    }
+    elseif ($degree === 'critical_failure') {
+      if ($actor_participant) {
+        $this->conditionManager->applyCondition((int) $actor_participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
+      }
+      $attacker_prone = TRUE;
+    }
+
+    $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'tripped' => in_array($degree, ['critical_success', 'success'], TRUE),
+        'degree' => $degree,
+        'damage' => $damage,
+        'attacker_prone' => $attacker_prone,
+        'd20' => $d20,
+        'total' => $total,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('trip', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'damage' => $damage,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute disarm intent block with legacy side effects.
+   */
+  protected function routeDisarmIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $proficiency_rank = (int) ($params['athletics_proficiency_rank'] ?? 0);
+    if ($proficiency_rank < 1) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Disarm requires Trained Athletics.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $athletics = (int) ($params['athletics_bonus'] ?? 0);
+    $dc = (int) ($params['reflex_dc'] ?? 15);
+    $attacks_this_turn = $game_state['turn']['attacks_this_turn'] ?? 0;
+    $map = $this->combatCalculator->calculateMultipleAttackPenalty($attacks_this_turn, !empty($params['is_agile']));
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $athletics + $map;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $actor_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+
+    $item_dropped = FALSE;
+    $grip_weakened = FALSE;
+    $attacker_flat_footed = FALSE;
+
+    if ($degree === 'critical_success') {
+      $item_dropped = TRUE;
+    }
+    elseif ($degree === 'success') {
+      $grip_weakened = TRUE;
+      if (!isset($game_state['grip_weakened'])) {
+        $game_state['grip_weakened'] = [];
+      }
+      $game_state['grip_weakened'][$target_id] = ($game_state['round'] ?? 0) + 1;
+    }
+    elseif ($degree === 'critical_failure') {
+      if ($actor_participant) {
+        $this->conditionManager->applyCondition((int) $actor_participant['id'], 'flat_footed', 0, ['type' => 'encounter', 'remaining' => 1], 'disarm', $encounter_id);
+      }
+      $attacker_flat_footed = TRUE;
+    }
+
+    $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'disarmed' => $item_dropped,
+        'grip_weakened' => $grip_weakened,
+        'degree' => $degree,
+        'attacker_flat_footed' => $attacker_flat_footed,
+        'd20' => $d20,
+        'total' => $total,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('disarm', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'item_dropped' => $item_dropped,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute administer-first-aid intent block with legacy side effects.
+   */
+  protected function routeAdministerFirstAidIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $actor_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    $target_participant = ($encounter && $target_id) ? $this->findEncounterParticipantByEntityId($encounter, $target_id) : NULL;
+
+    $med_rank = (int) ($params['medicine_proficiency_rank'] ?? 0);
+    if ($med_rank < 1) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Administer First Aid requires Trained Medicine.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    if (empty($params['has_healers_tools'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Administer First Aid requires healer\'s tools.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $tools_penalty = !empty($params['is_improvised_tools']) ? -2 : 0;
+
+    $mode = $params['mode'] ?? 'stabilize';
+    if (!in_array($mode, ['stabilize', 'stop_bleeding'], TRUE)) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => "Unknown First Aid mode '{$mode}'. Use 'stabilize' or 'stop_bleeding'."],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $first_aid_key = $target_id . ':' . $mode;
+    $current_round = $game_state['round'] ?? 0;
+    if (isset($game_state['first_aid_used'][$first_aid_key]) && $game_state['first_aid_used'][$first_aid_key] === $current_round) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Cannot Administer First Aid on the same condition and target twice in the same round.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $medicine_bonus = (int) ($params['medicine_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $medicine_bonus + $tools_penalty;
+
+    $afa_result = $this->processAdministerFirstAid(
+      $target_participant,
+      $actor_participant,
+      $mode,
+      $total,
+      $d20,
+      $params,
+      $encounter_id
+    );
+
+    $game_state['first_aid_used'][$first_aid_key] = $current_round;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    $result = array_merge($afa_result, [
+      'd20' => $d20,
+      'total' => $total,
+      'mode' => $mode,
+      'tools_penalty' => $tools_penalty,
+    ]);
+
+    return [
+      'result' => $result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('administer_first_aid', 'encounter', $actor_id, [
+          'mode' => $mode,
+          'degree' => $afa_result['degree'] ?? NULL,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute treat-poison intent block with legacy side effects.
+   */
+  protected function routeTreatPoisonIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $med_rank = (int) ($params['medicine_proficiency_rank'] ?? 0);
+    if ($med_rank < 1) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Treat Poison requires Trained Medicine.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    if (empty($params['has_healers_tools'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Treat Poison requires healer\'s tools.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $poison_key = ($target_id ?? $actor_id) . ':poison';
+    if (!empty($game_state['poison_treated'][$poison_key])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Can only treat one poison per save for this target.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $med_bonus = (int) ($params['medicine_bonus'] ?? 0);
+    $poison_dc = (int) ($params['poison_dc'] ?? 15);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $med_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $poison_dc, $d20);
+
+    $treated = in_array($degree, ['critical_success', 'success'], TRUE);
+    if ($treated) {
+      $game_state['poison_treated'][$poison_key] = TRUE;
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'treated' => $treated,
+        'degree' => $degree,
+        'd20' => $d20,
+        'total' => $total,
+        'dc' => $poison_dc,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('treat_poison', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'treated' => $treated,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute battle-medicine intent block with legacy side effects.
+   */
+  protected function routeBattleMedicineIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $med_rank = (int) ($params['medicine_proficiency_rank'] ?? 0);
+    if ($med_rank < 1) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Battle Medicine requires Trained Medicine.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    if (empty($params['has_healers_tools'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Battle Medicine requires healer\'s tools.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $effective_target = $target_id ?? $actor_id;
+    $immunity_key = $actor_id . ':' . $effective_target;
+    if (!empty($game_state['battle_medicine_immune'][$immunity_key])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Target is immune to this healer\'s Battle Medicine for 1 day.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $dc_table = [1 => 15, 2 => 20, 3 => 30, 4 => 40];
+    $hp_bonus = [1 => 0, 2 => 10, 3 => 30, 4 => 50];
+    $rank_key = min(4, max(1, $med_rank));
+    $dc = (int) ($params['override_dc'] ?? $dc_table[$rank_key]);
+    $med_bonus = (int) ($params['medicine_bonus'] ?? 0);
+    $item_bonus = !empty($params['is_improvised_tools']) ? -2 : 0;
+
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $d8a = $this->numberGenerationService->rollPathfinderDie(8);
+    $d8b = $this->numberGenerationService->rollPathfinderDie(8);
+    $total = $d20 + $med_bonus + $item_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $healed = 0;
+    $damage = 0;
+    if ($degree === 'critical_success') {
+      $healed = (($d8a + $d8b) + $hp_bonus[$rank_key]) * 2;
+    }
+    elseif ($degree === 'success') {
+      $healed = ($d8a + $d8b) + $hp_bonus[$rank_key];
+    }
+    elseif ($degree === 'critical_failure') {
+      $damage = $this->numberGenerationService->rollPathfinderDie(8);
+    }
+
+    $game_state['battle_medicine_immune'][$immunity_key] = TRUE;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'degree' => $degree,
+        'healed' => $healed,
+        'damage' => $damage,
+        'dc' => $dc,
+        'd20' => $d20,
+        'total' => $total,
+        'removes_wounded' => FALSE,
+        'mutations' => [],
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('battle_medicine', 'encounter', $actor_id, [
+          'degree' => $degree,
+          'healed' => $healed,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $effective_target),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute recall-knowledge intent block with legacy side effects.
+   */
+  protected function routeRecallKnowledgeIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (!empty($params['dc'])) {
+      $dc = (int) $params['dc'];
+    }
+    else {
+      $rk_service = new RecallKnowledgeService(new DcAdjustmentService());
+      $dc_result = $rk_service->computeDc(
+        $params['subject_type'] ?? 'general',
+        (int) ($params['level'] ?? 0),
+        $params['rarity'] ?? 'common',
+        (int) ($params['spell_rank'] ?? 0),
+        $params['availability'] ?? 'trained'
+      );
+      $dc = $dc_result['dc'];
+    }
+
+    $skill_used = $params['skill_used'] ?? 'arcana';
+    $skill_bonus = (int) ($params['skill_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $skill_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $attempt_key = $actor_id . ':' . ($target_id ?? 'general');
+    if (!empty($game_state['recall_knowledge_attempts'][$attempt_key])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Cannot re-attempt Recall Knowledge on the same target without new information.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $game_state['recall_knowledge_attempts'][$attempt_key] = TRUE;
+
+    switch ($degree) {
+      case 'critical_success':
+        $player_msg = 'You recall detailed information about the subject.';
+        $info = $params['known_info'] ?? NULL;
+        $bonus_detail = $params['bonus_detail'] ?? NULL;
+        break;
+
+      case 'success':
+        $player_msg = 'You recall accurate information about the subject.';
+        $info = $params['known_info'] ?? NULL;
+        $bonus_detail = NULL;
+        break;
+
+      case 'failure':
+        $player_msg = 'You fail to recall anything useful.';
+        $info = NULL;
+        $bonus_detail = NULL;
+        break;
+
+      case 'critical_failure':
+      default:
+        $player_msg = 'You recall information about the subject.';
+        $info = $params['false_info'] ?? NULL;
+        $bonus_detail = NULL;
+        break;
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'degree' => $degree,
+        'skill_used' => $skill_used,
+        'dc' => $dc,
+        'd20' => $d20,
+        'total' => $total,
+        'player_facing_message' => $player_msg,
+        'info' => $info,
+        'bonus_detail' => $bonus_detail,
+        'secret' => TRUE,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('recall_knowledge', 'encounter', $actor_id, [
+          'skill_used' => $skill_used,
+          'degree' => $degree,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute hide intent block with legacy side effects.
+   */
+  protected function routeHideIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (empty($params['has_cover']) && empty($params['has_concealment'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Hide requires cover or concealment.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $stealth_bonus = (int) ($params['stealth_bonus'] ?? 0);
+    $chameleon_bonus = 0;
+    if (($params['heritage'] ?? '') === 'chameleon') {
+      $terrain_color = $params['terrain_color_tag'] ?? '';
+      $char_color = $params['coloration_tag'] ?? '';
+      if ($terrain_color !== '' && $char_color !== '' && $terrain_color === $char_color) {
+        $existing_circumstance = (int) ($params['circumstance_bonus'] ?? 0);
+        $chameleon_bonus = max(0, 2 - $existing_circumstance);
+        $stealth_bonus += $chameleon_bonus;
+      }
+    }
+
+    $observer_ids = $params['observer_ids'] ?? [];
+    $perception_dcs = $params['perception_dcs'] ?? [];
+    if (!isset($game_state['visibility'])) {
+      $game_state['visibility'] = [];
+    }
+
+    $hide_results = [];
+    foreach ($observer_ids as $obs_id) {
+      $perc_dc = (int) ($perception_dcs[$obs_id] ?? 15);
+      $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+      $total = $d20 + $stealth_bonus;
+      $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $perc_dc, $d20);
+      if (in_array($degree, ['critical_success', 'success'], TRUE)) {
+        $game_state['visibility'][$obs_id][$actor_id] = 'hidden';
+      }
+      else {
+        $game_state['visibility'][$obs_id][$actor_id] = 'observed';
+      }
+      $hide_results[$obs_id] = ['degree' => $degree, 'visibility' => $game_state['visibility'][$obs_id][$actor_id]];
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'hide_results' => $hide_results,
+        'observer_count' => count($observer_ids),
+        'secret' => TRUE,
+        'chameleon_bonus_applied' => $chameleon_bonus > 0 ? $chameleon_bonus : NULL,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('hide', 'encounter', $actor_id, [
+          'observer_count' => count($observer_ids),
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute sneak intent block with legacy side effects.
+   */
+  protected function routeSneakIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $is_hidden_to_any = FALSE;
+    $observer_ids = $params['observer_ids'] ?? [];
+    foreach ($observer_ids as $obs_id) {
+      $visibility = $game_state['visibility'][$obs_id][$actor_id] ?? 'observed';
+      if (in_array($visibility, ['hidden', 'undetected', 'unnoticed'], TRUE)) {
+        $is_hidden_to_any = TRUE;
+        break;
+      }
+    }
+    if (!$is_hidden_to_any && !empty($observer_ids)) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Sneak requires Hidden (or Undetected) status. Use Hide first.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $speed = (int) ($params['speed'] ?? 25);
+    $half_speed = (int) (floor($speed / 2 / 5) * 5);
+    if (empty($params['ends_in_cover']) && empty($params['ends_in_concealment'])) {
+      foreach ($observer_ids as $obs_id) {
+        $game_state['visibility'][$obs_id][$actor_id] = 'observed';
+      }
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      return [
+        'result' => [
+          'sneak_results' => [],
+          'became_observed' => TRUE,
+          'half_speed' => $half_speed,
+          'reason' => 'Ended in open terrain.',
+        ],
+        'mutations' => [],
+        'events' => [
+          GameEventLogger::buildEvent('sneak', 'encounter', $actor_id, [
+            'became_observed' => TRUE,
+            'round' => $game_state['round'] ?? NULL,
+          ]),
+        ],
+      ];
+    }
+
+    $stealth_bonus = (int) ($params['stealth_bonus'] ?? 0);
+    $chameleon_bonus = 0;
+    if (($params['heritage'] ?? '') === 'chameleon') {
+      $terrain_color = $params['terrain_color_tag'] ?? '';
+      $char_color = $params['coloration_tag'] ?? '';
+      if ($terrain_color !== '' && $char_color !== '' && $terrain_color === $char_color) {
+        $existing_circumstance = (int) ($params['circumstance_bonus'] ?? 0);
+        $chameleon_bonus = max(0, 2 - $existing_circumstance);
+        $stealth_bonus += $chameleon_bonus;
+      }
+    }
+    $perception_dcs = $params['perception_dcs'] ?? [];
+
+    $sneak_results = [];
+    foreach ($observer_ids as $obs_id) {
+      $current_vis = $game_state['visibility'][$obs_id][$actor_id] ?? 'observed';
+      if (!in_array($current_vis, ['hidden', 'undetected', 'unnoticed'], TRUE)) {
+        $sneak_results[$obs_id] = ['degree' => NULL, 'visibility' => 'observed'];
+        continue;
+      }
+      $perc_dc = (int) ($perception_dcs[$obs_id] ?? 15);
+      $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+      $total = $d20 + $stealth_bonus;
+      $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $perc_dc, $d20);
+      if (!in_array($degree, ['critical_success', 'success'], TRUE)) {
+        $game_state['visibility'][$obs_id][$actor_id] = 'observed';
+      }
+      $sneak_results[$obs_id] = ['degree' => $degree, 'visibility' => $game_state['visibility'][$obs_id][$actor_id]];
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'sneak_results' => $sneak_results,
+        'half_speed' => $half_speed,
+        'secret' => TRUE,
+        'chameleon_bonus_applied' => $chameleon_bonus > 0 ? $chameleon_bonus : NULL,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('sneak', 'encounter', $actor_id, [
+          'observer_count' => count($observer_ids),
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute conceal-object intent block with legacy side effects.
+   */
+  protected function routeConcealObjectIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $stealth_bonus = (int) ($params['stealth_bonus'] ?? 0);
+    $observer_ids = $params['observer_ids'] ?? [];
+    $perception_dcs = $params['perception_dcs'] ?? [];
+    $item_id = $params['item_id'] ?? NULL;
+
+    if (!isset($game_state['concealed_objects'])) {
+      $game_state['concealed_objects'] = [];
+    }
+
+    $conceal_results = [];
+    $concealed_to_all = TRUE;
+    foreach ($observer_ids as $obs_id) {
+      $perc_dc = (int) ($perception_dcs[$obs_id] ?? 15);
+      $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+      $total = $d20 + $stealth_bonus;
+      $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $perc_dc, $d20);
+      if (in_array($degree, ['critical_success', 'success'], TRUE)) {
+        $conceal_results[$obs_id] = ['degree' => $degree, 'concealed' => TRUE];
+      }
+      else {
+        $conceal_results[$obs_id] = ['degree' => $degree, 'concealed' => FALSE];
+        $concealed_to_all = FALSE;
+      }
+    }
+
+    if ($item_id && $concealed_to_all && !empty($observer_ids)) {
+      $game_state['concealed_objects'][$actor_id . ':' . $item_id] = TRUE;
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'concealed_results' => $conceal_results,
+        'item_id' => $item_id,
+        'secret' => TRUE,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('conceal_object', 'encounter', $actor_id, [
+          'item_id' => $item_id,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute palm-object intent block with legacy side effects.
+   */
+  protected function routePalmObjectIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $thievery_bonus = (int) ($params['thievery_bonus'] ?? 0);
+    $observer_ids = $params['observer_ids'] ?? [];
+    $perception_dcs = $params['perception_dcs'] ?? [];
+    $item_id = $params['item_id'] ?? NULL;
+
+    if (!isset($game_state['palmed_objects'])) {
+      $game_state['palmed_objects'] = [];
+    }
+
+    $palm_results = [];
+    $palmed_from_all = TRUE;
+    foreach ($observer_ids as $obs_id) {
+      $perc_dc = (int) ($perception_dcs[$obs_id] ?? 15);
+      $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+      $total = $d20 + $thievery_bonus;
+      $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $perc_dc, $d20);
+      if (in_array($degree, ['critical_success', 'success'], TRUE)) {
+        $palm_results[$obs_id] = ['degree' => $degree, 'hidden' => TRUE];
+      }
+      else {
+        $palm_results[$obs_id] = ['degree' => $degree, 'hidden' => FALSE];
+        $palmed_from_all = FALSE;
+      }
+    }
+
+    if ($item_id && $palmed_from_all && !empty($observer_ids)) {
+      $game_state['palmed_objects'][$actor_id . ':' . $item_id] = TRUE;
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'palm_results' => $palm_results,
+        'item_id' => $item_id,
+        'secret' => TRUE,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('palm_object', 'encounter', $actor_id, [
+          'item_id' => $item_id,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute steal intent block with legacy side effects.
+   */
+  protected function routeStealIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $thievery_bonus = (int) ($params['thievery_bonus'] ?? 0);
+    $target_id = $params['target_id'] ?? NULL;
+    $observer_ids = $params['observer_ids'] ?? [];
+    $perception_dc = (int) ($params['perception_dc'] ?? 15);
+    $item_id = $params['item_id'] ?? NULL;
+
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $thievery_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $perception_dc, $d20);
+
+    $stolen = FALSE;
+    $observers_alerted = [];
+    if (in_array($degree, ['critical_success', 'success'], TRUE)) {
+      $stolen = TRUE;
+      if ($item_id) {
+        if (!isset($game_state['stolen_items'])) {
+          $game_state['stolen_items'] = [];
+        }
+        $game_state['stolen_items'][] = ['actor' => $actor_id, 'from' => $target_id, 'item_id' => $item_id];
+      }
+    }
+    elseif ($degree === 'critical_failure') {
+      $observers_alerted = array_merge([$target_id], $observer_ids);
+      $observers_alerted = array_filter($observers_alerted);
+      if (!isset($game_state['steal_awareness'])) {
+        $game_state['steal_awareness'] = [];
+      }
+      foreach ($observers_alerted as $aware_id) {
+        $game_state['steal_awareness'][$aware_id][$actor_id] = TRUE;
+      }
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => [
+        'degree' => $degree,
+        'stolen' => $stolen,
+        'observers_alerted' => array_values($observers_alerted),
+        'secret' => TRUE,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('steal', 'encounter', $actor_id, [
+          'target_id' => $target_id,
+          'degree' => $degree,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute disable-device intent block with legacy side effects.
+   */
+  protected function routeDisableDeviceIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $thievery_rank = (int) ($params['thievery_proficiency_rank'] ?? 0);
+    if ($thievery_rank < 1) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Disable a Device requires Trained Thievery.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $device_id = $params['device_id'] ?? NULL;
+    $dc = (int) ($params['dc'] ?? 20);
+    $has_tools = !empty($params['has_thieves_tools']);
+    if (!$has_tools) {
+      $dc += 5;
+    }
+
+    $thievery_bonus = (int) ($params['thievery_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $thievery_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $disabled = FALSE;
+    $triggered = FALSE;
+    if (!isset($game_state['device_states'])) {
+      $game_state['device_states'] = [];
+    }
+    if ($degree === 'critical_failure') {
+      $triggered = TRUE;
+      if ($device_id) {
+        $game_state['device_states'][$device_id]['triggered'] = TRUE;
+      }
+    }
+    elseif (in_array($degree, ['critical_success', 'success'], TRUE)) {
+      if ($device_id) {
+        $successes_needed = (int) ($params['successes_needed'] ?? 1);
+        $successes_so_far = (int) ($game_state['device_states'][$device_id]['successes'] ?? 0) + 1;
+        $game_state['device_states'][$device_id]['successes'] = $successes_so_far;
+        if ($successes_so_far >= $successes_needed) {
+          $disabled = TRUE;
+          $game_state['device_states'][$device_id]['disabled'] = TRUE;
+        }
+      }
+      else {
+        $disabled = TRUE;
+      }
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    return [
+      'result' => [
+        'degree' => $degree,
+        'disabled' => $disabled,
+        'triggered' => $triggered,
+        'used_tools' => $has_tools,
+        'secret' => TRUE,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('disable_device', 'encounter', $actor_id, [
+          'device_id' => $device_id,
+          'degree' => $degree,
+          'triggered' => $triggered,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute pick-lock intent block with legacy side effects.
+   */
+  protected function routePickLockIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $thievery_rank = (int) ($params['thievery_proficiency_rank'] ?? 0);
+    if ($thievery_rank < 1) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Pick a Lock requires Trained Thievery.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $lock_id = $params['lock_id'] ?? NULL;
+    if ($lock_id && !empty($game_state['lock_states'][$lock_id]['jammed'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'This lock is jammed and cannot be picked until repaired.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $lock_quality_dcs = ['simple' => 15, 'average' => 20, 'good' => 25, 'superior' => 30];
+    $lock_quality = $params['lock_quality'] ?? 'average';
+    $dc = $lock_quality_dcs[$lock_quality] ?? 20;
+    $has_tools = !empty($params['has_thieves_tools']);
+    if (!$has_tools) {
+      $dc += 5;
+    }
+
+    $thievery_bonus = (int) ($params['thievery_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $thievery_bonus;
+    $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
+
+    $unlocked = FALSE;
+    $jammed = FALSE;
+    if (!isset($game_state['lock_states'])) {
+      $game_state['lock_states'] = [];
+    }
+    if ($degree === 'critical_failure') {
+      $jammed = TRUE;
+      if ($lock_id) {
+        $game_state['lock_states'][$lock_id]['jammed'] = TRUE;
+      }
+    }
+    elseif (in_array($degree, ['critical_success', 'success'], TRUE)) {
+      $unlocked = TRUE;
+      if ($lock_id) {
+        $game_state['lock_states'][$lock_id]['locked'] = FALSE;
+      }
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    return [
+      'result' => [
+        'degree' => $degree,
+        'unlocked' => $unlocked,
+        'jammed' => $jammed,
+        'lock_quality' => $lock_quality,
+        'used_tools' => $has_tools,
+        'secret' => TRUE,
+      ],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('pick_lock', 'encounter', $actor_id, [
+          'lock_id' => $lock_id,
+          'lock_quality' => $lock_quality,
+          'degree' => $degree,
+          'jammed' => $jammed,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute disable-hazard intent block with legacy side effects.
+   */
+  protected function routeDisableHazardIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data
+  ): array {
+    $hazard_id = $params['hazard_id'] ?? NULL;
+    if (!$hazard_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'hazard_id required.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $hazard_ref = &$this->hazardService->findHazardByInstanceId($hazard_id, $dungeon_data);
+    if ($hazard_ref === NULL) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Hazard not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $skill_rank = (int) ($params['skill_proficiency_rank'] ?? 0);
+    $skill_bonus = (int) ($params['skill_bonus'] ?? 0);
+    $disable_result = $this->hazardService->disableHazard($hazard_ref, $skill_bonus, $skill_rank);
+    $xp = 0;
+    if (!empty($disable_result['disabled'])) {
+      $xp = $this->hazardService->awardHazardXp($game_state, $hazard_ref, (int) ($game_state['party_level'] ?? 1));
+    }
+
+    $phase_transition = NULL;
+    if (!empty($disable_result['triggered']) && (($hazard_ref['complexity'] ?? 'simple') === 'complex')) {
+      $initiative = $this->hazardService->rollComplexHazardInitiative($hazard_ref);
+      $phase_transition = ['type' => 'encounter_continue', 'hazard_initiative' => $initiative, 'hazard_id' => $hazard_id];
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    return [
+      'result' => array_merge($disable_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]),
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('disable_hazard', 'encounter', $actor_id, [
+          'hazard_id' => $hazard_id,
+          'degree' => $disable_result['degree'],
+          'disabled' => $disable_result['disabled'],
+          'triggered' => $disable_result['triggered'] ?? FALSE,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+      'phase_transition' => $phase_transition,
+    ];
+  }
+
+  /**
+   * Router seam: execute attack-hazard intent block with legacy side effects.
+   */
+  protected function routeAttackHazardIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data
+  ): array {
+    $hazard_id = $params['hazard_id'] ?? NULL;
+    if (!$hazard_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'hazard_id required.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $hazard_ref = &$this->hazardService->findHazardByInstanceId($hazard_id, $dungeon_data);
+    if ($hazard_ref === NULL) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Hazard not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $damage_amount = (int) ($params['damage'] ?? 0);
+    $damage_result = $this->hazardService->applyDamageToHazard($hazard_ref, $damage_amount);
+    $xp = 0;
+    if (!empty($damage_result['disabled'])) {
+      $xp = $this->hazardService->awardHazardXp($game_state, $hazard_ref, (int) ($game_state['party_level'] ?? 1));
+    }
+
+    $phase_transition = NULL;
+    if (!empty($damage_result['triggered']) && (($hazard_ref['complexity'] ?? 'simple') === 'complex')) {
+      $initiative = $this->hazardService->rollComplexHazardInitiative($hazard_ref);
+      $phase_transition = ['type' => 'encounter_continue', 'hazard_initiative' => $initiative, 'hazard_id' => $hazard_id];
+    }
+
+    $action_cost = (int) ($params['action_cost'] ?? 1);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+    return [
+      'result' => array_merge($damage_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]),
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('attack_hazard', 'encounter', $actor_id, [
+          'hazard_id' => $hazard_id,
+          'damage' => $damage_amount,
+          'triggered' => $damage_result['triggered'] ?? FALSE,
+          'disabled' => $damage_result['disabled'] ?? FALSE,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+      'phase_transition' => $phase_transition,
+    ];
+  }
+
+  /**
+   * Router seam: execute counteract-hazard intent block with legacy side effects.
+   */
+  protected function routeCounteractHazardIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data
+  ): array {
+    $hazard_id = $params['hazard_id'] ?? NULL;
+    if (!$hazard_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'hazard_id required.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $hazard_ref = &$this->hazardService->findHazardByInstanceId($hazard_id, $dungeon_data);
+    if ($hazard_ref === NULL) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Hazard not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $counteract_level = (int) ($params['counteract_level'] ?? 0);
+    $counteract_bonus = (int) ($params['counteract_bonus'] ?? 0);
+    $d20 = $this->numberGenerationService->rollPathfinderDie(20);
+    $total = $d20 + $counteract_bonus;
+    $counteract_result = $this->hazardService->counteractMagicalHazard($hazard_ref, $counteract_level, $total, $d20);
+    $xp = 0;
+    if (!empty($counteract_result['counteracted'])) {
+      $xp = $this->hazardService->awardHazardXp($game_state, $hazard_ref, (int) ($game_state['party_level'] ?? 1));
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    return [
+      'result' => array_merge($counteract_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]),
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('counteract_hazard', 'encounter', $actor_id, [
+          'hazard_id' => $hazard_id,
+          'degree' => $counteract_result['degree'],
+          'counteracted' => $counteract_result['counteracted'] ?? FALSE,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute activate-item intent block with legacy side effects.
+   */
+  protected function routeActivateItemIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $item_id = $params['item_instance_id'] ?? NULL;
+    $item_data = $params['item_data'] ?? [];
+    if (!$item_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'activate_item requires params.item_instance_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $char_state = $params['char_state'] ?? [];
+    $activate_result = $this->magicItemService->activateItem($actor_id, $item_id, $item_data, $char_state, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($activate_result['actions_cost'] ?? 1));
+    return [
+      'result' => $activate_result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('activate_item', 'encounter', $actor_id, [
+          'item_instance_id' => $item_id,
+          'success' => $activate_result['success'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute sustain-activation intent block with legacy side effects.
+   */
+  protected function routeSustainActivationIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $item_id = $params['item_instance_id'] ?? NULL;
+    if (!$item_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'sustain_activation requires params.item_instance_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $sustain_result = $this->magicItemService->sustainActivation($actor_id, $item_id, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => $sustain_result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('sustain_activation', 'encounter', $actor_id, [
+          'item_instance_id' => $item_id,
+          'success' => $sustain_result['success'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute dismiss-activation intent block with legacy side effects.
+   */
+  protected function routeDismissActivationIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $item_id = $params['item_instance_id'] ?? NULL;
+    if (!$item_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'dismiss_activation requires params.item_instance_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $dismiss_result = $this->magicItemService->dismissActivation($actor_id, $item_id, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => $dismiss_result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('dismiss_activation', 'encounter', $actor_id, [
+          'item_instance_id' => $item_id,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute sustain-spell intent block with legacy side effects.
+   */
+  protected function routeSustainSpellIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $spell_id = $params['spell_id'] ?? NULL;
+    if (!$spell_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'sustain_spell requires params.spell_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $current_round = (int) ($game_state['round'] ?? 1);
+    $sustained = $game_state['spells']['sustained'][$actor_id][$spell_id] ?? NULL;
+    if ($sustained === NULL) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => "Spell '{$spell_id}' is not currently sustained by this caster."],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $rounds_sustained = $current_round - (int) ($sustained['start_round'] ?? $current_round);
+    if ($rounds_sustained >= MagicItemService::SUSTAIN_FATIGUE_ROUNDS) {
+      unset($game_state['spells']['sustained'][$actor_id][$spell_id]);
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      return [
+        'result' => ['sustained' => FALSE, 'ended' => TRUE, 'reason' => 'exceeded_100_rounds', 'fatigue_applied' => TRUE],
+        'mutations' => [],
+        'events' => [
+          GameEventLogger::buildEvent('sustain_spell', 'encounter', $actor_id, [
+            'spell_id' => $spell_id,
+            'ended' => TRUE,
+            'reason' => 'exceeded_100_rounds',
+            'round' => $current_round,
+          ]),
+        ],
+      ];
+    }
+
+    $game_state['spells']['sustained'][$actor_id][$spell_id]['last_sustained_round'] = $current_round;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['sustained' => TRUE, 'rounds_sustained' => $rounds_sustained + 1],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('sustain_spell', 'encounter', $actor_id, [
+          'spell_id' => $spell_id,
+          'rounds_sustained' => $rounds_sustained + 1,
+          'round' => $current_round,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute dismiss-spell intent block with legacy side effects.
+   */
+  protected function routeDismissSpellIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $spell_id = $params['spell_id'] ?? NULL;
+    if (!$spell_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'dismiss_spell requires params.spell_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    unset($game_state['spells']['sustained'][$actor_id][$spell_id]);
+    unset($game_state['spells']['durations'][$actor_id][$spell_id]);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['dismissed' => TRUE, 'spell_id' => $spell_id],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('dismiss_spell', 'encounter', $actor_id, [
+          'spell_id' => $spell_id,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute cast-from-scroll intent block with legacy side effects.
+   */
+  protected function routeCastFromScrollIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $scroll_id = $params['scroll_instance_id'] ?? NULL;
+    $scroll_data = $params['scroll_data'] ?? [];
+    if (!$scroll_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'cast_from_scroll requires params.scroll_instance_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $char_state = $params['char_state'] ?? [];
+    $scroll_result = $this->magicItemService->castFromScroll($scroll_data, $char_state, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($scroll_result['actions_cost'] ?? 2));
+    return [
+      'result' => $scroll_result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('cast_from_scroll', 'encounter', $actor_id, [
+          'scroll_instance_id' => $scroll_id,
+          'success' => $scroll_result['success'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute cast-from-staff intent block with legacy side effects.
+   */
+  protected function routeCastFromStaffIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $staff_id = $params['staff_instance_id'] ?? NULL;
+    $staff_data = $params['staff_data'] ?? [];
+    $spell_level = (int) ($params['spell_level'] ?? 1);
+    if (!$staff_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'cast_from_staff requires params.staff_instance_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $spell_id = $params['spell_id'] ?? '';
+    $char_state = $params['char_state'] ?? [];
+    $staff_result = $this->magicItemService->castFromStaff($staff_id, $actor_id, $staff_data, $spell_id, $spell_level, $char_state, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($staff_result['actions_cost'] ?? 2));
+    return [
+      'result' => $staff_result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('cast_from_staff', 'encounter', $actor_id, [
+          'staff_instance_id' => $staff_id,
+          'spell_level' => $spell_level,
+          'success' => $staff_result['success'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute cast-from-wand intent block with legacy side effects.
+   */
+  protected function routeCastFromWandIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $wand_id = $params['wand_instance_id'] ?? NULL;
+    $wand_data = $params['wand_data'] ?? [];
+    if (!$wand_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'cast_from_wand requires params.wand_instance_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $char_state = $params['char_state'] ?? [];
+    $wand_result = $this->magicItemService->castFromWand($wand_id, $wand_data, $char_state, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($wand_result['actions_cost'] ?? 2));
+    return [
+      'result' => $wand_result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('cast_from_wand', 'encounter', $actor_id, [
+          'wand_instance_id' => $wand_id,
+          'success' => $wand_result['success'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute overcharge-wand intent block with legacy side effects.
+   */
+  protected function routeOverchargeWandIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $wand_id = $params['wand_instance_id'] ?? NULL;
+    if (!$wand_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'overcharge_wand requires params.wand_instance_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $overcharge_result = $this->magicItemService->overchargeWand($wand_id, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($overcharge_result['actions_cost'] ?? 2));
+    return [
+      'result' => $overcharge_result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('overcharge_wand', 'encounter', $actor_id, [
+          'wand_instance_id' => $wand_id,
+          'success' => $overcharge_result['success'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute activate-talisman intent block with legacy side effects.
+   */
+  protected function routeActivateTalismanIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $talisman_id = $params['talisman_instance_id'] ?? NULL;
+    $host_item_id = $params['host_item_instance_id'] ?? $talisman_id;
+    if (!$talisman_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'activate_talisman requires params.talisman_instance_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $talisman_result = $this->magicItemService->activateTalisman($host_item_id, $actor_id, $game_state);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($talisman_result['actions_cost'] ?? 1));
+    return [
+      'result' => $talisman_result,
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('activate_talisman', 'encounter', $actor_id, [
+          'talisman_instance_id' => $talisman_id,
+          'success' => $talisman_result['success'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute burrow intent block with legacy side effects.
+   */
+  protected function routeBurrowIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $entity_data = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $burrow_speed = (int) ($entity_data['burrow_speed'] ?? 0);
+    if ($burrow_speed <= 0) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'No burrow Speed.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $params['movement_type'] = 'burrow';
+    $burrow_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $burrow_result['mutations'] ?? [];
+    $entity_data['underground'] = TRUE;
+    if (!empty($entity_data['creates_tunnel'])) {
+      $entity_data['tunnel_hex'] = $params['to_hex'] ?? NULL;
+    }
+    $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['burrowed' => TRUE, 'to_hex' => $params['to_hex'] ?? NULL],
+      'mutations' => $mutations,
+      'events' => [
+        GameEventLogger::buildEvent('burrow', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute fly intent block with legacy side effects.
+   */
+  protected function routeFlyIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $entity_data = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $fly_speed = (int) ($entity_data['fly_speed'] ?? 0);
+    if ($fly_speed <= 0) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'No fly Speed.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $fly_distance = (int) ($params['distance'] ?? 0);
+    if ($fly_distance === 0) {
+      $entity_data['airborne'] = TRUE;
+      $entity_data['fly_used_this_turn'] = TRUE;
+      $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      return [
+        'result' => ['hovered' => TRUE],
+        'mutations' => [],
+        'events' => [
+          GameEventLogger::buildEvent('fly', 'encounter', $actor_id, ['hover' => TRUE, 'round' => $game_state['round'] ?? NULL]),
+        ],
+      ];
+    }
+    if (!empty($params['upward'])) {
+      $params['movement_type'] = 'fly';
+      $params['upward_movement'] = TRUE;
+    }
+    $params['movement_type'] = 'fly';
+    $fly_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $fly_result['mutations'] ?? [];
+    $entity_data['airborne'] = TRUE;
+    $entity_data['fly_used_this_turn'] = TRUE;
+    $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
+    $game_state['turn']['fly_used'] = TRUE;
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['flew' => TRUE, 'to_hex' => $params['to_hex'] ?? NULL],
+      'mutations' => $mutations,
+      'events' => [
+        GameEventLogger::buildEvent('fly', 'encounter', $actor_id, ['to' => $params['to_hex'] ?? NULL, 'round' => $game_state['round'] ?? NULL]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute mount intent block with legacy side effects.
+   */
+  protected function routeMountIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    $mount_participant = $encounter && $target_id ? $this->findEncounterParticipantByEntityId($encounter, $target_id) : NULL;
+    if (!$participant || !$mount_participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant or mount not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $dist = $this->movementResolver ? $this->movementResolver->hexDistance(
+      ['q' => (int) ($participant['position_q'] ?? 0), 'r' => (int) ($participant['position_r'] ?? 0)],
+      ['q' => (int) ($mount_participant['position_q'] ?? 0), 'r' => (int) ($mount_participant['position_r'] ?? 0)]
+    ) : 1;
+    if ($dist > 1) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Mount must be adjacent.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $acrobatics_bonus = (int) ($params['acrobatics_bonus'] ?? $params['skill_bonus'] ?? 0);
+    $mount_roll = $this->numberGenerationService->rollPathfinderDie(20);
+    $mount_total = $mount_roll + $acrobatics_bonus;
+    if ($mount_total < 15) {
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Acrobatics check failed (DC 15).', 'roll' => $mount_roll, 'bonus' => $acrobatics_bonus, 'total' => $mount_total],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $actor_entity = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $actor_entity['mounted_on'] = $target_id;
+    $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($actor_entity)]);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['mounted' => TRUE, 'mount_id' => $target_id, 'roll' => $mount_roll, 'total' => $mount_total],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('mount', 'encounter', $actor_id, ['mount' => $target_id, 'round' => $game_state['round'] ?? NULL], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute dismount intent block with legacy side effects.
+   */
+  protected function routeDismountIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $actor_entity = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $actor_entity['mounted_on'] = NULL;
+    $dismount_to = $params['to_hex'] ?? NULL;
+    $update = ['entity_ref' => json_encode($actor_entity)];
+    if ($dismount_to) {
+      $update['position_q'] = (int) ($dismount_to['q'] ?? $participant['position_q'] ?? 0);
+      $update['position_r'] = (int) ($dismount_to['r'] ?? $participant['position_r'] ?? 0);
+    }
+    $this->encounterStore->updateParticipant((int) $participant['id'], $update);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['dismounted' => TRUE],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('dismount', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute raise-shield intent block with legacy side effects.
+   */
+  protected function routeRaiseShieldIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $entity_data = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $shield = $this->findHeldShield($entity_data);
+    if (!$shield) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'No shield in hand.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    if (!empty($shield['broken'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Shield is broken.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $entity_data['shield_raised'] = TRUE;
+    $entity_data['shield_raised_ac_bonus'] = (int) ($shield['ac_bonus'] ?? 0);
+    $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['shield_raised' => TRUE, 'ac_bonus' => $entity_data['shield_raised_ac_bonus']],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('raise_shield', 'encounter', $actor_id, [
+          'ac_bonus' => $entity_data['shield_raised_ac_bonus'],
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute avert-gaze intent block with legacy side effects.
+   */
+  protected function routeAvertGazeIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    if (!$participant) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Participant not found.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $entity_data = !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
+    $entity_data['avert_gaze_active'] = TRUE;
+    $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['avert_gaze' => TRUE],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('avert_gaze', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute point-out intent block with legacy side effects.
+   */
+  protected function routePointOutIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (!$target_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'target required for point_out.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $encounter = $this->encounterStore->loadEncounter($encounter_id);
+    if ($encounter) {
+      foreach ($encounter['participants'] ?? [] as $ally_participant) {
+        $ally_eid = $ally_participant['entity_id'] ?? '';
+        if ($ally_eid === $actor_id) {
+          continue;
+        }
+        $ally_entity_data = !empty($ally_participant['entity_ref']) ? json_decode($ally_participant['entity_ref'], TRUE) : [];
+        $ally_attacker_id = $ally_entity_data['entity_id'] ?? $ally_eid;
+        $target_participant = $this->findEncounterParticipantByEntityId($encounter, $target_id);
+        if ($target_participant) {
+          $target_entity_data = !empty($target_participant['entity_ref']) ? json_decode($target_participant['entity_ref'], TRUE) : [];
+          $current_state = $target_entity_data['detection_states'][$ally_attacker_id] ?? 'observed';
+          if ($current_state === 'undetected' || $current_state === 'unnoticed') {
+            $target_entity_data['detection_states'][$ally_attacker_id] = 'hidden';
+            $this->encounterStore->updateParticipant((int) $target_participant['id'], ['entity_ref' => json_encode($target_entity_data)]);
+          }
+        }
+      }
+    }
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['pointed_out' => TRUE, 'target' => $target_id],
+      'mutations' => [],
+      'events' => [
+        GameEventLogger::buildEvent('point_out', 'encounter', $actor_id, [
+          'target' => $target_id,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute minor-color-shift intent block with legacy side effects.
+   */
+  protected function routeMinorColorShiftIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    if (($params['heritage'] ?? '') !== 'chameleon') {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'Minor Color Shift requires Chameleon Gnome heritage.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $terrain_color = trim($params['terrain_color_tag'] ?? '');
+    if ($terrain_color === '') {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'terrain_color_tag is required.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    return [
+      'result' => ['coloration_tag' => $terrain_color, 'action_cost' => 1],
+      'mutations' => [['type' => 'char_state', 'key' => 'coloration_tag', 'value' => $terrain_color]],
+      'events' => [
+        GameEventLogger::buildEvent('minor_color_shift', 'encounter', $actor_id, [
+          'new_coloration' => $terrain_color,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute consume-item intent block with legacy side effects.
+   */
+  protected function routeConsumeItemIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $character_id = $params['character_id'] ?? $params['characterId'] ?? NULL;
+    $item = is_array($params['item'] ?? NULL) ? $params['item'] : [];
+    $item_name = trim((string) ($item['name'] ?? $item['id'] ?? $item['item_id'] ?? 'consumable'));
+    if (!$character_id || $item_name === '') {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'consume_item requires params.character_id and params.item.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $action_cost = $this->getActionCost('consume_item', $params);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+
+    try {
+      $inventory = $this->characterStateService->updateInventory(
+        (string) $character_id,
+        'consume',
+        $item,
+        $campaign_id > 0 ? $campaign_id : NULL,
+        $actor_id
+      );
+      $effects = $this->characterStateService->applyConsumableEffects(
+        (string) $character_id,
+        $item,
+        $campaign_id > 0 ? $campaign_id : NULL,
+        $actor_id
+      );
+    }
+    catch (\InvalidArgumentException $exception) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => $exception->getMessage()],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    if (!empty($effects['focus_points']) || !empty($effects['spell_slots'])) {
+      $this->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data);
+    }
+    if (!empty($effects['nutrition_days']) || !empty($effects['hydration_days'])) {
+      $this->syncCanonicalSurvivalProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data);
+    }
+
+    $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $result = [
+      'summary' => sprintf('%s uses %s.', $actor_name, $item_name),
+      'item_name' => $item_name,
+      'effects' => $effects,
+      'inventory' => $inventory,
+    ];
+
+    return [
+      'result' => $result,
+      'events' => [
+        GameEventLogger::buildEvent('consume_item', 'encounter', $actor_id, [
+          'item_name' => $item_name,
+          'effects' => $effects,
+          'action_cost' => $action_cost,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute declare-metamagic intent block with legacy side effects.
+   */
+  protected function routeDeclareMetamagicIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state
+  ): array {
+    $metamagic_id = $params['metamagic_id'] ?? NULL;
+    if (!$metamagic_id) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => 'declare_metamagic requires params.metamagic_id.'],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $game_state['turn']['metamagic_pending'][$actor_id] = $metamagic_id;
+    return [
+      'result' => ['declared' => TRUE, 'metamagic_id' => $metamagic_id],
+      'events' => [
+        GameEventLogger::buildEvent('declare_metamagic', 'encounter', $actor_id, [
+          'metamagic_id' => $metamagic_id,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute interact intent block with legacy side effects.
+   */
+  protected function routeInteractIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $character_id = $this->resolveActorCharacterId($actor_id, $dungeon_data, $params);
+    $events = [];
+    $mutations = [];
+
+    if (!$encounter_id || $this->isRoomSceneMode($game_state)) {
+      $result = ['interacted' => TRUE];
+      $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      $events[] = GameEventLogger::buildEvent('interact', 'encounter', $actor_id, [
+        'target' => $target_id,
+        'round' => $game_state['round'] ?? NULL,
+      ]);
+
+      $quest_touchpoint_result = $this->applyInteractQuestTouchpoint(
+        $campaign_id,
+        $character_id,
+        $target_id,
+        $game_state,
+        $dungeon_data
+      );
+      if ($quest_touchpoint_result !== NULL) {
+        if (empty($quest_touchpoint_result['success'])) {
+          return [
+            'abort_response' => [
+              'success' => FALSE,
+              'result' => [
+                'error' => (string) ($quest_touchpoint_result['error'] ?? 'Failed to apply quest touchpoint.'),
+                'quest_touchpoint' => $quest_touchpoint_result,
+              ],
+              'mutations' => [],
+              'events' => $events,
+              'phase_transition' => NULL,
+              'narration' => NULL,
+            ],
+          ];
+        }
+        $result['quest_touchpoint'] = $quest_touchpoint_result;
+      }
+
+      return [
+        'result' => $result,
+        'mutations' => $mutations,
+        'events' => $events,
+      ];
+    }
+
+    $result = $this->processInteract($encounter_id, $actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $result['mutations'] ?? [];
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $events[] = GameEventLogger::buildEvent('interact', 'encounter', $actor_id, [
+      'target' => $target_id,
+      'interaction' => $params['interaction_type'] ?? 'generic',
+      'round' => $game_state['round'] ?? NULL,
+    ], NULL, $target_id);
+
+    $quest_touchpoint_result = $this->applyInteractQuestTouchpoint(
+      $campaign_id,
+      $character_id,
+      $target_id,
+      $game_state,
+      $dungeon_data
+    );
+    if ($quest_touchpoint_result !== NULL) {
+      if (empty($quest_touchpoint_result['success'])) {
+        return [
+          'abort_response' => [
+            'success' => FALSE,
+            'result' => [
+              'error' => (string) ($quest_touchpoint_result['error'] ?? 'Failed to apply quest touchpoint.'),
+              'quest_touchpoint' => $quest_touchpoint_result,
+            ],
+            'mutations' => [],
+            'events' => $events,
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ],
+        ];
+      }
+      $result['quest_touchpoint'] = $quest_touchpoint_result;
+    }
+
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => $events,
+    ];
+  }
+
+  /**
+   * Router seam: execute talk intent block with legacy side effects.
+   */
+  protected function routeTalkIntentExecution(
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $character_id = $this->resolveActorCharacterId($actor_id, $dungeon_data, $params);
+    $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
+    $params['_encounter_turn_ctx'] = $turn_ctx;
+
+    $result = $this->processTalk($actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
+    if (!empty($result['error'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => $result,
+          'mutations' => $result['mutations'] ?? [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+
+    $mutations = $result['mutations'] ?? [];
+    $narration = $result['narration'] ?? NULL;
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    if ($this->isRoomSceneMode($game_state)) {
+      $result['remaining_turn_prompt'] = $this->buildRemainingRoomSceneActionPrompt($actor_id, $game_state, $dungeon_data);
+      if (is_array($result['remaining_turn_prompt'])) {
+        $result['turn_logs'] = array_values(array_merge(
+          is_array($result['turn_logs'] ?? NULL) ? $result['turn_logs'] : [],
+          [$result['remaining_turn_prompt']]
+        ));
+      }
+    }
+
+    $events = [
+      GameEventLogger::buildEvent('talk', 'encounter', $actor_id, [
+        'message' => $result['message'] ?? '',
+        'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
+        'turn_index' => $turn_ctx['turn_index_raw'] ?? ($game_state['turn']['index'] ?? NULL),
+        'actor_name' => $turn_ctx['actor_name'] ?? NULL,
+        'gm_response_generated' => !empty($result['gm_response']),
+        'state_diff_present' => !empty($result['state_diff']),
+      ], $narration, $target_id),
+    ];
+
+    $quest_touchpoint_result = $this->applyInteractQuestTouchpoint(
+      $campaign_id,
+      $character_id,
+      $target_id,
+      $game_state,
+      $dungeon_data
+    );
+    if ($quest_touchpoint_result !== NULL) {
+      if (empty($quest_touchpoint_result['success'])) {
+        return [
+          'abort_response' => [
+            'success' => FALSE,
+            'result' => [
+              'error' => (string) ($quest_touchpoint_result['error'] ?? 'Failed to apply quest touchpoint.'),
+              'quest_touchpoint' => $quest_touchpoint_result,
+            ],
+            'mutations' => [],
+            'events' => $events,
+            'phase_transition' => NULL,
+            'narration' => NULL,
+          ],
+        ];
+      }
+      $result['quest_touchpoint'] = $quest_touchpoint_result;
+    }
+
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => $events,
+      'narration' => $narration,
+    ];
+  }
+
+  /**
+   * Router seam: execute skill intent block with legacy side effects.
+   */
+  protected function routeSkillIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data
+  ): array {
+    $skill_name = trim((string) ($params['skill_name'] ?? $params['skill'] ?? 'Skill'));
+    $skill_bonus = NULL;
+    if (isset($params['skill_bonus'])) {
+      $skill_bonus = (int) $params['skill_bonus'];
+    }
+    elseif (isset($params['skill_modifier'])) {
+      $skill_bonus = (int) $params['skill_modifier'];
+    }
+
+    $action_cost = $this->getActionCost('skill', $params);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+
+    $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $result = [
+      'summary' => sprintf(
+        '%s uses %s%s.',
+        $actor_name,
+        $skill_name,
+        $skill_bonus !== NULL ? sprintf(' (%+d)', $skill_bonus) : ''
+      ),
+      'skill_name' => $skill_name,
+      'skill_bonus' => $skill_bonus,
+    ];
+
+    return [
+      'result' => $result,
+      'events' => [
+        GameEventLogger::buildEvent('skill', 'encounter', $actor_id, [
+          'skill_name' => $skill_name,
+          'skill_bonus' => $skill_bonus,
+          'action_cost' => $action_cost,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute feat intent block with legacy side effects.
+   */
+  protected function routeFeatIntentExecution(
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data
+  ): array {
+    $feat_name = trim((string) ($params['feat_name'] ?? $params['featName'] ?? 'Feat action'));
+    $feat_id = $params['feat_id'] ?? $params['featId'] ?? NULL;
+
+    $action_cost = $this->getActionCost('feat', $params);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+
+    $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $result = [
+      'summary' => sprintf('%s uses %s.', $actor_name, $feat_name),
+      'feat_name' => $feat_name,
+      'feat_id' => $feat_id,
+    ];
+
+    return [
+      'result' => $result,
+      'events' => [
+        GameEventLogger::buildEvent('feat', 'encounter', $actor_id, [
+          'feat_name' => $feat_name,
+          'feat_id' => $feat_id,
+          'action_cost' => $action_cost,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
+      ],
+    ];
+  }
+
+  /**
+   * Router seam: execute strike intent block with legacy side effects.
+   */
+  protected function routeStrikeIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $result = $this->processStrike($encounter_id, (string) $actor_id, (string) $target_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $result['mutations'] ?? [];
+    $narration = $result['narration'] ?? NULL;
+    $events = [];
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $game_state['turn']['attacks_this_turn'] = ($game_state['turn']['attacks_this_turn'] ?? 0) + 1;
+
+    if (!empty($game_state['entities'][$actor_id]['cover_active'])) {
+      $game_state['entities'][$actor_id]['cover_active'] = FALSE;
+    }
+
+    {
+      $enc_air_st = $this->encounterStore->loadEncounter($encounter_id);
+      $ptcp_air_st = $enc_air_st ? $this->findEncounterParticipantByEntityId($enc_air_st, (string) $actor_id) : NULL;
+      if ($ptcp_air_st) {
+        $edata_air_st = !empty($ptcp_air_st['entity_ref']) ? json_decode((string) $ptcp_air_st['entity_ref'], TRUE) : [];
+        if (!empty($edata_air_st['airborne'])) {
+          $edata_air_st['air_decrement_this_turn'] = 2;
+          $this->encounterStore->updateParticipant((int) $ptcp_air_st['id'], ['entity_ref' => json_encode($edata_air_st)]);
+        }
+      }
+    }
+
+    $events[] = GameEventLogger::buildEvent('strike', 'encounter', $actor_id, [
+      'target' => $target_id,
+      'roll' => $result['roll'] ?? NULL,
+      'total' => $result['total'] ?? NULL,
+      'dc' => $result['ac'] ?? NULL,
+      'degree' => $result['degree'] ?? NULL,
+      'damage' => $result['damage'] ?? NULL,
+      'round' => $game_state['round'] ?? NULL,
+    ], $narration, $target_id);
+
+    $attacker_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $target_name = $this->resolveEntityName($target_id, $game_state, $dungeon_data);
+    $degree_text = $result['degree'] ?? 'unknown';
+    $damage_val = $result['damage'] ?? 0;
+    $strike_desc = match ($degree_text) {
+      'critical_success' => sprintf('%s critically strikes %s for %d damage!', $attacker_name, $target_name, $damage_val),
+      'success' => sprintf('%s strikes %s for %d damage.', $attacker_name, $target_name, $damage_val),
+      'failure' => sprintf('%s swings at %s but misses.', $attacker_name, $target_name),
+      'critical_failure' => sprintf('%s fumbles an attack at %s!', $attacker_name, $target_name),
+      default => sprintf('%s attacks %s.', $attacker_name, $target_name),
+    };
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'action',
+      'speaker' => $attacker_name,
+      'speaker_type' => 'player',
+      'speaker_ref' => '',
+      'content' => $strike_desc,
+      'visibility' => 'public',
+      'mechanical_data' => [
+        'attack_roll' => $result['roll'] ?? NULL,
+        'total' => $result['total'] ?? NULL,
+        'ac' => $result['ac'] ?? NULL,
+        'degree' => $degree_text,
+        'damage' => $damage_val,
+        'weapon' => $params['weapon'] ?? NULL,
+      ],
+    ]);
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'dice_roll',
+      'speaker' => 'System',
+      'speaker_type' => 'system',
+      'speaker_ref' => '',
+      'content' => sprintf('%s attack roll %d vs AC %d: %s.', $attacker_name, (int) ($result['total'] ?? 0), (int) ($result['ac'] ?? 0), $degree_text),
+      'mechanical_data' => [
+        'action' => 'strike',
+        'roll' => $result['roll'] ?? NULL,
+        'total' => $result['total'] ?? NULL,
+        'dc' => $result['ac'] ?? NULL,
+        'degree' => $degree_text,
+        'weapon' => $params['weapon'] ?? NULL,
+        'target' => $target_id,
+      ],
+      'visibility' => 'public',
+    ]);
+    if ($damage_val > 0) {
+      $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+        'type' => 'damage_applied',
+        'speaker' => 'System',
+        'speaker_type' => 'system',
+        'speaker_ref' => $actor_id,
+        'content' => sprintf('%s takes %d damage.', $target_name, $damage_val),
+        'mechanical_data' => [
+          'target' => $target_id,
+          'damage' => $damage_val,
+          'damage_type' => $result['damage_type'] ?? 'physical',
+        ],
+        'visibility' => 'public',
+      ]);
+    }
+
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => $events,
+      'narration' => $narration,
+    ];
+  }
+
+  /**
+   * Router seam: execute stride intent block with legacy side effects.
+   */
+  protected function routeStrideIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $result = $this->processStride($encounter_id, (string) $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $result['mutations'] ?? [];
+    $events = [];
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    if (!empty($game_state['entities'][$actor_id]['cover_active'])) {
+      $game_state['entities'][$actor_id]['cover_active'] = FALSE;
+    }
+    $game_state['turn']['last_stride_ft'] = (int) ($params['distance_ft'] ?? 25);
+
+    $events[] = GameEventLogger::buildEvent('stride', 'encounter', $actor_id, [
+      'from' => $params['from_hex'] ?? NULL,
+      'to' => $params['to_hex'] ?? NULL,
+      'round' => $game_state['round'] ?? NULL,
+    ]);
+
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => $events,
+      'narration' => $result['narration'] ?? NULL,
+    ];
+  }
+
+  /**
+   * Router seam: execute cast-spell intent block with legacy side effects.
+   */
+  protected function routeCastSpellIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    ?string $target_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $spell_name = $params['spell_name'] ?? 'unknown';
+    $action_cost = $params['action_cost'] ?? 2;
+    $result = $this->processCastSpell($encounter_id, (string) $actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $mutations = $result['mutations'] ?? [];
+    $events = [];
+
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+    if (!empty($game_state['entities'][$actor_id]['cover_active'])) {
+      $game_state['entities'][$actor_id]['cover_active'] = FALSE;
+    }
+
+    {
+      $enc_air_cs = $this->encounterStore->loadEncounter($encounter_id);
+      $ptcp_air_cs = $enc_air_cs ? $this->findEncounterParticipantByEntityId($enc_air_cs, (string) $actor_id) : NULL;
+      if ($ptcp_air_cs) {
+        $edata_air_cs = !empty($ptcp_air_cs['entity_ref']) ? json_decode((string) $ptcp_air_cs['entity_ref'], TRUE) : [];
+        if (!empty($edata_air_cs['airborne'])) {
+          $edata_air_cs['air_decrement_this_turn'] = 2;
+          $this->encounterStore->updateParticipant((int) $ptcp_air_cs['id'], ['entity_ref' => json_encode($edata_air_cs)]);
+        }
+      }
+    }
+
+    $events[] = GameEventLogger::buildEvent('cast_spell', 'encounter', $actor_id, [
+      'spell' => $spell_name,
+      'action_cost' => $action_cost,
+      'round' => $game_state['round'] ?? NULL,
+    ], $result['narration'] ?? NULL, $target_id);
+
+    $caster_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $spell_target_name = $target_id ? $this->resolveEntityName($target_id, $game_state, $dungeon_data) : NULL;
+    $spell_desc = $spell_target_name
+      ? sprintf('%s casts %s targeting %s.', $caster_name, $spell_name, $spell_target_name)
+      : sprintf('%s casts %s.', $caster_name, $spell_name);
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'action',
+      'speaker' => $caster_name,
+      'speaker_type' => 'player',
+      'speaker_ref' => $actor_id,
+      'content' => $spell_desc,
+      'visibility' => 'public',
+      'mechanical_data' => [
+        'spell_name' => $spell_name,
+        'spell_level' => $params['spell_level'] ?? NULL,
+        'action_cost' => $action_cost,
+        'target' => $target_id,
+      ],
+    ]);
+
+    return [
+      'result' => $result,
+      'mutations' => $mutations,
+      'events' => $events,
+      'narration' => $result['narration'] ?? NULL,
+    ];
+  }
+
+  /**
    * Enters a room and ensures an encounter-framework context is active.
    */
   public function enterRoomFramework(?string $actor_id, string $target_room_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
@@ -3667,13 +6204,25 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     if (!empty($dungeon_data['active_room_id']) && (string) $dungeon_data['active_room_id'] !== $target_room_id) {
       $capability = $this->resolveRoomTransitionCapability($dungeon_data, $target_room_id, $params);
       if ($capability === NULL) {
-        $this->logger->warning('Encounter transition capability missing: campaign={campaign_id} actor={actor} from_room={from_room} target_room={target_room}', [
+        $unreachable_diagnostics = $this->buildTransitionUnreachableDiagnostics($dungeon_data, $target_room_id);
+        $this->logger->warning('Encounter transition capability missing: campaign={campaign_id} actor={actor} from_room={from_room} target_room={target_room} suggested_via_room={suggested_via_room} available_targets={available_targets}', [
           'campaign_id' => $campaign_id,
           'actor' => (string) ($actor_id ?? ''),
           'from_room' => (string) ($dungeon_data['active_room_id'] ?? ''),
           'target_room' => $target_room_id,
+          'suggested_via_room' => (string) ($unreachable_diagnostics['suggested_via_room_id'] ?? ''),
+          'available_targets' => implode(', ', (array) ($unreachable_diagnostics['available_targets'] ?? [])),
         ]);
-        return ['error' => "Room '$target_room_id' is not reachable from the active room."];
+        $error = "Room '$target_room_id' is not reachable from the active room.";
+        $suggested_via_room_id = (string) ($unreachable_diagnostics['suggested_via_room_id'] ?? '');
+        if ($suggested_via_room_id !== '') {
+          $error .= sprintf(
+            " Route hint: transition to '%s' first, then to '%s'.",
+            $this->resolveRoomLabelById($dungeon_data, $suggested_via_room_id),
+            $this->resolveRoomLabelById($dungeon_data, $target_room_id)
+          );
+        }
+        return ['error' => $error];
       }
       if (empty($capability['available'])) {
         $this->logger->warning('Encounter transition capability blocked: campaign={campaign_id} actor={actor} target_room={target_room} blocked_reason={blocked_reason}', [
@@ -3782,142 +6331,18 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     if ((string) ($capability['destination_type'] ?? 'room') !== 'room') {
       return FALSE;
     }
-
-    $canonical_row = $this->database->select('dungeoncrawler_content_rooms', 'r')
-      ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data'])
-      ->condition('room_id', $target_room_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!is_array($canonical_row)) {
-      $canonical_row = $this->database->select('dungeoncrawler_content_rooms', 'r')
-        ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data'])
-        ->condition('source_room_id', $target_room_id)
-        ->orderBy('updated', 'DESC')
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-    }
-    if (!is_array($canonical_row)) {
-      return FALSE;
-    }
-
-    $layout_data = json_decode((string) ($canonical_row['layout_data'] ?? '{}'), TRUE);
-    if (!is_array($layout_data)) {
-      $layout_data = [];
-    }
-    $contents_data = json_decode((string) ($canonical_row['contents_data'] ?? '{}'), TRUE);
-    if (!is_array($contents_data)) {
-      $contents_data = [];
-    }
-    $environment_tags = json_decode((string) ($canonical_row['environment_tags'] ?? '[]'), TRUE);
-    if (!is_array($environment_tags)) {
-      $environment_tags = [];
-    }
-
-    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
-    if ($hexes === []) {
-      throw new \RuntimeException(sprintf('Encounter transition contract violation: canonical room %s has no hexes to instantiate.', $target_room_id));
-    }
-
-    $dungeon_id = trim((string) (
-      $dungeon_data['dungeon_id']
-      ?? $dungeon_data['hex_map']['map_id']
-      ?? $dungeon_data['map_id']
-      ?? ''
-    ));
-    if ($dungeon_id !== '') {
-      /** @var \Drupal\dungeoncrawler_content\Service\MapGeneratorService $map_generator */
-      $map_generator = \Drupal::service('dungeoncrawler_content.map_generator');
-      $room_for_h3 = [
-        'room_id' => $target_room_id,
-        'hexes' => $hexes,
-      ];
-      $room_for_h3 = $map_generator->ensureRoomHexH3Indexes($dungeon_id, $room_for_h3);
-      $hexes = is_array($room_for_h3['hexes'] ?? NULL) ? $room_for_h3['hexes'] : $hexes;
-    }
-
-    $room_payload = [
-      'room_id' => $target_room_id,
-      'source_room_id' => trim((string) ($canonical_row['source_room_id'] ?? '')) !== ''
-        ? (string) $canonical_row['source_room_id']
-        : (string) ($canonical_row['room_id'] ?? $target_room_id),
-      'name' => (string) ($canonical_row['name'] ?? $target_room_id),
-      'description' => (string) ($canonical_row['description'] ?? ''),
-      'hexes' => $hexes,
-      'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
-      'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
-      'exits' => is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [],
-      'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
-      'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [],
-      'room_type' => (string) ($layout_data['room_type'] ?? 'room'),
-      'state' => [
+    return $this->requireNavigationRuntime()->materializeCanonicalRoomForCampaign(
+      $campaign_id,
+      $dungeon_data,
+      $target_room_id,
+      [
+        'origin_room_id' => trim((string) ($capability['origin_room_id'] ?? ($dungeon_data['active_room_id'] ?? ''))),
+        'origin_hex' => is_array($capability['origin_hex'] ?? NULL) ? $capability['origin_hex'] : NULL,
+        'target_hex' => is_array($capability['target_hex'] ?? NULL) ? $capability['target_hex'] : NULL,
         'explored' => TRUE,
-        'explored_at' => gmdate('c'),
-        'cleared' => FALSE,
-        'looted' => FALSE,
-        'traps_disarmed' => FALSE,
         'visibility' => 'visible',
-      ],
-      'connections' => [],
-      'entities' => NULL,
-    ];
-
-    if (!isset($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
-      $dungeon_data['rooms'] = [];
-    }
-    $dungeon_data['rooms'][] = $room_payload;
-
-    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
-      $dungeon_data['hex_map'] = [];
-    }
-    if (!isset($dungeon_data['hex_map']['rooms']) || !is_array($dungeon_data['hex_map']['rooms'])) {
-      $dungeon_data['hex_map']['rooms'] = [];
-    }
-    $dungeon_data['hex_map']['rooms'][] = $room_payload;
-    if (!isset($dungeon_data['hex_map']['metadata']) || !is_array($dungeon_data['hex_map']['metadata'])) {
-      $dungeon_data['hex_map']['metadata'] = [];
-    }
-    $dungeon_data['hex_map']['metadata']['total_rooms'] = count($dungeon_data['hex_map']['rooms']);
-
-    $origin_room_id = trim((string) ($capability['origin_room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
-    if ($origin_room_id !== '') {
-      $this->appendCanonicalTransitionConnection(
-        $dungeon_data,
-        $origin_room_id,
-        $target_room_id,
-        is_array($capability['origin_hex'] ?? NULL) ? $capability['origin_hex'] : NULL,
-        is_array($capability['target_hex'] ?? NULL) ? $capability['target_hex'] : NULL
-      );
-    }
-
-    $now = time();
-    $layout_record = [
-      'hexes' => $hexes,
-      'entry_points' => $room_payload['entry_points'],
-      'exit_points' => $room_payload['exit_points'],
-      'exits' => $room_payload['exits'],
-      'terrain' => $room_payload['terrain'],
-      'lighting' => $room_payload['lighting'],
-    ];
-    $this->database->merge('dc_campaign_rooms')
-      ->keys([
-        'campaign_id' => $campaign_id,
-        'room_id' => $target_room_id,
-      ])
-      ->fields([
-        'name' => (string) $room_payload['name'],
-        'description' => (string) $room_payload['description'],
-        'environment_tags' => json_encode($environment_tags, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        'layout_data' => json_encode($layout_record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        'contents_data' => json_encode($contents_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        'source_room_id' => (string) $room_payload['source_room_id'],
-        'updated' => $now,
-      ])
-      ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
-      ->execute();
-
-    return TRUE;
+      ]
+    );
   }
 
   /**
@@ -4106,63 +6531,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ])
       ->condition('id', (int) $row['id'])
       ->execute();
-  }
-
-  /**
-   * Append one canonical room-connection edge if missing.
-   */
-  protected function appendCanonicalTransitionConnection(
-    array &$dungeon_data,
-    string $from_room_id,
-    string $to_room_id,
-    ?array $origin_hex = NULL,
-    ?array $target_hex = NULL
-  ): void {
-    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
-      $dungeon_data['hex_map'] = [];
-    }
-    if (!isset($dungeon_data['hex_map']['connections']) || !is_array($dungeon_data['hex_map']['connections'])) {
-      $dungeon_data['hex_map']['connections'] = [];
-    }
-
-    foreach ((array) $dungeon_data['hex_map']['connections'] as $connection) {
-      if (!is_array($connection)) {
-        continue;
-      }
-      $existing_from = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
-      $existing_to = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
-      if (
-        ($existing_from === $from_room_id && $existing_to === $to_room_id)
-        || ($existing_from === $to_room_id && $existing_to === $from_room_id)
-      ) {
-        return;
-      }
-    }
-
-    $connection = [
-      'connection_id' => $from_room_id . '__' . $to_room_id . '__passage__unscoped',
-      'from_room' => $from_room_id,
-      'to_room' => $to_room_id,
-      'type' => 'passage',
-      'bidirectional' => TRUE,
-      'is_discovered' => TRUE,
-      'is_passable' => TRUE,
-      'destination_type' => 'room',
-      'destination_id' => $to_room_id,
-    ];
-    if (is_array($origin_hex) && isset($origin_hex['q'], $origin_hex['r'])) {
-      $connection['from_hex'] = [
-        'q' => (int) $origin_hex['q'],
-        'r' => (int) $origin_hex['r'],
-      ];
-    }
-    if (is_array($target_hex) && isset($target_hex['q'], $target_hex['r'])) {
-      $connection['to_hex'] = [
-        'q' => (int) $target_hex['q'],
-        'r' => (int) $target_hex['r'],
-      ];
-    }
-    $dungeon_data['hex_map']['connections'][] = $connection;
   }
 
   /**
@@ -4462,14 +6830,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Determine whether the current encounter context is room-scene mode.
    */
   protected function isRoomSceneMode(array $game_state): bool {
-    $mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
-    if ($mode === 'room_scene') {
-      return TRUE;
-    }
-
-    return $mode === ''
-      && empty($game_state['encounter_id'])
-      && !empty($game_state['encounter_context']['room_id']);
+    return $this->roomSceneEncounterCoordinator->isRoomSceneMode($game_state);
   }
 
   /**
@@ -4498,138 +6859,19 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Process encounter talk through the room-chat pipeline.
    */
   protected function processTalk(?string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $turn_ctx = is_array($params['_encounter_turn_ctx'] ?? NULL)
-      ? $params['_encounter_turn_ctx']
-      : $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
-
-    $message = trim((string) ($params['message'] ?? ''));
-    $room_id = $dungeon_data['active_room_id'] ?? NULL;
-    $character_id = $this->resolveActorCharacterId($actor_id, $dungeon_data, $params);
-    $speaker = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-    $target_name = trim((string) ($target_id ? $this->resolveEntityName($target_id, $game_state, $dungeon_data) : ''));
-
-    if (!$room_id) {
-      return [
-        'talked' => FALSE,
-        'error' => 'No active room set.',
-        'mutations' => [],
-      ];
-    }
-
-    if ($message === '' && $target_name === '') {
-      return [
-        'talked' => FALSE,
-        'error' => 'Talk requires a message or target.',
-        'mutations' => [],
-      ];
-    }
-
-    if ($message === '' && $character_id !== NULL) {
-      $suggestion = $this->roomChatService->suggestPlayerAutomationMessage(
-        $campaign_id,
-        $room_id,
-        $character_id,
-        'room'
-      );
-      $message = trim((string) ($suggestion['message'] ?? ''));
-    }
-
-    if ($target_name !== '' && $message !== '' && stripos($message, $target_name) === FALSE) {
-      $message = sprintf('%s, %s', $target_name, $message);
-    }
-
-    if ($message === '') {
-      return [
-        'talked' => FALSE,
-        'error' => 'Automation could not produce a room chat message.',
-        'mutations' => [],
-      ];
-    }
-
-    $message = $this->prefixEncounterChatLine($turn_ctx, $message);
- 
-    $is_encounter_turn = (($game_state['phase'] ?? NULL) === 'encounter');
-    // EncounterPhaseHandler owns turn order. Prevent room-chat harness from injecting
-    // out-of-turn NPC turns during an actor's talk action.
-    $defer_npc_interjections = $is_encounter_turn ? TRUE : !empty($params['defer_npc_interjections']);
-    $suppress_gm = !empty($params['suppress_gm']);
-
-    try {
-      $chat_result = $this->roomChatService->postMessage(
-        $campaign_id,
-        $room_id,
-        $speaker,
-        $message,
-        'player',
-        $character_id,
-        'room',
-        $defer_npc_interjections,
-        $suppress_gm,
-        NULL,
-        [
-          'objective_type' => (string) ($params['objective_type'] ?? ''),
-          'objective_id' => (string) ($params['objective_id'] ?? ''),
-          'entity_ref' => (string) ($target_id ?? ''),
-          '_validated_encounter_talk' => TRUE,
-          '_encounter_prefix' => $this->buildEncounterChatPrefix($turn_ctx),
-        ]
-      );
-
-      if (!empty($chat_result['dungeon_data']) && is_array($chat_result['dungeon_data'])) {
-        $dungeon_data = $chat_result['dungeon_data'];
-        $game_state = $dungeon_data['game_state'] ?? $game_state;
-      }
-
-      $chat_response = [
-        'gm_response' => $chat_result['gm_response'] ?? NULL,
-        'npc_interjections' => $chat_result['npc_interjections'] ?? [],
-        'quest_updates' => $chat_result['quest_updates'] ?? [],
-        'state_diff' => $chat_result['state_diff'] ?? [],
-        'combat_transition' => $chat_result['combat_transition'] ?? NULL,
-        'canonical_actions' => $chat_result['canonical_actions'] ?? [],
-      ];
-      $this->logger->info('Encounter talk response quest handoff: campaign={campaign_id} character={character_id} room={room_id} quest_update_count={quest_update_count} quest_ids={quest_ids}', [
-        'campaign_id' => $campaign_id,
-        'character_id' => $character_id,
-        'room_id' => $room_id,
-        'quest_update_count' => count($chat_response['quest_updates']),
-        'quest_ids' => implode(', ', array_map(static function (array $update): string {
-          return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
-        }, $chat_response['quest_updates'])),
-      ]);
-
-      return [
-        'talked' => TRUE,
-        'message' => $message,
-        'chat_message' => $chat_result['message'] ?? NULL,
-        'gm_response' => $chat_response['gm_response'],
-        'gm_deferred' => !empty($chat_result['gm_deferred']),
-
-        'npc_interjections' => $chat_response['npc_interjections'],
-        'quest_updates' => $chat_response['quest_updates'],
-        'state_diff' => $chat_response['state_diff'],
-        'combat_transition' => $chat_response['combat_transition'],
-        'canonical_actions' => $chat_response['canonical_actions'],
-        'npc_interjections_deferred' => !empty($chat_result['npc_interjections_deferred']),
-        'turn_log_key' => array_key_exists('turn_log_key', $chat_result) ? $chat_result['turn_log_key'] : NULL,
-        'turn_logs' => array_values(array_filter($chat_result['turn_logs'] ?? [], 'is_array')),
-        'chat_response' => $chat_response,
-        'narration' => $chat_result['gm_response']['message'] ?? ($chat_result['gm_response']['text'] ?? NULL),
-        'mutations' => $chat_result['mutations'] ?? [],
-      ];
-    }
-    catch (\Throwable $e) {
-      $this->logger->error('Encounter talk failed: @error', ['@error' => $e->getMessage()]);
-      $error_message = $e instanceof \InvalidArgumentException
-        ? $e->getMessage()
-        : 'Chat service error.';
-
-      return [
-        'talked' => FALSE,
-        'error' => $error_message,
-        'mutations' => [],
-      ];
-    }
+    return $this->encounterActionExecutor->processTalk(
+      $actor_id,
+      $target_id,
+      $params,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      fn(array $state, array $dungeon, ?string $aid): array => $this->captureEncounterTurnContext($state, $dungeon, $aid),
+      fn(?string $aid, array $dungeon, array $talk_params): ?int => $this->resolveActorCharacterId($aid, $dungeon, $talk_params),
+      fn(?string $id, array $state, array $dungeon): string => $this->resolveEntityName($id, $state, $dungeon),
+      fn(array $turn_ctx, string $content): string => $this->prefixEncounterChatLine($turn_ctx, $content),
+      fn(array $turn_ctx): string => $this->buildEncounterChatPrefix($turn_ctx)
+    );
   }
 
   /**
@@ -4885,84 +7127,25 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Processes a strike action via the existing combat system.
    */
   protected function processStrike(int $encounter_id, string $actor_id, string $target_id, array $params, array &$game_state, array $dungeon_data = [], ?int $campaign_id = NULL): array {
-    try {
-      // Load encounter data.
-      $encounter = $this->encounterStore->loadEncounter($encounter_id);
-      if (!$encounter) {
-        return ['error' => 'Encounter not found.'];
+    return $this->encounterActionExecutor->processStrike(
+      $encounter_id,
+      $actor_id,
+      $target_id,
+      $params,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      function (string $aid, array $action_params, array $dungeon, ?int $cid): array {
+        return $this->resolveStrikeWeapon($aid, $action_params, $dungeon, $cid);
       }
-
-      $attacker_participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
-      $target_participant = $this->findEncounterParticipantByEntityId($encounter, $target_id);
-      if (!$attacker_participant || !$target_participant) {
-        return ['error' => 'Attacker or target is not present in the encounter.'];
-      }
-
-      $weapon = $this->resolveStrikeWeapon($actor_id, $params, $dungeon_data, $campaign_id);
-      if (!empty($weapon['error'])) {
-        return ['error' => $weapon['error']];
-      }
-
-      // REQ 2230: AoO skip_map flag — do not count this attack toward MAP.
-      if (!empty($params['skip_map'])) {
-        $weapon['skip_map'] = TRUE;
-      }
-
-      // Resolve attack through the combat engine, passing dungeon_data for cover/aquatic checks.
-      $attack_result = $this->combatEngine->resolveAttack(
-        (int) ($attacker_participant['id'] ?? 0),
-        (int) ($target_participant['id'] ?? 0),
-        $weapon,
-        $encounter_id,
-        $dungeon_data
-      );
-
-      $updated_encounter = $this->encounterStore->loadEncounter($encounter_id) ?: $encounter;
-      $game_state['initiative_order'] = $updated_encounter['participants'] ?? ($game_state['initiative_order'] ?? []);
-
-      $updated_target = $this->findEncounterParticipantByEntityId($updated_encounter, $target_id) ?? $target_participant;
-
-      $mutations = [];
-
-      // If damage was dealt, track mutations.
-      if (!empty($attack_result['damage_dealt'])) {
-        $mutations[] = [
-          'entity' => $target_id,
-          'field' => 'hp',
-          'from' => $target_participant['hp'] ?? NULL,
-          'to' => $updated_target['hp'] ?? ($attack_result['damage_result']['new_hp'] ?? NULL),
-        ];
-      }
-
-      return [
-        'strike' => TRUE,
-        'roll' => $attack_result['roll'] ?? NULL,
-        'total' => $attack_result['total'] ?? NULL,
-        'ac' => $attack_result['target_ac'] ?? NULL,
-        'degree' => $attack_result['degree'] ?? NULL,
-        'damage' => $attack_result['damage_dealt'] ?? NULL,
-        'damage_type' => $weapon['damage_type'] ?? 'physical',
-        'is_defeated' => !empty($updated_target['is_defeated']),
-        'mutations' => $mutations,
-      ];
-    }
-    catch (\Throwable $e) {
-      $this->logger->error('Strike failed: @error', ['@error' => $e->getMessage()]);
-      return ['error' => 'Strike resolution failed.', 'mutations' => []];
-    }
+    );
   }
 
   /**
    * Find a combat participant by encounter entity_id.
    */
   protected function findEncounterParticipantByEntityId(array $encounter, string $entity_id): ?array {
-    foreach (($encounter['participants'] ?? []) as $participant) {
-      if ((string) ($participant['entity_id'] ?? '') === (string) $entity_id) {
-        return $participant;
-      }
-    }
-
-    return NULL;
+    return $this->canonicalProjectionService->findEncounterParticipantByEntityId($encounter, $entity_id);
   }
 
   /**
@@ -5007,62 +7190,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Load canonical round/turn state from the encounter store.
    */
   protected function loadCanonicalTurnState(int $encounter_id): ?array {
-    if ($encounter_id <= 0) {
-      return NULL;
-    }
-
-    $encounter = $this->encounterStore->loadEncounter($encounter_id);
-    $participants = is_array($encounter['participants'] ?? NULL) ? array_values($encounter['participants']) : [];
-    if ($participants === []) {
-      return NULL;
-    }
-
-    $turn_index = (int) ($encounter['turn_index'] ?? 0);
-    if ($turn_index < 0 || $turn_index >= count($participants)) {
-      $turn_index = 0;
-    }
-
-    $active = $participants[$turn_index] ?? NULL;
-    if (!is_array($active)) {
-      return NULL;
-    }
-
-    return [
-      'encounter_id' => $encounter_id,
-      'round' => max(1, (int) ($encounter['current_round'] ?? 1)),
-      'turn_index' => $turn_index,
-      'entity_id' => (string) ($active['entity_id'] ?? ''),
-      'actions_remaining' => max(0, (int) ($active['actions_remaining'] ?? 3)),
-      'attacks_this_turn' => max(0, (int) ($active['attacks_this_turn'] ?? 0)),
-      'reaction_available' => !empty($active['reaction_available']),
-      'participants' => $participants,
-    ];
+    return $this->canonicalProjectionService->loadCanonicalTurnState($encounter_id);
   }
 
   /**
    * Project canonical encounter state into game_state.
    */
   protected function syncGameStateWithCanonicalTurn(array &$game_state, array $canonical_turn): void {
-    $entity_id = trim((string) ($canonical_turn['entity_id'] ?? ''));
-    if ($entity_id === '') {
-      return;
-    }
-
-    $game_state['encounter_id'] = (int) ($canonical_turn['encounter_id'] ?? ($game_state['encounter_id'] ?? 0));
-    $game_state['round'] = max(1, (int) ($canonical_turn['round'] ?? ($game_state['round'] ?? 1)));
-    if (is_array($canonical_turn['participants'] ?? NULL)) {
-      $game_state['initiative_order'] = array_values($canonical_turn['participants']);
-    }
-
-    $existing_turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
-    $game_state['turn'] = [
-      'entity' => $entity_id,
-      'index' => (int) ($canonical_turn['turn_index'] ?? 0),
-      'actions_remaining' => max(0, (int) ($canonical_turn['actions_remaining'] ?? 3)),
-      'attacks_this_turn' => max(0, (int) ($canonical_turn['attacks_this_turn'] ?? 0)),
-      'reaction_available' => !empty($canonical_turn['reaction_available']),
-      'delayed' => !empty($existing_turn['delayed']),
-    ];
+    $this->canonicalProjectionService->syncGameStateWithCanonicalTurn($game_state, $canonical_turn);
   }
 
   /**
@@ -5182,447 +7317,90 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * REQ 2249-2250: Difficult and greater difficult terrain cost applied.
    */
   protected function processStride(int $encounter_id, string $actor_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $to_hex = $params['to_hex'] ?? NULL;
-    if (!$to_hex) {
-      return ['error' => 'Missing to_hex.', 'mutations' => []];
-    }
-
-    $is_forced = !empty($params['is_forced']);
-    $movement_type = $params['movement_type'] ?? 'land';
-    $encounter_for_actor = NULL;
-    $actor_participant = NULL;
-
-    // Validate movement cost vs speed if MovementResolverService is available.
-    if ($this->movementResolver && !$is_forced) {
-      // Load participant for speed lookup.
-      $encounter_for_actor = $this->encounterStore->loadEncounter($encounter_id);
-      $actor_participant = $encounter_for_actor ? $this->findEncounterParticipantByEntityId($encounter_for_actor, $actor_id) : NULL;
-
-      if ($actor_participant) {
-        $speed = $this->movementResolver->getCreatureSpeed($actor_participant, $movement_type);
-        if ($speed <= 0) {
-          return ['error' => "No {$movement_type} speed.", 'mutations' => []];
-        }
-
-        // Derive from_hex from participant's current position.
-        $from_q = (int) ($actor_participant['position_q'] ?? 0);
-        $from_r = (int) ($actor_participant['position_r'] ?? 0);
-        $from_hex_calc = ['q' => $from_q, 'r' => $from_r];
-
-        $diagonal_count = (int) ($game_state['turn']['diagonal_count'] ?? 0);
-        $cost_info = $this->movementResolver->calculateMovementCost(
-          $from_hex_calc,
-          $to_hex,
-          $dungeon_data,
-          $diagonal_count,
-          $movement_type
-        );
-
-        $movement_spent = (int) ($game_state['turn']['movement_spent'] ?? 0);
-        if ($movement_spent + $cost_info['cost'] > $speed) {
-          return [
-            'error' => "Movement cost ({$cost_info['cost']} ft) exceeds remaining speed (" . ($speed - $movement_spent) . " ft).",
-            'mutations' => [],
-          ];
-        }
-
-        // Track movement spent and diagonal count for this turn.
-        $game_state['turn']['movement_spent'] = $movement_spent + $cost_info['cost'];
-        $game_state['turn']['diagonal_count'] = $cost_info['new_diagonal_count'];
-      }
-    }
-
-    // Update entity position in dungeon_data.
-    $entity = NULL;
-    if (!empty($dungeon_data['entities'])) {
-      foreach ($dungeon_data['entities'] as &$e) {
-        $iid = $e['entity_instance_id'] ?? ($e['instance_id'] ?? ($e['id'] ?? NULL));
-        if ($iid === $actor_id) {
-          $entity = &$e;
-          break;
-        }
-      }
-      unset($e);
-    }
-
-    $from_hex = NULL;
-    if ($entity) {
-      $from_hex = $entity['placement']['hex'] ?? NULL;
-      $entity['placement']['hex'] = ['q' => (int) $to_hex['q'], 'r' => (int) $to_hex['r']];
-    }
-
-    // Also update the participant's position in the encounter store.
-    try {
-      if (!$encounter_for_actor) {
-        $encounter_for_actor = $this->encounterStore->loadEncounter($encounter_id);
-      }
-      if ($actor_participant === NULL && $encounter_for_actor) {
-        $actor_participant = $this->findEncounterParticipantByEntityId($encounter_for_actor, $actor_id);
-      }
-
-      $participant_id = (int) ($actor_participant['id'] ?? 0);
-      if ($participant_id > 0) {
-        $this->encounterStore->updateParticipant($participant_id, [
-          'position_q' => (int) $to_hex['q'],
-          'position_r' => (int) $to_hex['r'],
-        ]);
-      }
-    }
-    catch (\Throwable $e) {
-      $this->logger->warning('Failed to update participant position: @error', ['@error' => $e->getMessage()]);
-    }
-
-    // Check for snare trigger at the destination hex (dc-cr-snares).
-    $snare_trigger = NULL;
-    $location_id_stride = $game_state['active_room_id'] ?? ($dungeon_data['current_room_id'] ?? NULL);
-    if ($location_id_stride !== NULL && !$is_forced) {
-      $snare_trigger = $this->magicItemService->checkSnareAtHex($actor_id, $location_id_stride, $to_hex, $game_state);
-    }
-
-    return [
-      'stride' => TRUE,
-      'from_hex' => $from_hex,
-      'to_hex' => $to_hex,
-      'is_forced' => $is_forced,
-      'snare_triggered' => $snare_trigger,
-      'mutations' => [
-        ['entity' => $actor_id, 'field' => 'placement.hex', 'from' => $from_hex, 'to' => $to_hex],
-      ],
-    ];
+    return $this->encounterActionExecutor->processStride(
+      $encounter_id,
+      $actor_id,
+      $params,
+      $game_state,
+      $dungeon_data
+    );
   }
 
   /**
    * Processes a spell cast during encounter.
    */
   protected function processCastSpell(int $encounter_id, string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $spell_name = $params['spell_name'] ?? 'unknown';
-    $spell_id = (string) ($params['spell_id'] ?? '');
-    $spell_level = (int) ($params['spell_level'] ?? 0);
-    $cast_at_level = (int) ($params['cast_at_level'] ?? $spell_level);
-    $is_cantrip = !empty($params['is_cantrip']);
-    $is_focus_spell = !empty($params['is_focus_spell']);
-    $requires_attack_roll = !empty($params['requires_attack_roll']);
-    $spell_tradition = $params['spell_tradition'] ?? NULL;
-
-    // Load entity_ref for persistent spellcasting state.
-    $enc_cs = $this->encounterStore->loadEncounter($encounter_id);
-    $ptcp_cs = $enc_cs ? $this->findEncounterParticipantByEntityId($enc_cs, $actor_id) : NULL;
-    if (!$ptcp_cs) {
-      return ['cast' => FALSE, 'error' => 'Caster not found.', 'mutations' => [], 'narration' => NULL];
-    }
-    $edata_cs = !empty($ptcp_cs['entity_ref']) ? json_decode($ptcp_cs['entity_ref'], TRUE) : [];
-    $actor_entity_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
-    $has_actor_entity = $actor_entity_index !== NULL
-      && isset($dungeon_data['entities'][$actor_entity_index])
-      && is_array($dungeon_data['entities'][$actor_entity_index]);
-    $canonical_state = NULL;
-    $canonical_identity = ['character_id' => '', 'instance_id' => NULL];
-    if ($has_actor_entity) {
-      $actor_entity = $dungeon_data['entities'][$actor_entity_index];
-      $canonical_state = $this->loadCanonicalCharacterState($actor_entity, (int) $campaign_id);
-      $canonical_identity = $this->resolveCanonicalCharacterIdentity($actor_entity);
-    }
-    if ((string) ($canonical_identity['character_id'] ?? '') === '') {
-      $canonical_identity = $this->resolveCanonicalCharacterIdentityFromParticipantEntityRef($edata_cs, $actor_id);
-    }
-    $canonical_character_id = (string) ($canonical_identity['character_id'] ?? '');
-    $canonical_instance_id = is_string($canonical_identity['instance_id'] ?? NULL) ? $canonical_identity['instance_id'] : NULL;
-    $has_canonical_sheet = $canonical_character_id !== '' && ctype_digit($canonical_character_id) && (int) $canonical_character_id > 0;
-    if (!is_array($canonical_state) && $has_canonical_sheet) {
-      try {
-        $canonical_state = $this->characterStateService->getState(
-          $canonical_character_id,
-          $campaign_id > 0 ? $campaign_id : NULL,
-          $canonical_instance_id
-        );
-      }
-      catch (\InvalidArgumentException $exception) {
-        $canonical_state = NULL;
-      }
-    }
-
-    // AC-002: Tradition validation (only if both tradition values are present).
-    $char_tradition = $canonical_state['spells']['tradition']
-      ?? $edata_cs['spellcasting_tradition']
-      ?? NULL;
-    if ($spell_tradition && $char_tradition && strtolower((string) $spell_tradition) !== strtolower((string) $char_tradition)) {
-      return ['cast' => FALSE, 'error' => "Spell tradition '{$spell_tradition}' does not match character tradition '{$char_tradition}'.", 'mutations' => [], 'narration' => NULL];
-    }
-
-    // dc-cr-spells-ch07: Exploration cast time guard — spells with cast times
-    // longer than 3 actions have the Exploration trait and cannot be used in encounters.
-    $cast_time_param = $params['cast_time'] ?? NULL;
-    if ($cast_time_param) {
-      $phase_check = $this->spellCatalog->validateCastTimeForPhase($cast_time_param, 'encounter');
-      if (!$phase_check['valid']) {
-        return ['cast' => FALSE, 'error' => $phase_check['error'], 'mutations' => [], 'narration' => NULL];
-      }
-    }
-
-    // dc-cr-spells-ch07: Polymorph battle form cast blocker — no casting while
-    // polymorphed into a battle form (gear absorbed; no casting/speech/manipulate).
-    if (!empty($edata_cs['polymorph_battle_form'])) {
-      return ['cast' => FALSE, 'error' => 'Cannot cast spells while in a polymorph battle form.', 'mutations' => [], 'narration' => NULL];
-    }
-
-    // dc-cr-spells-ch07: Metamagic state machine.
-    // If a metamagic feat was declared this turn (metamagic_pending set), apply and clear it.
-    // Declare before resolving the cast — the cast_spell action consumes the pending metamagic.
-    $metamagic_applied = NULL;
-    if (!empty($game_state['turn']['metamagic_pending'][$actor_id])) {
-      $metamagic_applied = $game_state['turn']['metamagic_pending'][$actor_id];
-      unset($game_state['turn']['metamagic_pending'][$actor_id]);
-    }
-
-    // dc-cr-spells-ch07: Innate spells use Charisma for attack/DC.
-    $is_innate_spell = !empty($params['is_innate_spell']);
-    // Default spellcasting modifiers (overridden for innate spells below).
-    $spell_attack_mod = (int) ($edata_cs['spell_attack_modifier'] ?? $params['spell_attack_modifier'] ?? 0);
-    $spell_dc = (int) ($edata_cs['spell_dc'] ?? $params['spell_dc'] ?? (10 + ($params['proficiency_bonus'] ?? 0) + ($params['key_ability_mod'] ?? 0)));
-    if ($is_innate_spell) {
-      $cha_mod = (int) ($edata_cs['charisma_modifier'] ?? $params['charisma_modifier'] ?? 0);
-      $innate_proficiency = (int) ($edata_cs['spell_proficiency_bonus'] ?? $params['proficiency_bonus'] ?? 2);
-      $spell_attack_mod = $cha_mod + $innate_proficiency;
-      $spell_dc = 10 + $cha_mod + $innate_proficiency;
-    }
-    $attack_result = NULL;
-    if ($requires_attack_roll) {
-      $d20_cs = $this->numberGenerationService->rollPathfinderDie(20);
-      $total_cs = $d20_cs + $spell_attack_mod;
-      $target_ac_cs = (int) ($params['target_ac'] ?? 15);
-      $attack_result = [
-        'roll' => $d20_cs,
-        'total' => $total_cs,
-        'degree' => $this->combatCalculator->calculateDegreeOfSuccess($total_cs, $target_ac_cs, $d20_cs),
-      ];
-    }
-
-    // AC-006: Cantrips never expend slots; effective level = highest castable spell level.
-    if ($is_cantrip) {
-      $effective_level = $this->resolveEffectiveCantripLevel($canonical_state, $edata_cs);
-      return [
-        'cast' => TRUE,
-        'spell' => $spell_name,
-        'is_cantrip' => TRUE,
-        'effective_level' => $effective_level,
-        'spell_dc' => $spell_dc,
-        'attack_result' => $attack_result,
-        'narration' => NULL,
-        'mutations' => [],
-      ];
-    }
-
-    // AC-007: Focus spells consume 1 Focus Point, not a spell slot.
-    if ($is_focus_spell) {
-      $focus_remaining = NULL;
-      $canonical_consumed = FALSE;
-
-      if ($has_canonical_sheet) {
-        try {
-          $consume_result = $this->characterStateService->castSpell(
-            $canonical_character_id,
-            $spell_id !== '' ? $spell_id : (string) $spell_name,
-            0,
-            TRUE,
-            $campaign_id > 0 ? $campaign_id : NULL,
-            $canonical_instance_id
-          );
-          $focus_remaining = isset($consume_result['remaining']) ? max(0, (int) $consume_result['remaining']) : NULL;
-          if (!is_array($canonical_state)) {
-            $canonical_state = $this->characterStateService->getState(
-              $canonical_character_id,
-              $campaign_id > 0 ? $campaign_id : NULL,
-              $canonical_instance_id
-            );
-          }
-          if (is_array($canonical_state)) {
-            $this->applyCanonicalStateAfterSpellConsume($canonical_state, TRUE, 0, max(0, (int) ($focus_remaining ?? 0)));
-            $this->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data, $canonical_state);
-          }
-          $canonical_consumed = TRUE;
-        }
-        catch (\InvalidArgumentException $exception) {
-          return [
-            'cast' => FALSE,
-            'error' => $this->normalizeSpellResourceErrorMessage($exception->getMessage(), TRUE, 0),
-            'mutations' => [],
-            'narration' => NULL,
-          ];
-        }
-      }
-
-      if (!$canonical_consumed) {
-        return [
-          'cast' => FALSE,
-          'error' => 'Canonical character sheet is required for spellcasting resource updates.',
-          'mutations' => [],
-          'narration' => NULL,
-        ];
-      }
-
-      return [
-        'cast' => TRUE,
-        'spell' => $spell_name,
-        'is_focus_spell' => TRUE,
-        'focus_points_remaining' => max(0, (int) ($focus_remaining ?? 0)),
-        'spell_dc' => $spell_dc,
-        'attack_result' => $attack_result,
-        'narration' => NULL,
-        'mutations' => [],
-      ];
-    }
-
-    // Slot-consuming spell — determine slot level.
-    $slot_level = $cast_at_level > 0 ? $cast_at_level : $spell_level;
-    if ($slot_level < 1) {
-      $slot_level = 1;
-    }
-    $slot_key = (string) $slot_level;
-
-    if (!isset($edata_cs['spell_slots'])) {
-      $edata_cs['spell_slots'] = [];
-    }
-    $slot_data_cs = $edata_cs['spell_slots'][$slot_key] ?? ['max' => 0, 'used' => 0];
-    $slots_avail = max(0, (int) ($slot_data_cs['max'] ?? 0) - (int) ($slot_data_cs['used'] ?? 0));
-    if (!$has_canonical_sheet && $slots_avail < 1) {
-      return ['cast' => FALSE, 'error' => "No level-{$slot_level} spell slots remaining.", 'mutations' => [], 'narration' => NULL];
-    }
-
-    // AC-003: Prepared casters must have the spell prepared in that slot level.
-    $casting_type = strtolower((string) (
-      $canonical_state['casting_type']
-      ?? $canonical_state['spells']['casting_type']
-      ?? $edata_cs['casting_type']
-      ?? 'spontaneous'
-    ));
-    if ($casting_type === 'prepared') {
-      $prepared_cs = $canonical_state['prepared_spells'][$slot_key]
-        ?? $canonical_state['state']['prepared_spells'][$slot_key]
-        ?? $canonical_state['spells']['prepared_spells'][$slot_key]
-        ?? $edata_cs['prepared_spells'][$slot_key]
-        ?? [];
-      if (!$this->preparedSpellListContainsSpell($prepared_cs, (string) $spell_name, $spell_id)) {
-        return ['cast' => FALSE, 'error' => "'{$spell_name}' is not prepared in a level-{$slot_level} slot.", 'mutations' => [], 'narration' => NULL];
-      }
-    }
-
-    $slots_remaining = NULL;
-    $canonical_consumed = FALSE;
-
-    if ($has_canonical_sheet) {
-      try {
-        $consume_result = $this->characterStateService->castSpell(
-          $canonical_character_id,
-          $spell_id !== '' ? $spell_id : (string) $spell_name,
-          $slot_level,
-          FALSE,
-          $campaign_id > 0 ? $campaign_id : NULL,
-          $canonical_instance_id
-        );
-        $slots_remaining = isset($consume_result['remaining']) ? max(0, (int) $consume_result['remaining']) : NULL;
-        if (!is_array($canonical_state)) {
-          $canonical_state = $this->characterStateService->getState(
-            $canonical_character_id,
-            $campaign_id > 0 ? $campaign_id : NULL,
-            $canonical_instance_id
-          );
-        }
-        if (is_array($canonical_state)) {
-          $this->applyCanonicalStateAfterSpellConsume($canonical_state, FALSE, $slot_level, max(0, (int) ($slots_remaining ?? 0)));
-          $this->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data, $canonical_state);
-        }
-        $canonical_consumed = TRUE;
-      }
-      catch (\InvalidArgumentException $exception) {
-        return [
-          'cast' => FALSE,
-          'error' => $this->normalizeSpellResourceErrorMessage($exception->getMessage(), FALSE, $slot_level),
-          'mutations' => [],
-          'narration' => NULL,
-        ];
-      }
-    }
-
-    if (!$canonical_consumed) {
-      return [
-        'cast' => FALSE,
-        'error' => 'Canonical character sheet is required for spellcasting resource updates.',
-        'mutations' => [],
-        'narration' => NULL,
-      ];
-    }
-
-    // dc-cr-spells-ch07: Incapacitation trait — downgrade degree of success when
-    // target's level exceeds half the caster's level (PF2e Core ch07).
-    $incapacitation_note = NULL;
-    $is_incapacitation_spell = !empty($params['is_incapacitation']);
-    if ($is_incapacitation_spell) {
-      $caster_level = (int) ($edata_cs['level'] ?? $params['caster_level'] ?? 1);
-      $target_level = (int) ($params['target_level'] ?? 0);
-      if ($target_level > (int) floor($caster_level / 2)) {
-        $incapacitation_note = "Incapacitation: target level ({$target_level}) exceeds half caster level (" . floor($caster_level / 2) . "); degrees of success shifted one step toward success.";
-      }
-    }
-
-    // GAP-2220: Avert Gaze — if the effect has the gaze trait and the target has
-    // avert_gaze_active, reduce effective DC by 2 (REQ 2220 +2 circumstance to save).
-    $avert_gaze_note = NULL;
-    if (!empty($params['is_gaze']) && $target_id) {
-      $enc_ag2 = $this->encounterStore->loadEncounter($encounter_id);
-      $ptcp_ag2 = $enc_ag2 ? $this->findEncounterParticipantByEntityId($enc_ag2, $target_id) : NULL;
-      if ($ptcp_ag2) {
-        $edata_ag2 = !empty($ptcp_ag2['entity_ref']) ? json_decode($ptcp_ag2['entity_ref'], TRUE) : [];
-        if (!empty($edata_ag2['avert_gaze_active'])) {
-          $spell_dc = max(1, $spell_dc - 2);
-          $avert_gaze_note = 'Avert Gaze active: spell_dc reduced by 2 (circumstance bonus to save).';
-        }
-      }
-    }
-
-    return [
-      'cast' => TRUE,
-      'spell' => $spell_name,
-      'spell_level' => $spell_level,
-      'cast_at_level' => $slot_level,
-      'heightened' => $slot_level > $spell_level,
-      'slots_remaining' => max(0, (int) ($slots_remaining ?? ($slots_avail - 1))),
-      'spell_dc' => $spell_dc,
-      'spell_attack_modifier' => $spell_attack_mod,
-      'attack_result' => $attack_result,
-      'metamagic_applied' => $metamagic_applied,
-      'incapacitation_note' => $incapacitation_note,
-      'avert_gaze_note' => $avert_gaze_note,
-      'narration' => NULL,
-      'mutations' => [],
-    ];
+    return $this->encounterActionExecutor->processCastSpell(
+      $encounter_id,
+      $actor_id,
+      $target_id,
+      $params,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      fn(array $prepared, string $name, string $id): bool => $this->preparedSpellListContainsSpell($prepared, $name, $id),
+      function (array &$canonical_state, bool $is_focus_spell, int $slot_level, int $remaining): void {
+        $this->applyCanonicalStateAfterSpellConsume($canonical_state, $is_focus_spell, $slot_level, $remaining);
+      },
+      function (?int $eid, string $aid, int $cid, array &$dungeon, ?array $canonical_state): void {
+        $this->syncCanonicalSpellcastingProjectionForActor($eid, $aid, $cid, $dungeon, $canonical_state);
+      },
+      fn(string $message, bool $is_focus_spell, int $slot_level): string => $this->normalizeSpellResourceErrorMessage($message, $is_focus_spell, $slot_level)
+    );
   }
 
   /**
    * Processes an interact action during encounter (1 action).
    */
   protected function processInteract(int $encounter_id, string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $interaction_type = $params['interaction_type'] ?? 'generic';
+    return $this->encounterActionExecutor->processInteract(
+      $encounter_id,
+      $actor_id,
+      $target_id,
+      $params,
+      $game_state,
+      $dungeon_data,
+      $campaign_id
+    );
+  }
 
-    // Handle door/passage opening.
-    if (in_array($interaction_type, ['open_door', 'open_passage'])) {
-      if (!empty($dungeon_data['connections'])) {
-        foreach ($dungeon_data['connections'] as &$conn) {
-          if (($conn['id'] ?? NULL) === $target_id) {
-            $conn['is_passable'] = TRUE;
-            $conn['is_discovered'] = TRUE;
-            break;
-          }
-        }
-        unset($conn);
-      }
+  /**
+   * Apply a deterministic interact quest touchpoint when a target is present.
+   */
+  protected function applyInteractQuestTouchpoint(
+    int $campaign_id,
+    ?int $character_id,
+    ?string $target_id,
+    array $game_state,
+    array $dungeon_data
+  ): ?array {
+    if (
+      $campaign_id <= 0
+      || !$character_id
+      || $character_id <= 0
+      || !is_string($target_id)
+      || trim($target_id) === ''
+    ) {
+      return NULL;
     }
 
-    return [
-      'interacted' => TRUE,
-      'interaction_type' => $interaction_type,
-      'target' => $target_id,
-      'mutations' => [],
+    /** @var \Drupal\dungeoncrawler_content\Service\QuestTouchpointService $quest_touchpoint_service */
+    $quest_touchpoint_service = \Drupal::service('dungeoncrawler_content.quest_touchpoint');
+    $room_id = (string) ($dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? ''));
+    $payload = [
+      'character_id' => $character_id,
+      'occurred_at' => time(),
+      'touchpoint' => [
+        'objective_type' => 'interact',
+        'entity_ref' => $target_id,
+        'npc_ref' => $target_id,
+        'room_id' => $room_id,
+        'confidence' => 'high',
+        'matching_mode' => 'direct_npc_dialogue',
+      ],
     ];
+
+    return $quest_touchpoint_service->ingestEvent($campaign_id, $payload);
   }
 
   /**
@@ -5783,7 +7561,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     // Tick end-of-turn conditions for the current combatant.
     if ($encounter_id && $actor_id) {
       try {
-        $this->conditionManager->tickConditions((int) $encounter_id, $actor_id);
+        $encounter_row = $this->encounterStore->loadEncounter((int) $encounter_id);
+        $participant = $encounter_row ? $this->findEncounterParticipantByEntityId($encounter_row, $actor_id) : NULL;
+        $participant_id = (int) ($participant['id'] ?? 0);
+        if ($participant_id > 0) {
+          $this->conditionManager->tickConditions($participant_id, (int) $encounter_id);
+        }
       }
       catch (\Throwable $e) {
         $this->logger->warning('Condition tick failed: @error', ['@error' => $e->getMessage()]);
@@ -6091,197 +7874,46 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Auto-plays a non-player combatant's turn using AI or fallback logic.
    */
   protected function autoPlayNpcTurn(int $encounter_id, string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $events = [];
-    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-    $pending_dialogue = ($resolved_room_id && $this->roomChatService)
-      ? $this->roomChatService->consumePendingEncounterRoomDialogue($campaign_id, (string) $resolved_room_id, $entity_id, $dungeon_data)
-      : NULL;
-    if (is_array($pending_dialogue)) {
-      return $this->resolvePendingEncounterDialogueTurn($entity_id, $pending_dialogue, $game_state, $dungeon_data, $campaign_id, 'npc_pending_dialogue');
-    }
-
-    // REQ 2381: Complex hazard routine — execute per-round routine actions rather than NPC AI.
-    $hazard_entity = $this->hazardService->findHazardByInstanceId($entity_id, $dungeon_data);
-    if ($hazard_entity !== NULL && ($hazard_entity['type'] ?? '') === 'hazard') {
-      $routine = $hazard_entity['routine'] ?? [];
-      if (!empty($routine)) {
-        foreach ($routine as $action_str) {
-          $events[] = GameEventLogger::buildEvent('hazard_routine_action', 'encounter', $entity_id, [
-            'action' => $action_str,
-            'round' => $game_state['round'] ?? NULL,
-          ]);
-        }
+    return $this->actorAutoplayCoordinator->autoPlayTurn(
+      $encounter_id,
+      $entity_id,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      fn(string $actor_id, array $state, array $dungeon): array => $this->buildNpcContext($actor_id, $state, $dungeon),
+      fn(string $actor_id, array $state, int $cid, ?array $ai_seed): array => $this->buildNpcTurnPlan($actor_id, $state, $cid, $ai_seed),
+      function (int $eid, string $actor_id, string $target_id, array &$state, array &$dungeon, int $cid): array {
+        return $this->processStrike($eid, $actor_id, $target_id, [], $state, $dungeon, $cid);
+      },
+      function (string $target_id, string $actor_id, array &$state, array &$events, array $dungeon, int $cid): void {
+        $this->checkEntityDefeated($target_id, $actor_id, $state, $events, $dungeon, $cid);
+      },
+      fn(string $actor_id, array $state): ?string => $this->findNearestAlivePlayer($actor_id, $state),
+      function (string $actor_id, string $decision_reason, array $decision_basis, array &$state, array &$dungeon, int $cid): array {
+        return $this->buildNpcChooseNotToActEvents($actor_id, $decision_reason, $decision_basis, $state, $dungeon, $cid);
+      },
+      function (string $actor_id, array $pending_dialogue, array &$state, array &$dungeon, int $cid, string $decision_intent): array {
+        return $this->resolvePendingEncounterDialogueTurn($actor_id, $pending_dialogue, $state, $dungeon, $cid, $decision_intent);
       }
-      else {
-        $events[] = GameEventLogger::buildEvent('hazard_routine_action', 'encounter', $entity_id, [
-          'action' => 'none',
-          'round' => $game_state['round'] ?? NULL,
-        ]);
-      }
-      return ['events' => $events];
-    }
-
-    $context = $this->buildNpcContext($entity_id, $game_state, $dungeon_data);
-
-    // Check config flag — if AI autoplay disabled, always use fallback.
-    $ai_enabled = (bool) $this->configFactory->get('dungeoncrawler_content.settings')
-      ->get('encounter_ai_npc_autoplay_enabled');
-    $ai_seed_action = NULL;
-
-    if ($ai_enabled) {
-      try {
-        $result = $this->encounterAiService->requestNpcActionRecommendation($context);
-
-        if (!empty($result['success']) && !empty($result['recommendation'])) {
-          $rec = $result['recommendation'];
-          $action = $rec['recommended_action'] ?? [];
-          $valid = $result['validation']['valid'] ?? FALSE;
-
-          if ($valid) {
-            $ai_seed_action = [
-              'type' => is_string($action['type'] ?? NULL) ? $action['type'] : '',
-              'target_instance_id' => $action['target_instance_id'] ?? ($action['target'] ?? NULL),
-              'narration' => is_string($rec['narration'] ?? NULL) ? $rec['narration'] : NULL,
-              'rationale' => is_string($rec['rationale'] ?? NULL) ? $rec['rationale'] : '',
-              'decision_reason' => is_string($rec['decision_reason'] ?? NULL) ? $rec['decision_reason'] : '',
-              'decision_basis' => is_array($rec['decision_basis'] ?? NULL) ? $rec['decision_basis'] : [],
-            ];
-          }
-          else {
-            $this->logger->info('NPC AI recommendation invalid, using fallback. Errors: @errors', [
-              '@errors' => implode('; ', $result['validation']['errors'] ?? []),
-            ]);
-          }
-        }
-      }
-      catch (\Throwable $e) {
-        $this->logger->warning('NPC AI failed, using fallback: @error', ['@error' => $e->getMessage()]);
-      }
-    }
-
-    $turn_plan = $this->buildNpcTurnPlan($entity_id, $game_state, $campaign_id, $ai_seed_action);
-    $intent_contract = is_array($turn_plan['intent_contract'] ?? NULL) ? $turn_plan['intent_contract'] : [];
-    $plan_steps = is_array($turn_plan['steps'] ?? NULL) ? $turn_plan['steps'] : [];
-
-    foreach ($plan_steps as $plan_step) {
-      $action_type = (string) ($plan_step['action_type'] ?? '');
-      if ($action_type === '') {
-        continue;
-      }
-      $target = is_scalar($plan_step['target'] ?? NULL) ? trim((string) $plan_step['target']) : '';
-      $target = $target !== '' ? $target : NULL;
-      $narration = is_string($plan_step['narration'] ?? NULL) ? $plan_step['narration'] : NULL;
-      $decision_reason = (string) ($plan_step['decision_reason'] ?? ($intent_contract['decision_reason'] ?? 'Intent-driven action.'));
-      $decision_basis = is_array($plan_step['decision_basis'] ?? NULL) ? $plan_step['decision_basis'] : [];
-      $decision_basis += [
-        'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
-      ];
-
-      switch ($action_type) {
-        case 'strike':
-          if ($target) {
-            $strike_result = $this->processStrike($encounter_id, $entity_id, $target, [], $game_state, $dungeon_data, $campaign_id);
-            $events[] = GameEventLogger::buildEvent('npc_strike', 'encounter', $entity_id, [
-              'target' => $target,
-              'roll' => $strike_result['roll'] ?? NULL,
-              'degree' => $strike_result['degree'] ?? NULL,
-              'damage' => $strike_result['damage'] ?? NULL,
-              'decision_reason' => $decision_reason,
-              'decision_basis' => $decision_basis,
-            ], $narration, $target);
-            $this->checkEntityDefeated($target, $entity_id, $game_state, $events, $dungeon_data, $campaign_id);
-          }
-          break;
-
-        case 'stride':
-          $nearest = $this->findNearestAlivePlayer($entity_id, $game_state);
-          $events[] = GameEventLogger::buildEvent('npc_stride', 'encounter', $entity_id, [
-            'toward' => $nearest,
-            'decision_reason' => $decision_reason,
-            'decision_basis' => $decision_basis,
-          ], $narration);
-          break;
-
-        case 'interact':
-          $events[] = GameEventLogger::buildEvent('npc_interact', 'encounter', $entity_id, [
-            'interaction' => 'raise_shield',
-            'decision_reason' => $decision_reason,
-            'decision_basis' => $decision_basis,
-          ], $narration);
-          break;
-
-        case 'talk':
-          $events[] = GameEventLogger::buildEvent('npc_talk', 'encounter', $entity_id, [
-            'message' => $narration ?? 'The creature snarls at you.',
-            'target' => $target,
-            'decision_reason' => $decision_reason,
-            'decision_basis' => $decision_basis,
-          ], $narration);
-          break;
-
-        default:
-          break;
-      }
-
-      $game_state['turn']['actions_remaining'] = max(0, (int) ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-      if (($game_state['turn']['actions_remaining'] ?? 0) <= 0) {
-        break;
-      }
-    }
-
-    $game_state['turn']['actions_remaining'] = 0;
-    $terminal_decision_reason = is_string($intent_contract['decision_reason'] ?? NULL)
-      ? $intent_contract['decision_reason']
-      : 'No further action selected.';
-    $terminal_decision_basis = is_array($intent_contract['decision_basis'] ?? NULL)
-      ? $intent_contract['decision_basis']
-      : [];
-    $terminal_decision_basis += [
-      'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
-      'executed_steps' => count($plan_steps),
-    ];
-    return [
-      'events' => array_merge(
-        $events,
-        $this->buildNpcChooseNotToActEvents(
-          $entity_id,
-          $terminal_decision_reason,
-          $terminal_decision_basis,
-          $game_state,
-          $dungeon_data,
-          $campaign_id
-        )
-      ),
-    ];
+    );
   }
 
   /**
    * Room-scene NPCs must still make an explicit turn decision.
    */
   protected function passRoomActorTurn(string $entity_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-    $pending_dialogue = ($resolved_room_id && $this->roomChatService)
-      ? $this->roomChatService->consumePendingEncounterRoomDialogue($campaign_id, (string) $resolved_room_id, $entity_id, $dungeon_data)
-      : NULL;
-    if (is_array($pending_dialogue)) {
-      return $this->resolvePendingEncounterDialogueTurn($entity_id, $pending_dialogue, $game_state, $dungeon_data, $campaign_id, 'room_scene_pending_dialogue');
-    }
-
-    $game_state['turn']['actions_remaining'] = 0;
-    return [
-      'events' => $this->buildNpcChooseNotToActEvents(
-        $entity_id,
-        'No queued room-scene dialogue or deterministic room action was available for this actor turn.',
-        [
-          'intent' => 'room_scene_pass',
-          'mode' => (string) ($game_state['encounter_context']['mode'] ?? 'room_scene'),
-          'room_id' => $resolved_room_id,
-        ],
-        $game_state,
-        $dungeon_data,
-        $campaign_id
-      ),
-    ];
+    return $this->actorAutoplayCoordinator->passRoomActorTurn(
+      $entity_id,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      function (string $actor_id, string $decision_reason, array $decision_basis, array &$state, array &$dungeon, int $cid): array {
+        return $this->buildNpcChooseNotToActEvents($actor_id, $decision_reason, $decision_basis, $state, $dungeon, $cid);
+      },
+      function (string $actor_id, array $pending_dialogue, array &$state, array &$dungeon, int $cid, string $decision_intent): array {
+        return $this->resolvePendingEncounterDialogueTurn($actor_id, $pending_dialogue, $state, $dungeon, $cid, $decision_intent);
+      }
+    );
   }
 
   /**
@@ -6295,39 +7927,18 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     array &$dungeon_data,
     int $campaign_id
   ): array {
-    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-    $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
-    $content = sprintf('%s chooses not to take any further actions.', $actor_name);
-
-    $events = [
-      GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
-        'round' => $game_state['round'] ?? NULL,
-        'room_id' => $resolved_room_id,
-        'actor_name' => $actor_name,
-        'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
-        'reason' => 'No further action selected.',
-        'decision_reason' => $decision_reason,
-        'decision_basis' => $decision_basis,
-      ], $content),
-    ];
-    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-      'type' => 'choose_not_to_act',
-      'speaker' => 'Narrator',
-      'speaker_type' => 'narrator',
-      'speaker_ref' => $entity_id,
-      'content' => $content,
-      'visibility' => 'public',
-      'mechanical_data' => [
-        'actor_id' => $entity_id,
-        'actor_name' => $actor_name,
-        'room_id' => $resolved_room_id,
-        'actions_remaining' => $game_state['turn']['actions_remaining'] ?? NULL,
-        'decision_reason' => $decision_reason,
-        'decision_basis' => $decision_basis,
-      ],
-    ], $resolved_room_id, $game_state);
-
-    return $events;
+    return $this->actorAutoplayCoordinator->buildChooseNotToActEvents(
+      $entity_id,
+      $decision_reason,
+      $decision_basis,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      fn(string $actor_id, array $state, array $dungeon): string => $this->resolveEntityName($actor_id, $state, $dungeon),
+      function (int $cid, array &$dungeon, array $event, ?string $room_id, ?array $state_override): array {
+        return $this->queueNarrationEvent($cid, $dungeon, $event, $room_id, $state_override);
+      }
+    );
   }
 
   protected function resolvePendingEncounterDialogueTurn(
@@ -6338,129 +7949,78 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     int $campaign_id,
     string $decision_intent
   ): array {
-    $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-    $actor_name = $this->resolveEntityName($entity_id, $game_state, $dungeon_data);
-    $narration = trim((string) ($pending_dialogue['narrative'] ?? ''));
-    if ($narration === '') {
-      return ['events' => []];
-    }
-
-    $events = [
-      GameEventLogger::buildEvent('npc_talk', 'encounter', $entity_id, [
-        'message' => $narration,
-        'target' => NULL,
-        'decision_reason' => 'Responding to the active room conversation on this actor turn.',
-        'decision_basis' => [
-          'intent' => $decision_intent,
-          'conversation_entity_ref' => (string) ($pending_dialogue['entity_ref'] ?? ''),
-          'player_message' => (string) ($pending_dialogue['player_message'] ?? ''),
-        ],
-      ], $narration),
-    ];
-    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-      'type' => 'talk',
-      'speaker' => $actor_name,
-      'speaker_type' => 'npc',
-      'speaker_ref' => $entity_id,
-      'content' => $narration,
-      'visibility' => 'public',
-      'mechanical_data' => [
-        'actor_id' => $entity_id,
-        'actor_name' => $actor_name,
-        'room_id' => $resolved_room_id,
-        'decision_reason' => 'Responding to the active room conversation on this actor turn.',
-        'decision_basis' => [
-          'intent' => $decision_intent,
-          'conversation_entity_ref' => (string) ($pending_dialogue['entity_ref'] ?? ''),
-          'player_message' => (string) ($pending_dialogue['player_message'] ?? ''),
-        ],
-      ],
-    ], $resolved_room_id, $game_state);
-
-    $remaining_before_end = max(0, ((int) ($game_state['turn']['actions_remaining'] ?? 0)) - 1);
-    $game_state['turn']['actions_remaining'] = 0;
-    $events[] = GameEventLogger::buildEvent('npc_choose_not_to_act', 'encounter', $entity_id, [
-      'round' => $game_state['round'] ?? NULL,
-      'room_id' => $resolved_room_id,
-      'actor_name' => $actor_name,
-      'actions_remaining' => 0,
-      'reason' => 'No further action selected after replying on this turn.',
-      'decision_reason' => 'Responded to the pending room conversation, then ended the turn.',
-      'decision_basis' => [
-        'intent' => $decision_intent,
-        'remaining_actions_before_end' => $remaining_before_end,
-      ],
-    ], sprintf('%s chooses not to take any further actions.', $actor_name));
-    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-      'type' => 'choose_not_to_act',
-      'speaker' => 'Narrator',
-      'speaker_type' => 'narrator',
-      'speaker_ref' => $entity_id,
-      'content' => sprintf('%s chooses not to take any further actions.', $actor_name),
-      'visibility' => 'public',
-      'mechanical_data' => [
-        'actor_id' => $entity_id,
-        'actor_name' => $actor_name,
-        'room_id' => $resolved_room_id,
-        'actions_remaining' => 0,
-        'decision_reason' => 'Responded to the pending room conversation, then ended the turn.',
-        'decision_basis' => [
-          'intent' => $decision_intent,
-          'remaining_actions_before_end' => $remaining_before_end,
-        ],
-      ],
-    ], $resolved_room_id, $game_state);
-
-    return ['events' => $events];
+    return $this->actorAutoplayCoordinator->resolvePendingEncounterDialogueTurn(
+      $entity_id,
+      $pending_dialogue,
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      $decision_intent,
+      fn(string $actor_id, array $state, array $dungeon): string => $this->resolveEntityName($actor_id, $state, $dungeon),
+      function (int $cid, array &$dungeon, array $event, ?string $room_id, ?array $state_override): array {
+        return $this->queueNarrationEvent($cid, $dungeon, $event, $room_id, $state_override);
+      }
+    );
   }
 
   public function advanceNonPlayerTurnsToNextPlayer(array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    if (!$this->isRoomSceneMode($game_state)) {
-      return ['events' => []];
-    }
-
-    $events = [];
-    $safety = 0;
-    while ($safety < 12) {
-      $turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
-      $current_entity = trim((string) ($turn['entity'] ?? ''));
-      if ($current_entity === '') {
-        break;
+    return $this->roomSceneEncounterCoordinator->advanceNonPlayerTurnsToNextPlayer(
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      self::ROOM_SCENE_ERR_MISSING_PLAYER_PARTICIPANT,
+      fn(array $state): bool => $this->isRoomSceneMode($state),
+      function (array $initiative_order, string $error_code): void {
+        $this->assertInitiativeHasPlayer($initiative_order, $error_code);
+      },
+      fn(string $entity_id, array $state): string => $this->resolveInitiativeParticipantTeam($entity_id, $state),
+      function (string $entity_id, array &$state, array &$dungeon, int $cid): array {
+        return $this->passRoomActorTurn($entity_id, $state, $dungeon, $cid);
+      },
+      function (int $encounter_id, string $entity_id, array &$state, array &$dungeon, int $cid): array {
+        return $this->processEndTurn($encounter_id, $entity_id, $state, $dungeon, $cid);
       }
+    );
+  }
 
-      $current_team = $this->resolveInitiativeParticipantTeam($current_entity, $game_state);
-      if ($current_team === 'player') {
-        break;
+  /**
+   * Ensure room-scene encounter initiative includes at least one player actor.
+   *
+   * If the current room-scene encounter is missing player participants, the
+   * encounter is rebuilt from current room entities.
+   */
+  public function ensureRoomScenePlayerParticipant(array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    return $this->roomSceneEncounterCoordinator->ensureRoomScenePlayerParticipant(
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      self::ROOM_SCENE_ERR_RESEED_MISSING_ROOM,
+      self::ROOM_SCENE_ERR_RESEED_NO_PLAYER_CANDIDATE,
+      fn(array $state): bool => $this->isRoomSceneMode($state),
+      fn(array $initiative_order): bool => $this->initiativeOrderHasPlayer($initiative_order),
+      fn(array $dungeon, string $room_id): array => $this->buildRoomEncounterTurnOrder($dungeon, $room_id),
+      function (array $initiative_order, string $error_code): void {
+        $this->assertInitiativeHasPlayer($initiative_order, $error_code);
+      },
+      function (int $encounter_id, string $status, string $reason): void {
+        $this->combatEngine->endEncounter($encounter_id, $status, $reason);
+      },
+      function (?string $actor_id, string $room_id, array &$state, array &$dungeon, int $cid, ?array $room, ?string $narration): array {
+        return $this->startRoomSceneEncounter($actor_id, $room_id, $state, $dungeon, $cid, $room, $narration);
       }
+    );
+  }
 
-      $npc_result = $this->passRoomActorTurn($current_entity, $game_state, $dungeon_data, $campaign_id);
-      $events = array_merge($events, $npc_result['events'] ?? []);
+  protected function initiativeOrderHasPlayer(array $initiative_order): bool {
+    return $this->roomSceneEncounterCoordinator->initiativeOrderHasPlayer($initiative_order);
+  }
 
-      $turn_result = $this->processEndTurn((int) ($game_state['encounter_id'] ?? 0), $current_entity, $game_state, $dungeon_data, $campaign_id);
-      $events = array_merge($events, $turn_result['npc_events'] ?? []);
-      $safety++;
-
-      $next_entity = trim((string) ($game_state['turn']['entity'] ?? ''));
-      if ($next_entity === '' || $this->resolveInitiativeParticipantTeam($next_entity, $game_state) === 'player') {
-        break;
-      }
-    }
-
-    return ['events' => $events];
+  protected function assertInitiativeHasPlayer(array $initiative_order, string $error_code): void {
+    $this->roomSceneEncounterCoordinator->assertInitiativeHasPlayer($initiative_order, $error_code);
   }
 
   protected function resolveInitiativeParticipantTeam(string $entity_id, array $game_state): string {
-    foreach (($game_state['initiative_order'] ?? []) as $participant) {
-      if (!is_array($participant)) {
-        continue;
-      }
-      if ((string) ($participant['entity_id'] ?? '') !== $entity_id) {
-        continue;
-      }
-      return strtolower(trim((string) ($participant['team'] ?? '')));
-    }
-
-    return '';
+    return $this->roomSceneEncounterCoordinator->resolveInitiativeParticipantTeam($entity_id, $game_state);
   }
 
   /**
@@ -6549,111 +8109,22 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    */
   protected function buildNpcTurnPlan(string $entity_id, array $game_state, int $campaign_id, ?array $ai_seed_action = NULL): array {
     $intent_contract = $this->buildNpcTacticalIntentContract($entity_id, $game_state, $campaign_id);
-    $actions_remaining = max(0, (int) ($game_state['turn']['actions_remaining'] ?? 0));
-    $steps = [];
-
-    for ($step_index = 0; $step_index < $actions_remaining; $step_index++) {
-      $action_type = $this->resolveNpcIntentActionType($intent_contract, $step_index, $game_state);
-      $target = $this->resolveNpcIntentTarget($entity_id, $game_state, $campaign_id, $action_type, $intent_contract);
-      $decision_reason = (string) ($intent_contract['decision_reason'] ?? 'Intent-driven fallback action.');
-      $decision_basis = [
-        'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
-        'plan_step' => $step_index + 1,
-        'target_strategy' => (string) ($intent_contract['target_strategy'] ?? 'nearest'),
-      ] + (is_array($intent_contract['decision_basis'] ?? NULL) ? $intent_contract['decision_basis'] : []);
-      $narration = NULL;
-
-      if ($step_index === 0 && is_array($ai_seed_action) && $this->isAiSeedActionCompatibleWithIntent($ai_seed_action, $intent_contract)) {
-        $action_type = (string) ($ai_seed_action['type'] ?? $action_type);
-        $seed_target = $ai_seed_action['target_instance_id'] ?? NULL;
-        if (is_scalar($seed_target) && trim((string) $seed_target) !== '') {
-          $target = trim((string) $seed_target);
-        }
-        $seed_reason = trim((string) ($ai_seed_action['decision_reason'] ?? $ai_seed_action['rationale'] ?? ''));
-        if ($seed_reason !== '') {
-          $decision_reason = $seed_reason;
-        }
-        $decision_basis = [
-          'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
-          'plan_step' => 1,
-          'target_strategy' => (string) ($intent_contract['target_strategy'] ?? 'nearest'),
-          'ai_seeded' => TRUE,
-        ] + (is_array($ai_seed_action['decision_basis'] ?? NULL) ? $ai_seed_action['decision_basis'] : []) + (is_array($intent_contract['decision_basis'] ?? NULL) ? $intent_contract['decision_basis'] : []);
-        $narration = isset($ai_seed_action['narration']) && is_string($ai_seed_action['narration'])
-          ? $ai_seed_action['narration']
-          : NULL;
-      }
-
-      if ($action_type === 'end_turn') {
-        break;
-      }
-
-      if (in_array($action_type, ['strike', 'talk'], TRUE) && $target === NULL) {
-        $action_type = ($intent_contract['intent'] ?? '') === 'self_preserve' ? 'stride' : 'end_turn';
-      }
-      if ($action_type === 'end_turn') {
-        break;
-      }
-
-      $steps[] = [
-        'action_type' => $action_type,
-        'target' => $target,
-        'narration' => $narration,
-        'decision_reason' => $decision_reason,
-        'decision_basis' => $decision_basis,
-      ];
-    }
-
-    return [
-      'intent_contract' => $intent_contract,
-      'steps' => $steps,
-    ];
-  }
-
-  /**
-   * Resolve deterministic action type for a specific plan step.
-   */
-  protected function resolveNpcIntentActionType(array $intent_contract, int $step_index, array $game_state): string {
-    $sequence = is_array($intent_contract['action_sequence'] ?? NULL) ? $intent_contract['action_sequence'] : [];
-    if ($sequence === []) {
-      return 'end_turn';
-    }
-
-    $resolved = $sequence[$step_index] ?? end($sequence);
-    return is_string($resolved) && $resolved !== '' ? $resolved : 'end_turn';
-  }
-
-  /**
-   * Resolve deterministic target for an intent step.
-   */
-  protected function resolveNpcIntentTarget(string $entity_id, array $game_state, int $campaign_id, string $action_type, array $intent_contract): ?string {
-    if (!in_array($action_type, ['strike', 'talk'], TRUE)) {
-      return NULL;
-    }
-
-    $target_strategy = (string) ($intent_contract['target_strategy'] ?? 'nearest');
-    if ($target_strategy === 'weakest_adjacent') {
-      return $this->chooseFallbackTarget($entity_id, $game_state, $campaign_id, $action_type);
-    }
-
-    return $this->findNearestAlivePlayer($entity_id, $game_state);
-  }
-
-  /**
-   * Check whether AI-seeded first action is compatible with intent contract.
-   */
-  protected function isAiSeedActionCompatibleWithIntent(array $ai_seed_action, array $intent_contract): bool {
-    $action_type = trim((string) ($ai_seed_action['type'] ?? ''));
-    if ($action_type === '') {
-      return FALSE;
-    }
-
-    $sequence = is_array($intent_contract['action_sequence'] ?? NULL) ? $intent_contract['action_sequence'] : [];
-    if ($sequence === []) {
-      return FALSE;
-    }
-
-    return in_array($action_type, $sequence, TRUE);
+    return $this->actorAutoplayCoordinator->buildTurnPlan(
+      $entity_id,
+      $game_state,
+      $campaign_id,
+      $intent_contract,
+      $ai_seed_action,
+      fn(string $actor_id, array $state, string $action_type, array $contract, int $cid): ?string => $this->actorAutoplayCoordinator->resolveIntentTarget(
+        $actor_id,
+        $state,
+        $cid,
+        $action_type,
+        $contract,
+        fn(string $fallback_actor_id, array $fallback_state, int $fallback_campaign_id, string $fallback_action_type): ?string => $this->chooseFallbackTarget($fallback_actor_id, $fallback_state, $fallback_campaign_id, $fallback_action_type),
+        fn(string $nearest_actor_id, array $nearest_state): ?string => $this->findNearestAlivePlayer($nearest_actor_id, $nearest_state)
+      )
+    );
   }
 
   /**
@@ -6711,7 +8182,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    */
   protected function chooseFallbackAction(string $entity_id, array $game_state, int $campaign_id = 0): string {
     $intent_contract = $this->buildNpcTacticalIntentContract($entity_id, $game_state, $campaign_id);
-    return $this->resolveNpcIntentActionType($intent_contract, 0, $game_state);
+    return $this->actorAutoplayCoordinator->resolveIntentActionType($intent_contract, 0);
   }
 
   /**
@@ -7213,48 +8684,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Build the follow-up system prompt for partial room-scene turns.
    */
   protected function buildRemainingRoomSceneActionPrompt(?string $actor_id, array $game_state, array $dungeon_data): ?array {
-    if (!$this->isRoomSceneMode($game_state) || !$actor_id) {
-      return NULL;
-    }
-
-    $remaining_actions = (int) ($game_state['turn']['actions_remaining'] ?? 0);
-    if ($remaining_actions <= 0) {
-      return NULL;
-    }
-
-    $current_turn_actor = (string) ($game_state['turn']['entity'] ?? '');
-    if ($current_turn_actor !== '' && $current_turn_actor !== $actor_id) {
-      return NULL;
-    }
-
-    $actor_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-    $turn_index = isset($game_state['turn']['index']) && is_numeric($game_state['turn']['index']) ? (int) $game_state['turn']['index'] : NULL;
-    $round = isset($game_state['round']) && is_numeric($game_state['round']) ? (int) $game_state['round'] : NULL;
-    $line_id = sprintf(
-      'room-scene-actions-%s-%s-%s',
+    return $this->roomSceneEncounterCoordinator->buildRemainingRoomSceneActionPrompt(
       $actor_id,
-      $round ?? 'unknown',
-      $turn_index ?? 'unknown'
+      $game_state,
+      $dungeon_data,
+      fn(string $id, array $state, array $dungeon): string => $this->resolveEntityName($id, $state, $dungeon)
     );
-
-    return [
-      'speaker' => 'System',
-      'message' => sprintf(
-        '%s still has %d action(s) this turn. What do you want to do next? If you only wanted to chat, use Delay to hold until the end of the round.',
-        $actor_name !== '' ? $actor_name : 'This character',
-        $remaining_actions
-      ),
-      'type' => 'system',
-      'line_id' => $line_id,
-      'lineId' => $line_id,
-      'round' => $round,
-      'turn_index' => $turn_index,
-      'actor_name' => $actor_name,
-      'turn_name' => $actor_name,
-      'turn_role' => 'player',
-      'remaining_actions' => $remaining_actions,
-      'suggested_action' => 'delay',
-    ];
   }
 
   /**
@@ -7264,227 +8699,60 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Starts or resumes the room-scene encounter framework for a room.
    */
   protected function startRoomSceneEncounter(?string $actor_id, string $room_id, array &$game_state, array &$dungeon_data, int $campaign_id, ?array $room = NULL, ?string $narration = NULL): array {
-    $initiative_order = $this->buildRoomEncounterTurnOrder($dungeon_data, $room_id, $actor_id);
-    $participants = $this->buildRoomSceneEncounterParticipants($dungeon_data, $initiative_order);
-    $encounter_id = $this->encounterStore->createEncounter(
-      $campaign_id > 0 ? $campaign_id : NULL,
+    return $this->roomSceneEncounterCoordinator->startRoomSceneEncounter(
+      $actor_id,
       $room_id,
-      $participants,
-      NULL
+      $game_state,
+      $dungeon_data,
+      $campaign_id,
+      $room,
+      $narration,
+      self::ROOM_SCENE_ERR_START_MISSING_PLAYER,
+      function (array $dungeon, string $rid, ?string $aid): array {
+        return $this->buildRoomEncounterTurnOrder($dungeon, $rid, $aid);
+      },
+      function (array $initiative_order, string $error_code): void {
+        $this->assertInitiativeHasPlayer($initiative_order, $error_code);
+      },
+      function (array $dungeon, array $initiative_order): array {
+        return $this->buildRoomSceneEncounterParticipants($dungeon, $initiative_order);
+      },
+      function (?int $cid, string $rid, array $participants, $context): int {
+        return (int) $this->encounterStore->createEncounter($cid, $rid, $participants, $context);
+      },
+      fn(int $encounter_id): ?array => $this->loadCanonicalTurnState($encounter_id),
+      function (array &$state, array $canonical): void {
+        $this->syncGameStateWithCanonicalTurn($state, $canonical);
+      },
+      function (int $round, array &$state, array &$dungeon, int $cid, ?string $rid): array {
+        return $this->buildRoundStartEvents($round, $state, $dungeon, $cid, $rid);
+      },
+      function (string $entity_id, array &$state, array &$dungeon, int $cid, ?string $rid): array {
+        return $this->buildTurnStartEvents($entity_id, $state, $dungeon, $cid, $rid);
+      },
+      function (string $entity_id, array &$state, array &$dungeon, int $cid): array {
+        return $this->buildTurnStartSearchEvents($entity_id, $state, $dungeon, $cid);
+      }
     );
-    $canonical_turn = $this->loadCanonicalTurnState($encounter_id);
-    if ($canonical_turn === NULL) {
-      throw new \RuntimeException('Failed to initialize canonical room-scene encounter state.');
-    }
-
-    $game_state['phase'] = 'encounter';
-    $this->syncGameStateWithCanonicalTurn($game_state, $canonical_turn);
-    $game_state['round'] = (int) ($canonical_turn['round'] ?? 1);
-    $game_state['encounter_context'] = [
-      'room_id' => $room_id,
-      'mode' => 'room_scene',
-      'started_at' => date('c'),
-    ];
-    $game_state['encounter_id'] = $encounter_id;
-    $initiative_order = is_array($game_state['initiative_order'] ?? NULL) ? $game_state['initiative_order'] : $initiative_order;
-
-    $event_type = $narration === NULL ? 'encounter_framework_started' : 'encounter_framework_resumed';
-    $events = [
-      GameEventLogger::buildEvent($event_type, 'encounter', $actor_id, [
-        'encounter_id' => $encounter_id,
-        'room_id' => $room_id,
-        'participants' => count($initiative_order),
-      ], $narration ?? sprintf('The scene in %s is active.', (string) (($room['name'] ?? NULL) ?: $room_id))),
-    ];
-    $events = array_merge($events, $this->buildRoundStartEvents(1, $game_state, $dungeon_data, $campaign_id, $room_id));
-    if (!empty($game_state['turn']['entity'])) {
-      $events = array_merge($events, $this->buildTurnStartEvents((string) $game_state['turn']['entity'], $game_state, $dungeon_data, $campaign_id, $room_id));
-      $events = array_merge($events, $this->buildTurnStartSearchEvents((string) $game_state['turn']['entity'], $game_state, $dungeon_data, $campaign_id));
-    }
-
-    return $events;
   }
 
   /**
    * Build persisted combat participants for room-scene canonical encounter state.
    */
   protected function buildRoomSceneEncounterParticipants(array $dungeon_data, array $initiative_order): array {
-    $entities_by_id = [];
-    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
-      if (!is_array($entity)) {
-        continue;
-      }
-      $entity_id = (string) ($entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? '')));
-      if ($entity_id !== '') {
-        $entities_by_id[$entity_id] = $entity;
-      }
-    }
-
-    $participants = [];
-    foreach ($initiative_order as $participant) {
-      if (!is_array($participant)) {
-        continue;
-      }
-      $entity_id = (string) ($participant['entity_id'] ?? '');
-      if ($entity_id === '') {
-        continue;
-      }
-
-      $entity = $entities_by_id[$entity_id] ?? [];
-      $stats = is_array($entity['state']['metadata']['stats'] ?? NULL) ? $entity['state']['metadata']['stats'] : [];
-      $current_hp = $entity['state']['hit_points']['current']
-        ?? $stats['currentHp']
-        ?? 10;
-      $max_hp = $entity['state']['hit_points']['max']
-        ?? $stats['maxHp']
-        ?? max(1, (int) $current_hp);
-      $ac = $entity['state']['armor_class']
-        ?? $stats['ac']
-        ?? 10;
-
-      $content_type = (string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''));
-      $content_id = (string) ($entity['entity_ref']['content_id'] ?? $entity_id);
-      $perception = isset($participant['perception']) && is_numeric($participant['perception'])
-        ? (int) $participant['perception']
-        : 0;
-
-      $participants[] = [
-        'entity_id' => $entity_id,
-        'entity_ref' => [
-          'content_type' => $content_type !== '' ? $content_type : (($participant['team'] ?? '') === 'player' ? 'player_character' : 'npc'),
-          'content_id' => $content_id,
-          'perception_modifier' => $perception,
-          'heritage' => is_string($entity['heritage'] ?? ($entity['state']['heritage'] ?? NULL))
-            ? strtolower(trim((string) ($entity['heritage'] ?? $entity['state']['heritage'])))
-            : NULL,
-        ],
-        'team' => (string) ($participant['team'] ?? 'npc'),
-        'name' => (string) ($participant['name'] ?? $entity_id),
-        'status' => 'active',
-        'initiative' => (int) ($participant['initiative_total'] ?? $participant['initiative'] ?? 0),
-        'initiative_roll' => (int) ($participant['initiative_roll'] ?? 1),
-        'ac' => (int) $ac,
-        'hp' => (int) $current_hp,
-        'max_hp' => (int) $max_hp,
-        'actions_remaining' => 3,
-        'attacks_this_turn' => 0,
-        'reaction_available' => 1,
-        'position_q' => (int) ($participant['position_q'] ?? 0),
-        'position_r' => (int) ($participant['position_r'] ?? 0),
-        'is_defeated' => !empty($entity['state']['is_defeated']),
-      ];
-    }
-
-    if ($participants === []) {
-      throw new \RuntimeException('Cannot initialize room-scene encounter without participants.');
-    }
-
-    return $participants;
+    return $this->roomSceneEncounterCoordinator->buildRoomSceneEncounterParticipants($dungeon_data, $initiative_order);
   }
 
   /**
    * Builds the room encounter turn order for every actor present in the room.
    */
   protected function buildRoomEncounterTurnOrder(array $dungeon_data, string $room_id, ?string $actor_id = NULL): array {
-    $participants = [];
-
-    foreach (($dungeon_data['entities'] ?? []) as $entity) {
-      if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
-        continue;
-      }
-      $instance_id = (string) ($entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? '')));
-      if ($instance_id === '') {
-        continue;
-      }
-      $current_hp = $entity['state']['hit_points']['current']
-        ?? $entity['state']['metadata']['stats']['currentHp']
-        ?? NULL;
-      if (!empty($entity['state']['is_defeated']) || (is_numeric($current_hp) && (int) $current_hp <= 0)) {
-        continue;
-      }
-      $content_type = (string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''));
-      $raw_team = strtolower(trim((string) (
-        $entity['state']['metadata']['team']
-        ?? $entity['state']['team']
-        ?? ''
-      )));
-      $is_actor_type = in_array($content_type, ['player_character', 'npc', 'creature', 'character', 'monster', 'hazard'], TRUE);
-      $has_actor_team = in_array($raw_team, ['player', 'player_character', 'pc', 'npc', 'enemy', 'hostile', 'monster', 'ally', 'friendly', 'companion'], TRUE);
-      if (!$is_actor_type && !$has_actor_team) {
-        continue;
-      }
-      $team = $content_type === 'player_character' || in_array($raw_team, ['player', 'player_character', 'pc'], TRUE)
-        ? 'player'
-        : 'npc';
-      $perception = $this->resolveEntityPerceptionModifier($entity);
-      $initiative_roll = (int) $this->numberGenerationService->rollPathfinderDie(20);
-      if ($initiative_roll <= 0) {
-        $initiative_roll = 1;
-      }
-      $initiative_total = $initiative_roll + $perception;
-      $participants[] = [
-        'entity_id' => $instance_id,
-        'team' => $team,
-        'name' => $entity['state']['metadata']['display_name'] ?? ($entity['entity_ref']['content_id'] ?? $instance_id),
-        'perception' => $perception,
-        'initiative_roll' => $initiative_roll,
-        'initiative_total' => $initiative_total,
-        'initiative' => $initiative_total,
-        'position_q' => $entity['placement']['hex']['q'] ?? 0,
-        'position_r' => $entity['placement']['hex']['r'] ?? 0,
-      ];
-    }
-
-    if ($actor_id && !array_filter($participants, static fn(array $participant): bool => (string) ($participant['entity_id'] ?? '') === $actor_id)) {
-      $participants[] = [
-        'entity_id' => $actor_id,
-        'team' => 'player',
-        'name' => $actor_id,
-        'perception' => 0,
-        'initiative_roll' => 1,
-        'initiative_total' => 1,
-        'initiative' => 1,
-        'position_q' => 0,
-        'position_r' => 0,
-      ];
-    }
-
-    usort($participants, static function (array $left, array $right): int {
-      $initiative_diff = (int) ($right['initiative_total'] ?? $right['initiative'] ?? 0) - (int) ($left['initiative_total'] ?? $left['initiative'] ?? 0);
-      if ($initiative_diff !== 0) {
-        return $initiative_diff;
-      }
-
-      $perception_diff = (int) ($right['perception'] ?? 0) - (int) ($left['perception'] ?? 0);
-      if ($perception_diff !== 0) {
-        return $perception_diff;
-      }
-
-      if (($left['team'] ?? '') !== ($right['team'] ?? '')) {
-        return ($left['team'] ?? '') === 'player' ? -1 : 1;
-      }
-
-      return strcmp((string) ($left['entity_id'] ?? ''), (string) ($right['entity_id'] ?? ''));
-    });
-
-    return array_values($participants);
-  }
-
-  /**
-   * Resolve perception modifier from entity runtime state.
-   */
-  protected function resolveEntityPerceptionModifier(array $entity): int {
-    $stats = is_array($entity['state']['metadata']['stats'] ?? NULL) ? $entity['state']['metadata']['stats'] : [];
-    if (isset($stats['perception']) && is_numeric($stats['perception'])) {
-      return (int) $stats['perception'];
-    }
-    if (isset($entity['state']['perception']) && is_numeric($entity['state']['perception'])) {
-      return (int) $entity['state']['perception'];
-    }
-    if (isset($entity['perception']) && is_numeric($entity['perception'])) {
-      return (int) $entity['perception'];
-    }
-    return 0;
+    return $this->roomSceneEncounterCoordinator->buildRoomEncounterTurnOrder(
+      $dungeon_data,
+      $room_id,
+      $actor_id,
+      fn(int $sides): int => (int) $this->numberGenerationService->rollPathfinderDie($sides)
+    );
   }
 
   /**
@@ -7619,15 +8887,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Finds a room by ID in the dungeon payload.
    */
   protected function findRoomById(array $dungeon_data, string $room_id): ?array {
-    if ($this->navigationService) {
-      return $this->navigationService->findRoomById($dungeon_data, $room_id);
-    }
-    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
-      if (is_array($room) && (string) ($room['room_id'] ?? '') === $room_id) {
-        return $room;
-      }
-    }
-    return NULL;
+    return $this->requireNavigationService()->findRoomById($dungeon_data, $room_id);
   }
 
   /**
@@ -7642,9 +8902,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ];
     }
 
-    $capabilities = $this->navigationService
-      ? $this->navigationService->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $active_room_id)
-      : $this->buildFallbackNavigationCapabilities($dungeon_data, $active_room_id);
+    $capabilities = $this->requireNavigationService()
+      ->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $active_room_id);
     $connection_id = isset($params['connection_id']) ? (string) $params['connection_id'] : '';
     if ($connection_id !== '') {
       foreach ($capabilities as $capability) {
@@ -7666,6 +8925,63 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     return NULL;
+  }
+
+  /**
+   * Build diagnostics for an unreachable transition attempt.
+   *
+   * Provides immediate available targets and an optional RoutingPlanner first-hop hint.
+   */
+  protected function buildTransitionUnreachableDiagnostics(array $dungeon_data, string $target_room_id): array {
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    $diagnostics = [
+      'active_room_id' => $active_room_id,
+      'available_targets' => [],
+      'suggested_via_room_id' => '',
+    ];
+    if ($active_room_id === '' || trim($target_room_id) === '') {
+      return $diagnostics;
+    }
+
+    $capabilities = $this->requireNavigationService()
+      ->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $active_room_id);
+    $available_targets = [];
+    foreach ($capabilities as $capability) {
+      if (empty($capability['available'])) {
+        continue;
+      }
+      $candidate_target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+      if ($candidate_target_room_id === '' || $candidate_target_room_id === $active_room_id) {
+        continue;
+      }
+      $available_targets[] = $candidate_target_room_id;
+    }
+    $available_targets = array_values(array_unique($available_targets));
+    $diagnostics['available_targets'] = array_slice($available_targets, 0, 12);
+
+    $route_plan = $this->requireNavigationService()
+      ->resolveRoomRoutePlan($dungeon_data, $active_room_id, trim($target_room_id));
+    if (is_array($route_plan) && !empty($route_plan['next_room_id']) && empty($route_plan['is_direct'])) {
+      $diagnostics['suggested_via_room_id'] = (string) $route_plan['next_room_id'];
+    }
+
+    return $diagnostics;
+  }
+
+  /**
+   * Resolve a room display label with room_id fallback.
+   */
+  protected function resolveRoomLabelById(array $dungeon_data, string $room_id): string {
+    $normalized_room_id = trim($room_id);
+    if ($normalized_room_id === '') {
+      return '';
+    }
+    $room = $this->findRoomById($dungeon_data, $normalized_room_id);
+    if (!is_array($room)) {
+      return $normalized_room_id;
+    }
+    $room_name = trim((string) ($room['name'] ?? ''));
+    return $room_name !== '' ? $room_name : $normalized_room_id;
   }
 
   /**
@@ -8046,19 +9362,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   }
 
   protected function findDungeonEntityIndexByInstanceId(array $dungeon_data, string $entity_id): ?int {
-    foreach (($dungeon_data['entities'] ?? []) as $index => $entity) {
-      $candidates = [
-        $entity['entity_instance_id'] ?? NULL,
-        $entity['instance_id'] ?? NULL,
-        $entity['id'] ?? NULL,
-      ];
-      foreach ($candidates as $candidate) {
-        if (is_scalar($candidate) && (string) $candidate === $entity_id) {
-          return $index;
-        }
-      }
-    }
-    return NULL;
+    return $this->canonicalProjectionService->findDungeonEntityIndexByInstanceId($dungeon_data, $entity_id);
   }
 
   protected function normalizeSkillRank(mixed $rank, mixed $proficiency): int {
@@ -8130,23 +9434,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   }
 
   protected function loadCanonicalCharacterState(array $entity, int $campaign_id): ?array {
-    $identity = $this->resolveCanonicalCharacterIdentity($entity);
-    $character_id = (string) ($identity['character_id'] ?? '');
-    $instance_id = is_string($identity['instance_id'] ?? NULL) ? $identity['instance_id'] : NULL;
-    if (!ctype_digit($character_id) || (int) $character_id <= 0) {
-      return NULL;
-    }
-    return $this->characterStateService->getState($character_id, $campaign_id, $instance_id) ?: NULL;
+    return $this->canonicalProjectionService->loadCanonicalCharacterState($entity, $campaign_id);
   }
 
   protected function persistCanonicalCharacterState(array $entity, int $campaign_id, array $character_state): void {
-    $identity = $this->resolveCanonicalCharacterIdentity($entity);
-    $character_id = (string) ($identity['character_id'] ?? '');
-    $instance_id = is_string($identity['instance_id'] ?? NULL) ? $identity['instance_id'] : NULL;
-    if (!ctype_digit($character_id) || (int) $character_id <= 0) {
-      return;
-    }
-    $this->characterStateService->setState($character_id, $character_state, NULL, $campaign_id, $instance_id);
+    $this->canonicalProjectionService->persistCanonicalCharacterState($entity, $campaign_id, $character_state);
   }
 
   /**
@@ -8155,25 +9447,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * @return array{character_id: string, instance_id: ?string}
    */
   protected function resolveCanonicalCharacterIdentity(array $entity): array {
-    $character_id = (string) (
-      $entity['state']['metadata']['campaign_character_id']
-      ?? $entity['state']['metadata']['character_id']
-      ?? $entity['character_id']
-      ?? $entity['state']['character_id']
-      ?? $entity['entity_ref']['character_id']
-      ?? ''
-    );
-    $instance_id = trim((string) (
-      $entity['state']['metadata']['runtime_entity_id']
-      ?? $entity['instance_id']
-      ?? $entity['entity_instance_id']
-      ?? ''
-    ));
-
-    return [
-      'character_id' => $character_id,
-      'instance_id' => $instance_id !== '' ? $instance_id : NULL,
-    ];
+    return $this->canonicalProjectionService->resolveCanonicalCharacterIdentity($entity);
   }
 
   /**
@@ -8182,25 +9456,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * @return array{character_id: string, instance_id: ?string}
    */
   protected function resolveCanonicalCharacterIdentityFromParticipantEntityRef(array $entity_ref, string $fallback_instance_id = ''): array {
-    $character_id = (string) (
-      $entity_ref['state']['metadata']['campaign_character_id']
-      ?? $entity_ref['state']['metadata']['character_id']
-      ?? $entity_ref['character_id']
-      ?? $entity_ref['state']['character_id']
-      ?? $entity_ref['entity_ref']['character_id']
-      ?? ''
-    );
-    $instance_id = trim((string) (
-      $entity_ref['state']['metadata']['runtime_entity_id']
-      ?? $entity_ref['instance_id']
-      ?? $entity_ref['entity_instance_id']
-      ?? $fallback_instance_id
-    ));
-
-    return [
-      'character_id' => $character_id,
-      'instance_id' => $instance_id !== '' ? $instance_id : NULL,
-    ];
+    return $this->canonicalProjectionService->resolveCanonicalCharacterIdentityFromParticipantEntityRef($entity_ref, $fallback_instance_id);
   }
 
   protected function resolveCharacterSkillData(?array $character_state, string $skill_name): array {
@@ -8347,406 +9603,54 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   }
 
   protected function syncCanonicalSpellcastingProjectionForActor(?int $encounter_id, string $actor_id, int $campaign_id, array &$dungeon_data, ?array $canonical_state = NULL): void {
-    $actor_entity_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
-    $has_actor_entity = $actor_entity_index !== NULL
-      && isset($dungeon_data['entities'][$actor_entity_index])
-      && is_array($dungeon_data['entities'][$actor_entity_index]);
-    $canonical_identity = ['character_id' => '', 'instance_id' => NULL];
-    if ($has_actor_entity) {
-      $canonical_identity = $this->resolveCanonicalCharacterIdentity($dungeon_data['entities'][$actor_entity_index]);
-    }
-
-    $encounter = NULL;
-    $participant = NULL;
-    if ($encounter_id) {
-      $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-      if (is_array($encounter)) {
-        $participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
-        if (
-          (string) ($canonical_identity['character_id'] ?? '') === ''
-          && is_array($participant)
-        ) {
-          $participant_entity_ref = !empty($participant['entity_ref']) ? json_decode((string) $participant['entity_ref'], TRUE) : [];
-          if (is_array($participant_entity_ref)) {
-            $canonical_identity = $this->resolveCanonicalCharacterIdentityFromParticipantEntityRef($participant_entity_ref, $actor_id);
-          }
-        }
-      }
-    }
-
-    if (!is_array($canonical_state)) {
-      $character_id = (string) ($canonical_identity['character_id'] ?? '');
-      $instance_id = is_string($canonical_identity['instance_id'] ?? NULL) ? $canonical_identity['instance_id'] : NULL;
-      if (!ctype_digit($character_id) || (int) $character_id <= 0) {
-        return;
-      }
-      try {
-        $canonical_state = $this->characterStateService->getState(
-          $character_id,
-          $campaign_id > 0 ? $campaign_id : NULL,
-          $instance_id
-        );
-      }
-      catch (\InvalidArgumentException $exception) {
-        $this->logger->warning('Spellcasting projection sync skipped: @error', ['@error' => $exception->getMessage()]);
-        return;
-      }
-      if (!is_array($canonical_state)) {
-        return;
-      }
-    }
-
-    if ($has_actor_entity) {
-      $this->applyCanonicalSpellcastingResourcesToDungeonEntity($dungeon_data['entities'][$actor_entity_index], $canonical_state);
-    }
-
-    if (!$encounter_id) {
-      return;
-    }
-
-    if (!is_array($participant)) {
-      if (!is_array($encounter)) {
-        $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-      }
-      if (is_array($encounter)) {
-        $participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
-      }
-    }
-    if (!$participant) {
-      return;
-    }
-
-    $participant_id = (int) ($participant['id'] ?? 0);
-    if ($participant_id <= 0) {
-      return;
-    }
-    $participant_entity_ref = !empty($participant['entity_ref']) ? json_decode((string) $participant['entity_ref'], TRUE) : [];
-    if (!is_array($participant_entity_ref)) {
-      $participant_entity_ref = [];
-    }
-    $this->applyCanonicalSpellcastingResourcesToParticipantEntityRef($participant_entity_ref, $canonical_state);
-    $this->persistEncounterParticipantEntityRef($participant_id, $participant_entity_ref);
+    $this->canonicalProjectionService->syncCanonicalSpellcastingProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data, $canonical_state);
   }
 
   protected function syncCanonicalSurvivalProjectionForActor(?int $encounter_id, string $actor_id, int $campaign_id, array &$dungeon_data, ?array $canonical_state = NULL): void {
-    $actor_entity_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
-    $has_actor_entity = $actor_entity_index !== NULL
-      && isset($dungeon_data['entities'][$actor_entity_index])
-      && is_array($dungeon_data['entities'][$actor_entity_index]);
-    $canonical_identity = ['character_id' => '', 'instance_id' => NULL];
-    if ($has_actor_entity) {
-      $canonical_identity = $this->resolveCanonicalCharacterIdentity($dungeon_data['entities'][$actor_entity_index]);
-    }
-
-    $encounter = NULL;
-    $participant = NULL;
-    if ($encounter_id) {
-      $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-      if (is_array($encounter)) {
-        $participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
-        if (
-          (string) ($canonical_identity['character_id'] ?? '') === ''
-          && is_array($participant)
-        ) {
-          $participant_entity_ref = !empty($participant['entity_ref']) ? json_decode((string) $participant['entity_ref'], TRUE) : [];
-          if (is_array($participant_entity_ref)) {
-            $canonical_identity = $this->resolveCanonicalCharacterIdentityFromParticipantEntityRef($participant_entity_ref, $actor_id);
-          }
-        }
-      }
-    }
-
-    if (!is_array($canonical_state)) {
-      $character_id = (string) ($canonical_identity['character_id'] ?? '');
-      $instance_id = is_string($canonical_identity['instance_id'] ?? NULL) ? $canonical_identity['instance_id'] : NULL;
-      if (!ctype_digit($character_id) || (int) $character_id <= 0) {
-        return;
-      }
-      try {
-        $canonical_state = $this->characterStateService->getState(
-          $character_id,
-          $campaign_id > 0 ? $campaign_id : NULL,
-          $instance_id
-        );
-      }
-      catch (\InvalidArgumentException $exception) {
-        $this->logger->warning('Survival projection sync skipped: @error', ['@error' => $exception->getMessage()]);
-        return;
-      }
-      if (!is_array($canonical_state)) {
-        return;
-      }
-    }
-
-    if ($has_actor_entity) {
-      $this->applyCanonicalSurvivalResourcesToDungeonEntity($dungeon_data['entities'][$actor_entity_index], $canonical_state);
-    }
-
-    if (!$encounter_id) {
-      return;
-    }
-
-    if (!is_array($participant)) {
-      if (!is_array($encounter)) {
-        $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
-      }
-      if (is_array($encounter)) {
-        $participant = $this->findEncounterParticipantByEntityId($encounter, $actor_id);
-      }
-    }
-    if (!$participant) {
-      return;
-    }
-
-    $participant_id = (int) ($participant['id'] ?? 0);
-    if ($participant_id <= 0) {
-      return;
-    }
-    $participant_entity_ref = !empty($participant['entity_ref']) ? json_decode((string) $participant['entity_ref'], TRUE) : [];
-    if (!is_array($participant_entity_ref)) {
-      $participant_entity_ref = [];
-    }
-    $this->applyCanonicalSurvivalResourcesToParticipantEntityRef($participant_entity_ref, $canonical_state);
-    $this->persistEncounterParticipantEntityRef($participant_id, $participant_entity_ref);
+    $this->canonicalProjectionService->syncCanonicalSurvivalProjectionForActor($encounter_id, $actor_id, $campaign_id, $dungeon_data, $canonical_state);
   }
 
   protected function applyCanonicalSurvivalResourcesToDungeonEntity(array &$entity, array $character_state): void {
-    if (!isset($entity['state']) || !is_array($entity['state'])) {
-      $entity['state'] = [];
-    }
-
-    $survival = $this->readCanonicalSurvivalStateFromCanonicalState($character_state);
-    $entity['state']['days_without_food'] = (int) ($survival['daysWithoutFood'] ?? 0);
-    $entity['state']['days_without_water'] = (int) ($survival['daysWithoutWater'] ?? 0);
-    $entity['state']['starvation_damage_phase'] = !empty($survival['starvationDamagePhase']);
-    $entity['state']['thirst_damage_phase'] = !empty($survival['thirstDamagePhase']);
-
-    if (is_array($character_state['resources']['hitPoints'] ?? NULL)) {
-      $current = (int) ($character_state['resources']['hitPoints']['current'] ?? ($entity['state']['hit_points']['current'] ?? 0));
-      $max = (int) ($character_state['resources']['hitPoints']['max'] ?? ($entity['state']['hit_points']['max'] ?? $current));
-      $entity['state']['hit_points']['current'] = $current;
-      $entity['state']['hit_points']['max'] = $max;
-      $entity['state']['hp_current'] = $current;
-      $entity['state']['hp_max'] = $max;
-      if (isset($entity['hit_points']) && is_array($entity['hit_points'])) {
-        $entity['hit_points']['current'] = $current;
-        $entity['hit_points']['max'] = $max;
-      }
-    }
+    $this->canonicalProjectionService->applyCanonicalSurvivalResourcesToDungeonEntity($entity, $character_state);
   }
 
   protected function applyCanonicalSurvivalResourcesToParticipantEntityRef(array &$entity_ref, array $character_state): void {
-    if (!isset($entity_ref['state']) || !is_array($entity_ref['state'])) {
-      $entity_ref['state'] = [];
-    }
-
-    $survival = $this->readCanonicalSurvivalStateFromCanonicalState($character_state);
-    $entity_ref['state']['days_without_food'] = (int) ($survival['daysWithoutFood'] ?? 0);
-    $entity_ref['state']['days_without_water'] = (int) ($survival['daysWithoutWater'] ?? 0);
-    $entity_ref['state']['starvation_damage_phase'] = !empty($survival['starvationDamagePhase']);
-    $entity_ref['state']['thirst_damage_phase'] = !empty($survival['thirstDamagePhase']);
-
-    if (is_array($character_state['resources']['hitPoints'] ?? NULL)) {
-      $current = (int) ($character_state['resources']['hitPoints']['current'] ?? 0);
-      $max = (int) ($character_state['resources']['hitPoints']['max'] ?? $current);
-      if (!isset($entity_ref['state']['hit_points']) || !is_array($entity_ref['state']['hit_points'])) {
-        $entity_ref['state']['hit_points'] = [];
-      }
-      $entity_ref['state']['hit_points']['current'] = $current;
-      $entity_ref['state']['hit_points']['max'] = $max;
-      $entity_ref['state']['hp_current'] = $current;
-      $entity_ref['state']['hp_max'] = $max;
-    }
+    $this->canonicalProjectionService->applyCanonicalSurvivalResourcesToParticipantEntityRef($entity_ref, $character_state);
   }
 
   /**
    * @return array{daysWithoutFood:int,daysWithoutWater:int,starvationDamagePhase:bool,thirstDamagePhase:bool}
    */
   protected function readCanonicalSurvivalStateFromCanonicalState(array $character_state): array {
-    $survival = is_array($character_state['resources']['survival'] ?? NULL) ? $character_state['resources']['survival'] : [];
-
-    return [
-      'daysWithoutFood' => max(0, (int) ($survival['daysWithoutFood'] ?? 0)),
-      'daysWithoutWater' => max(0, (int) ($survival['daysWithoutWater'] ?? 0)),
-      'starvationDamagePhase' => (bool) ($survival['starvationDamagePhase'] ?? FALSE),
-      'thirstDamagePhase' => (bool) ($survival['thirstDamagePhase'] ?? FALSE),
-    ];
+    return $this->canonicalProjectionService->readCanonicalSurvivalStateFromCanonicalState($character_state);
   }
 
   protected function normalizeSpellSlotRankKey(string $slot_key): ?string {
-    $normalized = strtolower(trim($slot_key));
-    return match ($normalized) {
-      '1', '1st', 'first' => '1',
-      '2', '2nd', 'second' => '2',
-      '3', '3rd', 'third' => '3',
-      '4', '4th', 'fourth' => '4',
-      '5', '5th', 'fifth' => '5',
-      '6', '6th', 'sixth' => '6',
-      '7', '7th', 'seventh' => '7',
-      '8', '8th', 'eighth' => '8',
-      '9', '9th', 'ninth' => '9',
-      '10', '10th', 'tenth' => '10',
-      default => NULL,
-    };
+    return $this->canonicalProjectionService->normalizeSpellSlotRankKey($slot_key);
   }
 
   protected function resolveEffectiveCantripLevel(?array $canonical_state, array $participant_entity_ref): int {
-    $levels = [];
-
-    $canonical_slots = is_array($canonical_state['resources']['spellSlots'] ?? NULL)
-      ? $canonical_state['resources']['spellSlots']
-      : [];
-    foreach ($canonical_slots as $rank_key => $slot_state) {
-      if (!is_array($slot_state)) {
-        continue;
-      }
-      $normalized_rank = $this->normalizeSpellSlotRankKey((string) $rank_key);
-      if ($normalized_rank === NULL) {
-        continue;
-      }
-      $max = (int) ($slot_state['max'] ?? $slot_state['current'] ?? 0);
-      if ($max > 0) {
-        $levels[] = (int) $normalized_rank;
-      }
-    }
-
-    if ($levels === []) {
-      $participant_slots = is_array($participant_entity_ref['spell_slots'] ?? NULL)
-        ? $participant_entity_ref['spell_slots']
-        : [];
-      foreach ($participant_slots as $rank_key => $slot_state) {
-        if (!is_array($slot_state)) {
-          continue;
-        }
-        $normalized_rank = $this->normalizeSpellSlotRankKey((string) $rank_key);
-        if ($normalized_rank === NULL) {
-          continue;
-        }
-        $max = (int) ($slot_state['max'] ?? 0);
-        if ($max > 0) {
-          $levels[] = (int) $normalized_rank;
-        }
-      }
-    }
-
-    return $levels !== [] ? max($levels) : 1;
+    return $this->canonicalProjectionService->resolveEffectiveCantripLevel($canonical_state, $participant_entity_ref);
   }
 
   protected function resolveParticipantFocusPointCurrent(array $participant_entity_ref): int {
-    $candidates = [
-      $participant_entity_ref['focus_points'] ?? NULL,
-      $participant_entity_ref['state']['focus_points']['current'] ?? NULL,
-      $participant_entity_ref['state']['resources']['focusPoints']['current'] ?? NULL,
-    ];
-    foreach ($candidates as $candidate) {
-      if (is_numeric($candidate)) {
-        return max(0, (int) $candidate);
-      }
-    }
-    return 0;
+    return $this->canonicalProjectionService->resolveParticipantFocusPointCurrent($participant_entity_ref);
   }
 
   protected function applyCanonicalSpellcastingResourcesToDungeonEntity(array &$entity, array $character_state): void {
-    $resources = is_array($character_state['resources'] ?? NULL) ? $character_state['resources'] : [];
-    if (!isset($entity['state']) || !is_array($entity['state'])) {
-      $entity['state'] = [];
-    }
-
-    $spell_slots = is_array($resources['spellSlots'] ?? NULL) ? $resources['spellSlots'] : [];
-    if ($spell_slots !== []) {
-      if (!isset($entity['state']['resources']) || !is_array($entity['state']['resources'])) {
-        $entity['state']['resources'] = [];
-      }
-      $entity['state']['resources']['spellSlots'] = $spell_slots;
-      $entity['state']['spell_slots'] = $this->buildLegacySpellSlotProjection($spell_slots);
-    }
-
-    if (is_array($resources['focusPoints'] ?? NULL)) {
-      $focus_max = max(0, (int) ($resources['focusPoints']['max'] ?? 0));
-      $focus_current = max(0, min((int) ($resources['focusPoints']['current'] ?? $focus_max), $focus_max));
-      $this->writeEntityFocusPoints($entity, $focus_current, $focus_max);
-    }
+    $this->canonicalProjectionService->applyCanonicalSpellcastingResourcesToDungeonEntity($entity, $character_state);
   }
 
   protected function applyCanonicalSpellcastingResourcesToParticipantEntityRef(array &$entity_ref, array $character_state): void {
-    $resources = is_array($character_state['resources'] ?? NULL) ? $character_state['resources'] : [];
-    if (!isset($entity_ref['state']) || !is_array($entity_ref['state'])) {
-      $entity_ref['state'] = [];
-    }
-    if (!isset($entity_ref['state']['resources']) || !is_array($entity_ref['state']['resources'])) {
-      $entity_ref['state']['resources'] = [];
-    }
-
-    $spell_slots = is_array($resources['spellSlots'] ?? NULL) ? $resources['spellSlots'] : [];
-    if ($spell_slots !== []) {
-      $legacy_projection = $this->buildLegacySpellSlotProjection($spell_slots);
-      $entity_ref['state']['resources']['spellSlots'] = $spell_slots;
-      $entity_ref['state']['spell_slots'] = $legacy_projection;
-      $entity_ref['spell_slots'] = $legacy_projection;
-    }
-
-    if (is_array($resources['focusPoints'] ?? NULL)) {
-      $focus_max = max(0, (int) ($resources['focusPoints']['max'] ?? 0));
-      $focus_current = max(0, min((int) ($resources['focusPoints']['current'] ?? $focus_max), $focus_max));
-      $entity_ref['state']['resources']['focusPoints'] = [
-        'current' => $focus_current,
-        'max' => $focus_max,
-      ];
-      $entity_ref['state']['focus_points'] = [
-        'current' => $focus_current,
-        'max' => $focus_max,
-      ];
-      $entity_ref['focus_points'] = $focus_current;
-    }
+    $this->canonicalProjectionService->applyCanonicalSpellcastingResourcesToParticipantEntityRef($entity_ref, $character_state);
   }
 
   protected function buildLegacySpellSlotProjection(array $spell_slots): array {
-    $projection = [];
-    $append_projection = function (string $rank_key, array $slot_state) use (&$projection): void {
-      $normalized_rank = $this->normalizeSpellSlotRankKey($rank_key);
-      if ($normalized_rank === NULL) {
-        return;
-      }
-      $max = max(0, (int) ($slot_state['max'] ?? 0));
-      $current = max(0, min((int) ($slot_state['current'] ?? $max), $max));
-      $projection[$normalized_rank] = [
-        'max' => $max,
-        'current' => $current,
-        'used' => max(0, $max - $current),
-      ];
-    };
-
-    foreach ($spell_slots as $rank_key => $slot_state) {
-      if (!is_array($slot_state)) {
-        continue;
-      }
-      if (array_key_exists('max', $slot_state) || array_key_exists('current', $slot_state)) {
-        $append_projection((string) $rank_key, $slot_state);
-        continue;
-      }
-      foreach ($slot_state as $nested_rank_key => $nested_slot_state) {
-        if (is_array($nested_slot_state)) {
-          $append_projection((string) $nested_rank_key, $nested_slot_state);
-        }
-      }
-    }
-
-    if ($projection !== []) {
-      ksort($projection, SORT_NATURAL);
-    }
-    return $projection;
+    return $this->canonicalProjectionService->buildLegacySpellSlotProjection($spell_slots);
   }
 
   protected function persistEncounterParticipantEntityRef(int $participant_id, array $entity_ref): void {
-    if ($participant_id <= 0) {
-      return;
-    }
-    try {
-      $this->encounterStore->updateParticipant($participant_id, ['entity_ref' => json_encode($entity_ref)]);
-    }
-    catch (\Throwable $e) {
-      $this->logger->warning('Encounter participant spell resource sync failed: @error', ['@error' => $e->getMessage()]);
-    }
+    $this->canonicalProjectionService->persistEncounterParticipantEntityRef($participant_id, $entity_ref);
   }
 
   protected function normalizeSpellResourceErrorMessage(string $message, bool $is_focus_spell, int $slot_level): string {
@@ -8769,183 +9673,47 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   }
 
   protected function resolveCharacterFocusPoints(?array $character_state, array $entity, string $field): int {
-    if (is_array($character_state) && isset($character_state['resources']['focusPoints'][$field]) && is_numeric($character_state['resources']['focusPoints'][$field])) {
-      return max(0, (int) $character_state['resources']['focusPoints'][$field]);
-    }
-    return $this->readEntityFocusPoints($entity, $field);
+    return $this->canonicalProjectionService->resolveCharacterFocusPoints($character_state, $entity, $field);
   }
 
   protected function resolveCharacterLevel(?array $character_state, array $entity): int {
-    if (is_array($character_state) && isset($character_state['basicInfo']['level']) && is_numeric($character_state['basicInfo']['level'])) {
-      return max(1, (int) $character_state['basicInfo']['level']);
-    }
-    return max(1, (int) ($entity['state']['level'] ?? $entity['level'] ?? 1));
+    return $this->canonicalProjectionService->resolveCharacterLevel($character_state, $entity);
   }
 
   protected function resolveCharacterConstitutionModifier(?array $character_state, array $entity): int {
-    if (is_array($character_state)) {
-      if (isset($character_state['abilities']['constitution']['modifier']) && is_numeric($character_state['abilities']['constitution']['modifier'])) {
-        return (int) $character_state['abilities']['constitution']['modifier'];
-      }
-      if (isset($character_state['abilities']['constitution']) && is_numeric($character_state['abilities']['constitution'])) {
-        return (int) floor(((int) $character_state['abilities']['constitution'] - 10) / 2);
-      }
-      if (isset($character_state['abilityScores']['constitution']['modifier']) && is_numeric($character_state['abilityScores']['constitution']['modifier'])) {
-        return (int) $character_state['abilityScores']['constitution']['modifier'];
-      }
-    }
-    return (int) ($entity['state']['constitution_modifier'] ?? 0);
+    return $this->canonicalProjectionService->resolveCharacterConstitutionModifier($character_state, $entity);
   }
 
   protected function applyCanonicalHealing(array &$character_state, int $delta): void {
-    $resources = $character_state['resources'] ?? [];
-    $current = (int) ($resources['hitPoints']['current'] ?? 0);
-    $max = (int) ($resources['hitPoints']['max'] ?? $current);
-    $resources['hitPoints']['current'] = max(0, min($max, $current + $delta));
-    $resources['hitPoints']['max'] = $max;
-    $character_state['resources'] = $resources;
+    $this->canonicalProjectionService->applyCanonicalHealing($character_state, $delta);
   }
 
   protected function restoreCanonicalSpellSlots(array &$character_state): void {
-    if (empty($character_state['resources']['spellSlots']) || !is_array($character_state['resources']['spellSlots'])) {
-      return;
-    }
-    foreach ($character_state['resources']['spellSlots'] as &$slot_group) {
-      if (!is_array($slot_group)) {
-        continue;
-      }
-      if (array_key_exists('max', $slot_group)) {
-        $slot_group['current'] = (int) ($slot_group['max'] ?? $slot_group['current'] ?? 0);
-      }
-      else {
-        foreach ($slot_group as &$slot_row) {
-          if (is_array($slot_row) && array_key_exists('max', $slot_row)) {
-            $slot_row['current'] = (int) ($slot_row['max'] ?? $slot_row['current'] ?? 0);
-          }
-        }
-        unset($slot_row);
-      }
-    }
-    unset($slot_group);
+    $this->canonicalProjectionService->restoreCanonicalSpellSlots($character_state);
   }
 
   protected function restoreCanonicalFocusPoints(array &$character_state): void {
-    if (!is_array($character_state['resources']['focusPoints'] ?? NULL)) {
-      return;
-    }
-    $max = (int) ($character_state['resources']['focusPoints']['max'] ?? 0);
-    $character_state['resources']['focusPoints']['current'] = $max;
+    $this->canonicalProjectionService->restoreCanonicalFocusPoints($character_state);
   }
 
   protected function applyCanonicalDailyPreparationConditionRecovery(array &$character_state): void {
-    $conditions = $character_state['conditions'] ?? [];
-    foreach ($conditions as $index => $condition) {
-      if (is_array($condition)) {
-        $name = strtolower((string) ($condition['name'] ?? ''));
-        if ($name === 'doomed') {
-          $value = max(0, (int) ($condition['value'] ?? 1) - 1);
-          if ($value <= 0) {
-            unset($conditions[$index]);
-          }
-          else {
-            $conditions[$index]['value'] = $value;
-          }
-        }
-        if ($name === 'wounded') {
-          unset($conditions[$index]);
-        }
-      }
-      elseif (strtolower((string) $condition) === 'wounded') {
-        unset($conditions[$index]);
-      }
-    }
-    $character_state['conditions'] = array_values($conditions);
+    $this->canonicalProjectionService->applyCanonicalDailyPreparationConditionRecovery($character_state);
   }
 
   protected function readEntityFocusPoints(array $entity, string $field): int {
-    $candidates = [
-      $entity['state']['resources']['focusPoints'][$field] ?? NULL,
-      $entity['state']['focus_points'][$field] ?? NULL,
-      $field === 'current' ? ($entity['state']['focus_points'] ?? NULL) : NULL,
-      $entity['focus_points'][$field] ?? NULL,
-    ];
-    foreach ($candidates as $candidate) {
-      if (is_numeric($candidate)) {
-        return max(0, (int) $candidate);
-      }
-    }
-    return 0;
+    return $this->canonicalProjectionService->readEntityFocusPoints($entity, $field);
   }
 
   protected function writeEntityFocusPoints(array &$entity, int $current, int $max): void {
-    $entity['state']['resources']['focusPoints']['current'] = $current;
-    $entity['state']['resources']['focusPoints']['max'] = $max;
-    $entity['state']['focus_points']['current'] = $current;
-    $entity['state']['focus_points']['max'] = $max;
-    if (isset($entity['focus_points']) && !is_array($entity['focus_points'])) {
-      $entity['focus_points'] = $current;
-    }
+    $this->canonicalProjectionService->writeEntityFocusPoints($entity, $current, $max);
   }
 
   protected function restoreEntitySpellSlots(array &$entity): void {
-    if (!empty($entity['state']['resources']['spellSlots']) && is_array($entity['state']['resources']['spellSlots'])) {
-      foreach ($entity['state']['resources']['spellSlots'] as &$slot_group) {
-        if (!is_array($slot_group)) {
-          continue;
-        }
-        if (array_key_exists('max', $slot_group)) {
-          $slot_group['current'] = (int) ($slot_group['max'] ?? $slot_group['current'] ?? 0);
-        }
-      }
-      unset($slot_group);
-    }
-    if (!empty($entity['state']['spell_slots']) && is_array($entity['state']['spell_slots'])) {
-      foreach ($entity['state']['spell_slots'] as &$slot_group) {
-        if (!is_array($slot_group)) {
-          continue;
-        }
-        if (array_key_exists('max', $slot_group)) {
-          $slot_group['current'] = (int) ($slot_group['max'] ?? $slot_group['current'] ?? 0);
-          if (array_key_exists('used', $slot_group)) {
-            $slot_group['used'] = 0;
-          }
-        }
-      }
-      unset($slot_group);
-    }
+    $this->canonicalProjectionService->restoreEntitySpellSlots($entity);
   }
 
   protected function applyDailyPreparationConditionRecovery(array &$entity): array {
-    $changes = [];
-    if (!isset($entity['state']['conditions']) || !is_array($entity['state']['conditions'])) {
-      return $changes;
-    }
-    foreach ($entity['state']['conditions'] as $key => $condition) {
-      if (is_array($condition)) {
-        $name = strtolower((string) ($condition['name'] ?? ''));
-        if ($name === 'doomed') {
-          $value = max(0, (int) ($condition['value'] ?? 1) - 1);
-          if ($value <= 0) {
-            unset($entity['state']['conditions'][$key]);
-            $changes[] = 'removed doomed';
-          }
-          else {
-            $entity['state']['conditions'][$key]['value'] = $value;
-            $changes[] = sprintf('reduced doomed to %d', $value);
-          }
-        }
-        if ($name === 'wounded') {
-          unset($entity['state']['conditions'][$key]);
-          $changes[] = 'removed wounded';
-        }
-      }
-      elseif (strtolower((string) $condition) === 'wounded') {
-        unset($entity['state']['conditions'][$key]);
-        $changes[] = 'removed wounded';
-      }
-    }
-    $entity['state']['conditions'] = array_values($entity['state']['conditions']);
-    return $changes;
+    return $this->canonicalProjectionService->applyDailyPreparationConditionRecovery($entity);
   }
 
   /**
@@ -8986,11 +9754,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    *   must stay on NavigationService::buildNavigationCapabilitiesWithRoadNetwork().
    */
   protected function buildFallbackNavigationCapabilities(array $dungeon_data, string $room_id): array {
-    // Fallback now delegates to the canonical navigation service implementation
-    // to prevent contract drift when EncounterPhaseHandler is exercised in
-    // isolation tests without injected navigationService wiring.
-    $service = new NavigationService();
+    $service = $this->requireNavigationService();
     return $service->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id);
+  }
+
+  protected function requireNavigationService(): NavigationService {
+    if ($this->navigationService === NULL) {
+      throw new \RuntimeException('Encounter navigation contract violation: NavigationService dependency is required; fallback navigation support is not allowed.');
+    }
+
+    return $this->navigationService;
+  }
+
+  protected function requireNavigationRuntime(): NavigationRuntimeService {
+    if ($this->navigationRuntime instanceof NavigationRuntimeService) {
+      return $this->navigationRuntime;
+    }
+
+    $service = \Drupal::service('dungeoncrawler_content.navigation_runtime');
+    if (!($service instanceof NavigationRuntimeService)) {
+      throw new \RuntimeException('Encounter navigation contract violation: NavigationRuntimeService dependency is required for room instantiation.');
+    }
+    $this->navigationRuntime = $service;
+    return $this->navigationRuntime;
   }
 
   /**
@@ -9215,92 +10001,16 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Builds context object for NPC AI decision-making.
    */
   protected function buildNpcContext(string $entity_id, array $game_state, array $dungeon_data): array {
-    $initiative_order = $game_state['initiative_order'] ?? [];
-    $npc = NULL;
-    $allies = [];
-    $enemies = [];
-
-    foreach ($initiative_order as $combatant) {
-      $cid = $combatant['entity_id'] ?? '';
-      if ($cid === $entity_id) {
-        $npc = $combatant;
-        continue;
-      }
-      if (!empty($combatant['is_defeated'])) {
-        continue;
-      }
-      $team = $combatant['team'] ?? 'enemy';
-      if ($team === 'player') {
-        $enemies[] = [
-          'entity_id' => $cid,
-          'name' => $combatant['name'] ?? $cid,
-          'hp_ratio' => $this->hpRatio($combatant),
-          'position_q' => (int) ($combatant['position_q'] ?? 0),
-          'position_r' => (int) ($combatant['position_r'] ?? 0),
-          'ac' => (int) ($combatant['ac'] ?? 10),
-        ];
-      }
-      else {
-        $allies[] = [
-          'entity_id' => $cid,
-          'name' => $combatant['name'] ?? $cid,
-          'hp_ratio' => $this->hpRatio($combatant),
-        ];
-      }
-    }
-
-    $context_game_state = $game_state;
-    if (!is_array($context_game_state['turn'] ?? NULL)) {
-      $context_game_state['turn'] = [];
-    }
-    if (trim((string) ($context_game_state['turn']['entity'] ?? '')) === '') {
-      $context_game_state['turn']['entity'] = $entity_id;
-    }
-    if (!is_numeric($context_game_state['turn']['actions_remaining'] ?? NULL)) {
-      $context_game_state['turn']['actions_remaining'] = 3;
-    }
-    if (!array_key_exists('reaction_available', $context_game_state['turn'])) {
-      $context_game_state['turn']['reaction_available'] = FALSE;
-    }
-
-    $availability = $this->actionAvailability->resolveEncounterAvailability($context_game_state, $dungeon_data, $entity_id);
-    $allowed_actions = $availability['available_actions'];
-    $action_contract = $availability['action_contract'];
-    $actions_available_to_me_this_turn = $availability['availability_envelope'];
-
-    return [
-      'encounter_id' => $game_state['encounter_id'] ?? NULL,
-      'campaign_id' => $game_state['campaign_id'] ?? NULL,
-      'round' => $game_state['round'] ?? NULL,
-      'entity_id' => $entity_id,
-      'current_actor' => $npc ? [
-        'entity_id' => $entity_id,
-        'entity_ref' => $entity_id,
-        'name' => $npc['name'] ?? $entity_id,
-        'team' => $npc['team'] ?? 'enemy',
-        'hp' => (int) ($npc['hp'] ?? 0),
-        'max_hp' => (int) ($npc['max_hp'] ?? 0),
-        'hp_ratio' => $this->hpRatio($npc ?? []),
-        'ac' => (int) ($npc['ac'] ?? 12),
-        'position_q' => (int) ($npc['position_q'] ?? 0),
-        'position_r' => (int) ($npc['position_r'] ?? 0),
-        'actions_remaining' => (int) ($game_state['turn']['actions_remaining'] ?? 3),
-      ] : ['entity_id' => $entity_id, 'entity_ref' => $entity_id],
-      'current_actor_profile' => $this->buildNpcDecisionProfile($entity_id, $game_state),
-      'participants' => $initiative_order,
-      'allies' => $allies,
-      'threats' => $enemies,
-      'allowed_actions' => $allowed_actions,
-      'action_contract' => $action_contract,
-      'actions_available_to_me_this_turn' => $actions_available_to_me_this_turn,
-      // NPC personality/psychology context for AI decision-making.
-      'npc_psychology' => $this->buildNpcPsychologyContext($entity_id, $game_state),
-      'current_actor_tactical_intent' => $this->buildNpcTacticalIntentContract(
+    return $this->actorContextBuilder->buildActorContext(
+      $entity_id,
+      $game_state,
+      $dungeon_data,
+      $this->buildNpcTacticalIntentContract(
         $entity_id,
         $game_state,
         (int) ($game_state['campaign_id'] ?? 0)
-      ),
-    ];
+      )
+    );
   }
 
   /**
@@ -9334,46 +10044,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Build structured profile fields to steer NPC action recommendation.
    */
   protected function buildNpcDecisionProfile(string $entity_id, array $game_state): array {
-    $campaign_id = (int) ($game_state['campaign_id'] ?? 0);
-    $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
-    if (!$profile) {
-      return [
-        'display_name' => $this->resolveEntityName($entity_id, $game_state, []),
-        'attitude' => 'indifferent',
-        'personality_traits' => '',
-        'personality_axes' => $this->normalizeDecisionPersonalityAxes([]),
-        'motivations' => '',
-        'fears' => '',
-        'bonds' => '',
-        'goals' => $this->resolveActorGoals(NULL),
-        'latest_thought' => NULL,
-      ];
-    }
-
-    $latest_thought = NULL;
-    $monologue = $profile['inner_monologue'] ?? [];
-    if (!empty($monologue) && is_array($monologue)) {
-      $last = end($monologue);
-      if (is_array($last)) {
-        $latest_thought = [
-          'thought' => (string) ($last['thought'] ?? ''),
-          'emotion' => (string) ($last['emotion'] ?? ''),
-          'event_type' => (string) ($last['event_type'] ?? ''),
-        ];
-      }
-    }
-
-    return [
-      'display_name' => (string) ($profile['display_name'] ?? $entity_id),
-      'attitude' => $this->normalizeNpcAttitude((string) ($profile['attitude'] ?? 'indifferent')) ?? 'indifferent',
-      'personality_traits' => (string) ($profile['personality_traits'] ?? ''),
-      'personality_axes' => $this->normalizeDecisionPersonalityAxes(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []),
-      'motivations' => (string) ($profile['motivations'] ?? ''),
-      'fears' => (string) ($profile['fears'] ?? ''),
-      'bonds' => (string) ($profile['bonds'] ?? ''),
-      'goals' => $this->resolveActorGoals($profile),
-      'latest_thought' => $latest_thought,
-    ];
+    return $this->actorContextBuilder->buildActorDecisionProfile($entity_id, $game_state);
   }
 
   /**
@@ -9394,76 +10065,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    *   Formatted psychology context or empty string.
    */
   protected function buildNpcPsychologyContext(string $entity_id, array $game_state): string {
-    $campaign_id = $game_state['campaign_id'] ?? 0;
-    if (!$campaign_id) {
-      return '';
-    }
-
-    $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, (int) $campaign_id);
-    if (!$profile) {
-      return '';
-    }
-
-    $parts = [];
-    $parts[] = "=== NPC COMBAT PERSONALITY ===";
-    $parts[] = "Name: {$profile['display_name']}";
-    $attitude = $this->normalizeNpcAttitude((string) ($profile['attitude'] ?? 'indifferent')) ?? 'indifferent';
-    $parts[] = "Attitude toward party: {$attitude}";
-
-    if (!empty($profile['personality_traits'])) {
-      $parts[] = "Personality: {$profile['personality_traits']}";
-    }
-    if (!empty($profile['motivations'])) {
-      $parts[] = "Fighting motivation: {$profile['motivations']}";
-    }
-    $goals = $this->resolveActorGoals($profile);
-    if (!empty($goals)) {
-      $parts[] = "Goals: " . implode(', ', $goals);
-    }
-
-    // Translate personality axes into combat behavioral hints.
-    $axes = $this->normalizeDecisionPersonalityAxes(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []);
-    $hints = [];
-    $boldness = $axes['boldness'] ?? 5;
-    if ($boldness <= 3) {
-      $hints[] = 'Will try to flee or surrender if below 25% HP';
-    }
-    elseif ($boldness >= 8) {
-      $hints[] = 'Fights recklessly to the death, never retreats';
-    }
-
-    $discipline = $axes['discipline'] ?? 5;
-    if ($discipline >= 7) {
-      $hints[] = 'Coordinates with allies, focuses fire on wounded targets';
-    }
-    elseif ($discipline <= 3) {
-      $hints[] = 'Fights chaotically, may switch targets randomly';
-    }
-
-    $cunning = $axes['cunning'] ?? 5;
-    if ($cunning >= 7) {
-      $hints[] = 'Targets the weakest or most dangerous PC strategically';
-    }
-
-    $empathy = $axes['empathy'] ?? 5;
-    if ($empathy >= 7 && in_array($attitude, ['friendly', 'helpful'], TRUE)) {
-      $hints[] = 'May refuse to fight, or try to end combat through diplomacy';
-    }
-
-    if ($hints) {
-      $parts[] = "Combat behavior: " . implode('; ', $hints);
-    }
-
-    // Recent relevant thoughts.
-    $monologue = $profile['inner_monologue'] ?? [];
-    if ($monologue) {
-      $last = end($monologue);
-      if ($last && !empty($last['thought'])) {
-        $parts[] = "Current mindset: \"{$last['thought']}\" (feeling {$last['emotion']})";
-      }
-    }
-
-    return implode("\n", $parts);
+    return $this->actorContextBuilder->buildActorPsychologyContext($entity_id, $game_state);
   }
 
   /**

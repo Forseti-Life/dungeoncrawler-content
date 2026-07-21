@@ -157,7 +157,7 @@ class StorylineManagerServiceTest extends UnitTestCase {
     ]);
 
     $this->assertCount(2, $normalized['contacts']);
-    $this->assertSame('campaign_npc', $normalized['contacts'][0]['entity_type']);
+    $this->assertSame('npc_template', $normalized['contacts'][0]['entity_type']);
     $this->assertSame('quest_giver', $normalized['contacts'][0]['role']);
     $this->assertSame('campaign_npc', $normalized['contacts'][1]['entity_type']);
     $this->assertSame('npc_tavern_keeper', $normalized['contacts'][1]['entity_id']);
@@ -579,6 +579,103 @@ class StorylineManagerServiceTest extends UnitTestCase {
     $this->assertSame('completed', $result['status']);
     $this->assertCount(1, $result['events']);
     $this->assertSame('storyline_completed', $result['events'][0]['event_type']);
+  }
+
+  /**
+   * @covers ::buildStorylineQuestGenerationContext
+   */
+  public function testBuildStorylineQuestGenerationContextPrefersQuestLinkSceneAndCarriesStorylineTemplate(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'buildStorylineQuestGenerationContext');
+    $method->setAccessible(TRUE);
+
+    $context = $method->invoke(
+      $service,
+      [
+        'metadata' => ['template_id' => 'ltba-storyline'],
+        'current_scene_id' => 'storyline-scene',
+        'current_chapter_id' => 'storyline-chapter',
+      ],
+      [
+        'current_scene_id' => 'row-scene',
+        'current_chapter_id' => 'row-chapter',
+      ],
+      [
+        'scene_id' => 'quest-scene',
+        'chapter_id' => 'quest-chapter',
+      ],
+      [
+        'location_id' => 'triggering-location',
+      ]
+    );
+
+    $this->assertSame('quest-scene', $context['location']);
+    $this->assertSame('offered', $context['initial_status']);
+    $this->assertSame('ltba-storyline', $context['storyline_template_id']);
+    $this->assertSame('quest-chapter', $context['storyline_chapter_id']);
+    $this->assertSame('quest-scene', $context['storyline_scene_id']);
+  }
+
+  /**
+   * @covers ::mergeStorylineQuestStatus
+   */
+  public function testMergeStorylineQuestStatusPrefersMostAdvancedStatus(): void {
+    $service = $this->buildService();
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'mergeStorylineQuestStatus');
+    $method->setAccessible(TRUE);
+
+    $this->assertSame('completed', $method->invoke($service, 'offered', 'completed'));
+    $this->assertSame('active', $method->invoke($service, 'active', 'lead'));
+    $this->assertSame('available', $method->invoke($service, NULL, 'available'));
+  }
+
+  /**
+   * @covers ::validateObjectiveControlChainStage
+   */
+  public function testValidateObjectiveControlChainStageRuntimeSkipsTemplateFallbackWhenRuntimeQuestMissing(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadRuntimeQuestObjectivePayload(string $quest_id): ?array {
+        return NULL;
+      }
+
+      protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+        throw new \RuntimeException('template fallback should not run for runtime payload validation');
+      }
+    };
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateObjectiveControlChainStage');
+    $method->setAccessible(TRUE);
+    $errors = $method->invoke($service, [
+      'metadata' => [],
+      'chapters' => [],
+      'linked_quests' => [],
+      'questline' => [
+        'primary_quest_id' => 'collect_spellbooks',
+        'ordered_quest_ids' => ['collect_spellbooks'],
+        'quest_nodes' => [['quest_id' => 'collect_spellbooks']],
+      ],
+      'asset_references' => [],
+      'contacts' => [],
+      'unlocked_chapter_ids' => [],
+      'unlocked_scene_ids' => [],
+      'current_chapter_id' => '',
+      'current_scene_id' => '',
+      'status' => 'available',
+      'variables' => [],
+    ], 'runtime');
+
+    $this->assertSame([], $errors);
   }
 
   /**
@@ -1808,6 +1905,235 @@ class StorylineManagerServiceTest extends UnitTestCase {
 
     $this->assertStringContainsString(
       'DCV_OBJ_PLAYABILITY_NONSTANDARD_TARGET_FIELD',
+      implode('; ', $errors)
+    );
+  }
+
+  /**
+   * @covers ::validateEntityLinkageStage
+   * @covers ::validateActorRuntimeMaterializationContractForNode
+   */
+  public function testValidateEntityLinkageStageRejectsInteractActorWithoutRuntimeMaterializationContract(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => [],
+          'room_ids' => ['guide-room' => TRUE],
+          'dungeon_room_ids' => [],
+          'errors' => [],
+        ];
+      }
+
+      protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+        return [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'talk-guide',
+            'type' => 'interact',
+            'description' => 'Speak with the guide.',
+            'target' => 'npc-guide',
+            'location_id' => 'guide-room',
+          ]],
+        ]];
+      }
+    };
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateEntityLinkageStage');
+    $method->setAccessible(TRUE);
+    $errors = $method->invoke($service, [
+      'linked_quests' => [
+        'guide-quest' => ['quest_id' => 'guide-quest'],
+      ],
+      'contacts' => [[
+        'contact_id' => 'guide-contact',
+        'entity_type' => 'npc_template',
+        'entity_id' => 'npc-guide',
+        'relationship_state' => [
+          'scene_id' => 'guide-room',
+        ],
+      ]],
+      'asset_references' => [[
+        'asset_type' => 'room',
+        'asset_id' => 'guide-room',
+      ]],
+      'chapters' => [[
+        'chapter_id' => 'chapter-one',
+        'scenes' => [[
+          'scene_id' => 'guide-room',
+          'quest_ids' => ['guide-quest'],
+        ]],
+      ]],
+    ], 'definition');
+
+    $error_text = implode('; ', $errors);
+    $this->assertStringContainsString('DCV_ACTOR_RUNTIME_MATERIALIZATION_REQUIRED_FLAG', $error_text);
+    $this->assertStringContainsString('DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_REGISTRY_TYPE', $error_text);
+    $this->assertStringContainsString('DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_ACTOR', $error_text);
+    $this->assertStringContainsString('DCV_ACTOR_RUNTIME_MATERIALIZATION_MISSING_LOCATION', $error_text);
+  }
+
+  /**
+   * @covers ::validateEntityLinkageStage
+   * @covers ::validateActorRuntimeMaterializationContractForNode
+   */
+  public function testValidateEntityLinkageStageAcceptsInteractActorRuntimeMaterializationContract(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => [],
+          'room_ids' => ['guide-room' => TRUE],
+          'dungeon_room_ids' => [],
+          'errors' => [],
+        ];
+      }
+
+      protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+        return [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'talk-guide',
+            'type' => 'interact',
+            'description' => 'Speak with the guide.',
+            'target' => 'npc-guide',
+            'location_id' => 'guide-room',
+          ]],
+        ]];
+      }
+    };
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateEntityLinkageStage');
+    $method->setAccessible(TRUE);
+    $errors = $method->invoke($service, [
+      'linked_quests' => [
+        'guide-quest' => ['quest_id' => 'guide-quest'],
+      ],
+      'contacts' => [[
+        'contact_id' => 'guide-contact',
+        'entity_type' => 'npc_template',
+        'entity_id' => 'npc-guide',
+        'relationship_state' => [
+          'scene_id' => 'guide-room',
+          'runtime_materialization' => [
+            'required_before_activation' => TRUE,
+            'registry_entity_type' => 'campaign_npc',
+            'canonical_actor_id' => 'npc-guide',
+            'canonical_location_id' => 'guide-room',
+          ],
+        ],
+      ]],
+      'asset_references' => [[
+        'asset_type' => 'room',
+        'asset_id' => 'guide-room',
+      ]],
+      'chapters' => [[
+        'chapter_id' => 'chapter-one',
+        'scenes' => [[
+          'scene_id' => 'guide-room',
+          'quest_ids' => ['guide-quest'],
+        ]],
+      ]],
+    ], 'definition');
+
+    $this->assertSame([], $errors);
+  }
+
+  /**
+   * @covers ::validateEntityLinkageStage
+   * @covers ::validateActorRuntimeMaterializationContractForNode
+   */
+  public function testValidateEntityLinkageStageRejectsRuntimeMaterializationWithCampaignNpcEntityType(): void {
+    $uuid = $this->createMock(UuidInterface::class);
+    $uuid->method('generate')->willReturn('12345678-1234-1234-1234-1234567890ab');
+    $service = new class(
+      $this->createMock(Connection::class),
+      $this->buildLoggerFactory(),
+      $uuid,
+      $this->createMock(CampaignStateService::class),
+      $this->buildStateValidationServiceMock(),
+      NULL,
+      new ObjectiveTypeService(),
+      $this->buildContentRegistryMock()
+    ) extends StorylineManagerService {
+      protected function loadCanonicalLocationTemplateIndex(): array {
+        return [
+          'dungeon_ids' => [],
+          'room_ids' => ['guide-room' => TRUE],
+          'dungeon_room_ids' => [],
+          'errors' => [],
+        ];
+      }
+
+      protected function loadQuestTemplateObjectivePhases(string $template_id): ?array {
+        return [[
+          'phase' => 1,
+          'objectives' => [[
+            'objective_id' => 'talk-guide',
+            'type' => 'interact',
+            'description' => 'Speak with the guide.',
+            'target' => 'npc-guide',
+            'location_id' => 'guide-room',
+          ]],
+        ]];
+      }
+    };
+
+    $method = new \ReflectionMethod(StorylineManagerService::class, 'validateEntityLinkageStage');
+    $method->setAccessible(TRUE);
+    $errors = $method->invoke($service, [
+      'linked_quests' => [
+        'guide-quest' => ['quest_id' => 'guide-quest'],
+      ],
+      'contacts' => [[
+        'contact_id' => 'guide-contact',
+        'entity_type' => 'campaign_npc',
+        'entity_id' => 'npc-guide',
+        'relationship_state' => [
+          'scene_id' => 'guide-room',
+          'runtime_materialization' => [
+            'required_before_activation' => TRUE,
+            'registry_entity_type' => 'campaign_npc',
+            'canonical_actor_id' => 'npc-guide',
+            'canonical_location_id' => 'guide-room',
+          ],
+        ],
+      ]],
+      'asset_references' => [[
+        'asset_type' => 'room',
+        'asset_id' => 'guide-room',
+      ]],
+      'chapters' => [[
+        'chapter_id' => 'chapter-one',
+        'scenes' => [[
+          'scene_id' => 'guide-room',
+          'quest_ids' => ['guide-quest'],
+        ]],
+      ]],
+    ], 'definition');
+
+    $this->assertStringContainsString(
+      'DCV_ACTOR_RUNTIME_MATERIALIZATION_ENTITY_TYPE_INVALID',
       implode('; ', $errors)
     );
   }

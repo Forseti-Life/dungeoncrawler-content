@@ -46,6 +46,7 @@ export class HexFogOfWar {
     this._unsubs = [];
     this._enabled = true;
     this._selectedEntity = null;
+    this._lastRoomTransitionId = '';
   }
 
   init() {
@@ -58,7 +59,14 @@ export class HexFogOfWar {
         this._selectedEntity = null;
         this._clearFog();
       }),
-      this.bus.on('room:changed', () => {
+      this.bus.on('room:changed', ({ transition } = {}) => {
+        const transitionId = String(transition?.id || '').trim();
+        if (transitionId && transitionId === this._lastRoomTransitionId) {
+          return;
+        }
+        if (transitionId) {
+          this._lastRoomTransitionId = transitionId;
+        }
         this._selectedEntity = null;
         this._clearFog();
       }),

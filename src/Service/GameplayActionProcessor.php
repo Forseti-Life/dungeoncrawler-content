@@ -503,7 +503,7 @@ The JSON block should declare ALL mechanical state changes that result from the 
 {
   "actions": [
     {
-      "type": "cast_spell|use_skill|use_feat|strike|stride|interact|recall_knowledge|perception_check|save|navigate_to_location|transfer_inventory|transfer_currency|consume_inventory|quest_turn_in|combat_initiation|other",
+      "type": "cast_spell|use_skill|use_feat|strike|stride|interact|recall_knowledge|perception_check|save|transfer_inventory|transfer_currency|consume_inventory|quest_turn_in|combat_initiation|other",
       "name": "Specific action name (e.g., 'Cast Light', 'Recall Knowledge: Arcana')",
       "details": {
         "spell_name": "light",
@@ -690,40 +690,18 @@ Rules for mechanical responses:
 19. If the player says or clearly implies an aggressive action against a present NPC or creature (for example, "I attack Gribbles"), emit a "combat_initiation" action immediately.
 20. When a target NPC or creature is listed in CURRENT ROOM, prefer that target's exact entity_instance_id for combat_initiation.target_entity_id. If only the exact name is available, use target_name/enemy_names with the exact grounded room name.
 21. Do not invent quest ids, objective ids, npc ids, names, or enemy entity ids. If they are unclear, narrate uncertainty rather than claiming the action completed.
+22. For location, rumor, or history questions, first use query_campaign_database against campaign-instance tables and ground your response in the returned rows.
+23. When party actions materially change the setting (faction standing, danger, economy, civic status), emit modify_setting_variable in the same turn before final narrative text so world-state remains synchronized.
+24. Use a "Yes, and..." approach for creative player actions: accept feasible intent, then add grounded consequences/complications that keep narrative momentum and meaningful choices.
+25. Avoid reflexive shutdowns. When uncertain, prefer conditional or partial success with explicit cost/risk over flat refusal.
 
 === NAVIGATION / TRAVEL ===
-When the player decides to LEAVE the current location and travel to a new place
-(e.g., "I leave the tavern", "Let's head to the market", "I go outside"),
-use the action type "navigate_to_location". This triggers the map generator
-to create the new setting.
-
-Example navigation JSON:
-```json
-{
-  "actions": [
-    {
-      "type": "navigate_to_location",
-      "name": "Travel to the marketplace",
-      "details": {
-        "destination": "The town marketplace",
-        "destination_description": "A bustling open-air market in the town center",
-        "travel_type": "walk",
-        "estimated_distance": "short"
-      },
-      "state_changes": { "character": {}, "room": {} }
-    }
-  ]
-}
-```
-
-Rules for navigation:
-- "destination" is the canonical name of where the player is going.
-- "destination_description" is a brief description to seed the new setting.
-- "travel_type" is one of: walk, ride, teleport, climb, swim, fly.
-- "estimated_distance" is one of: adjacent, short, medium, long.
-- Write a vivid transition narrative (the player leaving, the journey, arrival).
-- Do NOT navigate if the player is in combat or has unresolved mechanical events.
-- If the destination is unclear, ask the player to clarify rather than guessing.
+Travel is initiated from the navigation action rail, not chat action payloads.
+When the player asks to travel in chat:
+- narrate intent and immediate context only
+- do not emit a navigate_to_location action
+- direct travel through available exits/destinations shown in the action rail
+- if destination is unclear, ask for clarification without inventing routes
 
 INSTRUCTIONS;
 
@@ -826,7 +804,7 @@ LOCATION RULES:
 - When the player asks about nearby locations or exits, reference the exits listed above.
 - You can describe what the player sees/hears in the direction of connected rooms.
 - Do NOT invent exits or locations that are not listed above.
-- When the player wants to travel, use the navigate_to_location action type.
+- Do not emit chat navigation actions; travel execution is action-rail driven.
 - Reference the travel history to maintain continuity (e.g., "you came from the tavern").
 LOCATION_RULES;
 

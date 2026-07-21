@@ -15,16 +15,27 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
 
   protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
 
-  public function __construct(GameCoordinatorService $game_coordinator, Connection $database, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync) {
+  protected RuntimeBootstrapService $runtimeBootstrap;
+
+  public function __construct(GameCoordinatorService $game_coordinator, Connection $database, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, RuntimeBootstrapService $runtime_bootstrap) {
     $this->gameCoordinator = $game_coordinator;
     $this->database = $database;
     $this->campaignCharacterRuntimeSync = $campaign_character_runtime_sync;
+    $this->runtimeBootstrap = $runtime_bootstrap;
   }
 
   /**
    * {@inheritdoc}
    */
   public function buildSnapshot(int $campaign_id, string $actor_id, array $run_state = []): array {
+    $runtime_character_id = $this->runtimeBootstrap->resolveRuntimeCharacterIdForActor($campaign_id, $actor_id);
+    if ($runtime_character_id !== NULL) {
+      $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $runtime_character_id);
+    }
+    else {
+      $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+    }
+
     $state_payload = $this->gameCoordinator->getFullState($campaign_id);
     if (empty($state_payload['success'])) {
       return [
@@ -56,6 +67,14 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
     $visible_entities = $this->findRoomEntities($dungeon_data, $active_room_id);
     $actor_entity = $this->findEntity($dungeon_data, $actor_id);
 
+    $action_availability = $this->gameCoordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
+    $available_actions = is_array($action_availability['available_actions'] ?? NULL)
+      ? $action_availability['available_actions']
+      : $this->gameCoordinator->getAvailableActionsForActor($campaign_id, $actor_id);
+    $action_contract = is_array($action_availability['action_contract'] ?? NULL)
+      ? $action_availability['action_contract']
+      : NULL;
+
     return [
       'success' => TRUE,
       'campaign_id' => $campaign_id,
@@ -74,7 +93,8 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
       })),
       'connected_rooms' => $this->findConnectedRooms($dungeon_data, $active_room_id),
       'hostile_targets' => $this->findHostileTargets($game_state, $actor_id),
-      'available_actions' => $this->gameCoordinator->getAvailableActionsForActor($campaign_id, $actor_id),
+      'available_actions' => $available_actions,
+      'action_contract' => $action_contract,
       'last_encounter' => $game_state['last_encounter'] ?? NULL,
     ];
   }
@@ -83,6 +103,20 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
    * {@inheritdoc}
    */
   public function submitIntent(int $campaign_id, array $intent): array {
+    $character_id = (int) ($intent['params']['character_id'] ?? $intent['character_id'] ?? 0);
+    if ($character_id > 0) {
+      $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $character_id);
+    }
+    else {
+      $actor_id = trim((string) ($intent['actor'] ?? ''));
+      $runtime_character_id = $this->runtimeBootstrap->resolveRuntimeCharacterIdForActor($campaign_id, $actor_id);
+      if ($runtime_character_id !== NULL) {
+        $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $runtime_character_id);
+      }
+      else {
+        $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+      }
+    }
     return $this->gameCoordinator->processAction($campaign_id, $intent);
   }
 
@@ -106,6 +140,7 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
     if (!is_array($decoded)) {
       return NULL;
     }
+    $decoded['campaign_id'] = $campaign_id;
 
     return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id);
   }

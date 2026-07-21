@@ -327,6 +327,23 @@
       },
       "location_type": "global",
       "location_ref": ""
+    },
+    {
+      "character_id": 3011,
+      "instance_id": "gribbles_rindsworth",
+      "type": "npc",
+      "uid": 1,
+      "role": "npc",
+      "state_data": {
+        "name": "Gribbles Rindsworth",
+        "class": "rogue",
+        "level": 3,
+        "hp_current": 30,
+        "conditions": [],
+        "description": "Information broker at The Gilded Tankard used by introductory rumor and recovery quests."
+      },
+      "location_type": "room_template",
+      "location_ref": "tavern_entrance"
     }
   ]
 }

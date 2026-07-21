@@ -13,6 +13,9 @@ namespace Drupal\dungeoncrawler_content\Service;
  * Authority boundary:
  * - This class is stateless: it does NOT write to the database.
  * - Callers receive a normalized array and pass it to ConnectorDefinitionService.
+ *
+ * Validation pair: ConnectorDefinitionService canonical connector contract
+ * validation after normalization.
  */
 class ConnectorGenerationPolicy {
 

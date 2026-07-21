@@ -138,7 +138,7 @@ export class NavigationSystem {
 
       const selectedEntity = hexmap.stateManager?.get('selectedEntity');
       const launchPlayer = hexmap.findLaunchPlayerEntity?.() || null;
-      const actorId = String(
+      const fallbackActorId = String(
         context?.actorRef
         || selectedEntity?.dcEntityRef
         || selectedEntity?.dcEntityInstanceId
@@ -152,15 +152,44 @@ export class NavigationSystem {
       const coordinator = hexmap.gameCoordinator || null;
 
       console.log('[Navigation] executeDirectNavigate: actor/coordinator resolution', {
-        actorId,
+        actorId: fallbackActorId,
         hasCoordinator: !!coordinator,
         hasCoordinatorApi: !!coordinator?.api?.sendAction,
         contextActorRef: context?.actorRef,
         launchPlayerRef: launchPlayer?.dcEntityRef,
       });
 
-      if (!coordinator?.api?.sendAction || !actorId) {
-        console.error('[Navigation] executeDirectNavigate: no coordinator or actorId — aborting', { hasCoordinator: !!coordinator, actorId });
+      if (!coordinator?.api?.sendAction) {
+        console.error('[Navigation] executeDirectNavigate: no coordinator available — aborting', { hasCoordinator: !!coordinator });
+        this._appendChatLine('System', 'No active player actor is available for navigation right now.', 'system');
+        return;
+      }
+
+      const authoritativeState = await this._getAuthoritativeCoordinatorState(coordinator, hexmap);
+      const currentRoomId = String(
+        authoritativeState?.activeRoomId
+        || coordinator?.phaseManager?.activeRoomId
+        || hexmap.resolveActiveRoomId?.()
+        || ''
+      ).trim();
+      if (currentRoomId && currentRoomId === roomId) {
+        this._appendChatLine('System', `You are already in ${roomName}.`, 'system');
+        return;
+      }
+
+      const localStateVersion = Number(
+        authoritativeState?.stateVersion
+        ?? coordinator?.phaseManager?.stateVersion
+        ?? 0
+      ) || 0;
+      const actorId = String(
+        authoritativeState?.turnEntity
+        || coordinator?.phaseManager?.turn?.entity
+        || fallbackActorId
+        || ''
+      ).trim();
+      if (!actorId) {
+        console.error('[Navigation] executeDirectNavigate: missing local actor for transition');
         this._appendChatLine('System', 'No active player actor is available for navigation right now.', 'system');
         return;
       }
@@ -177,10 +206,19 @@ export class NavigationSystem {
 
       console.log('[Navigation] executeDirectNavigate: sending transition action', { actorId, params });
       // Authoritative transition validation and state mutation happen on server.
+      let optimisticApplied = false;
+      if (typeof hexmap.setActiveRoom === 'function') {
+        hexmap.setActiveRoom(roomId, {
+          source: 'navigation-system',
+          phase: 'navigation-optimistic',
+          loadData: false,
+        });
+        optimisticApplied = true;
+      }
       let result = null;
       try {
         result = await coordinator.api.sendAction('transition', actorId, params, {
-          stateVersion: coordinator.phaseManager?.stateVersion,
+          stateVersion: localStateVersion,
         });
       } catch (error) {
         const serverError = String(
@@ -193,39 +231,83 @@ export class NavigationSystem {
             /not reachable from the active room/i.test(serverError)
             || /not available for transition/i.test(serverError)
           );
+        const isAlreadyThereFailure = Number(error?.status || 0) === 422
+          && /not reachable from the active room/i.test(serverError);
+
+        if (isAlreadyThereFailure) {
+          const refreshed = await this._getAuthoritativeCoordinatorState(coordinator, hexmap);
+          const refreshedRoomId = String(refreshed?.activeRoomId || '').trim();
+          if (refreshedRoomId && refreshedRoomId === roomId) {
+            this._appendChatLine('System', `You are already in ${roomName}.`, 'system');
+            return;
+          }
+        }
 
         if (isReachabilityFailure) {
-          console.warn('[Navigation] transition reachability failed, rerouting through in-session destination resolver', {
+          if (optimisticApplied && currentRoomId && typeof hexmap.setActiveRoom === 'function') {
+            hexmap.setActiveRoom(currentRoomId, {
+              source: 'navigation-system',
+              phase: 'navigation-rollback',
+            });
+          }
+          console.warn('[Navigation] transition reachability failed', {
             roomId,
             connectionId,
             status: error?.status,
             error: serverError,
             payload: error?.payload || null,
           });
-          await this.requestInSessionDestination(roomId || roomName, {
-            fallbackRoomId: roomId,
-            mapId,
-            dungeonLevelId,
-          });
+          this._appendChatLine('System', serverError, 'error');
           return;
         }
         if (/state version mismatch/i.test(serverError)) {
-          console.warn('[Navigation] transition state version mismatch, reloading destination in-session', {
+          console.warn('[Navigation] transition state version mismatch, retrying with authoritative state', {
             roomId,
             connectionId,
             status: error?.status,
             error: serverError,
           });
-          await this.requestInSessionDestination(roomId || roomName, {
-            fallbackRoomId: roomId,
-            mapId,
-            dungeonLevelId,
-          });
+          const refreshedState = await this._getAuthoritativeCoordinatorState(coordinator, hexmap);
+          const retryActorId = String(refreshedState?.turnEntity || fallbackActorId || '').trim();
+          if (!retryActorId) {
+            if (optimisticApplied && currentRoomId && typeof hexmap.setActiveRoom === 'function') {
+              hexmap.setActiveRoom(currentRoomId, {
+                source: 'navigation-system',
+                phase: 'navigation-rollback',
+              });
+            }
+            this._appendChatLine('System', serverError, 'error');
+            return;
+          }
+          try {
+            result = await coordinator.api.sendAction('transition', retryActorId, params, {
+              stateVersion: refreshedState?.stateVersion ?? coordinator.phaseManager?.stateVersion,
+            });
+          } catch (retryError) {
+            if (optimisticApplied && currentRoomId && typeof hexmap.setActiveRoom === 'function') {
+              hexmap.setActiveRoom(currentRoomId, {
+                source: 'navigation-system',
+                phase: 'navigation-rollback',
+              });
+            }
+            const retryServerError = String(
+              retryError?.payload?.error
+              || retryError?.message
+              || serverError
+            ).trim();
+            this._appendChatLine('System', retryServerError, 'error');
+            return;
+          }
+        } else {
+          if (optimisticApplied && currentRoomId && typeof hexmap.setActiveRoom === 'function') {
+            hexmap.setActiveRoom(currentRoomId, {
+              source: 'navigation-system',
+              phase: 'navigation-rollback',
+            });
+          }
+          this._appendChatLine('System', serverError, 'error');
           return;
         }
-
-        this._appendChatLine('System', serverError, 'error');
-        return;
       }
       console.log('[Navigation] executeDirectNavigate: transition result', {
         success: result?.success,
@@ -233,6 +315,12 @@ export class NavigationSystem {
         activeRoomId: result?.game_state?.active_room_id || result?.active_room_id,
       });
       if (!result?.success) {
+        if (optimisticApplied && currentRoomId && typeof hexmap.setActiveRoom === 'function') {
+          hexmap.setActiveRoom(currentRoomId, {
+            source: 'navigation-system',
+            phase: 'navigation-rollback',
+          });
+        }
         this._appendChatLine('System', result?.error || 'That destination is not navigable right now.', 'system');
         return;
       }
@@ -249,13 +337,32 @@ export class NavigationSystem {
           requestedRoomId: roomId,
           activeRoomId: nextRoomId,
         });
-        hexmap.setActiveRoom(nextRoomId);
+        hexmap.setActiveRoom(nextRoomId, {
+          source: 'navigation-system',
+          phase: 'navigation-authoritative',
+        });
         const entryHex = result?.entry_hex || result?.navigation?.entry_hex || null;
         if (entryHex && Number.isFinite(Number(entryHex.q)) && Number.isFinite(Number(entryHex.r))) {
           this._persistPartyLocationAfterTransition(hexmap, nextRoomId, entryHex);
           hexmap.updateLaunchLocationContext?.(nextRoomId, Number(entryHex.q), Number(entryHex.r));
         }
       }
+      if (nextRoomId && this.shell?.loadRuntimeStateBundle) {
+        await this.shell.loadRuntimeStateBundle({
+          campaign_id: hexmap.resolveCampaignId?.() || this.shell.resolveCampaignId?.() || 0,
+          character_id: hexmap.launchContext?.character_id || this.shell.launchContext?.character_id || 0,
+          room_id: nextRoomId,
+          map_id: mapId || undefined,
+          dungeon_level_id: dungeonLevelId || undefined,
+          start_q: Number.isFinite(Number(result?.entry_hex?.q ?? result?.navigation?.entry_hex?.q))
+            ? Number(result?.entry_hex?.q ?? result?.navigation?.entry_hex?.q)
+            : 0,
+          start_r: Number.isFinite(Number(result?.entry_hex?.r ?? result?.navigation?.entry_hex?.r))
+            ? Number(result?.entry_hex?.r ?? result?.navigation?.entry_hex?.r)
+            : 0,
+        });
+      }
+      void this._reconcileAuthoritativeStateAfterTransition(coordinator, hexmap, nextRoomId);
       this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);
@@ -275,6 +382,7 @@ export class NavigationSystem {
     const newRoom = nav.room;
     const newEntities = nav.entities || [];
     const newConnections = nav.connections || [];
+    const navigationCapabilities = Array.isArray(nav.navigation_capabilities) ? nav.navigation_capabilities : [];
     const entryHex = nav.entry_hex || { q: 0, r: 0 };
 
     console.log('[Navigation] Transitioning to:', targetRoomId, nav.destination);
@@ -322,6 +430,9 @@ export class NavigationSystem {
         hexmap.dungeonData.connections.push(conn);
       }
     }
+
+    // Keep active-room navigation strictly sourced from server navigation service.
+    hexmap.dungeonData.navigation_capabilities = navigationCapabilities;
 
     // 4. Move the full party formation to the destination entry hex.
     const selectedEntity = hexmap.stateManager?.get('selectedEntity');
@@ -456,14 +567,8 @@ export class NavigationSystem {
         detail: { tabId: 'view' },
       }));
     }
-    this.bus.emit('room:changed', {
-      roomId: targetRoomId,
-      roomName: nav.destination || newRoom?.name || targetRoomId,
-      room: newRoom || null,
-    });
-    if (targetRoomId) {
-      this.bus.emit('room:view-reload-requested', { roomId: targetRoomId, force: true, preserveExisting: true });
-    }
+    // setActiveRoom() already emits canonical room:changed and room:occupants-changed
+    // through GameShell; avoid duplicate room lifecycle fan-out here.
 
     // 7. Re-select the player entity in the new room.
     const newPlayerEntity = hexmap.findLaunchPlayerEntity();
@@ -528,13 +633,6 @@ export class NavigationSystem {
     };
     if (!String(mergedRoom.name || '').trim()) {
       mergedRoom.name = roomNameHint || targetRoomId;
-    }
-    const hasAuthoritativeExits = Array.isArray(mergedRoom.exits);
-    if (!hasAuthoritativeExits) {
-      mergedRoom.exits = this._buildAuthoritativeRoomExitsFromTopology(
-        targetRoomId,
-        visualState.topology.connections
-      );
     }
     visualState.topology.rooms[targetRoomId] = mergedRoom;
 
@@ -814,7 +912,7 @@ export class NavigationSystem {
     }
 
     try {
-      const response = await fetch(`/api/campaign/${campaignId}/gm/locations/request`, {
+      const response = await fetch(`/api/campaign/${campaignId}/navigation/locations/request`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -895,6 +993,75 @@ export class NavigationSystem {
   }
 
   // --- Proxy helpers (UIManager methods now live on panels/bus) ---
+
+  async _reconcileAuthoritativeStateAfterTransition(coordinator, hexmap, optimisticRoomId = '') {
+    const expectedRoomId = String(optimisticRoomId || '').trim();
+    if (!coordinator?.api?.getState) {
+      return;
+    }
+    try {
+      const state = await coordinator.api.getState();
+      if (state?.success) {
+        coordinator.applyAuthoritativeUpdate?.(state);
+      }
+      const serverRoomId = String(
+        state?.active_room_id
+        ?? state?.game_state?.active_room_id
+        ?? coordinator?.phaseManager?.activeRoomId
+        ?? ''
+      ).trim();
+      if (!serverRoomId || !expectedRoomId || serverRoomId === expectedRoomId) {
+        return;
+      }
+      if (typeof hexmap?.setActiveRoom === 'function') {
+        hexmap.setActiveRoom(serverRoomId, {
+          source: 'navigation-system',
+          phase: 'navigation-reconcile',
+        });
+      }
+    } catch (error) {
+      console.warn('[Navigation] reconcile authoritative state after transition failed', error);
+    }
+  }
+
+  async _getAuthoritativeCoordinatorState(coordinator, hexmap = null) {
+    if (!coordinator?.api?.getState) {
+      return {
+        stateVersion: coordinator?.phaseManager?.stateVersion ?? null,
+        activeRoomId: coordinator?.phaseManager?.activeRoomId ?? hexmap?.resolveActiveRoomId?.() ?? null,
+        turnEntity: coordinator?.phaseManager?.turn?.entity ?? null,
+      };
+    }
+    try {
+      const state = await coordinator.api.getState();
+      if (state?.success) {
+        coordinator.applyAuthoritativeUpdate?.(state);
+      }
+      return {
+        stateVersion: Number(state?.state_version ?? coordinator?.phaseManager?.stateVersion ?? 0) || 0,
+        activeRoomId: String(
+          state?.active_room_id
+          ?? state?.game_state?.active_room_id
+          ?? coordinator?.phaseManager?.activeRoomId
+          ?? hexmap?.resolveActiveRoomId?.()
+          ?? ''
+        ).trim() || null,
+        turnEntity: String(
+          state?.turn?.entity
+          ?? state?.game_state?.turn?.entity
+          ?? coordinator?.phaseManager?.turn?.entity
+          ?? ''
+        ).trim() || null,
+      };
+    } catch (error) {
+      console.warn('[Navigation] failed to fetch authoritative state before transition', error);
+      return {
+        stateVersion: coordinator?.phaseManager?.stateVersion ?? null,
+        activeRoomId: coordinator?.phaseManager?.activeRoomId ?? hexmap?.resolveActiveRoomId?.() ?? null,
+        turnEntity: coordinator?.phaseManager?.turn?.entity ?? null,
+      };
+    }
+  }
 
   _beginActionRailRequest(button) {
     const hasActionRail = !!this.shell?.panels?.actionRail;

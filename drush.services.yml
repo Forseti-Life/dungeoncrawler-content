@@ -51,10 +51,40 @@ services:
     tags:
       - { name: drush.command }
 
+  dungeoncrawler_content.commands.gm_actor:
+    class: Drupal\dungeoncrawler_content\Commands\GmActorCommands
+    arguments:
+      - '@dungeoncrawler_content.gm_actor_harness'
+    tags:
+      - { name: drush.command }
+
   dungeoncrawler_content.commands.institution_backfill:
     class: Drupal\dungeoncrawler_content\Commands\InstitutionBackfillCommands
     arguments:
       - '@dungeoncrawler_content.library_institution_backfill'
       - '@dungeoncrawler_content.campaign_institution_backfill'
+    tags:
+      - { name: drush.command }
+
+  dungeoncrawler_content.commands.actor_harness_langgraph:
+    class: Drupal\dungeoncrawler_content\Commands\ActorHarnessLangGraphCommands
+    arguments:
+      - '@dungeoncrawler_content.campaign_initialization'
+      - '@dungeoncrawler_content.character_manager'
+      - '@dungeoncrawler_content.campaign_character_runtime_resolver'
+      - '@dungeoncrawler_content.quest_tracker'
+      - '@dungeoncrawler_content.navigation_service'
+      - '@dungeoncrawler_content.player_agent_runtime_adapter'
+      - '@dungeoncrawler_content.runtime_bootstrap'
+      - '@database'
+      - '@current_user'
+    tags:
+      - { name: drush.command }
+
+  dungeoncrawler_content.commands.runtime_identity_backfill:
+    class: Drupal\dungeoncrawler_content\Commands\RuntimeIdentityBackfillCommands
+    arguments:
+      - '@database'
+      - '@datetime.time'
     tags:
       - { name: drush.command }

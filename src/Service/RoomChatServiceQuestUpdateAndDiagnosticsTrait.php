@@ -12,15 +12,17 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
       return;
     }
 
-    $this->database->update('dc_campaign_quests')
-      ->fields([
-        'storyline_id' => $storyline_id,
-        'storyline_chapter_id' => !empty($quest_link['chapter_id']) ? (string) $quest_link['chapter_id'] : NULL,
-        'storyline_scene_id' => !empty($quest_link['scene_id']) ? (string) $quest_link['scene_id'] : NULL,
-      ])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('quest_id', $quest_id)
-      ->execute();
+    if ($this->storylineQuestLifecycleService === NULL) {
+      throw new \RuntimeException('StorylineQuestLifecycleService is required to attach storyline references to quest rows.');
+    }
+
+    $this->storylineQuestLifecycleService->attachStorylineReferenceToQuestRow(
+      $campaign_id,
+      $quest_id,
+      $storyline_id,
+      !empty($quest_link['chapter_id']) ? (string) $quest_link['chapter_id'] : NULL,
+      !empty($quest_link['scene_id']) ? (string) $quest_link['scene_id'] : NULL
+    );
   }
 
   /**
@@ -131,11 +133,16 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
     }
 
     if ($surfaced_status !== $current_status) {
-      $this->database->update('dc_campaign_quests')
-        ->fields(['status' => $surfaced_status])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('quest_id', $quest_id)
-        ->execute();
+      if ($this->storylineQuestLifecycleService === NULL) {
+        throw new \RuntimeException('StorylineQuestLifecycleService is required to transition surfaced quest status.');
+      }
+      $expected_statuses = $current_status !== '' ? [$current_status] : [];
+      $this->storylineQuestLifecycleService->setQuestStatusByQuestId(
+        $campaign_id,
+        $quest_id,
+        $surfaced_status,
+        $expected_statuses
+      );
       $quest['status'] = $surfaced_status;
     }
 
@@ -449,7 +456,7 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
    * Apply quest interact progress when the player has a substantive NPC exchange.
    */
 
-  protected function applyConversationQuestTouchpoint(int $campaign_id, ?int $character_id, string $room_id, string $npc_ref, string $target_name = '', array $quest_touchpoint_hint = []): array {
+  protected function applyConversationQuestTouchpoint(int $campaign_id, ?int $character_id, string $room_id, string $npc_ref, string $target_name = '', array $quest_touchpoint_hint = [], string $player_message = ''): array {
     if ($campaign_id <= 0 || !$character_id || $character_id <= 0 || !$this->questTouchpointService) {
       return [
         'success' => TRUE,
@@ -493,6 +500,7 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
         'npc_ref' => $resolved_npc_ref,
         'entity_ref' => $resolved_entity_ref,
         'room_id' => $room_id,
+        'player_message' => $player_message,
         'confidence' => 'high',
         'quantity' => 1,
         'matching_mode' => $matching_mode,
@@ -574,15 +582,12 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
    */
 
   protected function recordDebugStage(string $stage, int $started_at, array $meta = []): void {
-    if ($this->activeDebugTrace === NULL) {
-      return;
-    }
-
-    $this->activeDebugTrace['stages'][] = [
-      'stage' => $stage,
-      'duration_ms' => $this->elapsedMs($started_at),
-      'meta' => $meta,
-    ];
+    $this->gmReplyOrchestration->recordDebugStage(
+      $this->activeDebugTrace,
+      $stage,
+      $this->elapsedMs($started_at),
+      $meta
+    );
   }
 
   /**
@@ -860,58 +865,6 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
       fn(array $npc): bool => $this->npcSupportsQuestOrLeadDialogue($npc),
       fn(string $haystack, array $needles): bool => $this->textContainsAny($haystack, $needles)
     );
-  }
-
-  /**
-   * Decide whether the main GM response is cacheable.
-   *
-   * Response caching is the fallback optimization layer for low-variance turns
-   * that still require LLM narration after deterministic handling is bypassed.
-   */
-
-  protected function shouldUseGmResponseCache(string $turn_intent, string $latest_player_message, bool $is_room_entry): bool {
-    if ($is_room_entry || $turn_intent !== 'gm_narration') {
-      return FALSE;
-    }
-
-    $normalized = $this->normalizeNpcNameForMatch($latest_player_message);
-    if ($normalized === '' || strlen($normalized) > 180) {
-      return FALSE;
-    }
-
-    if ($this->textContainsAny($normalized, ['attack', 'cast', 'roll', 'stealth', 'initiative', 'search', 'investigate', 'pick lock', 'unlock', 'use', 'skill check'])) {
-      return FALSE;
-    }
-
-    return TRUE;
-  }
-
-  /**
-   * Build a stable cache key for low-variance GM replies.
-   */
-
-  protected function buildGmResponseCacheKey(
-    int $campaign_id,
-    string $room_id,
-    ?int $character_id,
-    string $turn_intent,
-    array $history_lines,
-    array $prompt_artifacts,
-    string $prompt,
-    string $system_prompt
-  ): string {
-    $cache_state = [
-      'campaign_id' => $campaign_id,
-      'room_id' => $room_id,
-      'character_id' => $character_id,
-      'turn_intent' => $turn_intent,
-      'history_lines' => array_slice($history_lines, -3),
-      'prompt_artifacts' => $prompt_artifacts,
-      'prompt_hash' => sha1($prompt),
-      'system_prompt_hash' => sha1($system_prompt),
-    ];
-
-    return 'dungeoncrawler_content:gm_response:' . sha1(json_encode($cache_state));
   }
 
   /**

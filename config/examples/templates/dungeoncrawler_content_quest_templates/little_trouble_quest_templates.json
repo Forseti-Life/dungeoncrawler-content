@@ -2,8 +2,8 @@
   "rows": [
     {
       "template_id": "ltba-enter-the-vault",
-      "name": "Enter the Vault",
-      "description": "Lead the Hookclaw kobolds into the newly discovered vault site.",
+      "name": "Brief with Hookclaw and Enter the Vault",
+      "description": "Meet the Hookclaw team at the vault, confirm the plan, and lead the party inside.",
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
@@ -18,19 +18,52 @@
           "phase": 1,
           "objectives": [
             {
+              "objective_id": "hookclaw_briefing",
+              "type": "interact",
+              "description": "Talk with Zikza Hookclaw and the two Hookclaw companions at the vault approach.",
+              "target": "ltba-hookclaw-vault-guide",
+              "target_label": "Zikza Hookclaw",
+              "target_aliases": [
+                "Hookclaw gang leader",
+                "Zika Hookclaw",
+                "Hookclaw team lead"
+              ],
+              "npc_id": "ltba-hookclaw-vault-guide",
+              "location_id": "ltba-vault-entry",
+              "destination_id": "ltba-vault-entry",
+              "next_step": "Talk with Zikza, Skritch, and Pikkik at ltba-vault-entry before moving into the vault.",
+              "wayfinding_hint": "Go to ltba-vault-entry and check in with the Hookclaw team.",
+              "completion_criteria": {
+                "kind": "flag",
+                "metric": "completed",
+                "required_value": true,
+                "description": "Complete when hookclaw_briefing records the Hookclaw team has been briefed."
+              }
+            },
+            {
               "objective_id": "enter_vault",
               "type": "explore",
-              "description": "Reach the vault entry with the Hookclaw team.",
+              "description": "Enter the vault after the Hookclaw briefing is complete.",
               "target": "ltba-hookclaw-vault-guide",
+              "target_label": "Zikza Hookclaw",
+              "target_aliases": [
+                "Zika Hookclaw",
+                "Hookclaw guide",
+                "Hookclaw team lead"
+              ],
               "npc_id": "ltba-hookclaw-vault-guide",
-              "next_step": "Follow Zikza into the first vault chamber to begin the delve.",
+              "depends_on": [
+                "hookclaw_briefing"
+              ],
+              "location": "ltba-vault-entry",
+              "next_step": "Enter the vault interior from ltba-vault-entry after talking to the Hookclaw team.",
+              "wayfinding_hint": "Use the vault entrance at ltba-vault-entry once the briefing is done.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "discovered",
                 "required_value": true,
-                "description": "Complete when the party discovers ltba-vault-entry."
+                "description": "Complete when the party discovers the interior vault path from ltba-vault-entry."
               },
-              "location": "ltba-vault-entry",
               "location_id": "ltba-vault-entry",
               "destination_id": "ltba-vault-entry"
             }
@@ -103,8 +136,8 @@
     },
     {
       "template_id": "ltba-accept-the-task",
-      "name": "Accept Grandmother's Request",
-      "description": "Take on the Grandma's House mission to recover the magical hedge trimmer.",
+      "name": "Accept Grandmother's Hedge Trimmer Request",
+      "description": "Meet Grandmother in her parlor and agree to recover her missing magical hedge trimmer.",
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
@@ -121,17 +154,23 @@
             {
               "objective_id": "accept_request",
               "type": "interact",
-              "description": "Speak with Eldric and accept the grandmother's hedge trimmer job lead.",
-              "target": "npc_tavern_keeper",
-              "npc_id": "npc_tavern_keeper",
-              "location": "tavern_entrance",
-              "location_id": "tavern_entrance",
-              "next_step": "Speak with Eldric in tavern_entrance and explicitly accept the grandmother's hedge trimmer recovery request.",
+              "description": "Speak with Grandmother, agree to help, and get directed to the Hookclaw team at the tomb vault.",
+              "target": "ltba-grandmother",
+              "target_label": "Grandmother",
+              "target_aliases": [
+                "Grandmother",
+                "The Kind Old Lady",
+                "Grandma"
+              ],
+              "npc_id": "ltba-grandmother",
+              "location_id": "ltba-grandmas-house-parlor",
+              "next_step": "Travel to Grandma's House Parlor, speak with Grandmother, and accept the Hookclaw vault assignment.",
+              "wayfinding_hint": "Go to Grandma's House Parlor and talk to Grandmother.",
               "completion_criteria": {
                 "kind": "flag",
                 "metric": "completed",
                 "required_value": true,
-                "description": "Complete when accept_request records the party has accepted the grandmother recovery task lead."
+                "description": "Complete when accept_request records Grandmother has sent the party to the vault lead."
               }
             }
           ]
@@ -153,8 +192,8 @@
     },
     {
       "template_id": "ltba-retrieve-hedge-trimmer",
-      "name": "Retrieve the Magical Hedge Trimmer",
-      "description": "Recover the magical hedge trimmer and finish the kobolds' job.",
+      "name": "Recover Grandmother's Magical Hedge Trimmer",
+      "description": "Search the tomb for Grandmother's magical hedge trimmer, then bring it back to her.",
       "quest_type": "module_story",
       "level_min": 1,
       "level_max": 1,
@@ -176,14 +215,33 @@
                 1,
                 1
               ],
-              "description": "Recover the magical hedge trimmer.",
-              "location": "recover-the-trimmer",
-              "next_step": "Search recover-the-trimmer for ltba-magical-hedge-trimmer and pick it up.",
+              "description": "Search the tomb and recover the magical hedge trimmer.",
+              "location_id": "ltba-tomb-hazard-room",
+              "next_step": "Search the tomb hazard room for Grandmother's magical hedge trimmer and recover it.",
               "completion_criteria": {
                 "kind": "count",
                 "metric": "current",
                 "target_count": 1,
-                "description": "Complete when retrieve_trimmer records one ltba-magical-hedge-trimmer collected."
+                "description": "Complete when retrieve_trimmer records one ltba-magical-hedge-trimmer collected from the tomb."
+              }
+            },
+            {
+              "objective_id": "turn_in_to_grandmother",
+              "type": "interact",
+              "target": "ltba-grandmother",
+              "target_label": "Grandmother",
+              "npc_id": "ltba-grandmother",
+              "location_id": "ltba-grandmas-house-parlor",
+              "depends_on": [
+                "retrieve_trimmer"
+              ],
+              "description": "Return to Grandmother and hand over her recovered hedge trimmer.",
+              "next_step": "Travel back to Grandma's House Parlor and return the hedge trimmer to Grandmother.",
+              "completion_criteria": {
+                "kind": "flag",
+                "metric": "completed",
+                "required_value": true,
+                "description": "Complete when turn_in_to_grandmother records the hedge trimmer was delivered."
               }
             }
           ]
@@ -200,9 +258,9 @@
       "story_impact": {
         "storyline_id": "little-trouble-in-big-absalom",
         "chapter_id": "upstairs",
-        "scene_id": "recover-the-trimmer"
+        "scene_id": "grandmothers-turn-in"
       },
-      "estimated_duration_minutes": 35,
+      "estimated_duration_minutes": 45,
       "version": "1.0.0"
     }
   ]
