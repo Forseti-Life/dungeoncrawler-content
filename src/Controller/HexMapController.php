@@ -10,6 +10,7 @@ use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\MapVisualStateProjector;
+use Drupal\dungeoncrawler_content\Service\NavigationService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
@@ -37,6 +38,7 @@ class HexMapController extends ControllerBase {
   protected QuestGeneratorService $questGenerator;
   protected GeneratedImageRepository $imageRepository;
   protected MapVisualStateProjector $mapVisualStateProjector;
+  protected NavigationService $navigationService;
   protected StorylineManagerService $storylineManager;
   protected RelationshipManagerService $relationshipManager;
   protected StateValidationService $stateValidationService;
@@ -51,7 +53,7 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
+  public function __construct(RequestStack $request_stack, Connection $database, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, NavigationService $navigation_service, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->campaignCharacterRuntimeResolver = $campaign_character_runtime_resolver;
@@ -60,6 +62,7 @@ class HexMapController extends ControllerBase {
     $this->questGenerator = $quest_generator;
     $this->imageRepository = $image_repository;
     $this->mapVisualStateProjector = $map_visual_state_projector;
+    $this->navigationService = $navigation_service;
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
     $this->stateValidationService = $state_validation_service;
@@ -80,6 +83,7 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.quest_generator'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
       $container->get('dungeoncrawler_content.map_visual_state_projector'),
+      $container->get('dungeoncrawler_content.navigation_service'),
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.relationship_manager'),
       $container->get('dungeoncrawler_content.state_validation_service'),
@@ -251,7 +255,19 @@ class HexMapController extends ControllerBase {
     $quest_summary = $this->loadQuestSummary($launch_context);
     $storyline_contacts = $this->loadStorylineContactSummary($launch_context);
     $campaign_title = $this->loadCampaignTitle($launch_context);
+    $dungeon_payload['campaign_id'] = (int) ($launch_context['campaign_id'] ?? 0);
+    if (trim((string) ($dungeon_payload['dungeon_id'] ?? '')) === '') {
+      $dungeon_payload['dungeon_id'] = (string) (
+        $launch_context['map_id']
+        ?? $dungeon_payload['map_id']
+        ?? ($dungeon_payload['hex_map']['map_id'] ?? '')
+      );
+    }
     $dungeon_payload['quest_summary'] = $quest_summary;
+    $active_room_id = trim((string) ($dungeon_payload['active_room_id'] ?? ''));
+    $dungeon_payload['navigation_capabilities'] = $active_room_id !== ''
+      ? $this->navigationService->buildNavigationCapabilitiesWithRoadNetwork($dungeon_payload, $active_room_id, [])
+      : [];
     $dungeon_payload = $this->injectQuestItemEntities($dungeon_payload, $quest_summary);
     $dungeon_payload = $this->attachEntityPortraitUrls($dungeon_payload, $launch_context);
     $dungeon_payload = $this->ensurePayloadObjectOrientations($dungeon_payload);
@@ -431,6 +447,7 @@ class HexMapController extends ControllerBase {
       return $launch_context;
     }
 
+    $this->campaignCharacterRuntimeResolver->assertRuntimePcIdentityContract($record, $campaign_id);
     $launch_context['character_id'] = (int) ($record['id'] ?? $requested_character_id);
 
     if (!$room_explicit) {
@@ -912,6 +929,14 @@ class HexMapController extends ControllerBase {
       if (is_array($row) && isset($row['dungeon_data'])) {
         $decoded = json_decode((string) $row['dungeon_data'], TRUE);
         if (is_array($decoded)) {
+          $requested_or_active_room_id = trim((string) (
+            $launch_context['room_id']
+            ?? $decoded['active_room_id']
+            ?? ''
+          ));
+          if ($requested_or_active_room_id !== '') {
+            $this->eagerlyInstantiateCanonicalRoomNeighborhood((int) $campaign_id, $decoded, $requested_or_active_room_id, 1);
+          }
           $normalized = $this->normalizeDungeonPayload($decoded, $launch_context);
 
           // If the requested room is missing from the loaded dungeon, search
@@ -922,6 +947,7 @@ class HexMapController extends ControllerBase {
             if ($fallback !== NULL) {
               $normalized = $this->normalizeDungeonPayload($fallback, $launch_context);
             }
+
           }
 
           $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap loadDungeonPayload exit: campaign_id=@campaign_id result=loaded active_room_id=@active_room_id room_count=@room_count entity_count=@entity_count', [
@@ -943,6 +969,315 @@ class HexMapController extends ControllerBase {
       '@campaign_id' => (int) $campaign_id,
     ]);
     return [];
+  }
+
+  /**
+   * Eagerly instantiate canonical exits and adjacent rooms for the entered room.
+   *
+   * Expands the runtime campaign graph from the active room into its immediate
+   * canonical neighborhood so direct exits are available without requiring a
+   * prior navigation-generated room instantiation pass.
+   */
+  protected function eagerlyInstantiateCanonicalRoomNeighborhood(
+    int $campaign_id,
+    array &$dungeon_data,
+    string $root_room_id,
+    int $max_depth = 1
+  ): void {
+    $root_room_id = trim($root_room_id);
+    if ($campaign_id <= 0 || $root_room_id === '') {
+      return;
+    }
+
+    $dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? ''
+    ));
+    if ($dungeon_id === '') {
+      return;
+    }
+
+    $map_generator = \Drupal::service('dungeoncrawler_content.map_generator');
+    $connector_definition = \Drupal::service('dungeoncrawler_content.connector_definition_service');
+    if (!$map_generator instanceof \Drupal\dungeoncrawler_content\Service\MapGeneratorService || !$connector_definition instanceof \Drupal\dungeoncrawler_content\Service\ConnectorDefinitionService) {
+      throw new \RuntimeException('Hexmap canonical room neighborhood instantiation requires map_generator and connector_definition services.');
+    }
+
+    $known_rooms = [];
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (is_array($room)) {
+        $room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($room_id !== '') {
+          $known_rooms[$room_id] = TRUE;
+        }
+      }
+    }
+
+    $queue = [[$root_room_id, 0]];
+    $visited = [];
+    while ($queue !== []) {
+      [$room_id, $depth] = array_shift($queue);
+      $room_id = trim((string) $room_id);
+      $depth = (int) $depth;
+      if ($room_id === '' || isset($visited[$room_id])) {
+        continue;
+      }
+      $visited[$room_id] = TRUE;
+
+      $canonical_room = $this->loadCanonicalRoomRow($room_id);
+      $layout_data = $canonical_room['layout_data'];
+      $contents_data = $canonical_room['contents_data'];
+      $environment_tags = $canonical_room['environment_tags'];
+
+      if (!isset($known_rooms[$room_id])) {
+        $map_generator->persistCanonicalCampaignRoom(
+          $campaign_id,
+          $room_id,
+          (string) ($canonical_room['name'] ?? $room_id),
+          (string) ($canonical_room['description'] ?? ''),
+          $layout_data,
+          $contents_data,
+          $environment_tags,
+          trim((string) ($canonical_room['source_room_id'] ?? $room_id)) ?: $room_id
+        );
+        $known_rooms[$room_id] = TRUE;
+      }
+
+      $this->appendCanonicalRoomToDungeonPayload($dungeon_data, $room_id, $canonical_room);
+
+      foreach ($connector_definition->loadCanonicalConnectorsForRoom($room_id) as $connector_row) {
+        if (!is_array($connector_row)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+        if ($from_room_id === '' || $to_room_id === '' || $from_room_id === $to_room_id) {
+          continue;
+        }
+        $target_room_id = $from_room_id === $room_id ? $to_room_id : ($to_room_id === $room_id ? $from_room_id : '');
+        if ($target_room_id === '') {
+          continue;
+        }
+
+        $target_canonical_room = $this->loadCanonicalRoomRow($target_room_id);
+        if (!isset($known_rooms[$target_room_id])) {
+          $map_generator->persistCanonicalCampaignRoom(
+            $campaign_id,
+            $target_room_id,
+            (string) ($target_canonical_room['name'] ?? $target_room_id),
+            (string) ($target_canonical_room['description'] ?? ''),
+            $target_canonical_room['layout_data'],
+            $target_canonical_room['contents_data'],
+            $target_canonical_room['environment_tags'],
+            trim((string) ($target_canonical_room['source_room_id'] ?? $target_room_id)) ?: $target_room_id
+          );
+          $known_rooms[$target_room_id] = TRUE;
+        }
+
+        $this->appendCanonicalRoomToDungeonPayload($dungeon_data, $target_room_id, $target_canonical_room);
+        $this->appendCanonicalConnectionToDungeonPayload(
+          $dungeon_data,
+          $campaign_id,
+          $dungeon_id,
+          $connector_row,
+          $connector_definition
+        );
+
+        if ($depth < $max_depth) {
+          $queue[] = [$target_room_id, $depth + 1];
+        }
+      }
+    }
+  }
+
+  /**
+   * Load a canonical room row with decoded payloads.
+   *
+   * @return array{name:string,description:string,source_room_id:string,layout_data:array,contents_data:array,environment_tags:array}
+   */
+  protected function loadCanonicalRoomRow(string $room_id): array {
+    $room_id = trim($room_id);
+    $row = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id'])
+      ->condition('room_id', $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      $row = $this->database->select('dungeoncrawler_content_rooms', 'r')
+        ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id'])
+        ->condition('source_room_id', $room_id)
+        ->orderBy('updated', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+    if (!is_array($row)) {
+      throw new \RuntimeException(sprintf('Canonical room %s is missing for eager navigation instantiation.', $room_id));
+    }
+
+    $layout_data = json_decode((string) ($row['layout_data'] ?? '{}'), TRUE);
+    $contents_data = json_decode((string) ($row['contents_data'] ?? '{}'), TRUE);
+    $environment_tags = json_decode((string) ($row['environment_tags'] ?? '[]'), TRUE);
+    if (!is_array($layout_data) || !is_array($contents_data) || !is_array($environment_tags)) {
+      throw new \RuntimeException(sprintf('Canonical room %s has invalid JSON payloads for eager navigation instantiation.', $room_id));
+    }
+
+    return [
+      'name' => (string) ($row['name'] ?? $room_id),
+      'description' => (string) ($row['description'] ?? ''),
+      'source_room_id' => (string) ($row['source_room_id'] ?? ''),
+      'layout_data' => $layout_data,
+      'contents_data' => $contents_data,
+      'environment_tags' => $environment_tags,
+    ];
+  }
+
+  /**
+   * Append a canonical room into the in-memory dungeon payload if absent.
+   */
+  protected function appendCanonicalRoomToDungeonPayload(array &$dungeon_data, string $room_id, array $canonical_room): void {
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    foreach ($rooms as $existing_room) {
+      if (is_array($existing_room) && trim((string) ($existing_room['room_id'] ?? '')) === $room_id) {
+        return;
+      }
+    }
+
+    $layout = $canonical_room['layout_data'];
+    $dungeon_data['rooms'][] = [
+      'room_id' => $room_id,
+      'source_room_id' => (string) ($canonical_room['source_room_id'] ?? $room_id),
+      'name' => (string) ($canonical_room['name'] ?? $room_id),
+      'description' => (string) ($canonical_room['description'] ?? ''),
+      'hexes' => is_array($layout['hexes'] ?? NULL) ? $layout['hexes'] : [],
+      'entry_points' => is_array($layout['entry_points'] ?? NULL) ? $layout['entry_points'] : [],
+      'exit_points' => is_array($layout['exit_points'] ?? NULL) ? $layout['exit_points'] : [],
+      'exits' => is_array($layout['exits'] ?? NULL) ? $layout['exits'] : [],
+      'terrain' => is_array($layout['terrain'] ?? NULL) ? $layout['terrain'] : [],
+      'lighting' => $layout['lighting'] ?? 'normal',
+      'room_type' => (string) ($layout['room_type'] ?? 'room'),
+      'size_category' => (string) ($layout['size_category'] ?? 'medium'),
+    ];
+  }
+
+  /**
+   * Save and append one canonical connection to the campaign/runtime dungeon payload.
+   */
+  protected function appendCanonicalConnectionToDungeonPayload(
+    array &$dungeon_data,
+    int $campaign_id,
+    string $dungeon_id,
+    array $connector_row,
+    \Drupal\dungeoncrawler_content\Service\ConnectorDefinitionService $connector_definition
+  ): void {
+    $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+    if ($from_room_id === '' || $to_room_id === '') {
+      throw new \RuntimeException('Canonical connector append contract violation: from_room_id and to_room_id are required.');
+    }
+
+    $connection_data = [
+      'dungeon_id' => $dungeon_id,
+      'from_room_id' => $from_room_id,
+      'to_room_id' => $to_room_id,
+      'direction' => (string) ($connector_row['direction'] ?? 'bidirectional'),
+      'kind' => (string) ($connector_row['kind'] ?? 'hallway'),
+      'default_state' => (string) ($connector_row['state'] ?? $connector_row['default_state'] ?? 'open'),
+      'state' => (string) ($connector_row['state'] ?? $connector_row['default_state'] ?? 'open'),
+      'description' => (string) ($connector_row['description'] ?? ''),
+      'travel_cost' => (int) ($connector_row['travel_cost'] ?? 0),
+      'trap_data' => is_array($connector_row['trap_data'] ?? NULL) ? $connector_row['trap_data'] : NULL,
+      'lock_data' => is_array($connector_row['lock_data'] ?? NULL) ? $connector_row['lock_data'] : NULL,
+      'requirements_data' => is_array($connector_row['requirements_data'] ?? NULL) ? $connector_row['requirements_data'] : NULL,
+      'is_discovered_default' => (int) ($connector_row['is_discovered_default'] ?? $connector_row['is_discovered'] ?? 1),
+      'connection_id' => (string) ($connector_row['connection_id'] ?? ''),
+      'from_hex' => is_array($connector_row['from_hex'] ?? NULL)
+        ? $connector_row['from_hex']
+        : $this->resolveCanonicalEntryHex($this->loadCanonicalRoomRow($from_room_id)['layout_data'], TRUE),
+      'to_hex' => is_array($connector_row['to_hex'] ?? NULL)
+        ? $connector_row['to_hex']
+        : $this->resolveCanonicalEntryHex($this->loadCanonicalRoomRow($to_room_id)['layout_data'], FALSE),
+    ];
+    $connection_id = $connector_definition->saveCampaignConnector($campaign_id, $connection_data);
+
+    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+      $dungeon_data['hex_map'] = [];
+    }
+    if (!isset($dungeon_data['hex_map']['connections']) || !is_array($dungeon_data['hex_map']['connections'])) {
+      $dungeon_data['hex_map']['connections'] = [];
+    }
+    foreach ($dungeon_data['hex_map']['connections'] as $existing) {
+      $existing_id = trim((string) ($existing['connection_id'] ?? ''));
+      if ($existing_id === $connection_id) {
+        return;
+      }
+    }
+
+    $from_hex = $connection_data['from_hex'];
+    $to_hex = $connection_data['to_hex'];
+    $dungeon_data['hex_map']['connections'][] = [
+      'connection_id' => $connection_id,
+      'from_room' => $from_room_id,
+      'from_room_id' => $from_room_id,
+      'to_room' => $to_room_id,
+      'to_room_id' => $to_room_id,
+      'from_hex' => $from_hex,
+      'to_hex' => $to_hex,
+      'from' => ['room_id' => $from_room_id, 'q' => (int) ($from_hex['q'] ?? 0), 'r' => (int) ($from_hex['r'] ?? 0)],
+      'to' => ['room_id' => $to_room_id, 'q' => (int) ($to_hex['q'] ?? 0), 'r' => (int) ($to_hex['r'] ?? 0)],
+      'type' => (string) ($connection_data['kind'] ?? 'passage'),
+      'kind' => (string) ($connection_data['kind'] ?? 'passage'),
+      'state' => (string) ($connection_data['state'] ?? 'open'),
+      'bidirectional' => strtolower((string) ($connection_data['direction'] ?? 'bidirectional')) !== 'one_way',
+      'is_discovered' => (int) ($connection_data['is_discovered_default'] ?? 1) === 1,
+      'is_passable' => strtolower((string) ($connection_data['state'] ?? 'open')) === 'open',
+      'destination_type' => 'room',
+      'destination_id' => $to_room_id,
+    ];
+  }
+
+  /**
+   * Resolve the canonical exit hex from a room layout toward a target room.
+   *
+   * @return array{q:int,r:int}
+   */
+  protected function resolveCanonicalExitHex(array $layout, string $target_room_id, bool $prefer_exit_points = TRUE): array {
+    foreach ((array) ($layout['exits'] ?? []) as $exit) {
+      if (!is_array($exit) || trim((string) ($exit['target_room_id'] ?? '')) !== $target_room_id) {
+        continue;
+      }
+      if (isset($exit['q'], $exit['r']) && is_numeric($exit['q']) && is_numeric($exit['r'])) {
+        return ['q' => (int) $exit['q'], 'r' => (int) $exit['r']];
+      }
+    }
+    return $this->resolveCanonicalEntryHex($layout, $prefer_exit_points);
+  }
+
+  /**
+   * Resolve a stable connection anchor hex from room layout points.
+   *
+   * @return array{q:int,r:int}
+   */
+  protected function resolveCanonicalEntryHex(array $layout, bool $prefer_exit_points = FALSE): array {
+    $primary_points = $prefer_exit_points
+      ? (is_array($layout['exit_points'] ?? NULL) ? $layout['exit_points'] : [])
+      : (is_array($layout['entry_points'] ?? NULL) ? $layout['entry_points'] : []);
+    $secondary_points = $prefer_exit_points
+      ? (is_array($layout['entry_points'] ?? NULL) ? $layout['entry_points'] : [])
+      : (is_array($layout['exit_points'] ?? NULL) ? $layout['exit_points'] : []);
+
+    foreach ([$primary_points, $secondary_points, (array) ($layout['hexes'] ?? [])] as $point_set) {
+      foreach ($point_set as $point) {
+        if (!is_array($point) || !isset($point['q'], $point['r']) || !is_numeric($point['q']) || !is_numeric($point['r'])) {
+          continue;
+        }
+        return ['q' => (int) $point['q'], 'r' => (int) $point['r']];
+      }
+    }
+
+    throw new \RuntimeException('Canonical room layout has no usable anchor hex for eager navigation instantiation.');
   }
 
   /**
@@ -1145,6 +1480,10 @@ class HexMapController extends ControllerBase {
         if (!empty($rows)) {
           return $this->normalizePortraitUrl($this->imageRepository->resolveClientUrl($rows[0]));
         }
+        $runtime_portrait = $this->resolveCampaignCharacterPortraitColumn($campaign_id, (int) $campaign_npc_id);
+        if ($runtime_portrait !== NULL && $runtime_portrait !== '') {
+          return $runtime_portrait;
+        }
       }
     }
 
@@ -1178,6 +1517,10 @@ class HexMapController extends ControllerBase {
         }
         if (!empty($rows)) {
           return $this->normalizePortraitUrl($this->imageRepository->resolveClientUrl($rows[0]));
+        }
+        $runtime_portrait = $this->resolveCampaignCharacterPortraitColumn($campaign_id, (int) $campaign_character_id);
+        if ($runtime_portrait !== NULL && $runtime_portrait !== '') {
+          return $runtime_portrait;
         }
       }
 
@@ -2559,9 +2902,12 @@ class HexMapController extends ControllerBase {
       ];
     }
 
-    $active_room_id = (string) ($launch_context['room_id'] ?? '');
-    if (!$active_room_id && !empty($rooms)) {
-      $active_room_id = (string) array_key_first($rooms);
+    $active_room_id = trim((string) ($launch_context['room_id'] ?? ''));
+    if ($active_room_id === '') {
+      $active_room_id = trim((string) ($decoded['active_room_id'] ?? ''));
+    }
+    if ($active_room_id === '' || !isset($rooms[$active_room_id])) {
+      $active_room_id = !empty($rooms) ? (string) array_key_first($rooms) : '';
     }
 
     // Ensure room-anchored setting objects are represented as stable entities.
