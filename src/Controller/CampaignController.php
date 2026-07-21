@@ -1366,7 +1366,7 @@ class CampaignController extends ControllerBase {
 
         $has_updates = TRUE;
       }
-      if ($this->ensureStarterCanonicalStreetConnection($dungeon_data, 'tavern_entrance')) {
+      if ($this->ensureStarterCanonicalStreetConnection((int) $campaign_id, $dungeon_data, 'tavern_entrance')) {
         $has_updates = TRUE;
       }
       if ($has_updates) {
@@ -1399,7 +1399,10 @@ class CampaignController extends ControllerBase {
    * @return bool
    *   TRUE when the payload was modified.
    */
-  private function ensureStarterCanonicalStreetConnection(array &$dungeon_data, string $starter_room_id): bool {
+  private function ensureStarterCanonicalStreetConnection(int $campaign_id, array &$dungeon_data, string $starter_room_id): bool {
+    if ($campaign_id <= 0) {
+      return FALSE;
+    }
     $starter_room_id = trim($starter_room_id);
     if ($starter_room_id === '') {
       return FALSE;
@@ -1412,35 +1415,142 @@ class CampaignController extends ControllerBase {
       $dungeon_data['hex_map']['connections'] = [];
     }
 
+    $helper_connection_id = $starter_room_id . '__' . self::STARTER_CITY_STREETS_ROOM_ID . '__passage__unscoped';
+    $canonical_connection = $this->loadStarterCanonicalStreetConnection($campaign_id, $starter_room_id);
+    if ($canonical_connection === NULL) {
+      return FALSE;
+    }
+
+    $filtered_connections = [];
+    $has_canonical_connection = FALSE;
     foreach ($dungeon_data['hex_map']['connections'] as $connection) {
       if (!is_array($connection)) {
         continue;
       }
+      $connection_id = trim((string) ($connection['connection_id'] ?? ''));
       $from_room = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
       $to_room = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
-      if (
+      $is_starter_street_pair = (
         ($from_room === $starter_room_id && $to_room === self::STARTER_CITY_STREETS_ROOM_ID)
         || ($from_room === self::STARTER_CITY_STREETS_ROOM_ID && $to_room === $starter_room_id)
-      ) {
-        return FALSE;
+      );
+      if ($connection_id === $helper_connection_id && $is_starter_street_pair) {
+        continue;
       }
+      if ($is_starter_street_pair && $connection_id === (string) ($canonical_connection['connection_id'] ?? '')) {
+        $has_canonical_connection = TRUE;
+      }
+      $filtered_connections[] = $connection;
     }
 
-    $dungeon_data['hex_map']['connections'][] = [
-      'connection_id' => $starter_room_id . '__' . self::STARTER_CITY_STREETS_ROOM_ID . '__passage__unscoped',
-      'from_room' => $starter_room_id,
-      'from_room_name' => 'The Gilded Tankard',
-      'to_room' => self::STARTER_CITY_STREETS_ROOM_ID,
-      'to_room_name' => 'Absalom Streets',
-      'type' => 'passage',
-      'bidirectional' => TRUE,
-      'is_discovered' => TRUE,
-      'is_passable' => TRUE,
-      'destination_type' => 'room',
-      'destination_id' => self::STARTER_CITY_STREETS_ROOM_ID,
-    ];
+    $payload_changed = count($filtered_connections) !== count($dungeon_data['hex_map']['connections']);
+    $dungeon_data['hex_map']['connections'] = $filtered_connections;
+    if (!$has_canonical_connection) {
+      $dungeon_data['hex_map']['connections'][] = $canonical_connection;
+      $payload_changed = TRUE;
+    }
 
-    return TRUE;
+    $deleted_rows = (int) $this->database->delete('dc_campaign_connections')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('connection_id', $helper_connection_id)
+      ->execute();
+    if ($deleted_rows > 0) {
+      $payload_changed = TRUE;
+    }
+
+    return $payload_changed;
+  }
+
+  /**
+   * Load the canonical starter tavern -> streets payload connection from campaign authority.
+   *
+   * @return array<string,mixed>|null
+   *   Canonical payload-style connection or NULL when unavailable.
+   */
+  private function loadStarterCanonicalStreetConnection(int $campaign_id, string $starter_room_id): ?array {
+    $rows = $this->database->select('dc_campaign_connections', 'c')
+      ->fields('c', [
+        'connection_id',
+        'from_room_id',
+        'to_room_id',
+        'from_hex_q',
+        'from_hex_r',
+        'to_hex_q',
+        'to_hex_r',
+        'direction',
+        'kind',
+        'state',
+        'is_discovered',
+        'is_passable',
+      ])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('connection_id', $starter_room_id . '__' . self::STARTER_CITY_STREETS_ROOM_ID . '__passage__unscoped', '<>');
+    $or = $rows->orConditionGroup()
+      ->condition(
+        $rows->andConditionGroup()
+          ->condition('from_room_id', $starter_room_id)
+          ->condition('to_room_id', self::STARTER_CITY_STREETS_ROOM_ID)
+      )
+      ->condition(
+        $rows->andConditionGroup()
+          ->condition('from_room_id', self::STARTER_CITY_STREETS_ROOM_ID)
+          ->condition('to_room_id', $starter_room_id)
+      );
+    $result = $rows
+      ->condition($or)
+      ->orderBy('created', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($result) || $result === []) {
+      return NULL;
+    }
+
+    $selected = NULL;
+    foreach ($result as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      if (
+        trim((string) ($row['from_room_id'] ?? '')) === $starter_room_id
+        && trim((string) ($row['to_room_id'] ?? '')) === self::STARTER_CITY_STREETS_ROOM_ID
+      ) {
+        $selected = $row;
+        break;
+      }
+      if ($selected === NULL) {
+        $selected = $row;
+      }
+    }
+    if (!is_array($selected)) {
+      return NULL;
+    }
+
+    $from_room_id = trim((string) ($selected['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($selected['to_room_id'] ?? ''));
+    return [
+      'connection_id' => (string) ($selected['connection_id'] ?? ''),
+      'from_room' => $from_room_id,
+      'from_room_id' => $from_room_id,
+      'to_room' => $to_room_id,
+      'to_room_id' => $to_room_id,
+      'type' => (string) ($selected['kind'] ?? 'hallway'),
+      'kind' => (string) ($selected['kind'] ?? 'hallway'),
+      'state' => (string) ($selected['state'] ?? 'open'),
+      'bidirectional' => strtolower((string) ($selected['direction'] ?? 'bidirectional')) !== 'one_way',
+      'is_discovered' => !empty($selected['is_discovered']),
+      'is_passable' => !empty($selected['is_passable']),
+      'destination_type' => 'room',
+      'destination_id' => $to_room_id,
+      'from_hex' => [
+        'q' => (int) ($selected['from_hex_q'] ?? 0),
+        'r' => (int) ($selected['from_hex_r'] ?? 0),
+      ],
+      'to_hex' => [
+        'q' => (int) ($selected['to_hex_q'] ?? 0),
+        'r' => (int) ($selected['to_hex_r'] ?? 0),
+      ],
+    ];
   }
 
   /**

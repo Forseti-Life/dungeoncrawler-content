@@ -586,14 +586,10 @@ class CampaignInitializationService {
   }
 
   /**
-   * Build canonical starter-room navigation edges for first-time room realization.
-   *
-   * The destination room may not be instantiated yet in campaign runtime state.
-   * Navigation still advertises the canonical connector, and transition handlers
-   * materialize the destination room on first travel.
+   * Build starter payload connection rows from canonical connector authority.
    *
    * @return array<int, array<string, mixed>>
-   *   Canonical starter connections.
+   *   Canonical starter connections for payload mirroring.
    */
   private function buildStarterCanonicalConnections(string $starter_room_id): array {
     $starter_room_id = trim($starter_room_id);
@@ -601,18 +597,23 @@ class CampaignInitializationService {
       throw new \RuntimeException('Starter dungeon contract violation: starter room id is required for canonical starter connections.');
     }
 
+    $canonical_match = $this->resolveCanonicalStarterConnector($starter_room_id, self::STARTER_CITY_STREETS_ROOM_ID);
     return [[
-      'connection_id' => $starter_room_id . '__' . self::STARTER_CITY_STREETS_ROOM_ID . '__passage__unscoped',
-      'from_room' => $starter_room_id,
-      'from_room_name' => 'The Gilded Tankard',
-      'to_room' => self::STARTER_CITY_STREETS_ROOM_ID,
-      'to_room_name' => 'Absalom Streets',
-      'type' => 'passage',
-      'bidirectional' => TRUE,
-      'is_discovered' => TRUE,
-      'is_passable' => TRUE,
+      'connection_id' => (string) ($canonical_match['connection_id'] ?? ''),
+      'from_room' => (string) ($canonical_match['from_room_id'] ?? $starter_room_id),
+      'from_room_id' => (string) ($canonical_match['from_room_id'] ?? $starter_room_id),
+      'to_room' => (string) ($canonical_match['to_room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
+      'to_room_id' => (string) ($canonical_match['to_room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
+      'type' => (string) ($canonical_match['kind'] ?? 'hallway'),
+      'kind' => (string) ($canonical_match['kind'] ?? 'hallway'),
+      'state' => (string) ($canonical_match['state'] ?? $canonical_match['default_state'] ?? 'open'),
+      'bidirectional' => strtolower((string) ($canonical_match['direction'] ?? 'bidirectional')) !== 'one_way',
+      'is_discovered' => !empty($canonical_match['is_discovered_default']) || !empty($canonical_match['is_discovered']),
+      'is_passable' => strtolower((string) ($canonical_match['state'] ?? $canonical_match['default_state'] ?? 'open')) === 'open',
       'destination_type' => 'room',
-      'destination_id' => self::STARTER_CITY_STREETS_ROOM_ID,
+      'destination_id' => (string) ($canonical_match['to_room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
+      'from_hex' => is_array($canonical_match['from_hex'] ?? NULL) ? $canonical_match['from_hex'] : NULL,
+      'to_hex' => is_array($canonical_match['to_hex'] ?? NULL) ? $canonical_match['to_hex'] : NULL,
     ]];
   }
 
@@ -685,26 +686,10 @@ class CampaignInitializationService {
       ));
     }
 
-    $canonical_connectors = $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon(self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID);
-    if ($canonical_connectors === []) {
-      throw new \RuntimeException(sprintf(
-        'Starter connector authority contract violation: canonical connector table is empty for %s.',
-        self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID
-      ));
-    }
-
     foreach ($starter_connections as $starter_connection) {
       $from_room_id = (string) $starter_connection['from_room_id'];
       $to_room_id = (string) $starter_connection['to_room_id'];
-      $canonical_match = $this->matchCanonicalStarterConnector($canonical_connectors, $from_room_id, $to_room_id);
-      if ($canonical_match === NULL) {
-        throw new \RuntimeException(sprintf(
-          'Starter connector authority contract violation: canonical connector missing for %s <-> %s in %s.',
-          $from_room_id,
-          $to_room_id,
-          self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID
-        ));
-      }
+      $canonical_match = $this->resolveCanonicalStarterConnector($from_room_id, $to_room_id);
 
       $connection_id = (string) ($starter_connection['connection_id'] ?? '');
       if ($connection_id === '') {
@@ -743,6 +728,35 @@ class CampaignInitializationService {
         'dungeon_id' => $runtime_dungeon_id,
       ]);
     }
+  }
+
+  /**
+   * Resolve the canonical starter connector payload for a room pair.
+   */
+  private function resolveCanonicalStarterConnector(string $from_room_id, string $to_room_id): array {
+    if (!$this->connectorDefinitionService) {
+      throw new \RuntimeException('Starter connector authority contract violation: ConnectorDefinitionService is required.');
+    }
+
+    $canonical_connectors = $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon(self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID);
+    if ($canonical_connectors === []) {
+      throw new \RuntimeException(sprintf(
+        'Starter connector authority contract violation: canonical connector table is empty for %s.',
+        self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID
+      ));
+    }
+
+    $canonical_match = $this->matchCanonicalStarterConnector($canonical_connectors, $from_room_id, $to_room_id);
+    if ($canonical_match === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Starter connector authority contract violation: canonical connector missing for %s <-> %s in %s.',
+        $from_room_id,
+        $to_room_id,
+        self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID
+      ));
+    }
+
+    return $canonical_match;
   }
 
   /**
