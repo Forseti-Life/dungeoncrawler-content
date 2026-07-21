@@ -48,6 +48,7 @@ class NavigationService {
       }
     }
     $capabilities = $this->enforceDuplicateExitContractConflicts($capabilities);
+    $capabilities = $this->collapseDuplicateDestinationCapabilities($capabilities);
 
     return $this->sortCapabilities($capabilities);
   }
@@ -122,6 +123,124 @@ class NavigationService {
     }
 
     return $target_room_ids;
+  }
+
+  /**
+   * Collapse duplicate capabilities that lead to the same destination room.
+   *
+   * Canonical connector tables can legitimately contain overlapping rows for the
+   * same destination during map-bridge and helper-connection materialization.
+   * The navigation menu contract is one destination entry per target room, so
+   * we choose the strongest authoritative capability for that destination.
+   *
+   * @param array<int, array<string, mixed>> $capabilities
+   *   Navigation capabilities.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Deduplicated capabilities.
+   */
+  protected function collapseDuplicateDestinationCapabilities(array $capabilities): array {
+    $selected_by_destination = [];
+    $passthrough = [];
+    foreach ($capabilities as $capability) {
+      $destination_key = $this->buildCapabilityDestinationKey($capability);
+      if ($destination_key === '') {
+        $passthrough[] = $capability;
+        continue;
+      }
+      if (!isset($selected_by_destination[$destination_key])) {
+        $selected_by_destination[$destination_key] = $capability;
+        continue;
+      }
+      $selected_by_destination[$destination_key] = $this->preferDuplicateDestinationCapability(
+        $selected_by_destination[$destination_key],
+        $capability
+      );
+    }
+
+    return array_merge(array_values($selected_by_destination), $passthrough);
+  }
+
+  /**
+   * Build the dedupe key for one rendered navigation destination.
+   */
+  protected function buildCapabilityDestinationKey(array $capability): string {
+    $origin_room_id = trim((string) ($capability['origin_room_id'] ?? ''));
+    $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+    $destination_type = trim((string) ($capability['destination_type'] ?? ''));
+    $destination_id = trim((string) ($capability['destination_id'] ?? ''));
+    if ($origin_room_id === '') {
+      return '';
+    }
+    if ($target_room_id !== '') {
+      return implode('|', [$origin_room_id, 'room', $target_room_id]);
+    }
+    if ($destination_type !== '' && $destination_id !== '') {
+      return implode('|', [$origin_room_id, $destination_type, $destination_id]);
+    }
+    return '';
+  }
+
+  /**
+   * Pick the best capability when duplicate destination entries exist.
+   */
+  protected function preferDuplicateDestinationCapability(array $current, array $candidate): array {
+    $current_score = $this->scoreDuplicateDestinationCapability($current);
+    $candidate_score = $this->scoreDuplicateDestinationCapability($candidate);
+    if ($candidate_score > $current_score) {
+      return $candidate;
+    }
+    if ($candidate_score < $current_score) {
+      return $current;
+    }
+
+    $current_distance = (int) ($current['distance'] ?? 0);
+    $candidate_distance = (int) ($candidate['distance'] ?? 0);
+    if ($candidate_distance < $current_distance) {
+      return $candidate;
+    }
+    if ($candidate_distance > $current_distance) {
+      return $current;
+    }
+
+    $current_id = trim((string) ($current['connection_id'] ?? ''));
+    $candidate_id = trim((string) ($candidate['connection_id'] ?? ''));
+    return strcmp($candidate_id, $current_id) < 0 ? $candidate : $current;
+  }
+
+  /**
+   * Score a capability for duplicate-destination selection.
+   */
+  protected function scoreDuplicateDestinationCapability(array $capability): int {
+    $score = !empty($capability['available']) ? 100 : 0;
+    $connection_id = trim((string) ($capability['connection_id'] ?? ''));
+    if ($connection_id !== '' && !str_contains(strtolower($connection_id), '__passage__unscoped')) {
+      $score += 20;
+    }
+
+    $origin_room_id = trim((string) ($capability['origin_room_id'] ?? ''));
+    $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+    if ($origin_room_id !== '' && $target_room_id !== '' && $this->connectionIdMatchesForwardDirection($connection_id, $origin_room_id, $target_room_id)) {
+      $score += 10;
+    }
+
+    if (trim((string) ($capability['target_room_name'] ?? '')) !== '') {
+      $score += 5;
+    }
+
+    return $score;
+  }
+
+  /**
+   * Detect whether a connection id is aligned with the current origin->target direction.
+   */
+  protected function connectionIdMatchesForwardDirection(string $connection_id, string $origin_room_id, string $target_room_id): bool {
+    $connection_id = trim($connection_id);
+    if ($connection_id === '' || $origin_room_id === '' || $target_room_id === '') {
+      return FALSE;
+    }
+    return str_starts_with($connection_id, $origin_room_id . '__' . $target_room_id)
+      || str_contains($connection_id, '::' . $origin_room_id . '::' . $target_room_id . '::');
   }
 
   /**
