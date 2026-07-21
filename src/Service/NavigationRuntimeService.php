@@ -217,7 +217,7 @@ class NavigationRuntimeService {
       '@entities_added' => count($result['entities'] ?? []),
     ]);
 
-    return [
+    $navigation_result = [
       'type' => 'navigate_to_location',
       'origin_room_id' => $origin_room_id,
       'destination' => $destination,
@@ -231,6 +231,16 @@ class NavigationRuntimeService {
       'dungeon_data' => $result['dungeon_data'] ?? [],
       'source' => $result['source'] ?? NULL,
       'template_id' => $result['template_id'] ?? NULL,
+    ];
+
+    $client_payload = $this->mapGenerator->buildClientNavigationPayload($navigation_result);
+    return $client_payload + [
+      'new_room' => $navigation_result['new_room'],
+      'new_room_index' => $navigation_result['new_room_index'],
+      'entities_added' => $navigation_result['entities_added'],
+      'dungeon_data' => $navigation_result['dungeon_data'],
+      'source' => $navigation_result['source'],
+      'template_id' => $navigation_result['template_id'],
     ];
   }
 

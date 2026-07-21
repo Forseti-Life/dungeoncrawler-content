@@ -382,7 +382,14 @@ export class NavigationSystem {
     const newRoom = nav.room;
     const newEntities = nav.entities || [];
     const newConnections = nav.connections || [];
-    const navigationCapabilities = Array.isArray(nav.navigation_capabilities) ? nav.navigation_capabilities : [];
+    // Presentation-only contract: the client must render the server-authored
+    // navigation payload as-is and must never synthesize or clear exits locally.
+    // Missing navigation_capabilities is a server contract failure, not a client
+    // reconciliation case.
+    if (!Array.isArray(nav.navigation_capabilities)) {
+      throw new Error('Navigation receipt contract violation: navigation_capabilities is required for client rendering.');
+    }
+    const navigationCapabilities = nav.navigation_capabilities;
     const entryHex = nav.entry_hex || { q: 0, r: 0 };
 
     console.log('[Navigation] Transitioning to:', targetRoomId, nav.destination);

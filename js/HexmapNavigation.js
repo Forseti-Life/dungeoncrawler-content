@@ -168,7 +168,13 @@ export class HexmapNavigation {
     if (nav.room && typeof nav.room === 'object') {
       hm.dungeonData.rooms[targetRoomId] = nav.room;
     }
-    hm.dungeonData.navigation_capabilities = Array.isArray(nav.navigation_capabilities) ? nav.navigation_capabilities : [];
+    // Presentation-only contract: this client adapter must only apply the
+    // server-authored navigation payload. Missing navigation_capabilities is a
+    // server defect and must not be converted into a local empty-exit state.
+    if (!Array.isArray(nav.navigation_capabilities)) {
+      throw new Error('Navigation receipt contract violation: navigation_capabilities is required for client rendering.');
+    }
+    hm.dungeonData.navigation_capabilities = nav.navigation_capabilities;
 
     this.mergeNavigationEntities(nav.entities || []);
     this.mergeNavigationConnections(nav.connections || []);
