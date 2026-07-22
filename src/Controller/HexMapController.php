@@ -15,6 +15,9 @@ use Drupal\dungeoncrawler_content\Service\NavigationService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
+use Drupal\dungeoncrawler_content\Service\DungeonSnapshotRefresherService;
+use Drupal\dungeoncrawler_content\Service\GraphVersionService;
+use Drupal\dungeoncrawler_content\Service\RuntimeGraphAssemblerService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -24,6 +27,11 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /**
  * Controller for hex map rendering and interaction.
+ *
+ * Authority boundary:
+ * - runtime graph truth must come from campaign room/connector authority
+ * - this controller consumes a server-built runtime graph/snapshot for delivery
+ * - this controller must not repair, invent, or independently author graph truth
  */
 class HexMapController extends ControllerBase {
 
@@ -39,10 +47,13 @@ class HexMapController extends ControllerBase {
   protected QuestGeneratorService $questGenerator;
   protected GeneratedImageRepository $imageRepository;
   protected MapVisualStateProjector $mapVisualStateProjector;
+  protected DungeonSnapshotRefresherService $dungeonSnapshotRefresher;
+  protected GraphVersionService $graphVersionService;
   protected NavigationRuntimeService $navigationRuntime;
   protected NavigationService $navigationService;
   protected StorylineManagerService $storylineManager;
   protected RelationshipManagerService $relationshipManager;
+  protected RuntimeGraphAssemblerService $runtimeGraphAssembler;
   protected StateValidationService $stateValidationService;
   protected CharacterManager $characterManager;
   protected CharacterStateService $characterStateService;
@@ -55,7 +66,7 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, NavigationRuntimeService $navigation_runtime, NavigationService $navigation_service, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
+  public function __construct(RequestStack $request_stack, Connection $database, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, DungeonSnapshotRefresherService $dungeon_snapshot_refresher, GraphVersionService $graph_version_service, NavigationRuntimeService $navigation_runtime, NavigationService $navigation_service, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, RuntimeGraphAssemblerService $runtime_graph_assembler, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->campaignCharacterRuntimeResolver = $campaign_character_runtime_resolver;
@@ -64,10 +75,13 @@ class HexMapController extends ControllerBase {
     $this->questGenerator = $quest_generator;
     $this->imageRepository = $image_repository;
     $this->mapVisualStateProjector = $map_visual_state_projector;
+    $this->dungeonSnapshotRefresher = $dungeon_snapshot_refresher;
+    $this->graphVersionService = $graph_version_service;
     $this->navigationRuntime = $navigation_runtime;
     $this->navigationService = $navigation_service;
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
+    $this->runtimeGraphAssembler = $runtime_graph_assembler;
     $this->stateValidationService = $state_validation_service;
     $this->characterManager = $character_manager;
     $this->characterStateService = $character_state_service;
@@ -86,10 +100,13 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.quest_generator'),
       $container->get('dungeoncrawler_content.generated_image_repository'),
       $container->get('dungeoncrawler_content.map_visual_state_projector'),
+      $container->get('dungeoncrawler_content.dungeon_snapshot_refresher'),
+      $container->get('dungeoncrawler_content.graph_version_service'),
       $container->get('dungeoncrawler_content.navigation_runtime'),
       $container->get('dungeoncrawler_content.navigation_service'),
       $container->get('dungeoncrawler_content.storyline_manager'),
       $container->get('dungeoncrawler_content.relationship_manager'),
+      $container->get('dungeoncrawler_content.runtime_graph_assembler'),
       $container->get('dungeoncrawler_content.state_validation_service'),
       $container->get('dungeoncrawler_content.character_manager'),
       $container->get('dungeoncrawler_content.character_state'),
@@ -171,6 +188,40 @@ class HexMapController extends ControllerBase {
   }
 
   /**
+   * Lightweight API endpoint for graph freshness confirmation.
+   */
+  public function graphVersion(): JsonResponse {
+    $launch_context = $this->buildLaunchContextFromRequest();
+    $this->assertCampaignAccess($launch_context);
+
+    $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
+    $dungeon_id = trim((string) ($launch_context['map_id'] ?? ''));
+    if ($campaign_id <= 0 || $dungeon_id === '') {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => 'campaign_id and map_id are required.',
+      ], 400);
+    }
+
+    $version_metadata = $this->graphVersionService->buildVersionMetadata($campaign_id, $dungeon_id);
+    $request = $this->requestStack->getCurrentRequest();
+    $client_campaign_graph_version = trim((string) ($request?->query->get('campaign_graph_version') ?? ''));
+    $is_current = $client_campaign_graph_version !== ''
+      && hash_equals((string) $version_metadata['campaign_graph_version'], $client_campaign_graph_version);
+
+    return new JsonResponse([
+      'success' => TRUE,
+      'campaign_id' => $campaign_id,
+      'dungeon_id' => $dungeon_id,
+      'canonical_graph_version' => (string) $version_metadata['canonical_graph_version'],
+      'campaign_graph_version' => (string) $version_metadata['campaign_graph_version'],
+      'active_room_id' => (string) ($version_metadata['active_room_id'] ?? ''),
+      'is_current' => $is_current,
+      'requires_reload' => !$is_current,
+    ]);
+  }
+
+  /**
    * Build the canonical visual-state response payload.
    */
   protected function buildVisualStatePayload(array $launch_context, array $hexmap_state): array {
@@ -179,6 +230,8 @@ class HexMapController extends ControllerBase {
       'launch_context' => $launch_context,
       'dungeon_payload' => $this->buildClientBootstrapDungeonPayload($hexmap_state['dungeon_payload']),
       'map_visual_state' => $this->buildClientBootstrapMapVisualState($hexmap_state['map_visual_state']),
+      'canonical_graph_version' => (string) ($hexmap_state['dungeon_payload']['canonical_graph_version'] ?? ''),
+      'campaign_graph_version' => (string) ($hexmap_state['dungeon_payload']['campaign_graph_version'] ?? ''),
       'launch_character' => $hexmap_state['launch_character'],
       'quest_summary' => $hexmap_state['quest_summary'],
       'storyline_contacts' => $hexmap_state['storyline_contacts'],
@@ -228,6 +281,8 @@ class HexMapController extends ControllerBase {
       'level_id' => (string) ($dungeon_payload['level_id'] ?? ''),
       'map_id' => (string) ($dungeon_payload['map_id'] ?? $dungeon_payload['dungeon_id'] ?? ''),
       'dungeon_id' => (string) ($dungeon_payload['dungeon_id'] ?? $dungeon_payload['map_id'] ?? ''),
+      'canonical_graph_version' => (string) ($dungeon_payload['canonical_graph_version'] ?? ''),
+      'campaign_graph_version' => (string) ($dungeon_payload['campaign_graph_version'] ?? ''),
       'active_room_id' => $active_room_id,
       'rooms' => new \stdClass(),
       'connections' => $connections,
@@ -1148,11 +1203,32 @@ class HexMapController extends ControllerBase {
             ?? $decoded['active_room_id']
             ?? ''
           ));
-          if ($requested_or_active_room_id !== '') {
+          if (
+            $requested_or_active_room_id !== ''
+            && !$this->dungeonPayloadContainsRoom($decoded, $requested_or_active_room_id)
+          ) {
             $this->eagerlyInstantiateCanonicalRoomNeighborhood((int) $campaign_id, $decoded, $requested_or_active_room_id, 1);
-            $this->prunePayloadConnectionsToMaterializedRooms($decoded);
-            $this->persistCampaignDungeonPayloadIfChanged((int) ($row['id'] ?? 0), $decoded, (string) $row['dungeon_data']);
+            $this->persistCampaignDungeonPayloadIfChanged(
+              (int) ($row['id'] ?? 0),
+              (int) $campaign_id,
+              (string) ($row['dungeon_id'] ?? ($launch_context['map_id'] ?? '')),
+              $decoded,
+              (string) $row['dungeon_data'],
+              [
+                'active_room_id' => $requested_or_active_room_id,
+                'requested_room_id' => trim((string) ($launch_context['room_id'] ?? '')),
+              ]
+            );
           }
+          $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
+            (int) $campaign_id,
+            (string) ($row['dungeon_id'] ?? ($launch_context['map_id'] ?? '')),
+            $decoded,
+            [
+              'active_room_id' => $requested_or_active_room_id !== '' ? $requested_or_active_room_id : (string) ($decoded['active_room_id'] ?? ''),
+              'requested_room_id' => trim((string) ($launch_context['room_id'] ?? '')),
+            ]
+          );
           $normalized = $this->normalizeDungeonPayload($decoded, $launch_context);
 
           // If the requested room is missing from the loaded dungeon, search
@@ -1161,8 +1237,18 @@ class HexMapController extends ControllerBase {
           if ($requested_room !== '' && !isset($normalized['rooms'][$requested_room])) {
             $fallback = $this->findDungeonContainingRoom($campaign_id, $requested_room, (string) ($launch_context['map_id'] ?? ''));
             if ($fallback !== NULL) {
-              $this->eagerlyInstantiateCanonicalRoomNeighborhood((int) $campaign_id, $fallback, $requested_room, 1);
-              $this->prunePayloadConnectionsToMaterializedRooms($fallback);
+              if (!$this->dungeonPayloadContainsRoom($fallback, $requested_room)) {
+                $this->eagerlyInstantiateCanonicalRoomNeighborhood((int) $campaign_id, $fallback, $requested_room, 1);
+              }
+              $fallback = $this->runtimeGraphAssembler->buildRuntimeGraph(
+                (int) $campaign_id,
+                (string) ($fallback['dungeon_id'] ?? ($launch_context['map_id'] ?? '')),
+                $fallback,
+                [
+                  'active_room_id' => $requested_room,
+                  'requested_room_id' => $requested_room,
+                ]
+              );
               $normalized = $this->normalizeDungeonPayload($fallback, $launch_context);
             }
 
@@ -1211,64 +1297,43 @@ class HexMapController extends ControllerBase {
   }
 
   /**
-   * Persist an expanded campaign dungeon payload only when eager load changed it.
+   * Check whether a runtime dungeon payload already contains a room id.
    */
-  protected function persistCampaignDungeonPayloadIfChanged(
-    int $campaign_dungeon_row_id,
-    array $expanded_dungeon_data,
-    string $original_encoded_payload
-  ): void {
-    if ($campaign_dungeon_row_id <= 0) {
-      return;
+  protected function dungeonPayloadContainsRoom(array $dungeon_data, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
     }
-
-    $expanded_encoded_payload = json_encode($expanded_dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (!is_string($expanded_encoded_payload) || $expanded_encoded_payload === '' || $expanded_encoded_payload === $original_encoded_payload) {
-      return;
-    }
-
-    $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => $expanded_encoded_payload,
-        'updated' => time(),
-      ])
-      ->condition('id', $campaign_dungeon_row_id)
-      ->execute();
-  }
-
-  /**
-   * Remove payload connector rows that point at rooms not instantiated here.
-   */
-  protected function prunePayloadConnectionsToMaterializedRooms(array &$dungeon_data): void {
-    $room_ids = [];
     foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
       if (!is_array($room)) {
         continue;
       }
-      $room_id = trim((string) ($room['room_id'] ?? ''));
-      if ($room_id !== '') {
-        $room_ids[$room_id] = TRUE;
+      if (trim((string) ($room['room_id'] ?? '')) === $room_id) {
+        return TRUE;
       }
     }
+    return FALSE;
+  }
 
-    if ($room_ids === [] || !is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
-      return;
-    }
-
-    $dungeon_data['hex_map']['connections'] = array_values(array_filter(
-      $dungeon_data['hex_map']['connections'],
-      static function ($connection) use ($room_ids): bool {
-        if (!is_array($connection)) {
-          return FALSE;
-        }
-        $from_room_id = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
-        $to_room_id = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
-        return $from_room_id !== ''
-          && $to_room_id !== ''
-          && isset($room_ids[$from_room_id])
-          && isset($room_ids[$to_room_id]);
-      }
-    ));
+  /**
+   * Persist an expanded campaign dungeon payload only when eager load changed it.
+   */
+  protected function persistCampaignDungeonPayloadIfChanged(
+    int $campaign_dungeon_row_id,
+    int $campaign_id,
+    string $dungeon_id,
+    array $expanded_dungeon_data,
+    string $original_encoded_payload,
+    array $options = []
+  ): void {
+    $this->dungeonSnapshotRefresher->refreshIfChanged(
+      $campaign_dungeon_row_id,
+      $campaign_id,
+      $dungeon_id,
+      $expanded_dungeon_data,
+      $original_encoded_payload,
+      $options
+    );
   }
 
   /**
@@ -1300,6 +1365,15 @@ class HexMapController extends ControllerBase {
       $decoded = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
       if (!is_array($decoded)) {
         continue;
+      }
+      if (trim((string) ($decoded['dungeon_id'] ?? '')) === '') {
+        $decoded['dungeon_id'] = (string) ($row['dungeon_id'] ?? '');
+      }
+      if (!isset($decoded['hex_map']) || !is_array($decoded['hex_map'])) {
+        $decoded['hex_map'] = [];
+      }
+      if (trim((string) ($decoded['hex_map']['map_id'] ?? '')) === '') {
+        $decoded['hex_map']['map_id'] = (string) ($row['dungeon_id'] ?? '');
       }
       foreach ((array) ($decoded['rooms'] ?? []) as $room) {
         if (is_array($room) && (string) ($room['room_id'] ?? '') === $room_id) {
@@ -3016,9 +3090,6 @@ class HexMapController extends ControllerBase {
     }
 
     $connections = is_array($decoded['hex_map']['connections'] ?? NULL) ? $decoded['hex_map']['connections'] : [];
-    if ($connections === []) {
-      $connections = $this->synthesizeConnectionsFromRoomExits($rooms);
-    }
     $connections = $this->ensureRoomsHaveAtLeastOneExit($rooms, $connections, $active_room_id);
     $connections = $this->ensureConnectionsHaveLinkedHexes($rooms, $connections, $active_room_id);
     $dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $decoded['hex_map']['map_id'] ?? $launch_context['map_id'] ?? ''));
@@ -3141,87 +3212,6 @@ class HexMapController extends ControllerBase {
     }
 
     return $normalized;
-  }
-
-  /**
-   * Synthesize directional connection rows from canonical per-room exits.
-   *
-   * @param array<string, array<string, mixed>> $rooms
-   *   Normalized room payloads keyed by room id.
-   *
-   * @return array<int, array<string, mixed>>
-   *   Directional connection rows derived from room exits.
-   */
-  protected function synthesizeConnectionsFromRoomExits(array $rooms): array {
-    $connections = [];
-    $seen = [];
-
-    foreach ($rooms as $room_id => $room) {
-      if (!is_array($room)) {
-        continue;
-      }
-
-      foreach ((array) ($room['exits'] ?? []) as $index => $exit) {
-        if (!is_array($exit)) {
-          continue;
-        }
-
-        $target_room_id = trim((string) ($exit['target_room_id'] ?? ''));
-        if ($target_room_id === '') {
-          continue;
-        }
-
-        $type = $this->normalizeRoomExitConnectionType($exit);
-        $from_hex = $this->extractRoomExitHex($exit);
-        $to_hex = $this->extractRoomExitHex($exit['target_hex'] ?? NULL);
-        $signature = implode('|', [
-          $room_id,
-          $target_room_id,
-          $type,
-          $from_hex !== NULL ? $from_hex['q'] . ':' . $from_hex['r'] : (string) $index,
-        ]);
-        if (isset($seen[$signature])) {
-          continue;
-        }
-        $seen[$signature] = TRUE;
-
-        $connection_id = trim((string) ($exit['connection_id'] ?? ''));
-        if ($connection_id === '') {
-          $connection_id = sprintf(
-            '%s__%s__%s__%s',
-            $room_id,
-            $target_room_id,
-            $type,
-            $from_hex !== NULL ? $from_hex['q'] . ':' . $from_hex['r'] : (string) $index
-          );
-        }
-
-        $connection = [
-          'connection_id' => $connection_id,
-          'from_room' => $room_id,
-          'from_room_id' => $room_id,
-          'to_room' => $target_room_id,
-          'to_room_id' => $target_room_id,
-          'type' => $type,
-          'is_passable' => array_key_exists('is_passable', $exit)
-            ? (bool) $exit['is_passable']
-            : !((bool) ($exit['locked'] ?? FALSE) || (bool) ($exit['blocked'] ?? FALSE)),
-          'is_discovered' => array_key_exists('is_discovered', $exit) ? (bool) $exit['is_discovered'] : TRUE,
-          'bidirectional' => FALSE,
-        ];
-
-        if ($from_hex !== NULL) {
-          $connection['from_hex'] = $from_hex;
-        }
-        if ($to_hex !== NULL) {
-          $connection['to_hex'] = $to_hex;
-        }
-
-        $connections[] = $connection;
-      }
-    }
-
-    return $connections;
   }
 
   /**
@@ -3564,18 +3554,6 @@ class HexMapController extends ControllerBase {
     $rooms_without_exits = [];
     foreach ($adj as $room_id => $count) {
       if ((int) $count <= 0) {
-        $room_exits = array_values(array_filter(
-          (array) ($rooms[$room_id]['exits'] ?? []),
-          static function ($exit): bool {
-            if (!is_array($exit)) {
-              return FALSE;
-            }
-            return trim((string) ($exit['target_room_id'] ?? '')) !== '';
-          }
-        ));
-        if ($room_exits !== []) {
-          continue;
-        }
         $rooms_without_exits[] = (string) $room_id;
       }
     }
@@ -3584,85 +3562,8 @@ class HexMapController extends ControllerBase {
       return $connections;
     }
 
-    // Backfill room-id linkage when legacy payloads provide connection geometry
-    // but omit explicit from/to room identifiers.
-    if (count($room_ids) === 2 && count($connections) > 0) {
-      $from_room_id = in_array($active_room_id, $room_ids, TRUE) ? $active_room_id : $room_ids[0];
-      $to_room_id = $room_ids[0] === $from_room_id ? $room_ids[1] : $room_ids[0];
-
-      foreach ($connections as &$connection) {
-        if (!is_array($connection)) {
-          continue;
-        }
-
-        $from_has_room = FALSE;
-        if (isset($connection['from']) && is_array($connection['from'])) {
-          $from_has_room = trim((string) ($connection['from']['room_id'] ?? $connection['from']['room'] ?? '')) !== '';
-        }
-        if (!$from_has_room) {
-          $from_has_room = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? $connection['fromRoom'] ?? '')) !== '';
-        }
-
-        $to_has_room = FALSE;
-        if (isset($connection['to']) && is_array($connection['to'])) {
-          $to_has_room = trim((string) ($connection['to']['room_id'] ?? $connection['to']['room'] ?? '')) !== '';
-        }
-        if (!$to_has_room) {
-          $to_has_room = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? $connection['toRoom'] ?? '')) !== '';
-        }
-
-        if (!$from_has_room) {
-          $connection['from'] = is_array($connection['from'] ?? NULL) ? $connection['from'] : [];
-          $connection['from']['room_id'] = $from_room_id;
-          $connection['from_room'] = $from_room_id;
-          $connection['from_room_id'] = $from_room_id;
-        }
-        if (!$to_has_room) {
-          $connection['to'] = is_array($connection['to'] ?? NULL) ? $connection['to'] : [];
-          $connection['to']['room_id'] = $to_room_id;
-          $connection['to_room'] = $to_room_id;
-          $connection['to_room_id'] = $to_room_id;
-        }
-      }
-      unset($connection);
-
-      $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap inferred missing connection room linkage for two-room payload: from_room_id=@from_room_id to_room_id=@to_room_id active_room_id=@active_room_id', [
-        '@from_room_id' => $from_room_id,
-        '@to_room_id' => $to_room_id,
-        '@active_room_id' => $active_room_id,
-      ]);
-
-      return $connections;
-    }
-
-    if (count($room_ids) === 1 && count($connections) === 0) {
-      $room_id = $room_ids[0];
-      $hexes = is_array($rooms[$room_id]['hexes'] ?? NULL) ? $rooms[$room_id]['hexes'] : [];
-      $origin_hex = is_array($hexes[0] ?? NULL) ? $hexes[0] : ['q' => 0, 'r' => 0];
-      $q = (int) ($origin_hex['q'] ?? 0);
-      $r = (int) ($origin_hex['r'] ?? 0);
-
-      $this->getLogger('dungeoncrawler_hexmap')->warning('Hexmap injected self-exit for single-room dungeon payload: room_id=@room_id active_room_id=@active_room_id', [
-        '@room_id' => $room_id,
-        '@active_room_id' => $active_room_id,
-      ]);
-
-      $connections[] = [
-        'connection_id' => sprintf('%s:self-exit', $room_id),
-        'from_room' => $room_id,
-        'to_room' => $room_id,
-        'from_hex' => ['q' => $q, 'r' => $r],
-        'to_hex' => ['q' => $q, 'r' => $r],
-        'type' => 'open_passage',
-        'is_discovered' => TRUE,
-        'is_passable' => TRUE,
-      ];
-
-      return $connections;
-    }
-
     throw new \InvalidArgumentException(sprintf(
-      'Invalid dungeon payload: rooms must have at least one exit; rooms without exits: %s',
+      'Runtime graph contract violation: campaign graph is missing connector coverage for rooms: %s',
       implode(', ', $rooms_without_exits)
     ));
   }
