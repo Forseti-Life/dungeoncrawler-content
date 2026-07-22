@@ -5,6 +5,8 @@ namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\ConditionInterface;
+use Drupal\Core\Database\Query\SelectInterface;
 use Drupal\Core\Extension\ModuleExtensionList;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
@@ -31,12 +33,48 @@ class CampaignInitializationServiceTest extends UnitTestCase {
    * @covers ::loadStarterRoomSeed
    */
   public function testLoadStarterRoomSeedUsesCanonicalGildedTankardMetadata(): void {
+    $select = $this->createMock(SelectInterface::class);
+    $condition_group = $this->createMock(ConditionInterface::class);
+    $result = new class() {
+      public function fetchAssoc(): array {
+        return [
+          'room_id' => 'tavern_entrance',
+          'source_room_id' => 'tavern_entrance',
+          'name' => 'The Gilded Tankard',
+          'description' => 'Eldric keeps watch while Marta the Scholar studies nearby.',
+          'environment_tags' => json_encode(['indoor', 'tavern']),
+          'layout_data' => json_encode(['shape' => 'seed']),
+          'contents_data' => json_encode([
+            'items' => [
+              ['item_id' => 'wine-1'],
+            ],
+            'npcs' => [],
+          ]),
+        ];
+      }
+    };
+
+    $condition_group->method('condition')->willReturnSelf();
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->willReturnSelf();
+    $select->method('orderBy')->willReturnSelf();
+    $select->method('range')->willReturnSelf();
+    $select->method('orConditionGroup')->willReturn($condition_group);
+    $select->method('execute')->willReturn($result);
+
+    $database = $this->createMock(Connection::class);
+    $database->method('select')->willReturn($select);
+
+    $module_list = $this->createMock(ModuleExtensionList::class);
+    $module_list->method('getPath')->with('dungeoncrawler_content')
+      ->willReturn('/path/that/does/not/exist');
+
     $service = new CampaignInitializationService(
-      $this->createMock(Connection::class),
+      $database,
       $this->createMock(UuidInterface::class),
       $this->createMock(TimeInterface::class),
       $this->buildLoggerFactory(),
-      $this->createMock(ModuleExtensionList::class),
+      $module_list,
       $this->createMock(QuestGeneratorService::class),
       $this->createMock(CampaignNameGeneratorService::class),
       $this->createMock(CampaignClockService::class),
@@ -52,7 +90,7 @@ class CampaignInitializationServiceTest extends UnitTestCase {
 
     $this->assertIsArray($room);
     $this->assertSame('tavern_entrance', $room['room_id']);
-    $this->assertSame('7f2f1051-5f88-45a2-a66a-0f7063900001', $room['runtime_room_id']);
+    $this->assertSame('tavern_entrance', $room['runtime_room_id']);
     $this->assertSame('The Gilded Tankard', $room['name']);
     $this->assertStringContainsString('Eldric', $room['description']);
     $this->assertStringContainsString('Marta the Scholar', $room['description']);

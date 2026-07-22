@@ -25508,6 +25508,181 @@ function dungeoncrawler_content_update_10162() {
 }
 
 /**
+ * Remove starter-library connector-id collisions with canonical Absalom rows.
+ */
+function dungeoncrawler_content_update_10163() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if (!$schema_handler->tableExists('dungeoncrawler_content_connections')) {
+    return t('Canonical connector table is unavailable; no starter-library connector cleanup needed.');
+  }
+
+  $starter_dungeon_id = 'asset-library-starter-room';
+  $starter_room_id = 'tavern_entrance';
+  $streets_room_id = 'tpl_room_absalom_streets';
+  $now = time();
+
+  $query = $database->select('dungeoncrawler_content_connections', 'c')
+    ->fields('c');
+  $query->condition('dungeon_id', $starter_dungeon_id);
+  $query->condition(
+    $query->orConditionGroup()
+      ->condition(
+        $query->andConditionGroup()
+          ->condition('from_room_id', $starter_room_id)
+          ->condition('to_room_id', $streets_room_id)
+      )
+      ->condition(
+        $query->andConditionGroup()
+          ->condition('from_room_id', $streets_room_id)
+          ->condition('to_room_id', $starter_room_id)
+      )
+  );
+  $rows = $query->orderBy('id', 'ASC')->execute()->fetchAllAssoc('id', \PDO::FETCH_ASSOC);
+  if ($rows === []) {
+    return t('Starter-library tavern-streets connector rows already clean.');
+  }
+
+  $preferred = NULL;
+  foreach ($rows as $row) {
+    if (
+      trim((string) ($row['from_room_id'] ?? '')) === $starter_room_id
+      && trim((string) ($row['to_room_id'] ?? '')) === $streets_room_id
+    ) {
+      $preferred = $row;
+      break;
+    }
+    if ($preferred === NULL) {
+      $preferred = $row;
+    }
+  }
+  if (!is_array($preferred)) {
+    return t('Starter-library tavern-streets connector rows already clean.');
+  }
+
+  $normalized_connection_id = sprintf(
+    '%s::%s::%s::%s',
+    $starter_dungeon_id,
+    trim((string) ($preferred['from_room_id'] ?? $starter_room_id)),
+    trim((string) ($preferred['to_room_id'] ?? $streets_room_id)),
+    trim((string) ($preferred['kind'] ?? 'hallway')) !== '' ? (string) $preferred['kind'] : 'hallway'
+  );
+
+  $database->update('dungeoncrawler_content_connections')
+    ->fields([
+      'connection_id' => $normalized_connection_id,
+      'dungeon_id' => $starter_dungeon_id,
+      'from_room_id' => trim((string) ($preferred['from_room_id'] ?? $starter_room_id)),
+      'to_room_id' => trim((string) ($preferred['to_room_id'] ?? $streets_room_id)),
+      'updated' => $now,
+    ])
+    ->condition('id', (int) $preferred['id'])
+    ->execute();
+
+  $duplicate_ids = array_values(array_filter(array_map(
+    static fn(array $row): int => (int) (($row['id'] ?? 0) !== ($preferred['id'] ?? 0) ? ($row['id'] ?? 0) : 0),
+    $rows
+  )));
+  if ($duplicate_ids !== []) {
+    $database->delete('dungeoncrawler_content_connections')
+      ->condition('id', $duplicate_ids, 'IN')
+      ->execute();
+  }
+
+  return t(
+    'Normalized starter-library tavern-streets connector ids and removed @count duplicate collision rows.',
+    ['@count' => count($duplicate_ids)]
+  );
+}
+
+/**
+ * Restore canonical Absalom tavern-streets connector after ID deconfliction.
+ */
+function dungeoncrawler_content_update_10164() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if (!$schema_handler->tableExists('dungeoncrawler_content_connections')) {
+    return t('Canonical connector table is unavailable; no Absalom connector restoration needed.');
+  }
+
+  $canonical_dungeon_id = 'tpl_dungeon_absalom_city';
+  $starter_dungeon_id = 'asset-library-starter-room';
+  $starter_room_id = 'tavern_entrance';
+  $streets_room_id = 'tpl_room_absalom_streets';
+
+  $canonical_query = $database->select('dungeoncrawler_content_connections', 'c')
+    ->fields('c', ['id']);
+  $canonical_query->condition('dungeon_id', $canonical_dungeon_id);
+  $canonical_query->condition(
+    $canonical_query->orConditionGroup()
+      ->condition(
+        $canonical_query->andConditionGroup()
+          ->condition('from_room_id', $starter_room_id)
+          ->condition('to_room_id', $streets_room_id)
+      )
+      ->condition(
+        $canonical_query->andConditionGroup()
+          ->condition('from_room_id', $streets_room_id)
+          ->condition('to_room_id', $starter_room_id)
+      )
+  );
+  if ((bool) $canonical_query->range(0, 1)->execute()->fetchField()) {
+    return t('Canonical Absalom tavern-streets connector already exists.');
+  }
+
+  $starter_query = $database->select('dungeoncrawler_content_connections', 'c')
+    ->fields('c');
+  $starter_query->condition('dungeon_id', $starter_dungeon_id);
+  $starter_query->condition(
+    $starter_query->orConditionGroup()
+      ->condition(
+        $starter_query->andConditionGroup()
+          ->condition('from_room_id', $starter_room_id)
+          ->condition('to_room_id', $streets_room_id)
+      )
+      ->condition(
+        $starter_query->andConditionGroup()
+          ->condition('from_room_id', $streets_room_id)
+          ->condition('to_room_id', $starter_room_id)
+      )
+  );
+  $starter_row = $starter_query->range(0, 1)->execute()->fetchAssoc();
+  if (!is_array($starter_row)) {
+    throw new \RuntimeException('Starter connector authority contract violation: normalized starter-library tavern-streets row is missing.');
+  }
+
+  $from_room_id = trim((string) ($starter_row['from_room_id'] ?? $starter_room_id));
+  $to_room_id = trim((string) ($starter_row['to_room_id'] ?? $streets_room_id));
+  $kind = trim((string) ($starter_row['kind'] ?? 'hallway'));
+  $now = time();
+  $database->insert('dungeoncrawler_content_connections')
+    ->fields([
+      'connection_id' => sprintf('%s::%s::%s::%s', $canonical_dungeon_id, $from_room_id, $to_room_id, $kind !== '' ? $kind : 'hallway'),
+      'dungeon_id' => $canonical_dungeon_id,
+      'from_room_id' => $from_room_id,
+      'to_room_id' => $to_room_id,
+      'direction' => (string) ($starter_row['direction'] ?? 'bidirectional'),
+      'kind' => $kind !== '' ? $kind : 'hallway',
+      'default_state' => (string) ($starter_row['default_state'] ?? 'open'),
+      'trap_data' => $starter_row['trap_data'] ?? NULL,
+      'lock_data' => $starter_row['lock_data'] ?? NULL,
+      'requirements_data' => $starter_row['requirements_data'] ?? NULL,
+      'description' => $starter_row['description'] ?? NULL,
+      'travel_cost' => max(0, (int) ($starter_row['travel_cost'] ?? 0)),
+      'is_discovered_default' => empty($starter_row['is_discovered_default']) ? 0 : 1,
+      'created' => $now,
+      'updated' => $now,
+      'from_hex_q' => isset($starter_row['from_hex_q']) ? (int) $starter_row['from_hex_q'] : NULL,
+      'from_hex_r' => isset($starter_row['from_hex_r']) ? (int) $starter_row['from_hex_r'] : NULL,
+      'to_hex_q' => isset($starter_row['to_hex_q']) ? (int) $starter_row['to_hex_q'] : NULL,
+      'to_hex_r' => isset($starter_row['to_hex_r']) ? (int) $starter_row['to_hex_r'] : NULL,
+    ])
+    ->execute();
+
+  return t('Restored canonical Absalom tavern-streets connector after starter-library ID normalization.');
+}
+
+/**
  * Resolve a connector endpoint hex from one room layout and target room.
  *
  * Prefers explicit layout_data.exits target coordinate; falls back to
