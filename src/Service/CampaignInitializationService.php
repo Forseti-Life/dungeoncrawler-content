@@ -18,6 +18,12 @@ use Drupal\dungeoncrawler_content\Support\H3SpatialHelper;
 /**
  * Orchestrates complete campaign initialization with default dungeon and rooms.
  *
+ * Authority boundary:
+ * - dc_campaign_rooms = campaign room source of truth created during bootstrap
+ * - dc_campaign_connections = campaign traversal source of truth created during bootstrap
+ * - dc_campaign_dungeons.dungeon_data = server-managed delivery snapshot seeded
+ *   from campaign room/connector authority for compatibility/bootstrap delivery
+ *
  * Responsible for:
  * - Creating campaign record
  * - Creating default starter dungeon based on theme
@@ -51,7 +57,7 @@ class CampaignInitializationService {
   protected ?RoomViewImageService $roomViewImageService;
   protected ?StorylineManagerService $storylineManager;
   protected ?RelationshipManagerService $relationshipManager;
-  protected ?ConnectorDefinitionService $connectorDefinitionService;
+  protected ?ExitConnectorAuthorityService $connectorDefinitionService;
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected CampaignClockService $campaignClockService;
 
@@ -70,7 +76,7 @@ class CampaignInitializationService {
     ?RoomViewImageService $room_view_image_service = NULL,
     ?StorylineManagerService $storyline_manager = NULL,
     ?RelationshipManagerService $relationship_manager = NULL,
-    ?ConnectorDefinitionService $connector_definition_service = NULL
+    ?ExitConnectorAuthorityService $connector_definition_service = NULL
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -731,6 +737,99 @@ class CampaignInitializationService {
         'dungeon_id' => $runtime_dungeon_id,
       ]);
     }
+
+    // Template-instantiation contract: when rooms are instantiated for a
+    // campaign, their canonical connector rows must be instantiated into
+    // campaign authority immediately.
+    $this->seedTemplateConnectorAuthorityForInstantiatedRooms(
+      $campaign_id,
+      $runtime_dungeon_id,
+      [$starter_room_id, self::STARTER_CITY_STREETS_ROOM_ID]
+    );
+  }
+
+  /**
+   * Seed campaign connector authority for instantiated template rooms.
+   *
+   * This materializes canonical connector rows for any connector touching one
+   * of the instantiated rooms so room creation and connector availability stay
+   * in the same bootstrap transaction.
+   *
+   * @param array<int, string> $instantiated_room_ids
+   *   Runtime room IDs instantiated into campaign scope.
+   */
+  private function seedTemplateConnectorAuthorityForInstantiatedRooms(
+    int $campaign_id,
+    string $runtime_dungeon_id,
+    array $instantiated_room_ids
+  ): void {
+    if ($campaign_id <= 0 || trim($runtime_dungeon_id) === '') {
+      throw new \RuntimeException('Template connector instantiation contract violation: campaign_id and runtime_dungeon_id are required.');
+    }
+    if (!$this->connectorDefinitionService) {
+      throw new \RuntimeException('Template connector instantiation contract violation: ConnectorDefinitionService is required.');
+    }
+
+    $room_index = [];
+    foreach ($instantiated_room_ids as $room_id) {
+      $normalized_room_id = trim((string) $room_id);
+      if ($normalized_room_id !== '') {
+        $room_index[$normalized_room_id] = TRUE;
+      }
+    }
+    if ($room_index === []) {
+      throw new \RuntimeException('Template connector instantiation contract violation: at least one instantiated room id is required.');
+    }
+
+    $canonical_connectors = $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon(self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID);
+    if ($canonical_connectors === []) {
+      throw new \RuntimeException(sprintf(
+        'Template connector instantiation contract violation: canonical connector table is empty for %s.',
+        self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID
+      ));
+    }
+
+    $instantiated_connector_count = 0;
+    foreach ($canonical_connectors as $connector) {
+      if (!is_array($connector)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($connector['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($connector['to_room_id'] ?? ''));
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      if (!isset($room_index[$from_room_id]) && !isset($room_index[$to_room_id])) {
+        continue;
+      }
+
+      $connector_payload = [
+        'connection_id' => trim((string) ($connector['connection_id'] ?? '')),
+        'from_room_id' => $from_room_id,
+        'to_room_id' => $to_room_id,
+        'kind' => (string) ($connector['kind'] ?? 'hallway'),
+        'direction' => (string) ($connector['direction'] ?? 'bidirectional'),
+        'default_state' => (string) ($connector['default_state'] ?? 'open'),
+        'state' => (string) ($connector['state'] ?? $connector['default_state'] ?? 'open'),
+        'travel_cost' => max(0, (int) ($connector['travel_cost'] ?? 0)),
+        'description' => (string) ($connector['description'] ?? ''),
+        'is_discovered_default' => !empty($connector['is_discovered_default']) || !empty($connector['is_discovered']) ? 1 : 0,
+        'from_hex' => is_array($connector['from_hex'] ?? NULL) ? $connector['from_hex'] : NULL,
+        'to_hex' => is_array($connector['to_hex'] ?? NULL) ? $connector['to_hex'] : NULL,
+      ];
+      $this->connectorDefinitionService->saveCampaignConnector($campaign_id, $connector_payload + [
+        'dungeon_id' => $runtime_dungeon_id,
+      ]);
+      $instantiated_connector_count++;
+    }
+
+    if ($instantiated_connector_count === 0) {
+      throw new \RuntimeException(sprintf(
+        'Template connector instantiation contract violation: no canonical connectors were instantiated for campaign %d runtime dungeon %s.',
+        $campaign_id,
+        $runtime_dungeon_id
+      ));
+    }
   }
 
   /**
@@ -1221,15 +1320,23 @@ class CampaignInitializationService {
     }
 
     $starter_layout = is_array($starter_room['layout_data'] ?? NULL) ? $starter_room['layout_data'] : [];
+    $runtime_room_payload = $this->loadRuntimeDungeonRoomPayload($campaign_id, $runtime_room_id);
+    $runtime_layout_hexes = is_array($runtime_room_payload['hexes'] ?? NULL) ? $runtime_room_payload['hexes'] : [];
+    $runtime_layout_entry_points = is_array($runtime_room_payload['entry_points'] ?? NULL) ? $runtime_room_payload['entry_points'] : [];
+    $runtime_layout_exit_points = is_array($runtime_room_payload['exit_points'] ?? NULL) ? $runtime_room_payload['exit_points'] : [];
+    $runtime_layout_exits = is_array($runtime_room_payload['exits'] ?? NULL) ? $runtime_room_payload['exits'] : [];
+    $runtime_layout_terrain = is_array($runtime_room_payload['terrain'] ?? NULL) ? $runtime_room_payload['terrain'] : [];
+    $runtime_layout_lighting = is_array($runtime_room_payload['lighting'] ?? NULL) ? $runtime_room_payload['lighting'] : [];
+
     $layout_data = [
-      'hexes' => is_array($starter_layout['hexes'] ?? NULL) ? $starter_layout['hexes'] : [],
-      'entry_points' => is_array($starter_layout['entry_points'] ?? NULL) ? $starter_layout['entry_points'] : [],
-      'exit_points' => is_array($starter_layout['exit_points'] ?? NULL) ? $starter_layout['exit_points'] : [],
-      'exits' => is_array($starter_layout['exits'] ?? NULL) ? $starter_layout['exits'] : [],
-      'terrain' => is_array($starter_layout['terrain'] ?? NULL) ? $starter_layout['terrain'] : [],
-      'lighting' => is_array($starter_layout['lighting'] ?? NULL) ? $starter_layout['lighting'] : [],
-      'room_type' => (string) ($starter_layout['room_type'] ?? 'starter_tavern'),
-      'source' => 'starter_room_layout',
+      'hexes' => $runtime_layout_hexes,
+      'entry_points' => $runtime_layout_entry_points,
+      'exit_points' => $runtime_layout_exit_points,
+      'exits' => $runtime_layout_exits,
+      'terrain' => $runtime_layout_terrain,
+      'lighting' => $runtime_layout_lighting,
+      'room_type' => (string) ($runtime_room_payload['room_type'] ?? $starter_layout['room_type'] ?? 'starter_tavern'),
+      'source' => 'runtime_dungeon_room_payload',
     ];
     if ($layout_data['hexes'] === []) {
       throw new \RuntimeException(sprintf(
@@ -1511,6 +1618,61 @@ class CampaignInitializationService {
     $this->loadConnectedRoomsForActiveStarterRoom($campaign_id, $runtime_room_id, $now);
 
     return TRUE;
+  }
+
+  /**
+   * Load the authoritative runtime dungeon room payload for a campaign room.
+   *
+   * Campaign room rows must mirror this payload so navigation/state contracts
+   * read the same room-hex authority everywhere.
+   *
+   * @return array<string, mixed>
+   *   Room payload from dc_campaign_dungeons.dungeon_data.
+   */
+  private function loadRuntimeDungeonRoomPayload(int $campaign_id, string $room_id): array {
+    $room_id = trim($room_id);
+    if ($campaign_id <= 0 || $room_id === '') {
+      throw new \RuntimeException('Campaign room contract violation: campaign_id and room_id are required for runtime dungeon room lookup.');
+    }
+
+    $dungeon_row = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($dungeon_row)) {
+      throw new \RuntimeException(sprintf(
+        'Campaign room contract violation: campaign %d has no dungeon_data row.',
+        $campaign_id
+      ));
+    }
+
+    $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? '{}'), TRUE);
+    if (!is_array($dungeon_data)) {
+      throw new \RuntimeException(sprintf(
+        'Campaign room contract violation: campaign %d dungeon_data is invalid JSON.',
+        $campaign_id
+      ));
+    }
+
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    foreach ($rooms as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      if (trim((string) ($room['room_id'] ?? '')) === $room_id) {
+        return $room;
+      }
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Campaign room contract violation: room %s is missing from campaign %d dungeon_data.',
+      $room_id,
+      $campaign_id
+    ));
   }
 
   /**
