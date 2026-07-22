@@ -3714,6 +3714,12 @@ export class ChatPanel {
     const campaignId = hexmap?.resolveCampaignId?.() || null;
     const currentRoomId = hexmap?.resolveActiveRoomId?.() || null;
     const characterId = Number(hexmap?.characterData?.id || 0) || null;
+    const mapId = String(
+      hexmap?.dungeonData?.map_id
+      || hexmap?.launchContext?.map_id
+      || hexmap?.stateManager?.get?.('mapId')
+      || ''
+    ).trim() || null;
     const connections = typeof hexmap?.getVisualConnections === 'function'
       ? hexmap.getVisualConnections()
       : (Array.isArray(hexmap?.dungeonData?.connections) ? hexmap.dungeonData.connections : []);
@@ -3740,7 +3746,7 @@ export class ChatPanel {
     });
 
     Array.from(new Set(nextRoomIds)).filter(Boolean).slice(0, limit).forEach((roomId) => {
-      const context = { campaignId, roomId, characterId };
+      const context = { campaignId, roomId, characterId, mapId };
       void this.fetchRoomChatHistoryForContext(context, { channelKey: 'room' }).catch((error) => {
         console.debug(`Skipped connected-room chat warm for ${roomId}:`, error?.message || error);
       });

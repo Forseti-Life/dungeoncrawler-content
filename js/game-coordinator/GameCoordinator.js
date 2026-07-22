@@ -111,25 +111,32 @@ export class GameCoordinator {
     this._wirePhaseEvents();
     this._armNarrationAudioUnlock();
 
-    // Load initial state from server.
-    try {
-      const state = await this.api.getState();
-      if (state?.success) {
-        this.phaseManager.applyServerState(this._buildStatePayloadFromResponse(state), state.available_actions, state.action_contract || null);
-        this.eventCursor = state.game_state?.event_log_cursor || 0;
-        if (state.events?.length) {
-          const latestBootstrapEventId = Math.max(...state.events.map((event) => Number(event?.id || 0)));
-          if (latestBootstrapEventId > this.eventCursor) {
-            this.eventCursor = latestBootstrapEventId;
+    const bootstrapState = this._getBootstrapState();
+    if (bootstrapState) {
+      this.phaseManager.applyServerState(bootstrapState, this.phaseManager.availableActions || [], this.phaseManager.actionContract || null);
+      this.eventCursor = bootstrapState.event_log_cursor || 0;
+      console.log('[GameCoordinator] Initial state bootstrapped from page payload:', this.phaseManager.currentPhase, 'v' + this.phaseManager.stateVersion);
+    } else {
+      // Load initial state from server only when bootstrap state is absent.
+      try {
+        const state = await this.api.getState();
+        if (state?.success) {
+          this.phaseManager.applyServerState(this._buildStatePayloadFromResponse(state), state.available_actions, state.action_contract || null);
+          this.eventCursor = state.game_state?.event_log_cursor || 0;
+          if (state.events?.length) {
+            const latestBootstrapEventId = Math.max(...state.events.map((event) => Number(event?.id || 0)));
+            if (latestBootstrapEventId > this.eventCursor) {
+              this.eventCursor = latestBootstrapEventId;
+            }
+            this._processNewEvents(state.events);
           }
-          this._processNewEvents(state.events);
+          console.log('[GameCoordinator] Initial state loaded:', this.phaseManager.currentPhase, 'v' + this.phaseManager.stateVersion);
+        } else {
+          console.warn('[GameCoordinator] Failed to load initial state:', state?.error);
         }
-        console.log('[GameCoordinator] Initial state loaded:', this.phaseManager.currentPhase, 'v' + this.phaseManager.stateVersion);
-      } else {
-        console.warn('[GameCoordinator] Failed to load initial state:', state?.error);
+      } catch (err) {
+        console.warn('[GameCoordinator] Server state fetch failed, using defaults:', err.message);
       }
-    } catch (err) {
-      console.warn('[GameCoordinator] Server state fetch failed, using defaults:', err.message);
     }
 
     // Update UI to reflect initial phase.
@@ -143,6 +150,21 @@ export class GameCoordinator {
     this._startEventPolling();
 
     console.log('[GameCoordinator] Ready. Phase:', this.phaseManager.currentPhase);
+  }
+
+  _getBootstrapState() {
+    const state = this.hexmap?.dungeonData?.game_state;
+    if (!state || typeof state !== 'object') {
+      return null;
+    }
+    return {
+      ...state,
+      active_room_id: state.active_room_id || this.hexmap?.resolveActiveRoomId?.() || null,
+      encounter_id: state.encounter_id || null,
+      round: state.round ?? null,
+      turn: state.turn ?? null,
+      legal_intents: Array.isArray(state.legal_intents) ? state.legal_intents : [],
+    };
   }
 
   /**

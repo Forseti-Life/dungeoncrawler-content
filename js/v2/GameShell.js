@@ -31,13 +31,13 @@ import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260619-v2-search-reward-refresh-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20260721-v2-nav-authority-1';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20260722-v2-startup-state-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260721-v2-nav-authority-2';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260721-v2-nav-authority-1';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260722-v2-startup-state-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js?v=20260629-v2-party-only-tab-1';
@@ -46,7 +46,7 @@ import { StatusPanel } from './panels/StatusPanel.js';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
 import { SpriteService } from '../SpriteService.js';
-import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260607-v2-search-coordinator-init-1';
+import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260722-v2-startup-state-1';
 import {
   EntityManager,
   PositionComponent,
@@ -2955,6 +2955,12 @@ export class GameShell {
     const campaignId    = this.launchContext?.campaign_id ?? null;
     const currentRoomId = this.activeRoomId ?? null;
     const characterId   = Number(this.launchCharacter?.id || 0) || null;
+    const mapId         = String(
+      this.dungeonData?.map_id
+      || this.launchContext?.map_id
+      || this.stateManager?.get?.('mapId')
+      || ''
+    ).trim() || null;
     const connections   = Array.isArray(this.dungeonData?.connections) ? this.dungeonData.connections : [];
     if (!campaignId || !currentRoomId || !connections.length) {
       return;
@@ -2975,7 +2981,7 @@ export class GameShell {
     });
 
     Array.from(new Set(nextRoomIds)).filter(Boolean).slice(0, limit).forEach((roomId) => {
-      const context = { campaignId, roomId, characterId };
+      const context = { campaignId, roomId, characterId, mapId };
       void this.fetchRoomChatHistoryForContext(context, { channelKey: 'room' }).catch((error) => {
         console.debug(`Skipped connected-room chat warm for ${roomId}:`, error?.message || error);
       });
