@@ -207,7 +207,7 @@
         "description": "Default tavern keeper reference used by generic tavern quests."
       },
       "location_type": "room_template",
-      "location_ref": "tpl_room_tavern_entrance"
+      "location_ref": "tavern_entrance"
     },
     {
       "character_id": 3004,
@@ -224,7 +224,7 @@
         "description": "Default scholar contact used by lore and storyline-lead quests."
       },
       "location_type": "room_template",
-      "location_ref": "tpl_room_tavern_entrance"
+      "location_ref": "tavern_entrance"
     },
     {
       "character_id": 3005,
@@ -241,7 +241,7 @@
         "description": "Compatibility scholar contact for generic recovery quests."
       },
       "location_type": "room_template",
-      "location_ref": "tpl_room_tavern_entrance"
+      "location_ref": "tavern_entrance"
     },
     {
       "character_id": 3006,

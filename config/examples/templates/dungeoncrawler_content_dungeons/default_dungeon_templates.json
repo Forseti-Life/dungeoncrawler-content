@@ -7,7 +7,7 @@
       "theme": "classic_dungeon",
       "dungeon_data": {
         "levels": 1,
-        "entry_room": "tpl_room_tavern_entrance"
+        "entry_room": "tavern_entrance"
       }
     },
     {

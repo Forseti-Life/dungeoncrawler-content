@@ -1544,40 +1544,6 @@
       }
     },
     {
-      "room_id": "tpl_room_tavern_entrance",
-      "name": "The Gilded Tankard (Absalom)",
-      "description": "Starter room template for The Gilded Tankard in Absalom.",
-      "environment_tags": [
-        "tavern",
-        "starter"
-      ],
-      "layout_data": {
-        "shape": "rectangle",
-        "width": 8,
-        "height": 6
-      },
-      "contents_data": {
-        "obstacles": [
-          "tavern_bar_counter_a",
-          "tavern_bar_counter_b",
-          "tavern_bar_counter_c",
-          "tavern_table_round_a",
-          "tavern_table_long_a",
-          "tavern_table_long_center",
-          "tavern_table_long_b"
-        ],
-        "npcs": [
-          {
-            "content_id": "tavern_keeper",
-            "name": "Eldric",
-            "role": "barkeep",
-            "orientation": "se"
-          }
-        ],
-        "creatures": []
-      }
-    },
-    {
       "room_id": "tpl_room_goblin_scout_post",
       "name": "Goblin Scout Post",
       "description": "Forward watch post with improvised barricades.",

@@ -8,7 +8,7 @@
         "template": true,
         "phase": "intro"
       },
-      "room_id": "tpl_room_tavern_entrance"
+      "room_id": "tavern_entrance"
     },
     {
       "id": 2,

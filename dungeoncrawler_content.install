@@ -25170,6 +25170,173 @@ function dungeoncrawler_content_update_10160() {
 }
 
 /**
+ * Normalize starter tavern authority to tavern_entrance.
+ */
+function dungeoncrawler_content_update_10161() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $legacy_room_id = 'tpl_room_tavern_entrance';
+  $canonical_room_id = 'tavern_entrance';
+  $canonical_dungeon_id = 'tpl_dungeon_absalom_city';
+  $messages = [];
+  $now = time();
+
+  $normalize_scalar = static function ($value) use (&$normalize_scalar, $legacy_room_id, $canonical_room_id) {
+    if (is_array($value)) {
+      foreach ($value as $key => $child) {
+        $value[$key] = $normalize_scalar($child);
+      }
+      return $value;
+    }
+    if (is_string($value)) {
+      return str_replace($legacy_room_id, $canonical_room_id, $value);
+    }
+    return $value;
+  };
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_dungeons')) {
+    $dungeon_row = $database->select('dungeoncrawler_content_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_data'])
+      ->condition('dungeon_id', $canonical_dungeon_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($dungeon_row)) {
+      $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? ''), TRUE);
+      if (is_array($dungeon_data)) {
+        $normalized = $normalize_scalar($dungeon_data);
+        if ($normalized !== $dungeon_data) {
+          $database->update('dungeoncrawler_content_dungeons')
+            ->fields([
+              'dungeon_data' => json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+              'updated' => $now,
+            ])
+            ->condition('id', (int) $dungeon_row['id'])
+            ->execute();
+          $messages[] = 'Normalized canonical dungeon_data starter tavern room ids.';
+        }
+      }
+    }
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_connections')) {
+    $query = $database->select('dungeoncrawler_content_connections', 'c')
+      ->fields('c')
+      ->condition('dungeon_id', $canonical_dungeon_id);
+    $query->condition(
+      $query->orConditionGroup()
+        ->condition('from_room_id', $legacy_room_id)
+        ->condition('to_room_id', $legacy_room_id)
+    );
+    $rows = $query
+      ->execute()
+      ->fetchAllAssoc('id', \PDO::FETCH_ASSOC);
+
+    $updated = 0;
+    foreach ($rows as $row) {
+      $new_connection_id = str_replace($legacy_room_id, $canonical_room_id, (string) $row['connection_id']);
+      $database->delete('dungeoncrawler_content_connections')
+        ->condition('connection_id', $new_connection_id)
+        ->condition('id', (int) $row['id'], '<>')
+        ->execute();
+
+      $database->update('dungeoncrawler_content_connections')
+        ->fields([
+          'connection_id' => $new_connection_id,
+          'from_room_id' => $row['from_room_id'] === $legacy_room_id ? $canonical_room_id : $row['from_room_id'],
+          'to_room_id' => $row['to_room_id'] === $legacy_room_id ? $canonical_room_id : $row['to_room_id'],
+          'updated' => $now,
+        ])
+        ->condition('id', (int) $row['id'])
+        ->execute();
+      $updated++;
+    }
+    if ($updated > 0) {
+      $messages[] = sprintf('Normalized %d canonical starter connector rows.', $updated);
+    }
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_room_states')) {
+    $updated = $database->update('dungeoncrawler_content_room_states')
+      ->fields([
+        'room_id' => $canonical_room_id,
+        'updated' => $now,
+      ])
+      ->condition('room_id', $legacy_room_id)
+      ->execute();
+    if ($updated > 0) {
+      $messages[] = sprintf('Normalized %d starter room-state rows.', (int) $updated);
+    }
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_log')) {
+    $updated = $database->update('dungeoncrawler_content_log')
+      ->fields(['room_id' => $canonical_room_id])
+      ->condition('room_id', $legacy_room_id)
+      ->execute();
+    if ($updated > 0) {
+      $messages[] = sprintf('Normalized %d starter log rows.', (int) $updated);
+    }
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_characters')) {
+    $updated = $database->update('dungeoncrawler_content_characters')
+      ->fields(['location_ref' => $canonical_room_id])
+      ->condition('location_ref', $legacy_room_id)
+      ->execute();
+    if ($updated > 0) {
+      $messages[] = sprintf('Normalized %d starter character location refs.', (int) $updated);
+    }
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_h3_room_anchors')) {
+    $updated = $database->update('dungeoncrawler_content_h3_room_anchors')
+      ->fields([
+        'room_id' => $canonical_room_id,
+        'updated' => $now,
+      ])
+      ->condition('room_id', $legacy_room_id)
+      ->execute();
+    if ($updated > 0) {
+      $messages[] = sprintf('Normalized %d starter H3 anchor rows.', (int) $updated);
+    }
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_h3_room_cells')) {
+    $updated = $database->update('dungeoncrawler_content_h3_room_cells')
+      ->fields([
+        'room_id' => $canonical_room_id,
+        'updated' => $now,
+      ])
+      ->condition('room_id', $legacy_room_id)
+      ->execute();
+    if ($updated > 0) {
+      $messages[] = sprintf('Normalized %d starter H3 cell rows.', (int) $updated);
+    }
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_rooms')) {
+    $canonical_exists = (bool) $database->select('dungeoncrawler_content_rooms', 'r')
+      ->condition('room_id', $canonical_room_id)
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    if ($canonical_exists) {
+      $deleted = $database->delete('dungeoncrawler_content_rooms')
+        ->condition('room_id', $legacy_room_id)
+        ->execute();
+      if ($deleted > 0) {
+        $messages[] = sprintf('Removed %d legacy starter room rows.', (int) $deleted);
+      }
+    }
+  }
+
+  return $messages === []
+    ? t('Starter tavern authority already normalized to tavern_entrance.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
  * Resolve a connector endpoint hex from one room layout and target room.
  *
  * Prefers explicit layout_data.exits target coordinate; falls back to
