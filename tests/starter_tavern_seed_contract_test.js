@@ -79,6 +79,16 @@ assert(
   'starter NPC templates all anchor to tavern_entrance'
 );
 
+const tavernRoom = (roomTemplates.rows || []).find((row) => row.room_id === 'tavern_entrance') || {};
+const tavernExitTargets = Array.isArray(tavernRoom?.layout_data?.exits)
+  ? tavernRoom.layout_data.exits.map((exit) => exit?.target_room_id).filter(Boolean).sort()
+  : [];
+
+assert(
+  tavernExitTargets.length === 1 && tavernExitTargets[0] === 'tpl_room_absalom_streets',
+  'starter tavern template only exits to Absalom Streets'
+);
+
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);
 

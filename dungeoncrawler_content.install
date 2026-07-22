@@ -25844,6 +25844,103 @@ function dungeoncrawler_content_update_10165() {
 }
 
 /**
+ * Remove non-streets canonical Gilded Tankard connectors from the library.
+ */
+function dungeoncrawler_content_update_10166() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if (!$schema_handler->tableExists('dungeoncrawler_content_connections')) {
+    return t('Canonical connector table is unavailable; no Gilded Tankard connector normalization needed.');
+  }
+
+  $room_id = 'tavern_entrance';
+  $streets_room_id = 'tpl_room_absalom_streets';
+  $canonical_dungeon_id = 'tpl_dungeon_absalom_city';
+  $starter_dungeon_id = 'asset-library-starter-room';
+  $now = time();
+  $messages = [];
+
+  $tavern_query = $database->select('dungeoncrawler_content_connections', 'c')
+    ->fields('c');
+  $tavern_query->condition(
+    $tavern_query->orConditionGroup()
+      ->condition('from_room_id', $room_id)
+      ->condition('to_room_id', $room_id)
+  );
+  $tavern_rows = $tavern_query->orderBy('id', 'ASC')->execute()->fetchAllAssoc('id', \PDO::FETCH_ASSOC);
+
+  $delete_ids = [];
+  foreach ($tavern_rows as $row) {
+    $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
+    $from_room_id = trim((string) ($row['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($row['to_room_id'] ?? ''));
+    $paired_room_id = $from_room_id === $room_id ? $to_room_id : ($to_room_id === $room_id ? $from_room_id : '');
+    $is_allowed = $paired_room_id === $streets_room_id
+      && in_array($dungeon_id, [$canonical_dungeon_id, $starter_dungeon_id], TRUE);
+    if (!$is_allowed) {
+      $delete_ids[] = (int) $row['id'];
+    }
+  }
+
+  if ($delete_ids !== []) {
+    $database->delete('dungeoncrawler_content_connections')
+      ->condition('id', $delete_ids, 'IN')
+      ->execute();
+    $messages[] = sprintf('Removed %d non-streets canonical Gilded Tankard connector rows.', count($delete_ids));
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_dungeons')) {
+    $dungeon_row = $database->select('dungeoncrawler_content_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_data'])
+      ->condition('dungeon_id', $canonical_dungeon_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($dungeon_row)) {
+      $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? ''), TRUE);
+      if (!is_array($dungeon_data)) {
+        throw new \RuntimeException(sprintf('Canonical dungeon %s has invalid dungeon_data JSON.', $canonical_dungeon_id));
+      }
+
+      if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+        $dungeon_data['hex_map'] = [];
+      }
+      if (!isset($dungeon_data['hex_map']['connections']) || !is_array($dungeon_data['hex_map']['connections'])) {
+        $dungeon_data['hex_map']['connections'] = [];
+      }
+
+      $filtered_connections = [];
+      foreach ($dungeon_data['hex_map']['connections'] as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $from_room = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
+        $to_room = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
+        $paired_room = $from_room === $room_id ? $to_room : ($to_room === $room_id ? $from_room : '');
+        if ($paired_room !== '' && $paired_room !== $streets_room_id) {
+          continue;
+        }
+        $filtered_connections[] = $connection;
+      }
+      $dungeon_data['hex_map']['connections'] = array_values($filtered_connections);
+
+      $database->update('dungeoncrawler_content_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'updated' => $now,
+        ])
+        ->condition('id', (int) $dungeon_row['id'])
+        ->execute();
+      $messages[] = 'Normalized canonical Absalom city dungeon connector payload for The Gilded Tankard.';
+    }
+  }
+
+  return $messages === []
+    ? t('Canonical Gilded Tankard exits were already restricted to Absalom Streets.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
  * Resolve a connector endpoint hex from one room layout and target room.
  *
  * Prefers explicit layout_data.exits target coordinate; falls back to
