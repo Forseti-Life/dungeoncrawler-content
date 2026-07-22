@@ -124,7 +124,7 @@ final class H3SpatialHelper {
    * @return array{latitude: float, longitude: float}
    *   Projected coordinates.
    */
-  public static function projectAxialHexToLatLng(string $dungeon_id, int $q, int $r): array {
+  public static function projectAxialHexToLatLng(string $dungeon_id, float $q, float $r): array {
     $hash = sprintf('%u', crc32($dungeon_id));
     $origin_lat = ((int) $hash % 1000) / 1000000.0;
     $origin_lng = ((int) floor(((int) $hash / 1000) % 1000)) / 1000000.0;
