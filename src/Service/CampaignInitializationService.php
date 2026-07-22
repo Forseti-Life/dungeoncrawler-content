@@ -783,7 +783,7 @@ class CampaignInitializationService {
       $dungeon_data['hex_map']['map_id'] = $runtime_dungeon_id;
     }
     $rooms_before = count((array) ($dungeon_data['rooms'] ?? []));
-    $connections_before = count((array) ($dungeon_data['connections'] ?? []));
+    $connections_before = $this->countPayloadConnectionRows($dungeon_data);
 
     $this->navigationRuntime->expandCanonicalRoomNeighborhood(
       $campaign_id,
@@ -810,7 +810,7 @@ class CampaignInitializationService {
       ->execute();
 
     $rooms_after = count((array) ($dungeon_data['rooms'] ?? []));
-    $connections_after = count((array) ($dungeon_data['connections'] ?? []));
+    $connections_after = $this->countPayloadConnectionRows($dungeon_data);
     if ($rooms_after <= $rooms_before || $connections_after <= $connections_before) {
       throw new \RuntimeException(sprintf(
         'Template room+connector instantiation contract violation: expansion produced no graph growth for campaign %d dungeon %s (rooms %d→%d, connections %d→%d).',
@@ -822,6 +822,32 @@ class CampaignInitializationService {
         $connections_after
       ));
     }
+  }
+
+  /**
+   * Count unique connection rows across runtime payload connection buckets.
+   */
+  private function countPayloadConnectionRows(array $dungeon_data): int {
+    $seen = [];
+    foreach ([
+      $dungeon_data['hex_map']['connections'] ?? [],
+      $dungeon_data['connections'] ?? [],
+    ] as $connection_bucket) {
+      foreach (array_values(array_filter(is_array($connection_bucket) ? $connection_bucket : [], 'is_array')) as $connection) {
+        $connection_id = trim((string) ($connection['connection_id'] ?? ''));
+        if ($connection_id !== '') {
+          $seen['id:' . $connection_id] = TRUE;
+          continue;
+        }
+        $from_room_id = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? ''));
+        $to_room_id = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? ''));
+        if ($from_room_id === '' || $to_room_id === '') {
+          continue;
+        }
+        $seen['edge:' . $from_room_id . '>' . $to_room_id] = TRUE;
+      }
+    }
+    return count($seen);
   }
 
   /**
