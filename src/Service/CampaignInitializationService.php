@@ -747,6 +747,10 @@ class CampaignInitializationService {
     }
 
     $canonical_match = $this->matchCanonicalStarterConnector($canonical_connectors, $from_room_id, $to_room_id);
+    if ($canonical_match === NULL && $this->restoreCanonicalStarterConnector($from_room_id, $to_room_id)) {
+      $canonical_connectors = $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon(self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID);
+      $canonical_match = $this->matchCanonicalStarterConnector($canonical_connectors, $from_room_id, $to_room_id);
+    }
     if ($canonical_match === NULL) {
       throw new \RuntimeException(sprintf(
         'Starter connector authority contract violation: canonical connector missing for %s <-> %s in %s.',
@@ -757,6 +761,37 @@ class CampaignInitializationService {
     }
 
     return $canonical_match;
+  }
+
+  /**
+   * Restore missing Absalom starter connector authority from starter-library rows.
+   */
+  private function restoreCanonicalStarterConnector(string $from_room_id, string $to_room_id): bool {
+    if (!$this->connectorDefinitionService) {
+      return FALSE;
+    }
+
+    $starter_library_connectors = $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon(self::STARTER_LIBRARY_CONNECTOR_DUNGEON_ID);
+    $starter_match = $this->matchCanonicalStarterConnector($starter_library_connectors, $from_room_id, $to_room_id);
+    if ($starter_match === NULL) {
+      return FALSE;
+    }
+
+    $this->connectorDefinitionService->saveCanonicalConnector([
+      'dungeon_id' => self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID,
+      'from_room_id' => trim((string) ($starter_match['from_room_id'] ?? $from_room_id)),
+      'to_room_id' => trim((string) ($starter_match['to_room_id'] ?? $to_room_id)),
+      'kind' => (string) ($starter_match['kind'] ?? 'hallway'),
+      'direction' => (string) ($starter_match['direction'] ?? 'bidirectional'),
+      'default_state' => (string) ($starter_match['default_state'] ?? 'open'),
+      'description' => (string) ($starter_match['description'] ?? ''),
+      'travel_cost' => max(0, (int) ($starter_match['travel_cost'] ?? 0)),
+      'is_discovered_default' => !empty($starter_match['is_discovered_default']) || !empty($starter_match['is_discovered']) ? 1 : 0,
+      'from_hex' => is_array($starter_match['from_hex'] ?? NULL) ? $starter_match['from_hex'] : NULL,
+      'to_hex' => is_array($starter_match['to_hex'] ?? NULL) ? $starter_match['to_hex'] : NULL,
+    ]);
+
+    return TRUE;
   }
 
   /**
