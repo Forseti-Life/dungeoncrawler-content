@@ -150,44 +150,55 @@ class RuntimeBootstrapService {
     $campaign_data = $this->decodeCampaignData($campaign_id, (string) ($campaign['campaign_data'] ?? '{}'));
     $init = $this->extractInitState($campaign_id, $campaign_data);
     $phase = (string) ($init['phase'] ?? '');
-    if ($phase !== self::INIT_PHASE_RUNTIME_READY) {
+    if ($phase !== self::INIT_PHASE_RUNTIME_READY && $phase !== self::INIT_PHASE_STRUCTURAL_READY) {
       throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: campaign %d requires init phase "%s" before runtime state access (current="%s").',
+        'Runtime bootstrap contract violation: campaign %d requires init phase "%s" or "%s" before runtime state access (current="%s").',
         $campaign_id,
+        self::INIT_PHASE_STRUCTURAL_READY,
         self::INIT_PHASE_RUNTIME_READY,
         $phase
-      ));
-    }
-    $runtime_ready_for_character_id = (int) (
-      $init['runtime_ready_for_character_id']
-      ?? $init['context']['runtime_ready_for_character_id']
-      ?? 0
-    );
-    if ($runtime_ready_for_character_id <= 0) {
-      throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: campaign %d runtime_ready phase is missing runtime_ready_for_character_id.',
-        $campaign_id
       ));
     }
     $runtime_dungeon_id = trim((string) (
       $init['runtime_dungeon_id']
       ?? $init['context']['runtime_dungeon_id']
+      ?? $init['context']['dungeon_id']
       ?? ''
     ));
     if ($runtime_dungeon_id === '') {
+      $runtime_dungeon_id = trim((string) ($this->loadLatestDungeonRow($campaign_id)['dungeon_id'] ?? ''));
+    }
+    if ($runtime_dungeon_id === '') {
       throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: campaign %d runtime_ready phase is missing runtime_dungeon_id.',
+        'Runtime bootstrap contract violation: campaign %d runtime state access could not resolve runtime_dungeon_id.',
         $campaign_id
       ));
     }
     $runtime_active_room_id = trim((string) (
       $init['runtime_active_room_id']
       ?? $init['context']['runtime_active_room_id']
+      ?? $init['context']['starter_room_id']
       ?? ''
     ));
     if ($runtime_active_room_id === '') {
+      $runtime_active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? $dungeon_data['current_room_id'] ?? ''));
+      if ($runtime_active_room_id === '') {
+        $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+        foreach ($rooms as $room) {
+          if (!is_array($room)) {
+            continue;
+          }
+          $candidate_room_id = trim((string) ($room['room_id'] ?? ''));
+          if ($candidate_room_id !== '') {
+            $runtime_active_room_id = $candidate_room_id;
+            break;
+          }
+        }
+      }
+    }
+    if ($runtime_active_room_id === '') {
       throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: campaign %d runtime_ready phase is missing runtime_active_room_id.',
+        'Runtime bootstrap contract violation: campaign %d runtime state access could not resolve runtime_active_room_id.',
         $campaign_id
       ));
     }
@@ -220,9 +231,9 @@ class RuntimeBootstrapService {
     $campaign_data = $this->decodeCampaignData($campaign_id, (string) ($campaign['campaign_data'] ?? '{}'));
     $init = $this->extractInitState($campaign_id, $campaign_data);
     $phase = trim((string) ($init['phase'] ?? ''));
-    if ($phase !== self::INIT_PHASE_RUNTIME_READY) {
+    if ($phase !== self::INIT_PHASE_RUNTIME_READY && $phase !== self::INIT_PHASE_STRUCTURAL_READY) {
       throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: campaign %d must be runtime_ready for runtime dungeon reads (current=%s).',
+        'Runtime bootstrap contract violation: campaign %d must be structural_ready or runtime_ready for runtime dungeon reads (current=%s).',
         $campaign_id,
         $phase
       ));
@@ -231,13 +242,18 @@ class RuntimeBootstrapService {
     $runtime_dungeon_id = trim((string) (
       $init['runtime_dungeon_id']
       ?? $init['context']['runtime_dungeon_id']
+      ?? $init['context']['dungeon_id']
       ?? ''
     ));
     if ($runtime_dungeon_id === '') {
-      throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: campaign %d runtime_ready phase is missing runtime_dungeon_id.',
-        $campaign_id
-      ));
+      $latest_row = $this->loadLatestDungeonRow($campaign_id);
+      $runtime_dungeon_id = trim((string) ($latest_row['dungeon_id'] ?? ''));
+      if ($runtime_dungeon_id === '') {
+        throw new \RuntimeException(sprintf(
+          'Runtime bootstrap contract violation: campaign %d runtime dungeon read could not resolve dungeon_id.',
+          $campaign_id
+        ));
+      }
     }
 
     $row = $this->loadLatestDungeonRowByDungeonId($campaign_id, $runtime_dungeon_id);
@@ -259,6 +275,7 @@ class RuntimeBootstrapService {
       $expected_room_id = trim((string) (
         $init['runtime_active_room_id']
         ?? $init['context']['runtime_active_room_id']
+        ?? $init['context']['starter_room_id']
         ?? ''
       ));
     }
