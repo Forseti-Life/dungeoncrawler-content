@@ -742,7 +742,8 @@ class CampaignInitializationService {
       $campaign_id,
       $runtime_dungeon_id,
       $dungeon_row_id,
-      $dungeon_data
+      $dungeon_data,
+      $starter_room_id
     );
   }
 
@@ -756,7 +757,8 @@ class CampaignInitializationService {
     int $campaign_id,
     string $runtime_dungeon_id,
     int $dungeon_row_id,
-    array &$dungeon_data
+    array &$dungeon_data,
+    string $starter_room_id
   ): void {
     if ($campaign_id <= 0 || trim($runtime_dungeon_id) === '' || $dungeon_row_id <= 0) {
       throw new \RuntimeException('Template room+connector instantiation contract violation: campaign_id, runtime_dungeon_id, and dungeon row id are required.');
@@ -783,6 +785,22 @@ class CampaignInitializationService {
       1
     );
 
+    $rooms_after = count((array) ($dungeon_data['rooms'] ?? []));
+    $connections_after = $this->countPayloadConnectionRows($dungeon_data);
+    if ($rooms_after <= $rooms_before || $connections_after <= $connections_before) {
+      throw new \RuntimeException(sprintf(
+        'Template room+connector instantiation contract violation: expansion produced no graph growth for campaign %d dungeon %s (rooms %d→%d, connections %d→%d).',
+        $campaign_id,
+        $runtime_dungeon_id,
+        $rooms_before,
+        $rooms_after,
+        $connections_before,
+        $connections_after
+      ));
+    }
+
+    $this->trimStarterBootstrapSnapshot($dungeon_data, $starter_room_id);
+
     $encoded = json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($encoded === FALSE) {
       throw new \RuntimeException(sprintf(
@@ -799,20 +817,64 @@ class CampaignInitializationService {
       ])
       ->condition('id', $dungeon_row_id)
       ->execute();
+  }
 
-    $rooms_after = count((array) ($dungeon_data['rooms'] ?? []));
-    $connections_after = $this->countPayloadConnectionRows($dungeon_data);
-    if ($rooms_after <= $rooms_before || $connections_after <= $connections_before) {
-      throw new \RuntimeException(sprintf(
-        'Template room+connector instantiation contract violation: expansion produced no graph growth for campaign %d dungeon %s (rooms %d→%d, connections %d→%d).',
-        $campaign_id,
-        $runtime_dungeon_id,
-        $rooms_before,
-        $rooms_after,
-        $connections_before,
-        $connections_after
-      ));
+  /**
+   * Trim starter bootstrap dungeon snapshot to starter scope.
+   *
+   * Campaign authority rows (dc_campaign_rooms/dc_campaign_connections) remain
+   * fully materialized. This only keeps the delivery snapshot lightweight so
+   * initial hexmap loads don't hydrate the entire city payload at once.
+   *
+   * @param array<string,mixed> $dungeon_data
+   *   Mutable runtime dungeon payload.
+   */
+  private function trimStarterBootstrapSnapshot(array &$dungeon_data, string $starter_room_id): void {
+    $starter_room_id = trim($starter_room_id);
+    if ($starter_room_id === '') {
+      throw new \RuntimeException('Starter snapshot trim contract violation: starter_room_id is required.');
     }
+    $keep_room_ids = [
+      $starter_room_id => TRUE,
+      self::STARTER_CITY_STREETS_ROOM_ID => TRUE,
+    ];
+
+    $filter_rooms = static function (array $rooms, array $keep): array {
+      return array_values(array_filter($rooms, static function ($room) use ($keep): bool {
+        if (!is_array($room)) {
+          return FALSE;
+        }
+        $room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+        return $room_id !== '' && isset($keep[$room_id]);
+      }));
+    };
+
+    $filter_connections = static function (array $connections, array $keep): array {
+      return array_values(array_filter($connections, static function ($connection) use ($keep): bool {
+        if (!is_array($connection)) {
+          return FALSE;
+        }
+        $from_room_id = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? ''));
+        $to_room_id = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? ''));
+        return $from_room_id !== '' && $to_room_id !== ''
+          && isset($keep[$from_room_id]) && isset($keep[$to_room_id]);
+      }));
+    };
+
+    $dungeon_data['rooms'] = $filter_rooms((array) ($dungeon_data['rooms'] ?? []), $keep_room_ids);
+
+    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+      $dungeon_data['hex_map'] = [];
+    }
+    $dungeon_data['hex_map']['rooms'] = $filter_rooms((array) ($dungeon_data['hex_map']['rooms'] ?? []), $keep_room_ids);
+    $dungeon_data['hex_map']['connections'] = $filter_connections((array) ($dungeon_data['hex_map']['connections'] ?? []), $keep_room_ids);
+    if (isset($dungeon_data['connections']) && is_array($dungeon_data['connections'])) {
+      $dungeon_data['connections'] = $filter_connections((array) $dungeon_data['connections'], $keep_room_ids);
+    }
+    if (!isset($dungeon_data['hex_map']['metadata']) || !is_array($dungeon_data['hex_map']['metadata'])) {
+      $dungeon_data['hex_map']['metadata'] = [];
+    }
+    $dungeon_data['hex_map']['metadata']['total_rooms'] = count($dungeon_data['hex_map']['rooms']);
   }
 
   /**
