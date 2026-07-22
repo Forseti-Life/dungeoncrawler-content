@@ -49,6 +49,20 @@ class LittleTroubleTemplateIntegrityTest extends UnitTestCase {
     $this->assertSame(['ltba-hookclaw-hazard-scout'], $hazard_npc_ids);
   }
 
+  public function testGrandmasParlorTemplateOnlyExitsToAbsalomStreets(): void {
+    $rooms = $this->loadRows('dungeoncrawler_content_rooms/little_trouble_room_templates.json');
+    $parlor = $this->findRow($rooms, 'room_id', 'ltba-grandmas-house-parlor');
+    $exits = array_values(array_filter((array) ($parlor['layout_data']['exits'] ?? []), 'is_array'));
+
+    $exit_targets = array_values(array_map(
+      static fn(array $exit): string => trim((string) ($exit['target_room_id'] ?? '')),
+      $exits
+    ));
+    sort($exit_targets);
+
+    $this->assertSame(['tpl_room_absalom_streets'], $exit_targets);
+  }
+
   public function testLittleTroubleStorylineAssetAndContactAnchorsCoverTombNpcs(): void {
     $storylines = $this->loadRows('dungeoncrawler_content_storylines/default_storyline_templates.json');
     $storyline = $this->findRow($storylines, 'template_id', 'little-trouble-in-big-absalom');

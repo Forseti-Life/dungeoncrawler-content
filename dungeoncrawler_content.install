@@ -25683,6 +25683,167 @@ function dungeoncrawler_content_update_10164() {
 }
 
 /**
+ * Normalize LTBA parlor canonical exits in the library.
+ */
+function dungeoncrawler_content_update_10165() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $dungeon_id = 'ltba-tomb-site';
+  $parlor_room_id = 'ltba-grandmas-house-parlor';
+  $streets_room_id = 'tpl_room_absalom_streets';
+  $hazard_room_id = 'ltba-tomb-hazard-room';
+  $now = time();
+  $messages = [];
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_connections')) {
+    return t('Canonical connector table is unavailable; no LTBA parlor connector normalization needed.');
+  }
+
+  $connector_query = $database->select('dungeoncrawler_content_connections', 'c')
+    ->fields('c')
+    ->condition('dungeon_id', $dungeon_id);
+  $connector_query->condition(
+    $connector_query->orConditionGroup()
+      ->condition(
+        $connector_query->andConditionGroup()
+          ->condition('from_room_id', $parlor_room_id)
+          ->condition('to_room_id', $streets_room_id)
+      )
+      ->condition(
+        $connector_query->andConditionGroup()
+          ->condition('from_room_id', $streets_room_id)
+          ->condition('to_room_id', $parlor_room_id)
+      )
+  );
+  $street_connectors = $connector_query->orderBy('id', 'ASC')->execute()->fetchAllAssoc('id', \PDO::FETCH_ASSOC);
+  if ($street_connectors === []) {
+    throw new \RuntimeException('LTBA canonical library contract violation: missing parlor <-> Absalom Streets connector row.');
+  }
+
+  $preferred_street_connector = reset($street_connectors);
+  if (is_array($preferred_street_connector)) {
+    $database->update('dungeoncrawler_content_connections')
+      ->fields([
+        'from_room_id' => $parlor_room_id,
+        'to_room_id' => $streets_room_id,
+        'direction' => 'bidirectional',
+        'kind' => trim((string) ($preferred_street_connector['kind'] ?? 'hallway')) !== '' ? (string) $preferred_street_connector['kind'] : 'hallway',
+        'default_state' => trim((string) ($preferred_street_connector['default_state'] ?? 'open')) !== '' ? (string) $preferred_street_connector['default_state'] : 'open',
+        'updated' => $now,
+      ])
+      ->condition('id', (int) $preferred_street_connector['id'])
+      ->execute();
+
+    $duplicate_connector_ids = array_values(array_filter(array_map(
+      static fn(array $row): int => (int) (($row['id'] ?? 0) !== ($preferred_street_connector['id'] ?? 0) ? ($row['id'] ?? 0) : 0),
+      $street_connectors
+    )));
+    if ($duplicate_connector_ids !== []) {
+      $database->delete('dungeoncrawler_content_connections')
+        ->condition('id', $duplicate_connector_ids, 'IN')
+        ->execute();
+      $messages[] = sprintf('Removed %d duplicate LTBA parlor street connector rows.', count($duplicate_connector_ids));
+    }
+  }
+
+  $hazard_removed = $database->delete('dungeoncrawler_content_connections')
+    ->condition('dungeon_id', $dungeon_id)
+    ->condition('from_room_id', $parlor_room_id)
+    ->condition('to_room_id', $hazard_room_id)
+    ->execute();
+  if ($hazard_removed > 0) {
+    $messages[] = sprintf('Removed %d LTBA parlor -> tomb hazard connector rows.', (int) $hazard_removed);
+  }
+
+  if ($schema_handler->tableExists('dungeoncrawler_content_dungeons')) {
+    $dungeon_row = $database->select('dungeoncrawler_content_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_data'])
+      ->condition('dungeon_id', $dungeon_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($dungeon_row)) {
+      $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? ''), TRUE);
+      if (!is_array($dungeon_data)) {
+        throw new \RuntimeException(sprintf('Canonical dungeon %s has invalid dungeon_data JSON.', $dungeon_id));
+      }
+
+      if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+        $dungeon_data['hex_map'] = [];
+      }
+      if (!isset($dungeon_data['hex_map']['connections']) || !is_array($dungeon_data['hex_map']['connections'])) {
+        $dungeon_data['hex_map']['connections'] = [];
+      }
+
+      $normalized_connections = [];
+      $has_street_connection = FALSE;
+      foreach ($dungeon_data['hex_map']['connections'] as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $from_room = trim((string) ($connection['from_room'] ?? $connection['from_room_id'] ?? ''));
+        $to_room = trim((string) ($connection['to_room'] ?? $connection['to_room_id'] ?? ''));
+        if ($from_room === $parlor_room_id && $to_room === $hazard_room_id) {
+          continue;
+        }
+        $is_street_pair = (
+          ($from_room === $parlor_room_id && $to_room === $streets_room_id)
+          || ($from_room === $streets_room_id && $to_room === $parlor_room_id)
+        );
+        if ($is_street_pair) {
+          $connection['from_room'] = $parlor_room_id;
+          $connection['from_room_id'] = $parlor_room_id;
+          $connection['to_room'] = $streets_room_id;
+          $connection['to_room_id'] = $streets_room_id;
+          $connection['direction'] = 'bidirectional';
+          $connection['connection_type'] = (string) ($connection['connection_type'] ?? $connection['type'] ?? 'hallway');
+          $connection['type'] = (string) ($connection['type'] ?? $connection['connection_type'] ?? 'hallway');
+          $has_street_connection = TRUE;
+        }
+        $normalized_connections[] = $connection;
+      }
+
+      if (!$has_street_connection && is_array($preferred_street_connector)) {
+        $normalized_connections[] = [
+          'connection_id' => (string) ($preferred_street_connector['connection_id'] ?? ''),
+          'from_room' => $parlor_room_id,
+          'from_room_id' => $parlor_room_id,
+          'to_room' => $streets_room_id,
+          'to_room_id' => $streets_room_id,
+          'from_hex' => [
+            'q' => isset($preferred_street_connector['from_hex_q']) ? (int) $preferred_street_connector['from_hex_q'] : 1,
+            'r' => isset($preferred_street_connector['from_hex_r']) ? (int) $preferred_street_connector['from_hex_r'] : 0,
+          ],
+          'to_hex' => [
+            'q' => isset($preferred_street_connector['to_hex_q']) ? (int) $preferred_street_connector['to_hex_q'] : 1,
+            'r' => isset($preferred_street_connector['to_hex_r']) ? (int) $preferred_street_connector['to_hex_r'] : 0,
+          ],
+          'direction' => 'bidirectional',
+          'connection_type' => trim((string) ($preferred_street_connector['kind'] ?? 'hallway')) !== '' ? (string) $preferred_street_connector['kind'] : 'hallway',
+          'type' => trim((string) ($preferred_street_connector['kind'] ?? 'hallway')) !== '' ? (string) $preferred_street_connector['kind'] : 'hallway',
+          'is_discovered' => TRUE,
+          'is_passable' => TRUE,
+        ];
+      }
+
+      $dungeon_data['hex_map']['connections'] = array_values($normalized_connections);
+      $database->update('dungeoncrawler_content_dungeons')
+        ->fields([
+          'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'updated' => $now,
+        ])
+        ->condition('id', (int) $dungeon_row['id'])
+        ->execute();
+      $messages[] = 'Normalized LTBA canonical dungeon connector payload for Grandma\'s parlor.';
+    }
+  }
+
+  return $messages === []
+    ? t('LTBA canonical parlor exits were already normalized.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
  * Resolve a connector endpoint hex from one room layout and target room.
  *
  * Prefers explicit layout_data.exits target coordinate; falls back to
