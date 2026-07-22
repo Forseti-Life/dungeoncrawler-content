@@ -58,6 +58,7 @@ class CampaignInitializationService {
   protected ?StorylineManagerService $storylineManager;
   protected ?RelationshipManagerService $relationshipManager;
   protected ?ExitConnectorAuthorityService $connectorDefinitionService;
+  protected ?NavigationRuntimeService $navigationRuntime;
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected CampaignClockService $campaignClockService;
 
@@ -76,7 +77,8 @@ class CampaignInitializationService {
     ?RoomViewImageService $room_view_image_service = NULL,
     ?StorylineManagerService $storyline_manager = NULL,
     ?RelationshipManagerService $relationship_manager = NULL,
-    ?ExitConnectorAuthorityService $connector_definition_service = NULL
+    ?ExitConnectorAuthorityService $connector_definition_service = NULL,
+    ?NavigationRuntimeService $navigation_runtime = NULL
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -92,6 +94,7 @@ class CampaignInitializationService {
     $this->storylineManager = $storyline_manager;
     $this->relationshipManager = $relationship_manager;
     $this->connectorDefinitionService = $connector_definition_service;
+    $this->navigationRuntime = $navigation_runtime;
     $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
   }
 
@@ -639,15 +642,17 @@ class CampaignInitializationService {
       throw new \RuntimeException('Starter connector authority contract violation: ConnectorDefinitionService is required.');
     }
 
-    $dungeon_payload = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_data'])
+    $dungeon_payload_row = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_data'])
       ->condition('campaign_id', $campaign_id)
       ->condition('dungeon_id', $runtime_dungeon_id)
       ->orderBy('id', 'DESC')
       ->range(0, 1)
       ->execute()
-      ->fetchField();
-    $dungeon_data = json_decode((string) $dungeon_payload, TRUE);
+      ->fetchAssoc();
+    $dungeon_row_id = (int) ($dungeon_payload_row['id'] ?? 0);
+    $dungeon_payload = (string) ($dungeon_payload_row['dungeon_data'] ?? '');
+    $dungeon_data = json_decode($dungeon_payload, TRUE);
     if (!is_array($dungeon_data)) {
       throw new \RuntimeException(sprintf(
         'Starter connector authority contract violation: campaign %d dungeon %s payload is invalid JSON.',
@@ -738,96 +743,83 @@ class CampaignInitializationService {
       ]);
     }
 
-    // Template-instantiation contract: when rooms are instantiated for a
-    // campaign, their canonical connector rows must be instantiated into
-    // campaign authority immediately.
-    $this->seedTemplateConnectorAuthorityForInstantiatedRooms(
+    // Template-instantiation contract: room instantiation must also instantiate
+    // connector rows immediately in campaign authority. Expand the starter
+    // streets neighborhood inside bootstrap so newly created campaigns have
+    // room rows + connector rows in one transaction.
+    $this->expandStarterCityNeighborhoodFromTemplateInstantiation(
       $campaign_id,
       $runtime_dungeon_id,
-      [$starter_room_id, self::STARTER_CITY_STREETS_ROOM_ID]
+      $dungeon_row_id,
+      $dungeon_data
     );
   }
 
   /**
-   * Seed campaign connector authority for instantiated template rooms.
+   * Materialize starter city neighborhood room+connector authority at bootstrap.
    *
-   * This materializes canonical connector rows for any connector touching one
-   * of the instantiated rooms so room creation and connector availability stay
-   * in the same bootstrap transaction.
-   *
-   * @param array<int, string> $instantiated_room_ids
-   *   Runtime room IDs instantiated into campaign scope.
+   * @param array<string, mixed> $dungeon_data
+   *   Mutable runtime dungeon payload for starter campaign.
    */
-  private function seedTemplateConnectorAuthorityForInstantiatedRooms(
+  private function expandStarterCityNeighborhoodFromTemplateInstantiation(
     int $campaign_id,
     string $runtime_dungeon_id,
-    array $instantiated_room_ids
+    int $dungeon_row_id,
+    array &$dungeon_data
   ): void {
-    if ($campaign_id <= 0 || trim($runtime_dungeon_id) === '') {
-      throw new \RuntimeException('Template connector instantiation contract violation: campaign_id and runtime_dungeon_id are required.');
+    if ($campaign_id <= 0 || trim($runtime_dungeon_id) === '' || $dungeon_row_id <= 0) {
+      throw new \RuntimeException('Template room+connector instantiation contract violation: campaign_id, runtime_dungeon_id, and dungeon row id are required.');
     }
-    if (!$this->connectorDefinitionService) {
-      throw new \RuntimeException('Template connector instantiation contract violation: ConnectorDefinitionService is required.');
+    if (!$this->navigationRuntime) {
+      throw new \RuntimeException('Template room+connector instantiation contract violation: NavigationRuntimeService is required.');
     }
+    if (trim((string) ($dungeon_data['dungeon_id'] ?? '')) === '') {
+      $dungeon_data['dungeon_id'] = $runtime_dungeon_id;
+    }
+    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+      $dungeon_data['hex_map'] = [];
+    }
+    if (trim((string) ($dungeon_data['hex_map']['map_id'] ?? '')) === '') {
+      $dungeon_data['hex_map']['map_id'] = $runtime_dungeon_id;
+    }
+    $rooms_before = count((array) ($dungeon_data['rooms'] ?? []));
+    $connections_before = count((array) ($dungeon_data['connections'] ?? []));
 
-    $room_index = [];
-    foreach ($instantiated_room_ids as $room_id) {
-      $normalized_room_id = trim((string) $room_id);
-      if ($normalized_room_id !== '') {
-        $room_index[$normalized_room_id] = TRUE;
-      }
-    }
-    if ($room_index === []) {
-      throw new \RuntimeException('Template connector instantiation contract violation: at least one instantiated room id is required.');
-    }
+    $this->navigationRuntime->expandCanonicalRoomNeighborhood(
+      $campaign_id,
+      $dungeon_data,
+      self::STARTER_CITY_STREETS_ROOM_ID,
+      1
+    );
 
-    $canonical_connectors = $this->connectorDefinitionService->loadCanonicalConnectorsForDungeon(self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID);
-    if ($canonical_connectors === []) {
+    $encoded = json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($encoded === FALSE) {
       throw new \RuntimeException(sprintf(
-        'Template connector instantiation contract violation: canonical connector table is empty for %s.',
-        self::STARTER_CANONICAL_CONNECTOR_DUNGEON_ID
-      ));
-    }
-
-    $instantiated_connector_count = 0;
-    foreach ($canonical_connectors as $connector) {
-      if (!is_array($connector)) {
-        continue;
-      }
-      $from_room_id = trim((string) ($connector['from_room_id'] ?? ''));
-      $to_room_id = trim((string) ($connector['to_room_id'] ?? ''));
-      if ($from_room_id === '' || $to_room_id === '') {
-        continue;
-      }
-      if (!isset($room_index[$from_room_id]) && !isset($room_index[$to_room_id])) {
-        continue;
-      }
-
-      $connector_payload = [
-        'connection_id' => trim((string) ($connector['connection_id'] ?? '')),
-        'from_room_id' => $from_room_id,
-        'to_room_id' => $to_room_id,
-        'kind' => (string) ($connector['kind'] ?? 'hallway'),
-        'direction' => (string) ($connector['direction'] ?? 'bidirectional'),
-        'default_state' => (string) ($connector['default_state'] ?? 'open'),
-        'state' => (string) ($connector['state'] ?? $connector['default_state'] ?? 'open'),
-        'travel_cost' => max(0, (int) ($connector['travel_cost'] ?? 0)),
-        'description' => (string) ($connector['description'] ?? ''),
-        'is_discovered_default' => !empty($connector['is_discovered_default']) || !empty($connector['is_discovered']) ? 1 : 0,
-        'from_hex' => is_array($connector['from_hex'] ?? NULL) ? $connector['from_hex'] : NULL,
-        'to_hex' => is_array($connector['to_hex'] ?? NULL) ? $connector['to_hex'] : NULL,
-      ];
-      $this->connectorDefinitionService->saveCampaignConnector($campaign_id, $connector_payload + [
-        'dungeon_id' => $runtime_dungeon_id,
-      ]);
-      $instantiated_connector_count++;
-    }
-
-    if ($instantiated_connector_count === 0) {
-      throw new \RuntimeException(sprintf(
-        'Template connector instantiation contract violation: no canonical connectors were instantiated for campaign %d runtime dungeon %s.',
+        'Template room+connector instantiation contract violation: unable to encode expanded dungeon payload for campaign %d dungeon %s.',
         $campaign_id,
         $runtime_dungeon_id
+      ));
+    }
+    $now = $this->time->getRequestTime();
+    $this->database->update('dc_campaign_dungeons')
+      ->fields([
+        'dungeon_data' => $encoded,
+        'updated' => $now,
+      ])
+      ->condition('id', $dungeon_row_id)
+      ->execute();
+
+    $rooms_after = count((array) ($dungeon_data['rooms'] ?? []));
+    $connections_after = count((array) ($dungeon_data['connections'] ?? []));
+    if ($rooms_after <= $rooms_before || $connections_after <= $connections_before) {
+      throw new \RuntimeException(sprintf(
+        'Template room+connector instantiation contract violation: expansion produced no graph growth for campaign %d dungeon %s (rooms %d→%d, connections %d→%d).',
+        $campaign_id,
+        $runtime_dungeon_id,
+        $rooms_before,
+        $rooms_after,
+        $connections_before,
+        $connections_after
       ));
     }
   }

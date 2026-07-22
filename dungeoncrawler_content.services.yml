@@ -204,6 +204,29 @@ services:
     arguments:
       - '@dungeoncrawler_content.navigation_service'
 
+  dungeoncrawler_content.runtime_graph_assembler:
+    class: Drupal\dungeoncrawler_content\Service\RuntimeGraphAssemblerService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.graph_version_service'
+
+  dungeoncrawler_content.dungeon_snapshot_refresher:
+    class: Drupal\dungeoncrawler_content\Service\DungeonSnapshotRefresherService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.runtime_graph_assembler'
+
+  dungeoncrawler_content.graph_version_service:
+    class: Drupal\dungeoncrawler_content\Service\GraphVersionService
+    arguments:
+      - '@database'
+
+  dungeoncrawler_content.dungeon_payload_state_persistence:
+    class: Drupal\dungeoncrawler_content\Service\DungeonPayloadStatePersistenceService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.runtime_graph_assembler'
+
   dungeoncrawler_content.roadmap_pipeline_status_resolver:
     class: Drupal\dungeoncrawler_content\Service\RoadmapPipelineStatusResolver
 
@@ -695,6 +718,7 @@ services:
       - '@dungeoncrawler_content.room_chat_history_projector'
       - '@dungeoncrawler_content.ai_session_manager'
       - '@logger.factory'
+      - '@?dungeoncrawler_content.exit_connector_authority'
 
   dungeoncrawler_content.navigation_transition_pipeline:
     class: Drupal\dungeoncrawler_content\Service\NavigationTransitionPipeline
@@ -777,6 +801,7 @@ services:
       - '@dungeoncrawler_content.chat_channel_manager'
       - '@dungeoncrawler_content.npc_psychology_service'
       - '@dungeoncrawler_content.storyline_quest_lifecycle'
+      - '@dungeoncrawler_content.dungeon_payload_state_persistence'
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.chat_session_manager'
       - '@dungeoncrawler_content.map_generator'
@@ -837,7 +862,8 @@ services:
       - '@dungeoncrawler_content.room_view_image'
       - '@dungeoncrawler_content.storyline_manager'
       - '@dungeoncrawler_content.relationship_manager'
-      - '@?dungeoncrawler_content.connector_definition_service'
+      - '@?dungeoncrawler_content.exit_connector_authority'
+      - '@?dungeoncrawler_content.navigation_runtime'
 
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
@@ -859,6 +885,11 @@ services:
   dungeoncrawler_content.connector_definition_service:
     class: Drupal\dungeoncrawler_content\Service\ConnectorDefinitionService
     arguments: ['@database']
+
+  dungeoncrawler_content.exit_connector_authority:
+    class: Drupal\dungeoncrawler_content\Service\ExitConnectorAuthorityService
+    arguments:
+      - '@dungeoncrawler_content.connector_definition_service'
 
   # Procedural Generation Services
   dungeoncrawler_content.room_library:
@@ -992,6 +1023,7 @@ services:
       - '@database'
       - '@logger.factory'
       - '@datetime.time'
+      - '@dungeoncrawler_content.dungeon_payload_state_persistence'
       - ~
       - '@dungeoncrawler_content.objective_type'
       - '@dungeoncrawler_content.chat_session_manager'
@@ -1091,6 +1123,7 @@ services:
       - '@dungeoncrawler_content.number_generation'
       - '@dungeoncrawler_content.ai_gm'
       - '@dungeoncrawler_content.storyline_quest_lifecycle'
+      - '@dungeoncrawler_content.dungeon_payload_state_persistence'
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.knowledge_acquisition'
       - '@dungeoncrawler_content.hazard_service'
@@ -1132,6 +1165,7 @@ services:
       - '@dungeoncrawler_content.canonical_projection_service'
       - '@dungeoncrawler_content.encounter_action_executor'
       - '@dungeoncrawler_content.encounter_intent_router'
+      - '@dungeoncrawler_content.runtime_graph_assembler'
 
   dungeoncrawler_content.encounter_master:
     alias: dungeoncrawler_content.encounter_phase_handler
@@ -1155,6 +1189,7 @@ services:
       - '@dungeoncrawler_content.ai_gm'
       - '@dungeoncrawler_content.campaign_time_resolver'
       - '@dungeoncrawler_content.runtime_bootstrap'
+      - '@dungeoncrawler_content.dungeon_payload_state_persistence'
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.text_to_speech_integration'
       - '@file_url_generator'
@@ -1164,6 +1199,7 @@ services:
     arguments:
       - '@database'
       - '@dungeoncrawler_content.campaign_character_runtime_sync'
+      - '@dungeoncrawler_content.dungeon_payload_state_persistence'
       - '@logger.factory'
 
   dungeoncrawler_content.ai_session_manager:
