@@ -545,8 +545,32 @@ trait RoomChatServiceGmPipelineTrait {
    */
 
   protected function loadLatestDungeonSnapshot(int $campaign_id, ?string $room_id = NULL, ?string $preferred_dungeon_id = NULL): array {
+    $preferred_dungeon_id = trim((string) $preferred_dungeon_id);
+    if ($preferred_dungeon_id !== '') {
+      $preferred_record = $this->database->select('dc_campaign_dungeons', 'd')
+        ->fields('d', ['dungeon_id', 'dungeon_data', 'updated'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('dungeon_id', $preferred_dungeon_id)
+        ->orderBy('updated', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (is_array($preferred_record)) {
+        $preferred_data = json_decode($preferred_record['dungeon_data'] ?? '{}', TRUE);
+        if (is_array($preferred_data)) {
+          if ($room_id === NULL || $room_id === '' || $this->roomLocator->findRoomIndex((array) ($preferred_data['rooms'] ?? []), $room_id) !== NULL) {
+            return [
+              'dungeon_id' => $preferred_record['dungeon_id'] ?? '',
+              'dungeon_data' => $preferred_data,
+              'encoded_bytes' => strlen((string) ($preferred_record['dungeon_data'] ?? '')),
+            ];
+          }
+        }
+      }
+    }
+
     $records = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_id', 'dungeon_data', 'updated'])
+      ->fields('d', ['dungeon_id', 'updated'])
       ->condition('campaign_id', $campaign_id)
       ->orderBy('updated', 'DESC')
       ->execute()
@@ -560,31 +584,41 @@ trait RoomChatServiceGmPipelineTrait {
     if ($room_id !== NULL && $room_id !== '') {
       $matched_record = NULL;
       $active_room_match = NULL;
-      $preferred_dungeon_id = trim((string) $preferred_dungeon_id);
       foreach ($records as $candidate) {
-        $candidate_data = json_decode($candidate['dungeon_data'] ?? '{}', TRUE);
+        $candidate_record = $this->database->select('dc_campaign_dungeons', 'd')
+          ->fields('d', ['dungeon_id', 'dungeon_data', 'updated'])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('dungeon_id', (string) ($candidate['dungeon_id'] ?? ''))
+          ->orderBy('updated', 'DESC')
+          ->range(0, 1)
+          ->execute()
+          ->fetchAssoc();
+        if (!is_array($candidate_record)) {
+          continue;
+        }
+        $candidate_data = json_decode($candidate_record['dungeon_data'] ?? '{}', TRUE);
         if (!is_array($candidate_data)) {
           $this->logger->warning('Room snapshot scan skipped malformed dungeon payload: campaign={campaign_id} requested_room={room_id} dungeon_id={dungeon_id} payload_bytes={payload_bytes} decoded_type={decoded_type}', [
             'campaign_id' => $campaign_id,
             'room_id' => $room_id,
-            'dungeon_id' => (string) ($candidate['dungeon_id'] ?? ''),
-            'payload_bytes' => strlen((string) ($candidate['dungeon_data'] ?? '')),
+            'dungeon_id' => (string) ($candidate_record['dungeon_id'] ?? ''),
+            'payload_bytes' => strlen((string) ($candidate_record['dungeon_data'] ?? '')),
             'decoded_type' => get_debug_type($candidate_data),
           ]);
           continue;
         }
         $rooms = is_array($candidate_data['rooms'] ?? NULL) ? $candidate_data['rooms'] : [];
         if ($this->roomLocator->findRoomIndex($rooms, $room_id) !== NULL) {
-          if ($preferred_dungeon_id !== '' && (string) ($candidate['dungeon_id'] ?? '') === $preferred_dungeon_id) {
-            $matched_record = $candidate;
+          if ($preferred_dungeon_id !== '' && (string) ($candidate_record['dungeon_id'] ?? '') === $preferred_dungeon_id) {
+            $matched_record = $candidate_record;
             break;
           }
           $active_room_id = trim((string) ($candidate_data['active_room_id'] ?? $candidate_data['current_room_id'] ?? ''));
           if ($active_room_match === NULL && $active_room_id === $room_id) {
-            $active_room_match = $candidate;
+            $active_room_match = $candidate_record;
           }
           if ($matched_record === NULL) {
-            $matched_record = $candidate;
+            $matched_record = $candidate_record;
           }
         }
       }
@@ -595,6 +629,19 @@ trait RoomChatServiceGmPipelineTrait {
         throw new \InvalidArgumentException(sprintf('Room %s not found in any dungeon', $room_id), 404);
       }
       $record = $matched_record;
+    }
+    else {
+      $latest_record = $this->database->select('dc_campaign_dungeons', 'd')
+        ->fields('d', ['dungeon_id', 'dungeon_data', 'updated'])
+        ->condition('campaign_id', $campaign_id)
+        ->orderBy('updated', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (!is_array($latest_record)) {
+        throw new \InvalidArgumentException('Dungeon not found', 404);
+      }
+      $record = $latest_record;
     }
 
     $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
