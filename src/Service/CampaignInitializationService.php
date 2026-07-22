@@ -182,15 +182,6 @@ class CampaignInitializationService {
         (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
         (string) ($starter_room['description'] ?? '')
       );
-      $this->seedStarterRoomChatHistory(
-        $campaign_id,
-        $dungeon_id,
-        $starter_runtime_room_id,
-        (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
-        (string) ($starter_room['description'] ?? ''),
-        $now
-      );
-
       if ($this->roomViewImageService) {
         $this->roomViewImageService->warmRoomViewImageCache($starter_room, [
           'campaign_id' => $campaign_id,
