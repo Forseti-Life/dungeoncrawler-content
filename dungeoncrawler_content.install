@@ -82,6 +82,8 @@
  * - 10153: Add normalized objective/location validation tables and contract hash/version columns
  * - 10157: Refine Enter the Vault objective phrasing in canonical and campaign quest data
  * - 10159: Add explicit connector endpoint hex columns and canonical backfill
+ * - 10167: Backfill fixed H3 hex indexes/lat-lng into starter and Absalom room layouts
+ * - 10168: Backfill fixed H3 hex indexes/lat-lng into every canonical room layout row
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -25938,6 +25940,371 @@ function dungeoncrawler_content_update_10166() {
   return $messages === []
     ? t('Canonical Gilded Tankard exits were already restricted to Absalom Streets.')
     : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Backfill fixed H3 fields into starter/canonical Absalom room hex payloads.
+ */
+function dungeoncrawler_content_update_10167() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  foreach ([
+    'dungeoncrawler_content_rooms',
+    'dungeoncrawler_content_connections',
+    'dungeoncrawler_content_h3_room_cells',
+  ] as $table) {
+    if (!$schema_handler->tableExists($table)) {
+      return t('Required table @table is missing; cannot backfill fixed room hex H3 payloads.', ['@table' => $table]);
+    }
+  }
+
+  $canonical_dungeon_id = 'tpl_dungeon_absalom_city';
+  $starter_seed_dungeon_id = 'asset-library-starter-room';
+  $streets_room_id = 'tpl_room_absalom_streets';
+  $target_room_ids = [
+    'tavern_entrance' => TRUE,
+    $streets_room_id => TRUE,
+  ];
+
+  $connector_query = $database->select('dungeoncrawler_content_connections', 'c')
+    ->fields('c', ['from_room_id', 'to_room_id'])
+    ->condition('dungeon_id', $canonical_dungeon_id);
+  $connector_query->condition(
+    $connector_query->orConditionGroup()
+      ->condition('from_room_id', $streets_room_id)
+      ->condition('to_room_id', $streets_room_id)
+  );
+  $connector_rows = $connector_query
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  foreach ($connector_rows as $connector_row) {
+    if (!is_array($connector_row)) {
+      continue;
+    }
+    $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+    if ($from_room_id !== '') {
+      $target_room_ids[$from_room_id] = TRUE;
+    }
+    if ($to_room_id !== '') {
+      $target_room_ids[$to_room_id] = TRUE;
+    }
+  }
+  $target_room_ids = array_keys($target_room_ids);
+  sort($target_room_ids);
+
+  $h3_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+    ->fields('c', ['room_id', 'source_q', 'source_r', 'h3_index', 'center_latitude', 'center_longitude'])
+    ->condition('dungeon_id', $canonical_dungeon_id)
+    ->condition('room_id', $target_room_ids, 'IN')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  $h3_by_room_coordinate = [];
+  foreach ($h3_rows as $h3_row) {
+    if (!is_array($h3_row)) {
+      continue;
+    }
+    $room_id = trim((string) ($h3_row['room_id'] ?? ''));
+    if ($room_id === '') {
+      continue;
+    }
+    $q = (int) ($h3_row['source_q'] ?? 0);
+    $r = (int) ($h3_row['source_r'] ?? 0);
+    $h3_index = strtolower(trim((string) ($h3_row['h3_index'] ?? '')));
+    if ($h3_index === '') {
+      continue;
+    }
+    $h3_by_room_coordinate[$room_id][$q . ':' . $r] = [
+      'h3_index' => $h3_index,
+      'lat' => is_numeric($h3_row['center_latitude'] ?? NULL) ? (float) $h3_row['center_latitude'] : NULL,
+      'lng' => is_numeric($h3_row['center_longitude'] ?? NULL) ? (float) $h3_row['center_longitude'] : NULL,
+    ];
+  }
+
+  $updated_rooms = 0;
+  $updated_hexes = 0;
+  $now = time();
+  foreach ($target_room_ids as $room_id) {
+    $room_row = $database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['id', 'layout_data'])
+      ->condition('room_id', $room_id)
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($room_row)) {
+      continue;
+    }
+
+    $layout_data = json_decode((string) ($room_row['layout_data'] ?? ''), TRUE);
+    if (!is_array($layout_data)) {
+      throw new \RuntimeException(sprintf('Fixed H3 backfill contract violation: room %s has invalid layout_data JSON.', $room_id));
+    }
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf('Fixed H3 backfill contract violation: room %s has no layout_data.hexes.', $room_id));
+    }
+
+    $room_changed = FALSE;
+    foreach ($hexes as $index => &$hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf('Fixed H3 backfill contract violation: room %s hex[%d] is missing numeric q/r.', $room_id, $index));
+      }
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $key = $q . ':' . $r;
+      $h3_payload = $h3_by_room_coordinate[$room_id][$key] ?? NULL;
+
+      if (!is_array($h3_payload)) {
+        $projection = \Drupal\dungeoncrawler_content\Support\H3SpatialHelper::projectAxialHexToLatLng(
+          $room_id === 'tavern_entrance' ? $starter_seed_dungeon_id : $canonical_dungeon_id,
+          (float) $q,
+          (float) $r
+        );
+        $h3_payload = [
+          'h3_index' => strtolower(\Drupal\dungeoncrawler_content\Support\H3SpatialHelper::latLngToH3Index(
+            (float) $projection['latitude'],
+            (float) $projection['longitude'],
+            14
+          )),
+          'lat' => (float) $projection['latitude'],
+          'lng' => (float) $projection['longitude'],
+        ];
+      }
+
+      $current_h3 = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+      $normalized_h3 = strtolower((string) ($h3_payload['h3_index'] ?? ''));
+      if ($normalized_h3 === '') {
+        throw new \RuntimeException(sprintf(
+          'Fixed H3 backfill contract violation: room %s hex[%d] could not resolve canonical h3 index for q=%d r=%d.',
+          $room_id,
+          $index,
+          $q,
+          $r
+        ));
+      }
+      if (strtolower($current_h3) !== $normalized_h3) {
+        $hex['h3_index_res14'] = $normalized_h3;
+        $hex['h3_index'] = $normalized_h3;
+        $room_changed = TRUE;
+        $updated_hexes++;
+      }
+      else {
+        if (trim((string) ($hex['h3_index_res14'] ?? '')) === '') {
+          $hex['h3_index_res14'] = $normalized_h3;
+          $room_changed = TRUE;
+        }
+        if (trim((string) ($hex['h3_index'] ?? '')) === '') {
+          $hex['h3_index'] = $normalized_h3;
+          $room_changed = TRUE;
+        }
+      }
+
+      if (!is_numeric($hex['lat'] ?? NULL) && is_numeric($h3_payload['lat'] ?? NULL)) {
+        $hex['lat'] = (float) $h3_payload['lat'];
+        $room_changed = TRUE;
+      }
+      if (!is_numeric($hex['lng'] ?? NULL) && is_numeric($h3_payload['lng'] ?? NULL)) {
+        $hex['lng'] = (float) $h3_payload['lng'];
+        $room_changed = TRUE;
+      }
+    }
+    unset($hex);
+
+    if (!$room_changed) {
+      continue;
+    }
+
+    $layout_data['hexes'] = $hexes;
+    $encoded_layout = json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded_layout)) {
+      throw new \RuntimeException(sprintf('Fixed H3 backfill contract violation: room %s layout_data encode failed.', $room_id));
+    }
+    $database->update('dungeoncrawler_content_rooms')
+      ->fields([
+        'layout_data' => $encoded_layout,
+        'updated' => $now,
+      ])
+      ->condition('id', (int) $room_row['id'])
+      ->execute();
+    $updated_rooms++;
+  }
+
+  return t(
+    'Backfilled fixed H3 room hex payloads for @rooms rooms (@hexes hex records normalized).',
+    ['@rooms' => $updated_rooms, '@hexes' => $updated_hexes]
+  );
+}
+
+/**
+ * Backfill fixed H3 fields into every canonical room layout hex payload.
+ */
+function dungeoncrawler_content_update_10168() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  foreach (['dungeoncrawler_content_rooms'] as $table) {
+    if (!$schema_handler->tableExists($table)) {
+      return t('Required table @table is missing; cannot normalize canonical room hex H3 payloads.', ['@table' => $table]);
+    }
+  }
+
+  $room_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['id', 'room_id', 'source_room_id', 'layout_data'])
+    ->orderBy('id', 'ASC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  if ($room_rows === []) {
+    return t('No canonical room rows found; no H3 normalization needed.');
+  }
+
+  $room_ids = [];
+  foreach ($room_rows as $row) {
+    $room_id = trim((string) ($row['room_id'] ?? ''));
+    if ($room_id !== '') {
+      $room_ids[] = $room_id;
+    }
+  }
+  $room_ids = array_values(array_unique($room_ids));
+  $canonical_h3_rows = [];
+  if ($schema_handler->tableExists('dungeoncrawler_content_h3_room_cells') && $room_ids !== []) {
+    $canonical_h3_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['dungeon_id', 'room_id', 'source_q', 'source_r', 'h3_index', 'center_latitude', 'center_longitude'])
+      ->condition('room_id', $room_ids, 'IN')
+      ->condition('dungeon_id', ['tpl_dungeon_absalom_city', 'asset-library-starter-room'], 'IN')
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+  }
+
+  $h3_by_room_coordinate = [];
+  foreach ($canonical_h3_rows as $h3_row) {
+    if (!is_array($h3_row)) {
+      continue;
+    }
+    $room_id = trim((string) ($h3_row['room_id'] ?? ''));
+    if ($room_id === '') {
+      continue;
+    }
+    $q = (int) ($h3_row['source_q'] ?? 0);
+    $r = (int) ($h3_row['source_r'] ?? 0);
+    $h3_index = strtolower(trim((string) ($h3_row['h3_index'] ?? '')));
+    if ($h3_index === '') {
+      continue;
+    }
+    $key = $q . ':' . $r;
+    if (isset($h3_by_room_coordinate[$room_id][$key])) {
+      continue;
+    }
+    $h3_by_room_coordinate[$room_id][$key] = [
+      'h3_index' => $h3_index,
+      'lat' => is_numeric($h3_row['center_latitude'] ?? NULL) ? (float) $h3_row['center_latitude'] : NULL,
+      'lng' => is_numeric($h3_row['center_longitude'] ?? NULL) ? (float) $h3_row['center_longitude'] : NULL,
+    ];
+  }
+
+  $updated_rooms = 0;
+  $updated_hexes = 0;
+  $now = time();
+  foreach ($room_rows as $room_row) {
+    if (!is_array($room_row)) {
+      continue;
+    }
+    $room_id = trim((string) ($room_row['room_id'] ?? ''));
+    if ($room_id === '') {
+      continue;
+    }
+    $source_room_id = trim((string) ($room_row['source_room_id'] ?? ''));
+    if ($source_room_id === '') {
+      $source_room_id = $room_id;
+    }
+
+    $layout_data = json_decode((string) ($room_row['layout_data'] ?? ''), TRUE);
+    if (!is_array($layout_data)) {
+      throw new \RuntimeException(sprintf('Global fixed H3 backfill contract violation: room %s has invalid layout_data JSON.', $room_id));
+    }
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf('Global fixed H3 backfill contract violation: room %s has no layout_data.hexes.', $room_id));
+    }
+
+    $seed_dungeon_id = $room_id === 'tavern_entrance' ? 'asset-library-starter-room' : $source_room_id;
+    $room_changed = FALSE;
+    foreach ($hexes as $index => &$hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf('Global fixed H3 backfill contract violation: room %s hex[%d] is missing numeric q/r.', $room_id, $index));
+      }
+      $q = (int) $hex['q'];
+      $r = (int) $hex['r'];
+      $key = $q . ':' . $r;
+      $h3_payload = $h3_by_room_coordinate[$room_id][$key] ?? NULL;
+      if (!is_array($h3_payload)) {
+        $projection = \Drupal\dungeoncrawler_content\Support\H3SpatialHelper::projectAxialHexToLatLng(
+          $seed_dungeon_id,
+          (float) $q,
+          (float) $r
+        );
+        $h3_payload = [
+          'h3_index' => strtolower(\Drupal\dungeoncrawler_content\Support\H3SpatialHelper::latLngToH3Index(
+            (float) $projection['latitude'],
+            (float) $projection['longitude'],
+            14
+          )),
+          'lat' => (float) $projection['latitude'],
+          'lng' => (float) $projection['longitude'],
+        ];
+      }
+
+      $normalized_h3 = strtolower(trim((string) ($h3_payload['h3_index'] ?? '')));
+      if ($normalized_h3 === '') {
+        throw new \RuntimeException(sprintf(
+          'Global fixed H3 backfill contract violation: room %s hex[%d] could not resolve canonical h3 index.',
+          $room_id,
+          $index
+        ));
+      }
+      if (strtolower(trim((string) ($hex['h3_index_res14'] ?? ''))) !== $normalized_h3) {
+        $hex['h3_index_res14'] = $normalized_h3;
+        $room_changed = TRUE;
+        $updated_hexes++;
+      }
+      if (strtolower(trim((string) ($hex['h3_index'] ?? ''))) !== $normalized_h3) {
+        $hex['h3_index'] = $normalized_h3;
+        $room_changed = TRUE;
+      }
+      if (!is_numeric($hex['lat'] ?? NULL) && is_numeric($h3_payload['lat'] ?? NULL)) {
+        $hex['lat'] = (float) $h3_payload['lat'];
+        $room_changed = TRUE;
+      }
+      if (!is_numeric($hex['lng'] ?? NULL) && is_numeric($h3_payload['lng'] ?? NULL)) {
+        $hex['lng'] = (float) $h3_payload['lng'];
+        $room_changed = TRUE;
+      }
+    }
+    unset($hex);
+
+    if (!$room_changed) {
+      continue;
+    }
+
+    $layout_data['hexes'] = $hexes;
+    $encoded_layout = json_encode($layout_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded_layout)) {
+      throw new \RuntimeException(sprintf('Global fixed H3 backfill contract violation: room %s layout_data encode failed.', $room_id));
+    }
+    $database->update('dungeoncrawler_content_rooms')
+      ->fields([
+        'layout_data' => $encoded_layout,
+        'updated' => $now,
+      ])
+      ->condition('id', (int) $room_row['id'])
+      ->execute();
+    $updated_rooms++;
+  }
+
+  return t(
+    'Normalized fixed H3 payloads for @rooms canonical rooms (@hexes hex rows updated).',
+    ['@rooms' => $updated_rooms, '@hexes' => $updated_hexes]
+  );
 }
 
 /**

@@ -72,7 +72,7 @@ final class H3SpatialHelper {
     $coord->lat = deg2rad($latitude);
     $coord->lng = deg2rad($longitude);
     $out = $ffi->new('H3Index[1]');
-    $error = (int) $ffi->latLngToCell($ffi->addr($coord), $resolution, $out);
+    $error = (int) $ffi->latLngToCell(\FFI::addr($coord), $resolution, $out);
     if ($error !== 0) {
       throw new \RuntimeException(sprintf(
         'libh3 latLngToCell failed with error code %d for lat=%0.8f lng=%0.8f res=%d.',
@@ -83,7 +83,7 @@ final class H3SpatialHelper {
       ));
     }
 
-    $raw = $ffi->string($ffi->cast('char *', $ffi->addr($out[0])), 8);
+    $raw = \FFI::string($ffi->cast('char *', \FFI::addr($out[0])), 8);
     $hex = ltrim(bin2hex(strrev($raw)), '0');
     if ($hex === '') {
       throw new \RuntimeException(sprintf(
@@ -161,7 +161,7 @@ final class H3SpatialHelper {
     $raw_little_endian = strrev($raw_big_endian);
     $ffi = self::getH3Ffi();
     $native = $ffi->new('H3Index[1]');
-    $ffi->memcpy($ffi->addr($native[0]), $raw_little_endian, 8);
+    \FFI::memcpy(\FFI::addr($native[0]), $raw_little_endian, 8);
 
     return $native;
   }

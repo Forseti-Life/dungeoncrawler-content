@@ -532,6 +532,64 @@ class MapGeneratorService {
   }
 
   /**
+   * Assert that room hexes already carry canonical Res14 H3 indexes.
+   *
+   * Use this for template-instantiation flows where runtime H3 computation is
+   * forbidden and room payloads must be copied as fixed data.
+   *
+   * @param array $room
+   *   Room payload containing hexes.
+   * @param string $context
+   *   Contract context used in failure messages.
+   *
+   * @return array
+   *   Room payload with normalized lowercase h3_index/h3_index_res14 values.
+   */
+  public function requireRoomHexH3Indexes(array $room, string $context = 'room materialization'): array {
+    $room_id = trim((string) ($room['room_id'] ?? ''));
+    $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf(
+        'H3 fixed-data contract violation (%s): room %s has no hexes.',
+        $context,
+        $room_id !== '' ? $room_id : 'unknown'
+      ));
+    }
+
+    foreach ($hexes as $index => &$hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf(
+          'H3 fixed-data contract violation (%s): room %s hex[%d] must define numeric q/r.',
+          $context,
+          $room_id !== '' ? $room_id : 'unknown',
+          $index
+        ));
+      }
+      $existing_h3 = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+      if ($existing_h3 === '') {
+        throw new \RuntimeException(sprintf(
+          'H3 fixed-data contract violation (%s): room %s hex[%d] is missing h3_index_res14/h3_index.',
+          $context,
+          $room_id !== '' ? $room_id : 'unknown',
+          $index
+        ));
+      }
+      $normalized_h3 = strtolower($existing_h3);
+      $hex['h3_index_res14'] = $normalized_h3;
+      if (trim((string) ($hex['h3_index'] ?? '')) === '') {
+        $hex['h3_index'] = $normalized_h3;
+      }
+      elseif (strtolower((string) $hex['h3_index']) !== $normalized_h3) {
+        $hex['h3_index'] = $normalized_h3;
+      }
+    }
+    unset($hex);
+
+    $room['hexes'] = $hexes;
+    return $room;
+  }
+
+  /**
    * Build a client-consumable navigation payload for generated locations.
    *
    * @param array $navigation

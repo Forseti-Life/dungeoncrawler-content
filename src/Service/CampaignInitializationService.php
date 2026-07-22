@@ -535,8 +535,8 @@ class CampaignInitializationService {
       'lighting' => is_array($streets_layout_data['lighting'] ?? NULL) ? $streets_layout_data['lighting'] : [],
       'room_type' => (string) ($streets_layout_data['room_type'] ?? 'city_street'),
     ];
-    $room_payload = $this->ensureStarterRoomHexH3Indexes($dungeon_id, $room_payload);
-    $streets_payload = $this->ensureStarterRoomHexH3Indexes($dungeon_id, $streets_payload);
+    $room_payload = $this->requireStarterRoomHexH3Indexes($dungeon_id, $room_payload);
+    $streets_payload = $this->requireStarterRoomHexH3Indexes($dungeon_id, $streets_payload);
 
     $dungeon_data = [
       'schema_version' => '1.0.0',
@@ -913,20 +913,23 @@ class CampaignInitializationService {
   }
 
   /**
-   * Ensure starter room payload hexes include canonical Res14 H3 indexes.
+   * Require starter room payload hexes to include canonical Res14 H3 indexes.
+   *
+   * Starter template instantiation must copy fixed spatial data and never
+   * compute H3 at runtime.
    *
    * @param array<string, mixed> $room
    *   Starter room payload with a hexes array.
    *
    * @return array<string, mixed>
-   *   Room payload with h3_index_res14 and h3_index on every hex.
+   *   Room payload with normalized lowercase h3_index_res14/h3_index values.
    */
-  private function ensureStarterRoomHexH3Indexes(string $dungeon_id, array $room): array {
+  private function requireStarterRoomHexH3Indexes(string $dungeon_id, array $room): array {
     $room_id = trim((string) ($room['room_id'] ?? ''));
     $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
     if ($hexes === []) {
       throw new \RuntimeException(sprintf(
-        'H3 system-of-record contract violation: starter dungeon %s room %s has no hexes for H3 assignment.',
+        'H3 fixed-data contract violation: starter dungeon %s room %s has no hexes.',
         $dungeon_id,
         $room_id !== '' ? $room_id : 'unknown'
       ));
@@ -935,23 +938,28 @@ class CampaignInitializationService {
     foreach ($hexes as $hex_index => &$hex) {
       if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
         throw new \RuntimeException(sprintf(
-          'H3 system-of-record contract violation: starter dungeon %s room %s hex[%d] must include numeric q/r.',
+          'H3 fixed-data contract violation: starter dungeon %s room %s hex[%d] must include numeric q/r.',
           $dungeon_id,
           $room_id !== '' ? $room_id : 'unknown',
           $hex_index
         ));
       }
-      $q = (int) $hex['q'];
-      $r = (int) $hex['r'];
-      $latlng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $q, $r);
-      $h3_index = strtolower(H3SpatialHelper::latLngToH3Index(
-        (float) $latlng['latitude'],
-        (float) $latlng['longitude'],
-        self::H3_ACTIVE_RESOLUTION
-      ));
-      $hex['h3_index_res14'] = $h3_index;
+      $h3_index = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+      if ($h3_index === '') {
+        throw new \RuntimeException(sprintf(
+          'H3 fixed-data contract violation: starter dungeon %s room %s hex[%d] is missing h3_index_res14/h3_index.',
+          $dungeon_id,
+          $room_id !== '' ? $room_id : 'unknown',
+          $hex_index
+        ));
+      }
+      $normalized_h3 = strtolower($h3_index);
+      $hex['h3_index_res14'] = $normalized_h3;
       if (trim((string) ($hex['h3_index'] ?? '')) === '') {
-        $hex['h3_index'] = $h3_index;
+        $hex['h3_index'] = $normalized_h3;
+      }
+      elseif (strtolower((string) $hex['h3_index']) !== $normalized_h3) {
+        $hex['h3_index'] = $normalized_h3;
       }
     }
     unset($hex);
@@ -998,8 +1006,29 @@ class CampaignInitializationService {
       }
 
       $entry_coordinate = $this->resolveStarterRoomEntryCoordinate($room, $dungeon_id, $room_id);
-      $entry_latlng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $entry_coordinate['q'], $entry_coordinate['r']);
-      $anchor_h3 = H3SpatialHelper::latLngToH3Index((float) $entry_latlng['latitude'], (float) $entry_latlng['longitude'], self::H3_ACTIVE_RESOLUTION);
+      $entry_hex = $this->findStarterRoomHexByCoordinate($hexes, $entry_coordinate['q'], $entry_coordinate['r']);
+      if (!is_array($entry_hex)) {
+        $entry_hex = $hexes[0] ?? NULL;
+      }
+      if (!is_array($entry_hex)) {
+        throw new \RuntimeException(sprintf(
+          'H3 fixed-data contract violation: starter dungeon %s room %s cannot resolve anchor hex.',
+          $dungeon_id,
+          $room_id
+        ));
+      }
+      $anchor_h3 = trim((string) ($entry_hex['h3_index_res14'] ?? $entry_hex['h3_index'] ?? ''));
+      if ($anchor_h3 === '') {
+        throw new \RuntimeException(sprintf(
+          'H3 fixed-data contract violation: starter dungeon %s room %s anchor hex is missing h3_index_res14/h3_index.',
+          $dungeon_id,
+          $room_id
+        ));
+      }
+      $entry_latlng = [
+        'latitude' => is_numeric($entry_hex['lat'] ?? NULL) ? (float) $entry_hex['lat'] : NULL,
+        'longitude' => is_numeric($entry_hex['lng'] ?? NULL) ? (float) $entry_hex['lng'] : NULL,
+      ];
 
       $anchor_metadata = [
         'status' => 'h3_index_assigned',
@@ -1018,7 +1047,7 @@ class CampaignInitializationService {
           'dungeon_id' => $dungeon_id,
           'room_id' => $room_id,
           'h3_resolution' => self::H3_ACTIVE_RESOLUTION,
-          'h3_index' => $anchor_h3,
+          'h3_index' => strtolower($anchor_h3),
           'center_latitude' => $entry_latlng['latitude'],
           'center_longitude' => $entry_latlng['longitude'],
           'reference_q' => $entry_coordinate['q'],
@@ -1049,8 +1078,19 @@ class CampaignInitializationService {
           ));
         }
         $seen_coordinate_keys[$coordinate_key] = $hex_index;
-        $cell_latlng = H3SpatialHelper::projectAxialHexToLatLng($dungeon_id, $q, $r);
-        $cell_h3 = H3SpatialHelper::latLngToH3Index((float) $cell_latlng['latitude'], (float) $cell_latlng['longitude'], self::H3_ACTIVE_RESOLUTION);
+        $cell_h3 = trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? ''));
+        if ($cell_h3 === '') {
+          throw new \RuntimeException(sprintf(
+            'H3 fixed-data contract violation: starter dungeon %s room %s hex[%d] is missing h3_index_res14/h3_index.',
+            $dungeon_id,
+            $room_id,
+            $hex_index
+          ));
+        }
+        $cell_latlng = [
+          'latitude' => is_numeric($hex['lat'] ?? NULL) ? (float) $hex['lat'] : NULL,
+          'longitude' => is_numeric($hex['lng'] ?? NULL) ? (float) $hex['lng'] : NULL,
+        ];
 
         $cell_metadata = [
           'status' => 'h3_index_assigned',
@@ -1074,7 +1114,7 @@ class CampaignInitializationService {
             'room_id' => $room_id,
             'cell_role' => 'room_hex',
             'h3_resolution' => self::H3_ACTIVE_RESOLUTION,
-            'h3_index' => $cell_h3,
+            'h3_index' => strtolower($cell_h3),
             'source_q' => $q,
             'source_r' => $r,
             'center_latitude' => $cell_latlng['latitude'],
@@ -1119,6 +1159,28 @@ class CampaignInitializationService {
   }
 
   /**
+   * Find one starter-room hex by source q/r coordinate.
+   *
+   * @param array<int, mixed> $hexes
+   *   Room hex payloads.
+   *
+   * @return array<string, mixed>|null
+   *   Matching hex payload.
+   */
+  private function findStarterRoomHexByCoordinate(array $hexes, int $q, int $r): ?array {
+    foreach ($hexes as $hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        continue;
+      }
+      if ((int) $hex['q'] === $q && (int) $hex['r'] === $r) {
+        return $hex;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
    * Load the canonical starter-room asset used for new campaigns.
    *
    * Runtime surfaces (chat, hexmap, room view) use the authored runtime room id
@@ -1129,7 +1191,6 @@ class CampaignInitializationService {
    *   Starter room data, or NULL if unavailable.
    */
   private function loadStarterRoomSeed(): ?array {
-    $canonical_override = $this->loadCanonicalStarterRoomOverride('tavern_entrance');
     $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
       ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id']);
     $or = $query->orConditionGroup()
@@ -1146,15 +1207,6 @@ class CampaignInitializationService {
     if (!is_array($record)) {
       $this->logger->error('Starter tavern asset not found in dungeoncrawler_content_rooms; packaged JSON fallbacks are disabled.');
       return NULL;
-    }
-
-    if (is_array($canonical_override)) {
-      $record['name'] = $canonical_override['name'] ?? $record['name'];
-      $record['description'] = $canonical_override['description'] ?? $record['description'];
-      $record['environment_tags'] = json_encode($canonical_override['environment_tags'] ?? $this->decodeJsonArray($record['environment_tags'] ?? NULL));
-      $record['layout_data'] = json_encode($canonical_override['layout_data'] ?? $this->decodeJsonArray($record['layout_data'] ?? NULL));
-      $record['contents_data'] = json_encode($canonical_override['contents_data'] ?? $this->decodeJsonArray($record['contents_data'] ?? NULL));
-      $record['source_room_id'] = $canonical_override['source_room_id'] ?? $record['source_room_id'];
     }
 
     $room_id = trim((string) ($record['source_room_id'] ?? ''));
@@ -2288,26 +2340,6 @@ class CampaignInitializationService {
         'updated_at' => $this->time->getRequestTime(),
         'version' => (string) ($entry['version'] ?? '1.0.0'),
       ];
-    }
-
-    return NULL;
-  }
-
-  /**
-   * Load the canonical tavern starter room override from the source file.
-   */
-  private function loadCanonicalStarterRoomOverride(string $room_id): ?array {
-    $path = $this->moduleList->getPath('dungeoncrawler_content') . '/config/examples/templates/dungeoncrawler_content_rooms/default_room_templates.json';
-    if (!is_file($path)) {
-      return NULL;
-    }
-
-    $decoded = json_decode((string) file_get_contents($path), TRUE);
-    $rows = is_array($decoded['rows'] ?? NULL) ? $decoded['rows'] : [];
-    foreach ($rows as $row) {
-      if (is_array($row) && trim((string) ($row['room_id'] ?? '')) === $room_id) {
-        return $row;
-      }
     }
 
     return NULL;
