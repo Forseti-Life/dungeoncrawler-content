@@ -1286,9 +1286,9 @@ class CampaignController extends ControllerBase {
   /**
    * Load the most recently updated campaign dungeon row.
    */
-  private function loadLatestCampaignDungeon(int $campaign_id): ?object {
+  private function loadLatestCampaignDungeonSummary(int $campaign_id): ?object {
     $campaign_dungeon = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_id', 'dungeon_data'])
+      ->fields('d', ['dungeon_id'])
       ->condition('campaign_id', $campaign_id)
       ->orderBy('updated', 'DESC')
       ->orderBy('id', 'DESC')
@@ -1311,75 +1311,6 @@ class CampaignController extends ControllerBase {
       ->fetchField();
 
     if ($has_dungeon) {
-      $starter_row = $this->database->select('dc_campaign_dungeons', 'd')
-        ->fields('d', ['id', 'name', 'dungeon_data'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('source_dungeon_id', 'asset-library-starter-room')
-        ->orderBy('updated', 'DESC')
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-
-      if (!is_array($starter_row)) {
-        return;
-      }
-
-      $dungeon_data = json_decode((string) ($starter_row['dungeon_data'] ?? '{}'), TRUE);
-      if (!is_array($dungeon_data)) {
-        return;
-      }
-
-      $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
-      $has_tavern_room = FALSE;
-      foreach ($rooms as $room) {
-        if (!is_array($room)) {
-          continue;
-        }
-        $room_id = trim((string) ($room['room_id'] ?? ''));
-        $source_room_id = trim((string) ($room['source_room_id'] ?? ''));
-        if ($room_id === 'tavern_entrance' || $source_room_id === 'tavern_entrance') {
-          $has_tavern_room = TRUE;
-          break;
-        }
-      }
-      if (!$has_tavern_room) {
-        return;
-      }
-
-      $current_name = trim((string) ($starter_row['name'] ?? ''));
-      $canonical_name = self::STARTER_CITY_DUNGEON_NAME;
-      $has_updates = FALSE;
-      if ($current_name !== $canonical_name) {
-        $dungeon_data['name'] = $canonical_name;
-        if (is_array($dungeon_data['hex_map'] ?? NULL)) {
-          $dungeon_data['hex_map']['name'] = $canonical_name;
-        }
-        if (is_array($dungeon_data['hex_map']['regions'] ?? NULL)) {
-          foreach ($dungeon_data['hex_map']['regions'] as &$region) {
-            if (!is_array($region)) {
-              continue;
-            }
-            $region['name'] = $canonical_name;
-          }
-          unset($region);
-        }
-
-        $has_updates = TRUE;
-      }
-      if ($this->ensureStarterCanonicalStreetConnection((int) $campaign_id, $dungeon_data, 'tavern_entrance')) {
-        $has_updates = TRUE;
-      }
-      if ($has_updates) {
-        $now = $this->time->getRequestTime();
-        $this->database->update('dc_campaign_dungeons')
-          ->fields([
-            'name' => $canonical_name,
-            'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'updated' => $now,
-          ])
-          ->condition('id', (int) $starter_row['id'])
-          ->execute();
-      }
       return;
     }
 
@@ -1644,7 +1575,6 @@ class CampaignController extends ControllerBase {
         $character_id
       ));
     }
-    $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $selected_row_id);
     $canonical_character_id = (int) ($runtime_record['character_id'] ?? $canonical_character_id);
 
     $this->messenger()->addStatus($this->t('Character selected for campaign.'));
@@ -1655,18 +1585,13 @@ class CampaignController extends ControllerBase {
 
     $launch_query = $this->buildHexmapLaunchQuery($campaign_id, $launch_character_id, [], '', TRUE);
 
-    $campaign_dungeon = $this->loadLatestCampaignDungeon($campaign_id);
+    $campaign_dungeon = $this->loadLatestCampaignDungeonSummary($campaign_id);
 
     if ($campaign_dungeon) {
-      $decoded = json_decode((string) ($campaign_dungeon->dungeon_data ?? '{}'), TRUE);
-      if (!is_array($decoded)) {
-        $decoded = [];
-      }
-
       $launch_query = $this->buildHexmapLaunchQuery(
         $campaign_id,
         $launch_character_id,
-        $decoded,
+        [],
         (string) ($campaign_dungeon->dungeon_id ?? ''),
         TRUE
       );
@@ -1678,7 +1603,7 @@ class CampaignController extends ControllerBase {
       '@canonical_character_id' => $canonical_character_id,
       '@selected_row_id' => $selected_row_id,
       '@launch_character_id' => $launch_character_id,
-      '@existing_row_id' => (int) $existing_row_id,
+      '@existing_row_id' => (int) ($runtime_record['id'] ?? 0),
       '@dungeon_id' => (string) ($campaign_dungeon->dungeon_id ?? ''),
     ]);
 
