@@ -544,7 +544,12 @@ trait RoomChatServiceGmPipelineTrait {
    * This keeps room chat entry points aligned on one persistence contract.
    */
 
-  protected function loadLatestDungeonSnapshot(int $campaign_id, ?string $room_id = NULL, ?string $preferred_dungeon_id = NULL): array {
+  protected function loadLatestDungeonSnapshot(
+    int $campaign_id,
+    ?string $room_id = NULL,
+    ?string $preferred_dungeon_id = NULL,
+    bool $allow_room_absent = FALSE
+  ): array {
     $preferred_dungeon_id = trim((string) $preferred_dungeon_id);
     if ($preferred_dungeon_id !== '') {
       $preferred_record = $this->database->select('dc_campaign_dungeons', 'd')
@@ -558,7 +563,12 @@ trait RoomChatServiceGmPipelineTrait {
       if (is_array($preferred_record)) {
         $preferred_data = json_decode($preferred_record['dungeon_data'] ?? '{}', TRUE);
         if (is_array($preferred_data)) {
-          if ($room_id === NULL || $room_id === '' || $this->roomLocator->findRoomIndex((array) ($preferred_data['rooms'] ?? []), $room_id) !== NULL) {
+          if (
+            $room_id === NULL
+            || $room_id === ''
+            || $this->roomLocator->findRoomIndex((array) ($preferred_data['rooms'] ?? []), $room_id) !== NULL
+            || $allow_room_absent
+          ) {
             return [
               'dungeon_id' => $preferred_record['dungeon_id'] ?? '',
               'dungeon_data' => $preferred_data,
@@ -626,9 +636,26 @@ trait RoomChatServiceGmPipelineTrait {
         $matched_record = $active_room_match;
       }
       if ($matched_record === NULL) {
+        if ($allow_room_absent) {
+          $latest_record = $this->database->select('dc_campaign_dungeons', 'd')
+            ->fields('d', ['dungeon_id', 'dungeon_data', 'updated'])
+            ->condition('campaign_id', $campaign_id)
+            ->orderBy('updated', 'DESC')
+            ->range(0, 1)
+            ->execute()
+            ->fetchAssoc();
+          if (!is_array($latest_record)) {
+            throw new \InvalidArgumentException('Dungeon not found', 404);
+          }
+          $record = $latest_record;
+        }
+        else {
         throw new \InvalidArgumentException(sprintf('Room %s not found in any dungeon', $room_id), 404);
+        }
       }
-      $record = $matched_record;
+      if ($matched_record !== NULL) {
+        $record = $matched_record;
+      }
     }
     else {
       $latest_record = $this->database->select('dc_campaign_dungeons', 'd')

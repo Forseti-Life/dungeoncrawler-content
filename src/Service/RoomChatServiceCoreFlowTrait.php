@@ -13,7 +13,7 @@ trait RoomChatServiceCoreFlowTrait {
     ?int $character_id = NULL,
     ?string $map_id = NULL
   ): array {
-    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id, $map_id);
+    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id, $map_id, TRUE);
     $dungeon_data = $dungeon_snapshot['dungeon_data'];
     return $this->roomChatHistoryProjector->projectHistory(
       $dungeon_data,
@@ -517,16 +517,14 @@ trait RoomChatServiceCoreFlowTrait {
       );
     }
 
-    // Update via direct database call (room chat doesn't need state versioning)
-    // If this becomes a bottleneck, we could batch updates or use a separate table
-    $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => json_encode($dungeon_data),
-        'updated' => time(),
-      ])
-      ->condition('dungeon_id', $dungeon_id)
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
+    $updated = $this->persistRoomChatSnapshotState($campaign_id, (string) $dungeon_id, $dungeon_data);
+    if (!$updated) {
+      throw new \RuntimeException(sprintf(
+        'Room chat persistence contract violation: expected shared state lane update for campaign %d dungeon %s.',
+        $campaign_id,
+        (string) $dungeon_id
+      ));
+    }
     $this->recordDebugStage('persist_player_message', $stage_started_at, [
       'total_messages' => count($dungeon_data['rooms'][$room_index]['chat']),
       'room_entry' => $is_room_entry,
