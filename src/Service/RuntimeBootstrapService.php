@@ -20,13 +20,17 @@ class RuntimeBootstrapService {
 
   protected LoggerInterface $logger;
 
+  protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
+
   public function __construct(
     Connection $database,
     CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync,
+    DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
     LoggerChannelFactoryInterface $logger_factory,
   ) {
     $this->database = $database;
     $this->campaignCharacterRuntimeSync = $campaign_character_runtime_sync;
+    $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
   }
 
@@ -102,27 +106,15 @@ class RuntimeBootstrapService {
     $dungeon_data['game_state'] = $this->normalizeGameState($dungeon_data, $active_room_id);
 
     $now = time();
-    $encoded_dungeon_data = json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (!is_string($encoded_dungeon_data)) {
+    $updated = $this->dungeonPayloadStatePersistence->mutateByRowId(
+      $campaign_id,
+      (int) ($dungeon['id'] ?? 0),
+      static fn(array $payload): array => $dungeon_data
+    );
+    if (!$updated) {
       throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: failed to encode dungeon_data for campaign %d.',
+        'Runtime bootstrap contract violation: expected shared state lane to update exactly one dungeon row for campaign %d.',
         $campaign_id
-      ));
-    }
-
-    $updated = (int) $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => $encoded_dungeon_data,
-        'updated' => $now,
-      ])
-      ->condition('id', (int) ($dungeon['id'] ?? 0))
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
-    if ($updated !== 1) {
-      throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: expected to update exactly one dungeon row for campaign %d, updated=%d.',
-        $campaign_id,
-        $updated
       ));
     }
 
@@ -174,39 +166,38 @@ class RuntimeBootstrapService {
         $campaign_id
       ));
     }
+    $row = $this->loadLatestDungeonRowByDungeonId($campaign_id, $runtime_dungeon_id);
+    $dungeon_data = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
+    if (!is_array($dungeon_data)) {
+      throw new \RuntimeException(sprintf(
+        'Runtime bootstrap contract violation: campaign %d authoritative runtime dungeon payload is invalid JSON.',
+        $campaign_id
+      ));
+    }
     $runtime_active_room_id = trim((string) (
-      $init['runtime_active_room_id']
+      $dungeon_data['active_room_id']
+      ?? $dungeon_data['current_room_id']
+      ?? $init['runtime_active_room_id']
       ?? $init['context']['runtime_active_room_id']
       ?? $init['context']['starter_room_id']
       ?? ''
     ));
     if ($runtime_active_room_id === '') {
-      $runtime_active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? $dungeon_data['current_room_id'] ?? ''));
-      if ($runtime_active_room_id === '') {
-        $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
-        foreach ($rooms as $room) {
-          if (!is_array($room)) {
-            continue;
-          }
-          $candidate_room_id = trim((string) ($room['room_id'] ?? ''));
-          if ($candidate_room_id !== '') {
-            $runtime_active_room_id = $candidate_room_id;
-            break;
-          }
+      $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+      foreach ($rooms as $room) {
+        if (!is_array($room)) {
+          continue;
+        }
+        $candidate_room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($candidate_room_id !== '') {
+          $runtime_active_room_id = $candidate_room_id;
+          break;
         }
       }
     }
     if ($runtime_active_room_id === '') {
       throw new \RuntimeException(sprintf(
         'Runtime bootstrap contract violation: campaign %d runtime state access could not resolve runtime_active_room_id.',
-        $campaign_id
-      ));
-    }
-    $row = $this->loadLatestDungeonRowByDungeonId($campaign_id, $runtime_dungeon_id);
-    $dungeon_data = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
-    if (!is_array($dungeon_data)) {
-      throw new \RuntimeException(sprintf(
-        'Runtime bootstrap contract violation: campaign %d authoritative runtime dungeon payload is invalid JSON.',
         $campaign_id
       ));
     }
@@ -266,10 +257,17 @@ class RuntimeBootstrapService {
       ));
     }
 
-    $expected_room_id = '';
+    $expected_room_id = trim((string) (
+      $dungeon_data['active_room_id']
+      ?? $dungeon_data['current_room_id']
+      ?? ''
+    ));
     if ($runtime_character_id !== NULL && $runtime_character_id > 0) {
       $runtime_row = $this->loadRuntimeCharacterRow($campaign_id, $runtime_character_id);
-      $expected_room_id = trim((string) ($runtime_row['last_room_id'] ?? ''));
+      $runtime_row_room_id = trim((string) ($runtime_row['last_room_id'] ?? ''));
+      if ($runtime_row_room_id !== '') {
+        $expected_room_id = $runtime_row_room_id;
+      }
     }
     if ($expected_room_id === '') {
       $expected_room_id = trim((string) (
