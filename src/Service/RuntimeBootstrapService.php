@@ -262,7 +262,7 @@ class RuntimeBootstrapService {
       ?? $dungeon_data['current_room_id']
       ?? ''
     ));
-    if ($runtime_character_id !== NULL && $runtime_character_id > 0) {
+    if ($expected_room_id === '' && $runtime_character_id !== NULL && $runtime_character_id > 0) {
       $runtime_row = $this->loadRuntimeCharacterRow($campaign_id, $runtime_character_id);
       $runtime_row_room_id = trim((string) ($runtime_row['last_room_id'] ?? ''));
       if ($runtime_row_room_id !== '') {
