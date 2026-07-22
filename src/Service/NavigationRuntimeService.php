@@ -457,7 +457,10 @@ class NavigationRuntimeService {
     $room_for_h3 = $this->mapGenerator->requireRoomHexH3Indexes($room_for_h3, 'canonical template room materialization');
     $hexes = is_array($room_for_h3['hexes'] ?? NULL) ? $room_for_h3['hexes'] : $hexes;
 
-    $existing_room_ids = $this->collectDungeonPayloadRoomIds($dungeon_data);
+    $existing_room_ids = $this->collectCampaignAuthorityRoomIds($campaign_id);
+    foreach ($this->collectDungeonPayloadRoomIds($dungeon_data) as $room_id => $_) {
+      $existing_room_ids[$room_id] = TRUE;
+    }
     unset($existing_room_ids[$target_room_id]);
     $connector_rows = $this->loadCanonicalConnectorsLinkingRoomToExistingDungeonRooms($target_room_id, array_keys($existing_room_ids));
     $origin_room_id = trim((string) ($options['origin_room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
@@ -730,6 +733,33 @@ class NavigationRuntimeService {
       if ($room_id !== '') {
         $room_ids[$room_id] = TRUE;
       }
+    }
+    return $room_ids;
+  }
+
+  /**
+   * @return array<string, bool>
+   */
+  protected function collectCampaignAuthorityRoomIds(int $campaign_id): array {
+    if ($campaign_id <= 0) {
+      throw new \RuntimeException('Navigation room authority contract violation: campaign_id must be positive.');
+    }
+    if (!$this->database->schema()->tableExists('dc_campaign_rooms')) {
+      throw new \RuntimeException('Navigation room authority contract violation: dc_campaign_rooms table is required.');
+    }
+
+    $rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchCol();
+    $room_ids = [];
+    foreach ((array) $rows as $room_id) {
+      $room_id = trim((string) $room_id);
+      if ($room_id === '') {
+        continue;
+      }
+      $room_ids[$room_id] = TRUE;
     }
     return $room_ids;
   }
