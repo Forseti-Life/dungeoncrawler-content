@@ -94,10 +94,8 @@ export class GameShell {
     this.questSummary = rawSettings.hexmapQuestSummary || {};
 
     this.currentUserId = Number(rawSettings.userId || rawSettings.user?.uid || 0);
-    this.activeRoomId =
-      this.mapVisualState?.map_meta?.active_room_id ||
-      this.launchContext?.room_id ||
-      null;
+    this.activeRoomId = null;
+    this._syncActiveRoomAuthorityFromRuntimePayload();
     this.characterData = this.launchCharacter;
     this.spriteService = new SpriteService();
     this._hexmapShim = null;
@@ -2051,11 +2049,7 @@ export class GameShell {
       this.bus?.emit('quest:progress-updated', { questSummary });
     }
 
-    this.activeRoomId =
-      this.mapVisualState?.map_meta?.active_room_id
-      || this.launchContext?.room_id
-      || this.activeRoomId
-      || null;
+    this._syncActiveRoomAuthorityFromRuntimePayload();
     this._chatHistoryLoaded = false;
     this._emitInitialRoomState();
     this._syncActiveRoomEntities(this.activeRoomId);
@@ -2088,6 +2082,28 @@ export class GameShell {
       || Object.keys(this.mapVisualState?.topology?.rooms || {})[0]
       || null;
     return visualRoomId || this.activeRoomId || this.state?.activeRoomId || this.launchContext?.room_id || null;
+  }
+
+  _syncActiveRoomAuthorityFromRuntimePayload() {
+    const runtimeRoomId = String(
+      this.dungeonData?.active_room_id
+      || this.dungeonData?.current_room_id
+      || ''
+    ).trim();
+    if (runtimeRoomId !== '') {
+      if (!this.mapVisualState || typeof this.mapVisualState !== 'object') {
+        this.mapVisualState = {};
+      }
+      if (!this.mapVisualState.map_meta || typeof this.mapVisualState.map_meta !== 'object') {
+        this.mapVisualState.map_meta = {};
+      }
+      this.mapVisualState.map_meta.active_room_id = runtimeRoomId;
+    }
+    this.activeRoomId =
+      this.mapVisualState?.map_meta?.active_room_id
+      || this.launchContext?.room_id
+      || this.activeRoomId
+      || null;
   }
 
   // --- ported from hexmap.js ---

@@ -11019,6 +11019,16 @@ import { SpriteService } from './SpriteService.js';
       console.log('HexMap Init - Launch Character:', this.launchCharacter);
       console.log('HexMap Init - Runtime Launch Summary:', runtimeLaunchSummary);
       console.log('HexMap Init - Has Dungeon Data:', Object.keys(this.dungeonData).length > 0);
+      const runtimeActiveRoomId = String(this.dungeonData?.active_room_id || this.dungeonData?.current_room_id || '').trim();
+      if (runtimeActiveRoomId) {
+        if (!this.mapVisualState || typeof this.mapVisualState !== 'object') {
+          this.mapVisualState = {};
+        }
+        if (!this.mapVisualState.map_meta || typeof this.mapVisualState.map_meta !== 'object') {
+          this.mapVisualState.map_meta = {};
+        }
+        this.mapVisualState.map_meta.active_room_id = runtimeActiveRoomId;
+      }
       this.activeRoomId = this.mapVisualState?.map_meta?.active_room_id || this.launchContext?.room_id || null;
       this.currentUserId = Number(settings?.user?.uid || 0);
 
