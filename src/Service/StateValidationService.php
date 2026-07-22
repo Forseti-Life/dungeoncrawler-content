@@ -417,6 +417,11 @@ class StateValidationService {
         ['id' => 'location_ref_required_by_type', 'label' => 'location_ref is required for location_type values outside global/roster.'],
         ['id' => 'last_room_id_required_by_type', 'label' => 'last_room_id is required for location_type values outside global/roster.'],
         ['id' => 'last_room_id_matches_location_ref_for_room', 'label' => 'room-scoped actors must keep last_room_id aligned to location_ref.'],
+        ['id' => 'start_room_required', 'label' => 'every actor must define a canonical start room id.'],
+        ['id' => 'start_room_must_resolve_to_canonical_room', 'label' => 'every actor start room must resolve to dungeoncrawler_content_rooms.room_id.'],
+        ['id' => 'start_hex_coordinates_required', 'label' => 'every actor must define integer start hex coordinates (position_q/position_r).'],
+        ['id' => 'start_hex_must_exist_in_canonical_room_layout', 'label' => 'every actor start hex must exist in the canonical room layout hex set.'],
+        ['id' => 'start_hex_requires_canonical_h3_index', 'label' => 'every actor start hex must provide canonical h3_index_res14/h3_index in room layout data.'],
         ['id' => 'status_allowed', 'label' => 'status must be one of: -1, 0, 1, 2.'],
         ['id' => 'quest_giver_requires_room_scope', 'label' => 'quest_giver NPC actors must be room-scoped with location_ref and last_room_id.'],
         ['id' => 'npc_portrait_required', 'label' => 'npc actor rows must provide a portrait via portrait column or portrait image link.'],
@@ -458,6 +463,8 @@ class StateValidationService {
         'lifecycle_state',
         'location_type',
         'location_ref',
+        'position_q',
+        'position_r',
         'last_room_id',
         'status',
         'portrait',
@@ -470,6 +477,48 @@ class StateValidationService {
     if (!is_array($rows) || $rows === []) {
       $report['errors'][] = 'Canonical actor store contains no records.';
       return $report;
+    }
+
+    if (!$schema->tableExists('dungeoncrawler_content_rooms')) {
+      $report['errors'][] = 'Canonical actor validation requires dungeoncrawler_content_rooms for start-room/start-hex contract checks.';
+      return $report;
+    }
+
+    $canonical_room_hex_map = [];
+    $canonical_room_rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'layout_data'])
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    foreach ((array) $canonical_room_rows as $canonical_room_row) {
+      if (!is_array($canonical_room_row)) {
+        continue;
+      }
+      $canonical_room_id = trim((string) ($canonical_room_row['room_id'] ?? ''));
+      if ($canonical_room_id === '') {
+        continue;
+      }
+      $layout_data = json_decode((string) ($canonical_room_row['layout_data'] ?? '{}'), TRUE);
+      if (!is_array($layout_data)) {
+        $layout_data = [];
+      }
+      $room_hexes = [];
+      foreach ((array) ($layout_data['hexes'] ?? []) as $hex) {
+        if (!is_array($hex)) {
+          continue;
+        }
+        if (!is_int($hex['q'] ?? NULL) || !is_int($hex['r'] ?? NULL)) {
+          continue;
+        }
+        $q = (int) $hex['q'];
+        $r = (int) $hex['r'];
+        $h3_index = strtolower(trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? '')));
+        $room_hexes[$q . ':' . $r] = [
+          'q' => $q,
+          'r' => $r,
+          'has_canonical_h3' => $this->isCanonicalH3IndexValue($h3_index),
+        ];
+      }
+      $canonical_room_hex_map[$canonical_room_id] = $room_hexes;
     }
 
     $runtime_actor_portrait_links = [];
@@ -540,6 +589,8 @@ class StateValidationService {
       $lifecycle_state = strtolower(trim((string) ($row['lifecycle_state'] ?? '')));
       $location_type = strtolower(trim((string) ($row['location_type'] ?? '')));
       $location_ref = trim((string) ($row['location_ref'] ?? ''));
+      $position_q = isset($row['position_q']) && is_numeric($row['position_q']) ? (int) $row['position_q'] : NULL;
+      $position_r = isset($row['position_r']) && is_numeric($row['position_r']) ? (int) $row['position_r'] : NULL;
       $last_room_id = trim((string) ($row['last_room_id'] ?? ''));
       $status = isset($row['status']) && is_numeric($row['status']) ? (int) $row['status'] : NULL;
       $portrait = trim((string) ($row['portrait'] ?? ''));
@@ -550,6 +601,12 @@ class StateValidationService {
       $template_instance_id = preg_replace('/^npc_/', '', $instance_id) ?? $instance_id;
       $template_actor_id = (int) ($template_actor_id_by_instance[$template_instance_id] ?? 0);
       $template_has_portrait = $template_actor_id > 0 && isset($template_actor_portrait_links[(string) $template_actor_id]);
+      $start_room_id = $last_room_id !== '' ? $last_room_id : $location_ref;
+      $start_room_hexes = $start_room_id !== '' ? ($canonical_room_hex_map[$start_room_id] ?? NULL) : NULL;
+      $start_hex_key = ($position_q !== NULL && $position_r !== NULL) ? ($position_q . ':' . $position_r) : '';
+      $start_hex = ($start_hex_key !== '' && is_array($start_room_hexes) && isset($start_room_hexes[$start_hex_key]))
+        ? $start_room_hexes[$start_hex_key]
+        : NULL;
 
       $character_data_raw = trim((string) ($row['character_data'] ?? ''));
       $character_data = [];
@@ -622,6 +679,36 @@ class StateValidationService {
           'label' => 'room-scoped actors must keep last_room_id aligned to location_ref.',
           'passed' => !($location_type === 'room' && $location_ref !== '' && $last_room_id !== '' && $location_ref !== $last_room_id),
           'error' => 'room-scoped actors must keep last_room_id aligned to location_ref.',
+        ],
+        [
+          'id' => 'start_room_required',
+          'label' => 'every actor must define a canonical start room id.',
+          'passed' => $start_room_id !== '',
+          'error' => 'every actor must define a canonical start room id.',
+        ],
+        [
+          'id' => 'start_room_must_resolve_to_canonical_room',
+          'label' => 'every actor start room must resolve to dungeoncrawler_content_rooms.room_id.',
+          'passed' => $start_room_id !== '' && isset($canonical_room_hex_map[$start_room_id]),
+          'error' => "start room '{$start_room_id}' must resolve to dungeoncrawler_content_rooms.room_id.",
+        ],
+        [
+          'id' => 'start_hex_coordinates_required',
+          'label' => 'every actor must define integer start hex coordinates (position_q/position_r).',
+          'passed' => $position_q !== NULL && $position_r !== NULL,
+          'error' => 'every actor must define integer start hex coordinates (position_q/position_r).',
+        ],
+        [
+          'id' => 'start_hex_must_exist_in_canonical_room_layout',
+          'label' => 'every actor start hex must exist in the canonical room layout hex set.',
+          'passed' => $position_q !== NULL && $position_r !== NULL && $start_room_id !== '' && $start_hex !== NULL,
+          'error' => "start hex '{$start_hex_key}' must exist in canonical room '{$start_room_id}' layout_data.hexes.",
+        ],
+        [
+          'id' => 'start_hex_requires_canonical_h3_index',
+          'label' => 'every actor start hex must provide canonical h3_index_res14/h3_index in room layout data.',
+          'passed' => is_array($start_hex) && !empty($start_hex['has_canonical_h3']),
+          'error' => "start hex '{$start_hex_key}' in canonical room '{$start_room_id}' must provide canonical h3_index_res14/h3_index.",
         ],
         [
           'id' => 'status_allowed',
@@ -705,7 +792,10 @@ class StateValidationService {
             'lifecycle_state' => $lifecycle_state,
             'location_type' => $location_type,
             'location_ref' => $location_ref,
+            'position_q' => $position_q,
+            'position_r' => $position_r,
             'last_room_id' => $last_room_id,
+            'start_room_id' => $start_room_id,
             'portrait' => $portrait,
             'has_runtime_portrait_link' => $has_runtime_portrait_link,
             'template_actor_id' => $template_actor_id > 0 ? $template_actor_id : NULL,
@@ -2990,6 +3080,22 @@ class StateValidationService {
    */
   private function isBlockedPromptDerivedRoomId(string $room_id): bool {
     return preg_match(self::BLOCKED_PROMPT_DERIVED_ROOM_ID_PATTERN, $room_id) === 1;
+  }
+
+  /**
+   * Determine whether an H3 index string is canonical for validator contracts.
+   */
+  private function isCanonicalH3IndexValue(string $h3_index): bool {
+    $normalized = strtolower(trim($h3_index));
+    if ($normalized === '') {
+      return FALSE;
+    }
+    foreach (self::DISALLOWED_PSEUDO_H3_PREFIXES as $pseudo_prefix) {
+      if (str_starts_with($normalized, strtolower((string) $pseudo_prefix))) {
+        return FALSE;
+      }
+    }
+    return preg_match(self::CANONICAL_H3_INDEX_PATTERN, $normalized) === 1;
   }
 
   /**
