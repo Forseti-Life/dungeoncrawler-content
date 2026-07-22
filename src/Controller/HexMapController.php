@@ -124,17 +124,18 @@ class HexMapController extends ControllerBase {
     $this->assertCampaignAccess($launch_context, $is_admin);
     $hexmap_state = $this->buildHexmapStateBundle($launch_context);
     $dungeon_payload = $hexmap_state['dungeon_payload'];
+    $client_dungeon_payload = $this->buildClientBootstrapDungeonPayload($dungeon_payload);
+    $client_visual_map_state = $this->buildClientBootstrapMapVisualState($hexmap_state['map_visual_state']);
     $launch_character = $hexmap_state['launch_character'];
     $quest_summary = $hexmap_state['quest_summary'];
     $storyline_contacts = $hexmap_state['storyline_contacts'];
     $campaign_title = $hexmap_state['campaign_title'];
-    $visual_map_state = $hexmap_state['map_visual_state'];
 
     return [
       '#theme' => 'hexmap_v2',
       '#title' => $campaign_title,
       '#launch_context' => $launch_context,
-      '#dungeon_payload' => $dungeon_payload,
+      '#dungeon_payload' => $client_dungeon_payload,
       '#is_admin' => $is_admin,
       '#attached' => [
         'library' => [
@@ -143,8 +144,8 @@ class HexMapController extends ControllerBase {
         'drupalSettings' => [
           'dungeoncrawlerContent' => [
             'hexmapLaunchContext' => $launch_context,
-            'hexmapDungeonData' => $dungeon_payload,
-            'map_visual_state' => $visual_map_state,
+            'hexmapDungeonData' => $client_dungeon_payload,
+            'map_visual_state' => $client_visual_map_state,
             'hexmapLaunchCharacter' => $launch_character,
             'hexmapQuestSummary' => $quest_summary,
             'hexmapStorylineContacts' => $storyline_contacts,
@@ -176,12 +177,221 @@ class HexMapController extends ControllerBase {
     return [
       'success' => TRUE,
       'launch_context' => $launch_context,
-      'dungeon_payload' => $hexmap_state['dungeon_payload'],
-      'map_visual_state' => $hexmap_state['map_visual_state'],
+      'dungeon_payload' => $this->buildClientBootstrapDungeonPayload($hexmap_state['dungeon_payload']),
+      'map_visual_state' => $this->buildClientBootstrapMapVisualState($hexmap_state['map_visual_state']),
       'launch_character' => $hexmap_state['launch_character'],
       'quest_summary' => $hexmap_state['quest_summary'],
       'storyline_contacts' => $hexmap_state['storyline_contacts'],
       'campaign_title' => $hexmap_state['campaign_title'],
+    ];
+  }
+
+  /**
+   * Reduce initial hexmap bootstrap payload to the fields V2 reads directly.
+   *
+   * The visual map state already carries room topology, occupants, and
+   * presentation data. Shipping the full normalized dungeon blob duplicates
+   * multi-megabyte room/H3 payloads and exhausts render-time JSON encoding.
+   *
+   * @param array<string, mixed> $dungeon_payload
+   *   Full normalized dungeon payload.
+   *
+   * @return array<string, mixed>
+   *   Slim client bootstrap payload.
+   */
+  protected function buildClientBootstrapDungeonPayload(array $dungeon_payload): array {
+    $active_room_id = trim((string) ($dungeon_payload['active_room_id'] ?? ''));
+    $connections = array_values(array_filter(
+      is_array($dungeon_payload['connections'] ?? NULL) ? $dungeon_payload['connections'] : [],
+      static function ($connection) use ($active_room_id): bool {
+        if (!is_array($connection) || $active_room_id === '') {
+          return FALSE;
+        }
+        $from_room_id = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? ''));
+        $to_room_id = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? ''));
+        return $from_room_id === $active_room_id || $to_room_id === $active_room_id;
+      }
+    ));
+    $entities = array_values(array_filter(
+      is_array($dungeon_payload['entities'] ?? NULL) ? $dungeon_payload['entities'] : [],
+      static function ($entity) use ($active_room_id): bool {
+        if (!is_array($entity) || $active_room_id === '') {
+          return FALSE;
+        }
+        $room_id = trim((string) (($entity['placement']['room_id'] ?? '')));
+        return $room_id === $active_room_id;
+      }
+    ));
+
+    $bootstrap_payload = [
+      'schema_version' => (string) ($dungeon_payload['schema_version'] ?? '1.0.0'),
+      'level_id' => (string) ($dungeon_payload['level_id'] ?? ''),
+      'map_id' => (string) ($dungeon_payload['map_id'] ?? $dungeon_payload['dungeon_id'] ?? ''),
+      'dungeon_id' => (string) ($dungeon_payload['dungeon_id'] ?? $dungeon_payload['map_id'] ?? ''),
+      'active_room_id' => $active_room_id,
+      'rooms' => new \stdClass(),
+      'connections' => $connections,
+      'entities' => $entities,
+      'navigation_capabilities' => array_values(is_array($dungeon_payload['navigation_capabilities'] ?? NULL) ? $dungeon_payload['navigation_capabilities'] : []),
+    ];
+
+    if (is_array($dungeon_payload['pending_room_generation'] ?? NULL)) {
+      $bootstrap_payload['pending_room_generation'] = $dungeon_payload['pending_room_generation'];
+    }
+    if (is_array($dungeon_payload['game_state'] ?? NULL)) {
+      $bootstrap_payload['game_state'] = $dungeon_payload['game_state'];
+    }
+    if (is_array($dungeon_payload['quests'] ?? NULL)) {
+      $bootstrap_payload['quests'] = array_values($dungeon_payload['quests']);
+    }
+
+    return $bootstrap_payload;
+  }
+
+  /**
+   * Reduce visual bootstrap state to the active room and immediate exit context.
+   *
+   * @param array<string, mixed> $visual_map_state
+   *   Full projected visual map state.
+   *
+   * @return array<string, mixed>
+   *   Slim active-room visual bootstrap payload.
+   */
+  protected function buildClientBootstrapMapVisualState(array $visual_map_state): array {
+    $active_room_id = trim((string) ($visual_map_state['map_meta']['active_room_id'] ?? ''));
+    $rooms = is_array($visual_map_state['topology']['rooms'] ?? NULL) ? $visual_map_state['topology']['rooms'] : [];
+    $connections = array_values(array_filter(
+      is_array($visual_map_state['topology']['connections'] ?? NULL) ? $visual_map_state['topology']['connections'] : [],
+      static function ($connection) use ($active_room_id): bool {
+        if (!is_array($connection) || $active_room_id === '') {
+          return FALSE;
+        }
+        $from_room_id = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? ''));
+        $to_room_id = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? ''));
+        return $from_room_id === $active_room_id || $to_room_id === $active_room_id;
+      }
+    ));
+
+    $room_ids_to_keep = [];
+    if ($active_room_id !== '') {
+      $room_ids_to_keep[$active_room_id] = TRUE;
+    }
+    foreach ($connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? ''));
+      $to_room_id = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? ''));
+      if ($from_room_id !== '') {
+        $room_ids_to_keep[$from_room_id] = TRUE;
+      }
+      if ($to_room_id !== '') {
+        $room_ids_to_keep[$to_room_id] = TRUE;
+      }
+    }
+
+    $trimmed_rooms = [];
+    foreach (array_keys($room_ids_to_keep) as $room_id) {
+      $room = is_array($rooms[$room_id] ?? NULL) ? $rooms[$room_id] : [];
+      if ($room_id === $active_room_id) {
+        $trimmed_rooms[$room_id] = $room;
+        continue;
+      }
+
+      $trimmed_rooms[$room_id] = [
+        'room_id' => $room_id,
+        'name' => (string) ($room['name'] ?? $room_id),
+        'title' => (string) ($room['title'] ?? $room['name'] ?? $room_id),
+      ];
+    }
+
+    $occupants = is_array($visual_map_state['occupants'] ?? NULL) ? $visual_map_state['occupants'] : [];
+    $trimmed_party = array_values(array_filter(
+      is_array($occupants['party'] ?? NULL) ? $occupants['party'] : [],
+      static function ($occupant) use ($active_room_id): bool {
+        if (!is_array($occupant) || $active_room_id === '') {
+          return FALSE;
+        }
+        return trim((string) ($occupant['room_id'] ?? '')) === $active_room_id;
+      }
+    ));
+    $trimmed_entities = array_values(array_filter(
+      is_array($occupants['entities'] ?? NULL) ? $occupants['entities'] : [],
+      static function ($occupant) use ($active_room_id): bool {
+        if (!is_array($occupant) || $active_room_id === '') {
+          return FALSE;
+        }
+        return trim((string) ($occupant['room_id'] ?? '')) === $active_room_id;
+      }
+    ));
+
+    $object_definitions = is_array($visual_map_state['presentation']['object_definitions'] ?? NULL)
+      ? $visual_map_state['presentation']['object_definitions']
+      : [];
+    $active_room = is_array($trimmed_rooms[$active_room_id] ?? NULL) ? $trimmed_rooms[$active_room_id] : [];
+    $used_object_ids = [];
+    foreach ((array) ($active_room['hexes'] ?? []) as $hex) {
+      if (!is_array($hex)) {
+        continue;
+      }
+      foreach ((array) ($hex['objects'] ?? []) as $object) {
+        if (!is_array($object)) {
+          continue;
+        }
+        $object_id = trim((string) ($object['object_id'] ?? ''));
+        if ($object_id !== '') {
+          $used_object_ids[$object_id] = TRUE;
+        }
+      }
+    }
+    foreach (array_merge($trimmed_party, $trimmed_entities) as $occupant) {
+      if (!is_array($occupant)) {
+        continue;
+      }
+      $content_id = trim((string) ($occupant['content_id'] ?? $occupant['entity_ref']['content_id'] ?? ''));
+      if ($content_id !== '') {
+        $used_object_ids[$content_id] = TRUE;
+      }
+    }
+    $trimmed_object_definitions = [];
+    foreach (array_keys($used_object_ids) as $object_id) {
+      if (isset($object_definitions[$object_id]) && is_array($object_definitions[$object_id])) {
+        $trimmed_object_definitions[$object_id] = $object_definitions[$object_id];
+      }
+    }
+
+    return [
+      'schema_version' => (string) ($visual_map_state['schema_version'] ?? '1.0.0'),
+      'map_meta' => [
+        'campaign_id' => (int) ($visual_map_state['map_meta']['campaign_id'] ?? 0),
+        'dungeon_level_id' => (string) ($visual_map_state['map_meta']['dungeon_level_id'] ?? ''),
+        'map_id' => (string) ($visual_map_state['map_meta']['map_id'] ?? ''),
+        'active_room_id' => $active_room_id,
+        'hex_grid' => [],
+      ],
+      'topology' => [
+        'rooms' => $trimmed_rooms,
+        'connections' => $connections,
+        'regions' => [],
+      ],
+      'visibility' => [
+        'active_room_id' => $active_room_id,
+        'discovered_room_ids' => array_values(array_keys($room_ids_to_keep)),
+        'visible_hex_ids_by_room' => [],
+        'fog_mode' => (string) ($visual_map_state['visibility']['fog_mode'] ?? 'room'),
+        'room_states' => [],
+      ],
+      'occupants' => [
+        'party' => $trimmed_party,
+        'entities' => $trimmed_entities,
+      ],
+      'presentation' => [
+        'object_definitions' => $trimmed_object_definitions,
+        'layer_order' => is_array($visual_map_state['presentation']['layer_order'] ?? NULL)
+          ? array_values($visual_map_state['presentation']['layer_order'])
+          : [],
+        'legend' => [],
+      ],
     ];
   }
 
@@ -2673,6 +2883,10 @@ class HexMapController extends ControllerBase {
         'name' => (string) ($room['name'] ?? ''),
         'description' => (string) ($room['description'] ?? ''),
         'hexes' => $normalized_hexes,
+        'exits' => $this->normalizeRoomExits(
+          is_array($room['exits'] ?? NULL) ? $room['exits'] : [],
+          (string) $room['room_id']
+        ),
         'entry_points' => is_array($room['entry_points'] ?? NULL) ? $room['entry_points'] : [],
         'exit_points' => is_array($room['exit_points'] ?? NULL) ? $room['exit_points'] : [],
         'terrain' => is_array($room['terrain'] ?? NULL) ? $room['terrain'] : [],
@@ -2802,6 +3016,9 @@ class HexMapController extends ControllerBase {
     }
 
     $connections = is_array($decoded['hex_map']['connections'] ?? NULL) ? $decoded['hex_map']['connections'] : [];
+    if ($connections === []) {
+      $connections = $this->synthesizeConnectionsFromRoomExits($rooms);
+    }
     $connections = $this->ensureRoomsHaveAtLeastOneExit($rooms, $connections, $active_room_id);
     $connections = $this->ensureConnectionsHaveLinkedHexes($rooms, $connections, $active_room_id);
     $dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $decoded['hex_map']['map_id'] ?? $launch_context['map_id'] ?? ''));
@@ -2864,6 +3081,185 @@ class HexMapController extends ControllerBase {
     }
 
     return $this->ensurePayloadObjectOrientations($normalized_payload);
+  }
+
+  /**
+   * Normalize runtime room exits without dropping the canonical room graph.
+   *
+   * @param array<int, mixed> $exits
+   *   Raw room exit payloads.
+   * @param string $room_id
+   *   Owning room id.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Canonical exits.
+   */
+  protected function normalizeRoomExits(array $exits, string $room_id): array {
+    $normalized = [];
+    foreach ($exits as $index => $exit) {
+      if (!is_array($exit)) {
+        throw new \InvalidArgumentException(sprintf(
+          'Room exit contract violation: room %s exit[%d] must be an object.',
+          $room_id,
+          (int) $index
+        ));
+      }
+
+      $target_room_id = trim((string) (
+        $exit['target_room_id']
+        ?? $exit['to_room_id']
+        ?? $exit['leads_to']
+        ?? $exit['destination_id']
+        ?? ''
+      ));
+      if ($target_room_id === '') {
+        throw new \InvalidArgumentException(sprintf(
+          'Room exit contract violation: room %s exit[%d] is missing target_room_id.',
+          $room_id,
+          (int) $index
+        ));
+      }
+      if ($target_room_id === $room_id) {
+        throw new \InvalidArgumentException(sprintf(
+          'Room exit contract violation: room %s exit[%d] cannot target itself.',
+          $room_id,
+          (int) $index
+        ));
+      }
+
+      $normalized_exit = $exit;
+      $normalized_exit['target_room_id'] = $target_room_id;
+      $normalized_exit['type'] = $this->normalizeRoomExitConnectionType($normalized_exit);
+
+      $exit_hex = $this->extractRoomExitHex($normalized_exit);
+      if ($exit_hex !== NULL) {
+        $normalized_exit['q'] = $exit_hex['q'];
+        $normalized_exit['r'] = $exit_hex['r'];
+      }
+
+      $normalized[] = $normalized_exit;
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Synthesize directional connection rows from canonical per-room exits.
+   *
+   * @param array<string, array<string, mixed>> $rooms
+   *   Normalized room payloads keyed by room id.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Directional connection rows derived from room exits.
+   */
+  protected function synthesizeConnectionsFromRoomExits(array $rooms): array {
+    $connections = [];
+    $seen = [];
+
+    foreach ($rooms as $room_id => $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+
+      foreach ((array) ($room['exits'] ?? []) as $index => $exit) {
+        if (!is_array($exit)) {
+          continue;
+        }
+
+        $target_room_id = trim((string) ($exit['target_room_id'] ?? ''));
+        if ($target_room_id === '') {
+          continue;
+        }
+
+        $type = $this->normalizeRoomExitConnectionType($exit);
+        $from_hex = $this->extractRoomExitHex($exit);
+        $to_hex = $this->extractRoomExitHex($exit['target_hex'] ?? NULL);
+        $signature = implode('|', [
+          $room_id,
+          $target_room_id,
+          $type,
+          $from_hex !== NULL ? $from_hex['q'] . ':' . $from_hex['r'] : (string) $index,
+        ]);
+        if (isset($seen[$signature])) {
+          continue;
+        }
+        $seen[$signature] = TRUE;
+
+        $connection_id = trim((string) ($exit['connection_id'] ?? ''));
+        if ($connection_id === '') {
+          $connection_id = sprintf(
+            '%s__%s__%s__%s',
+            $room_id,
+            $target_room_id,
+            $type,
+            $from_hex !== NULL ? $from_hex['q'] . ':' . $from_hex['r'] : (string) $index
+          );
+        }
+
+        $connection = [
+          'connection_id' => $connection_id,
+          'from_room' => $room_id,
+          'from_room_id' => $room_id,
+          'to_room' => $target_room_id,
+          'to_room_id' => $target_room_id,
+          'type' => $type,
+          'is_passable' => array_key_exists('is_passable', $exit)
+            ? (bool) $exit['is_passable']
+            : !((bool) ($exit['locked'] ?? FALSE) || (bool) ($exit['blocked'] ?? FALSE)),
+          'is_discovered' => array_key_exists('is_discovered', $exit) ? (bool) $exit['is_discovered'] : TRUE,
+          'bidirectional' => FALSE,
+        ];
+
+        if ($from_hex !== NULL) {
+          $connection['from_hex'] = $from_hex;
+        }
+        if ($to_hex !== NULL) {
+          $connection['to_hex'] = $to_hex;
+        }
+
+        $connections[] = $connection;
+      }
+    }
+
+    return $connections;
+  }
+
+  /**
+   * Normalize connection type from a room exit payload.
+   */
+  protected function normalizeRoomExitConnectionType(array $exit): string {
+    $type = trim((string) ($exit['type'] ?? ''));
+    if ($type !== '') {
+      return $type;
+    }
+
+    $link_type = trim((string) ($exit['link_type'] ?? ''));
+    if ($link_type === '' || $link_type === 'room_transition') {
+      return 'open_passage';
+    }
+
+    return $link_type;
+  }
+
+  /**
+   * Extract a room-exit endpoint hex from supported payload shapes.
+   */
+  protected function extractRoomExitHex(mixed $exit): ?array {
+    if (!is_array($exit)) {
+      return NULL;
+    }
+
+    foreach ([$exit, $exit['hex'] ?? NULL, $exit['origin_hex'] ?? NULL, $exit['target_hex'] ?? NULL] as $candidate) {
+      if (!is_array($candidate) || !isset($candidate['q'], $candidate['r'])) {
+        continue;
+      }
+      return [
+        'q' => (int) $candidate['q'],
+        'r' => (int) $candidate['r'],
+      ];
+    }
+
+    return NULL;
   }
 
   /**
@@ -3168,6 +3564,18 @@ class HexMapController extends ControllerBase {
     $rooms_without_exits = [];
     foreach ($adj as $room_id => $count) {
       if ((int) $count <= 0) {
+        $room_exits = array_values(array_filter(
+          (array) ($rooms[$room_id]['exits'] ?? []),
+          static function ($exit): bool {
+            if (!is_array($exit)) {
+              return FALSE;
+            }
+            return trim((string) ($exit['target_room_id'] ?? '')) !== '';
+          }
+        ));
+        if ($room_exits !== []) {
+          continue;
+        }
         $rooms_without_exits[] = (string) $room_id;
       }
     }
