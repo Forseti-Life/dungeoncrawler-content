@@ -77,6 +77,10 @@ The final context string is bounded by `NpcPsychologyService::MAX_CONTEXT_LENGTH
   - prompt context composition via shared `buildUnifiedActorContext()` path (`buildNpcContextForPrompt()` projection),
   - post-response state updates via `recordInnerMonologue()`.
 - This keeps psychology context generation in canonical service boundaries and avoids endpoint-layer drift.
+- 2026-07-23 convergence update:
+  - Character dialogue payload assembly now emits `actor_decision_v1` (`tool=chat`) via `ActorDecisionContractService`.
+  - Chat decision envelopes are validated by `ActorDecisionValidatorService` before payload release.
+  - Required dialogue context now hard-fails on missing NPC prompt context (no silent description fallback).
 
 ---
 

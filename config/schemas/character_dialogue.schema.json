@@ -83,6 +83,63 @@
           "type": "boolean"
         }
       }
+    },
+    "actor_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision_contract_version",
+        "actor_instance_id",
+        "tool",
+        "decision_reason",
+        "decision_basis",
+        "confidence",
+        "contract_version",
+        "payload"
+      ],
+      "properties": {
+        "decision_contract_version": {
+          "type": "string",
+          "enum": ["actor_decision_v1"]
+        },
+        "actor_instance_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "type": "string",
+          "enum": ["chat", "action", "end_turn"]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "decision_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_basis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["used_profile", "used_psychology", "used_availability"],
+          "properties": {
+            "used_profile": { "type": "boolean" },
+            "used_psychology": { "type": "boolean" },
+            "used_availability": { "type": "boolean" }
+          }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "contract_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object"
+        }
+      }
     }
   }
 }

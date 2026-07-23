@@ -100,9 +100,13 @@ trait RoomChatServiceChannelAndSessionTrait {
         $live_entity
       );
     }
-    // Fallback: use description from entity if no psychology profile.
-    if (empty($npc_context) && $live_entity) {
-      $npc_context = $live_entity['description'] ?? '';
+    if (trim($npc_context) === '') {
+      throw new \RuntimeException(sprintf(
+        'Actor context contract violation: missing NPC prompt context for campaign_id=%d npc_ref=%s channel=%s.',
+        $campaign_id,
+        (string) ($npc_ref ?: $target_entity),
+        $channel_key
+      ));
     }
 
     $actor_action_context = $this->buildCanonicalNpcActionAvailabilityContext(

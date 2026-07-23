@@ -29,6 +29,8 @@ class EncounterAiIntegrationService {
    * Shared actor action-availability resolver.
    */
   protected ActorActionAvailabilityService $actionAvailability;
+  protected ActorDecisionContractService $decisionContractService;
+  protected ActorDecisionValidatorService $decisionValidator;
 
   /**
    * Constructs service.
@@ -37,12 +39,16 @@ class EncounterAiIntegrationService {
     EncounterAiProviderInterface $provider,
     TimeInterface $time,
     LoggerChannelFactoryInterface $logger_factory,
-    ?ActorActionAvailabilityService $action_availability = NULL
+    ?ActorActionAvailabilityService $action_availability = NULL,
+    ?ActorDecisionContractService $decision_contract_service = NULL,
+    ?ActorDecisionValidatorService $decision_validator = NULL
   ) {
     $this->provider = $provider;
     $this->time = $time;
     $this->loggerFactory = $logger_factory;
     $this->actionAvailability = $action_availability ?? new ActorActionAvailabilityService();
+    $this->decisionContractService = $decision_contract_service ?? new ActorDecisionContractService();
+    $this->decisionValidator = $decision_validator ?? new ActorDecisionValidatorService();
   }
 
   /**
@@ -99,7 +105,7 @@ class EncounterAiIntegrationService {
     $actions_available_to_me_this_turn = is_array($availability['availability_envelope'] ?? NULL)
       ? $availability['availability_envelope']
       : [];
-    $action_contract_hash = $this->buildActionContractHash($actor_action_contract, $allowed_actions);
+    $action_contract_hash = $this->decisionContractService->buildActionContractHash($actor_action_contract, $allowed_actions);
 
     return [
       'campaign_id' => $campaign_id,
@@ -143,10 +149,24 @@ class EncounterAiIntegrationService {
       'valid' => $validation['valid'] ? 1 : 0,
     ]);
 
+    $actor_decision = $this->decisionContractService->buildActorDecisionEnvelopeFromRecommendation(
+      $recommendation,
+      $context,
+      $this->provider->getProviderName()
+    );
+    $decision_validation = $this->decisionValidator->validateDecision(
+      $actor_decision,
+      (string) ($recommendation['actor_instance_id'] ?? '')
+    );
+    if (empty($decision_validation['valid'])) {
+      throw new \RuntimeException('Encounter actor decision contract violation: ' . implode('; ', (array) ($decision_validation['errors'] ?? [])));
+    }
+
     return [
       'success' => TRUE,
       'provider' => $this->provider->getProviderName(),
       'recommendation' => $recommendation,
+      'actor_decision' => $actor_decision,
       'validation' => $validation,
       'requested_at' => $this->time->getCurrentTime(),
     ];
@@ -397,25 +417,6 @@ class EncounterAiIntegrationService {
   }
 
   /**
-   * Resolve deterministic hash representing the current action contract.
-   *
-   * @param array<string, mixed> $action_contract
-   *   Canonical action contract.
-   * @param array<int, string> $allowed_actions
-   *   Currently allowed action IDs.
-   */
-  protected function buildActionContractHash(array $action_contract, array $allowed_actions): string {
-    $payload = [
-      'available_actions' => array_values(array_unique(array_map(
-        static fn($action): string => strtolower(trim((string) $action)),
-        $allowed_actions
-      ))),
-      'action_contract' => $action_contract,
-    ];
-    return hash('sha256', (string) json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-  }
-
-  /**
    * Resolve expected contract hash from context or derive it from action fields.
    *
    * @param array<string, mixed> $context
@@ -441,7 +442,7 @@ class EncounterAiIntegrationService {
       return '';
     }
 
-    return $this->buildActionContractHash($action_contract, $allowed_actions);
+    return $this->decisionContractService->buildActionContractHash($action_contract, $allowed_actions);
   }
 
   /**
@@ -499,10 +500,7 @@ class EncounterAiIntegrationService {
       : max(0, (int) ($current_actor['actions_remaining'] ?? 3));
 
     return [
-      'allowed_actions' => array_values(array_unique(array_filter(array_map(
-        static fn($action): string => strtolower(trim((string) $action)),
-        $allowed_actions
-      )))),
+      'allowed_actions' => $this->decisionContractService->normalizeActionIds($allowed_actions),
       'actions_remaining' => $actions_remaining,
       'action_definitions' => $action_definitions,
     ];

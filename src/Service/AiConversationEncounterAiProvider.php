@@ -35,16 +35,18 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    * AI session manager for per-campaign encounter isolation.
    */
   protected AiSessionManager $sessionManager;
+  protected ActorDecisionContractService $decisionContractService;
 
   /**
    * Constructs provider.
    */
-  public function __construct(?AIApiService $ai_api_service, LoggerChannelFactoryInterface $logger_factory, ConfigFactoryInterface $config_factory, StubEncounterAiProvider $fallback_provider, AiSessionManager $session_manager) {
+  public function __construct(?AIApiService $ai_api_service, LoggerChannelFactoryInterface $logger_factory, ConfigFactoryInterface $config_factory, StubEncounterAiProvider $fallback_provider, AiSessionManager $session_manager, ?ActorDecisionContractService $decision_contract_service = NULL) {
     $this->aiApiService = $ai_api_service;
     $this->loggerFactory = $logger_factory;
     $this->configFactory = $config_factory;
     $this->fallbackProvider = $fallback_provider;
     $this->sessionManager = $session_manager;
+    $this->decisionContractService = $decision_contract_service ?? new ActorDecisionContractService();
   }
 
   /**
@@ -210,10 +212,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     if ($allowed_actions === []) {
       $allowed_actions = is_array($context['allowed_actions'] ?? NULL) ? $context['allowed_actions'] : [];
     }
-    $allowed_actions = array_values(array_unique(array_filter(array_map(
-      static fn($action): string => strtolower(trim((string) $action)),
-      $allowed_actions
-    ))));
+    $allowed_actions = $this->decisionContractService->normalizeActionIds($allowed_actions);
     $action_cost_max = is_numeric($actions_available_to_me_this_turn['actions_remaining'] ?? NULL)
       ? max(0, (int) $actions_available_to_me_this_turn['actions_remaining'])
       : max(0, (int) ($current_actor['actions_remaining'] ?? 3));

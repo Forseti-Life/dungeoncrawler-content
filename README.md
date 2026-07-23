@@ -66,6 +66,7 @@ The actor psychology subsystem is invoked in two canonical gameplay lanes:
 
 - **Dialogue lane** (room chat + NPC replies): `HexMapController` and `MapGeneratorService` bootstrap room NPC profiles, while `RoomChatService` builds NPC prompt context from `NpcPsychologyService::buildUnifiedActorContext()` (via `buildNpcContextForPrompt()`), injects canonical actor action-availability envelope context, and records post-dialogue state shifts via `recordInnerMonologue()`.
 - **Next-action lane** (encounter AI decisions): `EncounterActorContextBuilder` consumes the same `NpcPsychologyService::buildUnifiedActorContext()` path to inject `current_actor_profile` + `npc_psychology` into action context, with `EncounterPhaseHandler` retaining compatibility wrappers.
+- **Unified decision envelope convergence (2026-07-23):** action decisions now emit `actor_decision_v1` (`tool=action`) from `EncounterAiIntegrationService` using `ActorDecisionContractService`, and chat dialogue payloads emit `actor_decision_v1` (`tool=chat`) through `RoomChatService` contract assembly.
 - **Conformance refresh (2026-07-08):** recent RoomChatController facade decomposition and stream/result boundary extraction did not change actor-psychology invocation authority; invocation remains service-owned (`RoomChatService`, `EncounterActorContextBuilder` via `EncounterPhaseHandler`) and server-authoritative.
 
 ### Actor Psychology Subsystem Component Breakdown (2026-07-20)
@@ -79,6 +80,7 @@ The actor psychology subsystem is invoked in two canonical gameplay lanes:
 | Dialogue orchestration | Invoke psychology context for direct reply/interjection flows and persist post-response thought updates | `RoomChatService*Trait` methods (`buildNpcContextForPrompt`, `recordInnerMonologue`) |
 | Encounter decision context | Build structured + narrative psychology payloads for NPC next-action recommendations from the same canonical actor context envelope | `NpcPsychologyService::buildUnifiedActorContext()` consumed by `EncounterActorContextBuilder` (via `EncounterPhaseHandler` wrappers) |
 | Encounter AI boundary | Enforce handoff of psychology fields into model/provider payload contract | `AiConversationEncounterAiProvider` (`current_actor_profile`, `npc_psychology`) |
+| Unified actor decision contract | Canonical action/chat decision envelope mapping + shared action-contract hash normalization | `ActorDecisionContractService`, `ActorDecisionValidatorService` |
 
 See subsystem docs for full invocation points and context payload details:
 

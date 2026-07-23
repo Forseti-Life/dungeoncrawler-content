@@ -492,6 +492,7 @@ services:
       - '@config.factory'
       - '@dungeoncrawler_content.encounter_ai_provider.stub'
       - '@dungeoncrawler_content.ai_session_manager'
+      - '@dungeoncrawler_content.actor_decision_contract'
 
   dungeoncrawler_content.encounter_ai_integration:
     class: Drupal\dungeoncrawler_content\Service\EncounterAiIntegrationService
@@ -500,15 +501,24 @@ services:
       - '@datetime.time'
       - '@logger.factory'
       - '@dungeoncrawler_content.actor_action_availability'
+      - '@dungeoncrawler_content.actor_decision_contract'
+      - '@dungeoncrawler_content.actor_decision_validator'
 
   dungeoncrawler_content.actor_action_availability:
     class: Drupal\dungeoncrawler_content\Service\ActorActionAvailabilityService
+
+  dungeoncrawler_content.actor_decision_contract:
+    class: Drupal\dungeoncrawler_content\Service\ActorDecisionContractService
+
+  dungeoncrawler_content.actor_decision_validator:
+    class: Drupal\dungeoncrawler_content\Service\ActorDecisionValidatorService
 
   dungeoncrawler_content.encounter_actor_context_builder:
     class: Drupal\dungeoncrawler_content\Service\EncounterActorContextBuilder
     arguments:
       - '@dungeoncrawler_content.npc_psychology_service'
       - '@dungeoncrawler_content.actor_action_availability'
+      - '@dungeoncrawler_content.actor_decision_contract'
 
   dungeoncrawler_content.actor_autoplay_coordinator:
     class: Drupal\dungeoncrawler_content\Service\ActorAutoplayCoordinator
@@ -844,6 +854,9 @@ services:
       - '@?dungeoncrawler_content.room_locator'
       - '@?dungeoncrawler_content.encounter_turn_guard'
       - '@?dungeoncrawler_content.gm_prompt_orchestration'
+      - '@?dungeoncrawler_content.actor_action_availability'
+      - '@?dungeoncrawler_content.actor_decision_contract'
+      - '@?dungeoncrawler_content.actor_decision_validator'
 
   dungeoncrawler_content.campaign_initialization:
     class: Drupal\dungeoncrawler_content\Service\CampaignInitializationService

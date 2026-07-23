@@ -8174,12 +8174,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Normalize personality-axis values for deterministic tactical decisions.
    */
   protected function normalizeDecisionPersonalityAxes(array $axes): array {
-    $normalized = NpcPsychologyService::PERSONALITY_AXES;
-    foreach ($normalized as $key => $default_value) {
-      $value = is_numeric($axes[$key] ?? NULL) ? (int) $axes[$key] : (int) $default_value;
-      $normalized[$key] = max(0, min(10, $value));
-    }
-    return $normalized;
+    return $this->actorContextBuilder->normalizePersonalityAxes($axes);
   }
 
   /**
@@ -10115,12 +10110,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Resolve combatant entity_ref from initiative context.
    */
   protected function resolveCombatantEntityRef(string $entity_id, array $game_state): string {
-    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
-      if (($combatant['entity_id'] ?? '') === $entity_id) {
-        return (string) ($combatant['entity_ref'] ?? $combatant['entity_id'] ?? $entity_id);
-      }
-    }
-    return $entity_id;
+    return $this->actorContextBuilder->resolveActorEntityRef($entity_id, $game_state);
   }
 
   /**
@@ -10130,55 +10120,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     if ($campaign_id <= 0) {
       return NULL;
     }
-
-    $entity_ref = $this->resolveCombatantEntityRef($entity_id, $game_state);
-    $profile = $this->psychologyService->loadProfile($campaign_id, $entity_ref);
-    if (!$profile && $entity_ref !== $entity_id) {
-      $profile = $this->psychologyService->loadProfile($campaign_id, $entity_id);
-    }
-    return $profile ?: NULL;
+    return $this->actorContextBuilder->loadActorProfile($entity_id, $game_state);
   }
 
   /**
    * Resolve actor goals list, always including XP and treasure goals.
    */
   protected function resolveActorGoals(?array $profile): array {
-    $goals = [];
-    if (is_array($profile)) {
-      $sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
-      if (is_array($sheet['goals'] ?? NULL)) {
-        foreach ($sheet['goals'] as $goal) {
-          if (is_string($goal) && trim($goal) !== '') {
-            $goals[] = trim($goal);
-          }
-        }
-      }
-      $motivations = trim((string) ($profile['motivations'] ?? ''));
-      if ($motivations !== '') {
-        $motivation_goals = preg_split('/[;\n\r]+/', $motivations) ?: [];
-        foreach ($motivation_goals as $motivation_goal) {
-          $trimmed = trim((string) $motivation_goal);
-          if ($trimmed !== '') {
-            $goals[] = $trimmed;
-          }
-        }
-      }
-    }
-
-    $goals[] = 'Gain XP';
-    $goals[] = 'Gain Treasure';
-
-    $seen = [];
-    $normalized = [];
-    foreach ($goals as $goal) {
-      $key = strtolower($goal);
-      if (isset($seen[$key])) {
-        continue;
-      }
-      $seen[$key] = TRUE;
-      $normalized[] = $goal;
-    }
-    return $normalized;
+    return $this->actorContextBuilder->resolveGoalsFromProfile($profile);
   }
 
   /**

@@ -116,6 +116,15 @@ This makes encounter "next action" recommendation actor-specific without relying
   - `cast_spell` / `use_feat` / `use_consumable` / `activate_item` / `trigger_hazard` => `parameters.option_id`
 - Invalid or malformed recommendation payloads now surface as explicit contract violations instead of being auto-healed via deterministic fallback in NPC autoplay.
 
+### Unified Actor Decision Envelope Progress (2026-07-23)
+
+- Encounter recommendation responses now include canonical `actor_decision_v1` (`tool=action`) generated through `ActorDecisionContractService`.
+- Action-contract hash normalization and hashing moved to shared contract utility (`ActorDecisionContractService`) and reused by:
+  - `EncounterActorContextBuilder`
+  - `EncounterAiIntegrationService`
+  - `AiConversationEncounterAiProvider` (allowed-action normalization).
+- Decision envelopes are validated with `ActorDecisionValidatorService` before response return.
+
 ### 2026-07-08 Conformance Refresh
 
 - Encounter-side psychology contract now consumes the same canonical actor-context builder path used by dialogue:

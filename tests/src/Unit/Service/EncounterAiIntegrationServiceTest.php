@@ -312,6 +312,9 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
 
     $this->assertTrue($response['success']);
     $this->assertSame('stub', $response['provider']);
+    $this->assertSame('action', $response['actor_decision']['tool'] ?? NULL);
+    $this->assertSame('contract-hash-5', $response['actor_decision']['contract_version'] ?? NULL);
+    $this->assertSame('strike', $response['actor_decision']['payload']['action']['type'] ?? NULL);
     $this->assertTrue($response['validation']['valid']);
     $this->assertSame(1700000000, $response['requested_at']);
   }

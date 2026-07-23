@@ -125,6 +125,8 @@ class RoomChatService {
   protected RoomLocator $roomLocator;
   protected EncounterTurnGuard $encounterTurnGuard;
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
+  protected ActorDecisionContractService $actorDecisionContractService;
+  protected ActorDecisionValidatorService $actorDecisionValidatorService;
   protected ?array $activeDebugTrace = NULL;
   protected ?bool $roomTurnLogStoreAvailable = NULL;
 
@@ -186,7 +188,9 @@ class RoomChatService {
     ?RoomLocator $room_locator = NULL,
     ?EncounterTurnGuard $encounter_turn_guard = NULL,
     ?GmPromptOrchestrationService $gm_prompt_orchestration = NULL,
-    ?ActorActionAvailabilityService $actor_action_availability_service = NULL
+    ?ActorActionAvailabilityService $actor_action_availability_service = NULL,
+    ?ActorDecisionContractService $actor_decision_contract_service = NULL,
+    ?ActorDecisionValidatorService $actor_decision_validator_service = NULL
   ) {
     $this->database = $database;
     $this->dungeonStateService = $dungeon_state_service;
@@ -200,6 +204,8 @@ class RoomChatService {
     $this->psychologyService = $psychology_service;
     $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     $this->actorActionAvailabilityService = $actor_action_availability_service ?? new ActorActionAvailabilityService();
+    $this->actorDecisionContractService = $actor_decision_contract_service ?? new ActorDecisionContractService();
+    $this->actorDecisionValidatorService = $actor_decision_validator_service ?? new ActorDecisionValidatorService();
     $this->narrationEngine = $narration_engine;
     $this->chatSessionManager = $chat_session_manager;
     $this->mapGenerator = $map_generator;

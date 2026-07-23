@@ -9,13 +9,16 @@ class EncounterActorContextBuilder {
 
   protected NpcPsychologyService $psychologyService;
   protected ActorActionAvailabilityService $actionAvailability;
+  protected ActorDecisionContractService $decisionContractService;
 
   public function __construct(
     NpcPsychologyService $psychology_service,
-    ActorActionAvailabilityService $action_availability
+    ActorActionAvailabilityService $action_availability,
+    ?ActorDecisionContractService $decision_contract_service = NULL
   ) {
     $this->psychologyService = $psychology_service;
     $this->actionAvailability = $action_availability;
+    $this->decisionContractService = $decision_contract_service ?? new ActorDecisionContractService();
   }
 
   /**
@@ -74,7 +77,7 @@ class EncounterActorContextBuilder {
     $allowed_actions = $availability['available_actions'];
     $action_contract = $availability['action_contract'];
     $actions_available_to_me_this_turn = $availability['availability_envelope'];
-    $action_contract_hash = $this->buildActionContractHash($action_contract, $allowed_actions);
+    $action_contract_hash = $this->decisionContractService->buildActionContractHash($action_contract, $allowed_actions);
     $psychology_context = $this->buildUnifiedPsychologyContext($entity_id, $game_state);
     $resolved_entity_ref = (string) ($psychology_context['entity_ref'] ?? $entity_id);
 
@@ -126,6 +129,42 @@ class EncounterActorContextBuilder {
   }
 
   /**
+   * Resolve canonical combatant entity_ref for downstream compatibility users.
+   */
+  public function resolveActorEntityRef(string $entity_id, array $game_state): string {
+    return $this->resolveCombatantEntityRef($entity_id, $game_state);
+  }
+
+  /**
+   * Load psychology profile for a combatant with canonical fallback semantics.
+   */
+  public function loadActorProfile(string $entity_id, array $game_state): ?array {
+    $campaign_id = (int) ($game_state['campaign_id'] ?? 0);
+    return $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
+  }
+
+  /**
+   * Resolve normalized actor goals including baseline defaults.
+   */
+  public function resolveGoalsFromProfile(?array $profile): array {
+    return $this->resolveActorGoals($profile);
+  }
+
+  /**
+   * Normalize personality-axis values for tactical decision compatibility.
+   */
+  public function normalizePersonalityAxes(array $axes): array {
+    return $this->normalizeDecisionPersonalityAxes($axes);
+  }
+
+  /**
+   * Normalize NPC attitude values against canonical ladder.
+   */
+  public function normalizeAttitudeValue(mixed $attitude): ?string {
+    return $this->normalizeNpcAttitude($attitude);
+  }
+
+  /**
    * Build the canonical psychology envelope used across chat and encounter lanes.
    */
   protected function buildUnifiedPsychologyContext(string $entity_id, array $game_state): array {
@@ -163,20 +202,6 @@ class EncounterActorContextBuilder {
   }
 
   /**
-   * Resolve deterministic hash for the actor's currently available action contract.
-   */
-  protected function buildActionContractHash(array $action_contract, array $allowed_actions): string {
-    $payload = [
-      'available_actions' => array_values(array_unique(array_map(
-        static fn($action): string => strtolower(trim((string) $action)),
-        $allowed_actions
-      ))),
-      'action_contract' => $action_contract,
-    ];
-    return hash('sha256', (string) json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-  }
-
-  /**
    * Load psychology profile for a combatant using entity_ref first, then entity_id.
    */
   protected function loadCombatantPsychologyProfile(string $entity_id, array $game_state, int $campaign_id): ?array {
@@ -195,10 +220,36 @@ class EncounterActorContextBuilder {
   protected function resolveCombatantEntityRef(string $entity_id, array $game_state): string {
     foreach (($game_state['initiative_order'] ?? []) as $combatant) {
       if (($combatant['entity_id'] ?? '') === $entity_id) {
-        return (string) ($combatant['entity_ref'] ?? $combatant['entity_id'] ?? $entity_id);
+        return $this->normalizeCombatantEntityRef($combatant['entity_ref'] ?? NULL, $combatant['entity_id'] ?? $entity_id);
       }
     }
     return $entity_id;
+  }
+
+  /**
+   * Normalize encounter participant entity_ref payloads.
+   */
+  protected function normalizeCombatantEntityRef(mixed $entity_ref, string $fallback): string {
+    if (is_string($entity_ref)) {
+      $decoded = json_decode($entity_ref, TRUE);
+      if (is_array($decoded)) {
+        $content_id = trim((string) ($decoded['content_id'] ?? ''));
+        if ($content_id !== '') {
+          return $content_id;
+        }
+      }
+      $candidate = trim($entity_ref);
+      return $candidate !== '' ? $candidate : $fallback;
+    }
+
+    if (is_array($entity_ref)) {
+      $content_id = trim((string) ($entity_ref['content_id'] ?? ''));
+      if ($content_id !== '') {
+        return $content_id;
+      }
+    }
+
+    return $fallback;
   }
 
   protected function resolveActorGoals(?array $profile): array {

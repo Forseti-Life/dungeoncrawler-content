@@ -1230,17 +1230,22 @@ trait RoomChatServiceIntentAndDeterminismTrait {
         '@npc' => $entity_ref,
         '@err' => $e->getMessage(),
       ]);
-      $fallback_reply = $this->buildFallbackNpcRoomDialogue($campaign_id, $entity_ref, $display_name, $player_message);
-      return $fallback_reply !== NULL
-        ? $this->buildCharacterDialoguePayload($campaign_id, $room_id, $entity_ref, $display_name, 'room', 'room_interjection', $fallback_reply, 'fallback', NULL, NULL, TRUE, FALSE)
-        : NULL;
+      throw new \RuntimeException(sprintf(
+        'Actor chat decision contract violation: room dialogue generation failed for npc=%s campaign_id=%d room_id=%s (%s).',
+        $entity_ref,
+        $campaign_id,
+        $room_id,
+        $e->getMessage()
+      ));
     }
 
     if (empty($result['success']) || empty($result['response'])) {
-      $fallback_reply = $this->buildFallbackNpcRoomDialogue($campaign_id, $entity_ref, $display_name, $player_message);
-      return $fallback_reply !== NULL
-        ? $this->buildCharacterDialoguePayload($campaign_id, $room_id, $entity_ref, $display_name, 'room', 'room_interjection', $fallback_reply, 'fallback', NULL, NULL, TRUE, FALSE)
-        : NULL;
+      throw new \RuntimeException(sprintf(
+        'Actor chat decision contract violation: empty room dialogue response for npc=%s campaign_id=%d room_id=%s.',
+        $entity_ref,
+        $campaign_id,
+        $room_id
+      ));
     }
 
     return $this->buildCharacterDialoguePayload(
@@ -1299,11 +1304,20 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     ];
 
     if (!$this->stateValidationService) {
+      $payload['actor_decision'] = $this->actorDecisionContractService->buildActorDecisionEnvelopeFromChatDialogue($payload);
       return $payload;
     }
 
     $validation = $this->stateValidationService->validateCharacterDialogue($payload);
     if (!empty($validation['valid'])) {
+      $payload['actor_decision'] = $this->actorDecisionContractService->buildActorDecisionEnvelopeFromChatDialogue($payload);
+      $decision_validation = $this->actorDecisionValidatorService->validateDecision(
+        $payload['actor_decision'],
+        (string) ($payload['entity_ref'] ?? '')
+      );
+      if (empty($decision_validation['valid'])) {
+        throw new \RuntimeException('Actor decision contract violation (chat): ' . implode('; ', $decision_validation['errors'] ?? []));
+      }
       return $payload;
     }
 
