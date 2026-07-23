@@ -2428,14 +2428,14 @@ class StorylineManagerService {
   /**
    * Resolve connector definition service lazily to avoid constructor-order drift.
    */
-  protected function resolveConnectorDefinitionService(): ConnectorDefinitionService {
-    if (\Drupal::hasService('dungeoncrawler_content.connector_definition_service')) {
-      $candidate = \Drupal::service('dungeoncrawler_content.connector_definition_service');
-      if ($candidate instanceof ConnectorDefinitionService) {
+  protected function resolveConnectorDefinitionService(): ExitConnectorAuthorityService {
+    if (\Drupal::hasService('dungeoncrawler_content.exit_connector_authority')) {
+      $candidate = \Drupal::service('dungeoncrawler_content.exit_connector_authority');
+      if ($candidate instanceof ExitConnectorAuthorityService) {
         return $candidate;
       }
     }
-    throw new \RuntimeException('Active storyline availability contract violation: ConnectorDefinitionService is required.');
+    throw new \RuntimeException('Active storyline availability contract violation: ExitConnectorAuthorityService is required.');
   }
 
   /**

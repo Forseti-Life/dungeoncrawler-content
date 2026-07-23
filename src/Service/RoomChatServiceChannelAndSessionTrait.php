@@ -200,14 +200,7 @@ trait RoomChatServiceChannelAndSessionTrait {
       );
     }
 
-    $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => json_encode($dungeon_data),
-        'updated' => time(),
-      ])
-      ->condition('dungeon_id', $dungeon_id)
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
+    $this->persistRoomChatSnapshotState($campaign_id, $dungeon_id, $dungeon_data);
 
     // Record in NPC-specific AI session.
     $player_msg = end($channel_chat)['message'] ?? '';
@@ -389,14 +382,7 @@ trait RoomChatServiceChannelAndSessionTrait {
 
     if ($result['success']) {
       // Persist the updated dungeon_data.
-      $this->database->update('dc_campaign_dungeons')
-        ->fields([
-          'dungeon_data' => json_encode($dungeon_data),
-          'updated' => time(),
-        ])
-        ->condition('dungeon_id', $dungeon_id)
-        ->condition('campaign_id', $campaign_id)
-        ->execute();
+      $this->persistRoomChatSnapshotState($campaign_id, $dungeon_id, $dungeon_data);
 
       // Post a system message on the channel.
       $channel_def = $result['channel'];
@@ -411,11 +397,7 @@ trait RoomChatServiceChannelAndSessionTrait {
       ];
       $dungeon_data['rooms'][$room_index]['chat'][] = $system_msg;
 
-      $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($dungeon_data)])
-        ->condition('dungeon_id', $dungeon_id)
-        ->condition('campaign_id', $campaign_id)
-        ->execute();
+      $this->persistRoomChatSnapshotState($campaign_id, $dungeon_id, $dungeon_data);
     }
 
     return $result;
@@ -443,14 +425,7 @@ trait RoomChatServiceChannelAndSessionTrait {
     $closed = $this->channelManager->closeChannel($dungeon_data, $room_index, $channel_key);
 
     if ($closed) {
-      $this->database->update('dc_campaign_dungeons')
-        ->fields([
-          'dungeon_data' => json_encode($dungeon_data),
-          'updated' => time(),
-        ])
-        ->condition('dungeon_id', $dungeon_id)
-        ->condition('campaign_id', $campaign_id)
-        ->execute();
+      $this->persistRoomChatSnapshotState($campaign_id, $dungeon_id, $dungeon_data);
     }
 
     return $closed;
@@ -467,6 +442,17 @@ trait RoomChatServiceChannelAndSessionTrait {
   // This is a transitional bridge — eventually the legacy JSON path will be
   // removed and all chat flows through the session system directly.
   // =========================================================================
+
+  /**
+   * Persist mutable room-chat snapshot state through the shared state lane.
+   */
+  protected function persistRoomChatSnapshotState(int $campaign_id, string $dungeon_id, array $dungeon_data): bool {
+    return $this->dungeonPayloadStatePersistence->mutateByDungeonId(
+      $campaign_id,
+      $dungeon_id,
+      static fn(array $payload): array => $dungeon_data
+    );
+  }
 
   /**
    * Bridge a player message from the legacy path into the session system.

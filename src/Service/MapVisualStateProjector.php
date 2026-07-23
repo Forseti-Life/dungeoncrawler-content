@@ -4,6 +4,12 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 /**
  * Projects the legacy hexmap payload into the canonical visual-only map state.
+ *
+ * Authority boundary:
+ * - input graph data is already normalized by upstream runtime graph assembly
+ * - this projector is presentation-only and must not infer missing graph truth
+ * - authored exit metadata may be preserved here, but traversal authority does
+ *   not originate in this projector
  */
 class MapVisualStateProjector {
 
@@ -597,6 +603,7 @@ class MapVisualStateProjector {
    * Attach per-room exits derived from normalized connections.
    */
   protected function attachRoomExits(array $rooms, array $connections): array {
+    $authored_exit_index = $this->indexAuthoredRoomExits($rooms);
     foreach ($rooms as $room_id => &$room) {
       if (!is_array($room)) {
         $room = [];
@@ -641,26 +648,30 @@ class MapVisualStateProjector {
       $from_room_name = trim((string) ($connection['from_room_name'] ?? $connection['from_name'] ?? ''));
       $to_room_name = trim((string) ($connection['to_room_name'] ?? $connection['to_name'] ?? ''));
 
-      $exit_from = $this->buildRoomExitPayload(
-        $connection_id,
-        $type,
-        $to_room_id,
-        $to_room_name,
-        $from,
-        $to,
-        (string) ($connection['from_hex_id'] ?? ''),
-        (string) ($connection['to_hex_id'] ?? ''),
-        $is_passable,
-        $is_discovered,
-        $visibility_state,
-        $destination_type,
-        $destination_id,
-        $distance,
-        $available,
-        $blocked_reason,
-        $bidirectional,
-        $requires_interaction,
-        $travel_time_seconds
+      $exit_from = $this->mergeAuthoredExitMetadata(
+        $from_room_id,
+        $this->buildRoomExitPayload(
+          $connection_id,
+          $type,
+          $to_room_id,
+          $to_room_name,
+          $from,
+          $to,
+          (string) ($connection['from_hex_id'] ?? ''),
+          (string) ($connection['to_hex_id'] ?? ''),
+          $is_passable,
+          $is_discovered,
+          $visibility_state,
+          $destination_type,
+          $destination_id,
+          $distance,
+          $available,
+          $blocked_reason,
+          $bidirectional,
+          $requires_interaction,
+          $travel_time_seconds
+        ),
+        $authored_exit_index
       );
 
       $reverse_destination_type = 'room';
@@ -675,26 +686,30 @@ class MapVisualStateProjector {
         TRUE
       );
 
-      $exit_to = $this->buildRoomExitPayload(
-        $connection_id,
-        $type,
-        $from_room_id,
-        $from_room_name,
-        $to,
-        $from,
-        (string) ($connection['to_hex_id'] ?? ''),
-        (string) ($connection['from_hex_id'] ?? ''),
-        $is_passable,
-        $is_discovered,
-        $visibility_state,
-        $reverse_destination_type,
-        $reverse_destination_id,
-        $distance,
-        $reverse_blocked_reason === NULL,
-        $reverse_blocked_reason,
-        $bidirectional,
-        $requires_interaction,
-        $travel_time_seconds
+      $exit_to = $this->mergeAuthoredExitMetadata(
+        $to_room_id,
+        $this->buildRoomExitPayload(
+          $connection_id,
+          $type,
+          $from_room_id,
+          $from_room_name,
+          $to,
+          $from,
+          (string) ($connection['to_hex_id'] ?? ''),
+          (string) ($connection['from_hex_id'] ?? ''),
+          $is_passable,
+          $is_discovered,
+          $visibility_state,
+          $reverse_destination_type,
+          $reverse_destination_id,
+          $distance,
+          $reverse_blocked_reason === NULL,
+          $reverse_blocked_reason,
+          $bidirectional,
+          $requires_interaction,
+          $travel_time_seconds
+        ),
+        $authored_exit_index
       );
 
       if (isset($rooms[$from_room_id]) && is_array($rooms[$from_room_id])) {
@@ -720,6 +735,121 @@ class MapVisualStateProjector {
     unset($room);
 
     return $rooms;
+  }
+
+  /**
+   * Index room-authored exits so projection can preserve authored metadata.
+   *
+   * @param array<string, array<string, mixed>> $rooms
+   *   Normalized room payloads keyed by room id.
+   *
+   * @return array<string, array<string, mixed>>
+   *   Flat lookup keyed by room-exit identity.
+   */
+  protected function indexAuthoredRoomExits(array $rooms): array {
+    $index = [];
+    foreach ($rooms as $room_id => $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      foreach ((array) ($room['exits'] ?? []) as $exit) {
+        if (!is_array($exit)) {
+          continue;
+        }
+        foreach ($this->buildRoomExitIdentityKeys((string) $room_id, $exit) as $key) {
+          $index[$key] = $exit;
+        }
+      }
+    }
+
+    return $index;
+  }
+
+  /**
+   * Merge authored room-exit metadata onto a projected exit payload.
+   *
+   * @param string $source_room_id
+   *   Room that owns the exit.
+   * @param array<string, mixed> $projected_exit
+   *   Projected exit payload.
+   * @param array<string, array<string, mixed>> $authored_exit_index
+   *   Flat authored exit lookup.
+   *
+   * @return array<string, mixed>
+   *   Exit payload with authored metadata preserved.
+   */
+  protected function mergeAuthoredExitMetadata(string $source_room_id, array $projected_exit, array $authored_exit_index): array {
+    foreach ($this->buildRoomExitIdentityKeys($source_room_id, $projected_exit) as $key) {
+      $authored_exit = $authored_exit_index[$key] ?? NULL;
+      if (!is_array($authored_exit)) {
+        continue;
+      }
+
+      foreach (['label', 'link_type'] as $field) {
+        if (
+          (!array_key_exists($field, $projected_exit) || trim((string) $projected_exit[$field]) === '')
+          && array_key_exists($field, $authored_exit)
+          && trim((string) $authored_exit[$field]) !== ''
+        ) {
+          $projected_exit[$field] = (string) $authored_exit[$field];
+        }
+      }
+
+      if (empty($projected_exit['target_room_name']) && !empty($authored_exit['target_room_name'])) {
+        $projected_exit['target_room_name'] = (string) $authored_exit['target_room_name'];
+      }
+
+      return $projected_exit;
+    }
+
+    return $projected_exit;
+  }
+
+  /**
+   * Build stable identity keys for matching authored and projected exits.
+   *
+   * @param string $source_room_id
+   *   Room that owns the exit.
+   * @param array<string, mixed> $exit
+   *   Exit payload.
+   *
+   * @return array<int, string>
+   *   Identity keys in match-priority order.
+   */
+  protected function buildRoomExitIdentityKeys(string $source_room_id, array $exit): array {
+    $source_room_id = trim($source_room_id);
+    $target_room_id = trim((string) ($exit['target_room_id'] ?? ''));
+    if ($source_room_id === '' || $target_room_id === '') {
+      return [];
+    }
+
+    $keys = [];
+    $connection_id = trim((string) ($exit['connection_id'] ?? ''));
+    if ($connection_id !== '') {
+      $keys[] = 'id:' . $source_room_id . ':' . $connection_id;
+    }
+
+    $type = trim((string) ($exit['type'] ?? 'open_passage')) ?: 'open_passage';
+    $origin_hex = is_array($exit['origin_hex'] ?? NULL)
+      ? $exit['origin_hex']
+      : (is_array($exit['hex'] ?? NULL) ? $exit['hex'] : $exit);
+    $q = is_numeric($origin_hex['q'] ?? NULL) ? (int) $origin_hex['q'] : NULL;
+    $r = is_numeric($origin_hex['r'] ?? NULL) ? (int) $origin_hex['r'] : NULL;
+    $keys[] = implode('|', [
+      $source_room_id,
+      $target_room_id,
+      $type,
+      $q !== NULL ? (string) $q : '',
+      $r !== NULL ? (string) $r : '',
+    ]);
+    $keys[] = implode('|', [
+      $source_room_id,
+      $target_room_id,
+      $q !== NULL ? (string) $q : '',
+      $r !== NULL ? (string) $r : '',
+    ]);
+
+    return $keys;
   }
 
   /**

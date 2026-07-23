@@ -4148,6 +4148,19 @@ class QuestGeneratorService {
       }
 
       if ($matching_payload === NULL) {
+        // Destination locations may legitimately refer to canonical rooms that
+        // will be materialized during objective validation. When there is only
+        // one campaign dungeon row, use it as the authoritative validation
+        // context and let materialization enforce destination contracts.
+        if (count($rows) === 1) {
+          $row = $rows[0];
+          return $this->decodeAndValidateDungeonPayload(
+            $campaign_id,
+            (string) ($row['dungeon_id'] ?? ''),
+            (string) ($row['dungeon_data'] ?? '')
+          );
+        }
+
         throw new \InvalidArgumentException(sprintf(
           'Quest destination validation requires location "%s" to exist in campaign %d dungeon_data.rooms, but no campaign dungeon contains it.',
           $location_id,

@@ -123,6 +123,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
   protected ?NavigationService $navigationService;
   protected ?NavigationRuntimeService $navigationRuntime;
+  protected ?RuntimeGraphAssemblerService $runtimeGraphAssembler;
 
   /**
    * Shared actor action-availability resolver.
@@ -311,7 +312,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     ?RoomSceneEncounterCoordinator $room_scene_encounter_coordinator = NULL,
     ?CanonicalProjectionService $canonical_projection_service = NULL,
     ?EncounterActionExecutor $encounter_action_executor = NULL,
-    ?EncounterIntentRouter $encounter_intent_router = NULL
+    ?EncounterIntentRouter $encounter_intent_router = NULL,
+    ?RuntimeGraphAssemblerService $runtime_graph_assembler = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -336,6 +338,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->navigationService = $navigation_service;
     $this->actionAvailability = $action_availability ?? new ActorActionAvailabilityService();
     $this->navigationRuntime = $navigation_runtime;
+    $this->runtimeGraphAssembler = $runtime_graph_assembler;
     $this->actorContextBuilder = $actor_context_builder ?? new EncounterActorContextBuilder(
       $this->psychologyService,
       $this->actionAvailability
@@ -6192,6 +6195,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       return ['error' => 'No target room specified.'];
     }
 
+    $dungeon_data = $this->rebuildAuthoritativeRuntimeGraph($campaign_id, $dungeon_data, $target_room_id);
+
     $this->logger->info('Encounter transition requested: campaign={campaign_id} actor={actor} from_room={from_room} target_room={target_room} connection_id={connection_id}', [
       'campaign_id' => $campaign_id,
       'actor' => (string) ($actor_id ?? ''),
@@ -6222,6 +6227,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
             $this->resolveRoomLabelById($dungeon_data, $target_room_id)
           );
         }
+
         return ['error' => $error];
       }
       if (empty($capability['available'])) {
@@ -6313,6 +6319,43 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14($dungeon_data, $target_room_id, $entry_hex)],
       ] : [],
     ];
+  }
+
+  /**
+   * Rebuild runtime graph shape from campaign room and connector authority.
+   *
+   * This keeps transition consumers off stale payload graph snapshots while the
+   * broader cutover away from direct dungeon_data graph ownership is in progress.
+   *
+   * @param int $campaign_id
+   *   Campaign identifier.
+   * @param array<string, mixed> $dungeon_data
+   *   Current server snapshot payload.
+   * @param string $requested_room_id
+   *   Target room that may need to be included in the authoritative graph view.
+   *
+   * @return array<string, mixed>
+   *   Rebuilt runtime graph payload.
+   */
+  protected function rebuildAuthoritativeRuntimeGraph(int $campaign_id, array $dungeon_data, string $requested_room_id = ''): array {
+    if ($campaign_id <= 0 || !$this->runtimeGraphAssembler instanceof RuntimeGraphAssemblerService) {
+      return $dungeon_data;
+    }
+
+    $dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['map_id']
+      ?? ''
+    ));
+    if ($dungeon_id === '') {
+      return $dungeon_data;
+    }
+
+    return $this->runtimeGraphAssembler->buildRuntimeGraph($campaign_id, $dungeon_id, $dungeon_data, [
+      'active_room_id' => trim((string) ($dungeon_data['active_room_id'] ?? '')),
+      'requested_room_id' => trim($requested_room_id),
+    ]);
   }
 
   /**

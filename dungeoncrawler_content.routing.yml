@@ -273,6 +273,16 @@ dungeoncrawler_content.api.map_visual_state:
   options:
     _format: json
 
+dungeoncrawler_content.api.map_graph_version:
+  path: '/api/map/graph-version'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\HexMapController::graphVersion'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+  options:
+    _format: json
+
 # ==============================================================================
 # CHARACTER MANAGEMENT ROUTES
 # ==============================================================================

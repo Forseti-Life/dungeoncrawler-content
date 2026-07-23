@@ -1227,6 +1227,7 @@ class HexMapController extends ControllerBase {
             [
               'active_room_id' => $requested_or_active_room_id !== '' ? $requested_or_active_room_id : (string) ($decoded['active_room_id'] ?? ''),
               'requested_room_id' => trim((string) ($launch_context['room_id'] ?? '')),
+              'room_scope_depth' => 1,
             ]
           );
           $normalized = $this->normalizeDungeonPayload($decoded, $launch_context);
@@ -1247,6 +1248,7 @@ class HexMapController extends ControllerBase {
                 [
                   'active_room_id' => $requested_room,
                   'requested_room_id' => $requested_room,
+                  'room_scope_depth' => 1,
                 ]
               );
               $normalized = $this->normalizeDungeonPayload($fallback, $launch_context);

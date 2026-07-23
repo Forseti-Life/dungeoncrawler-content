@@ -124,6 +124,7 @@ class RoomChatService {
   protected RoomChatAccessGuard $roomChatAccessGuard;
   protected RoomLocator $roomLocator;
   protected EncounterTurnGuard $encounterTurnGuard;
+  protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
   protected ?array $activeDebugTrace = NULL;
   protected ?bool $roomTurnLogStoreAvailable = NULL;
 
@@ -142,6 +143,7 @@ class RoomChatService {
     ChatChannelManager $channel_manager,
     NpcPsychologyService $psychology_service,
     StorylineQuestLifecycleService $storyline_quest_lifecycle_service,
+    DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
     ?NarrationEngine $narration_engine = NULL,
     ?ChatSessionManager $chat_session_manager = NULL,
     ?MapGeneratorService $map_generator = NULL,
@@ -196,6 +198,7 @@ class RoomChatService {
     $this->sessionManager = $session_manager;
     $this->channelManager = $channel_manager;
     $this->psychologyService = $psychology_service;
+    $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     $this->actorActionAvailabilityService = $actor_action_availability_service ?? new ActorActionAvailabilityService();
     $this->narrationEngine = $narration_engine;
     $this->chatSessionManager = $chat_session_manager;

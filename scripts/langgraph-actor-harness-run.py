@@ -1030,11 +1030,8 @@ def node_decide(state: HarnessState) -> HarnessState:
         available_actions = extract_available_actions(snapshot)
         if seed_checks >= 2:
             next_state: HarnessState = dict(state)
-            next_state["decision"] = build_non_stop_fallback_decision(
-                state,
-                snapshot,
-                "default_storyline_seed_unresolved",
-            )
+            next_state["run_status"] = "blocked"
+            next_state["stop_reason"] = "default_storyline_seed_unresolved"
             return next_state
         if seed_checks == 1:
             if "end_turn" in available_actions:
@@ -1053,11 +1050,8 @@ def node_decide(state: HarnessState) -> HarnessState:
                 next_state["default_storyline_seed_checks"] = 2
                 return next_state
             next_state = dict(state)
-            next_state["decision"] = build_non_stop_fallback_decision(
-                state,
-                snapshot,
-                "default_storyline_seed_unresolved",
-            )
+            next_state["run_status"] = "blocked"
+            next_state["stop_reason"] = "default_storyline_seed_unresolved"
             return next_state
         objective = current_objective.get("objective") if isinstance(current_objective.get("objective"), dict) else {}
         target_name = str(objective.get("target_display_name") or "Eldric").strip() or "Eldric"
@@ -1127,11 +1121,8 @@ def node_decide(state: HarnessState) -> HarnessState:
                 pass
             else:
                 next_state: HarnessState = dict(state)
-                next_state["decision"] = build_non_stop_fallback_decision(
-                    state,
-                    snapshot,
-                    "objective_wayfinding_unresolved",
-                )
+                next_state["run_status"] = "blocked"
+                next_state["stop_reason"] = f"objective_wayfinding_unresolved:{destination}"
                 return next_state
 
     objective_decision = None
@@ -1158,19 +1149,21 @@ def node_decide(state: HarnessState) -> HarnessState:
     try:
         decision = normalize_decision_for_harness_actor(state, call_routed_decider(state))
     except RuntimeError as exc:
-        decision = build_non_stop_fallback_decision(
-            state,
-            snapshot,
-            f"invalid_decider_response:{str(exc).strip()}",
-        )
+        next_state = dict(state)
+        next_state["run_status"] = "blocked"
+        next_state["stop_reason"] = f"invalid_decider_response:{str(exc).strip()}"
+        next_state["last_result"] = {
+            "success": False,
+            "error": str(exc),
+        }
+        return next_state
     if decision.get("mode") == "action":
         contract_error = validate_action_intent_contract(state, decision)
         if contract_error is not None:
-            decision = build_non_stop_fallback_decision(
-                state,
-                snapshot,
-                f"invalid_action_intent_contract:{contract_error}",
-            )
+            next_state = dict(state)
+            next_state["run_status"] = "blocked"
+            next_state["stop_reason"] = f"invalid_action_intent_contract:{contract_error}"
+            return next_state
     next_state: HarnessState = dict(state)
     next_state["decision"] = decision
     return next_state
@@ -1264,12 +1257,9 @@ def node_execute_action(state: HarnessState) -> HarnessState:
         result = run_json_command(command)
     except RuntimeError as exc:
         next_state: HarnessState = dict(state)
-        next_state["decision"] = build_non_stop_fallback_decision(
-            state,
-            state.get("snapshot") or {},
-            f"action_execution_failed:{str(exc).strip()}",
-        )
         next_state["turn_count"] = int(state.get("turn_count", 0)) + 1
+        next_state["run_status"] = "blocked"
+        next_state["stop_reason"] = f"action_execution_failed:{str(exc).strip()}"
         next_state["last_result"] = {
             "success": False,
             "error": str(exc),
@@ -1299,12 +1289,9 @@ def node_execute_chat(state: HarnessState) -> HarnessState:
         result = run_json_command(command)
     except RuntimeError as exc:
         next_state: HarnessState = dict(state)
-        next_state["decision"] = build_non_stop_fallback_decision(
-            state,
-            state.get("snapshot") or {},
-            f"chat_execution_failed:{str(exc).strip()}",
-        )
         next_state["turn_count"] = int(state.get("turn_count", 0)) + 1
+        next_state["run_status"] = "blocked"
+        next_state["stop_reason"] = f"chat_execution_failed:{str(exc).strip()}"
         next_state["last_result"] = {
             "success": False,
             "error": str(exc),
@@ -1406,6 +1393,10 @@ def has_unresolved_active_quest(snapshot: dict[str, Any]) -> bool:
 
 
 def node_assess(state: HarnessState) -> HarnessState:
+    status = str(state.get("run_status", "")).strip().lower()
+    if status in {"blocked", "completed"}:
+        return dict(state)
+
     next_state: HarnessState = dict(state)
     snapshot = state.get("snapshot") or {}
     active_quests = snapshot.get("active_quests") or []
@@ -1503,6 +1494,12 @@ def node_notify_and_log_issue(state: HarnessState) -> HarnessState:
 
 
 def route_after_decision(state: HarnessState) -> str:
+    status = str(state.get("run_status", "")).strip().lower()
+    if status == "blocked":
+        return "notify_and_log_issue"
+    if status == "completed":
+        return END
+
     mode = str((state.get("decision") or {}).get("mode", ""))
     if mode == "action":
         return "execute_action"

@@ -471,14 +471,14 @@ trait RoomChatServiceNpcInterjectionTrait {
    */
 
   protected function persistDungeonChatState(int $campaign_id, int|string $dungeon_id, array $dungeon_data): void {
-    $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => json_encode($dungeon_data),
-        'updated' => time(),
-      ])
-      ->condition('dungeon_id', $dungeon_id)
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
+    $updated = $this->persistRoomChatSnapshotState($campaign_id, (string) $dungeon_id, $dungeon_data);
+    if (!$updated) {
+      throw new \RuntimeException(sprintf(
+        'Room chat interjection persistence contract violation: expected shared state lane update for campaign %d dungeon %s.',
+        $campaign_id,
+        (string) $dungeon_id
+      ));
+    }
   }
 
   /**
@@ -724,14 +724,7 @@ PROMPT;
       );
     }
 
-    $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => json_encode($dungeon_data),
-        'updated' => time(),
-      ])
-      ->condition('dungeon_id', $dungeon_id)
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
+    $this->persistDungeonChatState($campaign_id, $dungeon_id, $dungeon_data);
 
     // Record the interjection in the NPC's own AI session.
     $session_key = $this->sessionManager->npcSessionKey($campaign_id, $speaker_ref);

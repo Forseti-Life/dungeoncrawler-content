@@ -205,6 +205,101 @@ class HexMapControllerTest extends BrowserTestBase {
   }
 
   /**
+   * Tests that payload connections are preserved even before target rooms materialize.
+   */
+  public function testHexmapPreservesConnectionsToUnmaterializedRooms(): void {
+    $account = $this->drupalCreateUser();
+    $this->drupalLogin($account);
+
+    $database = $this->container->get('database');
+    $now = \Drupal::time()->getRequestTime();
+    $campaign_id = (int) $database->insert('dc_campaigns')
+      ->fields([
+        'uuid' => '33333333-4444-5555-6666-777777777777',
+        'uid' => (int) $account->id(),
+        'name' => 'Connection Preservation Campaign',
+        'status' => 'draft',
+        'theme' => 'classic_dungeon',
+        'difficulty' => 'normal',
+        'campaign_data' => '{}',
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+
+    $database->insert('dc_campaign_dungeons')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'dungeon_id' => 'connection-preservation-dungeon',
+        'name' => 'Connection Preservation Dungeon',
+        'description' => 'Dungeon used to verify payload connections survive before room materialization.',
+        'theme' => 'classic_dungeon',
+        'dungeon_data' => json_encode([
+          'schema_version' => 'test-schema-v3',
+          'level_id' => 'connection-preservation-level',
+          'active_room_id' => 'solo-room',
+          'hex_map' => [
+            'map_id' => 'connection-preservation-dungeon',
+            'connections' => [
+              [
+                'connection_id' => 'solo-room__connected-room__passage__canonical',
+                'from_room' => 'solo-room',
+                'from_room_id' => 'solo-room',
+                'to_room' => 'connected-room',
+                'to_room_id' => 'connected-room',
+                'type' => 'passage',
+                'bidirectional' => TRUE,
+                'is_discovered' => TRUE,
+                'is_passable' => TRUE,
+                'destination_type' => 'room',
+                'destination_id' => 'connected-room',
+                'from_hex' => ['q' => 0, 'r' => 0],
+                'to_hex' => ['q' => 1, 'r' => 0],
+              ],
+            ],
+          ],
+          'rooms' => [
+            [
+              'room_id' => 'solo-room',
+              'name' => 'Solo Room',
+              'description' => 'A room with an exit to a room that is not yet materialized.',
+              'hexes' => [
+                ['q' => 0, 'r' => 0, 'terrain_type' => 'floor', 'objects' => []],
+              ],
+              'exits' => [],
+            ],
+          ],
+          'entities' => [],
+          'object_definitions' => [],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'created' => $now,
+        'updated' => $now,
+      ])
+      ->execute();
+
+    $this->drupalGet('/hexmap', [
+      'query' => [
+        'campaign_id' => $campaign_id,
+        'map_id' => 'connection-preservation-dungeon',
+        'room_id' => 'solo-room',
+      ],
+    ]);
+    $this->assertSession()->statusCodeEquals(200);
+
+    $settings = $this->getDrupalSettings();
+    $hexmap_settings = $settings['dungeoncrawlerContent'];
+    $this->assertCount(1, $hexmap_settings['hexmapDungeonData']['connections']);
+    $this->assertSame(
+      'connected-room',
+      $hexmap_settings['hexmapDungeonData']['connections'][0]['to_room_id']
+    );
+
+    $visual_room = $hexmap_settings['map_visual_state']['topology']['rooms']['solo-room'];
+    $this->assertCount(1, $visual_room['exits']);
+    $this->assertSame('connected-room', $visual_room['exits'][0]['target_room_id']);
+  }
+
+  /**
    * Tests direct campaign launch from a library character link.
    */
   public function testDirectCampaignLaunchMaterializesRuntimeCharacter(): void {

@@ -63,6 +63,12 @@ assert(
 );
 
 assert(
+  encounterPhaseHandlerSource.includes('$dungeon_data = $this->rebuildAuthoritativeRuntimeGraph($campaign_id, $dungeon_data, $target_room_id);')
+    && encounterPhaseHandlerSource.includes('protected function rebuildAuthoritativeRuntimeGraph(int $campaign_id, array $dungeon_data, string $requested_room_id = \'\'): array'),
+  'EncounterPhaseHandler rebuilds runtime graph shape from campaign authority before transition validation',
+);
+
+assert(
   encounterPhaseHandlerSource.includes('buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $room_id)'),
   'EncounterPhaseHandler fallback capability path also uses road-network-aware capabilities'
 );

@@ -322,32 +322,51 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
       ];
     }
 
-    $capabilities = $this->navigationService->buildNavigationCapabilitiesWithRoadNetwork(
+    $destination_room_id = $this->resolveDungeonRoomId($dungeon_data, (string) $objective_ref['destination']);
+    if ($destination_room_id === '') {
+      $destination_room_id = (string) $objective_ref['destination'];
+    }
+    if ($destination_room_id === $active_room_id) {
+      return [
+        'available' => FALSE,
+        'reason' => 'objective_destination_in_active_room',
+        'quest_id' => (string) $objective_ref['quest_id'],
+        'objective_id' => (string) $objective_ref['objective_id'],
+        'destination' => (string) $objective_ref['destination'],
+        'destination_room_id' => $destination_room_id,
+      ];
+    }
+
+    $next_room_hop = $this->resolveDirectRouteNextRoomHop(
       $dungeon_data,
       $active_room_id,
-      $active_quests
+      $destination_room_id
     );
-    foreach ($capabilities as $capability) {
-      if (!is_array($capability) || empty($capability['available'])) {
-        continue;
-      }
-      $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
-      if ($target_room_id === '' || $target_room_id === $active_room_id) {
-        continue;
-      }
-      $quest_ids = array_values(array_filter(array_map('strval', is_array($capability['quest_ids'] ?? NULL) ? $capability['quest_ids'] : [])));
-      if ($quest_ids === [] || !in_array((string) $objective_ref['quest_id'], $quest_ids, TRUE)) {
-        continue;
+    if ($next_room_hop !== NULL) {
+      $direct_capabilities = $this->navigationService->buildNavigationCapabilities($dungeon_data, $active_room_id);
+      $connection_id = '';
+      foreach ($direct_capabilities as $capability) {
+        if (!is_array($capability) || empty($capability['available'])) {
+          continue;
+        }
+        $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+        if ($target_room_id !== $next_room_hop) {
+          continue;
+        }
+        $connection_id = trim((string) ($capability['connection_id'] ?? ''));
+        break;
       }
 
       return [
         'available' => TRUE,
-        'reason' => 'quest_destination_capability',
+        'reason' => $next_room_hop === $destination_room_id
+          ? 'quest_destination_capability'
+          : 'quest_destination_route_hop',
         'quest_id' => (string) $objective_ref['quest_id'],
         'objective_id' => (string) $objective_ref['objective_id'],
         'destination' => (string) $objective_ref['destination'],
-        'target_room_id' => $target_room_id,
-        'connection_id' => (string) ($capability['connection_id'] ?? ''),
+        'target_room_id' => $next_room_hop,
+        'connection_id' => $connection_id,
       ];
     }
 
@@ -357,7 +376,67 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
       'quest_id' => (string) $objective_ref['quest_id'],
       'objective_id' => (string) $objective_ref['objective_id'],
       'destination' => (string) $objective_ref['destination'],
+      'destination_room_id' => $destination_room_id,
     ];
+  }
+
+  /**
+   * Resolve the next reachable direct-room hop from source to destination.
+   */
+  protected function resolveDirectRouteNextRoomHop(
+    array $dungeon_data,
+    string $from_room_id,
+    string $to_room_id,
+    int $max_hops = 24
+  ): ?string {
+    $from_room_id = trim($from_room_id);
+    $to_room_id = trim($to_room_id);
+    if ($from_room_id === '' || $to_room_id === '') {
+      return NULL;
+    }
+    if ($from_room_id === $to_room_id) {
+      return $from_room_id;
+    }
+
+    $max_hops = max(1, $max_hops);
+    $queue = [[$from_room_id]];
+    $visited = [$from_room_id => TRUE];
+
+    while ($queue !== []) {
+      $path = array_shift($queue);
+      if (!is_array($path) || $path === []) {
+        continue;
+      }
+      $current_room_id = trim((string) end($path));
+      if ($current_room_id === '') {
+        continue;
+      }
+
+      $capabilities = $this->navigationService->buildNavigationCapabilities($dungeon_data, $current_room_id);
+      foreach ($capabilities as $capability) {
+        if (!is_array($capability) || empty($capability['available'])) {
+          continue;
+        }
+        $candidate_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+        if ($candidate_room_id === '' || isset($visited[$candidate_room_id])) {
+          continue;
+        }
+
+        $candidate_path = [...$path, $candidate_room_id];
+        $hop_count = count($candidate_path) - 1;
+        if ($hop_count > $max_hops) {
+          continue;
+        }
+        if ($candidate_room_id === $to_room_id) {
+          return (string) ($candidate_path[1] ?? $to_room_id);
+        }
+
+        $visited[$candidate_room_id] = TRUE;
+        $queue[] = $candidate_path;
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -453,6 +532,30 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
     }
 
     return $fallback;
+  }
+
+  /**
+   * Resolve a destination token to a runtime room_id in dungeon_data.
+   */
+  protected function resolveDungeonRoomId(array $dungeon_data, string $destination): string {
+    $destination = trim($destination);
+    if ($destination === '') {
+      return '';
+    }
+
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    foreach ($rooms as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      $source_room_id = trim((string) ($room['source_room_id'] ?? ''));
+      if ($destination === $room_id || ($source_room_id !== '' && $destination === $source_room_id)) {
+        return $room_id;
+      }
+    }
+
+    return $destination;
   }
 
 }

@@ -102,6 +102,7 @@ class GameCoordinatorService {
 
   protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
   protected RuntimeBootstrapService $runtimeBootstrap;
+  protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
 
   /**
    * @var \Psr\Log\LoggerInterface
@@ -161,6 +162,7 @@ class GameCoordinatorService {
     AiGmService $ai_gm_service,
     CampaignTimeResolverService $campaign_time_resolver,
     RuntimeBootstrapService $runtime_bootstrap,
+    DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
     ?NarrationEngine $narration_engine = NULL,
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
     ?FileUrlGeneratorInterface $file_url_generator = NULL
@@ -172,6 +174,7 @@ class GameCoordinatorService {
     $this->aiGmService = $ai_gm_service;
     $this->campaignTimeResolver = $campaign_time_resolver;
     $this->runtimeBootstrap = $runtime_bootstrap;
+    $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     $this->narrationEngine = $narration_engine;
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
@@ -986,14 +989,17 @@ class GameCoordinatorService {
     try {
       $row_id = (int) ($dungeon_data['__campaign_dungeon_row_id'] ?? 0);
       unset($dungeon_data['__campaign_dungeon_row_id']);
-      $query = $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($dungeon_data)])
-        ->condition('campaign_id', $campaign_id);
-      if ($row_id > 0) {
-        $query->condition('id', $row_id);
+      if ($row_id <= 0) {
+        throw new \RuntimeException(sprintf(
+          'GameCoordinator persistence contract violation: __campaign_dungeon_row_id is required for campaign %d.',
+          $campaign_id
+        ));
       }
-      $query->execute();
-      return TRUE;
+      return $this->dungeonPayloadStatePersistence->mutateByRowId(
+        $campaign_id,
+        $row_id,
+        static fn(array $payload): array => $dungeon_data
+      );
     }
     catch (\Throwable $e) {
       $this->logger->error('Failed to persist dungeon data for campaign @id: @error', [

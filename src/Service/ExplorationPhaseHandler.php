@@ -130,6 +130,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected ?FileUrlGeneratorInterface $fileUrlGenerator;
   protected ?QuestTrackerService $questTracker;
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
+  protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
 
   /**
    * Constructs an ExplorationPhaseHandler.
@@ -143,6 +144,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     NumberGenerationService $number_generation_service,
     AiGmService $ai_gm_service,
     StorylineQuestLifecycleService $storyline_quest_lifecycle_service,
+    DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
     ?NarrationEngine $narration_engine = NULL,
     ?KnowledgeAcquisitionService $knowledge_acquisition = NULL,
     ?HazardService $hazard_service = NULL,
@@ -160,6 +162,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $this->characterStateService = $character_state_service;
     $this->numberGenerationService = $number_generation_service;
     $this->aiGmService = $ai_gm_service;
+    $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     $this->narrationEngine = $narration_engine;
     $this->knowledgeAcquisition = $knowledge_acquisition
       ?? new KnowledgeAcquisitionService(
@@ -5176,10 +5179,31 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    */
   protected function persistDungeonData(int $campaign_id, array $dungeon_data): void {
     try {
-      $this->database->update('dc_campaign_dungeons')
-        ->fields(['dungeon_data' => json_encode($this->sanitizeTransientTimeState($dungeon_data))])
-        ->condition('campaign_id', $campaign_id)
-        ->execute();
+      $dungeon_id = trim((string) (
+        $dungeon_data['dungeon_id']
+        ?? $dungeon_data['hex_map']['map_id']
+        ?? $dungeon_data['map_id']
+        ?? ''
+      ));
+      if ($dungeon_id === '') {
+        throw new \RuntimeException(sprintf(
+          'Exploration persistence contract violation: dungeon_id is required for campaign %d.',
+          $campaign_id
+        ));
+      }
+      $payload = $this->sanitizeTransientTimeState($dungeon_data);
+      $updated = $this->dungeonPayloadStatePersistence->mutateByDungeonId(
+        $campaign_id,
+        $dungeon_id,
+        static fn(array $existing): array => $payload
+      );
+      if (!$updated) {
+        throw new \RuntimeException(sprintf(
+          'Exploration persistence contract violation: shared state lane failed to update campaign %d dungeon %s.',
+          $campaign_id,
+          $dungeon_id
+        ));
+      }
     }
     catch (\Throwable $e) {
       $this->logger->error('Failed to persist dungeon data: @error', ['@error' => $e->getMessage()]);

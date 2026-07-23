@@ -16,18 +16,38 @@ const path = require('path');
   );
 
   assert(
-    source.includes("if ($connections === []) {\n      $connections = $this->synthesizeConnectionsFromRoomExits($rooms);\n    }"),
-    'normalizeDungeonPayload should synthesize connection rows from room exits when global connections are absent',
+    !source.includes("$connections = $this->mergeConnectionsWithRoomExits($rooms, $connections);"),
+    'normalizeDungeonPayload should no longer recover graph connections from room exits during the read path',
   );
 
   assert(
-    source.includes('protected function synthesizeConnectionsFromRoomExits(array $rooms): array'),
-    'HexMapController should expose a dedicated room-exit connection synthesis helper',
+    source.includes("$decoded = $this->runtimeGraphAssembler->buildRuntimeGraph("),
+    'HexMapController should rebuild read-path graph payloads through RuntimeGraphAssemblerService before normalization',
   );
 
   assert(
-    source.includes("return trim((string) ($exit['target_room_id'] ?? '')) !== '';"),
-    'HexMapController exit validation should honor canonical per-room exits when global connections are incomplete',
+    !source.includes('protected function mergeConnectionsWithRoomExits(array $rooms, array $connections): array'),
+    'HexMapController should not expose a room-exit connection merge helper once assembler-backed graph input is authoritative',
+  );
+
+  assert(
+    !source.includes('protected function synthesizeConnectionsFromRoomExits(array $rooms): array'),
+    'HexMapController should not synthesize runtime graph connections from room exits on the read path',
+  );
+
+  assert(
+    !source.includes('prunePayloadConnectionsToMaterializedRooms('),
+    'HexMapController should not prune payload connections just because adjacent rooms are not yet materialized',
+  );
+
+  assert(
+    !source.includes('Hexmap injected self-exit for single-room dungeon payload'),
+    'HexMapController should not inject synthetic self-exits to repair missing graph topology',
+  );
+
+  assert(
+    source.includes('Runtime graph contract violation: campaign graph is missing connector coverage for rooms: %s'),
+    'HexMapController should hard-fail when authoritative connector coverage is missing instead of repairing from room exits',
   );
 
   assert(

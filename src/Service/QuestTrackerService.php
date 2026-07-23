@@ -77,6 +77,11 @@ class QuestTrackerService {
   protected ?QuestValidatorService $questValidatorService;
 
   /**
+   * Shared mutable-state persistence lane for dungeon snapshots.
+   */
+  protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
+
+  /**
    * Constructs a QuestTrackerService object.
    *
    * @param \Drupal\Core\Database\Connection $database
@@ -90,6 +95,7 @@ class QuestTrackerService {
     Connection $database,
     LoggerChannelFactoryInterface $logger_factory,
     TimeInterface $time,
+    DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
     ?StorylineManagerService $storyline_manager = NULL,
     ?ObjectiveTypeService $objective_type_service = NULL,
     ?ChatSessionManager $chat_session_manager = NULL,
@@ -106,6 +112,7 @@ class QuestTrackerService {
     $this->characterStateService = $character_state_service;
     $this->inventoryManagementService = $inventory_management_service;
     $this->questValidatorService = $quest_validator_service;
+    $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     if (
       $this->chatSessionManager === NULL
       && \Drupal::hasService('dungeoncrawler_content.chat_session_manager')
@@ -934,16 +941,11 @@ class QuestTrackerService {
     }
 
     $dungeon_data['rooms'] = $rooms;
-    $updated = (int) $this->database->update('dc_campaign_dungeons')
-      ->fields([
-        'dungeon_data' => json_encode($dungeon_data),
-        'updated' => $this->time->getRequestTime(),
-      ])
-      ->condition('id', (int) $dungeon_row['id'])
-      ->condition('campaign_id', $campaign_id)
-      ->execute();
-
-    return $updated > 0;
+    return $this->dungeonPayloadStatePersistence->mutateByRowId(
+      $campaign_id,
+      (int) $dungeon_row['id'],
+      static fn(array $payload): array => $dungeon_data
+    );
   }
 
   /**
