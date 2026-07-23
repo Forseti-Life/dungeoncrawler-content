@@ -412,6 +412,62 @@ def summarize_last_result_for_decider(last_result: Any) -> dict[str, Any]:
     return summary
 
 
+def truncate_text(value: Any, max_len: int = 220) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
+
+
+def compact_quest_context_for_decider(quest_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    for quest in quest_context[:4]:
+        if not isinstance(quest, dict):
+            continue
+        objectives = quest.get("current_objectives")
+        compact_objectives: list[dict[str, Any]] = []
+        if isinstance(objectives, list):
+            for objective in objectives[:2]:
+                if not isinstance(objective, dict):
+                    continue
+                compact_objectives.append(
+                    {
+                        "objective_id": str(objective.get("objective_id") or "").strip(),
+                        "objective_action": str(objective.get("objective_action") or objective.get("type") or "").strip(),
+                        "next_step": truncate_text(objective.get("next_step") or objective.get("description") or "", 180),
+                        "target": str(objective.get("target_entity_instance_id") or objective.get("target") or "").strip(),
+                        "location_id": str(objective.get("location_id") or "").strip(),
+                    }
+                )
+        compacted.append(
+            {
+                "quest_id": str(quest.get("quest_id") or "").strip(),
+                "quest_name": truncate_text(quest.get("quest_name"), 120),
+                "status": str(quest.get("status") or "").strip(),
+                "current_phase": to_int_or_default(quest.get("current_phase")),
+                "location_id": str(quest.get("location_id") or "").strip(),
+                "current_objectives": compact_objectives,
+            }
+        )
+    return compacted
+
+
+def compact_storyline_context_for_decider(storyline_context: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    for storyline in storyline_context[:4]:
+        if not isinstance(storyline, dict):
+            continue
+        compacted.append(
+            {
+                "storyline_id": str(storyline.get("storyline_id") or "").strip(),
+                "name": truncate_text(storyline.get("name"), 120),
+                "status": str(storyline.get("status") or "").strip(),
+                "current_phase": to_int_or_default(storyline.get("current_phase")),
+            }
+        )
+    return compacted
+
+
 def actor_talked_to_other_actor(last_result: Any) -> bool:
     if not isinstance(last_result, dict):
         return False
@@ -584,8 +640,8 @@ def build_non_stop_fallback_decision(state: HarnessState, snapshot: dict[str, An
                         f"fallback_after:{reason}",
                     )
 
-    # If no gameplay action is available, keep action mode with end_turn-shaped
-    # payload so contract validation surfaces the exact capability gap.
+    # If no gameplay action is available, keep a tool decision with end_turn-
+    # shaped payload so contract validation surfaces the exact capability gap.
     return create_tool_decision(
         "end_turn",
         {
@@ -700,30 +756,6 @@ def normalize_decision_for_harness_actor(state: HarnessState, decision: dict[str
         normalized["decision_type"] = decision_type
         normalized["reason"] = reason
         return normalized
-
-    mode = normalize_action_id(normalized.get("mode"))
-    if mode == "action":
-        intent = normalized.get("action_intent")
-        if not isinstance(intent, dict):
-            return normalized
-        intent_payload = dict(intent)
-        intent_payload["actor"] = actor_id
-        return create_tool_decision(normalize_action_id(intent_payload.get("type")), intent_payload, reason)
-
-    if mode == "chat":
-        message = str(normalized.get("chat_message", "")).strip()
-        return create_tool_decision(
-            "talk",
-            {
-                "type": "talk",
-                "actor": actor_id,
-                "params": {"message": message},
-            },
-            reason,
-        )
-
-    if mode == "stop":
-        return create_stop_decision(reason)
 
     return normalized
 
@@ -944,7 +976,7 @@ def validate_tool_decision_contract(state: HarnessState, decision: dict[str, Any
 
     actor = str(intent.get("actor", "")).strip()
     if actor != "" and actor != str(state.get("actor_id", "")):
-        return "action_intent_actor_mismatch"
+        return "tool_payload_actor_mismatch"
 
     # Deterministic transition is harness-authored and may not appear in phase
     # handler availability; validate it minimally but do not require allowlisting.
@@ -971,17 +1003,17 @@ def validate_tool_decision_contract(state: HarnessState, decision: dict[str, Any
 
     for required_param in ACTION_PARAM_REQUIREMENTS.get(action_type, ()):
         if not is_non_empty_string(params.get(required_param)):
-            return f"action_intent_params_missing_{required_param}"
+            return f"tool_payload_params_missing_{required_param}"
 
     if action_type == "transition":
         target_room_id = str(params.get("target_room_id") or "").strip()
         active_room_id = str(snapshot.get("active_room_id") or state.get("room_id") or "").strip()
         if target_room_id != "" and target_room_id == active_room_id:
-            return "action_intent_transition_target_same_room"
+            return "tool_payload_transition_target_same_room"
 
     if action_type == "talk":
         if not is_non_empty_string(params.get("message")):
-            return "action_intent_params_missing_talk_message"
+            return "tool_payload_params_missing_talk_message"
 
     return None
 
@@ -1106,8 +1138,8 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
     available_actions = sorted(extract_available_actions(snapshot))
     available_action_contract = summarize_available_action_contract(snapshot)
     active_objective = summarize_active_objective(snapshot)
-    quest_context = summarize_quest_context(snapshot)
-    storyline_context = summarize_storyline_context(snapshot)
+    quest_context = compact_quest_context_for_decider(summarize_quest_context(snapshot))
+    storyline_context = compact_storyline_context_for_decider(summarize_storyline_context(snapshot))
     # Manual operator analysis helper:
     # scripts/campaign-analysis.py collects campaign logs, chat, quests, storylines,
     # watchdog rows, and harness artifacts into one RCA bundle.
@@ -1126,7 +1158,6 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
         "For type=transition, params.target_room_id is required. "
         "For type=talk, provide params.message. "
         "If no legal action is appropriate, return decision_type=stop with a concrete reason. "
-        "Legacy mode/action_intent/chat_message fields are accepted only for backward compatibility. "
         "Prefer the active quest_context and storyline_context fields when choosing the next move. "
         "Valid example: "
         "{\"decision_type\":\"tool\",\"tool_name\":\"search\",\"reason\":\"Need to inspect room for quest items.\","
@@ -1146,12 +1177,19 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
         "connected_rooms": connected_rooms,
         "available_actions": available_actions,
         "available_action_contract": available_action_contract,
-        "canonical_context": canonical_context,
+        "canonical_context": {
+            "context_id": canonical_context.get("context_id"),
+            "runtime_state_version": canonical_context.get("runtime_state_version"),
+            "active_room_id": canonical_context.get("active_room_id"),
+            "available_tools": canonical_context.get("available_tools"),
+            "active_objective_count": len(canonical_context.get("active_objectives", []))
+            if isinstance(canonical_context.get("active_objectives"), list)
+            else 0,
+        },
         "last_result_summary": summarize_last_result_for_decider(state.get("last_result", {})),
         "contract_requirements": {
             "preferred_decision_type_values": ["tool", "stop"],
             "required_tool_payload_keys_for_tool_decision": ["type", "params", "actor"],
-            "legacy_mode_values": ["action", "chat", "stop"],
             "required_transition_params": ["target_room_id"],
             "required_talk_payload_any_of": ["message", "target", "target_id", "entity_id", "entity_ref"],
         },
@@ -1224,17 +1262,7 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
         decision["reason"] = str(decision.get("reason", "")).strip()
         return decision
 
-    mode = str(decision.get("mode", "")).strip().lower()
-    if mode not in {"action", "chat", "stop"}:
-        raise RuntimeError(f"Invalid decision mode: {mode or '(empty)'}")
-    if mode == "action" and not isinstance(decision.get("action_intent"), dict):
-        raise RuntimeError("Decision mode=action requires action_intent object.")
-    if mode == "chat" and str(decision.get("chat_message", "")).strip() == "":
-        raise RuntimeError("Decision mode=chat requires non-empty chat_message.")
-
-    decision["mode"] = mode
-    decision["reason"] = str(decision.get("reason", "")).strip()
-    return decision
+    raise RuntimeError("Decision must provide canonical decision_type=tool|stop payload.")
 
 
 def node_bootstrap(state: HarnessState) -> HarnessState:
