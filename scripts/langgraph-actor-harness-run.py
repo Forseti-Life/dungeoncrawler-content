@@ -617,8 +617,8 @@ def build_active_objective_interact_decision(state: HarnessState, current_object
         return None
 
     target_name = str(objective.get("target_display_name") or objective.get("target") or "there").strip() or "there"
-    objective_id = str(objective.get("objective_id") or "").strip()
-    quest_id = str(current_objective.get("quest_id") or "").strip()
+    objective_id = str(objective.get("objective_instance_id") or objective.get("objective_id") or "").strip()
+    quest_id = str(current_objective.get("quest_instance_id") or current_objective.get("quest_id") or "").strip()
     objective_prompt = str(objective.get("next_step") or objective.get("description") or "").strip()
     if objective_prompt == "":
         objective_prompt = f"{target_name}, let's continue this objective."
@@ -664,9 +664,11 @@ def build_default_storyline_objective(snapshot: dict[str, Any]) -> dict[str, Any
         return None
     return {
         "quest_id": DEFAULT_STORYLINE_QUEST_ID,
+        "quest_instance_id": DEFAULT_STORYLINE_QUEST_ID,
         "quest_name": "Automation Storyline Bootstrap",
         "objective": {
             "objective_id": DEFAULT_STORYLINE_OBJECTIVE_ID,
+            "objective_instance_id": DEFAULT_STORYLINE_OBJECTIVE_ID,
             "type": "interact",
             "description": "No open objectives remain; talk to Eldric to request a new storyline lead.",
             "next_step": "Talk to Eldric in the current room and ask for a storyline lead.",
@@ -869,6 +871,48 @@ def build_canonical_context(state: HarnessState, snapshot: dict[str, Any]) -> di
         },
         "recent_events": snapshot.get("new_events") if isinstance(snapshot.get("new_events"), list) else [],
     }
+
+
+def validate_canonical_context_contract(state: HarnessState) -> str | None:
+    context = state.get("canonical_context")
+    if not isinstance(context, dict):
+        return "canonical_context_missing"
+    if str(context.get("context_id") or "").strip() == "":
+        return "context_id_required"
+    if str(context.get("actor_id") or "").strip() == "":
+        return "actor_id_required"
+    if int(context.get("runtime_state_version") or 0) <= 0:
+        return "runtime_state_version_required"
+    if not isinstance(context.get("available_tools"), list):
+        return "available_tools_required"
+    if not isinstance(context.get("active_objectives"), list):
+        return "active_objectives_required"
+    return None
+
+
+def validate_current_objective_contract(current_objective: dict[str, Any]) -> str | None:
+    objective = current_objective.get("objective")
+    if not isinstance(objective, dict):
+        return "objective_missing"
+    objective_id = str(objective.get("objective_instance_id") or objective.get("objective_id") or "").strip()
+    quest_id = str(current_objective.get("quest_instance_id") or current_objective.get("quest_id") or "").strip()
+    if objective_id == "":
+        return "objective_instance_id_required"
+    if quest_id == "":
+        return "quest_instance_id_required"
+
+    objective_action = normalize_action_id(objective.get("type") or objective.get("objective_action"))
+    if objective_action == "interact":
+        target = str(
+            objective.get("target_entity_instance_id")
+            or objective.get("target_entity_id")
+            or objective.get("target_actor_id")
+            or objective.get("target")
+            or ""
+        ).strip()
+        if target == "":
+            return "interact_target_required"
+    return None
 
 
 def validate_tool_decision_contract(state: HarnessState, decision: dict[str, Any]) -> str | None:
@@ -1237,7 +1281,20 @@ def node_snapshot(state: HarnessState) -> HarnessState:
 
 def node_decide(state: HarnessState) -> HarnessState:
     snapshot = state.get("snapshot") or {}
+    context_error = validate_canonical_context_contract(state)
+    if context_error is not None:
+        next_state: HarnessState = dict(state)
+        next_state["run_status"] = "blocked"
+        next_state["stop_reason"] = f"invalid_context:{context_error}"
+        return next_state
     current_objective = select_current_objective(snapshot)
+    if isinstance(current_objective, dict):
+        objective_error = validate_current_objective_contract(current_objective)
+        if objective_error is not None:
+            next_state: HarnessState = dict(state)
+            next_state["run_status"] = "blocked"
+            next_state["stop_reason"] = f"invalid_objective_contract:{objective_error}"
+            return next_state
     seed_checks = int(state.get("default_storyline_seed_checks", -1))
     if (
         isinstance(current_objective, dict)
@@ -1464,12 +1521,25 @@ def node_execute_action(state: HarnessState) -> HarnessState:
         return next_state
 
     previous_state_version = int(((state.get("snapshot") or {}).get("state_version")) or 0)
+    decision_id = str(decision.get("decision_id") or "").strip()
     next_state_version = int(
         result.get("state_version")
         or ((result.get("game_state") or {}).get("state_version") if isinstance(result.get("game_state"), dict) else 0)
         or ((result.get("result") or {}).get("state_version") if isinstance(result.get("result"), dict) else 0)
         or 0
     )
+    if bool(result.get("success")) and previous_state_version > 0 and next_state_version <= 0:
+        next_state: HarnessState = dict(state)
+        next_state["turn_count"] = int(state.get("turn_count", 0)) + 1
+        next_state["run_status"] = "blocked"
+        next_state["stop_reason"] = "invalid_persistence:missing_state_version_after_success"
+        next_state["last_result"] = {
+            "success": False,
+            "error": "Execution success response did not include a resolvable state_version.",
+            "decision_id": decision_id,
+            "result": result,
+        }
+        return next_state
     if bool(result.get("success")) and previous_state_version > 0 and next_state_version > 0 and next_state_version < previous_state_version:
         next_state: HarnessState = dict(state)
         next_state["turn_count"] = int(state.get("turn_count", 0)) + 1
@@ -1486,14 +1556,15 @@ def node_execute_action(state: HarnessState) -> HarnessState:
 
     next_state: HarnessState = dict(state)
     next_state["turn_count"] = int(state.get("turn_count", 0)) + 1
-    next_state["last_result"] = result
+    normalized_result = dict(result)
+    if decision_id != "":
+        normalized_result["decision_id"] = decision_id
+    if next_state_version > 0:
+        normalized_result["runtime_state_version_after"] = next_state_version
+    if previous_state_version > 0:
+        normalized_result["runtime_state_version_before"] = previous_state_version
+    next_state["last_result"] = normalized_result
     return next_state
-
-
-def node_execute_chat(state: HarnessState) -> HarnessState:
-    # Legacy transitional wrapper: chat decisions now normalize into tool payloads
-    # and execute through the canonical action command path.
-    return node_execute_action(state)
 
 
 def select_current_objective(snapshot: dict[str, Any]) -> dict[str, Any] | None:
@@ -1534,6 +1605,7 @@ def select_current_objective(snapshot: dict[str, Any]) -> dict[str, Any] | None:
                 continue
             return {
                 "quest_id": quest.get("quest_id"),
+                "quest_instance_id": quest.get("quest_instance_id") or quest.get("quest_id"),
                 "quest_name": quest.get("quest_name"),
                 "objective": objective,
             }
@@ -1728,7 +1800,6 @@ def build_graph():
     graph.add_node("scriptedtesting", node_scriptedtesting)
     graph.add_node("decide", node_decide)
     graph.add_node("execute_action", node_execute_action)
-    graph.add_node("execute_chat", node_execute_chat)
     graph.add_node("assess", node_assess)
     graph.add_node("notify_and_log_issue", node_notify_and_log_issue)
 
@@ -1738,7 +1809,6 @@ def build_graph():
     graph.add_conditional_edges("scriptedtesting", route_after_scriptedtesting)
     graph.add_conditional_edges("decide", route_after_decision)
     graph.add_edge("execute_action", "assess")
-    graph.add_edge("execute_chat", "assess")
     graph.add_conditional_edges("assess", route_after_assess)
     graph.add_edge("notify_and_log_issue", END)
     return graph.compile()
