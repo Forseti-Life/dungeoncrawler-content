@@ -62,6 +62,7 @@ class HarnessState(TypedDict, total=False):
     turn_count: int
     max_turns: int
     snapshot: dict[str, Any]
+    canonical_context: dict[str, Any]
     decision: dict[str, Any]
     last_result: dict[str, Any]
     run_status: str
@@ -93,31 +94,43 @@ SCRIPTED_TARGET_QUEST_TEMPLATES: tuple[str, ...] = (
 SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
     {
         "id": "ask_eldric_for_work",
-        "mode": "chat",
-        "chat_message": "Eldric, what work do you have for me?",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "target": "tavern_keeper",
+            "params": {"message": "Eldric, what work do you have for me?"},
+        },
     },
     {
         "id": "ask_marta_for_work",
-        "mode": "chat",
-        "chat_message": "Marta, what work do you have for me?",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "target": "scholar_npc",
+            "params": {"message": "Marta, what work do you have for me?"},
+        },
     },
     {
         "id": "ask_gribbles_for_work",
-        "mode": "chat",
-        "chat_message": "Gribbles, what work do you have for me?",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "target": "gribbles_rindsworth",
+            "params": {"message": "Gribbles, what work do you have for me?"},
+        },
     },
     {
         "id": "search_room_for_items",
-        "mode": "action",
-        "action_intent": {
+        "tool_name": "search",
+        "tool_payload": {
             "type": "search",
             "params": {},
         },
     },
     {
         "id": "turn_in_items_to_eldric",
-        "mode": "action",
-        "action_intent": {
+        "tool_name": "talk",
+        "tool_payload": {
             "type": "talk",
             "target": "tavern_keeper",
             "params": {
@@ -129,8 +142,8 @@ SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "turn_in_items_to_marta",
-        "mode": "action",
-        "action_intent": {
+        "tool_name": "talk",
+        "tool_payload": {
             "type": "talk",
             "target": "scholar_npc",
             "params": {
@@ -142,8 +155,8 @@ SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "turn_in_items_to_gribbles",
-        "mode": "action",
-        "action_intent": {
+        "tool_name": "talk",
+        "tool_payload": {
             "type": "talk",
             "target": "gribbles_rindsworth",
             "params": {
@@ -155,23 +168,36 @@ SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "ask_eldric_for_more_work",
-        "mode": "chat",
-        "chat_message": "Eldric, have any more work for me?",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "target": "tavern_keeper",
+            "params": {"message": "Eldric, have any more work for me?"},
+        },
     },
     {
         "id": "navigate_to_absalom_streets",
-        "mode": "chat",
-        "chat_message": "I leave the tavern and head to Absalom Streets.",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "params": {"message": "I leave the tavern and head to Absalom Streets."},
+        },
     },
     {
         "id": "navigate_to_grandmas_parlor",
-        "mode": "chat",
-        "chat_message": "I navigate from Absalom Streets to Grandma's parlor.",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "params": {"message": "I navigate from Absalom Streets to Grandma's parlor."},
+        },
     },
     {
         "id": "talk_to_grandma_about_the_job",
-        "mode": "chat",
-        "chat_message": "Grandma, tell me about the job.",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "params": {"message": "Grandma, tell me about the job."},
+        },
     },
 )
 
@@ -440,71 +466,107 @@ def resolve_visible_eldric(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def create_tool_decision(tool_name: str, tool_payload: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        "decision_type": "tool",
+        "tool_name": normalize_action_id(tool_name),
+        "tool_payload": tool_payload,
+        "reason": str(reason or "").strip(),
+    }
+
+
+def create_stop_decision(reason: str) -> dict[str, Any]:
+    return {
+        "decision_type": "stop",
+        "reason": str(reason or "").strip(),
+    }
+
+
+def stamp_decision_metadata(state: HarnessState, decision: dict[str, Any]) -> dict[str, Any]:
+    stamped = dict(decision)
+    context = state.get("canonical_context")
+    context_id = ""
+    if isinstance(context, dict):
+        context_id = str(context.get("context_id") or "").strip()
+    if context_id != "":
+        stamped["context_id"] = context_id
+
+    runtime_state_version = int(((state.get("snapshot") or {}).get("state_version")) or 0)
+    if runtime_state_version > 0:
+        stamped["runtime_state_version"] = runtime_state_version
+
+    if str(stamped.get("decision_id") or "").strip() == "":
+        correlation_id = str(state.get("correlation_id") or "run").strip() or "run"
+        tool_part = normalize_action_id(stamped.get("tool_name") or stamped.get("decision_type") or "decision")
+        stamped["decision_id"] = f"{correlation_id}:turn-{int(state.get('turn_count', 0)) + 1}:{tool_part}"
+    return stamped
+
+
 def build_non_stop_fallback_decision(state: HarnessState, snapshot: dict[str, Any], reason: str) -> dict[str, Any]:
     available_actions = extract_available_actions(snapshot)
     actor_id = str(state.get("actor_id") or "").strip()
 
     # Prefer safe progression/turn-closure actions. Keep talk as last resort.
     if "end_turn" in available_actions:
-        return {
-            "mode": "action",
-            "reason": f"fallback_after:{reason}",
-            "action_intent": {
+        return create_tool_decision(
+            "end_turn",
+            {
                 "type": "end_turn",
                 "actor": actor_id,
                 "params": {"reason": f"fallback_after:{reason}"},
             },
-        }
+            f"fallback_after:{reason}",
+        )
     if "search" in available_actions:
-        return {
-            "mode": "action",
-            "reason": f"fallback_after:{reason}",
-            "action_intent": {
+        return create_tool_decision(
+            "search",
+            {
                 "type": "search",
                 "actor": actor_id,
                 "params": {},
             },
-        }
+            f"fallback_after:{reason}",
+        )
     if "interact" in available_actions:
-        return {
-            "mode": "action",
-            "reason": f"fallback_after:{reason}",
-            "action_intent": {
+        return create_tool_decision(
+            "interact",
+            {
                 "type": "interact",
                 "actor": actor_id,
                 "params": {},
             },
-        }
+            f"fallback_after:{reason}",
+        )
     if "delay" in available_actions:
-        return {
-            "mode": "action",
-            "reason": f"fallback_after:{reason}",
-            "action_intent": {
+        return create_tool_decision(
+            "delay",
+            {
                 "type": "delay",
                 "actor": actor_id,
                 "params": {},
             },
-        }
+            f"fallback_after:{reason}",
+        )
     if "choose_not_to_act" in available_actions:
-        return {
-            "mode": "action",
-            "reason": f"fallback_after:{reason}",
-            "action_intent": {
+        return create_tool_decision(
+            "choose_not_to_act",
+            {
                 "type": "choose_not_to_act",
                 "actor": actor_id,
                 "params": {"reason": f"fallback_after:{reason}"},
             },
-        }
+            f"fallback_after:{reason}",
+        )
     if "talk" in available_actions:
-        return {
-            "mode": "action",
-            "reason": f"fallback_after:{reason}",
-            "action_intent": {
+        return create_tool_decision(
+            "talk",
+            {
                 "type": "talk",
                 "actor": actor_id,
                 "params": {"message": "I need a concrete next actionable step right now."},
             },
-        }
+            f"fallback_after:{reason}",
+        )
     if "transition" in available_actions:
         connected_rooms = snapshot.get("connected_rooms")
         if isinstance(connected_rooms, list) and connected_rooms:
@@ -512,27 +574,27 @@ def build_non_stop_fallback_decision(state: HarnessState, snapshot: dict[str, An
             if isinstance(first, dict):
                 target_room_id = str(first.get("room_id") or "").strip()
                 if target_room_id != "":
-                    return {
-                        "mode": "action",
-                        "reason": f"fallback_after:{reason}",
-                        "action_intent": {
+                    return create_tool_decision(
+                        "transition",
+                        {
                             "type": "transition",
                             "actor": actor_id,
                             "params": {"target_room_id": target_room_id},
                         },
-                    }
+                        f"fallback_after:{reason}",
+                    )
 
     # If no gameplay action is available, keep action mode with end_turn-shaped
     # payload so contract validation surfaces the exact capability gap.
-    return {
-        "mode": "action",
-        "reason": f"fallback_after:{reason}",
-        "action_intent": {
+    return create_tool_decision(
+        "end_turn",
+        {
             "type": "end_turn",
             "actor": actor_id,
             "params": {"reason": f"fallback_after:{reason}"},
         },
-    }
+        f"fallback_after:{reason}",
+    )
 
 
 def build_active_objective_interact_decision(state: HarnessState, current_objective: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -563,10 +625,9 @@ def build_active_objective_interact_decision(state: HarnessState, current_object
 
     available_actions = extract_available_actions(state.get("snapshot") or {})
     if "talk" in available_actions:
-        return {
-            "mode": "action",
-            "reason": "deterministic_active_objective_interact",
-            "action_intent": {
+        return create_tool_decision(
+            "talk",
+            {
                 "type": "talk",
                 "actor": state["actor_id"],
                 "target": target,
@@ -577,13 +638,24 @@ def build_active_objective_interact_decision(state: HarnessState, current_object
                     "quest_id": quest_id,
                 },
             },
-        }
+            "deterministic_active_objective_interact",
+        )
 
-    return {
-        "mode": "chat",
-        "reason": "deterministic_active_objective_interact",
-        "chat_message": objective_prompt,
-    }
+    return create_tool_decision(
+        "talk",
+        {
+            "type": "talk",
+            "actor": state["actor_id"],
+            "target": target,
+            "params": {
+                "target": target,
+                "message": objective_prompt,
+                "objective_id": objective_id,
+                "quest_id": quest_id,
+            },
+        },
+        "deterministic_active_objective_interact",
+    )
 
 
 def build_default_storyline_objective(snapshot: dict[str, Any]) -> dict[str, Any] | None:
@@ -607,21 +679,56 @@ def build_default_storyline_objective(snapshot: dict[str, Any]) -> dict[str, Any
 
 
 def normalize_decision_for_harness_actor(state: HarnessState, decision: dict[str, Any]) -> dict[str, Any]:
-    if str(decision.get("mode", "")) != "action":
-        return decision
-    intent = decision.get("action_intent")
-    if not isinstance(intent, dict):
-        return decision
-
     normalized = dict(decision)
-    normalized_intent = dict(intent)
-    normalized_intent["actor"] = str(state.get("actor_id", "")).strip()
-    normalized["action_intent"] = normalized_intent
+    reason = str(normalized.get("reason", "")).strip()
+    actor_id = str(state.get("actor_id", "")).strip()
+
+    decision_type = normalize_action_id(normalized.get("decision_type"))
+    if decision_type in {"tool", "stop"}:
+        if decision_type == "tool":
+            tool_name = normalize_action_id(normalized.get("tool_name"))
+            tool_payload = normalized.get("tool_payload")
+            if not isinstance(tool_payload, dict):
+                tool_payload = {}
+            tool_payload = dict(tool_payload)
+            if "actor" not in tool_payload:
+                tool_payload["actor"] = actor_id
+            normalized["tool_name"] = tool_name
+            normalized["tool_payload"] = tool_payload
+        normalized["decision_type"] = decision_type
+        normalized["reason"] = reason
+        return normalized
+
+    mode = normalize_action_id(normalized.get("mode"))
+    if mode == "action":
+        intent = normalized.get("action_intent")
+        if not isinstance(intent, dict):
+            return normalized
+        intent_payload = dict(intent)
+        intent_payload["actor"] = actor_id
+        return create_tool_decision(normalize_action_id(intent_payload.get("type")), intent_payload, reason)
+
+    if mode == "chat":
+        message = str(normalized.get("chat_message", "")).strip()
+        return create_tool_decision(
+            "talk",
+            {
+                "type": "talk",
+                "actor": actor_id,
+                "params": {"message": message},
+            },
+            reason,
+        )
+
+    if mode == "stop":
+        return create_stop_decision(reason)
+
     return normalized
 
 
 def summarize_issue_payload(issue_body: dict[str, Any]) -> dict[str, Any]:
     snapshot = issue_body.get("snapshot")
+    canonical_context = issue_body.get("canonical_context")
     decision = issue_body.get("decision")
     last_result = issue_body.get("last_result")
     summary: dict[str, Any] = {
@@ -636,6 +743,15 @@ def summarize_issue_payload(issue_body: dict[str, Any]) -> dict[str, Any]:
         "decision": decision,
         "last_result_summary": summarize_last_result_for_decider(last_result),
     }
+    if isinstance(canonical_context, dict):
+        summary["canonical_context"] = {
+            "context_id": canonical_context.get("context_id"),
+            "runtime_state_version": canonical_context.get("runtime_state_version"),
+            "actor_state_version": canonical_context.get("actor_state_version"),
+            "quest_state_version": canonical_context.get("quest_state_version"),
+            "available_tools": canonical_context.get("available_tools"),
+            "active_room_id": canonical_context.get("active_room_id"),
+        }
 
     if isinstance(snapshot, dict):
         summary["active_objective"] = summarize_active_objective(snapshot)
@@ -675,18 +791,112 @@ def extract_action_contract(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def validate_action_intent_contract(state: HarnessState, decision: dict[str, Any]) -> str | None:
-    intent = decision.get("action_intent")
+def extract_canonical_active_objectives(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    active_quests = snapshot.get("active_quests")
+    if not isinstance(active_quests, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for quest in active_quests:
+        if not isinstance(quest, dict):
+            continue
+        quest_instance_id = str(quest.get("quest_instance_id") or quest.get("quest_id") or "").strip()
+        source_template_id = str(quest.get("source_template_id") or "").strip()
+        storyline_id = str(quest.get("storyline_id") or "").strip()
+        current_objectives = quest.get("current_objectives")
+        if not isinstance(current_objectives, list):
+            continue
+        for objective in current_objectives:
+            if not isinstance(objective, dict):
+                continue
+            if bool(objective.get("completed")):
+                continue
+            normalized.append(
+                {
+                    "quest_instance_id": quest_instance_id,
+                    "objective_instance_id": str(objective.get("objective_instance_id") or objective.get("objective_id") or "").strip(),
+                    "objective_type": normalize_action_id(objective.get("objective_action") or objective.get("type")),
+                    "status": str(objective.get("status") or "").strip(),
+                    "priority": objective.get("priority"),
+                    "target_actor_id": str(objective.get("target_actor_id") or "").strip(),
+                    "target_entity_id": str(
+                        objective.get("target_entity_instance_id")
+                        or objective.get("target_entity_id")
+                        or objective.get("target")
+                        or ""
+                    ).strip(),
+                    "destination_room_id": str(
+                        objective.get("destination_room_id")
+                        or objective.get("destination_id")
+                        or objective.get("location_id")
+                        or ""
+                    ).strip(),
+                    "required_tool_types": objective.get("required_tool_types") if isinstance(objective.get("required_tool_types"), list) else [],
+                    "completion_conditions": objective.get("completion_conditions") if isinstance(objective.get("completion_conditions"), dict) else {},
+                    "source_template_id": source_template_id,
+                    "storyline_id": storyline_id,
+                }
+            )
+    return normalized
+
+
+def build_canonical_context(state: HarnessState, snapshot: dict[str, Any]) -> dict[str, Any]:
+    turn_index = int(state.get("turn_count", 0))
+    correlation_id = str(state.get("correlation_id", "run")).strip() or "run"
+    context_id = f"{correlation_id}:turn-{turn_index}"
+    available_tools = sorted(extract_available_actions(snapshot))
+    deterministic_wayfinding = snapshot.get("deterministic_wayfinding")
+    if not isinstance(deterministic_wayfinding, dict):
+        deterministic_wayfinding = {}
+
+    return {
+        "context_id": context_id,
+        "campaign_id": int(state.get("campaign_id", 0)),
+        "actor_id": str(state.get("actor_id", "")),
+        "character_id": int(state.get("character_id", 0)),
+        "runtime_state_version": int(snapshot.get("state_version", 1)),
+        "actor_state_version": int(snapshot.get("state_version", 1)),
+        "quest_state_version": int(snapshot.get("state_version", 1)),
+        "phase": str(snapshot.get("phase", "")),
+        "active_room_id": str(snapshot.get("active_room_id") or state.get("room_id") or ""),
+        "active_objective": summarize_active_objective(snapshot),
+        "active_objectives": extract_canonical_active_objectives(snapshot),
+        "available_tools": available_tools,
+        "tool_contract": extract_action_contract(snapshot),
+        "navigation_capabilities": snapshot.get("connected_rooms") if isinstance(snapshot.get("connected_rooms"), list) else [],
+        "route_plan_hints": {
+            "deterministic_wayfinding": deterministic_wayfinding,
+        },
+        "recent_events": snapshot.get("new_events") if isinstance(snapshot.get("new_events"), list) else [],
+    }
+
+
+def validate_tool_decision_contract(state: HarnessState, decision: dict[str, Any]) -> str | None:
+    decision_type = normalize_action_id(decision.get("decision_type"))
+    if decision_type == "":
+        return "decision_type_required"
+    if decision_type == "stop":
+        return None
+    if decision_type != "tool":
+        return f"decision_type_invalid:{decision_type}"
+
+    tool_name = normalize_action_id(decision.get("tool_name"))
+    if tool_name == "":
+        return "tool_name_required"
+
+    intent = decision.get("tool_payload")
     if not isinstance(intent, dict):
-        return "action_intent_missing_or_non_object"
+        return "tool_payload_missing_or_non_object"
 
     action_type = normalize_action_id(intent.get("type"))
     if action_type == "":
-        return "action_intent_type_required"
+        return "tool_payload_type_required"
+    if tool_name != action_type:
+        return f"tool_name_type_mismatch:{tool_name}:{action_type}"
 
     params = intent.get("params")
     if not isinstance(params, dict):
-        return "action_intent_params_not_object"
+        return "tool_payload_params_not_object"
 
     actor = str(intent.get("actor", "")).strip()
     if actor != "" and actor != str(state.get("actor_id", "")):
@@ -724,17 +934,6 @@ def validate_action_intent_contract(state: HarnessState, decision: dict[str, Any
         active_room_id = str(snapshot.get("active_room_id") or state.get("room_id") or "").strip()
         if target_room_id != "" and target_room_id == active_room_id:
             return "action_intent_transition_target_same_room"
-        connected_rooms = snapshot.get("connected_rooms")
-        if isinstance(connected_rooms, list):
-            connected_room_ids = {
-                str(item.get("room_id") or "").strip()
-                for item in connected_rooms
-                if isinstance(item, dict)
-            }
-            if connected_room_ids == set():
-                return "action_intent_transition_no_connected_rooms"
-            if connected_room_ids and target_room_id not in connected_room_ids:
-                return "action_intent_transition_target_not_connected"
 
     if action_type == "talk":
         if not is_non_empty_string(params.get("message")):
@@ -859,6 +1058,7 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
     timeout_sec = max(30, int(os.environ.get("HARNESS_DECIDER_TIMEOUT_SEC") or "120"))
 
     snapshot = state.get("snapshot") or {}
+    canonical_context = state.get("canonical_context") if isinstance(state.get("canonical_context"), dict) else {}
     available_actions = sorted(extract_available_actions(snapshot))
     available_action_contract = summarize_available_action_contract(snapshot)
     active_objective = summarize_active_objective(snapshot)
@@ -874,21 +1074,19 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
     system_prompt = (
         "You are controlling Burasco in DungeonCrawler. "
         "Choose exactly one next move to progress active quest objectives. "
-        "You must return strict JSON object only (no markdown, no prose) with keys: "
-        "mode, reason, action_intent, chat_message. "
-        "mode must be one of: action, chat, stop. "
-        "NEVER set mode to action names like search/interact/talk/transition. "
-        "If you want search/interact/talk/transition, set mode='action' and put the action name in action_intent.type. "
-        "For mode=action, action_intent MUST be an object with keys type, params, actor. "
-        "action_intent.type MUST be one of allowed_action_ids. params MUST be an object. "
+        "You must return strict JSON object only (no markdown, no prose). "
+        "Preferred contract keys: decision_type, tool_name, tool_payload, reason. "
+        "decision_type must be one of: tool, stop. "
+        "For decision_type=tool, tool_payload MUST be canonical intent with keys type, params, actor. "
+        "tool_name MUST equal tool_payload.type. "
         "For type=transition, params.target_room_id is required. "
         "For type=talk, provide params.message. "
-        "If no legal action is appropriate, return mode=stop with a concrete reason. "
-        "For mode=chat, provide non-empty chat_message. "
+        "If no legal action is appropriate, return decision_type=stop with a concrete reason. "
+        "Legacy mode/action_intent/chat_message fields are accepted only for backward compatibility. "
         "Prefer the active quest_context and storyline_context fields when choosing the next move. "
         "Valid example: "
-        "{\"mode\":\"action\",\"reason\":\"Need to inspect room for quest items.\","
-        "\"action_intent\":{\"type\":\"search\",\"params\":{},\"actor\":\"<actor_id>\"},\"chat_message\":\"\"}"
+        "{\"decision_type\":\"tool\",\"tool_name\":\"search\",\"reason\":\"Need to inspect room for quest items.\","
+        "\"tool_payload\":{\"type\":\"search\",\"params\":{},\"actor\":\"<actor_id>\"}}"
     )
     user_prompt = {
         "campaign_id": state.get("campaign_id"),
@@ -904,10 +1102,12 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
         "connected_rooms": connected_rooms,
         "available_actions": available_actions,
         "available_action_contract": available_action_contract,
+        "canonical_context": canonical_context,
         "last_result_summary": summarize_last_result_for_decider(state.get("last_result", {})),
         "contract_requirements": {
-            "required_mode_values": ["action", "chat", "stop"],
-            "required_action_intent_keys_for_action_mode": ["type", "params", "actor"],
+            "preferred_decision_type_values": ["tool", "stop"],
+            "required_tool_payload_keys_for_tool_decision": ["type", "params", "actor"],
+            "legacy_mode_values": ["action", "chat", "stop"],
             "required_transition_params": ["target_room_id"],
             "required_talk_payload_any_of": ["message", "target", "target_id", "entity_id", "entity_ref"],
         },
@@ -965,6 +1165,21 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
     if not isinstance(decision, dict):
         raise RuntimeError("Decider response was not a JSON object.")
 
+    decision_type = normalize_action_id(decision.get("decision_type"))
+    if decision_type in {"tool", "stop"}:
+        if decision_type == "tool":
+            tool_name = normalize_action_id(decision.get("tool_name"))
+            tool_payload = decision.get("tool_payload")
+            if tool_name == "":
+                raise RuntimeError("Decision decision_type=tool requires tool_name.")
+            if not isinstance(tool_payload, dict):
+                raise RuntimeError("Decision decision_type=tool requires tool_payload object.")
+            if normalize_action_id(tool_payload.get("type")) == "":
+                raise RuntimeError("Decision decision_type=tool requires tool_payload.type.")
+        decision["decision_type"] = decision_type
+        decision["reason"] = str(decision.get("reason", "")).strip()
+        return decision
+
     mode = str(decision.get("mode", "")).strip().lower()
     if mode not in {"action", "chat", "stop"}:
         raise RuntimeError(f"Invalid decision mode: {mode or '(empty)'}")
@@ -1016,6 +1231,7 @@ def node_snapshot(state: HarnessState) -> HarnessState:
     next_state: HarnessState = dict(state)
     next_state["snapshot"] = payload
     next_state["room_id"] = str(payload.get("active_room_id") or state["room_id"])
+    next_state["canonical_context"] = build_canonical_context(next_state, payload)
     return next_state
 
 
@@ -1036,17 +1252,17 @@ def node_decide(state: HarnessState) -> HarnessState:
         if seed_checks == 1:
             if "end_turn" in available_actions:
                 next_state: HarnessState = dict(state)
-                next_state["decision"] = {
-                    "mode": "action",
-                    "reason": "deterministic_default_storyline_seed_end_turn",
-                    "action_intent": {
+                next_state["decision"] = stamp_decision_metadata(state, create_tool_decision(
+                    "end_turn",
+                    {
                         "type": "end_turn",
                         "actor": state["actor_id"],
                         "params": {
                             "reason": "Awaiting storyline lead after seeded Eldric prompt.",
                         },
                     },
-                }
+                    "deterministic_default_storyline_seed_end_turn",
+                ))
                 next_state["default_storyline_seed_checks"] = 2
                 return next_state
             next_state = dict(state)
@@ -1057,32 +1273,22 @@ def node_decide(state: HarnessState) -> HarnessState:
         target_name = str(objective.get("target_display_name") or "Eldric").strip() or "Eldric"
         target_entity_instance_id = str(objective.get("target_entity_instance_id") or "npc_tavern_keeper").strip()
         next_state: HarnessState = dict(state)
-        if "talk" in available_actions:
-            next_state["decision"] = {
-                "mode": "action",
-                "reason": "deterministic_default_storyline_seed",
-                "action_intent": {
-                    "type": "talk",
-                    "actor": state["actor_id"],
-                    "target": target_entity_instance_id,
-                    "params": {
-                        "message": (
-                            f"{target_name}, I heard you know about work or danger in this tavern. "
-                            "Do you have a storyline lead for me to follow?"
-                        ),
-                        "objective_id": DEFAULT_STORYLINE_OBJECTIVE_ID,
-                    },
+        next_state["decision"] = stamp_decision_metadata(state, create_tool_decision(
+            "talk",
+            {
+                "type": "talk",
+                "actor": state["actor_id"],
+                "target": target_entity_instance_id,
+                "params": {
+                    "message": (
+                        f"{target_name}, I heard you know about work or danger in this tavern. "
+                        "Do you have a storyline lead for me to follow?"
+                    ),
+                    "objective_id": DEFAULT_STORYLINE_OBJECTIVE_ID,
                 },
-            }
-        else:
-            next_state["decision"] = {
-                "mode": "chat",
-                "reason": "deterministic_default_storyline_seed",
-                "chat_message": (
-                    f"{target_name}, I heard you know about work or danger in this tavern. "
-                    "Do you have a storyline lead for me to follow?"
-                ),
-            }
+            },
+            "deterministic_default_storyline_seed",
+        ))
         next_state["default_storyline_seed_checks"] = 0
         return next_state
 
@@ -1093,9 +1299,10 @@ def node_decide(state: HarnessState) -> HarnessState:
             if target_room_id == "":
                 raise RuntimeError("deterministic_wayfinding.available=true but target_room_id is empty.")
             decision = {
-                "mode": "action",
+                "decision_type": "tool",
+                "tool_name": "transition",
                 "reason": "deterministic_wayfinding_transition",
-                "action_intent": {
+                "tool_payload": {
                     "type": "transition",
                     "actor": state["actor_id"],
                     "params": {
@@ -1106,7 +1313,7 @@ def node_decide(state: HarnessState) -> HarnessState:
                 },
             }
             next_state: HarnessState = dict(state)
-            next_state["decision"] = decision
+            next_state["decision"] = stamp_decision_metadata(state, decision)
             return next_state
 
         # Hard-fail instead of falling back to non-deterministic routing when a
@@ -1130,19 +1337,25 @@ def node_decide(state: HarnessState) -> HarnessState:
         objective_decision = build_active_objective_interact_decision(state, current_objective)
     if objective_decision is not None:
         next_state: HarnessState = dict(state)
-        next_state["decision"] = objective_decision
+        next_state["decision"] = stamp_decision_metadata(state, objective_decision)
         return next_state
 
     if actor_talked_to_other_actor(state.get("last_result")) and not bool(state.get("gm_clue_requested")):
         next_state: HarnessState = dict(state)
-        next_state["decision"] = {
-            "mode": "chat",
-            "reason": "deterministic_gm_clue_request_after_actor_talk",
-            "chat_message": (
-                "Game Master, based on the conversations I just had, give me concrete clues and the single best "
-                "next actionable step to progress my active objective."
-            ),
-        }
+        next_state["decision"] = stamp_decision_metadata(state, create_tool_decision(
+            "talk",
+            {
+                "type": "talk",
+                "actor": state["actor_id"],
+                "params": {
+                    "message": (
+                        "Game Master, based on the conversations I just had, give me concrete clues and the single best "
+                        "next actionable step to progress my active objective."
+                    )
+                },
+            },
+            "deterministic_gm_clue_request_after_actor_talk",
+        ))
         next_state["gm_clue_requested"] = True
         return next_state
 
@@ -1157,15 +1370,20 @@ def node_decide(state: HarnessState) -> HarnessState:
             "error": str(exc),
         }
         return next_state
-    if decision.get("mode") == "action":
-        contract_error = validate_action_intent_contract(state, decision)
-        if contract_error is not None:
-            next_state = dict(state)
-            next_state["run_status"] = "blocked"
-            next_state["stop_reason"] = f"invalid_action_intent_contract:{contract_error}"
-            return next_state
+    contract_error = validate_tool_decision_contract(state, decision)
+    if contract_error is not None:
+        next_state = dict(state)
+        next_state["run_status"] = "blocked"
+        next_state["stop_reason"] = f"invalid_tool_decision_contract:{contract_error}"
+        return next_state
+    if normalize_action_id(decision.get("decision_type")) == "stop":
+        next_state = dict(state)
+        next_state["run_status"] = "completed"
+        next_state["stop_reason"] = str(decision.get("reason") or "decider_stop")
+        next_state["decision"] = stamp_decision_metadata(state, decision)
+        return next_state
     next_state: HarnessState = dict(state)
-    next_state["decision"] = decision
+    next_state["decision"] = stamp_decision_metadata(state, decision)
     return next_state
 
 
@@ -1198,43 +1416,22 @@ def node_scriptedtesting(state: HarnessState) -> HarnessState:
 
     step = SCRIPTED_TESTING_STEPS[step_index]
     step_id = str(step.get("id") or f"step_{step_index}").strip() or f"step_{step_index}"
-    mode = str(step.get("mode") or "").strip().lower()
-    if mode == "chat":
-        message = str(step.get("chat_message") or "").strip()
-        if message == "":
-            next_state["run_status"] = "blocked"
-            next_state["stop_reason"] = f"scriptedtesting_invalid_step:{step_id}"
-            return next_state
-        next_state["decision"] = {
-            "mode": "chat",
-            "reason": f"scriptedtesting:{step_id}",
-            "chat_message": message,
-        }
-        next_state["scripted_pending_step_id"] = step_id
+    tool_name = normalize_action_id(step.get("tool_name"))
+    tool_payload = step.get("tool_payload")
+    if tool_name == "" or not isinstance(tool_payload, dict) or normalize_action_id(tool_payload.get("type")) == "":
+        next_state["run_status"] = "blocked"
+        next_state["stop_reason"] = f"scriptedtesting_invalid_step:{step_id}"
         return next_state
-
-    if mode == "action":
-        action_intent = step.get("action_intent")
-        if not isinstance(action_intent, dict) or str(action_intent.get("type") or "").strip() == "":
-            next_state["run_status"] = "blocked"
-            next_state["stop_reason"] = f"scriptedtesting_invalid_step:{step_id}"
-            return next_state
-        next_state["decision"] = {
-            "mode": "action",
-            "reason": f"scriptedtesting:{step_id}",
-            "action_intent": dict(action_intent),
-        }
-        next_state["scripted_pending_step_id"] = step_id
-        return next_state
-
-    next_state["run_status"] = "blocked"
-    next_state["stop_reason"] = f"scriptedtesting_invalid_mode:{step_id}"
+    next_state["decision"] = stamp_decision_metadata(state, create_tool_decision(tool_name, dict(tool_payload), f"scriptedtesting:{step_id}"))
+    next_state["scripted_pending_step_id"] = step_id
     return next_state
 
 
 def node_execute_action(state: HarnessState) -> HarnessState:
     decision = state["decision"]
-    intent = dict(decision["action_intent"])
+    decision = stamp_decision_metadata(state, decision)
+    intent = dict(decision["tool_payload"])
+    intent["decision_id"] = str(decision.get("decision_id") or "")
     intent["actor_id"] = state["actor_id"]
     if int(state.get("character_id", 0)) > 0:
         params = intent.get("params")
@@ -1266,35 +1463,24 @@ def node_execute_action(state: HarnessState) -> HarnessState:
         }
         return next_state
 
-    next_state: HarnessState = dict(state)
-    next_state["turn_count"] = int(state.get("turn_count", 0)) + 1
-    next_state["last_result"] = result
-    return next_state
-
-
-def node_execute_chat(state: HarnessState) -> HarnessState:
-    decision = state["decision"]
-    message = str(decision["chat_message"]).strip()
-    command = [
-        drush_bin(),
-        "dc:gm-actor-run",
-        str(state["campaign_id"]),
-        state["room_id"],
-        message,
-        f"--actor-id={state['actor_id']}",
-        f"--character-id={state['character_id']}",
-        f"--speaker={state['character_name']}",
-    ]
-    try:
-        result = run_json_command(command)
-    except RuntimeError as exc:
+    previous_state_version = int(((state.get("snapshot") or {}).get("state_version")) or 0)
+    next_state_version = int(
+        result.get("state_version")
+        or ((result.get("game_state") or {}).get("state_version") if isinstance(result.get("game_state"), dict) else 0)
+        or ((result.get("result") or {}).get("state_version") if isinstance(result.get("result"), dict) else 0)
+        or 0
+    )
+    if bool(result.get("success")) and previous_state_version > 0 and next_state_version > 0 and next_state_version < previous_state_version:
         next_state: HarnessState = dict(state)
         next_state["turn_count"] = int(state.get("turn_count", 0)) + 1
         next_state["run_status"] = "blocked"
-        next_state["stop_reason"] = f"chat_execution_failed:{str(exc).strip()}"
+        next_state["stop_reason"] = (
+            f"invalid_persistence:state_version_regressed:{previous_state_version}->{next_state_version}"
+        )
         next_state["last_result"] = {
             "success": False,
-            "error": str(exc),
+            "error": "Execution result regressed runtime state version.",
+            "result": result,
         }
         return next_state
 
@@ -1302,6 +1488,12 @@ def node_execute_chat(state: HarnessState) -> HarnessState:
     next_state["turn_count"] = int(state.get("turn_count", 0)) + 1
     next_state["last_result"] = result
     return next_state
+
+
+def node_execute_chat(state: HarnessState) -> HarnessState:
+    # Legacy transitional wrapper: chat decisions now normalize into tool payloads
+    # and execute through the canonical action command path.
+    return node_execute_action(state)
 
 
 def select_current_objective(snapshot: dict[str, Any]) -> dict[str, Any] | None:
@@ -1456,6 +1648,7 @@ def node_notify_and_log_issue(state: HarnessState) -> HarnessState:
     correlation_id = state["correlation_id"]
     reason = state.get("stop_reason", "unknown")
     snapshot = state.get("snapshot") or {}
+    canonical_context = state.get("canonical_context") or {}
     decision = state.get("decision") or {}
     last_result = state.get("last_result") or {}
 
@@ -1472,6 +1665,7 @@ def node_notify_and_log_issue(state: HarnessState) -> HarnessState:
         "decision": decision,
         "last_result": last_result,
         "snapshot": snapshot,
+        "canonical_context": canonical_context,
     }
     issue_summary = summarize_issue_payload(issue_body)
 
@@ -1500,11 +1694,9 @@ def route_after_decision(state: HarnessState) -> str:
     if status == "completed":
         return END
 
-    mode = str((state.get("decision") or {}).get("mode", ""))
-    if mode == "action":
+    decision_type = normalize_action_id((state.get("decision") or {}).get("decision_type"))
+    if decision_type == "tool":
         return "execute_action"
-    if mode == "chat":
-        return "execute_chat"
     return "assess"
 
 
@@ -1514,11 +1706,9 @@ def route_after_scriptedtesting(state: HarnessState) -> str:
         return "notify_and_log_issue"
     if bool(state.get("scriptedtesting_complete", False)):
         return "decide"
-    mode = str((state.get("decision") or {}).get("mode", ""))
-    if mode == "action":
+    decision_type = normalize_action_id((state.get("decision") or {}).get("decision_type"))
+    if decision_type == "tool":
         return "execute_action"
-    if mode == "chat":
-        return "execute_chat"
     return "notify_and_log_issue"
 
 
