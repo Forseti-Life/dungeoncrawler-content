@@ -1691,6 +1691,11 @@ def node_assess(state: HarnessState) -> HarnessState:
 
     next_state: HarnessState = dict(state)
     snapshot = state.get("snapshot") or {}
+    last_result = state.get("last_result")
+    if isinstance(last_result, dict) and "success" in last_result and not bool(last_result.get("success")):
+        next_state["run_status"] = "blocked"
+        next_state["stop_reason"] = "invalid_execution:unsuccessful_tool_result"
+        return next_state
     active_quests = snapshot.get("active_quests") or []
     if not isinstance(active_quests, list):
         raise RuntimeError("Snapshot active_quests is not a list.")
@@ -1862,8 +1867,9 @@ def main() -> int:
     elif args.uid <= 0:
         raise RuntimeError("Bootstrap mode requires --uid (or HARNESS_OWNER_UID).")
 
-    correlation_id = f"langgraph-harness-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-    issue_key = f"harness-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    now_stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    correlation_id = f"langgraph-harness-{now_stamp}"
+    issue_key = f"harness-{now_stamp}"
     initial_state: HarnessState = {
         "campaign_id": int(args.campaign_id),
         "campaign_name": args.campaign_name.strip(),
