@@ -199,18 +199,8 @@ export class RoomViewPanel {
   buildRoomPortraitCard(entry = {}) {
     const card = document.createElement('article');
     card.className = 'npc-portrait-card';
-    card.tabIndex = 0;
-    card.setAttribute('role', 'button');
     card.dataset.entityId = String(entry.entityId || '').trim();
-    card.setAttribute('aria-label', `${entry.name || 'Room occupant'}: open character sheet`);
-    card.addEventListener('click', () => this.focusRoomPortraitActor(entry));
-    card.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') {
-        return;
-      }
-      event.preventDefault();
-      this.focusRoomPortraitActor(entry);
-    });
+    card.setAttribute('aria-label', `${entry.name || 'Room occupant'} portrait`);
 
     const frame = document.createElement('div');
     frame.className = 'npc-portrait-card__frame';

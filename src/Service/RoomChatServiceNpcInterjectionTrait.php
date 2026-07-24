@@ -803,10 +803,10 @@ PROMPT;
     }
 
     if ($matches === []) {
-      return NULL;
+      return $this->selectHighestCharismaNpc($room_npcs);
     }
 
-    return $this->selectHighestScoredNpc($matches);
+    return $this->selectHighestScoredNpc($matches, $room_npcs);
   }
 
   /**

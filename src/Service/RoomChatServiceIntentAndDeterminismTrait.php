@@ -1039,27 +1039,72 @@ trait RoomChatServiceIntentAndDeterminismTrait {
         return $only_npc;
       }
 
-      return NULL;
+      return $this->selectHighestCharismaNpc($room_npcs);
     }
 
-    return $this->selectHighestScoredNpc($matches);
+    return $this->selectHighestScoredNpc($matches, $room_npcs);
   }
 
   /**
    * Select the highest-scored NPC, rejecting ambiguous ties.
    */
 
-  protected function selectHighestScoredNpc(array $matches): ?array {
+  protected function selectHighestScoredNpc(array $matches, ?array $fallback_npcs = NULL): ?array {
     if ($matches === []) {
-      return NULL;
+      return $fallback_npcs !== NULL ? $this->selectHighestCharismaNpc($fallback_npcs) : NULL;
     }
 
     usort($matches, static fn(array $a, array $b): int => $b['score'] <=> $a['score']);
     if (count($matches) > 1 && $matches[0]['score'] === $matches[1]['score']) {
-      return NULL;
+      $top_score = (int) $matches[0]['score'];
+      $tied_top_npcs = [];
+      foreach ($matches as $match) {
+        if ((int) ($match['score'] ?? 0) !== $top_score) {
+          break;
+        }
+        if (is_array($match['npc'] ?? NULL)) {
+          $tied_top_npcs[] = $match['npc'];
+        }
+      }
+      return $this->selectHighestCharismaNpc($tied_top_npcs);
     }
 
     return $matches[0]['npc'] ?? NULL;
+  }
+
+  /**
+   * Resolve one NPC by highest Charisma, randomizing ties among leaders.
+   */
+  protected function selectHighestCharismaNpc(array $npcs): ?array {
+    if ($npcs === []) {
+      return NULL;
+    }
+
+    $top_score = NULL;
+    $leaders = [];
+    foreach ($npcs as $npc) {
+      if (!is_array($npc)) {
+        continue;
+      }
+      $charisma = NpcAbilityScoreResolver::resolveCharismaScore($npc);
+      if ($top_score === NULL || $charisma > $top_score) {
+        $top_score = $charisma;
+        $leaders = [$npc];
+        continue;
+      }
+      if ($charisma === $top_score) {
+        $leaders[] = $npc;
+      }
+    }
+
+    if ($leaders === []) {
+      return NULL;
+    }
+    if (count($leaders) === 1) {
+      return $leaders[0];
+    }
+
+    return $leaders[random_int(0, count($leaders) - 1)];
   }
 
   /**

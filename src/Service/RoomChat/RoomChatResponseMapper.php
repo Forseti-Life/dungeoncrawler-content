@@ -175,6 +175,55 @@ class RoomChatResponseMapper {
     ], 500);
   }
 
+  public function buildRoomNotReadyResponse(
+    \Throwable $e,
+    int $campaign_id,
+    string $room_id,
+    string $channel,
+    ?int $character_id,
+    string $client_request_id,
+    string $speaker,
+    string $type
+  ): JsonResponse {
+    $debug_id = $this->createDebugId();
+    $this->logger->warning(
+      'Room chat POST deferred [{debug_id}] campaign={campaign_id} room={room_id} channel={channel} character={character_id} request={client_request_id}: {message}',
+      [
+        'debug_id' => $debug_id,
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'channel' => $channel,
+        'character_id' => $character_id,
+        'client_request_id' => $client_request_id,
+        'message' => $e->getMessage(),
+        'exception_class' => get_class($e),
+        'exception' => $e,
+        'speaker' => $speaker,
+        'type' => $type,
+      ]
+    );
+
+    return new JsonResponse([
+      'success' => FALSE,
+      'error' => 'Room is still loading. Try again in a moment.',
+      'error_code' => 'room_not_ready',
+      'retryable' => TRUE,
+      'debug' => [
+        'debug_id' => $debug_id,
+        'client_request_id' => $client_request_id,
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'character_id' => $character_id,
+        'channel' => $channel,
+        'status' => 409,
+        'stream_mode' => 'json_post',
+        'exception_class' => get_class($e),
+        'message' => $e->getMessage(),
+        'error_code' => 'room_not_ready',
+      ],
+    ], 409);
+  }
+
   protected function createDebugId(): string {
     return 'roomchat-' . substr(hash('sha256', microtime(TRUE) . '|' . random_int(0, PHP_INT_MAX)), 0, 12);
   }

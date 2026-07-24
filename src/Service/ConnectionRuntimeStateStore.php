@@ -48,39 +48,26 @@ class ConnectionRuntimeStateStore {
         ));
       }
 
-      $existing_id = $this->database->select('dc_campaign_connection_runtime_state', 'c')
-        ->fields('c', ['id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('connection_id', $connection_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
       $from_room_id = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? ''));
       $to_room_id = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? ''));
-      if (is_numeric($existing_id)) {
-        $this->database->update('dc_campaign_connection_runtime_state')
-          ->fields([
-            'from_room_id' => $from_room_id !== '' ? $from_room_id : NULL,
-            'to_room_id' => $to_room_id !== '' ? $to_room_id : NULL,
-            'connection_state' => $encoded,
-            'updated' => $now,
-          ])
-          ->condition('id', (int) $existing_id)
-          ->execute();
-      }
-      else {
-        $this->database->insert('dc_campaign_connection_runtime_state')
-          ->fields([
-            'campaign_id' => $campaign_id,
-            'connection_id' => $connection_id,
-            'from_room_id' => $from_room_id !== '' ? $from_room_id : NULL,
-            'to_room_id' => $to_room_id !== '' ? $to_room_id : NULL,
-            'connection_state' => $encoded,
-            'created' => $now,
-            'updated' => $now,
-          ])
-          ->execute();
-      }
+      $upsert_fields = [
+        'from_room_id' => $from_room_id !== '' ? $from_room_id : NULL,
+        'to_room_id' => $to_room_id !== '' ? $to_room_id : NULL,
+        'connection_state' => $encoded,
+        'updated' => $now,
+      ];
+      $this->database->merge('dc_campaign_connection_runtime_state')
+        ->keys([
+          'campaign_id' => $campaign_id,
+          'connection_id' => $connection_id,
+        ])
+        ->fields($upsert_fields)
+        ->insertFields($upsert_fields + [
+          'campaign_id' => $campaign_id,
+          'connection_id' => $connection_id,
+          'created' => $now,
+        ])
+        ->execute();
     }
   }
 

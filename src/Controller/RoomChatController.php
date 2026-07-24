@@ -275,6 +275,18 @@ class RoomChatController extends ControllerBase {
     }
     catch (\Throwable $e) {
       $error_context = $this->extractPostChatErrorContext($request_context);
+      if ($this->isRoomNotReadyPostChatFailure($e)) {
+        return $this->responseMapper->buildRoomNotReadyResponse(
+          $e,
+          $campaign_id,
+          $room_id,
+          $error_context['channel'],
+          $error_context['character_id'],
+          $error_context['client_request_id'],
+          $error_context['speaker'],
+          $error_context['type']
+        );
+      }
       return $this->responseMapper->buildPostChatFailureResponse(
         $e,
         $campaign_id,
@@ -318,6 +330,30 @@ class RoomChatController extends ControllerBase {
       'character_id' => isset($request_context['character_id']) ? (int) $request_context['character_id'] : NULL,
       'client_request_id' => (string) ($request_context['client_request_id'] ?? ''),
     ];
+  }
+
+  /**
+   * Detect transient post-navigation room-chat failures that should be retried.
+   */
+  protected function isRoomNotReadyPostChatFailure(\Throwable $e): bool {
+    $message = strtolower(trim($e->getMessage()));
+    if ($message === '') {
+      return FALSE;
+    }
+
+    $room_not_ready_fragments = [
+      'cannot post room chat',
+      'requested room does not match active room',
+      'unable to resolve encounter actor',
+      'no active room set',
+    ];
+    foreach ($room_not_ready_fragments as $fragment) {
+      if (str_contains($message, $fragment)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**

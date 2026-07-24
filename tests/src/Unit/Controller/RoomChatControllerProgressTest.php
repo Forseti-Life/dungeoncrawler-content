@@ -395,6 +395,49 @@ class RoomChatControllerProgressTest extends UnitTestCase {
   }
 
   /**
+   * @covers ::postChatMessage
+   */
+  public function testPostChatMessageMapsRoomTransitionRaceToRoomNotReadyResponse(): void {
+    $chat_service = $this->createMock(RoomChatService::class);
+    $chat_service->expects($this->once())
+      ->method('hasCampaignAccess')
+      ->with(63)
+      ->willReturn(TRUE);
+
+    $gm_subsystem = $this->createMock(GameMasterSubsystemService::class);
+    $gm_subsystem->expects($this->once())
+      ->method('handlePlayerRoomChat')
+      ->with(63, 'room-1', 241, 'Say hello.', FALSE, FALSE, 'Burasco')
+      ->willThrowException(new \RuntimeException('Cannot post room chat: requested room does not match active room.'));
+
+    $controller = $this->createController($chat_service, NULL, NULL, $gm_subsystem);
+    $request = Request::create(
+      '/api/campaign/63/room/room-1/chat',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode([
+        'speaker' => 'Burasco',
+        'message' => 'Say hello.',
+        'type' => 'player',
+        'character_id' => 241,
+        'channel' => 'room',
+      ])
+    );
+
+    $response = $controller->postChatMessage(63, 'room-1', $request);
+    $payload = json_decode((string) $response->getContent(), TRUE);
+
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertFalse($payload['success']);
+    $this->assertSame('room_not_ready', $payload['error_code']);
+    $this->assertTrue($payload['retryable']);
+    $this->assertSame('Room is still loading. Try again in a moment.', $payload['error']);
+  }
+
+  /**
    * @covers ::emitStreamedTurnResult
    */
   public function testEmitStreamedTurnResultSuppressesHarnessSystemLogsFromTranscript(): void {

@@ -109,6 +109,11 @@ export class ChatPanel {
     this.roomChatDeferredMessages = [];
     this.currentRoomLabel = '';
     this._lastRoomTransitionId = '';
+    this._occupantPresenceRoomId = '';
+    this._occupantPresenceKnownIds = new Set();
+    this._occupantPresenceEntries = [];
+    this._occupantPresenceInitialized = false;
+    this._speakerPortraitByName = new Map();
     this._roomHistoryRequestSequence = 0;
     this._roomHistoryLastShellRequestToken = 0;
     this._roomEncounterEventCursorByRoom = new Map();
@@ -159,6 +164,7 @@ export class ChatPanel {
       this.bus.on('chat:message-received',  (d) => this.handleBusChatMessageReceived(d)),
       this.bus.on('chat:system-message',    (d) => this.handleBusSystemMessage(d)),
       this.bus.on('room:changed', (d) => this.handleRoomChanged(d)),
+      this.bus.on('room:occupants-changed', (d) => this.handleRoomOccupantsChanged(d)),
       this.bus.on('inventory:changed', (d) => this.handleCharacterContextChanged(d)),
       this.bus.on('session:view-data', (d) => {
         if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
@@ -175,10 +181,56 @@ export class ChatPanel {
       this._lastRoomTransitionId = transitionId;
     }
     const roomName = String(payload?.roomName || payload?.room?.name || '').trim();
+    const roomId = String(payload?.roomId || payload?.room?.room_id || payload?.room?.id || '').trim();
     if (roomName) {
       this.currentRoomLabel = roomName;
     }
+    if (roomId && roomId !== this._occupantPresenceRoomId) {
+      this._occupantPresenceRoomId = roomId;
+      this._occupantPresenceKnownIds = new Set();
+      this._occupantPresenceEntries = [];
+      this._occupantPresenceInitialized = false;
+      this._speakerPortraitByName = new Map();
+      this.clearRoomOccupantPresenceLines();
+    }
     this.refreshChatPanelTitle();
+  }
+
+  handleRoomOccupantsChanged(payload = {}) {
+    const contextRoomId = String(this.getChatContext()?.roomId || '').trim();
+    const roomId = String(payload?.roomId || contextRoomId || '').trim();
+    if (!roomId) {
+      return;
+    }
+
+    const normalizedEntries = this.normalizeRoomOccupantPresenceEntries(payload?.occupants || []);
+    const normalizedIds = new Set(normalizedEntries.map((entry) => entry.id));
+    if (roomId !== this._occupantPresenceRoomId) {
+      this._occupantPresenceRoomId = roomId;
+      this._occupantPresenceKnownIds = new Set();
+      this._occupantPresenceInitialized = false;
+      this.clearRoomOccupantPresenceLines();
+    }
+
+    this._occupantPresenceEntries = normalizedEntries;
+
+    const enteringEntries = this._occupantPresenceInitialized
+      ? normalizedEntries.filter((entry) => !this._occupantPresenceKnownIds.has(entry.id))
+      : normalizedEntries;
+
+    if (this.activeSessionView === 'room' && this.activeChannel === 'room') {
+      if (!this._occupantPresenceInitialized) {
+        this.clearRoomOccupantPresenceLines(roomId, 'present');
+        this.renderRoomOccupantPresenceSnapshot(normalizedEntries, 'Present', roomId);
+      } else if (enteringEntries.length > 0) {
+        this.renderRoomOccupantPresenceSnapshot(enteringEntries, 'Entered', roomId);
+      }
+    }
+
+    this.enforceRoomOccupantPortraitSizing();
+    this.decorateSpeakerPortraitsInChatLog();
+    this._occupantPresenceKnownIds = normalizedIds;
+    this._occupantPresenceInitialized = true;
   }
 
   handleCharacterContextChanged(payload = {}) {
@@ -357,6 +409,13 @@ export class ChatPanel {
       } catch (error) {
         if (error.message.includes('403')) {
           console.warn('Chat message send denied (permission)');
+        } else if (this.isRoomNotReadyError(error)) {
+          this.appendChatLine('System', 'Room is still loading. Try again in a moment.', 'system', {
+            source: 'local-ui',
+            authority: 'local',
+            messageClass: 'local_ui_notice',
+          });
+          input.value = message;
         } else if (/not your turn/i.test(error.message)) {
           this.appendChatLine('System', error.message, 'system', {
             source: 'local-ui',
@@ -563,6 +622,18 @@ export class ChatPanel {
 
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
+        const errorCode = String(result?.error_code || result?.debug?.error_code || '').trim().toLowerCase();
+        const resultError = String(result?.error || '').trim();
+        const roomNotReady = (
+          errorCode === 'room_not_ready' ||
+          (response.status === 409 && /active room|encounter actor|room chat/i.test(resultError))
+        );
+        if (roomNotReady) {
+          const roomNotReadyError = new Error('Room is still loading. Try again in a moment.');
+          roomNotReadyError.code = 'room_not_ready';
+          roomNotReadyError.status = response.status;
+          throw roomNotReadyError;
+        }
         const debugId = String(result?.debug?.debug_id || '').trim();
         const debugClass = String(result?.debug?.exception_class || '').trim();
         const debugMessage = String(result?.debug?.message || '').trim();
@@ -600,6 +671,7 @@ export class ChatPanel {
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
+
       this.stateManager?.hexmap?.gameCoordinator?.applyAuthoritativeUpdate?.(result.data || result);
       const pending = options.pendingRequest || null;
       if (pending) {
@@ -702,6 +774,25 @@ export class ChatPanel {
     } finally {
       this.bus.emit('game:backend-request-end', { requestId: backendRequestId, source: 'chat' });
     }
+  }
+
+  isRoomNotReadyError(error) {
+    if (!error) {
+      return false;
+    }
+    const code = String(error.code || '').trim().toLowerCase();
+    if (code === 'room_not_ready') {
+      return true;
+    }
+    const message = String(error.message || '').trim().toLowerCase();
+    return (
+      message.includes('room is still loading') ||
+      (message.includes('http 409') && (
+        message.includes('active room') ||
+        message.includes('encounter actor') ||
+        message.includes('room chat')
+      ))
+    );
   }
 
   setupChannelTabs() {
@@ -1304,8 +1395,424 @@ export class ChatPanel {
       emptyText: 'Quick summary: No one has said anything in this room yet.',
     });
 
+    this.renderCurrentRoomOccupantsAsPresent();
 
     this.scrollChatToBottom({ defer: true });
+  }
+
+  renderCurrentRoomOccupantsAsPresent() {
+    if (this.activeSessionView !== 'room' || this.activeChannel !== 'room') {
+      return;
+    }
+    const roomId = String(this.getChatContext()?.roomId || this._occupantPresenceRoomId || '').trim();
+    if (!roomId) {
+      return;
+    }
+    if (this._occupantPresenceRoomId !== roomId) {
+      this._occupantPresenceRoomId = roomId;
+    }
+    this.clearRoomOccupantPresenceLines(roomId, 'present');
+    if (this._occupantPresenceEntries.length > 0) {
+      this.renderRoomOccupantPresenceSnapshot(this._occupantPresenceEntries, 'Present', roomId);
+    }
+    this.enforceRoomOccupantPortraitSizing();
+    this.decorateSpeakerPortraitsInChatLog();
+  }
+
+  normalizeRoomOccupantPresenceEntries(occupants = []) {
+    if (!Array.isArray(occupants)) {
+      return [];
+    }
+    const normalized = [];
+    const seen = new Set();
+    occupants.forEach((occupant) => {
+      if (!occupant || typeof occupant !== 'object') {
+        return;
+      }
+      const rawType = String(occupant?.occupant_type || '').trim().toLowerCase();
+      const isActor = rawType === 'npc' || rawType === 'player_character' || rawType === 'player' || occupant?.is_party === true;
+      if (!isActor) {
+        return;
+      }
+      if (occupant?.state?.hidden === true) {
+        return;
+      }
+
+      const id = String(
+        occupant?.occupant_id
+        || occupant?.entity_id
+        || occupant?.entity_ref
+        || occupant?.content_id
+        || occupant?.label
+        || ''
+      ).trim();
+      if (!id || seen.has(id)) {
+        return;
+      }
+      seen.add(id);
+
+      const name = String(
+        occupant?.label
+        || occupant?.presentation?.display_name
+        || occupant?.state?.metadata?.display_name
+        || occupant?.state?.metadata?.name
+        || occupant?.name
+        || id
+      ).trim() || id;
+      const portraitUrl = String(
+        occupant?.presentation?.portrait_url
+        || occupant?.presentation?.portrait
+        || occupant?.state?.metadata?.portrait_url
+        || occupant?.state?.metadata?.portrait
+        || ''
+      ).trim();
+      const kind = rawType === 'npc' ? 'NPC' : 'PC';
+
+      normalized.push({
+        id,
+        name,
+        kind,
+        portraitUrl,
+      });
+    });
+
+    normalized.sort((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind === 'PC' ? -1 : 1;
+      }
+      return left.name.localeCompare(right.name);
+    });
+    return normalized;
+  }
+
+  renderRoomOccupantPresenceSnapshot(entries = [], status = 'Present', roomId = '') {
+    if (this.activeSessionView !== 'room' || this.activeChannel !== 'room') {
+      return;
+    }
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return;
+    }
+    const normalizedStatus = status === 'Entered' ? 'Entered' : 'Present';
+    entries.forEach((entry) => {
+      const stableId = `room-occupant-presence:${roomId}:${entry.id}:${normalizedStatus.toLowerCase()}`;
+      const lineId = normalizedStatus === 'Present'
+        ? stableId
+        : `${stableId}:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
+      const line = this.appendChatLine(entry.name, normalizedStatus, 'system', {
+        lineId,
+        source: 'room-occupants',
+        authority: 'local',
+        messageClass: 'room_occupant_presence',
+        channel: 'room',
+        view: 'room',
+        suppressRemember: true,
+      });
+      this.decorateRoomOccupantPresenceLine(line, entry, normalizedStatus, roomId);
+    });
+  }
+
+  decorateRoomOccupantPresenceLine(line, entry, status, roomId) {
+    if (!(line instanceof HTMLElement)) {
+      return;
+    }
+    if (line.querySelector('.chat-line__occupant-thumb')) {
+      return;
+    }
+
+    line.classList.add('chat-line--occupant-presence');
+    line.dataset.occupantPresence = '1';
+    line.dataset.occupantRoomId = String(roomId || '');
+    line.dataset.occupantStatus = String(status || '').toLowerCase();
+    line.dataset.occupantRef = String(entry?.id || '');
+
+    const thumb = document.createElement('span');
+    thumb.className = 'chat-line__occupant-thumb';
+    thumb.style.width = '60px';
+    thumb.style.height = '60px';
+    thumb.style.minWidth = '60px';
+    thumb.style.minHeight = '60px';
+    thumb.style.maxWidth = '60px';
+    thumb.style.maxHeight = '60px';
+    thumb.style.flex = '0 0 60px';
+    if (entry?.portraitUrl) {
+      const image = document.createElement('img');
+      image.className = 'chat-line__occupant-thumb-image';
+      image.src = entry.portraitUrl;
+      image.alt = `${entry.name || 'Actor'} portrait`;
+      image.width = 60;
+      image.height = 60;
+      image.style.width = '60px';
+      image.style.height = '60px';
+      image.style.minWidth = '60px';
+      image.style.minHeight = '60px';
+      image.style.maxWidth = '60px';
+      image.style.maxHeight = '60px';
+      image.style.objectFit = 'cover';
+      image.style.display = 'block';
+      image.style.flex = '0 0 60px';
+      thumb.appendChild(image);
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'chat-line__occupant-thumb-placeholder';
+      placeholder.textContent = String(entry?.name || '?').trim().charAt(0).toUpperCase() || '?';
+      thumb.appendChild(placeholder);
+    }
+
+    const messageEl = line.querySelector('.chat-line__message');
+    if (messageEl) {
+      messageEl.classList.add('chat-line__message--occupant-presence');
+    }
+    const speakerEl = line.querySelector('.chat-line__speaker');
+    if (speakerEl) {
+      line.insertBefore(thumb, speakerEl);
+    } else {
+      line.prepend(thumb);
+    }
+  }
+
+  clearRoomOccupantPresenceLines(roomId = '', status = '') {
+    const log = this._el?.chatLog;
+    if (!log) {
+      return;
+    }
+    const normalizedRoomId = String(roomId || '').trim();
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    Array.from(log.querySelectorAll('.chat-line[data-occupant-presence="1"]')).forEach((line) => {
+      const lineRoomId = String(line?.dataset?.occupantRoomId || '').trim();
+      const lineStatus = String(line?.dataset?.occupantStatus || '').trim().toLowerCase();
+      if (normalizedRoomId && lineRoomId && lineRoomId !== normalizedRoomId) {
+        return;
+      }
+      if (normalizedStatus && lineStatus !== normalizedStatus) {
+        return;
+      }
+      line.remove();
+    });
+  }
+
+  enforceRoomOccupantPortraitSizing() {
+    const log = this._el?.chatLog;
+    if (!log) {
+      return;
+    }
+    Array.from(log.querySelectorAll('[data-occupant-presence="1"] .chat-line__occupant-thumb')).forEach((thumb) => {
+      thumb.style.width = '60px';
+      thumb.style.height = '60px';
+      thumb.style.minWidth = '60px';
+      thumb.style.minHeight = '60px';
+      thumb.style.maxWidth = '60px';
+      thumb.style.maxHeight = '60px';
+      thumb.style.flex = '0 0 60px';
+    });
+    Array.from(log.querySelectorAll('[data-occupant-presence="1"] .chat-line__occupant-thumb-image')).forEach((image) => {
+      image.width = 60;
+      image.height = 60;
+      image.style.width = '60px';
+      image.style.height = '60px';
+      image.style.minWidth = '60px';
+      image.style.minHeight = '60px';
+      image.style.maxWidth = '60px';
+      image.style.maxHeight = '60px';
+      image.style.objectFit = 'cover';
+      image.style.display = 'block';
+      image.style.flex = '0 0 60px';
+    });
+  }
+
+  resolveSpeakerPortraitEntry(speaker = '', type = 'npc', lineRecord = {}) {
+    const normalizedSpeaker = this.normalizeChatComparableText(speaker);
+    if (!normalizedSpeaker) {
+      return null;
+    }
+    if (normalizedSpeaker === 'system' || normalizedSpeaker === 'narrator' || normalizedSpeaker === 'game master' || normalizedSpeaker === 'gm') {
+      return null;
+    }
+    if (String(type || '').trim().toLowerCase() === 'system' && normalizedSpeaker !== 'you') {
+      return null;
+    }
+    if (String(lineRecord?.messageClass || '').trim().toLowerCase() === 'room_occupant_presence') {
+      return null;
+    }
+
+    const occupantMatches = this._occupantPresenceEntries.filter((entry) => (
+      this.normalizeChatComparableText(entry?.name || '') === normalizedSpeaker
+    ));
+    if (occupantMatches.length > 0) {
+      const cachedPortraitUrl = String(this._speakerPortraitByName.get(normalizedSpeaker) || '').trim();
+      if (cachedPortraitUrl) {
+        const cachedMatch = occupantMatches.find((entry) => String(entry?.portraitUrl || '').trim() === cachedPortraitUrl);
+        if (cachedMatch) {
+          return cachedMatch;
+        }
+      }
+
+      const bestMatch = [...occupantMatches].sort((left, right) => {
+        const leftPortrait = String(left?.portraitUrl || '').trim();
+        const rightPortrait = String(right?.portraitUrl || '').trim();
+        if (leftPortrait && !rightPortrait) {
+          return -1;
+        }
+        if (!leftPortrait && rightPortrait) {
+          return 1;
+        }
+        const leftId = String(left?.id || '').trim();
+        const rightId = String(right?.id || '').trim();
+        return leftId.localeCompare(rightId);
+      })[0];
+
+      const chosenPortrait = String(bestMatch?.portraitUrl || '').trim();
+      if (chosenPortrait) {
+        this._speakerPortraitByName.set(normalizedSpeaker, chosenPortrait);
+      }
+      return bestMatch;
+    }
+
+    const hexmap = this.stateManager?.hexmap || {};
+    const characterData = hexmap?.characterData || {};
+    const launchCharacter = hexmap?.launchCharacter || {};
+    const activeName = String(characterData?.name || launchCharacter?.name || '').trim();
+    const activeNameKey = this.normalizeChatComparableText(activeName);
+    const activePortrait = String(
+      characterData?.portrait_url
+      || characterData?.portrait
+      || launchCharacter?.portrait_url
+      || launchCharacter?.portrait
+      || ''
+    ).trim();
+
+    if (
+      activePortrait
+      && (normalizedSpeaker === 'you' || (activeNameKey && normalizedSpeaker === activeNameKey))
+    ) {
+      this._speakerPortraitByName.set(normalizedSpeaker, activePortrait);
+      return {
+        name: activeName || speaker,
+        portraitUrl: activePortrait,
+      };
+    }
+    return null;
+  }
+
+  decorateSpeakerPortraitLine(line, lineRecord = {}) {
+    if (!(line instanceof HTMLElement)) {
+      return;
+    }
+    if (line.dataset?.occupantPresence === '1') {
+      return;
+    }
+
+    const portraitEntry = this.resolveSpeakerPortraitEntry(
+      lineRecord?.speaker || line?.dataset?.speaker || '',
+      lineRecord?.type || line?.dataset?.type || 'npc',
+      lineRecord,
+    );
+    if (!portraitEntry) {
+      line.querySelector('.chat-line__speaker-portrait')?.remove();
+      line.classList.remove('chat-line--with-speaker-portrait');
+      return;
+    }
+
+    let thumb = line.querySelector(':scope > .chat-line__speaker-portrait');
+    if (!(thumb instanceof HTMLElement)) {
+      thumb = document.createElement('span');
+      thumb.className = 'chat-line__speaker-portrait';
+    }
+    thumb.style.width = '60px';
+    thumb.style.height = '60px';
+    thumb.style.minWidth = '60px';
+    thumb.style.minHeight = '60px';
+    thumb.style.maxWidth = '60px';
+    thumb.style.maxHeight = '60px';
+    thumb.style.flex = '0 0 60px';
+
+    const speakerEl = line.querySelector('.chat-line__speaker');
+    if (speakerEl && thumb.parentElement !== line) {
+      line.insertBefore(thumb, speakerEl);
+    } else if (!speakerEl && thumb.parentElement !== line) {
+      line.prepend(thumb);
+    }
+
+    if (portraitEntry?.portraitUrl) {
+      let image = thumb.querySelector(':scope > .chat-line__speaker-portrait-image');
+      if (!(image instanceof HTMLImageElement)) {
+        thumb.innerHTML = '';
+        image = document.createElement('img');
+        image.className = 'chat-line__speaker-portrait-image';
+        thumb.appendChild(image);
+      }
+      const targetSrc = String(portraitEntry.portraitUrl || '').trim();
+      const currentSrc = String(image.getAttribute('src') || '').trim();
+      if (targetSrc && currentSrc !== targetSrc) {
+        image.src = targetSrc;
+      }
+      image.alt = `${portraitEntry?.name || lineRecord?.speaker || 'Speaker'} portrait`;
+      image.width = 60;
+      image.height = 60;
+      image.style.width = '60px';
+      image.style.height = '60px';
+      image.style.minWidth = '60px';
+      image.style.minHeight = '60px';
+      image.style.maxWidth = '60px';
+      image.style.maxHeight = '60px';
+      image.style.objectFit = 'cover';
+      image.style.display = 'block';
+      image.style.flex = '0 0 60px';
+    } else {
+      let placeholder = thumb.querySelector(':scope > .chat-line__speaker-portrait-placeholder');
+      if (!(placeholder instanceof HTMLElement)) {
+        thumb.innerHTML = '';
+        placeholder = document.createElement('span');
+        placeholder.className = 'chat-line__speaker-portrait-placeholder';
+        thumb.appendChild(placeholder);
+      }
+      placeholder.textContent = String(portraitEntry?.name || lineRecord?.speaker || '?').trim().charAt(0).toUpperCase() || '?';
+    }
+
+    line.classList.add('chat-line--with-speaker-portrait');
+  }
+
+  decorateSpeakerPortraitsInChatLog() {
+    const log = this._el?.chatLog;
+    if (!log) {
+      return;
+    }
+    Array.from(log.querySelectorAll('.chat-line')).forEach((line) => {
+      this.decorateSpeakerPortraitLine(line, {
+        speaker: String(line?.dataset?.speaker || ''),
+        type: String(line?.dataset?.type || 'npc'),
+        messageClass: String(line?.dataset?.messageClass || ''),
+      });
+    });
+    this.enforceSpeakerPortraitSizing();
+  }
+
+  enforceSpeakerPortraitSizing() {
+    const log = this._el?.chatLog;
+    if (!log) {
+      return;
+    }
+    Array.from(log.querySelectorAll('.chat-line__speaker-portrait')).forEach((thumb) => {
+      thumb.style.width = '60px';
+      thumb.style.height = '60px';
+      thumb.style.minWidth = '60px';
+      thumb.style.minHeight = '60px';
+      thumb.style.maxWidth = '60px';
+      thumb.style.maxHeight = '60px';
+      thumb.style.flex = '0 0 60px';
+    });
+    Array.from(log.querySelectorAll('.chat-line__speaker-portrait-image')).forEach((image) => {
+      image.width = 60;
+      image.height = 60;
+      image.style.width = '60px';
+      image.style.height = '60px';
+      image.style.minWidth = '60px';
+      image.style.minHeight = '60px';
+      image.style.maxWidth = '60px';
+      image.style.maxHeight = '60px';
+      image.style.objectFit = 'cover';
+      image.style.display = 'block';
+      image.style.flex = '0 0 60px';
+    });
   }
 
   async loadChannels() {
@@ -1803,6 +2310,7 @@ export class ChatPanel {
     text.className = 'chat-line__message';
     text.textContent = displayMessage;
     line.appendChild(text);
+    this.decorateSpeakerPortraitLine(line, lineRecord);
     line.dataset.speaker = lineRecord.speaker || '';
     line.dataset.message = displayMessage || '';
     line.dataset.type = lineRecord.type || 'npc';
@@ -2798,6 +3306,7 @@ export class ChatPanel {
       channelKey: options.channelKey,
       replace: true,
     });
+    this.decorateSpeakerPortraitsInChatLog();
   }
 
   switchChannel(channelKey) {

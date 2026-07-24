@@ -7,7 +7,13 @@
     <h1 class="dc-character-list__title">🗄️ Archived Campaigns</h1>
     <div class="dc-sheet__nav-actions">
       {% if campaigns|length > 0 %}
-        <a href="{{ delete_all_url }}" class="dc-btn dc-btn-danger">☠️ Delete All Archived</a>
+        <button
+          type="button"
+          class="dc-btn dc-btn-danger"
+          onclick="if (confirm('Permanently delete all archived campaigns? This cannot be undone.')) { window.location.href='{{ delete_all_url|e('js') }}'; }"
+        >
+          ☠️ Delete All Archived
+        </button>
       {% endif %}
       <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Campaigns</a>
     </div>

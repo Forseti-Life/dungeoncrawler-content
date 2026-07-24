@@ -87,14 +87,6 @@ class ActorRuntimeStateStore {
       }
       $room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
 
-      $existing_id = $this->database->select('dc_campaign_actor_runtime_state', 'a')
-        ->fields('a', ['id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('actor_instance_id', $actor_instance_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-
       $field_values = [
         'entity_type' => strtolower(trim((string) ($entity['entity_type'] ?? 'unknown'))),
         'character_id' => $character_id > 0 ? $character_id : NULL,
@@ -102,21 +94,18 @@ class ActorRuntimeStateStore {
         'entity_payload' => $entity_payload,
         'updated' => $now,
       ];
-      if (is_numeric($existing_id)) {
-        $this->database->update('dc_campaign_actor_runtime_state')
-          ->fields($field_values)
-          ->condition('id', (int) $existing_id)
-          ->execute();
-      }
-      else {
-        $this->database->insert('dc_campaign_actor_runtime_state')
-          ->fields($field_values + [
-            'campaign_id' => $campaign_id,
-            'actor_instance_id' => $actor_instance_id,
-            'created' => $now,
-          ])
-          ->execute();
-      }
+      $this->database->merge('dc_campaign_actor_runtime_state')
+        ->keys([
+          'campaign_id' => $campaign_id,
+          'actor_instance_id' => $actor_instance_id,
+        ])
+        ->fields($field_values)
+        ->insertFields($field_values + [
+          'campaign_id' => $campaign_id,
+          'actor_instance_id' => $actor_instance_id,
+          'created' => $now,
+        ])
+        ->execute();
     }
   }
 

@@ -248,17 +248,31 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   /**
    * @covers ::resolveNamedRoomNpc
    */
-  public function testResolveNamedRoomNpcReturnsNullForAmbiguousTie(): void {
+  public function testResolveNamedRoomNpcFallsBackToHighestCharismaOnAmbiguousTie(): void {
     $resolved = $this->roomChatService->publicResolveNamedRoomNpc(
       [
         [
           'entity_ref' => 'marta',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 12,
+              ],
+            ],
+          ],
           'profile' => [
             'display_name' => 'Marta',
           ],
         ],
         [
           'entity_ref' => 'marla',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 16,
+              ],
+            ],
+          ],
           'profile' => [
             'display_name' => 'Marla',
           ],
@@ -267,7 +281,101 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       'Marra'
     );
 
-    $this->assertNull($resolved);
+    $this->assertNotNull($resolved);
+    $this->assertSame('marla', $resolved['entity_ref']);
+  }
+
+  /**
+   * @covers ::resolveDirectlyAddressedNpc
+   */
+  public function testResolveDirectlyAddressedNpcFallsBackToHighestCharismaWhenTargetIsUnclear(): void {
+    $resolved = $this->roomChatService->publicResolveDirectlyAddressedNpc(
+      [
+        [
+          'entity_ref' => 'quiet_guard',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 10,
+              ],
+            ],
+          ],
+          'profile' => [
+            'display_name' => 'Quiet Guard',
+          ],
+        ],
+        [
+          'entity_ref' => 'tavern_keeper',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 16,
+              ],
+            ],
+          ],
+          'profile' => [
+            'display_name' => 'Eldric',
+          ],
+        ],
+      ],
+      'Can someone answer me?'
+    );
+
+    $this->assertNotNull($resolved);
+    $this->assertSame('tavern_keeper', $resolved['entity_ref']);
+  }
+
+  /**
+   * @covers ::resolveDirectlyAddressedNpc
+   */
+  public function testResolveDirectlyAddressedNpcRandomizesAmongHighestCharismaTie(): void {
+    $resolved = $this->roomChatService->publicResolveDirectlyAddressedNpc(
+      [
+        [
+          'entity_ref' => 'bard_one',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 18,
+              ],
+            ],
+          ],
+          'profile' => [
+            'display_name' => 'Lute',
+          ],
+        ],
+        [
+          'entity_ref' => 'bard_two',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 18,
+              ],
+            ],
+          ],
+          'profile' => [
+            'display_name' => 'Lyre',
+          ],
+        ],
+        [
+          'entity_ref' => 'quiet_guard',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 8,
+              ],
+            ],
+          ],
+          'profile' => [
+            'display_name' => 'Guard',
+          ],
+        ],
+      ],
+      'Anyone know what happened?'
+    );
+
+    $this->assertNotNull($resolved);
+    $this->assertContains($resolved['entity_ref'], ['bard_one', 'bard_two']);
   }
 
   /**

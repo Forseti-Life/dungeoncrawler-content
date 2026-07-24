@@ -41,33 +41,23 @@ class RoomRuntimeStateStore {
           $room_id
         ));
       }
-      $existing_id = $this->database->select('dc_campaign_room_runtime_state', 'r')
-        ->fields('r', ['id'])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('room_id', $room_id)
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-      if (is_numeric($existing_id)) {
-        $this->database->update('dc_campaign_room_runtime_state')
-          ->fields([
-            'room_state' => $encoded,
-            'updated' => $now,
-          ])
-          ->condition('id', (int) $existing_id)
-          ->execute();
-      }
-      else {
-        $this->database->insert('dc_campaign_room_runtime_state')
-          ->fields([
-            'campaign_id' => $campaign_id,
-            'room_id' => $room_id,
-            'room_state' => $encoded,
-            'created' => $now,
-            'updated' => $now,
-          ])
-          ->execute();
-      }
+      $this->database->merge('dc_campaign_room_runtime_state')
+        ->keys([
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+        ])
+        ->fields([
+          'room_state' => $encoded,
+          'updated' => $now,
+        ])
+        ->insertFields([
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'room_state' => $encoded,
+          'created' => $now,
+          'updated' => $now,
+        ])
+        ->execute();
     }
   }
 
