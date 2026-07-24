@@ -64,6 +64,7 @@ class ConnectorDefinitionService {
     $this->validateConnectorData($data);
     $this->assertConnectorEndpointColumnsPresent('dungeoncrawler_content_connections');
     $endpoint_hexes = $this->requireConnectorEndpointHexes($data);
+    $endpoint_h3 = $this->resolveConnectorEndpointH3Indexes($data, $endpoint_hexes);
     $connection_id = $this->deriveConnectionId($data);
     $now = time();
 
@@ -75,6 +76,8 @@ class ConnectorDefinitionService {
       'from_hex_r' => $endpoint_hexes['from_hex']['r'],
       'to_hex_q' => $endpoint_hexes['to_hex']['q'],
       'to_hex_r' => $endpoint_hexes['to_hex']['r'],
+      'from_h3_index_res14' => $endpoint_h3['from_h3_index_res14'],
+      'to_h3_index_res14' => $endpoint_h3['to_h3_index_res14'],
       'direction' => (string) ($data['direction'] ?? 'bidirectional'),
       'kind' => (string) ($data['kind'] ?? 'hallway'),
       'default_state' => (string) ($data['default_state'] ?? 'open'),
@@ -372,6 +375,7 @@ class ConnectorDefinitionService {
     $this->validateConnectorData($data);
     $this->assertConnectorEndpointColumnsPresent('dc_campaign_connections');
     $endpoint_hexes = $this->requireConnectorEndpointHexes($data);
+    $endpoint_h3 = $this->resolveConnectorEndpointH3Indexes($data, $endpoint_hexes);
     $connection_id = $this->deriveConnectionId($data);
     $now = time();
 
@@ -383,6 +387,8 @@ class ConnectorDefinitionService {
       'from_hex_r' => $endpoint_hexes['from_hex']['r'],
       'to_hex_q' => $endpoint_hexes['to_hex']['q'],
       'to_hex_r' => $endpoint_hexes['to_hex']['r'],
+      'from_h3_index_res14' => $endpoint_h3['from_h3_index_res14'],
+      'to_h3_index_res14' => $endpoint_h3['to_h3_index_res14'],
       'direction' => (string) ($data['direction'] ?? 'bidirectional'),
       'kind' => (string) ($data['kind'] ?? 'hallway'),
       'state' => (string) ($data['state'] ?? $data['default_state'] ?? 'open'),
@@ -448,14 +454,22 @@ class ConnectorDefinitionService {
       ->execute()
       ->fetchAllAssoc('connection_id', \PDO::FETCH_ASSOC);
 
-    if (!empty($campaign_rows)) {
-      return array_values(array_map(
-        fn(array $row) => $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data'])),
-        $campaign_rows
-      ));
-    }
+    $canonical_rows = $this->database->select('dungeoncrawler_content_connections', 'c')
+      ->fields('c')
+      ->condition('dungeon_id', $dungeon_id)
+      ->execute()
+      ->fetchAllAssoc('connection_id', \PDO::FETCH_ASSOC);
 
-    return $this->loadCanonicalConnectorsForDungeon($dungeon_id);
+    $merged_rows = $canonical_rows;
+    foreach ($campaign_rows as $connection_id => $campaign_row) {
+      $merged_rows[$connection_id] = $campaign_row;
+    }
+    $merged_rows = $this->augmentCampaignConnectorRowsFromCampaignRoomExits($campaign_id, $dungeon_id, $merged_rows);
+
+    return array_values(array_map(
+      fn(array $row) => $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data'])),
+      $merged_rows
+    ));
   }
 
   /**
@@ -474,14 +488,278 @@ class ConnectorDefinitionService {
 
     $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
 
-    if (!empty($rows)) {
-      return array_values(array_map(
-        fn(array $row) => $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data'])),
-        $rows
-      ));
+    $campaign_rows = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $connection_id = trim((string) ($row['connection_id'] ?? ''));
+      if ($connection_id === '') {
+        continue;
+      }
+      $campaign_rows[$connection_id] = $row;
     }
 
-    return $this->loadCanonicalConnectorsForRoom($room_id);
+    $canonical_query = $this->database->select('dungeoncrawler_content_connections', 'c')
+      ->fields('c');
+    $canonical_or = $canonical_query->orConditionGroup()
+      ->condition('from_room_id', $room_id)
+      ->condition('to_room_id', $room_id);
+    $canonical_query->condition($canonical_or);
+    $canonical_rows = $canonical_query->execute()->fetchAllAssoc('connection_id', \PDO::FETCH_ASSOC);
+
+    $merged_rows = $canonical_rows;
+    foreach ($campaign_rows as $connection_id => $campaign_row) {
+      $merged_rows[$connection_id] = $campaign_row;
+    }
+    $merged_rows = $this->augmentCampaignConnectorRowsFromCampaignRoomExits($campaign_id, '', $merged_rows);
+
+    return array_values(array_map(
+      fn(array $row) => $this->hydrateEndpointHexes($this->decodeJsonFields($row, ['trap_data', 'lock_data', 'requirements_data'])),
+      $merged_rows
+    ));
+  }
+
+  /**
+   * Backfill missing connector rows from authored campaign room exits.
+   *
+   * This keeps navigation authoritative to table rows while preventing
+   * partially-copied campaign connector sets from hiding valid authored exits.
+   *
+   * @param array<string, array<string, mixed>> $rows_by_connection_id
+   *   Existing connector rows keyed by connection_id.
+   *
+   * @return array<string, array<string, mixed>>
+   *   Augmented connector rows keyed by connection_id.
+   */
+  protected function augmentCampaignConnectorRowsFromCampaignRoomExits(int $campaign_id, string $dungeon_id, array $rows_by_connection_id): array {
+    if ($campaign_id <= 0) {
+      return $rows_by_connection_id;
+    }
+
+    $room_rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'name', 'layout_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    if (!is_array($room_rows) || $room_rows === []) {
+      return $rows_by_connection_id;
+    }
+
+    $edge_keys = [];
+    $candidate_room_ids = [];
+    foreach ($rows_by_connection_id as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($row['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($row['to_room_id'] ?? ''));
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      $edge_keys[$from_room_id . '>' . $to_room_id] = TRUE;
+      $candidate_room_ids[$from_room_id] = TRUE;
+      $candidate_room_ids[$to_room_id] = TRUE;
+      $direction = strtolower(trim((string) ($row['direction'] ?? '')));
+      if ($direction !== 'one_way') {
+        $edge_keys[$to_room_id . '>' . $from_room_id] = TRUE;
+      }
+    }
+
+    $authored_exits = [];
+    $room_name_map = [];
+    foreach ($room_rows as $room_row) {
+      if (!is_array($room_row)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($room_row['room_id'] ?? ''));
+      if ($from_room_id === '') {
+        continue;
+      }
+      $from_room_name = trim((string) ($room_row['name'] ?? ''));
+      if ($from_room_name !== '' && !isset($room_name_map[$from_room_id])) {
+        $room_name_map[$from_room_id] = $from_room_name;
+      }
+      $layout_data = json_decode((string) ($room_row['layout_data'] ?? '{}'), TRUE);
+      if (!is_array($layout_data)) {
+        continue;
+      }
+      foreach ((array) ($layout_data['exits'] ?? []) as $exit) {
+        if (!is_array($exit)) {
+          continue;
+        }
+        $to_room_id = trim((string) ($exit['target_room_id'] ?? ''));
+        if ($to_room_id === '' || $to_room_id === $from_room_id) {
+          continue;
+        }
+        $authored_exits[] = [
+          'from_room_id' => $from_room_id,
+          'to_room_id' => $to_room_id,
+          'from_hex_q' => is_numeric($exit['q'] ?? NULL) ? (int) $exit['q'] : NULL,
+          'from_hex_r' => is_numeric($exit['r'] ?? NULL) ? (int) $exit['r'] : NULL,
+        ];
+        $candidate_room_ids[$from_room_id] = TRUE;
+        $candidate_room_ids[$to_room_id] = TRUE;
+      }
+    }
+    if ($authored_exits === []) {
+      return $rows_by_connection_id;
+    }
+
+    $canonical_by_edge = [];
+    if ($candidate_room_ids !== []) {
+      $missing_name_ids = array_values(array_filter(array_keys($candidate_room_ids), static function (string $room_id) use ($room_name_map): bool {
+        return !isset($room_name_map[$room_id]);
+      }));
+      if ($missing_name_ids !== []) {
+        $name_rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
+          ->fields('r', ['room_id', 'name'])
+          ->condition('room_id', $missing_name_ids, 'IN')
+          ->execute()
+          ->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ((array) $name_rows as $name_row) {
+          if (!is_array($name_row)) {
+            continue;
+          }
+          $room_id = trim((string) ($name_row['room_id'] ?? ''));
+          $room_name = trim((string) ($name_row['name'] ?? ''));
+          if ($room_id !== '' && $room_name !== '' && !isset($room_name_map[$room_id])) {
+            $room_name_map[$room_id] = $room_name;
+          }
+        }
+      }
+
+      $canonical_query = $this->database->select('dungeoncrawler_content_connections', 'c')
+        ->fields('c');
+      $canonical_query->condition(
+        $canonical_query->orConditionGroup()
+          ->condition('from_room_id', array_keys($candidate_room_ids), 'IN')
+          ->condition('to_room_id', array_keys($candidate_room_ids), 'IN')
+      );
+      $canonical_rows = $canonical_query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+      foreach ((array) $canonical_rows as $canonical_row) {
+        if (!is_array($canonical_row)) {
+          continue;
+        }
+        $from_room_id = trim((string) ($canonical_row['from_room_id'] ?? ''));
+        $to_room_id = trim((string) ($canonical_row['to_room_id'] ?? ''));
+        if ($from_room_id === '' || $to_room_id === '') {
+          continue;
+        }
+        $canonical_by_edge[$from_room_id . '>' . $to_room_id] = $canonical_row;
+      }
+    }
+
+    foreach ($authored_exits as $authored_exit) {
+      $from_room_id = (string) $authored_exit['from_room_id'];
+      $to_room_id = (string) $authored_exit['to_room_id'];
+      $edge_key = $from_room_id . '>' . $to_room_id;
+      if (isset($edge_keys[$edge_key])) {
+        continue;
+      }
+
+      $canonical_forward = $canonical_by_edge[$edge_key] ?? NULL;
+      $canonical_reverse = $canonical_by_edge[$to_room_id . '>' . $from_room_id] ?? NULL;
+
+      $template_row = NULL;
+      $reverse = FALSE;
+      if (is_array($canonical_forward)) {
+        $template_row = $canonical_forward;
+      }
+      elseif (is_array($canonical_reverse)) {
+        $reverse_direction = strtolower(trim((string) ($canonical_reverse['direction'] ?? 'bidirectional')));
+        if ($reverse_direction !== 'one_way') {
+          $template_row = $canonical_reverse;
+          $reverse = TRUE;
+        }
+      }
+
+      $from_hex_q = $authored_exit['from_hex_q'];
+      $from_hex_r = $authored_exit['from_hex_r'];
+      $to_hex_q = NULL;
+      $to_hex_r = NULL;
+      $from_h3_index_res14 = '';
+      $to_h3_index_res14 = '';
+      $direction = 'bidirectional';
+      $kind = 'hallway';
+      $state = 'open';
+      $travel_cost = 0;
+      $is_discovered = 1;
+      $source_connection_id = NULL;
+
+      if (is_array($template_row)) {
+        $direction = (string) ($template_row['direction'] ?? $direction);
+        $kind = (string) ($template_row['kind'] ?? $kind);
+        $state = (string) ($template_row['default_state'] ?? $state);
+        $travel_cost = max(0, (int) ($template_row['travel_cost'] ?? $travel_cost));
+        $is_discovered = !empty($template_row['is_discovered_default']) ? 1 : 0;
+        $source_connection_id = (string) ($template_row['connection_id'] ?? '');
+        if (!$reverse) {
+          $to_hex_q = is_numeric($template_row['to_hex_q'] ?? NULL) ? (int) $template_row['to_hex_q'] : NULL;
+          $to_hex_r = is_numeric($template_row['to_hex_r'] ?? NULL) ? (int) $template_row['to_hex_r'] : NULL;
+          $from_h3_index_res14 = strtolower(trim((string) ($template_row['from_h3_index_res14'] ?? '')));
+          $to_h3_index_res14 = strtolower(trim((string) ($template_row['to_h3_index_res14'] ?? '')));
+          if ($from_hex_q === NULL && is_numeric($template_row['from_hex_q'] ?? NULL)) {
+            $from_hex_q = (int) $template_row['from_hex_q'];
+          }
+          if ($from_hex_r === NULL && is_numeric($template_row['from_hex_r'] ?? NULL)) {
+            $from_hex_r = (int) $template_row['from_hex_r'];
+          }
+        }
+        else {
+          $to_hex_q = is_numeric($template_row['from_hex_q'] ?? NULL) ? (int) $template_row['from_hex_q'] : NULL;
+          $to_hex_r = is_numeric($template_row['from_hex_r'] ?? NULL) ? (int) $template_row['from_hex_r'] : NULL;
+          $from_h3_index_res14 = strtolower(trim((string) ($template_row['to_h3_index_res14'] ?? '')));
+          $to_h3_index_res14 = strtolower(trim((string) ($template_row['from_h3_index_res14'] ?? '')));
+          if ($from_hex_q === NULL && is_numeric($template_row['to_hex_q'] ?? NULL)) {
+            $from_hex_q = (int) $template_row['to_hex_q'];
+          }
+          if ($from_hex_r === NULL && is_numeric($template_row['to_hex_r'] ?? NULL)) {
+            $from_hex_r = (int) $template_row['to_hex_r'];
+          }
+        }
+      }
+
+      $synthesized = [
+        'connection_id' => $this->deriveConnectionId([
+          'dungeon_id' => $dungeon_id !== '' ? $dungeon_id : ($template_row['dungeon_id'] ?? 'unknown'),
+          'from_room_id' => $from_room_id,
+          'to_room_id' => $to_room_id,
+          'kind' => $kind,
+        ]),
+        'campaign_id' => $campaign_id,
+        'dungeon_id' => $dungeon_id !== '' ? $dungeon_id : (string) ($template_row['dungeon_id'] ?? ''),
+        'from_room_id' => $from_room_id,
+        'to_room_id' => $to_room_id,
+        'from_room_name' => $room_name_map[$from_room_id] ?? '',
+        'to_room_name' => $room_name_map[$to_room_id] ?? '',
+        'from_hex_q' => $from_hex_q ?? 0,
+        'from_hex_r' => $from_hex_r ?? 0,
+        'to_hex_q' => $to_hex_q ?? 0,
+        'to_hex_r' => $to_hex_r ?? 0,
+        'from_h3_index_res14' => $from_h3_index_res14,
+        'to_h3_index_res14' => $to_h3_index_res14,
+        'direction' => $direction,
+        'kind' => $kind,
+        'state' => $state,
+        'trap_data' => NULL,
+        'lock_data' => NULL,
+        'requirements_data' => NULL,
+        'description' => 'Synthesized from campaign room layout_data.exits',
+        'travel_cost' => $travel_cost,
+        'is_discovered' => $is_discovered,
+        'is_passable' => $this->computeIsPassable($state),
+        'source_connection_id' => $source_connection_id,
+      ];
+
+      $rows_by_connection_id[(string) $synthesized['connection_id']] = $synthesized;
+      $edge_keys[$edge_key] = TRUE;
+      if (strtolower($direction) !== 'one_way') {
+        $edge_keys[$to_room_id . '>' . $from_room_id] = TRUE;
+      }
+    }
+
+    return $rows_by_connection_id;
   }
 
   // ---------------------------------------------------------------------------
@@ -828,15 +1106,79 @@ class ConnectorDefinitionService {
       throw new \RuntimeException(sprintf('ConnectorDefinitionService: required table "%s" is missing.', $table_name));
     }
 
-    foreach (['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'] as $field_name) {
+    foreach (['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r', 'from_h3_index_res14', 'to_h3_index_res14'] as $field_name) {
       if (!$schema->fieldExists($table_name, $field_name)) {
         throw new \RuntimeException(sprintf(
-          'ConnectorDefinitionService: table "%s" is missing required field "%s". Run update hook 10159.',
+          'ConnectorDefinitionService: table "%s" is missing required field "%s". Run update hooks 10159 and 10177.',
           $table_name,
           $field_name
         ));
       }
     }
+  }
+
+  /**
+   * Resolve deterministic H3 endpoint indexes for one connector payload.
+   *
+   * @param array<string,mixed> $data
+   *   Connector payload.
+   * @param array{from_hex: array{q:int,r:int}, to_hex: array{q:int,r:int}} $endpoint_hexes
+   *   Resolved endpoint q/r coordinates.
+   *
+   * @return array{from_h3_index_res14:string,to_h3_index_res14:string}
+   *   Normalized endpoint H3 values.
+   */
+  protected function resolveConnectorEndpointH3Indexes(array $data, array $endpoint_hexes): array {
+    $from_h3 = strtolower(trim((string) ($data['from_h3_index_res14'] ?? $data['from_h3_index'] ?? '')));
+    $to_h3 = strtolower(trim((string) ($data['to_h3_index_res14'] ?? $data['to_h3_index'] ?? '')));
+    $from_room_id = trim((string) ($data['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($data['to_room_id'] ?? ''));
+    $dungeon_id = trim((string) ($data['dungeon_id'] ?? ''));
+
+    if ($from_h3 === '') {
+      $from_h3 = $this->lookupRoomHexH3IndexRes14($from_room_id, (int) $endpoint_hexes['from_hex']['q'], (int) $endpoint_hexes['from_hex']['r']);
+    }
+    if ($to_h3 === '') {
+      $to_h3 = $this->lookupRoomHexH3IndexRes14($to_room_id, (int) $endpoint_hexes['to_hex']['q'], (int) $endpoint_hexes['to_hex']['r']);
+    }
+    if ($from_h3 === '' || $to_h3 === '') {
+      throw new \RuntimeException(sprintf(
+        'ConnectorDefinitionService contract violation: missing endpoint H3 index for %s (%s -> %s).',
+        $dungeon_id !== '' ? $dungeon_id : 'unknown_dungeon',
+        $from_room_id !== '' ? $from_room_id : 'unknown_from',
+        $to_room_id !== '' ? $to_room_id : 'unknown_to'
+      ));
+    }
+
+    return [
+      'from_h3_index_res14' => $from_h3,
+      'to_h3_index_res14' => $to_h3,
+    ];
+  }
+
+  /**
+   * Resolve room-owned endpoint H3 index from canonical sparse room-cell authority.
+   */
+  protected function lookupRoomHexH3IndexRes14(string $room_id, int $q, int $r): string {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return '';
+    }
+    $row = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['h3_index', 'h3_resolution'])
+      ->condition('room_id', $room_id)
+      ->condition('source_q', $q)
+      ->condition('source_r', $r)
+      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->orderBy('h3_resolution', 'DESC')
+      ->orderBy('id', 'ASC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return '';
+    }
+    return strtolower(trim((string) ($row['h3_index'] ?? '')));
   }
 
 }

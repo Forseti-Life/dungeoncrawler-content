@@ -763,6 +763,13 @@ class DungeonGeneratorService {
             $hp_current = $creature['state']['hit_points']['current'] ?? $creature['state']['metadata']['stats']['currentHp'] ?? $hp_max;
             $ac = $creature['state']['metadata']['stats']['ac'] ?? 10;
             $hex = $creature['placement']['hex'] ?? [];
+            $position_h3 = strtolower(trim((string) (
+              $creature['placement']['h3_index_res14']
+              ?? $creature['placement']['h3_index']
+              ?? $hex['h3_index_res14']
+              ?? $hex['h3_index']
+              ?? ''
+            )));
 
             $this->database->merge('dc_campaign_characters')
               ->keys([
@@ -782,6 +789,7 @@ class DungeonGeneratorService {
                 'experience_points' => 0,
                 'position_q' => $hex['q'] ?? 0,
                 'position_r' => $hex['r'] ?? 0,
+                'position_h3' => $position_h3,
                 'last_room_id' => $room_id,
                 'type' => 'npc',
                 'lifecycle_state' => 'campaign_entity',

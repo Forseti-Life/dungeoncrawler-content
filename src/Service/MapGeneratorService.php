@@ -1696,8 +1696,9 @@ class MapGeneratorService {
       $normalized_layout['source'] = (string) ($layout_data['source'] ?? '');
     }
 
+    $normalized_contents = $this->normalizeCampaignRoomContentsReferences($contents_data, $room_id);
     $encoded_layout = json_encode($normalized_layout, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    $encoded_contents = json_encode($contents_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $encoded_contents = json_encode($normalized_contents, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $encoded_environment_tags = json_encode(array_values(array_map('strval', $environment_tags)), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (!is_string($encoded_layout) || !is_string($encoded_contents) || !is_string($encoded_environment_tags)) {
       throw new \RuntimeException(sprintf(
@@ -1728,6 +1729,98 @@ class MapGeneratorService {
       ])
       ->expression('created', 'COALESCE(created, :created)', [':created' => $now])
       ->execute();
+  }
+
+  /**
+   * Normalize contents_data into identifier-oriented reference records.
+   *
+   * Room authority rows must not persist embedded runtime object payloads.
+   *
+   * @param array<string,mixed> $contents_data
+   *   Raw room contents payload.
+   * @param string $room_id
+   *   Persisted room identifier for error context.
+   *
+   * @return array<string,mixed>
+   *   Identifier-oriented contents payload.
+   */
+  protected function normalizeCampaignRoomContentsReferences(array $contents_data, string $room_id): array {
+    $buckets = [
+      'npcs',
+      'items',
+      'entities',
+      'obstacles',
+      'hazards',
+      'interactables',
+      'creatures',
+      'traps',
+    ];
+    $normalized = [];
+    foreach ($buckets as $bucket) {
+      $normalized[$bucket] = [];
+      $entries = is_array($contents_data[$bucket] ?? NULL) ? $contents_data[$bucket] : [];
+      foreach ($entries as $index => $entry) {
+        if (is_string($entry)) {
+          $entry = ['content_id' => trim($entry)];
+        }
+        if (!is_array($entry)) {
+          continue;
+        }
+        $content_id = trim((string) (
+          $entry['content_id']
+          ?? $entry['entity_instance_id']
+          ?? $entry['instance_id']
+          ?? $entry['item_id']
+          ?? $entry['npc_id']
+          ?? $entry['object_id']
+          ?? ''
+        ));
+        if ($content_id === '') {
+          throw new \RuntimeException(sprintf(
+            'Campaign room persistence contract violation: room %s contents_data.%s[%d] is missing content identifier.',
+            $room_id,
+            $bucket,
+            (int) $index
+          ));
+        }
+
+        $normalized_entry = ['content_id' => $content_id];
+        foreach ([
+          'name',
+          'label',
+          'role',
+          'description',
+          'quest_association',
+          'team',
+          'faction',
+          'kind',
+          'source',
+        ] as $scalar_key) {
+          if (!array_key_exists($scalar_key, $entry)) {
+            continue;
+          }
+          $value = trim((string) $entry[$scalar_key]);
+          if ($value !== '') {
+            $normalized_entry[$scalar_key] = $value;
+          }
+        }
+        if (array_key_exists('quantity', $entry) && is_numeric($entry['quantity'])) {
+          $normalized_entry['quantity'] = max(1, (int) $entry['quantity']);
+        }
+        if (array_key_exists('tags', $entry) && is_array($entry['tags'])) {
+          $tags = array_values(array_filter(array_map(
+            static fn($tag): string => trim((string) $tag),
+            $entry['tags']
+          ), static fn(string $tag): bool => $tag !== ''));
+          if ($tags !== []) {
+            $normalized_entry['tags'] = $tags;
+          }
+        }
+        $normalized[$bucket][] = $normalized_entry;
+      }
+    }
+
+    return $normalized;
   }
 
   /**
@@ -2228,6 +2321,11 @@ class MapGeneratorService {
             'experience_points' => 0,
             'position_q'    => 0,
             'position_r'    => 0,
+            'position_h3'   => strtolower(trim((string) (
+              $npc['position']['h3_index_res14']
+              ?? $npc['position']['h3_index']
+              ?? ''
+            ))),
             'last_room_id'  => $room_id,
             'version'       => 0,
           ])

@@ -84,6 +84,9 @@
  * - 10159: Add explicit connector endpoint hex columns and canonical backfill
  * - 10167: Backfill fixed H3 hex indexes/lat-lng into starter and Absalom room layouts
  * - 10168: Backfill fixed H3 hex indexes/lat-lng into every canonical room layout row
+ * - 10177: Add and backfill H3 endpoint authority columns for actors/connectors
+ * - 10179: Repair connector-linked sparse res14 room coverage and enforce endpoint H3 parity
+ * - 10180: Add campaign H3 projection status/readiness ledger tables
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -1117,6 +1120,249 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_campaign_runtime_state'] = [
+    'description' => 'Campaign-scoped runtime phase/turn state slice.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Campaign ID.',
+      ],
+      'game_state' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => TRUE,
+        'description' => 'Runtime game_state JSON payload.',
+      ],
+      'state_version' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 1,
+        'description' => 'Cached state_version from game_state.',
+      ],
+      'active_room_id' => [
+        'type' => 'varchar',
+        'length' => 100,
+        'not null' => FALSE,
+        'description' => 'Cached active room id.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when created.',
+      ],
+      'updated' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when updated.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_runtime_state' => ['campaign_id'],
+    ],
+    'indexes' => [
+      'state_version' => ['state_version'],
+      'active_room_id' => ['active_room_id'],
+    ],
+  ];
+
+  $schema['dc_campaign_actor_runtime_state'] = [
+    'description' => 'Campaign-scoped actor runtime state slice.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Campaign ID.',
+      ],
+      'actor_instance_id' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'description' => 'Runtime actor instance identifier.',
+      ],
+      'entity_type' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'unknown',
+        'description' => 'Runtime entity type.',
+      ],
+      'character_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'description' => 'Optional campaign character row id.',
+      ],
+      'room_id' => [
+        'type' => 'varchar',
+        'length' => 100,
+        'not null' => FALSE,
+        'description' => 'Current room placement id.',
+      ],
+      'entity_payload' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => TRUE,
+        'description' => 'Serialized runtime actor payload JSON.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when created.',
+      ],
+      'updated' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when updated.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_actor_runtime_state' => ['campaign_id', 'actor_instance_id'],
+    ],
+    'indexes' => [
+      'campaign_room' => ['campaign_id', 'room_id'],
+      'campaign_character' => ['campaign_id', 'character_id'],
+      'entity_type' => ['entity_type'],
+    ],
+  ];
+
+  $schema['dc_campaign_room_runtime_state'] = [
+    'description' => 'Campaign-scoped room runtime state slice.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Campaign ID.',
+      ],
+      'room_id' => [
+        'type' => 'varchar',
+        'length' => 100,
+        'not null' => TRUE,
+        'description' => 'Room identifier.',
+      ],
+      'room_state' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => TRUE,
+        'description' => 'Serialized room runtime state JSON.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when created.',
+      ],
+      'updated' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when updated.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_room_runtime_state' => ['campaign_id', 'room_id'],
+    ],
+    'indexes' => [
+      'campaign_id' => ['campaign_id'],
+      'room_id' => ['room_id'],
+    ],
+  ];
+
+  $schema['dc_campaign_connection_runtime_state'] = [
+    'description' => 'Campaign-scoped connection runtime state slice.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Campaign ID.',
+      ],
+      'connection_id' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'description' => 'Connection identifier.',
+      ],
+      'from_room_id' => [
+        'type' => 'varchar',
+        'length' => 100,
+        'not null' => FALSE,
+        'description' => 'Source room id.',
+      ],
+      'to_room_id' => [
+        'type' => 'varchar',
+        'length' => 100,
+        'not null' => FALSE,
+        'description' => 'Destination room id.',
+      ],
+      'connection_state' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => TRUE,
+        'description' => 'Serialized connection runtime state JSON.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when created.',
+      ],
+      'updated' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when updated.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_connection_runtime_state' => ['campaign_id', 'connection_id'],
+    ],
+    'indexes' => [
+      'campaign_room_pair' => ['campaign_id', 'from_room_id', 'to_room_id'],
+      'connection_id' => ['connection_id'],
+    ],
+  ];
+
   $schema['dc_campaign_connections'] = [
     'description' => 'Campaign-scoped connector instances between rooms.',
     'fields' => [
@@ -1130,6 +1376,8 @@ function dungeoncrawler_content_schema() {
       'from_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex r coordinate.'],
       'to_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex q coordinate.'],
       'to_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex r coordinate.'],
+      'from_h3_index_res14' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Source endpoint H3 index at resolution 14.'],
+      'to_h3_index_res14' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Target endpoint H3 index at resolution 14.'],
       'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional', 'description' => 'bidirectional or one_way.'],
       'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway', 'description' => 'Connector kind: hallway, door, archway, hatch, portcullis, secret_door, magical_barrier, collapsed, bridge, one_way_drop.'],
       'state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Runtime state: open, closed, locked, barred, trapped, triggered, destroyed.'],
@@ -1154,6 +1402,8 @@ function dungeoncrawler_content_schema() {
       'from_room' => ['from_room_id'],
       'to_room' => ['to_room_id'],
       'source_connection_id' => ['source_connection_id'],
+      'from_h3_index_res14' => ['from_h3_index_res14'],
+      'to_h3_index_res14' => ['to_h3_index_res14'],
     ],
   ];
 
@@ -1428,6 +1678,21 @@ function dungeoncrawler_content_schema() {
         'default' => 0,
         'description' => 'Hot column: current hex r position.',
       ],
+      'position_h3' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Authoritative actor placement H3 index at resolution 14.',
+      ],
+      'facing' => [
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Actor facing direction aligned to H3 hex edge directions (0-5).',
+      ],
       'last_room_id' => [
         'type' => 'varchar',
         'length' => 100,
@@ -1580,6 +1845,8 @@ function dungeoncrawler_content_schema() {
       'lifecycle_state' => ['lifecycle_state'],
       'location_type' => ['location_type'],
       'location_ref' => ['location_ref'],
+      'position_h3' => ['position_h3'],
+      'facing' => ['facing'],
     ],
   ];
 
@@ -2831,6 +3098,66 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_campaign_h3_projection_status'] = [
+    'description' => 'Versioned campaign H3 projection lifecycle status per dungeon.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Campaign identifier.'],
+      'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'default' => '', 'description' => 'Campaign dungeon identifier.'],
+      'canonical_graph_version' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => '', 'description' => 'Canonical graph version hash/string.'],
+      'campaign_graph_version' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => '', 'description' => 'Campaign graph version hash/string.'],
+      'status' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'pending', 'description' => 'pending, in_progress, complete, failed.'],
+      'critical_scope_complete' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 0, 'description' => 'Whether launch-critical scope is complete.'],
+      'full_scope_complete' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 0, 'description' => 'Whether full-dungeon scope is complete.'],
+      'active_job_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'description' => 'Current worker/job identifier.'],
+      'failed_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => FALSE, 'description' => 'Room id associated with latest failure.'],
+      'last_error' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Latest error text.'],
+      'last_started' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'description' => 'Last projection start timestamp.'],
+      'last_completed' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'description' => 'Last projection completion timestamp.'],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_dungeon_graph_versions' => ['campaign_id', 'dungeon_id', 'canonical_graph_version', 'campaign_graph_version'],
+    ],
+    'indexes' => [
+      'campaign_dungeon' => ['campaign_id', 'dungeon_id'],
+      'status' => ['status'],
+      'critical_scope_complete' => ['critical_scope_complete'],
+      'full_scope_complete' => ['full_scope_complete'],
+    ],
+  ];
+
+  $schema['dc_campaign_h3_projection_room_status'] = [
+    'description' => 'Room-level launch-slice readiness for campaign H3 projection.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Primary key.'],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Campaign identifier.'],
+      'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'default' => '', 'description' => 'Campaign dungeon identifier.'],
+      'room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE, 'default' => '', 'description' => 'Room identifier.'],
+      'scope' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'launch_slice', 'description' => 'Readiness scope, e.g. launch_slice.'],
+      'canonical_graph_version' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => '', 'description' => 'Canonical graph version hash/string.'],
+      'campaign_graph_version' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => '', 'description' => 'Campaign graph version hash/string.'],
+      'status' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'pending', 'description' => 'pending, in_progress, complete, failed.'],
+      'ready' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 0, 'description' => 'Whether room is ready for requested scope.'],
+      'ready_at' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'description' => 'Timestamp when room reached ready=1.'],
+      'last_error' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE, 'description' => 'Latest room-level error text.'],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Created timestamp.'],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Updated timestamp.'],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_room_scope_graph_versions' => ['campaign_id', 'dungeon_id', 'room_id', 'scope', 'canonical_graph_version', 'campaign_graph_version'],
+    ],
+    'indexes' => [
+      'campaign_dungeon_scope' => ['campaign_id', 'dungeon_id', 'scope'],
+      'room_id' => ['room_id'],
+      'status' => ['status'],
+      'ready' => ['ready'],
+    ],
+  ];
+
   $schema['dungeoncrawler_content_connections'] = [
     'description' => 'Canonical connector definitions between dungeon rooms.',
     'fields' => [
@@ -2843,6 +3170,8 @@ function dungeoncrawler_content_schema() {
       'from_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Source endpoint hex r coordinate.'],
       'to_hex_q' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex q coordinate.'],
       'to_hex_r' => ['type' => 'int', 'not null' => FALSE, 'description' => 'Target endpoint hex r coordinate.'],
+      'from_h3_index_res14' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Source endpoint H3 index at resolution 14.'],
+      'to_h3_index_res14' => ['type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'description' => 'Target endpoint H3 index at resolution 14.'],
       'direction' => ['type' => 'varchar', 'length' => 16, 'not null' => TRUE, 'default' => 'bidirectional', 'description' => 'bidirectional or one_way.'],
       'kind' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'hallway', 'description' => 'Connector kind: hallway, door, archway, hatch, portcullis, secret_door, magical_barrier, collapsed, bridge, one_way_drop.'],
       'default_state' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'open', 'description' => 'Default state for new campaign instances: open, closed, locked, barred, trapped, destroyed.'],
@@ -2863,6 +3192,8 @@ function dungeoncrawler_content_schema() {
       'dungeon_id' => ['dungeon_id'],
       'from_room_id' => ['from_room_id'],
       'to_room_id' => ['to_room_id'],
+      'from_h3_index_res14' => ['from_h3_index_res14'],
+      'to_h3_index_res14' => ['to_h3_index_res14'],
     ],
   ];
 
@@ -26305,6 +26636,1506 @@ function dungeoncrawler_content_update_10168() {
     'Normalized fixed H3 payloads for @rooms canonical rooms (@hexes hex rows updated).',
     ['@rooms' => $updated_rooms, '@hexes' => $updated_hexes]
   );
+}
+
+/**
+ * Create campaign runtime state slice table for game_state persistence.
+ */
+function dungeoncrawler_content_update_10169() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if ($schema_handler->tableExists('dc_campaign_runtime_state')) {
+    return t('Skipped runtime state table creation: dc_campaign_runtime_state already exists.');
+  }
+
+  $schema = dungeoncrawler_content_schema();
+  if (!isset($schema['dc_campaign_runtime_state'])) {
+    throw new \RuntimeException('Runtime state table contract violation: dc_campaign_runtime_state schema definition is missing.');
+  }
+  $schema_handler->createTable('dc_campaign_runtime_state', $schema['dc_campaign_runtime_state']);
+
+  return t('Created campaign runtime state table dc_campaign_runtime_state.');
+}
+
+/**
+ * Backfill campaign runtime state rows from existing dungeon snapshots.
+ */
+function dungeoncrawler_content_update_10170() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if (
+    !$schema_handler->tableExists('dc_campaign_runtime_state')
+    || !$schema_handler->tableExists('dc_campaign_dungeons')
+  ) {
+    return t('Skipped runtime state backfill: required tables are missing.');
+  }
+
+  $rows = $database->select('dc_campaign_dungeons', 'd')
+    ->fields('d', ['campaign_id', 'dungeon_id', 'dungeon_data', 'updated', 'created'])
+    ->orderBy('campaign_id', 'ASC')
+    ->orderBy('updated', 'DESC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  $latest_by_campaign = [];
+  foreach ($rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $campaign_id = (int) ($row['campaign_id'] ?? 0);
+    if ($campaign_id <= 0 || isset($latest_by_campaign[$campaign_id])) {
+      continue;
+    }
+    $latest_by_campaign[$campaign_id] = $row;
+  }
+
+  $backfilled = 0;
+  $skipped = 0;
+  foreach ($latest_by_campaign as $campaign_id => $row) {
+    $encoded_payload = (string) ($row['dungeon_data'] ?? '');
+    $payload = json_decode($encoded_payload, TRUE);
+    if (!is_array($payload)) {
+      $skipped++;
+      continue;
+    }
+    $game_state = is_array($payload['game_state'] ?? NULL) ? $payload['game_state'] : NULL;
+    if (!is_array($game_state)) {
+      $skipped++;
+      continue;
+    }
+
+    $existing = $database->select('dc_campaign_runtime_state', 's')
+      ->fields('s', ['campaign_id'])
+      ->condition('campaign_id', (int) $campaign_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (is_numeric($existing)) {
+      $skipped++;
+      continue;
+    }
+
+    $encoded_state = json_encode($game_state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded_state) || $encoded_state === '') {
+      $skipped++;
+      continue;
+    }
+
+    $state_version = max(1, (int) ($game_state['state_version'] ?? 1));
+    $active_room_id = trim((string) ($payload['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? '')));
+    $updated = max(
+      (int) ($row['updated'] ?? 0),
+      (int) ($row['created'] ?? 0),
+      time()
+    );
+
+    $database->insert('dc_campaign_runtime_state')
+      ->fields([
+        'campaign_id' => (int) $campaign_id,
+        'game_state' => $encoded_state,
+        'state_version' => $state_version,
+        'active_room_id' => $active_room_id !== '' ? $active_room_id : NULL,
+        'created' => (int) ($row['created'] ?? $updated),
+        'updated' => $updated,
+      ])
+      ->execute();
+    $backfilled++;
+  }
+
+  return t(
+    'Backfilled campaign runtime state rows: @backfilled (skipped: @skipped).',
+    [
+      '@backfilled' => $backfilled,
+      '@skipped' => $skipped,
+    ]
+  );
+}
+
+/**
+ * Create campaign actor runtime state slice table.
+ */
+function dungeoncrawler_content_update_10171() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if ($schema_handler->tableExists('dc_campaign_actor_runtime_state')) {
+    return t('Skipped actor runtime state table creation: dc_campaign_actor_runtime_state already exists.');
+  }
+
+  $schema = dungeoncrawler_content_schema();
+  if (!isset($schema['dc_campaign_actor_runtime_state'])) {
+    throw new \RuntimeException('Actor runtime state table contract violation: dc_campaign_actor_runtime_state schema definition is missing.');
+  }
+  $schema_handler->createTable('dc_campaign_actor_runtime_state', $schema['dc_campaign_actor_runtime_state']);
+
+  return t('Created campaign actor runtime state table dc_campaign_actor_runtime_state.');
+}
+
+/**
+ * Backfill actor runtime state rows from existing dungeon entity payloads.
+ */
+function dungeoncrawler_content_update_10172() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if (
+    !$schema_handler->tableExists('dc_campaign_actor_runtime_state')
+    || !$schema_handler->tableExists('dc_campaign_dungeons')
+  ) {
+    return t('Skipped actor runtime state backfill: required tables are missing.');
+  }
+
+  $rows = $database->select('dc_campaign_dungeons', 'd')
+    ->fields('d', ['campaign_id', 'dungeon_data', 'updated'])
+    ->orderBy('campaign_id', 'ASC')
+    ->orderBy('updated', 'DESC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  $latest_by_campaign = [];
+  foreach ($rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $campaign_id = (int) ($row['campaign_id'] ?? 0);
+    if ($campaign_id <= 0 || isset($latest_by_campaign[$campaign_id])) {
+      continue;
+    }
+    $latest_by_campaign[$campaign_id] = $row;
+  }
+
+  $now = time();
+  $inserted = 0;
+  $skipped = 0;
+  foreach ($latest_by_campaign as $campaign_id => $row) {
+    $payload = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
+    if (!is_array($payload)) {
+      $skipped++;
+      continue;
+    }
+    $entities = is_array($payload['entities'] ?? NULL) ? $payload['entities'] : [];
+    if ($entities === []) {
+      $skipped++;
+      continue;
+    }
+    foreach ($entities as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $actor_instance_id = trim((string) (
+        $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? ''
+      ));
+      if ($actor_instance_id === '') {
+        continue;
+      }
+      $entity_payload = json_encode($entity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      if (!is_string($entity_payload) || $entity_payload === '') {
+        continue;
+      }
+      $character_id = 0;
+      if (is_numeric($entity['character_id'] ?? NULL)) {
+        $character_id = (int) $entity['character_id'];
+      }
+      elseif (is_numeric($entity['source_id'] ?? NULL)) {
+        $character_id = (int) $entity['source_id'];
+      }
+      $room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+
+      $existing_id = $database->select('dc_campaign_actor_runtime_state', 'a')
+        ->fields('a', ['id'])
+        ->condition('campaign_id', (int) $campaign_id)
+        ->condition('actor_instance_id', $actor_instance_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+
+      $field_values = [
+        'entity_type' => strtolower(trim((string) ($entity['entity_type'] ?? 'unknown'))),
+        'character_id' => $character_id > 0 ? $character_id : NULL,
+        'room_id' => $room_id !== '' ? $room_id : NULL,
+        'entity_payload' => $entity_payload,
+        'updated' => max($now, (int) ($row['updated'] ?? 0)),
+      ];
+      if (is_numeric($existing_id)) {
+        $database->update('dc_campaign_actor_runtime_state')
+          ->fields($field_values)
+          ->condition('id', (int) $existing_id)
+          ->execute();
+      }
+      else {
+        $database->insert('dc_campaign_actor_runtime_state')
+          ->fields($field_values + [
+            'campaign_id' => (int) $campaign_id,
+            'actor_instance_id' => $actor_instance_id,
+            'created' => $now,
+          ])
+          ->execute();
+      }
+      $inserted++;
+    }
+  }
+
+  return t(
+    'Backfilled actor runtime state rows: @inserted (campaigns skipped: @skipped).',
+    [
+      '@inserted' => $inserted,
+      '@skipped' => $skipped,
+    ]
+  );
+}
+
+/**
+ * Create room/connection runtime state slice tables.
+ */
+function dungeoncrawler_content_update_10173() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+
+  $created = [];
+  foreach (['dc_campaign_room_runtime_state', 'dc_campaign_connection_runtime_state'] as $table) {
+    if ($schema_handler->tableExists($table)) {
+      continue;
+    }
+    if (!isset($schema[$table])) {
+      throw new \RuntimeException(sprintf('Runtime state table contract violation: %s schema definition is missing.', $table));
+    }
+    $schema_handler->createTable($table, $schema[$table]);
+    $created[] = $table;
+  }
+
+  return $created === []
+    ? t('Skipped room/connection runtime state table creation: tables already exist.')
+    : t('Created runtime state tables: @tables.', ['@tables' => implode(', ', $created)]);
+}
+
+/**
+ * Backfill room runtime state rows from latest campaign dungeon payloads.
+ */
+function dungeoncrawler_content_update_10174() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if (
+    !$schema_handler->tableExists('dc_campaign_room_runtime_state')
+    || !$schema_handler->tableExists('dc_campaign_dungeons')
+  ) {
+    return t('Skipped room runtime state backfill: required tables are missing.');
+  }
+
+  $rows = $database->select('dc_campaign_dungeons', 'd')
+    ->fields('d', ['campaign_id', 'dungeon_data', 'updated'])
+    ->orderBy('campaign_id', 'ASC')
+    ->orderBy('updated', 'DESC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  $latest_by_campaign = [];
+  foreach ($rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $campaign_id = (int) ($row['campaign_id'] ?? 0);
+    if ($campaign_id <= 0 || isset($latest_by_campaign[$campaign_id])) {
+      continue;
+    }
+    $latest_by_campaign[$campaign_id] = $row;
+  }
+
+  $now = time();
+  $upserts = 0;
+  foreach ($latest_by_campaign as $campaign_id => $row) {
+    $payload = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
+    if (!is_array($payload)) {
+      continue;
+    }
+    foreach ((array) ($payload['rooms'] ?? []) as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id === '') {
+        continue;
+      }
+      $state = is_array($room['state'] ?? NULL) ? $room['state'] : [];
+      $encoded = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      if (!is_string($encoded) || $encoded === '') {
+        continue;
+      }
+      $existing_id = $database->select('dc_campaign_room_runtime_state', 'r')
+        ->fields('r', ['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('room_id', $room_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if (is_numeric($existing_id)) {
+        $database->update('dc_campaign_room_runtime_state')
+          ->fields([
+            'room_state' => $encoded,
+            'updated' => max($now, (int) ($row['updated'] ?? 0)),
+          ])
+          ->condition('id', (int) $existing_id)
+          ->execute();
+      }
+      else {
+        $database->insert('dc_campaign_room_runtime_state')
+          ->fields([
+            'campaign_id' => $campaign_id,
+            'room_id' => $room_id,
+            'room_state' => $encoded,
+            'created' => $now,
+            'updated' => max($now, (int) ($row['updated'] ?? 0)),
+          ])
+          ->execute();
+      }
+      $upserts++;
+    }
+  }
+
+  return t('Backfilled room runtime state rows: @upserts.', ['@upserts' => $upserts]);
+}
+
+/**
+ * Backfill connection runtime state rows from campaign connection authority.
+ */
+function dungeoncrawler_content_update_10175() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if (
+    !$schema_handler->tableExists('dc_campaign_connection_runtime_state')
+    || !$schema_handler->tableExists('dc_campaign_connections')
+  ) {
+    return t('Skipped connection runtime state backfill: required tables are missing.');
+  }
+
+  $rows = $database->select('dc_campaign_connections', 'c')
+    ->fields('c', [
+      'campaign_id',
+      'connection_id',
+      'from_room_id',
+      'to_room_id',
+      'state',
+      'is_discovered',
+      'is_passable',
+      'updated',
+    ])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  $now = time();
+  $upserts = 0;
+  foreach ($rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $campaign_id = (int) ($row['campaign_id'] ?? 0);
+    $connection_id = trim((string) ($row['connection_id'] ?? ''));
+    if ($campaign_id <= 0 || $connection_id === '') {
+      continue;
+    }
+    $encoded = json_encode([
+      'state' => trim((string) ($row['state'] ?? 'open')) ?: 'open',
+      'is_discovered' => !empty($row['is_discovered']),
+      'is_passable' => !empty($row['is_passable']),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded) || $encoded === '') {
+      continue;
+    }
+    $existing_id = $database->select('dc_campaign_connection_runtime_state', 'r')
+      ->fields('r', ['id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('connection_id', $connection_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    $field_values = [
+      'from_room_id' => trim((string) ($row['from_room_id'] ?? '')) ?: NULL,
+      'to_room_id' => trim((string) ($row['to_room_id'] ?? '')) ?: NULL,
+      'connection_state' => $encoded,
+      'updated' => max($now, (int) ($row['updated'] ?? 0)),
+    ];
+    if (is_numeric($existing_id)) {
+      $database->update('dc_campaign_connection_runtime_state')
+        ->fields($field_values)
+        ->condition('id', (int) $existing_id)
+        ->execute();
+    }
+    else {
+      $database->insert('dc_campaign_connection_runtime_state')
+        ->fields($field_values + [
+          'campaign_id' => $campaign_id,
+          'connection_id' => $connection_id,
+          'created' => $now,
+        ])
+        ->execute();
+    }
+    $upserts++;
+  }
+
+  return t('Backfilled connection runtime state rows: @upserts.', ['@upserts' => $upserts]);
+}
+
+/**
+ * Repair canonical room interactables to include content identifiers.
+ */
+function dungeoncrawler_content_update_10176() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  if (!$schema_handler->tableExists('dungeoncrawler_content_rooms')) {
+    throw new \RuntimeException('Required table dungeoncrawler_content_rooms is missing for Administrative Palace interactables repair.');
+  }
+
+  $normalize_label = static function (string $value): string {
+    $normalized = strtolower(trim($value));
+    if ($normalized === '') {
+      return '';
+    }
+    $normalized = preg_replace('/[^a-z0-9]+/', '_', $normalized);
+    if (!is_string($normalized)) {
+      return '';
+    }
+    return trim($normalized, '_');
+  };
+
+  $rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id', 'contents_data'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  $total_repaired = 0;
+  $updated_rooms = 0;
+  foreach ($rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $room_id = trim((string) ($row['room_id'] ?? ''));
+    if ($room_id === '') {
+      continue;
+    }
+    $contents_data = json_decode((string) ($row['contents_data'] ?? ''), TRUE);
+    if (!is_array($contents_data)) {
+      throw new \RuntimeException(sprintf('Canonical room %s has invalid contents_data JSON.', $room_id));
+    }
+
+    $interactables = is_array($contents_data['interactables'] ?? NULL) ? $contents_data['interactables'] : [];
+    if ($interactables === []) {
+      continue;
+    }
+
+    $item_content_by_label = [];
+    foreach ((array) ($contents_data['items'] ?? []) as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $item_content_id = trim((string) ($item['content_id'] ?? $item['item_id'] ?? ''));
+      if ($item_content_id === '') {
+        continue;
+      }
+      foreach (['name', 'label', 'content_id', 'item_id'] as $label_key) {
+        $normalized_label = $normalize_label((string) ($item[$label_key] ?? ''));
+        if ($normalized_label === '' || array_key_exists($normalized_label, $item_content_by_label)) {
+          continue;
+        }
+        $item_content_by_label[$normalized_label] = $item_content_id;
+      }
+    }
+
+    $room_repaired = 0;
+    $used_content_ids = [];
+    foreach ($interactables as $index => $interactable) {
+      if (is_string($interactable)) {
+        $interactable = ['label' => $interactable];
+      }
+      if (!is_array($interactable)) {
+        throw new \RuntimeException(sprintf(
+          'Canonical room %s interactables[%d] must be an array or string label.',
+          $room_id,
+          (int) $index
+        ));
+      }
+      $content_id = trim((string) (
+        $interactable['content_id']
+        ?? $interactable['object_id']
+        ?? $interactable['entity_instance_id']
+        ?? $interactable['instance_id']
+        ?? ''
+      ));
+      if ($content_id !== '') {
+        $used_content_ids[$content_id] = TRUE;
+        $interactables[$index] = $interactable;
+        continue;
+      }
+
+      $normalized_label = $normalize_label((string) ($interactable['label'] ?? $interactable['name'] ?? ''));
+      if ($normalized_label !== '' && array_key_exists($normalized_label, $item_content_by_label)) {
+        $content_id = $item_content_by_label[$normalized_label];
+      }
+      elseif ($normalized_label !== '') {
+        $base_content_id = sprintf('interactable_%s_%s', $normalize_label($room_id), $normalized_label);
+        if ($base_content_id === 'interactable__') {
+          throw new \RuntimeException(sprintf(
+            'Canonical room %s interactables[%d] generated an empty synthetic content_id.',
+            $room_id,
+            (int) $index
+          ));
+        }
+        $content_id = $base_content_id;
+        $suffix = 2;
+        while (array_key_exists($content_id, $used_content_ids)) {
+          $content_id = $base_content_id . '_' . $suffix;
+          $suffix++;
+        }
+      }
+      else {
+        throw new \RuntimeException(sprintf(
+          'Canonical room %s interactables[%d] is missing both content_id and label/name.',
+          $room_id,
+          (int) $index
+        ));
+      }
+
+      $interactable['content_id'] = $content_id;
+      $used_content_ids[$content_id] = TRUE;
+      $interactables[$index] = $interactable;
+      $room_repaired++;
+    }
+
+    if ($room_repaired === 0) {
+      continue;
+    }
+
+    $contents_data['interactables'] = array_values($interactables);
+    $encoded_contents_data = json_encode($contents_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded_contents_data)) {
+      throw new \RuntimeException(sprintf('Canonical room %s interactables repair failed to encode contents_data JSON.', $room_id));
+    }
+
+    $database->update('dungeoncrawler_content_rooms')
+      ->fields([
+        'contents_data' => $encoded_contents_data,
+        'updated' => \Drupal::time()->getRequestTime(),
+      ])
+      ->condition('room_id', $room_id)
+      ->execute();
+
+    $updated_rooms++;
+    $total_repaired += $room_repaired;
+  }
+
+  return t('Repaired @entries canonical room interactables across @rooms room rows.', [
+    '@entries' => (string) $total_repaired,
+    '@rooms' => (string) $updated_rooms,
+  ]);
+}
+
+/**
+ * Add and backfill H3 endpoint authority columns for actors and connectors.
+ */
+function dungeoncrawler_content_update_10177() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $messages = [];
+
+  if ($schema_handler->tableExists('dc_campaign_characters')) {
+    if (!$schema_handler->fieldExists('dc_campaign_characters', 'position_h3')) {
+      $schema_handler->addField('dc_campaign_characters', 'position_h3', $schema['dc_campaign_characters']['fields']['position_h3']);
+      $messages[] = 'Added dc_campaign_characters.position_h3.';
+    }
+    if (!$schema_handler->indexExists('dc_campaign_characters', 'position_h3')) {
+      $schema_handler->addIndex('dc_campaign_characters', 'position_h3', ['position_h3'], $schema['dc_campaign_characters']);
+      $messages[] = 'Added index dc_campaign_characters.position_h3.';
+    }
+  }
+
+  $connector_h3_fields = ['from_h3_index_res14', 'to_h3_index_res14'];
+  foreach (['dungeoncrawler_content_connections', 'dc_campaign_connections'] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      continue;
+    }
+    foreach ($connector_h3_fields as $field_name) {
+      if ($schema_handler->fieldExists($table_name, $field_name)) {
+        continue;
+      }
+      $schema_handler->addField($table_name, $field_name, $schema[$table_name]['fields'][$field_name]);
+      $messages[] = sprintf('Added %s.%s.', $table_name, $field_name);
+    }
+    foreach ($connector_h3_fields as $index_name) {
+      if ($schema_handler->indexExists($table_name, $index_name)) {
+        continue;
+      }
+      $schema_handler->addIndex($table_name, $index_name, [$index_name], $schema[$table_name]);
+      $messages[] = sprintf('Added index %s.%s.', $table_name, $index_name);
+    }
+  }
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_h3_room_cells')) {
+    throw new \RuntimeException('H3 actor/connector backfill requires dungeoncrawler_content_h3_room_cells table.');
+  }
+
+  $canonical_h3_by_room_qr = [];
+  $canonical_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+    ->fields('c', ['room_id', 'h3_resolution', 'source_q', 'source_r', 'h3_index'])
+    ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  foreach ($canonical_rows as $row) {
+    if (!is_array($row)) {
+      continue;
+    }
+    $room_id = trim((string) ($row['room_id'] ?? ''));
+    $h3_index = strtolower(trim((string) ($row['h3_index'] ?? '')));
+    if ($room_id === '' || $h3_index === '' || !is_numeric($row['source_q'] ?? NULL) || !is_numeric($row['source_r'] ?? NULL)) {
+      continue;
+    }
+    $key = $room_id . ':' . (int) $row['source_q'] . ':' . (int) $row['source_r'];
+    $resolution = (int) ($row['h3_resolution'] ?? 0);
+    $existing = $canonical_h3_by_room_qr[$key] ?? NULL;
+    if (!is_array($existing) || ((int) ($existing['resolution'] ?? 0)) < $resolution) {
+      $canonical_h3_by_room_qr[$key] = [
+        'h3_index' => $h3_index,
+        'resolution' => $resolution,
+      ];
+    }
+  }
+
+  $actor_updates = 0;
+  if ($schema_handler->tableExists('dc_campaign_characters')) {
+    $actor_rows = $database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'position_q', 'position_r', 'position_h3', 'location_ref', 'last_room_id'])
+      ->condition('is_active', 1)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    foreach ($actor_rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      if (!is_numeric($row['position_q'] ?? NULL) || !is_numeric($row['position_r'] ?? NULL)) {
+        continue;
+      }
+      $current_h3 = strtolower(trim((string) ($row['position_h3'] ?? '')));
+      if ($current_h3 !== '') {
+        continue;
+      }
+      $room_id = trim((string) ($row['location_ref'] ?? ''));
+      if ($room_id === '') {
+        $room_id = trim((string) ($row['last_room_id'] ?? ''));
+      }
+      if ($room_id === '') {
+        continue;
+      }
+      $key = $room_id . ':' . (int) $row['position_q'] . ':' . (int) $row['position_r'];
+      $resolved = $canonical_h3_by_room_qr[$key]['h3_index'] ?? '';
+      if (!is_string($resolved) || $resolved === '') {
+        continue;
+      }
+      $database->update('dc_campaign_characters')
+        ->fields(['position_h3' => $resolved])
+        ->condition('id', (int) $row['id'])
+        ->execute();
+      $actor_updates++;
+    }
+  }
+  if ($actor_updates > 0) {
+    $messages[] = sprintf('Backfilled %d actor position_h3 values.', $actor_updates);
+  }
+
+  $connector_updates = 0;
+  foreach (['dungeoncrawler_content_connections', 'dc_campaign_connections'] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      continue;
+    }
+    $rows = $database->select($table_name, 'c')
+      ->fields('c', ['id', 'from_room_id', 'to_room_id', 'from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r', 'from_h3_index_res14', 'to_h3_index_res14'])
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $from_h3 = strtolower(trim((string) ($row['from_h3_index_res14'] ?? '')));
+      $to_h3 = strtolower(trim((string) ($row['to_h3_index_res14'] ?? '')));
+      if ($from_h3 !== '' && $to_h3 !== '') {
+        continue;
+      }
+      $from_room_id = trim((string) ($row['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($row['to_room_id'] ?? ''));
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      $fields = [];
+      if ($from_h3 === '' && is_numeric($row['from_hex_q'] ?? NULL) && is_numeric($row['from_hex_r'] ?? NULL)) {
+        $from_key = $from_room_id . ':' . (int) $row['from_hex_q'] . ':' . (int) $row['from_hex_r'];
+        $resolved_from_h3 = strtolower(trim((string) ($canonical_h3_by_room_qr[$from_key]['h3_index'] ?? '')));
+        if ($resolved_from_h3 !== '') {
+          $fields['from_h3_index_res14'] = $resolved_from_h3;
+        }
+      }
+      if ($to_h3 === '' && is_numeric($row['to_hex_q'] ?? NULL) && is_numeric($row['to_hex_r'] ?? NULL)) {
+        $to_key = $to_room_id . ':' . (int) $row['to_hex_q'] . ':' . (int) $row['to_hex_r'];
+        $resolved_to_h3 = strtolower(trim((string) ($canonical_h3_by_room_qr[$to_key]['h3_index'] ?? '')));
+        if ($resolved_to_h3 !== '') {
+          $fields['to_h3_index_res14'] = $resolved_to_h3;
+        }
+      }
+      if ($fields === []) {
+        continue;
+      }
+      $database->update($table_name)
+        ->fields($fields)
+        ->condition('id', (int) $row['id'])
+        ->execute();
+      $connector_updates++;
+    }
+  }
+  if ($connector_updates > 0) {
+    $messages[] = sprintf('Backfilled %d connector endpoint H3 values.', $connector_updates);
+  }
+
+  return $messages === []
+    ? t('H3 actor/connector authority columns already applied.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Add actor-facing direction contract field (H3 edge directions 0-5).
+ */
+function dungeoncrawler_content_update_10178() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $messages = [];
+
+  if (!$schema_handler->tableExists('dc_campaign_characters')) {
+    throw new \RuntimeException('Actor-facing update requires dc_campaign_characters table.');
+  }
+
+  if (!$schema_handler->fieldExists('dc_campaign_characters', 'facing')) {
+    $schema_handler->addField('dc_campaign_characters', 'facing', $schema['dc_campaign_characters']['fields']['facing']);
+    $messages[] = 'Added dc_campaign_characters.facing.';
+  }
+  if (!$schema_handler->indexExists('dc_campaign_characters', 'facing')) {
+    $schema_handler->addIndex('dc_campaign_characters', 'facing', ['facing'], $schema['dc_campaign_characters']);
+    $messages[] = 'Added index dc_campaign_characters.facing.';
+  }
+
+  $normalized = $database->update('dc_campaign_characters')
+    ->expression('facing', '0')
+    ->condition('facing', 5, '>')
+    ->execute();
+  if ($normalized > 0) {
+    $messages[] = sprintf('Normalized %d actor facing values outside H3 direction range.', $normalized);
+  }
+
+  return $messages === []
+    ? t('Actor-facing field already applied.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Repair connector-linked sparse res14 room coverage and endpoint H3 parity.
+ */
+function dungeoncrawler_content_update_10179() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $now = \Drupal::time()->getRequestTime();
+  $target_resolution = 14;
+  $messages = [];
+
+  foreach ([
+    'dungeoncrawler_content_connections',
+    'dungeoncrawler_content_rooms',
+    'dungeoncrawler_content_h3_room_anchors',
+    'dungeoncrawler_content_h3_room_cells',
+  ] as $required_table) {
+    if (!$schema_handler->tableExists($required_table)) {
+      throw new \RuntimeException(sprintf('Connector sparse H3 remediation requires table %s.', $required_table));
+    }
+  }
+
+  $required_connector_fields = ['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r', 'from_h3_index_res14', 'to_h3_index_res14'];
+  foreach ($required_connector_fields as $required_connector_field) {
+    if (!$schema_handler->fieldExists('dungeoncrawler_content_connections', $required_connector_field)) {
+      throw new \RuntimeException(sprintf(
+        'Connector sparse H3 remediation requires canonical connector field %s. Run update hooks 10159 and 10177 first.',
+        $required_connector_field
+      ));
+    }
+  }
+
+  $connector_rows = $database->select('dungeoncrawler_content_connections', 'c')
+    ->fields('c', ['id', 'dungeon_id', 'from_room_id', 'to_room_id', 'from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'])
+    ->orderBy('id', 'ASC')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  if ($connector_rows === []) {
+    return t('No canonical connector rows found; sparse connector remediation not required.');
+  }
+
+  $room_dungeon_pairs = [];
+  $anchor_preference = [];
+  foreach ($connector_rows as $connector_row) {
+    if (!is_array($connector_row)) {
+      continue;
+    }
+    $dungeon_id = trim((string) ($connector_row['dungeon_id'] ?? ''));
+    $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+    if ($dungeon_id === '' || $from_room_id === '' || $to_room_id === '') {
+      throw new \RuntimeException('Connector sparse H3 remediation found a canonical connector row missing dungeon_id/from_room_id/to_room_id.');
+    }
+
+    foreach ([$from_room_id, $to_room_id] as $room_id) {
+      $room_dungeon_pairs[$room_id][$dungeon_id] = TRUE;
+    }
+
+    if (is_numeric($connector_row['from_hex_q'] ?? NULL) && is_numeric($connector_row['from_hex_r'] ?? NULL)) {
+      $anchor_preference[$from_room_id][$dungeon_id] = [
+        'q' => (int) $connector_row['from_hex_q'],
+        'r' => (int) $connector_row['from_hex_r'],
+      ];
+    }
+    if (is_numeric($connector_row['to_hex_q'] ?? NULL) && is_numeric($connector_row['to_hex_r'] ?? NULL)) {
+      $anchor_preference[$to_room_id][$dungeon_id] = [
+        'q' => (int) $connector_row['to_hex_q'],
+        'r' => (int) $connector_row['to_hex_r'],
+      ];
+    }
+  }
+
+  $room_ids = array_keys($room_dungeon_pairs);
+  $room_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id', 'layout_data'])
+    ->condition('room_id', $room_ids, 'IN')
+    ->execute()
+    ->fetchAllAssoc('room_id', \PDO::FETCH_ASSOC);
+  $room_aliases = [];
+  $missing_room_ids = array_values(array_filter($room_ids, static fn(string $room_id): bool => !isset($room_rows[$room_id])));
+  if ($missing_room_ids !== []) {
+    $source_room_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id', 'layout_data'])
+      ->condition('source_room_id', $missing_room_ids, 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($source_room_rows as $source_room_row) {
+      if (!is_array($source_room_row)) {
+        continue;
+      }
+      $source_room_id = trim((string) ($source_room_row['source_room_id'] ?? ''));
+      $resolved_room_id = trim((string) ($source_room_row['room_id'] ?? ''));
+      if ($source_room_id === '' || $resolved_room_id === '' || !isset($room_dungeon_pairs[$source_room_id])) {
+        continue;
+      }
+      $room_aliases[$source_room_id] = $resolved_room_id;
+      $room_rows[$source_room_id] = [
+        'room_id' => $resolved_room_id,
+        'layout_data' => (string) ($source_room_row['layout_data'] ?? ''),
+      ];
+    }
+  }
+  $still_missing_room_ids = array_values(array_filter($room_ids, static fn(string $room_id): bool => !isset($room_rows[$room_id])));
+  if ($still_missing_room_ids !== []) {
+    $legacy_candidate_map = [];
+    foreach ($still_missing_room_ids as $missing_room_id) {
+      if (str_starts_with($missing_room_id, 'tpl_room_')) {
+        $legacy_candidate_map[$missing_room_id] = substr($missing_room_id, 9);
+      }
+    }
+    if ($legacy_candidate_map !== []) {
+      $legacy_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+        ->fields('r', ['room_id', 'layout_data'])
+        ->condition('room_id', array_values($legacy_candidate_map), 'IN')
+        ->execute()
+        ->fetchAllAssoc('room_id', \PDO::FETCH_ASSOC);
+      foreach ($legacy_candidate_map as $legacy_room_id => $candidate_room_id) {
+        $legacy_row = $legacy_rows[$candidate_room_id] ?? NULL;
+        if (!is_array($legacy_row)) {
+          continue;
+        }
+        $room_aliases[$legacy_room_id] = $candidate_room_id;
+        $room_rows[$legacy_room_id] = [
+          'room_id' => $candidate_room_id,
+          'layout_data' => (string) ($legacy_row['layout_data'] ?? ''),
+        ];
+      }
+    }
+  }
+  foreach ($room_ids as $room_id) {
+    if (!isset($room_rows[$room_id])) {
+      throw new \RuntimeException(sprintf('Connector sparse H3 remediation requires canonical room %s, but no room row exists.', $room_id));
+    }
+  }
+  $effective_room_ids = array_values(array_unique(array_map(
+    static fn(string $room_id): string => $room_aliases[$room_id] ?? $room_id,
+    $room_ids
+  )));
+
+  $existing_anchor_pairs = [];
+  $anchor_rows = $database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+    ->fields('a', ['room_id', 'dungeon_id'])
+    ->condition('room_id', $effective_room_ids, 'IN')
+    ->condition('h3_resolution', $target_resolution)
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  foreach ($anchor_rows as $anchor_row) {
+    if (!is_array($anchor_row)) {
+      continue;
+    }
+    $room_id = trim((string) ($anchor_row['room_id'] ?? ''));
+    $dungeon_id = trim((string) ($anchor_row['dungeon_id'] ?? ''));
+    if ($room_id === '' || $dungeon_id === '') {
+      continue;
+    }
+    $existing_anchor_pairs[$room_id . '::' . $dungeon_id] = TRUE;
+  }
+
+  $existing_cell_counts = [];
+  $cell_count_query = $database->select('dungeoncrawler_content_h3_room_cells', 'c');
+  $cell_count_query->fields('c', ['room_id', 'dungeon_id']);
+  $cell_count_query->condition('room_id', $effective_room_ids, 'IN');
+  $cell_count_query->condition('h3_resolution', $target_resolution);
+  $cell_count_query->condition('cell_role', 'room_hex');
+  $cell_count_query->addExpression('COUNT(*)', 'row_count');
+  $cell_count_query->groupBy('room_id');
+  $cell_count_query->groupBy('dungeon_id');
+  $cell_count_rows = $cell_count_query->execute()->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  foreach ($cell_count_rows as $cell_count_row) {
+    if (!is_array($cell_count_row)) {
+      continue;
+    }
+    $room_id = trim((string) ($cell_count_row['room_id'] ?? ''));
+    $dungeon_id = trim((string) ($cell_count_row['dungeon_id'] ?? ''));
+    if ($room_id === '' || $dungeon_id === '') {
+      continue;
+    }
+    $existing_cell_counts[$room_id . '::' . $dungeon_id] = (int) ($cell_count_row['row_count'] ?? 0);
+  }
+
+  $existing_cells_by_pair_qr = [];
+  $existing_cell_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+    ->fields('c', ['id', 'dungeon_id', 'room_id', 'source_q', 'source_r', 'h3_index'])
+    ->condition('room_id', $effective_room_ids, 'IN')
+    ->condition('h3_resolution', $target_resolution)
+    ->condition('cell_role', 'room_hex')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  foreach ($existing_cell_rows as $existing_cell_row) {
+    if (!is_array($existing_cell_row)) {
+      continue;
+    }
+    $dungeon_id = trim((string) ($existing_cell_row['dungeon_id'] ?? ''));
+    $room_id = trim((string) ($existing_cell_row['room_id'] ?? ''));
+    if ($dungeon_id === '' || $room_id === '' || !is_numeric($existing_cell_row['source_q'] ?? NULL) || !is_numeric($existing_cell_row['source_r'] ?? NULL)) {
+      continue;
+    }
+    $existing_cells_by_pair_qr[$dungeon_id . '::' . $room_id . '::' . (int) $existing_cell_row['source_q'] . ':' . (int) $existing_cell_row['source_r']] = [
+      'id' => (int) ($existing_cell_row['id'] ?? 0),
+      'h3_index' => strtolower(trim((string) ($existing_cell_row['h3_index'] ?? ''))),
+    ];
+  }
+
+  $seeded_anchor_count = 0;
+  $seeded_cell_count = 0;
+  $patched_cell_count = 0;
+  $repaired_pairs = [];
+
+  foreach ($room_dungeon_pairs as $room_id => $dungeon_map) {
+    $room_row = $room_rows[$room_id] ?? NULL;
+    $effective_room_id = $room_aliases[$room_id] ?? $room_id;
+    if (!is_array($room_row)) {
+      throw new \RuntimeException(sprintf('Connector sparse H3 remediation requires canonical room %s (resolved %s), but no room row exists.', $room_id, $effective_room_id));
+    }
+    $layout_data = json_decode((string) ($room_row['layout_data'] ?? ''), TRUE);
+    if (!is_array($layout_data)) {
+      throw new \RuntimeException(sprintf('Connector sparse H3 remediation found invalid layout_data JSON for room %s.', $room_id));
+    }
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if ($hexes === []) {
+      throw new \RuntimeException(sprintf('Connector sparse H3 remediation requires layout_data.hexes for room %s.', $room_id));
+    }
+
+    $hex_index = [];
+    foreach ($hexes as $hex_index_position => $layout_hex) {
+      if (!is_array($layout_hex) || !is_numeric($layout_hex['q'] ?? NULL) || !is_numeric($layout_hex['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf(
+          'Connector sparse H3 remediation found non-numeric q/r at room %s hex[%d].',
+          $room_id,
+          $hex_index_position
+        ));
+      }
+
+      $q = (int) $layout_hex['q'];
+      $r = (int) $layout_hex['r'];
+      $h3_index = strtolower(trim((string) ($layout_hex['h3_index_res14'] ?? $layout_hex['h3_index'] ?? '')));
+      $lat = is_numeric($layout_hex['lat'] ?? NULL) ? (float) $layout_hex['lat'] : NULL;
+      $lng = is_numeric($layout_hex['lng'] ?? NULL) ? (float) $layout_hex['lng'] : NULL;
+
+      if ($h3_index === '') {
+        if ($lat === NULL || $lng === NULL) {
+          $projection = dungeoncrawler_content_project_axial_hex_to_latlng($effective_room_id, $q, $r);
+          $lat = (float) ($projection['latitude'] ?? 0.0);
+          $lng = (float) ($projection['longitude'] ?? 0.0);
+        }
+        $h3_index = strtolower(dungeoncrawler_content_latlng_to_h3_index($lat, $lng, $target_resolution));
+      }
+
+      if ($h3_index === '') {
+        throw new \RuntimeException(sprintf(
+          'Connector sparse H3 remediation could not resolve h3_index for room %s q=%d r=%d.',
+          $room_id,
+          $q,
+          $r
+        ));
+      }
+      if ($lat === NULL || $lng === NULL) {
+        $projection = dungeoncrawler_content_project_axial_hex_to_latlng($effective_room_id, $q, $r);
+        $lat = (float) ($projection['latitude'] ?? 0.0);
+        $lng = (float) ($projection['longitude'] ?? 0.0);
+      }
+      $hex_index[$q . ':' . $r] = [
+        'q' => $q,
+        'r' => $r,
+        'h3_index' => $h3_index,
+        'lat' => $lat,
+        'lng' => $lng,
+        'layout_hex' => $layout_hex,
+      ];
+    }
+
+    foreach (array_keys((array) $dungeon_map) as $dungeon_id) {
+      $pair_key = $effective_room_id . '::' . $dungeon_id;
+      $missing_anchor = !isset($existing_anchor_pairs[$pair_key]);
+      $missing_cells = ((int) ($existing_cell_counts[$pair_key] ?? 0)) === 0;
+      if (!$missing_anchor && !$missing_cells) {
+        continue;
+      }
+
+      $preferred_anchor = $anchor_preference[$room_id][$dungeon_id] ?? NULL;
+      $anchor_q = NULL;
+      $anchor_r = NULL;
+      $anchor_hex = NULL;
+      if (is_array($preferred_anchor)) {
+        $candidate_key = (int) ($preferred_anchor['q'] ?? 0) . ':' . (int) ($preferred_anchor['r'] ?? 0);
+        if (isset($hex_index[$candidate_key])) {
+          $anchor_q = (int) $preferred_anchor['q'];
+          $anchor_r = (int) $preferred_anchor['r'];
+          $anchor_hex = $hex_index[$candidate_key];
+        }
+      }
+      if (!is_array($anchor_hex)) {
+        $anchor_hex = reset($hex_index);
+        if (!is_array($anchor_hex)) {
+          throw new \RuntimeException(sprintf('Connector sparse H3 remediation could not determine an anchor hex for room %s.', $room_id));
+        }
+        $anchor_q = (int) ($anchor_hex['q'] ?? 0);
+        $anchor_r = (int) ($anchor_hex['r'] ?? 0);
+      }
+
+      $anchor_metadata = dungeoncrawler_content_normalize_sparse_hex_metadata([
+        'seed_source' => '10179 connector-linked sparse remediation',
+        'status' => 'authoritative_seeded',
+      ], $layout_data, is_array($anchor_hex['layout_hex'] ?? NULL) ? $anchor_hex['layout_hex'] : NULL);
+
+      $database->merge('dungeoncrawler_content_h3_room_anchors')
+        ->keys([
+          'dungeon_id' => $dungeon_id,
+          'room_id' => $effective_room_id,
+        ])
+        ->fields([
+          'h3_resolution' => $target_resolution,
+          'h3_index' => (string) ($anchor_hex['h3_index'] ?? ''),
+          'center_latitude' => is_numeric($anchor_hex['lat'] ?? NULL) ? (float) $anchor_hex['lat'] : NULL,
+          'center_longitude' => is_numeric($anchor_hex['lng'] ?? NULL) ? (float) $anchor_hex['lng'] : NULL,
+          'reference_q' => (int) $anchor_q,
+          'reference_r' => (int) $anchor_r,
+          'hex_size_meters' => 1.524,
+          'metadata' => json_encode($anchor_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'created' => $now,
+          'updated' => $now,
+        ])
+        ->execute();
+      if ($missing_anchor) {
+        $seeded_anchor_count++;
+      }
+
+      foreach ($hex_index as $hex_key => $hex_payload) {
+        $q = (int) ($hex_payload['q'] ?? 0);
+        $r = (int) ($hex_payload['r'] ?? 0);
+        $h3_index = strtolower(trim((string) ($hex_payload['h3_index'] ?? '')));
+        if ($h3_index === '') {
+          throw new \RuntimeException(sprintf('Connector sparse H3 remediation could not resolve room_hex H3 index for %s %s.', $room_id, $hex_key));
+        }
+        $cell_metadata = dungeoncrawler_content_normalize_sparse_hex_metadata([
+          'seed_source' => '10179 connector-linked sparse remediation',
+          'status' => 'authoritative_seeded',
+        ], $layout_data, is_array($hex_payload['layout_hex'] ?? NULL) ? $hex_payload['layout_hex'] : NULL);
+
+        $cell_lookup_key = $dungeon_id . '::' . $effective_room_id . '::' . $q . ':' . $r;
+        $existing_cell = $existing_cells_by_pair_qr[$cell_lookup_key] ?? NULL;
+
+        if (is_array($existing_cell)) {
+          $current_h3 = strtolower(trim((string) ($existing_cell['h3_index'] ?? '')));
+          if ($current_h3 !== $h3_index) {
+            $database->update('dungeoncrawler_content_h3_room_cells')
+              ->fields([
+                'h3_index' => $h3_index,
+                'center_latitude' => is_numeric($hex_payload['lat'] ?? NULL) ? (float) $hex_payload['lat'] : NULL,
+                'center_longitude' => is_numeric($hex_payload['lng'] ?? NULL) ? (float) $hex_payload['lng'] : NULL,
+                'metadata' => json_encode($cell_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'updated' => $now,
+              ])
+              ->condition('id', (int) $existing_cell['id'])
+              ->execute();
+            $existing_cells_by_pair_qr[$cell_lookup_key] = [
+              'id' => (int) $existing_cell['id'],
+              'h3_index' => $h3_index,
+            ];
+            $patched_cell_count++;
+          }
+          continue;
+        }
+
+        $inserted_cell_id = $database->insert('dungeoncrawler_content_h3_room_cells')
+          ->fields([
+            'dungeon_id' => $dungeon_id,
+            'room_id' => $effective_room_id,
+            'cell_role' => 'room_hex',
+            'h3_resolution' => $target_resolution,
+            'h3_index' => $h3_index,
+            'source_q' => $q,
+            'source_r' => $r,
+            'center_latitude' => is_numeric($hex_payload['lat'] ?? NULL) ? (float) $hex_payload['lat'] : NULL,
+            'center_longitude' => is_numeric($hex_payload['lng'] ?? NULL) ? (float) $hex_payload['lng'] : NULL,
+            'metadata' => json_encode($cell_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created' => $now,
+            'updated' => $now,
+          ])
+          ->execute();
+        $existing_cells_by_pair_qr[$cell_lookup_key] = [
+          'id' => (int) $inserted_cell_id,
+          'h3_index' => $h3_index,
+        ];
+        $seeded_cell_count++;
+      }
+
+      $repaired_pairs[] = $pair_key;
+    }
+  }
+
+  $canonical_h3_by_room_qr = [];
+  $canonical_cell_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+    ->fields('c', ['room_id', 'source_q', 'source_r', 'h3_index'])
+    ->condition('h3_resolution', $target_resolution)
+    ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  foreach ($canonical_cell_rows as $canonical_cell_row) {
+    if (!is_array($canonical_cell_row)) {
+      continue;
+    }
+    $room_id = trim((string) ($canonical_cell_row['room_id'] ?? ''));
+    $h3_index = strtolower(trim((string) ($canonical_cell_row['h3_index'] ?? '')));
+    if ($room_id === '' || $h3_index === '' || !is_numeric($canonical_cell_row['source_q'] ?? NULL) || !is_numeric($canonical_cell_row['source_r'] ?? NULL)) {
+      continue;
+    }
+    $canonical_h3_by_room_qr[$room_id . ':' . (int) $canonical_cell_row['source_q'] . ':' . (int) $canonical_cell_row['source_r']] = $h3_index;
+  }
+
+  foreach ($connector_rows as $connector_row) {
+    if (!is_array($connector_row)) {
+      continue;
+    }
+    $connector_dungeon_id = trim((string) ($connector_row['dungeon_id'] ?? ''));
+    $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+    if ($connector_dungeon_id === '' || $from_room_id === '' || $to_room_id === '') {
+      continue;
+    }
+    $effective_from_room_id = $room_aliases[$from_room_id] ?? $from_room_id;
+    $effective_to_room_id = $room_aliases[$to_room_id] ?? $to_room_id;
+
+    $endpoint_specs = [
+      [
+        'room_id' => $from_room_id,
+        'effective_room_id' => $effective_from_room_id,
+        'q' => $connector_row['from_hex_q'] ?? NULL,
+        'r' => $connector_row['from_hex_r'] ?? NULL,
+      ],
+      [
+        'room_id' => $to_room_id,
+        'effective_room_id' => $effective_to_room_id,
+        'q' => $connector_row['to_hex_q'] ?? NULL,
+        'r' => $connector_row['to_hex_r'] ?? NULL,
+      ],
+    ];
+
+    foreach ($endpoint_specs as $endpoint_spec) {
+      if (!is_numeric($endpoint_spec['q']) || !is_numeric($endpoint_spec['r'])) {
+        continue;
+      }
+      $endpoint_q = (int) $endpoint_spec['q'];
+      $endpoint_r = (int) $endpoint_spec['r'];
+      $effective_room_id = (string) $endpoint_spec['effective_room_id'];
+      $room_id = (string) $endpoint_spec['room_id'];
+      $mapping_key = $effective_room_id . ':' . $endpoint_q . ':' . $endpoint_r;
+      if (isset($canonical_h3_by_room_qr[$mapping_key]) && $canonical_h3_by_room_qr[$mapping_key] !== '') {
+        continue;
+      }
+
+      $room_row = $room_rows[$room_id] ?? NULL;
+      if (!is_array($room_row)) {
+        throw new \RuntimeException(sprintf('Connector sparse H3 remediation cannot resolve room row for endpoint room %s.', $room_id));
+      }
+      $layout_data = json_decode((string) ($room_row['layout_data'] ?? ''), TRUE);
+      if (!is_array($layout_data)) {
+        throw new \RuntimeException(sprintf('Connector sparse H3 remediation found invalid layout_data JSON for endpoint room %s.', $room_id));
+      }
+      $layout_hex = dungeoncrawler_content_find_layout_hex_by_coordinates($layout_data, $endpoint_q, $endpoint_r);
+      if (!is_array($layout_hex)) {
+        throw new \RuntimeException(sprintf(
+          'Connector sparse H3 remediation could not locate layout hex q=%d r=%d for room %s.',
+          $endpoint_q,
+          $endpoint_r,
+          $room_id
+        ));
+      }
+
+      $h3_index = strtolower(trim((string) ($layout_hex['h3_index_res14'] ?? $layout_hex['h3_index'] ?? '')));
+      $lat = is_numeric($layout_hex['lat'] ?? NULL) ? (float) $layout_hex['lat'] : NULL;
+      $lng = is_numeric($layout_hex['lng'] ?? NULL) ? (float) $layout_hex['lng'] : NULL;
+      if ($h3_index === '') {
+        if ($lat === NULL || $lng === NULL) {
+          $projection = dungeoncrawler_content_project_axial_hex_to_latlng($effective_room_id, $endpoint_q, $endpoint_r);
+          $lat = (float) ($projection['latitude'] ?? 0.0);
+          $lng = (float) ($projection['longitude'] ?? 0.0);
+        }
+        $h3_index = strtolower(dungeoncrawler_content_latlng_to_h3_index($lat, $lng, $target_resolution));
+      }
+      if ($h3_index === '') {
+        throw new \RuntimeException(sprintf(
+          'Connector sparse H3 remediation could not resolve endpoint H3 for room %s q=%d r=%d.',
+          $room_id,
+          $endpoint_q,
+          $endpoint_r
+        ));
+      }
+      if ($lat === NULL || $lng === NULL) {
+        $projection = dungeoncrawler_content_project_axial_hex_to_latlng($effective_room_id, $endpoint_q, $endpoint_r);
+        $lat = (float) ($projection['latitude'] ?? 0.0);
+        $lng = (float) ($projection['longitude'] ?? 0.0);
+      }
+
+      $cell_lookup_key = $connector_dungeon_id . '::' . $effective_room_id . '::' . $endpoint_q . ':' . $endpoint_r;
+      $cell_metadata = dungeoncrawler_content_normalize_sparse_hex_metadata([
+        'seed_source' => '10179 connector-endpoint targeted backfill',
+        'status' => 'authoritative_seeded',
+      ], $layout_data, $layout_hex);
+
+      $existing_cell = $existing_cells_by_pair_qr[$cell_lookup_key] ?? NULL;
+      if (is_array($existing_cell)) {
+        $current_h3 = strtolower(trim((string) ($existing_cell['h3_index'] ?? '')));
+        if ($current_h3 !== $h3_index) {
+          $database->update('dungeoncrawler_content_h3_room_cells')
+            ->fields([
+              'h3_index' => $h3_index,
+              'center_latitude' => $lat,
+              'center_longitude' => $lng,
+              'metadata' => json_encode($cell_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+              'updated' => $now,
+            ])
+            ->condition('id', (int) $existing_cell['id'])
+            ->execute();
+          $existing_cells_by_pair_qr[$cell_lookup_key] = [
+            'id' => (int) $existing_cell['id'],
+            'h3_index' => $h3_index,
+          ];
+          $patched_cell_count++;
+        }
+      }
+      else {
+        $inserted_cell_id = $database->insert('dungeoncrawler_content_h3_room_cells')
+          ->fields([
+            'dungeon_id' => $connector_dungeon_id,
+            'room_id' => $effective_room_id,
+            'cell_role' => 'room_hex',
+            'h3_resolution' => $target_resolution,
+            'h3_index' => $h3_index,
+            'source_q' => $endpoint_q,
+            'source_r' => $endpoint_r,
+            'center_latitude' => $lat,
+            'center_longitude' => $lng,
+            'metadata' => json_encode($cell_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created' => $now,
+            'updated' => $now,
+          ])
+          ->execute();
+        $existing_cells_by_pair_qr[$cell_lookup_key] = [
+          'id' => (int) $inserted_cell_id,
+          'h3_index' => $h3_index,
+        ];
+        $seeded_cell_count++;
+      }
+
+      $canonical_h3_by_room_qr[$mapping_key] = $h3_index;
+    }
+  }
+
+  $canonical_connector_updates = 0;
+  foreach ($connector_rows as $connector_row) {
+    if (!is_array($connector_row)) {
+      continue;
+    }
+    $from_room_id = trim((string) ($connector_row['from_room_id'] ?? ''));
+    $to_room_id = trim((string) ($connector_row['to_room_id'] ?? ''));
+    $effective_from_room_id = $room_aliases[$from_room_id] ?? $from_room_id;
+    $effective_to_room_id = $room_aliases[$to_room_id] ?? $to_room_id;
+    $connector_id = (int) ($connector_row['id'] ?? 0);
+    if ($from_room_id === '' || $to_room_id === '' || $connector_id <= 0) {
+      throw new \RuntimeException('Connector sparse H3 remediation found a canonical connector row with invalid ids.');
+    }
+    if (
+      !is_numeric($connector_row['from_hex_q'] ?? NULL)
+      || !is_numeric($connector_row['from_hex_r'] ?? NULL)
+      || !is_numeric($connector_row['to_hex_q'] ?? NULL)
+      || !is_numeric($connector_row['to_hex_r'] ?? NULL)
+    ) {
+      throw new \RuntimeException(sprintf(
+        'Connector sparse H3 remediation requires numeric endpoint q/r on canonical connector row id=%d (%s -> %s).',
+        $connector_id,
+        $from_room_id,
+        $to_room_id
+      ));
+    }
+
+    $from_key = $effective_from_room_id . ':' . (int) $connector_row['from_hex_q'] . ':' . (int) $connector_row['from_hex_r'];
+    $to_key = $effective_to_room_id . ':' . (int) $connector_row['to_hex_q'] . ':' . (int) $connector_row['to_hex_r'];
+    $resolved_from_h3 = strtolower(trim((string) ($canonical_h3_by_room_qr[$from_key] ?? '')));
+    $resolved_to_h3 = strtolower(trim((string) ($canonical_h3_by_room_qr[$to_key] ?? '')));
+    if ($resolved_from_h3 === '' || $resolved_to_h3 === '') {
+      throw new \RuntimeException(sprintf(
+        'Connector sparse H3 remediation could not resolve endpoint H3 mapping for canonical connector id=%d (%s -> %s). Missing mappings: from=%s to=%s.',
+        $connector_id,
+        $from_room_id,
+        $to_room_id,
+        $from_key,
+        $to_key
+      ));
+    }
+
+    $current_row = $database->select('dungeoncrawler_content_connections', 'c')
+      ->fields('c', ['from_h3_index_res14', 'to_h3_index_res14'])
+      ->condition('id', $connector_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($current_row)) {
+      throw new \RuntimeException(sprintf('Canonical connector row disappeared during H3 remediation (id=%d).', $connector_id));
+    }
+    $current_from_h3 = strtolower(trim((string) ($current_row['from_h3_index_res14'] ?? '')));
+    $current_to_h3 = strtolower(trim((string) ($current_row['to_h3_index_res14'] ?? '')));
+    if ($current_from_h3 === $resolved_from_h3 && $current_to_h3 === $resolved_to_h3) {
+      continue;
+    }
+
+    $database->update('dungeoncrawler_content_connections')
+      ->fields([
+        'from_h3_index_res14' => $resolved_from_h3,
+        'to_h3_index_res14' => $resolved_to_h3,
+        'updated' => $now,
+      ])
+      ->condition('id', $connector_id)
+      ->execute();
+    $canonical_connector_updates++;
+  }
+
+  $campaign_connector_updates = 0;
+  if ($schema_handler->tableExists('dc_campaign_connections')) {
+    $campaign_rows = $database->select('dc_campaign_connections', 'c')
+      ->fields('c', ['id', 'from_room_id', 'to_room_id', 'from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r', 'from_h3_index_res14', 'to_h3_index_res14'])
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($campaign_rows as $campaign_row) {
+      if (!is_array($campaign_row)) {
+        continue;
+      }
+      if (
+        !is_numeric($campaign_row['from_hex_q'] ?? NULL)
+        || !is_numeric($campaign_row['from_hex_r'] ?? NULL)
+        || !is_numeric($campaign_row['to_hex_q'] ?? NULL)
+        || !is_numeric($campaign_row['to_hex_r'] ?? NULL)
+      ) {
+        continue;
+      }
+      $from_room_id = trim((string) ($campaign_row['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($campaign_row['to_room_id'] ?? ''));
+      $effective_from_room_id = $room_aliases[$from_room_id] ?? $from_room_id;
+      $effective_to_room_id = $room_aliases[$to_room_id] ?? $to_room_id;
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      $from_key = $effective_from_room_id . ':' . (int) $campaign_row['from_hex_q'] . ':' . (int) $campaign_row['from_hex_r'];
+      $to_key = $effective_to_room_id . ':' . (int) $campaign_row['to_hex_q'] . ':' . (int) $campaign_row['to_hex_r'];
+      $resolved_from_h3 = strtolower(trim((string) ($canonical_h3_by_room_qr[$from_key] ?? '')));
+      $resolved_to_h3 = strtolower(trim((string) ($canonical_h3_by_room_qr[$to_key] ?? '')));
+      if ($resolved_from_h3 === '' || $resolved_to_h3 === '') {
+        continue;
+      }
+      $current_from_h3 = strtolower(trim((string) ($campaign_row['from_h3_index_res14'] ?? '')));
+      $current_to_h3 = strtolower(trim((string) ($campaign_row['to_h3_index_res14'] ?? '')));
+      if ($current_from_h3 === $resolved_from_h3 && $current_to_h3 === $resolved_to_h3) {
+        continue;
+      }
+      $database->update('dc_campaign_connections')
+        ->fields([
+          'from_h3_index_res14' => $resolved_from_h3,
+          'to_h3_index_res14' => $resolved_to_h3,
+        ])
+        ->condition('id', (int) $campaign_row['id'])
+        ->execute();
+      $campaign_connector_updates++;
+    }
+  }
+
+  if ($seeded_anchor_count > 0 || $seeded_cell_count > 0 || $patched_cell_count > 0) {
+    $messages[] = sprintf(
+      'Repaired sparse coverage for %d connector-linked room/dungeon pairs (%d anchors seeded, %d cells inserted, %d cells patched).',
+      count(array_unique($repaired_pairs)),
+      $seeded_anchor_count,
+      $seeded_cell_count,
+      $patched_cell_count
+    );
+  }
+  if ($canonical_connector_updates > 0) {
+    $messages[] = sprintf('Backfilled/normalized %d canonical connector endpoint H3 rows.', $canonical_connector_updates);
+  }
+  if ($campaign_connector_updates > 0) {
+    $messages[] = sprintf('Backfilled/normalized %d campaign connector endpoint H3 rows.', $campaign_connector_updates);
+  }
+
+  return $messages === []
+    ? t('Connector-linked sparse H3 coverage and endpoint parity already normalized.')
+    : t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Add campaign H3 projection status/readiness ledger tables.
+ */
+function dungeoncrawler_content_update_10180() {
+  $schema_handler = \Drupal::database()->schema();
+  $schema = dungeoncrawler_content_schema();
+
+  foreach ([
+    'dc_campaign_h3_projection_status',
+    'dc_campaign_h3_projection_room_status',
+  ] as $table_name) {
+    if ($schema_handler->tableExists($table_name)) {
+      continue;
+    }
+    $schema_handler->createTable($table_name, $schema[$table_name]);
+  }
+
+  return t('Added campaign H3 projection status/readiness ledger tables.');
 }
 
 /**

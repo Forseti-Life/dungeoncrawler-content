@@ -50,6 +50,14 @@ const navigationRuntimeSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/NavigationRuntimeService.php'),
   'utf8'
 );
+const mapGeneratorSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/MapGeneratorService.php'),
+  'utf8'
+);
+const dungeonPayloadPersistenceSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/DungeonPayloadStatePersistenceService.php'),
+  'utf8'
+);
 const drushServices = fs.readFileSync(
   path.resolve(__dirname, '../drush.services.yml'),
   'utf8'
@@ -84,33 +92,27 @@ assert(
 
 assert(
   runnerSource.includes("dc:actor-harness-snapshot")
-    && runnerSource.includes("dc:actor-harness-action")
-    && runnerSource.includes("dc:gm-actor-run"),
-  'Runner uses snapshot/action/chat command tools for gameplay orchestration'
+    && runnerSource.includes("dc:actor-harness-action"),
+  'Runner uses snapshot/action command tools for gameplay orchestration'
 );
 
 assert(
-  runnerSource.includes('validate_action_intent_contract')
-    && runnerSource.includes('invalid_action_intent_contract:')
+  runnerSource.includes('validate_tool_decision_contract')
+    && runnerSource.includes('invalid_tool_decision_contract:')
     && runnerSource.includes('invalid_decider_response:')
     && runnerSource.includes('action_execution_failed:')
-    && runnerSource.includes('chat_execution_failed:')
-    && runnerSource.includes('action_intent_params_missing_')
+    && runnerSource.includes('tool_payload_params_missing_')
     && runnerSource.includes('"transition": ("target_room_id",)')
-    && runnerSource.includes('action_intent_transition_target_same_room')
-    && runnerSource.includes('action_intent_transition_no_connected_rooms')
-    && runnerSource.includes('action_intent_transition_target_not_connected')
-    && runnerSource.includes('action_intent_params_missing_talk_message')
+    && runnerSource.includes('tool_payload_transition_target_same_room')
+    && runnerSource.includes('tool_payload_params_missing_talk_message')
     && runnerSource.includes('Bootstrap mode requires --uid')
     && runnerSource.includes('--uid=')
-    && runnerSource.includes('graph.add_edge("execute_action", "assess")')
-    && runnerSource.includes('graph.add_edge("execute_chat", "assess")'),
-  'Runner validates action contract, requires bootstrap owner uid, and routes every action/chat turn through assess'
+    && runnerSource.includes('graph.add_edge("execute_action", "assess")'),
+  'Runner validates tool-decision contract, requires bootstrap owner uid, and routes execution turns through assess'
 );
 
 assert(
-  runnerSource.includes('allowed_action_ids')
-    && runnerSource.includes('required_action_intent_keys_for_action_mode')
+  runnerSource.includes('required_tool_payload_keys_for_tool_decision')
     && runnerSource.includes('HARNESS_DECIDER_MAX_TOKENS')
     && runnerSource.includes('summarize_active_objective')
     && runnerSource.includes('summarize_quest_context')
@@ -171,9 +173,9 @@ assert(
 assert(
   runnerSource.includes('actor_talked_to_other_actor')
     && runnerSource.includes('deterministic_gm_clue_request_after_actor_talk')
-    && runnerSource.includes('"mode": "chat"')
+    && runnerSource.includes('"type": "talk"')
     && runnerSource.includes('gm_clue_requested'),
-  'Runner requests deterministic GM clues after actor-to-actor talk before resuming normal decisioning'
+  'Runner requests deterministic GM clues via talk action after actor-to-actor talk before resuming normal decisioning'
 );
 
 assert(
@@ -228,6 +230,19 @@ assert(
     && !runnerSource.includes("OPENAI_API_KEY")
     && !runnerSource.includes("api.openai.com"),
   'Runner uses shared GenAI routing contract and does not call OpenAI directly'
+);
+
+assert(
+  dungeonPayloadPersistenceSource.includes("unset($payload['rooms'], $payload['connections'], $payload['entities'])")
+    && dungeonPayloadPersistenceSource.includes('room_ids cannot be empty')
+    && dungeonPayloadPersistenceSource.includes('active_room_id %s is not present in room_ids'),
+  'Dungeon payload persistence enforces identifier-only storage and hard-fails invalid room membership'
+);
+
+assert(
+  mapGeneratorSource.includes('normalizeCampaignRoomContentsReferences')
+    && mapGeneratorSource.includes('contents_data.%s[%d] is missing content identifier'),
+  'Campaign room persistence normalizes contents_data to identifier-oriented references and hard-fails missing identifiers'
 );
 
 console.log(`\nPassed: ${passed}`);

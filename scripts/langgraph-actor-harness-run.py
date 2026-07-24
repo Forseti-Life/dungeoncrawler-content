@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -91,7 +92,8 @@ SCRIPTED_TARGET_QUEST_TEMPLATES: tuple[str, ...] = (
     "recover_blackmail_ledger",
     "stabilize_arcane_resonance",
 )
-SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
+SCRIPTED_RANDOM_NAV_EXIT_TRANSITION_COUNT = 40
+BASE_SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
     {
         "id": "ask_eldric_for_work",
         "tool_name": "talk",
@@ -199,6 +201,15 @@ SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
             "params": {"message": "Grandma, tell me about the job."},
         },
     },
+)
+
+SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = BASE_SCRIPTED_TESTING_STEPS + tuple(
+    {
+        "id": f"random_nav_exit_transition_{index:02d}",
+        "step_type": "random_navigation_exit_transition",
+        "tool_name": "transition",
+    }
+    for index in range(1, SCRIPTED_RANDOM_NAV_EXIT_TRANSITION_COUNT + 1)
 )
 
 
@@ -760,6 +771,35 @@ def normalize_decision_for_harness_actor(state: HarnessState, decision: dict[str
     return normalized
 
 
+def build_random_navigation_exit_transition_payload(state: HarnessState) -> tuple[dict[str, Any] | None, str | None]:
+    snapshot = state.get("snapshot") or {}
+    connected_rooms = snapshot.get("connected_rooms")
+    if not isinstance(connected_rooms, list):
+        return None, "connected_rooms_missing"
+
+    active_room_id = str(snapshot.get("active_room_id") or state.get("room_id") or "").strip()
+    candidates: list[str] = []
+    for room in connected_rooms:
+        if not isinstance(room, dict):
+            continue
+        room_id = str(room.get("room_id") or "").strip()
+        if room_id == "" or room_id == active_room_id:
+            continue
+        candidates.append(room_id)
+
+    unique_candidates = sorted(set(candidates))
+    if not unique_candidates:
+        return None, "no_exit_candidates"
+
+    return {
+        "type": "transition",
+        "actor": state["actor_id"],
+        "params": {
+            "target_room_id": random.choice(unique_candidates),
+        },
+    }, None
+
+
 def summarize_issue_payload(issue_body: dict[str, Any]) -> dict[str, Any]:
     snapshot = issue_body.get("snapshot")
     canonical_context = issue_body.get("canonical_context")
@@ -1151,17 +1191,21 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
         "You are controlling Burasco in DungeonCrawler. "
         "Choose exactly one next move to progress active quest objectives. "
         "You must return strict JSON object only (no markdown, no prose). "
-        "Preferred contract keys: decision_type, tool_name, tool_payload, reason. "
+        "Required output keys: decision_type and reason. "
         "decision_type must be one of: tool, stop. "
-        "For decision_type=tool, tool_payload MUST be canonical intent with keys type, params, actor. "
-        "tool_name MUST equal tool_payload.type. "
+        "If decision_type=tool, required keys are tool_name and tool_payload. "
+        "tool_payload must be an object with keys type, params, actor. "
+        "tool_name must exactly match tool_payload.type. "
         "For type=transition, params.target_room_id is required. "
-        "For type=talk, provide params.message. "
+        "For type=talk, params.message is required. "
         "If no legal action is appropriate, return decision_type=stop with a concrete reason. "
+        "Do not include any keys other than decision_type, tool_name, tool_payload, and reason. "
         "Prefer the active quest_context and storyline_context fields when choosing the next move. "
-        "Valid example: "
+        "Valid tool example: "
         "{\"decision_type\":\"tool\",\"tool_name\":\"search\",\"reason\":\"Need to inspect room for quest items.\","
-        "\"tool_payload\":{\"type\":\"search\",\"params\":{},\"actor\":\"<actor_id>\"}}"
+        "\"tool_payload\":{\"type\":\"search\",\"params\":{},\"actor\":\"<actor_id>\"}} "
+        "Valid stop example: "
+        "{\"decision_type\":\"stop\",\"reason\":\"no_legal_action\"}"
     )
     user_prompt = {
         "campaign_id": state.get("campaign_id"),
@@ -1195,74 +1239,102 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
         },
     }
 
-    prompt = (
-        "SYSTEM:\n"
-        f"{system_prompt}\n\n"
-        "USER_CONTEXT_JSON:\n"
-        f"{json.dumps(user_prompt, ensure_ascii=False)}"
-    )
+    max_attempts = max(1, min(3, int(os.environ.get("HARNESS_DECIDER_MAX_ATTEMPTS") or "2")))
     session_id = (
         f"dungeoncrawler-actor-harness-{state.get('campaign_id', 0)}-"
         f"{state.get('correlation_id', 'run')}"
     )
-    command = [
-        python_bin,
-        str(wrapper_path),
-        "--backend",
-        backend,
-        "--session",
-        session_id,
-        "--agent-id",
-        "dungeoncrawler-actor-harness",
-        "--source",
-        "scripts/langgraph-actor-harness-run.py",
-        "--operation",
-        "actor_harness_decide",
-        "--timeout-sec",
-        str(timeout_sec),
-        "--max-tokens",
-        str(max(256, int(os.environ.get("HARNESS_DECIDER_MAX_TOKENS") or "800"))),
-        "--no-history",
-        "--prompt",
-        prompt,
-    ]
-    if model_id:
-        command.extend(["--model-id", model_id])
+    max_tokens = str(max(256, int(os.environ.get("HARNESS_DECIDER_MAX_TOKENS") or "800")))
+    last_error = "Decision must provide canonical decision_type=tool|stop payload."
 
-    proc = subprocess.run(
-        command,
-        cwd=str(hq_root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        env=build_actor_runtime_env(),
-    )
-    output = (proc.stdout or "").strip()
-    if proc.returncode != 0:
-        raise RuntimeError(f"Decider command failed (rc={proc.returncode}): {' '.join(command)}\n{output}")
-    if output == "":
-        raise RuntimeError("Decider command returned empty output.")
+    for attempt in range(1, max_attempts + 1):
+        retry_clause = ""
+        if attempt > 1:
+            retry_clause = (
+                "\n\nRETRY_CONTRACT_NOTICE:\n"
+                "Your previous response violated the canonical contract. "
+                f"Failure detail: {last_error}. "
+                "Return one strict JSON object only with canonical keys."
+            )
+        prompt = (
+            "SYSTEM:\n"
+            f"{system_prompt}\n\n"
+            "USER_CONTEXT_JSON:\n"
+            f"{json.dumps(user_prompt, ensure_ascii=False)}"
+            f"{retry_clause}"
+        )
+        command = [
+            python_bin,
+            str(wrapper_path),
+            "--backend",
+            backend,
+            "--session",
+            session_id,
+            "--agent-id",
+            "dungeoncrawler-actor-harness",
+            "--source",
+            "scripts/langgraph-actor-harness-run.py",
+            "--operation",
+            "actor_harness_decide",
+            "--timeout-sec",
+            str(timeout_sec),
+            "--max-tokens",
+            max_tokens,
+            "--no-history",
+            "--prompt",
+            prompt,
+        ]
+        if model_id:
+            command.extend(["--model-id", model_id])
 
-    decision = parse_json_object_from_mixed_output(output, command)
-    if not isinstance(decision, dict):
-        raise RuntimeError("Decider response was not a JSON object.")
+        proc = subprocess.run(
+            command,
+            cwd=str(hq_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=build_actor_runtime_env(),
+        )
+        output = (proc.stdout or "").strip()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Decider command failed (rc={proc.returncode}): {' '.join(command)}\n{output}")
+        if output == "":
+            last_error = "Decider command returned empty output."
+            continue
 
-    decision_type = normalize_action_id(decision.get("decision_type"))
-    if decision_type in {"tool", "stop"}:
+        try:
+            decision = parse_json_object_from_mixed_output(output, command)
+        except RuntimeError as exc:
+            last_error = str(exc).strip()
+            continue
+        if not isinstance(decision, dict):
+            last_error = "Decider response was not a JSON object."
+            continue
+
+        decision_type = normalize_action_id(decision.get("decision_type"))
+        if decision_type not in {"tool", "stop"}:
+            last_error = (
+                "Decision must provide canonical decision_type=tool|stop payload. "
+                f"Observed keys: {','.join(sorted(decision.keys())) or '<none>'}"
+            )
+            continue
         if decision_type == "tool":
             tool_name = normalize_action_id(decision.get("tool_name"))
             tool_payload = decision.get("tool_payload")
             if tool_name == "":
-                raise RuntimeError("Decision decision_type=tool requires tool_name.")
+                last_error = "Decision decision_type=tool requires tool_name."
+                continue
             if not isinstance(tool_payload, dict):
-                raise RuntimeError("Decision decision_type=tool requires tool_payload object.")
+                last_error = "Decision decision_type=tool requires tool_payload object."
+                continue
             if normalize_action_id(tool_payload.get("type")) == "":
-                raise RuntimeError("Decision decision_type=tool requires tool_payload.type.")
+                last_error = "Decision decision_type=tool requires tool_payload.type."
+                continue
         decision["decision_type"] = decision_type
         decision["reason"] = str(decision.get("reason", "")).strip()
         return decision
 
-    raise RuntimeError("Decision must provide canonical decision_type=tool|stop payload.")
+    raise RuntimeError(last_error)
 
 
 def node_bootstrap(state: HarnessState) -> HarnessState:
@@ -1501,8 +1573,18 @@ def node_scriptedtesting(state: HarnessState) -> HarnessState:
 
     step = SCRIPTED_TESTING_STEPS[step_index]
     step_id = str(step.get("id") or f"step_{step_index}").strip() or f"step_{step_index}"
+    step_type = normalize_action_id(step.get("step_type"))
     tool_name = normalize_action_id(step.get("tool_name"))
     tool_payload = step.get("tool_payload")
+
+    if step_type == "random_navigation_exit_transition":
+        tool_name = "transition"
+        tool_payload, payload_error = build_random_navigation_exit_transition_payload(state)
+        if payload_error is not None or not isinstance(tool_payload, dict):
+            next_state["run_status"] = "blocked"
+            next_state["stop_reason"] = f"scriptedtesting_random_navigation_failed:{step_id}:{payload_error or 'payload_missing'}"
+            return next_state
+
     if tool_name == "" or not isinstance(tool_payload, dict) or normalize_action_id(tool_payload.get("type")) == "":
         next_state["run_status"] = "blocked"
         next_state["stop_reason"] = f"scriptedtesting_invalid_step:{step_id}"
@@ -1852,7 +1934,7 @@ def main() -> int:
     parser.add_argument("--character-name", default="Burasco")
     parser.add_argument("--uid", type=int, default=int(os.environ.get("HARNESS_OWNER_UID") or "0"), help="Owner UID for bootstrap campaign/character resolution.")
     parser.add_argument("--campaign-name", default=f"Burasco LangGraph Run {datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}")
-    parser.add_argument("--max-turns", type=int, default=12)
+    parser.add_argument("--max-turns", type=int, default=80)
     parser.add_argument("--campaign-id", type=int, default=0, help="Optional existing campaign id.")
     parser.add_argument("--character-id", type=int, default=0, help="Required if --campaign-id is set.")
     parser.add_argument("--actor-id", default="", help="Required if --campaign-id is set.")

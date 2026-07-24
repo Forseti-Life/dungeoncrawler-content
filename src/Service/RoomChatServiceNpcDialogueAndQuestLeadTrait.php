@@ -125,6 +125,11 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
         return $refreshed_quest_offer ?? $available_quest_offer;
       }
 
+      $direct_entry_lead = $this->buildDirectEntryStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id);
+      if ($direct_entry_lead !== NULL) {
+        return $direct_entry_lead;
+      }
+
       $brokered_leads = $this->buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id);
       if ($brokered_leads !== NULL) {
         return $brokered_leads;
@@ -667,6 +672,68 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
 
     $prefix = $display_name !== '' ? 'If you want work, ' : '';
     return '"' . $prefix . $line . '."';
+  }
+
+  /**
+   * Build direct-entry storyline lead dialogue for primary quest givers.
+   */
+  protected function buildDirectEntryStorylineLeadDialogue(
+    int $campaign_id,
+    string $entity_ref,
+    string $display_name,
+    string $player_message = '',
+    string $room_id = '',
+    array $dungeon_data = [],
+    ?int $character_id = NULL
+  ): ?string {
+    $contacts = $this->loadDirectEntryStorylineContacts($campaign_id, $entity_ref);
+    if ($contacts === []) {
+      return NULL;
+    }
+
+    $selected_contact = $contacts[0] ?? NULL;
+    if ($player_message !== '') {
+      $mentioned = $this->selectMentionedBrokeredStorylineContacts($contacts, $player_message, 1, 1);
+      if ($mentioned !== []) {
+        $selected_contact = $mentioned[0];
+      }
+    }
+    if (!is_array($selected_contact)) {
+      return NULL;
+    }
+
+    $this->materializeBrokeredStorylineOffer(
+      $campaign_id,
+      $entity_ref,
+      $display_name,
+      $room_id,
+      $dungeon_data,
+      $selected_contact,
+      $character_id
+    );
+
+    $storyline_name = trim((string) ($selected_contact['name'] ?? ''));
+    $summary = trim((string) (
+      $selected_contact['entry_point']['trigger_text']
+      ?? $selected_contact['entry_point']['detail_summary']
+      ?? ''
+    ));
+    if ($storyline_name === '' && $summary === '') {
+      return NULL;
+    }
+
+    $clauses = [];
+    if ($storyline_name !== '') {
+      $clauses[] = 'I do. For ' . $storyline_name;
+    }
+    else {
+      $clauses[] = 'I do';
+    }
+    if ($summary !== '') {
+      $clauses[] = $this->trimNpcDialogueClause($summary);
+    }
+
+    return '"' . implode('. ', $clauses) . '."';
   }
 
   /**
@@ -1675,6 +1742,116 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       }, $contacts)))),
     ]);
     return $contacts;
+  }
+
+  /**
+   * Load offerable storyline contacts where this NPC is the primary entry contact.
+   */
+  protected function loadDirectEntryStorylineContacts(int $campaign_id, string $entity_ref): array {
+    if ($campaign_id <= 0 || trim($entity_ref) === '') {
+      return [];
+    }
+
+    $normalized_entity_ref = $this->normalizeQuestgiverIdentityToken($entity_ref);
+    if ($normalized_entity_ref === '') {
+      return [];
+    }
+
+    $rows = $this->database->select('dc_campaign_storylines', 's')
+      ->fields('s', ['template_id', 'storyline_id', 'name', 'status', 'storyline_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('status', ['bootstrapping', 'available', 'active'], 'IN')
+      ->orderBy('priority', 'DESC')
+      ->orderBy('created_at', 'ASC')
+      ->range(0, 25)
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $contacts = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $storyline_data = json_decode((string) ($row['storyline_data'] ?? '{}'), TRUE);
+      if (!is_array($storyline_data)) {
+        continue;
+      }
+
+      $entry_point = is_array($storyline_data['metadata']['generated_outline']['entry_point'] ?? NULL)
+        ? $storyline_data['metadata']['generated_outline']['entry_point']
+        : [];
+      $primary_ref = trim((string) ($entry_point['primary_quest_giver_id'] ?? ''));
+      if (
+        $primary_ref === ''
+        || $this->normalizeQuestgiverIdentityToken($primary_ref) !== $normalized_entity_ref
+      ) {
+        continue;
+      }
+
+      $template_id = trim((string) ($row['template_id'] ?? $row['storyline_id'] ?? ''));
+      if ($template_id === '') {
+        continue;
+      }
+
+      $storyline_name = trim((string) ($row['name'] ?? $storyline_data['name'] ?? $template_id));
+      $primary_name = trim((string) (
+        $entry_point['primary_quest_giver_name']
+        ?? $this->resolveEntryPointQuestgiverNameFromStorylineContacts($storyline_data, $primary_ref)
+      ));
+      $primary_location_id = trim((string) ($entry_point['primary_location_id'] ?? ''));
+      $primary_scene_id = trim((string) ($entry_point['primary_scene_id'] ?? ''));
+
+      $contacts[] = [
+        'template_id' => $template_id,
+        'storyline_id' => trim((string) ($row['storyline_id'] ?? $template_id)),
+        'name' => $storyline_name,
+        'entry_point' => $entry_point,
+        'quest_giver' => [
+          'display_name' => $primary_name,
+          'relationship_state' => [
+            'scene_id' => $primary_location_id !== '' ? $primary_location_id : $primary_scene_id,
+            'notes' => trim((string) ($entry_point['detail_summary'] ?? '')),
+          ],
+        ],
+        'lead_location' => [
+          'label' => $primary_location_id !== '' ? $primary_location_id : $primary_scene_id,
+          'scene_id' => $primary_location_id !== '' ? $primary_location_id : $primary_scene_id,
+          'chapter_id' => trim((string) ($entry_point['primary_chapter_id'] ?? '')),
+          'notes' => trim((string) ($entry_point['trigger_text'] ?? $entry_point['detail_summary'] ?? '')),
+        ],
+      ];
+    }
+
+    return $this->filterOfferableBrokeredStorylineContacts($campaign_id, $contacts);
+  }
+
+  /**
+   * Resolve questgiver display name from storyline contact declarations.
+   */
+  protected function resolveEntryPointQuestgiverNameFromStorylineContacts(array $storyline_data, string $primary_ref): string {
+    $normalized_primary_ref = $this->normalizeQuestgiverIdentityToken($primary_ref);
+    if ($normalized_primary_ref === '') {
+      return '';
+    }
+
+    foreach ((array) ($storyline_data['contacts'] ?? []) as $contact) {
+      if (!is_array($contact)) {
+        continue;
+      }
+      $role = strtolower(trim((string) ($contact['role'] ?? '')));
+      if ($role !== 'quest_giver') {
+        continue;
+      }
+      $runtime_ref = trim((string) ($contact['runtime_entity_id'] ?? $contact['entity_id'] ?? ''));
+      if (
+        $runtime_ref !== ''
+        && $this->normalizeQuestgiverIdentityToken($runtime_ref) === $normalized_primary_ref
+      ) {
+        return trim((string) ($contact['display_name'] ?? $contact['name'] ?? ''));
+      }
+    }
+
+    return '';
   }
 
   /**

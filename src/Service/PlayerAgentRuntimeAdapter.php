@@ -36,7 +36,7 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
       $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
     }
 
-    $state_payload = $this->gameCoordinator->getFullState($campaign_id);
+    $state_payload = $this->gameCoordinator->getRuntimeReadState($campaign_id, $actor_id);
     if (empty($state_payload['success'])) {
       return [
         'success' => FALSE,
@@ -209,12 +209,15 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
 
     $connections = [];
     foreach ($dungeon_data['connections'] ?? [] as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
       if (empty($connection['is_passable'])) {
         continue;
       }
 
-      $from_room = (string) ($connection['from']['room_id'] ?? '');
-      $to_room = (string) ($connection['to']['room_id'] ?? '');
+      $from_room = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? $connection['from']['room_id'] ?? ''));
+      $to_room = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? $connection['to']['room_id'] ?? ''));
 
       if ($from_room === $room_id && $to_room !== '') {
         $connections[] = $this->buildConnectedRoomSummary($dungeon_data, $to_room, $connection);

@@ -39,10 +39,10 @@ export function buildNavigateActionRailPanel(panel, context) {
     : '';
 
   const html = currentLocationHtml + groups.map((group) => {
-    const entries = group.locations.map((location) => panel.renderActionRailEntry({
+    const entries = group.locations.map((location, index) => panel.renderActionRailEntry({
       execute: 'navigate',
       title: group.key === 'room-exits'
-        ? location.roomName
+        ? `${index + 1}. ${location.roomName}`
         : formatNavigationLocationTitle(location.dungeonName || group.dungeonName, location.roomName),
       summary: buildActionRailEntrySummary([
         location.statusLabel || group.dungeonName || group.title,
@@ -95,8 +95,14 @@ function collectNavigateExitGroups(panel, context) {
       const distanceValue = Number.isFinite(Number(capability?.distance)) ? Number(capability.distance) : 0;
       const navigable = capability?.available !== false;
       const blockedReason = String(capability?.blocked_reason || '').trim().toLowerCase();
+      const isDiscovered = Object.prototype.hasOwnProperty.call(capability || {}, 'is_discovered')
+        ? Boolean(capability.is_discovered)
+        : true;
       const isQuestTarget = capability?.quest_reference === true;
       const questIds = Array.isArray(capability?.quest_ids) ? capability.quest_ids : [];
+      if (!isDiscovered) {
+        return null;
+      }
       
       return {
         roomId: targetRoomId,

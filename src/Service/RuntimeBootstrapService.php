@@ -21,16 +21,31 @@ class RuntimeBootstrapService {
   protected LoggerInterface $logger;
 
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
+  protected RuntimeGraphAssemblerService $runtimeGraphAssembler;
+  protected CampaignRuntimeStateStore $campaignRuntimeStateStore;
+  protected ActorRuntimeStateStore $actorRuntimeStateStore;
+  protected RoomRuntimeStateStore $roomRuntimeStateStore;
+  protected ConnectionRuntimeStateStore $connectionRuntimeStateStore;
 
   public function __construct(
     Connection $database,
     CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync,
     DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
+    RuntimeGraphAssemblerService $runtime_graph_assembler,
+    CampaignRuntimeStateStore $campaign_runtime_state_store,
+    ActorRuntimeStateStore $actor_runtime_state_store,
+    RoomRuntimeStateStore $room_runtime_state_store,
+    ConnectionRuntimeStateStore $connection_runtime_state_store,
     LoggerChannelFactoryInterface $logger_factory,
   ) {
     $this->database = $database;
     $this->campaignCharacterRuntimeSync = $campaign_character_runtime_sync;
     $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
+    $this->runtimeGraphAssembler = $runtime_graph_assembler;
+    $this->campaignRuntimeStateStore = $campaign_runtime_state_store;
+    $this->actorRuntimeStateStore = $actor_runtime_state_store;
+    $this->roomRuntimeStateStore = $room_runtime_state_store;
+    $this->connectionRuntimeStateStore = $connection_runtime_state_store;
     $this->logger = $logger_factory->get('dungeoncrawler_content');
   }
 
@@ -74,6 +89,25 @@ class RuntimeBootstrapService {
         $campaign_id
       ));
     }
+    $dungeon_id = trim((string) ($dungeon['dungeon_id'] ?? $dungeon_data['dungeon_id'] ?? ''));
+    if ($dungeon_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Runtime bootstrap contract violation: campaign %d bootstrap row has empty dungeon_id.',
+        $campaign_id
+      ));
+    }
+    $dungeon_data = $this->runtimeGraphAssembler->buildRuntimeGraph(
+      $campaign_id,
+      $dungeon_id,
+      $dungeon_data,
+      [
+        'active_room_id' => trim((string) ($dungeon_data['active_room_id'] ?? '')),
+      ]
+    );
+    $runtime_entities = $this->actorRuntimeStateStore->loadActorEntities($campaign_id);
+    if ($runtime_entities !== []) {
+      $dungeon_data['entities'] = $runtime_entities;
+    }
 
     $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
     if ($active_room_id === '') {
@@ -85,6 +119,15 @@ class RuntimeBootstrapService {
             continue;
           }
           $candidate = trim((string) ($room['room_id'] ?? ''));
+          if ($candidate !== '') {
+            $active_room_id = $candidate;
+            break;
+          }
+        }
+      }
+      if ($active_room_id === '') {
+        foreach ((array) ($dungeon_data['room_ids'] ?? []) as $room_id) {
+          $candidate = trim((string) $room_id);
           if ($candidate !== '') {
             $active_room_id = $candidate;
             break;
@@ -106,7 +149,7 @@ class RuntimeBootstrapService {
     $dungeon_data['game_state'] = $this->normalizeGameState($dungeon_data, $active_room_id);
 
     $now = time();
-    $updated = $this->dungeonPayloadStatePersistence->mutateByRowId(
+    $updated = $this->dungeonPayloadStatePersistence->mutateStateByRowId(
       $campaign_id,
       (int) ($dungeon['id'] ?? 0),
       static fn(array $payload): array => $dungeon_data
@@ -117,6 +160,22 @@ class RuntimeBootstrapService {
         $campaign_id
       ));
     }
+    if (!$this->campaignRuntimeStateStore->persistGameState($campaign_id, $dungeon_data['game_state'], $active_room_id)) {
+      throw new \RuntimeException(sprintf(
+        'Runtime bootstrap contract violation: failed to persist campaign runtime state for campaign %d.',
+        $campaign_id
+      ));
+    }
+    if (is_array($dungeon_data['entities'] ?? NULL)) {
+      $this->actorRuntimeStateStore->syncFromEntities($campaign_id, $dungeon_data['entities']);
+    }
+    if (is_array($dungeon_data['rooms'] ?? NULL)) {
+      $this->roomRuntimeStateStore->syncFromRooms($campaign_id, $dungeon_data['rooms']);
+    }
+    $this->connectionRuntimeStateStore->syncFromConnections(
+      $campaign_id,
+      $this->collectRuntimeConnectionsFromPayload($dungeon_data)
+    );
 
     $this->persistInitPhase($campaign_id, $campaign_data, self::INIT_PHASE_RUNTIME_READY, [
       'runtime_ready_for_character_id' => $runtime_character_id,
@@ -189,6 +248,15 @@ class RuntimeBootstrapService {
           continue;
         }
         $candidate_room_id = trim((string) ($room['room_id'] ?? ''));
+        if ($candidate_room_id !== '') {
+          $runtime_active_room_id = $candidate_room_id;
+          break;
+        }
+      }
+    }
+    if ($runtime_active_room_id === '') {
+      foreach ((array) ($dungeon_data['room_ids'] ?? []) as $room_id) {
+        $candidate_room_id = trim((string) $room_id);
         if ($candidate_room_id !== '') {
           $runtime_active_room_id = $candidate_room_id;
           break;
@@ -631,6 +699,11 @@ class RuntimeBootstrapService {
     if ($room_id === '') {
       return FALSE;
     }
+    foreach ((array) ($dungeon_data['room_ids'] ?? []) as $listed_room_id) {
+      if (trim((string) $listed_room_id) === $room_id) {
+        return TRUE;
+      }
+    }
     $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
     foreach ($rooms as $room) {
       if (!is_array($room)) {
@@ -641,6 +714,32 @@ class RuntimeBootstrapService {
       }
     }
     return FALSE;
+  }
+
+  /**
+   * Collect canonical runtime connection payloads from snapshot buckets.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Normalized connection payload list.
+   */
+  protected function collectRuntimeConnectionsFromPayload(array $dungeon_data): array {
+    $by_id = [];
+    foreach ([
+      $dungeon_data['connections'] ?? [],
+      $dungeon_data['hex_map']['connections'] ?? [],
+    ] as $bucket) {
+      foreach ((array) $bucket as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $connection_id = trim((string) ($connection['connection_id'] ?? ''));
+        if ($connection_id === '') {
+          continue;
+        }
+        $by_id[$connection_id] = $connection;
+      }
+    }
+    return array_values($by_id);
   }
 
 }

@@ -98,7 +98,15 @@ See subsystem docs for full invocation points and context payload details:
 
 Reference JSON/template files are input/reconciliation artifacts. Runtime contracts are enforced from database-backed canonical surfaces.
 
-## 3A. Validation Subsystems (Do Not Conflate)
+## 3A. Placement Resolution Contract (Humanoids)
+
+- **Active placement resolution:** H3 **resolution 14**.
+- **Authoritative actor field:** `dc_campaign_characters.position_h3` (stores res14 H3 index).
+- **Authoritative runtime payload field:** `placement.h3_index_res14`.
+- `position_q/position_r` and payload `placement.hex.q/r` are derived room-local projections, not placement authority.
+- **Deterministic startup default:** if a humanoid (PC/NPC/follower) has no valid placement, assign an unused canonical res14 cell in `tavern_entrance`.
+
+## 3B. Validation Subsystems (Do Not Conflate)
 
 The module has two separate validation subsystems with different responsibilities:
 

@@ -54,8 +54,8 @@ class StorylineQuestLifecycleService {
       }
 
       if ($this->promoteLeadRowsAndDetectTemplatePresence($campaign_id, $normalized_template_id)) {
+        $existing = $this->loadQuestByTemplate($campaign_id, $normalized_template_id);
         if (($character_id !== NULL && $character_id > 0) || ($party_id !== NULL && $party_id > 0)) {
-          $existing = $this->loadQuestByTemplate($campaign_id, $normalized_template_id);
           $existing_quest_id = trim((string) ($existing['quest_id'] ?? ''));
           if ($existing_quest_id !== '') {
             if (!$this->startOfferedQuest($campaign_id, $existing_quest_id, $character_id, $party_id)) {
@@ -68,6 +68,7 @@ class StorylineQuestLifecycleService {
             }
           }
         }
+        $this->ensureObjectiveDestinationRoomsMaterializedForQuestRow($campaign_id, $existing);
         return FALSE;
       }
 
@@ -91,6 +92,10 @@ class StorylineQuestLifecycleService {
           'template_id' => (string) $quest_data['source_template_id'],
           'campaign_id' => $campaign_id,
         ]);
+        $this->ensureObjectiveDestinationRoomsMaterializedForQuestRow(
+          $campaign_id,
+          $this->loadQuestByTemplate($campaign_id, (string) $quest_data['source_template_id'])
+        );
         return FALSE;
       }
 
@@ -120,6 +125,7 @@ class StorylineQuestLifecycleService {
           ));
         }
       }
+      $this->ensureObjectiveDestinationRoomsMaterializedForQuestRow($campaign_id, $quest_data);
 
       return TRUE;
     });
@@ -485,6 +491,34 @@ class StorylineQuestLifecycleService {
         ->condition('quest_id', $duplicate_quest_id)
         ->execute();
     }
+  }
+
+  /**
+   * Enforce quest-destination room materialization from persisted objectives.
+   *
+   * @param array<string, mixed>|null $quest_row
+   *   Existing quest row payload.
+   */
+  protected function ensureObjectiveDestinationRoomsMaterializedForQuestRow(int $campaign_id, ?array $quest_row): void {
+    if ($campaign_id <= 0 || !is_array($quest_row) || $quest_row === []) {
+      return;
+    }
+    $this->resolveQuestGeneratorService()
+      ->ensureQuestObjectiveDestinationRoomsMaterialized($campaign_id, $quest_row);
+  }
+
+  /**
+   * Resolve quest generator service from lifecycle context.
+   */
+  protected function resolveQuestGeneratorService(): QuestGeneratorService {
+    if (!\Drupal::hasService('dungeoncrawler_content.quest_generator')) {
+      throw new \RuntimeException('QuestGeneratorService is required for quest destination room materialization.');
+    }
+    $service = \Drupal::service('dungeoncrawler_content.quest_generator');
+    if (!($service instanceof QuestGeneratorService)) {
+      throw new \RuntimeException('Quest generator service does not implement QuestGeneratorService.');
+    }
+    return $service;
   }
 
 }

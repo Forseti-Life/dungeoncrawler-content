@@ -53,12 +53,30 @@ class CampaignCharacterRuntimeSyncService {
       return $dungeon_payload;
     }
 
-    $records = $this->filterRelevantRecords(
-      $this->loadActivePlayerRecords($campaign_id),
-      $active_room_id,
-      $preferred_actor_id
-    );
+    $preferred_actor_id = trim((string) $preferred_actor_id);
+    $all_records = $this->loadActivePlayerRecords($campaign_id);
+    $records = $this->filterRelevantRecords($all_records, $active_room_id, $preferred_actor_id);
     $dungeon_payload = $this->syncActiveRoomNpcEntities($dungeon_payload, $campaign_id, $active_room_id);
+    $force_active_room_placement = FALSE;
+    if ($records === []) {
+      if ($this->hasPlayerEntityInRoom($dungeon_payload, $active_room_id)) {
+        return $dungeon_payload;
+      }
+      if ($all_records === []) {
+        return $dungeon_payload;
+      }
+      $primary = $all_records[0];
+      if ($preferred_actor_id !== '') {
+        foreach ($all_records as $candidate) {
+          if (trim((string) ($candidate['instance_id'] ?? '')) === $preferred_actor_id) {
+            $primary = $candidate;
+            break;
+          }
+        }
+      }
+      $records = [$primary];
+      $force_active_room_placement = TRUE;
+    }
     if ($records === []) {
       return $dungeon_payload;
     }
@@ -78,6 +96,9 @@ class CampaignCharacterRuntimeSyncService {
       $room_id = $is_preferred_actor
         ? $active_room_id
         : ($this->resolveRecordRoomId($record) ?: $active_room_id);
+      if ($force_active_room_placement) {
+        $room_id = $active_room_id;
+      }
       $char_data = $this->decodeCharacterData($record);
       $source_character_id = (int) ($record['source_character_id'] ?? 0);
       if ($source_character_id <= 0) {
@@ -100,7 +121,16 @@ class CampaignCharacterRuntimeSyncService {
         $record['character_data'] = json_encode($char_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
       }
       $placement = $this->resolveCharacterPlacement($dungeon_payload, $room_id, $record, $occupied[$room_id] ?? []);
+      $placement_contract = $this->resolvePlacementRoomAndH3(
+        $dungeon_payload,
+        $room_id,
+        $placement,
+        sprintf('pc-runtime-row-%d', (int) ($record['id'] ?? 0))
+      );
+      $room_id = $placement_contract['room_id'];
+      $placement['h3_index_res14'] = $placement_contract['h3_index_res14'];
       $occupied[$room_id][$placement['q'] . ',' . $placement['r']] = TRUE;
+      $this->persistRuntimePlacement((int) ($record['id'] ?? 0), $campaign_id, $room_id, $placement);
 
       $hp_max = (int) ($record['hp_max'] ?: ($char_data['hp']['max'] ?? $char_data['calculated_stats']['max_hp'] ?? 20));
       $hp_current = (int) ($record['hp_current'] ?: ($char_data['hp']['current'] ?? $hp_max));
@@ -126,7 +156,7 @@ class CampaignCharacterRuntimeSyncService {
           'room_id' => $room_id,
           'hex' => $placement,
           'facing' => 0,
-          'h3_index_res14' => $this->resolvePlacementH3IndexRes14($dungeon_payload, $room_id, $placement),
+          'h3_index_res14' => $placement['h3_index_res14'],
         ],
         'state' => [
           'metadata' => [
@@ -156,6 +186,28 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     return $dungeon_payload;
+  }
+
+  /**
+   * Determine whether the payload already has a player in the active room.
+   */
+  protected function hasPlayerEntityInRoom(array $dungeon_payload, string $active_room_id): bool {
+    foreach ((array) ($dungeon_payload['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+      if ($entity_room_id !== $active_room_id) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''))));
+      $team = strtolower(trim((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? ''))));
+      if ($entity_type === 'player_character' || in_array($team, ['player', 'player_character', 'pc'], TRUE)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
@@ -321,6 +373,7 @@ class CampaignCharacterRuntimeSyncService {
         'character_data',
         'position_q',
         'position_r',
+        'position_h3',
         'last_room_id',
         'location_ref',
         'updated',
@@ -378,7 +431,7 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     $records = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', ['id', 'instance_id', 'name', 'portrait', 'state_data', 'character_data', 'uid', 'position_q', 'position_r', 'location_ref'])
+      ->fields('cc', ['id', 'instance_id', 'name', 'portrait', 'state_data', 'character_data', 'uid', 'position_q', 'position_r', 'position_h3', 'location_ref'])
       ->condition('campaign_id', $campaign_id)
       ->condition('type', 'npc')
       ->condition('location_type', 'room')
@@ -432,6 +485,14 @@ class CampaignCharacterRuntimeSyncService {
             $record,
             $occupied[$resolved_room_id] ?? []
           );
+          $placement_contract = $this->resolvePlacementRoomAndH3(
+            $dungeon_payload,
+            $resolved_room_id,
+            $placement,
+            sprintf('npc-runtime-row-%d', (int) ($record['id'] ?? 0))
+          );
+          $resolved_room_id = $placement_contract['room_id'];
+          $placement['h3_index_res14'] = $placement_contract['h3_index_res14'];
           $entity['instance_id'] = $instance_id;
           $entity['entity_instance_id'] = $instance_id;
           if (!isset($entity['entity_ref']) || !is_array($entity['entity_ref'])) {
@@ -446,11 +507,8 @@ class CampaignCharacterRuntimeSyncService {
           $entity['placement']['facing'] = isset($entity['placement']['facing'])
             ? ((int) $entity['placement']['facing'] % 6 + 6) % 6
             : 0;
-          $entity['placement']['h3_index_res14'] = $this->resolvePlacementH3IndexRes14(
-            $dungeon_payload,
-            $resolved_room_id,
-            $placement
-          );
+          $entity['placement']['h3_index_res14'] = $placement['h3_index_res14'];
+          $this->persistRuntimePlacement((int) ($record['id'] ?? 0), $campaign_id, $resolved_room_id, $placement);
           $occupied[$resolved_room_id][$placement['q'] . ',' . $placement['r']] = TRUE;
           $entity['state']['metadata']['display_name'] = $name !== '' ? $name : ($entity['state']['metadata']['display_name'] ?? '');
           $entity['state']['metadata']['name'] = $name !== '' ? $name : ($entity['state']['metadata']['name'] ?? '');
@@ -474,7 +532,16 @@ class CampaignCharacterRuntimeSyncService {
       }
 
       $placement = $this->resolveRoomNpcPlacement($dungeon_payload, $active_room_id, $record, $occupied[$active_room_id] ?? []);
-      $occupied[$active_room_id][$placement['q'] . ',' . $placement['r']] = TRUE;
+      $placement_contract = $this->resolvePlacementRoomAndH3(
+        $dungeon_payload,
+        $active_room_id,
+        $placement,
+        sprintf('npc-runtime-row-%d', (int) ($record['id'] ?? 0))
+      );
+      $active_runtime_room_id = $placement_contract['room_id'];
+      $placement['h3_index_res14'] = $placement_contract['h3_index_res14'];
+      $occupied[$active_runtime_room_id][$placement['q'] . ',' . $placement['r']] = TRUE;
+      $this->persistRuntimePlacement((int) ($record['id'] ?? 0), $campaign_id, $active_runtime_room_id, $placement);
 
       $dungeon_payload['entities'][] = [
         'entity_type' => 'npc',
@@ -485,10 +552,10 @@ class CampaignCharacterRuntimeSyncService {
           'content_id' => $content_id !== '' ? $content_id : strtolower(str_replace(' ', '_', $name)),
         ],
         'placement' => [
-          'room_id' => $active_room_id,
+          'room_id' => $active_runtime_room_id,
           'hex' => $placement,
           'facing' => 0,
-          'h3_index_res14' => $this->resolvePlacementH3IndexRes14($dungeon_payload, $active_room_id, $placement),
+          'h3_index_res14' => $placement['h3_index_res14'],
           'spawn_type' => 'npc',
         ],
         'state' => [
@@ -911,6 +978,7 @@ class CampaignCharacterRuntimeSyncService {
         'experience_points' => 0,
         'position_q' => 0,
         'position_r' => 0,
+        'position_h3' => '',
         'last_room_id' => '',
         'ancestry' => (string) ($seed_data['ancestry'] ?? 'Humanoid'),
         'class' => (string) ($seed_data['class'] ?? 'Commoner'),
@@ -1201,6 +1269,84 @@ class CampaignCharacterRuntimeSyncService {
   }
 
   /**
+   * Persist canonical runtime room/hex/h3 placement for one campaign actor row.
+   */
+  protected function persistRuntimePlacement(int $record_id, int $campaign_id, string $room_id, array $placement): void {
+    if ($record_id <= 0 || $campaign_id <= 0) {
+      return;
+    }
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Cannot persist runtime placement for row %d without room_id.',
+        $record_id
+      ));
+    }
+    $position_h3 = strtolower(trim((string) ($placement['h3_index_res14'] ?? '')));
+    if ($position_h3 === '') {
+      throw new \RuntimeException(sprintf(
+        'Cannot persist runtime placement for row %d without canonical h3_index_res14.',
+        $record_id
+      ));
+    }
+    $this->database->update('dc_campaign_characters')
+      ->fields([
+        'position_q' => (int) ($placement['q'] ?? 0),
+        'position_r' => (int) ($placement['r'] ?? 0),
+        'position_h3' => $position_h3,
+        'last_room_id' => $room_id,
+        'location_type' => 'room',
+        'location_ref' => $room_id,
+        'updated' => time(),
+      ])
+      ->condition('id', $record_id)
+      ->condition('campaign_id', $campaign_id)
+      ->execute();
+  }
+
+  /**
+   * Resolve authoritative placement room and canonical H3 index.
+   *
+   * If preferred room cannot project the placement to H3, a deterministic
+   * tavern_entrance fallback room is attempted.
+   *
+   * @return array{room_id:string,h3_index_res14:string}
+   *   Canonical room + H3 placement.
+   */
+  protected function resolvePlacementRoomAndH3(array $dungeon_payload, string $preferred_room_id, array $placement, string $context): array {
+    $preferred_room_id = trim($preferred_room_id);
+    if ($preferred_room_id === '') {
+      $preferred_room_id = 'tavern_entrance';
+    }
+
+    $h3_index_res14 = $this->resolvePlacementH3IndexRes14($dungeon_payload, $preferred_room_id, $placement);
+    if ($h3_index_res14 !== '') {
+      return [
+        'room_id' => $preferred_room_id,
+        'h3_index_res14' => $h3_index_res14,
+      ];
+    }
+
+    if ($preferred_room_id !== 'tavern_entrance') {
+      $tavern_h3 = $this->resolvePlacementH3IndexRes14($dungeon_payload, 'tavern_entrance', $placement);
+      if ($tavern_h3 !== '') {
+        return [
+          'room_id' => 'tavern_entrance',
+          'h3_index_res14' => $tavern_h3,
+        ];
+      }
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Unable to resolve canonical H3 placement for %s at room %s hex %d:%d.',
+      $context,
+      $preferred_room_id,
+      (int) ($placement['q'] ?? 0),
+      (int) ($placement['r'] ?? 0)
+    ));
+  }
+
+  /**
    * Build occupied hex lookup grouped by room.
    *
    * @return array<string, array<string, bool>>
@@ -1229,6 +1375,7 @@ class CampaignCharacterRuntimeSyncService {
     $preferred = [
       'q' => (int) ($record['position_q'] ?? 0),
       'r' => (int) ($record['position_r'] ?? 0),
+      'h3_index_res14' => (string) ($record['position_h3'] ?? ''),
     ];
     if ($room_hexes === []) {
       $sparse_fallback = $this->resolveRoomHexPlacementFromSparseStorage($dungeon_payload, $room_id, $preferred, $occupied);
@@ -1274,6 +1421,12 @@ class CampaignCharacterRuntimeSyncService {
       ];
     }
 
+    $tavern_occupied = $this->resolveOccupiedHexesForRoom($dungeon_payload, 'tavern_entrance', $occupied);
+    $tavern_fallback = $this->resolveRoomHexPlacementFromSparseStorage($dungeon_payload, 'tavern_entrance', $preferred, $tavern_occupied);
+    if (is_array($tavern_fallback)) {
+      return $tavern_fallback;
+    }
+
     return $preferred;
   }
 
@@ -1284,6 +1437,7 @@ class CampaignCharacterRuntimeSyncService {
     $preferred = [
       'q' => (int) ($record['position_q'] ?? 0),
       'r' => (int) ($record['position_r'] ?? 0),
+      'h3_index_res14' => (string) ($record['position_h3'] ?? ''),
     ];
     $room_hexes = $this->getRoomHexes($dungeon_payload, $room_id);
     if ($room_hexes === []) {
@@ -1329,6 +1483,12 @@ class CampaignCharacterRuntimeSyncService {
       ];
     }
 
+    $tavern_occupied = $this->resolveOccupiedHexesForRoom($dungeon_payload, 'tavern_entrance', $occupied);
+    $tavern_fallback = $this->resolveRoomHexPlacementFromSparseStorage($dungeon_payload, 'tavern_entrance', $preferred, $tavern_occupied);
+    if (is_array($tavern_fallback)) {
+      return $tavern_fallback;
+    }
+
     return $preferred;
   }
 
@@ -1347,7 +1507,7 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     $rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
-      ->fields('c', ['source_q', 'source_r'])
+      ->fields('c', ['source_q', 'source_r', 'h3_index'])
       ->condition('c.dungeon_id', $dungeon_id)
       ->condition('c.room_id', $room_id)
       ->condition('c.h3_resolution', 14)
@@ -1355,15 +1515,36 @@ class CampaignCharacterRuntimeSyncService {
       ->orderBy('c.id', 'ASC')
       ->range(0, 256)
       ->execute()
-      ->fetchAllAssoc(NULL, \PDO::FETCH_ASSOC) ?: [];
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
     if ($rows === []) {
       return NULL;
     }
 
+    $preferred_h3 = strtolower(trim((string) ($preferred['h3_index_res14'] ?? $preferred['h3_index'] ?? '')));
+    if ($preferred_h3 !== '') {
+      foreach ($rows as $row) {
+        if (!is_array($row)) {
+          continue;
+        }
+        $row_h3 = strtolower(trim((string) ($row['h3_index'] ?? '')));
+        if ($row_h3 === '' || $row_h3 !== $preferred_h3) {
+          continue;
+        }
+        $q = (int) ($row['source_q'] ?? 0);
+        $r = (int) ($row['source_r'] ?? 0);
+        if (!isset($occupied[$q . ',' . $r])) {
+          return ['q' => $q, 'r' => $r];
+        }
+      }
+    }
+
     $preferred_q = (int) ($preferred['q'] ?? 0);
     $preferred_r = (int) ($preferred['r'] ?? 0);
     foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
       $q = (int) ($row['source_q'] ?? 0);
       $r = (int) ($row['source_r'] ?? 0);
       if ($q === $preferred_q && $r === $preferred_r && !isset($occupied[$q . ',' . $r])) {
@@ -1372,6 +1553,9 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
       $q = (int) ($row['source_q'] ?? 0);
       $r = (int) ($row['source_r'] ?? 0);
       if (!isset($occupied[$q . ',' . $r])) {
@@ -1614,6 +1798,7 @@ class CampaignCharacterRuntimeSyncService {
         $placement_record = [
           'position_q' => (int) ($existing_entity['placement']['hex']['q'] ?? $owner_q),
           'position_r' => (int) ($existing_entity['placement']['hex']['r'] ?? $owner_r),
+          'position_h3' => (string) ($existing_entity['placement']['h3_index_res14'] ?? ''),
         ];
         $resolved_placement = $this->resolveRoomNpcPlacement(
           $dungeon_payload,
@@ -1628,17 +1813,26 @@ class CampaignCharacterRuntimeSyncService {
         $existing_entity['entity_ref']['content_type'] = 'npc';
         $existing_entity['entity_ref']['content_id'] = (string) ($profile['content_id'] ?? ($existing_entity['entity_ref']['content_id'] ?? ''));
         $existing_entity['placement'] = is_array($existing_entity['placement'] ?? NULL) ? $existing_entity['placement'] : [];
-        $existing_entity['placement']['room_id'] = $room_id;
+        $existing_room_id = $room_id;
         $existing_entity['placement']['hex'] = $resolved_placement;
         $existing_entity['placement']['facing'] = isset($existing_entity['placement']['facing'])
           ? ((int) $existing_entity['placement']['facing'] % 6 + 6) % 6
           : 0;
-        $existing_entity['placement']['h3_index_res14'] = $this->resolvePlacementH3IndexRes14(
+        $placement_contract = $this->resolvePlacementRoomAndH3(
           $dungeon_payload,
-          $room_id,
-          $existing_entity['placement']['hex']
+          $existing_room_id,
+          $existing_entity['placement']['hex'],
+          sprintf('follower-runtime-row-%d', $follower_runtime_character_id)
         );
-        $occupied[$room_id][$resolved_placement['q'] . ',' . $resolved_placement['r']] = TRUE;
+        $existing_room_id = $placement_contract['room_id'];
+        $existing_entity['placement']['room_id'] = $existing_room_id;
+        $existing_entity['placement']['h3_index_res14'] = $placement_contract['h3_index_res14'];
+        $occupied[$resolved_placement['q'] . ',' . $resolved_placement['r']] = TRUE;
+        $this->persistRuntimePlacement($follower_runtime_character_id, $campaign_id, $existing_room_id, [
+          'q' => (int) ($existing_entity['placement']['hex']['q'] ?? 0),
+          'r' => (int) ($existing_entity['placement']['hex']['r'] ?? 0),
+          'h3_index_res14' => $placement_contract['h3_index_res14'],
+        ]);
         $existing_entity['state'] = is_array($existing_entity['state'] ?? NULL) ? $existing_entity['state'] : [];
         $existing_entity['state']['active'] = TRUE;
         $existing_entity['state']['metadata'] = $follower_metadata;
@@ -1647,7 +1841,16 @@ class CampaignCharacterRuntimeSyncService {
       }
 
       $placement = $this->findAdjacentCompanionHex($dungeon_payload, $room_id, $owner_q, $owner_r, $occupied);
+      $placement_contract = $this->resolvePlacementRoomAndH3(
+        $dungeon_payload,
+        $room_id,
+        $placement,
+        sprintf('follower-runtime-row-%d', $follower_runtime_character_id)
+      );
+      $placement_room_id = $placement_contract['room_id'];
+      $placement['h3_index_res14'] = $placement_contract['h3_index_res14'];
       $occupied[$placement['q'] . ',' . $placement['r']] = TRUE;
+      $this->persistRuntimePlacement($follower_runtime_character_id, $campaign_id, $placement_room_id, $placement);
       $dungeon_payload['entities'][] = [
         'entity_type' => 'npc',
         'instance_id' => $instance_id,
@@ -1657,10 +1860,10 @@ class CampaignCharacterRuntimeSyncService {
           'content_id' => (string) ($profile['content_id'] ?? ''),
         ],
         'placement' => [
-          'room_id' => $room_id,
+          'room_id' => $placement_room_id,
           'hex' => $placement,
           'facing' => 0,
-          'h3_index_res14' => $this->resolvePlacementH3IndexRes14($dungeon_payload, $room_id, $placement),
+          'h3_index_res14' => $placement['h3_index_res14'],
           'spawn_type' => 'npc',
         ],
         'state' => [
@@ -1847,6 +2050,7 @@ class CampaignCharacterRuntimeSyncService {
         'experience_points' => 0,
         'position_q' => 0,
         'position_r' => 0,
+        'position_h3' => '',
         'last_room_id' => '',
         'version' => 0,
         'source_character_id' => $owner_source_character_id,
@@ -1985,7 +2189,48 @@ class CampaignCharacterRuntimeSyncService {
       return $fallback;
     }
 
+    $tavern_occupied = $this->resolveOccupiedHexesForRoom($dungeon_payload, 'tavern_entrance', $occupied);
+    $tavern_fallback = $this->resolveRoomHexPlacementFromSparseStorage(
+      $dungeon_payload,
+      'tavern_entrance',
+      ['q' => $owner_q, 'r' => $owner_r],
+      $tavern_occupied
+    );
+    if (is_array($tavern_fallback)) {
+      return $tavern_fallback;
+    }
+
     return ['q' => $owner_q, 'r' => $owner_r];
+  }
+
+  /**
+   * Resolve occupied hexes for one room by merging payload entities + caller cache.
+   *
+   * @return array<string, bool>
+   *   Room occupancy keyed as "q,r".
+   */
+  protected function resolveOccupiedHexesForRoom(array $dungeon_payload, string $room_id, array $occupied = []): array {
+    $lookup = $occupied;
+    if ($room_id === '') {
+      return $lookup;
+    }
+
+    foreach (($dungeon_payload['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+      if ($entity_room_id !== $room_id) {
+        continue;
+      }
+      $hex = is_array($entity['placement']['hex'] ?? NULL) ? $entity['placement']['hex'] : [];
+      if ($hex === []) {
+        continue;
+      }
+      $lookup[(int) ($hex['q'] ?? 0) . ',' . (int) ($hex['r'] ?? 0)] = TRUE;
+    }
+
+    return $lookup;
   }
 
 }

@@ -27,7 +27,7 @@ class RoomChatEncounterProgressService {
     }
 
     try {
-      $state = $this->coordinator->getFullState($campaign_id);
+      $state = $this->coordinator->getRuntimeReadState($campaign_id);
     }
     catch (\Throwable $e) {
       $this->logger->warning('Encounter progress snapshot fallback: campaign={campaign_id} message={message}', [
@@ -100,7 +100,7 @@ class RoomChatEncounterProgressService {
 
     if ($round_raw === NULL || $turn_index_raw === NULL) {
       try {
-        $state = $this->coordinator->getFullState($campaign_id);
+        $state = $this->coordinator->getRuntimeReadState($campaign_id);
       }
       catch (\Throwable $e) {
         $this->logger->warning('Encounter progress prefix fallback: campaign={campaign_id} message={message}', [

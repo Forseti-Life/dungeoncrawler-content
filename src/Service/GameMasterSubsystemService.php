@@ -306,8 +306,11 @@ class GameMasterSubsystemService {
       return NULL;
     }
 
-    $state = $this->coordinator->getFullState($campaign_id);
-    $after_actor_id = $this->resolveDelayAfterActorId($normalized, $state['initiative_order'] ?? [], $actor_id);
+    $state = $this->coordinator->getRuntimeReadState($campaign_id, $actor_id);
+    $initiative_order = is_array($state['initiative_order'] ?? NULL)
+      ? $state['initiative_order']
+      : [];
+    $after_actor_id = $this->resolveDelayAfterActorId($normalized, $initiative_order, $actor_id);
 
     return [
       'type' => 'delay',

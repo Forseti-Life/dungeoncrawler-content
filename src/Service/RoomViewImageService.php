@@ -1335,7 +1335,7 @@ class RoomViewImageService {
       if (!is_array($dungeon_data)) {
         continue;
       }
-      if ($this->resolveRoom($dungeon_data, $room_id) !== NULL) {
+      if ($this->payloadContainsRoomId($dungeon_data, $room_id)) {
         return [
           'dungeon_id' => (string) ($row->dungeon_id ?? ''),
           'dungeon_data' => (string) ($row->dungeon_data ?? ''),
@@ -1374,7 +1374,7 @@ class RoomViewImageService {
    * Resolve a requested campaign room slug onto the runtime dungeon payload id.
    */
   protected function resolvePayloadRoomIdForRequest(int $campaign_id, string $room_id, array $dungeon_data): string {
-    if ($room_id === '' || $this->resolveRoom($dungeon_data, $room_id) !== NULL) {
+    if ($room_id === '' || $this->payloadContainsRoomId($dungeon_data, $room_id)) {
       return $room_id;
     }
 
@@ -1430,6 +1430,22 @@ class RoomViewImageService {
     }
 
     return $room_id;
+  }
+
+  /**
+   * Determine whether a dungeon payload contains the requested room id.
+   */
+  protected function payloadContainsRoomId(array $dungeon_data, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+    foreach ((array) ($dungeon_data['room_ids'] ?? []) as $listed_room_id) {
+      if (trim((string) $listed_room_id) === $room_id) {
+        return TRUE;
+      }
+    }
+    return $this->resolveRoom($dungeon_data, $room_id) !== NULL;
   }
 
   /**

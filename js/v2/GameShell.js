@@ -31,14 +31,14 @@ import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260619-v2-search-reward-refresh-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20260722-v2-startup-state-1';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20260724-v2-nav-bundle-error-1';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260721-v2-nav-authority-2';
 import { ChatPanel } from './panels/ChatPanel.js?v=20260722-v2-startup-state-1';
-import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';
+import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js?v=20260629-v2-party-only-tab-1';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
@@ -2004,7 +2004,12 @@ export class GameShell {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload?.success) {
-      throw new Error(payload?.error || 'Unable to load runtime state.');
+      const error = new Error(payload?.error || 'Unable to load runtime state.');
+      error.status = Number(response.status || 0);
+      error.code = String(payload?.error || '').trim().toLowerCase();
+      error.retryAfter = Number(payload?.retry_after || response.headers.get('Retry-After') || 0) || 0;
+      error.payload = payload;
+      throw error;
     }
 
     this.applyRuntimeStateBundle(payload);
@@ -2416,10 +2421,17 @@ export class GameShell {
       return normalizedCapabilities;
     }
 
-    return normalizedCapabilities.filter((capability) => {
+    const roomScopedCapabilities = normalizedCapabilities.filter((capability) => {
       const originRoomId = String(capability?.origin_room_id || '').trim();
       return originRoomId === '' || originRoomId === activeRoomId;
     });
+    if (roomScopedCapabilities.length > 0 || normalizedCapabilities.length === 0) {
+      return roomScopedCapabilities;
+    }
+
+    // Preserve navigation continuity during brief room/capability skew windows
+    // (for example, optimistic room updates before the refreshed bundle lands).
+    return normalizedCapabilities;
   }
 
   // --- ported from hexmap.js ---

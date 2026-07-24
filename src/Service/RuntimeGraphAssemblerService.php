@@ -35,6 +35,7 @@ class RuntimeGraphAssemblerService {
    *   Payload whose graph structure comes from campaign authority tables.
    */
   public function buildRuntimeGraph(int $campaign_id, string $dungeon_id, array $base_payload = [], array $options = []): array {
+    $assembly_started_at = microtime(TRUE);
     $dungeon_id = trim($dungeon_id);
     if ($campaign_id <= 0 || $dungeon_id === '') {
       throw new \InvalidArgumentException('Runtime graph assembly requires campaign_id and dungeon_id.');
@@ -42,14 +43,22 @@ class RuntimeGraphAssemblerService {
 
     $active_room_id = trim((string) ($options['active_room_id'] ?? $base_payload['active_room_id'] ?? ''));
     $requested_room_id = trim((string) ($options['requested_room_id'] ?? ''));
-    $scope_depth = max(0, (int) ($options['room_scope_depth'] ?? -1));
+    $scope_depth = array_key_exists('room_scope_depth', $options)
+      ? max(0, (int) $options['room_scope_depth'])
+      : -1;
 
-    $room_ids = $scope_depth >= 0 ? [] : $this->extractBasePayloadRoomIds($base_payload);
-    if ($active_room_id !== '') {
-      $room_ids[$active_room_id] = TRUE;
-    }
-    if ($requested_room_id !== '') {
-      $room_ids[$requested_room_id] = TRUE;
+    // Unscoped rebuilds retain full room coverage; scoped callers may request a
+    // bounded neighborhood via room_scope_depth.
+    $room_ids = $scope_depth >= 0
+      ? []
+      : $this->loadAllCampaignRoomIds($campaign_id);
+    if ($scope_depth >= 0) {
+      if ($active_room_id !== '') {
+        $room_ids[$active_room_id] = TRUE;
+      }
+      if ($requested_room_id !== '') {
+        $room_ids[$requested_room_id] = TRUE;
+      }
     }
 
     $connections = $this->loadCampaignConnections($campaign_id, $dungeon_id);
@@ -59,14 +68,24 @@ class RuntimeGraphAssemblerService {
         array_values(array_filter([$active_room_id, $requested_room_id], static fn(string $room_id): bool => $room_id !== '')),
         $scope_depth
       );
-    }
-    foreach ($this->collectConnectionEndpointRoomIds($connections) as $connected_room_id) {
-      $room_ids[$connected_room_id] = TRUE;
+      $connection_endpoint_room_ids = $this->collectConnectionEndpointRoomIds($connections);
+      foreach ($connection_endpoint_room_ids as $connected_room_id) {
+        $room_ids[$connected_room_id] = TRUE;
+      }
     }
 
     $snapshot_rooms = $this->indexSnapshotRooms($base_payload);
-    $campaign_rooms = $this->loadCampaignRooms($campaign_id, array_keys($room_ids));
-    if ($active_room_id !== '' && !isset($campaign_rooms[$active_room_id])) {
+    $room_id_list = array_values(array_unique(array_keys($room_ids)));
+    $campaign_room_meta = $this->loadCampaignRoomMetadata($campaign_id, $room_id_list);
+    if ($scope_depth < 0 && count($campaign_room_meta) !== count($room_id_list)) {
+      throw new \RuntimeException(sprintf(
+        'Runtime graph assembly contract violation: expected full room authority set for campaign %d (expected=%d, loaded=%d).',
+        $campaign_id,
+        count($room_id_list),
+        count($campaign_room_meta)
+      ));
+    }
+    if ($active_room_id !== '' && !isset($campaign_room_meta[$active_room_id])) {
       throw new \RuntimeException(sprintf(
         'Runtime graph assembly contract violation: active room %s is missing from dc_campaign_rooms for campaign %d.',
         $active_room_id,
@@ -75,23 +94,34 @@ class RuntimeGraphAssemblerService {
     }
 
     $room_names = [];
-    foreach ($campaign_rooms as $room_id => $room_row) {
+    foreach ($campaign_room_meta as $room_id => $room_row) {
       $room_names[$room_id] = (string) ($room_row['name'] ?? $room_id);
     }
-    $canonical_room_names = $this->loadCanonicalRoomNames(array_keys($room_ids));
+    $connection_endpoint_room_ids = $this->collectConnectionEndpointRoomIds($connections);
+    $canonical_room_names = $this->loadCanonicalRoomNames(array_values(array_unique(array_merge($room_id_list, $connection_endpoint_room_ids))));
     $connection_payloads = [];
     foreach ($connections as $connection) {
       $connection_payloads[] = $this->buildConnectionPayload($connection, $room_names, $canonical_room_names);
     }
-    $room_exit_payloads = $this->buildRoomExitPayloadsByRoom($connection_payloads, $campaign_rooms, $canonical_room_names);
-
+    $connection_ids = array_values(array_filter(array_map(
+      static fn(array $connection): string => trim((string) ($connection['connection_id'] ?? '')),
+      $connection_payloads
+    ), static fn(string $connection_id): bool => $connection_id !== ''));
+    $room_exit_payloads = $this->buildRoomExitPayloadsByRoom($connection_payloads, $canonical_room_names);
     $room_payloads = [];
-    foreach ($campaign_rooms as $room_id => $room_row) {
-      $room_payloads[] = $this->buildRoomPayload(
-        $room_row,
-        $snapshot_rooms[$room_id] ?? [],
-        $room_exit_payloads[$room_id] ?? []
-      );
+    $room_batch_size = max(1, (int) ($options['room_batch_size'] ?? 8));
+    $room_chunk_count = 0;
+    foreach (array_chunk($room_id_list, $room_batch_size) as $room_id_batch) {
+      $room_chunk_count++;
+      $room_batch_rows = $this->loadCampaignRooms($campaign_id, $room_id_batch);
+      foreach ($room_batch_rows as $room_id => $room_row) {
+        $room_payloads[] = $this->buildRoomPayload(
+          $room_row,
+          $snapshot_rooms[$room_id] ?? [],
+          $room_exit_payloads[$room_id] ?? []
+        );
+      }
+      unset($room_batch_rows);
     }
 
     $hex_map = is_array($base_payload['hex_map'] ?? NULL) ? $base_payload['hex_map'] : [];
@@ -103,11 +133,29 @@ class RuntimeGraphAssemblerService {
     $payload['dungeon_id'] = $dungeon_id;
     $payload['map_id'] = (string) ($base_payload['map_id'] ?? $dungeon_id);
     $payload['active_room_id'] = $active_room_id;
-    $payload['canonical_graph_version'] = $this->graphVersionService->resolveCanonicalGraphVersion($dungeon_id, array_keys($campaign_rooms));
-    $payload['campaign_graph_version'] = $this->graphVersionService->resolveCampaignGraphVersion($campaign_id, $dungeon_id, array_keys($campaign_rooms));
+    $payload['canonical_graph_version'] = $this->graphVersionService->resolveCanonicalGraphVersion($dungeon_id, array_keys($campaign_room_meta));
+    $payload['campaign_graph_version'] = $this->graphVersionService->resolveCampaignGraphVersion($campaign_id, $dungeon_id, array_keys($campaign_room_meta));
+    $payload['room_ids'] = array_values(array_filter(array_map(
+      static fn(array $room_payload): string => trim((string) ($room_payload['room_id'] ?? '')),
+      $room_payloads
+    ), static fn(string $room_id): bool => $room_id !== ''));
+    $payload['connection_ids'] = $connection_ids;
     $payload['rooms'] = $room_payloads;
     $payload['connections'] = $connection_payloads;
     $payload['hex_map'] = $hex_map;
+
+    \Drupal::logger('dungeoncrawler_runtime_graph')->notice('RuntimeGraphAssembler build metrics: campaign_id=@campaign_id dungeon_id=@dungeon_id scope_depth=@scope_depth active_room_id=@active_room_id requested_room_id=@requested_room_id room_count=@room_count connection_count=@connection_count room_batch_size=@room_batch_size room_chunk_count=@room_chunk_count duration_ms=@duration_ms', [
+      '@campaign_id' => $campaign_id,
+      '@dungeon_id' => $dungeon_id,
+      '@scope_depth' => $scope_depth,
+      '@active_room_id' => $active_room_id,
+      '@requested_room_id' => $requested_room_id,
+      '@room_count' => count($payload['room_ids']),
+      '@connection_count' => count($connection_payloads),
+      '@room_batch_size' => $room_batch_size,
+      '@room_chunk_count' => $room_chunk_count,
+      '@duration_ms' => (int) round((microtime(TRUE) - $assembly_started_at) * 1000.0),
+    ]);
 
     return $payload;
   }
@@ -183,26 +231,6 @@ class RuntimeGraphAssemblerService {
   /**
    * @param array<string, mixed> $base_payload
    *
-   * @return array<string, bool>
-   *   Materialized room ids present in the current snapshot.
-   */
-  protected function extractBasePayloadRoomIds(array $base_payload): array {
-    $room_ids = [];
-    foreach ((array) ($base_payload['rooms'] ?? []) as $room) {
-      if (!is_array($room)) {
-        continue;
-      }
-      $room_id = trim((string) ($room['room_id'] ?? ''));
-      if ($room_id !== '') {
-        $room_ids[$room_id] = TRUE;
-      }
-    }
-    return $room_ids;
-  }
-
-  /**
-   * @param array<string, mixed> $base_payload
-   *
    * @return array<string, array<string, mixed>>
    *   Existing snapshot rooms keyed by room id.
    */
@@ -258,6 +286,70 @@ class RuntimeGraphAssemblerService {
   }
 
   /**
+   * Load lightweight campaign room metadata for name/version contracts.
+   *
+   * @param int $campaign_id
+   *   Campaign identifier.
+   * @param array<int, string> $room_ids
+   *   Requested room ids.
+   *
+   * @return array<string, array<string, mixed>>
+   *   Metadata rows keyed by room id.
+   */
+  protected function loadCampaignRoomMetadata(int $campaign_id, array $room_ids): array {
+    if ($campaign_id <= 0 || $room_ids === []) {
+      return [];
+    }
+
+    $rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'name'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', array_values(array_unique($room_ids)), 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $indexed = [];
+    foreach ((array) $rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $room_id = trim((string) ($row['room_id'] ?? ''));
+      if ($room_id !== '') {
+        $indexed[$room_id] = $row;
+      }
+    }
+
+    return $indexed;
+  }
+
+  /**
+   * Load all campaign room ids for full graph assembly paths.
+   *
+   * @return array<string, bool>
+   *   Campaign room ids keyed to TRUE.
+   */
+  protected function loadAllCampaignRoomIds(int $campaign_id): array {
+    if ($campaign_id <= 0) {
+      return [];
+    }
+
+    $rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->execute()
+      ->fetchCol();
+
+    $room_ids = [];
+    foreach ((array) $rows as $room_id) {
+      $room_id = trim((string) $room_id);
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+    return $room_ids;
+  }
+
+  /**
    * Build one raw room payload from a campaign room row.
    *
    * @param array<string, mixed> $room_row
@@ -273,6 +365,7 @@ class RuntimeGraphAssemblerService {
     if (!is_array($layout_data)) {
       $layout_data = [];
     }
+    $exit_payloads = $this->applyAuthoredExitMetadata($exit_payloads, $layout_data);
 
     $payload = [
       'room_id' => (string) ($room_row['room_id'] ?? ''),
@@ -297,20 +390,58 @@ class RuntimeGraphAssemblerService {
   }
 
   /**
+   * Overlay authored exit metadata from room layout onto runtime exits.
+   *
+   * @param array<int, array<string, mixed>> $exit_payloads
+   *   Exit payloads assembled from connection authority.
+   * @param array<string, mixed> $layout_data
+   *   Decoded room layout data.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Exit payloads enriched with authored metadata when available.
+   */
+  protected function applyAuthoredExitMetadata(array $exit_payloads, array $layout_data): array {
+    $authored_by_target = [];
+    foreach ((array) ($layout_data['exits'] ?? []) as $exit) {
+      if (!is_array($exit)) {
+        continue;
+      }
+      $target_room_id = trim((string) ($exit['target_room_id'] ?? ''));
+      if ($target_room_id === '') {
+        continue;
+      }
+      $authored_by_target[$target_room_id] = $exit;
+    }
+
+    foreach ($exit_payloads as $index => $payload_exit) {
+      if (!is_array($payload_exit)) {
+        continue;
+      }
+      $target_room_id = trim((string) ($payload_exit['target_room_id'] ?? ''));
+      if ($target_room_id === '' || !isset($authored_by_target[$target_room_id])) {
+        continue;
+      }
+      $authored_exit = $authored_by_target[$target_room_id];
+      $payload_exit['label'] = trim((string) ($authored_exit['label'] ?? ($payload_exit['label'] ?? '')));
+      $payload_exit['link_type'] = trim((string) ($authored_exit['link_type'] ?? ($payload_exit['link_type'] ?? '')));
+      $exit_payloads[$index] = $payload_exit;
+    }
+
+    return $exit_payloads;
+  }
+
+  /**
    * Build room-exit payloads from authoritative campaign connector rows.
    *
    * @param array<int, array<string, mixed>> $connection_payloads
    *   Payload-style connections built from campaign connector authority.
-   * @param array<string, array<string, mixed>> $campaign_rooms
-   *   Campaign room rows keyed by room id.
    * @param array<string, string> $canonical_room_names
    *   Canonical room names keyed by room id.
    *
    * @return array<string, array<int, array<string, mixed>>>
    *   Exit payloads keyed by owning room id.
    */
-  protected function buildRoomExitPayloadsByRoom(array $connection_payloads, array $campaign_rooms, array $canonical_room_names): array {
-    $authored_exit_metadata = $this->indexAuthoredExitMetadata($campaign_rooms);
+  protected function buildRoomExitPayloadsByRoom(array $connection_payloads, array $canonical_room_names): array {
     $indexed = [];
 
     foreach ($connection_payloads as $connection) {
@@ -329,7 +460,7 @@ class RuntimeGraphAssemblerService {
         $from_room_id,
         $to_room_id,
         $canonical_room_names[$to_room_id] ?? $to_room_id,
-        $authored_exit_metadata[$from_room_id . '::' . $to_room_id] ?? []
+        []
       );
 
       if (!empty($connection['bidirectional'])) {
@@ -338,43 +469,9 @@ class RuntimeGraphAssemblerService {
           $to_room_id,
           $from_room_id,
           $canonical_room_names[$from_room_id] ?? $from_room_id,
-          $authored_exit_metadata[$to_room_id . '::' . $from_room_id] ?? [],
+          [],
           TRUE
         );
-      }
-    }
-
-    return $indexed;
-  }
-
-  /**
-   * Index authored exit metadata from existing campaign room rows.
-   *
-   * @param array<string, array<string, mixed>> $campaign_rooms
-   *   Campaign room rows keyed by room id.
-   *
-   * @return array<string, array<string, mixed>>
-   *   Authored exit metadata keyed by source::target room ids.
-   */
-  protected function indexAuthoredExitMetadata(array $campaign_rooms): array {
-    $indexed = [];
-    foreach ($campaign_rooms as $room_id => $room_row) {
-      if (!is_array($room_row)) {
-        continue;
-      }
-      $layout_data = json_decode((string) ($room_row['layout_data'] ?? '{}'), TRUE);
-      if (!is_array($layout_data)) {
-        continue;
-      }
-      foreach ((array) ($layout_data['exits'] ?? []) as $exit) {
-        if (!is_array($exit)) {
-          continue;
-        }
-        $target_room_id = trim((string) ($exit['target_room_id'] ?? ''));
-        if ($target_room_id === '') {
-          continue;
-        }
-        $indexed[(string) $room_id . '::' . $target_room_id] = $exit;
       }
     }
 
@@ -445,6 +542,8 @@ class RuntimeGraphAssemblerService {
         'from_hex_r',
         'to_hex_q',
         'to_hex_r',
+        'from_h3_index_res14',
+        'to_h3_index_res14',
         'direction',
         'kind',
         'state',
@@ -555,6 +654,8 @@ class RuntimeGraphAssemblerService {
         'q' => (int) ($connection_row['to_hex_q'] ?? 0),
         'r' => (int) ($connection_row['to_hex_r'] ?? 0),
       ],
+      'from_h3_index_res14' => strtolower(trim((string) ($connection_row['from_h3_index_res14'] ?? ''))),
+      'to_h3_index_res14' => strtolower(trim((string) ($connection_row['to_h3_index_res14'] ?? ''))),
     ];
   }
 

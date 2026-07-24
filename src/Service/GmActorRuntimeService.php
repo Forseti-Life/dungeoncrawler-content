@@ -55,7 +55,7 @@ class GmActorRuntimeService {
       $suppress_gm
     );
 
-    $state = $this->coordinator->getFullState($campaign_id);
+    $state = $this->coordinator->getRuntimeReadState($campaign_id, $actor_id);
     $action_availability = $this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
     foreach (['game_state', 'available_actions', 'action_contract', 'events', 'phase', 'encounter_id', 'round', 'turn', 'state_version', 'active_room_id'] as $response_key) {
       if (array_key_exists($response_key, $state)) {

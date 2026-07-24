@@ -406,6 +406,7 @@ class NavigationRuntimeService {
    *   - target_hex: array{q:int,r:int}|null
    *   - explored: bool
    *   - visibility: string
+   *   - allow_disconnected_materialization: bool
    */
   public function materializeCanonicalRoomForCampaign(
     int $campaign_id,
@@ -465,14 +466,25 @@ class NavigationRuntimeService {
     $connector_rows = $this->loadCanonicalConnectorsLinkingRoomToExistingDungeonRooms($target_room_id, array_keys($existing_room_ids));
     $origin_room_id = trim((string) ($options['origin_room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
     $origin_can_bridge = $origin_room_id !== '' && isset($existing_room_ids[$origin_room_id]);
-    if (!empty($options['require_connector_to_existing_room']) && $existing_room_ids !== [] && $connector_rows === []) {
+    $allow_disconnected_materialization = !empty($options['allow_disconnected_materialization']);
+    if (
+      !$allow_disconnected_materialization
+      && !empty($options['require_connector_to_existing_room'])
+      && $existing_room_ids !== []
+      && $connector_rows === []
+    ) {
       throw new \RuntimeException(sprintf(
         'Navigation room instantiation contract violation: canonical room "%s" has no canonical connector to any existing room in campaign %d dungeon payload.',
         $target_room_id,
         $campaign_id
       ));
     }
-    if ($existing_room_ids !== [] && $connector_rows === [] && !$origin_can_bridge) {
+    if (
+      !$allow_disconnected_materialization
+      && $existing_room_ids !== []
+      && $connector_rows === []
+      && !$origin_can_bridge
+    ) {
       throw new \RuntimeException(sprintf(
         'Navigation room instantiation contract violation: canonical room "%s" has no bridge into the active dungeon graph (no canonical connector to existing rooms and no valid origin room transition).',
         $target_room_id
@@ -786,6 +798,8 @@ class NavigationRuntimeService {
         'from_hex_r',
         'to_hex_q',
         'to_hex_r',
+        'from_h3_index_res14',
+        'to_h3_index_res14',
         'kind',
         'direction',
         'default_state',
@@ -828,6 +842,8 @@ class NavigationRuntimeService {
         'from_hex_r',
         'to_hex_q',
         'to_hex_r',
+        'from_h3_index_res14',
+        'to_h3_index_res14',
         'kind',
         'direction',
         'default_state',
@@ -855,96 +871,116 @@ class NavigationRuntimeService {
    * Persist canonical connector rows from room-layout exits for the provided room set.
    */
   protected function backfillCanonicalConnectorsFromRoomLayouts(string $room_id, array $existing_room_ids): int {
-    $room_ids = array_values(array_unique(array_filter(
-      array_map('strval', array_merge([$room_id], $existing_room_ids)),
+    $room_id = trim($room_id);
+    $existing_room_ids = array_values(array_unique(array_filter(
+      array_map('strval', $existing_room_ids),
       static fn(string $id): bool => trim($id) !== ''
     )));
-    if ($room_ids === []) {
+    if ($room_id === '' || $existing_room_ids === []) {
       return 0;
     }
 
-    $room_rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
+    $source_layout_raw = $this->database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['layout_data'])
+      ->condition('room_id', $room_id)
+      ->execute()
+      ->fetchField();
+    if (!is_string($source_layout_raw) || trim($source_layout_raw) === '') {
+      return 0;
+    }
+
+    $source_layout = json_decode($source_layout_raw, TRUE);
+    if (!is_array($source_layout)) {
+      return 0;
+    }
+
+    $exits = is_array($source_layout['exits'] ?? NULL) ? $source_layout['exits'] : [];
+    if ($exits === []) {
+      return 0;
+    }
+
+    $eligible_exits = [];
+    $target_room_ids = [];
+    foreach ($exits as $exit_index => $exit) {
+      if (!is_array($exit)) {
+        continue;
+      }
+      $to_room_id = trim((string) ($exit['target_room_id'] ?? ''));
+      if ($to_room_id === '' || !in_array($to_room_id, $existing_room_ids, TRUE)) {
+        continue;
+      }
+      $eligible_exits[] = [$exit_index, $exit, $to_room_id];
+      $target_room_ids[$to_room_id] = TRUE;
+    }
+    if ($eligible_exits === []) {
+      return 0;
+    }
+
+    $layouts_by_room = [$room_id => $source_layout];
+    $target_rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
       ->fields('r', ['room_id', 'layout_data'])
-      ->condition('room_id', $room_ids, 'IN')
+      ->condition('room_id', array_keys($target_room_ids), 'IN')
       ->execute()
       ->fetchAll(\PDO::FETCH_ASSOC);
-    if (!is_array($room_rows) || $room_rows === []) {
-      return 0;
-    }
-
-    $layouts_by_room = [];
-    foreach ($room_rows as $row) {
+    foreach ((array) $target_rows as $row) {
       if (!is_array($row)) {
         continue;
       }
-      $candidate_room_id = trim((string) ($row['room_id'] ?? ''));
-      if ($candidate_room_id === '') {
+      $target_room_id = trim((string) ($row['room_id'] ?? ''));
+      if ($target_room_id === '') {
         continue;
       }
-      $layout_data = json_decode((string) ($row['layout_data'] ?? '{}'), TRUE);
-      $layouts_by_room[$candidate_room_id] = is_array($layout_data) ? $layout_data : [];
-    }
-    if ($layouts_by_room === []) {
-      return 0;
+      $target_layout = json_decode((string) ($row['layout_data'] ?? '{}'), TRUE);
+      $layouts_by_room[$target_room_id] = is_array($target_layout) ? $target_layout : [];
     }
 
-    $connector_dungeon_id = $this->resolveCanonicalConnectorBackfillDungeonId($room_ids);
+    $connector_dungeon_id = $this->resolveCanonicalConnectorBackfillDungeonId(array_merge([$room_id], $existing_room_ids));
     $saved = 0;
-    foreach ($layouts_by_room as $from_room_id => $layout_data) {
-      $exits = is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [];
-      foreach ($exits as $exit_index => $exit) {
-        if (!is_array($exit)) {
-          continue;
-        }
-        $to_room_id = trim((string) ($exit['target_room_id'] ?? ''));
-        if ($to_room_id === '' || !in_array($to_room_id, $room_ids, TRUE)) {
-          continue;
-        }
-        if (!is_numeric($exit['q'] ?? NULL) || !is_numeric($exit['r'] ?? NULL)) {
-          throw new \RuntimeException(sprintf(
-            'Navigation connector backfill contract violation: room %s exit[%d] to %s is missing numeric q/r.',
-            $from_room_id,
-            $exit_index,
-            $to_room_id
-          ));
-        }
-
-        $to_entry_hex = $this->resolveCanonicalRoomEntryHex($to_room_id, $layouts_by_room[$to_room_id] ?? []);
-        $kind = trim((string) ($exit['kind'] ?? $exit['link_type'] ?? ''));
-        $normalized_kind = strtolower($kind);
-        if (in_array($normalized_kind, ['room_transition', 'city_transition', 'location_transition', 'story_transition', 'travel_transition'], TRUE)) {
-          $kind = 'hallway';
-        }
-        elseif ($normalized_kind === '') {
-          $kind = 'hallway';
-        }
-        elseif (!in_array($normalized_kind, ConnectorDefinitionService::KINDS, TRUE)) {
-          $kind = 'hallway';
-        }
-        else {
-          $kind = $normalized_kind;
-        }
-        $direction = trim((string) ($exit['direction'] ?? ''));
-        if ($direction === '') {
-          $direction = 'bidirectional';
-        }
-
-        $this->resolveConnectorDefinitionService()->saveCanonicalConnector([
-          'dungeon_id' => $connector_dungeon_id,
-          'from_room_id' => $from_room_id,
-          'to_room_id' => $to_room_id,
-          'from_hex' => ['q' => (int) $exit['q'], 'r' => (int) $exit['r']],
-          'to_hex' => $to_entry_hex,
-          'kind' => $kind,
-          'direction' => $direction,
-          'default_state' => 'open',
-          'state' => 'open',
-          'travel_cost' => 1,
-          'description' => trim((string) ($exit['label'] ?? '')),
-          'is_discovered_default' => 1,
-        ]);
-        $saved++;
+    foreach ($eligible_exits as [$exit_index, $exit, $to_room_id]) {
+      if (!is_numeric($exit['q'] ?? NULL) || !is_numeric($exit['r'] ?? NULL)) {
+        throw new \RuntimeException(sprintf(
+          'Navigation connector backfill contract violation: room %s exit[%d] to %s is missing numeric q/r.',
+          $room_id,
+          $exit_index,
+          $to_room_id
+        ));
       }
+
+      $to_entry_hex = $this->resolveCanonicalRoomEntryHex($to_room_id, $layouts_by_room[$to_room_id] ?? []);
+      $kind = trim((string) ($exit['kind'] ?? $exit['link_type'] ?? ''));
+      $normalized_kind = strtolower($kind);
+      if (in_array($normalized_kind, ['room_transition', 'city_transition', 'location_transition', 'story_transition', 'travel_transition'], TRUE)) {
+        $kind = 'hallway';
+      }
+      elseif ($normalized_kind === '') {
+        $kind = 'hallway';
+      }
+      elseif (!in_array($normalized_kind, ConnectorDefinitionService::KINDS, TRUE)) {
+        $kind = 'hallway';
+      }
+      else {
+        $kind = $normalized_kind;
+      }
+      $direction = trim((string) ($exit['direction'] ?? ''));
+      if ($direction === '') {
+        $direction = 'bidirectional';
+      }
+
+      $this->resolveConnectorDefinitionService()->saveCanonicalConnector([
+        'dungeon_id' => $connector_dungeon_id,
+        'from_room_id' => $room_id,
+        'to_room_id' => $to_room_id,
+        'from_hex' => ['q' => (int) $exit['q'], 'r' => (int) $exit['r']],
+        'to_hex' => $to_entry_hex,
+        'kind' => $kind,
+        'direction' => $direction,
+        'default_state' => 'open',
+        'state' => 'open',
+        'travel_cost' => 1,
+        'description' => trim((string) ($exit['label'] ?? '')),
+        'is_discovered_default' => 1,
+      ]);
+      $saved++;
     }
 
     return $saved;
@@ -1024,6 +1060,8 @@ class NavigationRuntimeService {
       'to_room_id' => $to_room_id,
       'from_hex' => $from_hex,
       'to_hex' => $to_hex,
+      'from_h3_index_res14' => strtolower(trim((string) ($connector_row['from_h3_index_res14'] ?? ''))),
+      'to_h3_index_res14' => strtolower(trim((string) ($connector_row['to_h3_index_res14'] ?? ''))),
       'direction' => (string) ($connector_row['direction'] ?? 'bidirectional'),
       'kind' => (string) ($connector_row['kind'] ?? 'hallway'),
       'default_state' => (string) ($connector_row['state'] ?? $connector_row['default_state'] ?? 'open'),
@@ -1131,6 +1169,14 @@ class NavigationRuntimeService {
           'q' => (int) $row['to_hex_q'],
           'r' => (int) $row['to_hex_r'],
         ];
+      }
+      $from_h3_index_res14 = strtolower(trim((string) ($row['from_h3_index_res14'] ?? '')));
+      if ($from_h3_index_res14 !== '') {
+        $connection['from_h3_index_res14'] = $from_h3_index_res14;
+      }
+      $to_h3_index_res14 = strtolower(trim((string) ($row['to_h3_index_res14'] ?? '')));
+      if ($to_h3_index_res14 !== '') {
+        $connection['to_h3_index_res14'] = $to_h3_index_res14;
       }
 
       $dungeon_data['hex_map']['connections'][] = $connection;

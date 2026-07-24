@@ -4884,7 +4884,13 @@ import { SpriteService } from './SpriteService.js';
           const connectionType = String(capability?.type || '').trim().toLowerCase();
           const distanceValue = Number.isFinite(Number(capability?.distance)) ? Math.max(0, Math.trunc(Number(capability.distance))) : 0;
           const blockedReason = String(capability?.blocked_reason || '').trim().toLowerCase();
+          const isDiscovered = Object.prototype.hasOwnProperty.call(capability || {}, 'is_discovered')
+            ? Boolean(capability.is_discovered)
+            : true;
           const navigable = capability?.available !== false;
+          if (!isDiscovered) {
+            return null;
+          }
           const roomName = String(capability?.target_room_name || targetRoomId).trim() || targetRoomId;
 
           return {
@@ -18717,10 +18723,17 @@ import { SpriteService } from './SpriteService.js';
         return normalizedCapabilities;
       }
 
-      return normalizedCapabilities.filter((capability) => {
+      const roomScopedCapabilities = normalizedCapabilities.filter((capability) => {
         const originRoomId = String(capability?.origin_room_id || '').trim();
         return originRoomId === '' || originRoomId === activeRoomId;
       });
+      if (roomScopedCapabilities.length > 0 || normalizedCapabilities.length === 0) {
+        return roomScopedCapabilities;
+      }
+
+      // Preserve navigation continuity during brief room/capability skew windows
+      // (for example, optimistic room updates before the refreshed bundle lands).
+      return normalizedCapabilities;
     },
 
     /**

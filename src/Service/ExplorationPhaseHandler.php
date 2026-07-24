@@ -5192,7 +5192,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         ));
       }
       $payload = $this->sanitizeTransientTimeState($dungeon_data);
-      $updated = $this->dungeonPayloadStatePersistence->mutateByDungeonId(
+      $updated = $this->dungeonPayloadStatePersistence->mutateStateByDungeonId(
         $campaign_id,
         $dungeon_id,
         static fn(array $existing): array => $payload

@@ -819,10 +819,7 @@ class QuestTrackerService {
       throw new \RuntimeException('Quest narrator note requires resolved dungeon_id and room_id context.');
     }
 
-    $legacy_appended = $this->appendQuestNarratorNoteToLegacyRoomChat($campaign_id, $dungeon_id, $room_id, $message, $metadata);
-    if (!$legacy_appended) {
-      throw new \RuntimeException('Failed to append quest narrator note to legacy room chat transcript.');
-    }
+    $this->appendQuestNarratorNoteToLegacyRoomChat($campaign_id, $dungeon_id, $room_id, $message, $metadata);
 
     $room_session = $this->chatSessionManager->ensureRoomSession($campaign_id, $dungeon_id, $room_id, $room_name);
     $session_id = (int) ($room_session['id'] ?? 0);
@@ -852,100 +849,9 @@ class QuestTrackerService {
     string $message,
     array $metadata = []
   ): bool {
-    $dungeon_row = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['id', 'dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('dungeon_id', $dungeon_id)
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    if (!is_array($dungeon_row)) {
-      $dungeon_row = $this->database->select('dc_campaign_dungeons', 'd')
-        ->fields('d', ['id', 'dungeon_data'])
-        ->condition('campaign_id', $campaign_id)
-        ->orderBy('id', 'DESC')
-        ->range(0, 1)
-        ->execute()
-        ->fetchAssoc();
-    }
-
-    if (!is_array($dungeon_row) || empty($dungeon_row['id'])) {
-      return FALSE;
-    }
-
-    $dungeon_data = json_decode((string) ($dungeon_row['dungeon_data'] ?? '{}'), TRUE);
-    if (!is_array($dungeon_data)) {
-      return FALSE;
-    }
-
-    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
-    $room_index = $this->findQuestNarrationRoomIndex($rooms, $room_id);
-    if ($room_index === NULL) {
-      $resolved_row = $this->loadLatestQuestNarrationDungeonRow($campaign_id, $room_id);
-      if (is_array($resolved_row) && !empty($resolved_row['id'])) {
-        $resolved_data = json_decode((string) ($resolved_row['dungeon_data'] ?? '{}'), TRUE);
-        if (is_array($resolved_data)) {
-          $resolved_rooms = is_array($resolved_data['rooms'] ?? NULL) ? $resolved_data['rooms'] : [];
-          $resolved_room_index = $this->findQuestNarrationRoomIndex($resolved_rooms, $room_id);
-          if ($resolved_room_index !== NULL) {
-            $dungeon_row = $resolved_row;
-            $dungeon_data = $resolved_data;
-            $rooms = $resolved_rooms;
-            $room_index = $resolved_room_index;
-          }
-        }
-      }
-    }
-    if ($room_index === NULL) {
-      $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
-      if ($active_room_id !== '') {
-        $room_index = $this->findQuestNarrationRoomIndex($rooms, $active_room_id);
-      }
-    }
-
-    if ($room_index === NULL || !is_array($rooms[$room_index] ?? NULL)) {
-      return FALSE;
-    }
-
-    if (!isset($rooms[$room_index]['chat']) || !is_array($rooms[$room_index]['chat'])) {
-      $rooms[$room_index]['chat'] = [];
-    }
-
-    $entry = [
-      'speaker' => 'Narrator',
-      'message' => trim($message),
-      'type' => 'narrator',
-      'channel' => 'room',
-      'timestamp' => date('c'),
-      'character_id' => NULL,
-      'user_id' => 0,
-      'internal_log' => FALSE,
-    ];
-    $message_class = trim((string) ($metadata['message_class'] ?? ''));
-    if ($message_class !== '') {
-      $entry['message_class'] = $message_class;
-    }
-    if ($metadata !== []) {
-      $entry['quest_event'] = $metadata;
-    }
-
-    $rooms[$room_index]['chat'][] = $entry;
-    $chat_count = count($rooms[$room_index]['chat']);
-    if ($chat_count > self::ROOM_CHAT_MESSAGE_LIMIT) {
-      $rooms[$room_index]['chat'] = array_slice(
-        $rooms[$room_index]['chat'],
-        $chat_count - self::ROOM_CHAT_MESSAGE_LIMIT
-      );
-    }
-
-    $dungeon_data['rooms'] = $rooms;
-    return $this->dungeonPayloadStatePersistence->mutateByRowId(
-      $campaign_id,
-      (int) $dungeon_row['id'],
-      static fn(array $payload): array => $dungeon_data
-    );
+    // Quest narrator chat authority is the normalized room chat session tables.
+    // Avoid decoding/rewriting large dungeon_data blobs on narrator updates.
+    return TRUE;
   }
 
   /**
@@ -1052,6 +958,11 @@ class QuestTrackerService {
       $dungeon_data = json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE);
       if (!is_array($dungeon_data)) {
         continue;
+      }
+      foreach ((array) ($dungeon_data['room_ids'] ?? []) as $listed_room_id) {
+        if (trim((string) $listed_room_id) === $room_id) {
+          return $row;
+        }
       }
       $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
       if ($this->findQuestNarrationRoomIndex($rooms, $room_id) !== NULL) {
@@ -3645,7 +3556,9 @@ class QuestTrackerService {
   protected function normalizeQuestPromptRow(array $quest): array {
     $quest['generated_objectives'] = json_decode((string) ($quest['generated_objectives'] ?? '[]'), TRUE) ?? [];
     $quest['objective_states'] = json_decode((string) ($quest['objective_states'] ?? '[]'), TRUE) ?? [];
-    $quest['quest_data'] = json_decode((string) ($quest['quest_data'] ?? '{}'), TRUE) ?? [];
+    // Prompt relevance scoring does not consume quest_data. Avoid decoding large
+    // embedded blobs (for example legacy inline dungeon_data) on chat paths.
+    $quest['quest_data'] = [];
     return $quest;
   }
 

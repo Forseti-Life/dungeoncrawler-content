@@ -103,6 +103,11 @@ class GameCoordinatorService {
   protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
   protected RuntimeBootstrapService $runtimeBootstrap;
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
+  protected RuntimeGraphAssemblerService $runtimeGraphAssembler;
+  protected CampaignRuntimeStateStore $campaignRuntimeStateStore;
+  protected ActorRuntimeStateStore $actorRuntimeStateStore;
+  protected RoomRuntimeStateStore $roomRuntimeStateStore;
+  protected ConnectionRuntimeStateStore $connectionRuntimeStateStore;
 
   /**
    * @var \Psr\Log\LoggerInterface
@@ -163,6 +168,11 @@ class GameCoordinatorService {
     CampaignTimeResolverService $campaign_time_resolver,
     RuntimeBootstrapService $runtime_bootstrap,
     DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
+    RuntimeGraphAssemblerService $runtime_graph_assembler,
+    CampaignRuntimeStateStore $campaign_runtime_state_store,
+    ActorRuntimeStateStore $actor_runtime_state_store,
+    RoomRuntimeStateStore $room_runtime_state_store,
+    ConnectionRuntimeStateStore $connection_runtime_state_store,
     ?NarrationEngine $narration_engine = NULL,
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
     ?FileUrlGeneratorInterface $file_url_generator = NULL
@@ -175,6 +185,11 @@ class GameCoordinatorService {
     $this->campaignTimeResolver = $campaign_time_resolver;
     $this->runtimeBootstrap = $runtime_bootstrap;
     $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
+    $this->runtimeGraphAssembler = $runtime_graph_assembler;
+    $this->campaignRuntimeStateStore = $campaign_runtime_state_store;
+    $this->actorRuntimeStateStore = $actor_runtime_state_store;
+    $this->roomRuntimeStateStore = $room_runtime_state_store;
+    $this->connectionRuntimeStateStore = $connection_runtime_state_store;
     $this->narrationEngine = $narration_engine;
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
@@ -327,6 +342,7 @@ class GameCoordinatorService {
       $dungeon_data['game_state'] = $game_state;
       $this->persistDungeonData($campaign_id, $dungeon_data);
     }
+    $pre_action_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
 
     // 4. Validate the action.
     $validation = $handler->validateIntent($intent, $game_state, $dungeon_data);
@@ -376,9 +392,13 @@ class GameCoordinatorService {
     // 8. Increment state version.
     $game_state['state_version'] = ($game_state['state_version'] ?? 0) + 1;
 
-    // 9. Persist the updated dungeon data.
-    $dungeon_data['game_state'] = $game_state;
-    $this->persistDungeonData($campaign_id, $dungeon_data);
+    // 9. Persist state through the minimal required lane.
+    $this->persistStateWithMinimalWrite(
+      $campaign_id,
+      $dungeon_data,
+      $game_state,
+      $pre_action_payload_fingerprint
+    );
 
     // 10. Build response.
     $current_phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
@@ -470,9 +490,12 @@ class GameCoordinatorService {
     $initial_events = ($bootstrap_events !== [] || $autoplay_events !== [])
       ? array_merge($bootstrap_events, $autoplay_events)
       : $this->collectUnseenInitialEvents($dungeon_data, $game_state);
-    if (!$had_game_state || $bootstrap_events !== [] || $autoplay_events !== [] || $initial_events !== []) {
+    if ($bootstrap_events !== [] || $autoplay_events !== []) {
       $dungeon_data['game_state'] = $game_state;
       $this->persistDungeonData($campaign_id, $dungeon_data);
+    }
+    elseif (!$had_game_state || $initial_events !== []) {
+      $this->persistGameStateSlice($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
     }
     $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
     $handler = $this->getPhaseHandler($phase);
@@ -533,11 +556,6 @@ class GameCoordinatorService {
    *   Shared actor-scoped availability payload.
    */
   public function getActionAvailabilityForActor(int $campaign_id, ?string $actor_id = NULL): array {
-    $snapshot = $this->getFullState($campaign_id);
-    if (empty($snapshot['success'])) {
-      return $this->emptyActionAvailabilityPayload();
-    }
-
     $context = $this->resolveActionAvailabilityContext($campaign_id, $actor_id);
     if ($context === NULL || $context['handler'] === NULL) {
       return $this->emptyActionAvailabilityPayload();
@@ -548,6 +566,46 @@ class GameCoordinatorService {
     return [
       'available_actions' => $handler->getAvailableActions($context['game_state'], $context['dungeon_data'], $actor_id),
       'action_contract' => $this->buildActionContract($handler, $context['game_state'], $context['dungeon_data'], $actor_id),
+    ];
+  }
+
+  /**
+   * Return runtime state context for read-only consumers without persistence.
+   *
+   * This is intentionally side-effect free: it does not bootstrap encounters,
+   * auto-resolve turns, or persist cursor updates during read calls.
+   */
+  public function getRuntimeReadState(int $campaign_id, ?string $actor_id = NULL): array {
+    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+    $context = $this->resolveActionAvailabilityContext($campaign_id, $actor_id);
+    if ($context === NULL) {
+      return $this->errorResponse('Campaign dungeon data not found.');
+    }
+
+    $dungeon_data = $context['dungeon_data'];
+    $game_state = $context['game_state'];
+    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
+
+    /** @var \Drupal\dungeoncrawler_content\Service\PhaseHandlerInterface|null $handler */
+    $handler = $context['handler'];
+    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data, $actor_id);
+
+    return [
+      'success' => TRUE,
+      'game_state' => $this->buildClientGameState($game_state),
+      'phase' => $phase,
+      'available_actions' => $handler
+        ? $handler->getAvailableActions($game_state, $dungeon_data, $actor_id)
+        : [],
+      'action_contract' => $action_contract,
+      'state_version' => $game_state['state_version'] ?? 1,
+      'active_room_id' => $dungeon_data['active_room_id'] ?? NULL,
+      'encounter_id' => $game_state['encounter_id'] ?? NULL,
+      'round' => $game_state['round'] ?? NULL,
+      'turn' => $game_state['turn'] ?? NULL,
+      'initiative_order' => is_array($game_state['initiative_order'] ?? NULL)
+        ? $game_state['initiative_order']
+        : [],
     ];
   }
 
@@ -699,6 +757,7 @@ class GameCoordinatorService {
     }
 
     $context['from_phase'] = $current_phase;
+    $pre_transition_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
 
     // Execute the transition.
     $result = $this->executePhaseTransition(
@@ -712,8 +771,12 @@ class GameCoordinatorService {
 
     // Increment version and persist.
     $game_state['state_version'] = ($game_state['state_version'] ?? 0) + 1;
-    $dungeon_data['game_state'] = $game_state;
-    $this->persistDungeonData($campaign_id, $dungeon_data);
+    $this->persistStateWithMinimalWrite(
+      $campaign_id,
+      $dungeon_data,
+      $game_state,
+      $pre_transition_payload_fingerprint
+    );
 
     $handler = $this->getPhaseHandler($target_phase);
     $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
@@ -759,6 +822,7 @@ class GameCoordinatorService {
     if (!$handler instanceof EncounterPhaseHandler) {
       return $this->errorResponse('Encounter handler unavailable.', $game_state);
     }
+    $pre_combat_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
 
     $logged_events = [];
     $encounter_mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
@@ -808,8 +872,12 @@ class GameCoordinatorService {
     }
 
     $game_state['state_version'] = ($game_state['state_version'] ?? 0) + 1;
-    $dungeon_data['game_state'] = $game_state;
-    $this->persistDungeonData($campaign_id, $dungeon_data);
+    $this->persistStateWithMinimalWrite(
+      $campaign_id,
+      $dungeon_data,
+      $game_state,
+      $pre_combat_payload_fingerprint
+    );
 
     $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
 
@@ -964,8 +1032,28 @@ class GameCoordinatorService {
           if (trim((string) ($decoded['dungeon_id'] ?? '')) === '') {
             $decoded['dungeon_id'] = trim((string) ($row['dungeon_id'] ?? ''));
           }
+          $resolved_dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $row['dungeon_id'] ?? ''));
+          if ($resolved_dungeon_id !== '') {
+            $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
+              $campaign_id,
+              $resolved_dungeon_id,
+              $decoded,
+              [
+                'active_room_id' => trim((string) ($decoded['active_room_id'] ?? '')),
+                'room_batch_size' => 8,
+              ]
+            );
+          }
           if (empty($decoded['active_room_id'])) {
             $this->resolveStartupRoomId($decoded);
+          }
+          $runtime_game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
+          if (is_array($runtime_game_state)) {
+            $decoded['game_state'] = $runtime_game_state;
+          }
+          $runtime_entities = $this->actorRuntimeStateStore->loadActorEntities($campaign_id);
+          if ($runtime_entities !== []) {
+            $decoded['entities'] = $runtime_entities;
           }
           $decoded['__campaign_dungeon_row_id'] = (int) ($row['id'] ?? 0);
           return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id);
@@ -987,6 +1075,8 @@ class GameCoordinatorService {
    */
   protected function persistDungeonData(int $campaign_id, array $dungeon_data): bool {
     try {
+      $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+      $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : NULL;
       $row_id = (int) ($dungeon_data['__campaign_dungeon_row_id'] ?? 0);
       unset($dungeon_data['__campaign_dungeon_row_id']);
       if ($row_id <= 0) {
@@ -995,11 +1085,25 @@ class GameCoordinatorService {
           $campaign_id
         ));
       }
-      return $this->dungeonPayloadStatePersistence->mutateByRowId(
+      $persisted = $this->dungeonPayloadStatePersistence->mutateStateByRowId(
         $campaign_id,
         $row_id,
         static fn(array $payload): array => $dungeon_data
       );
+      if ($persisted && is_array($game_state)) {
+        $this->persistGameStateSlice($campaign_id, $game_state, $active_room_id);
+        if (is_array($dungeon_data['entities'] ?? NULL)) {
+          $this->actorRuntimeStateStore->syncFromEntities($campaign_id, $dungeon_data['entities']);
+        }
+        if (is_array($dungeon_data['rooms'] ?? NULL)) {
+          $this->roomRuntimeStateStore->syncFromRooms($campaign_id, $dungeon_data['rooms']);
+        }
+        $this->connectionRuntimeStateStore->syncFromConnections(
+          $campaign_id,
+          $this->collectRuntimeConnectionsFromPayload($dungeon_data)
+        );
+      }
+      return $persisted;
     }
     catch (\Throwable $e) {
       $this->logger->error('Failed to persist dungeon data for campaign @id: @error', [
@@ -1091,6 +1195,82 @@ class GameCoordinatorService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Persist the campaign runtime state slice without rewriting dungeon payloads.
+   */
+  protected function persistGameStateSlice(int $campaign_id, array $game_state, ?string $active_room_id = NULL): bool {
+    try {
+      return $this->campaignRuntimeStateStore->persistGameState($campaign_id, $game_state, $active_room_id);
+    }
+    catch (\Throwable $e) {
+      $this->logger->error('Failed to persist campaign runtime state for campaign @id: @error', [
+        '@id' => $campaign_id,
+        '@error' => $e->getMessage(),
+      ]);
+      return FALSE;
+    }
+  }
+
+  /**
+   * Persist through slice-only lane when non-game-state payload did not change.
+   */
+  protected function persistStateWithMinimalWrite(
+    int $campaign_id,
+    array $dungeon_data,
+    array $game_state,
+    string $before_non_game_state_fingerprint
+  ): bool {
+    $after_non_game_state_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
+    if ($after_non_game_state_fingerprint === $before_non_game_state_fingerprint) {
+      return $this->persistGameStateSlice(
+        $campaign_id,
+        $game_state,
+        (string) ($dungeon_data['active_room_id'] ?? '')
+      );
+    }
+
+    $dungeon_data['game_state'] = $game_state;
+    return $this->persistDungeonData($campaign_id, $dungeon_data);
+  }
+
+  /**
+   * Build a deterministic fingerprint excluding game_state lane content.
+   */
+  protected function computeNonGameStatePayloadFingerprint(array $dungeon_data): string {
+    unset($dungeon_data['game_state'], $dungeon_data['__campaign_dungeon_row_id']);
+    $encoded = json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded)) {
+      throw new \RuntimeException('GameCoordinator payload fingerprint contract violation: unable to encode payload.');
+    }
+    return hash('sha256', $encoded);
+  }
+
+  /**
+   * Collect canonical runtime connection payloads from snapshot buckets.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Normalized connection payload list.
+   */
+  protected function collectRuntimeConnectionsFromPayload(array $dungeon_data): array {
+    $by_id = [];
+    foreach ([
+      $dungeon_data['connections'] ?? [],
+      $dungeon_data['hex_map']['connections'] ?? [],
+    ] as $bucket) {
+      foreach ((array) $bucket as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $connection_id = trim((string) ($connection['connection_id'] ?? ''));
+        if ($connection_id === '') {
+          continue;
+        }
+        $by_id[$connection_id] = $connection;
+      }
+    }
+    return array_values($by_id);
   }
 
   /**

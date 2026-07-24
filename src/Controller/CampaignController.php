@@ -877,6 +877,10 @@ class CampaignController extends ControllerBase {
   protected function buildDungeonRoomLookup(array $payload, array $room_rows, array $global_room_rows = []): array {
     $lookup = [];
     $rooms = $payload['rooms'] ?? [];
+    $room_ids = array_values(array_filter(array_map(
+      static fn($room_id): string => trim((string) $room_id),
+      (array) ($payload['room_ids'] ?? [])
+    ), static fn(string $room_id): bool => $room_id !== ''));
 
     if (is_array($rooms)) {
       foreach ($rooms as $key => $room) {
@@ -884,6 +888,21 @@ class CampaignController extends ControllerBase {
           $room_id = (string) ($room['room_id'] ?? (is_string($key) ? $key : ''));
           if ($room_id === '') {
             continue;
+          }
+
+          // Support identifier-only payloads where full room objects are omitted.
+          foreach ($room_ids as $room_id) {
+            if (isset($lookup[$room_id])) {
+              continue;
+            }
+            $row = $room_rows[$room_id] ?? $global_room_rows[$room_id] ?? NULL;
+            if ($row === NULL) {
+              continue;
+            }
+            $lookup[$room_id] = [
+              'name' => (string) ($row->name ?? $room_id),
+              'description' => (string) ($row->description ?? ''),
+            ];
           }
           $row = $room_rows[$room_id] ?? $global_room_rows[$room_id] ?? NULL;
           $lookup[$room_id] = [
@@ -1214,6 +1233,14 @@ class CampaignController extends ControllerBase {
    * Count rooms in a decoded dungeon payload.
    */
   private function countDungeonRooms(array $decoded): int {
+    $room_ids = array_values(array_filter(array_map(
+      static fn($room_id): string => trim((string) $room_id),
+      (array) ($decoded['room_ids'] ?? [])
+    ), static fn(string $room_id): bool => $room_id !== ''));
+    if ($room_ids !== []) {
+      return count($room_ids);
+    }
+
     if (!isset($decoded['rooms']) || !is_array($decoded['rooms'])) {
       return 0;
     }
@@ -1226,6 +1253,12 @@ class CampaignController extends ControllerBase {
    */
   private function extractRoomContext(array $decoded): array {
     $room_ids = [];
+    foreach ((array) ($decoded['room_ids'] ?? []) as $room_id) {
+      $room_id = trim((string) $room_id);
+      if ($room_id !== '') {
+        $room_ids[] = $room_id;
+      }
+    }
     $rooms = $decoded['rooms'] ?? [];
 
     if (is_array($rooms)) {

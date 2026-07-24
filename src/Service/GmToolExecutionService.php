@@ -43,11 +43,13 @@ class GmToolExecutionService {
   protected Connection $database;
   protected GameCoordinatorService $coordinator;
   protected AccountProxyInterface $currentUser;
+  protected H3ProjectionQueueService $h3ProjectionQueue;
 
-  public function __construct(Connection $database, GameCoordinatorService $coordinator, AccountProxyInterface $current_user) {
+  public function __construct(Connection $database, GameCoordinatorService $coordinator, AccountProxyInterface $current_user, H3ProjectionQueueService $h3_projection_queue) {
     $this->database = $database;
     $this->coordinator = $coordinator;
     $this->currentUser = $current_user;
+    $this->h3ProjectionQueue = $h3_projection_queue;
   }
 
   /**
@@ -350,7 +352,7 @@ class GmToolExecutionService {
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyDungeonStatePatch($before, $patch);
-        $this->persistDungeonRecord($record['id'], $after);
+        $this->persistDungeonRecord($campaign_id, $record['id'], $record['dungeon_id'], $after);
         return $this->finalizeToolExecution(
           $this->buildDungeonMutationResult($tool, $campaign_id, $record),
           $tool,
@@ -373,7 +375,7 @@ class GmToolExecutionService {
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyRoomPatch($before, $room_id, $patch);
-        $this->persistDungeonRecord($record['id'], $after);
+        $this->persistDungeonRecord($campaign_id, $record['id'], $record['dungeon_id'], $after);
         return $this->finalizeToolExecution(
           $this->buildDungeonMutationResult($tool, $campaign_id, $record),
           $tool,
@@ -396,7 +398,7 @@ class GmToolExecutionService {
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyActorPatch($before, $actor_id, $patch);
-        $this->persistDungeonRecord($record['id'], $after);
+        $this->persistDungeonRecord($campaign_id, $record['id'], $record['dungeon_id'], $after);
         return $this->finalizeToolExecution(
           $this->buildDungeonMutationResult($tool, $campaign_id, $record),
           $tool,
@@ -422,7 +424,7 @@ class GmToolExecutionService {
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyInventoryPatch($before, $actor_id, $inventory);
-        $this->persistDungeonRecord($record['id'], $after);
+        $this->persistDungeonRecord($campaign_id, $record['id'], $record['dungeon_id'], $after);
         return $this->finalizeToolExecution(
           $this->buildDungeonMutationResult($tool, $campaign_id, $record),
           $tool,
@@ -445,7 +447,7 @@ class GmToolExecutionService {
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyQuestPatch($before, $quest_id, $patch);
-        $this->persistDungeonRecord($record['id'], $after);
+        $this->persistDungeonRecord($campaign_id, $record['id'], $record['dungeon_id'], $after);
         return $this->finalizeToolExecution(
           $this->buildDungeonMutationResult($tool, $campaign_id, $record),
           $tool,
@@ -467,7 +469,7 @@ class GmToolExecutionService {
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyEncounterPatch($before, $patch);
-        $this->persistDungeonRecord($record['id'], $after);
+        $this->persistDungeonRecord($campaign_id, $record['id'], $record['dungeon_id'], $after);
         return $this->finalizeToolExecution(
           $this->buildDungeonMutationResult($tool, $campaign_id, $record),
           $tool,
@@ -489,7 +491,7 @@ class GmToolExecutionService {
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyStorylinePatch($before, $patch);
-        $this->persistDungeonRecord($record['id'], $after);
+        $this->persistDungeonRecord($campaign_id, $record['id'], $record['dungeon_id'], $after);
         return $this->finalizeToolExecution(
           $this->buildDungeonMutationResult($tool, $campaign_id, $record),
           $tool,
@@ -514,7 +516,7 @@ class GmToolExecutionService {
         $record = $this->loadLatestDungeonRecord($campaign_id);
         $before = $record['dungeon_data'];
         $after = $this->applyWorldFlagPatch($before, $flag_path, $payload['value']);
-        $this->persistDungeonRecord($record['id'], $after);
+        $this->persistDungeonRecord($campaign_id, $record['id'], $record['dungeon_id'], $after);
         return $this->finalizeToolExecution(
           $this->buildDungeonMutationResult($tool, $campaign_id, $record),
           $tool,
@@ -1083,10 +1085,14 @@ class GmToolExecutionService {
     ];
   }
 
-  protected function persistDungeonRecord(int $record_id, array $dungeon_data): void {
+  protected function persistDungeonRecord(int $campaign_id, int $record_id, string $dungeon_id, array $dungeon_data): void {
     $json = json_encode($dungeon_data);
     if (!is_string($json) || $json === '') {
       throw new \RuntimeException('Failed to encode updated dungeon payload.');
+    }
+    $dungeon_id = trim($dungeon_id);
+    if ($campaign_id <= 0 || $dungeon_id === '') {
+      throw new \InvalidArgumentException('persistDungeonRecord requires campaign_id and dungeon_id.');
     }
 
     $updated_rows = (int) $this->database->update('dc_campaign_dungeons')
@@ -1099,6 +1105,76 @@ class GmToolExecutionService {
     if ($updated_rows !== 1) {
       throw new \RuntimeException(sprintf('Failed to persist dungeon payload for record_id %d.', $record_id));
     }
+
+    $launch_slice_scope = $this->resolveLaunchSliceRoomScopeFromDungeonData($dungeon_data);
+    if ($launch_slice_scope === []) {
+      throw new \RuntimeException(sprintf(
+        'H3 projection trigger contract violation: no launch-slice room scope found after GM dungeon mutation (campaign_id=%d dungeon_id=%s).',
+        $campaign_id,
+        $dungeon_id
+      ));
+    }
+    $this->h3ProjectionQueue->provisionLaunchSliceNow($campaign_id, $dungeon_id, $launch_slice_scope);
+  }
+
+  /**
+   * Resolve launch-slice room scope from campaign dungeon payload.
+   *
+   * @return array<int, string>
+   *   Active room plus direct neighbors.
+   */
+  protected function resolveLaunchSliceRoomScopeFromDungeonData(array $dungeon_data): array {
+    $rooms = [];
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+      if ($room_id !== '') {
+        $rooms[$room_id] = TRUE;
+      }
+    }
+
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? $dungeon_data['current_room_id'] ?? ''));
+    $scope = [];
+    if ($active_room_id !== '' && isset($rooms[$active_room_id])) {
+      $scope[$active_room_id] = TRUE;
+    }
+
+    $connections = [];
+    if (is_array($dungeon_data['connections'] ?? NULL)) {
+      $connections = array_merge($connections, $dungeon_data['connections']);
+    }
+    if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
+      $connections = array_merge($connections, $dungeon_data['hex_map']['connections']);
+    }
+    foreach ($connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? ''));
+      $to_room_id = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? ''));
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      if ($active_room_id !== '' && $from_room_id !== $active_room_id && $to_room_id !== $active_room_id) {
+        continue;
+      }
+      if (isset($rooms[$from_room_id])) {
+        $scope[$from_room_id] = TRUE;
+      }
+      if (isset($rooms[$to_room_id])) {
+        $scope[$to_room_id] = TRUE;
+      }
+    }
+
+    if ($scope === [] && $active_room_id !== '') {
+      $scope[$active_room_id] = TRUE;
+    }
+    if ($scope === [] && $rooms !== []) {
+      $scope[(string) array_key_first($rooms)] = TRUE;
+    }
+    return array_values(array_keys($scope));
   }
 
   protected function applyRoomPatch(array $dungeon_data, string $room_id, array $patch): array {

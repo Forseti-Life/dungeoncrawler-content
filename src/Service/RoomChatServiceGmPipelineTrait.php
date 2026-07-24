@@ -550,6 +550,7 @@ trait RoomChatServiceGmPipelineTrait {
     ?string $preferred_dungeon_id = NULL,
     bool $allow_room_absent = FALSE
   ): array {
+    $decoded_record_data = NULL;
     $preferred_dungeon_id = trim((string) $preferred_dungeon_id);
     if ($preferred_dungeon_id !== '') {
       $preferred_record = $this->database->select('dc_campaign_dungeons', 'd')
@@ -566,9 +567,10 @@ trait RoomChatServiceGmPipelineTrait {
           if (
             $room_id === NULL
             || $room_id === ''
-            || $this->roomLocator->findRoomIndex((array) ($preferred_data['rooms'] ?? []), $room_id) !== NULL
+            || $this->payloadContainsRoomId($preferred_data, $room_id)
             || $allow_room_absent
           ) {
+            $preferred_data = $this->hydrateSnapshotRoomsFromCampaignAuthority($campaign_id, $preferred_data, $room_id);
             return [
               'dungeon_id' => $preferred_record['dungeon_id'] ?? '',
               'dungeon_data' => $preferred_data,
@@ -593,7 +595,9 @@ trait RoomChatServiceGmPipelineTrait {
     $record = $records[0];
     if ($room_id !== NULL && $room_id !== '') {
       $matched_record = NULL;
+      $matched_record_data = NULL;
       $active_room_match = NULL;
+      $active_room_match_data = NULL;
       foreach ($records as $candidate) {
         $candidate_record = $this->database->select('dc_campaign_dungeons', 'd')
           ->fields('d', ['dungeon_id', 'dungeon_data', 'updated'])
@@ -617,23 +621,26 @@ trait RoomChatServiceGmPipelineTrait {
           ]);
           continue;
         }
-        $rooms = is_array($candidate_data['rooms'] ?? NULL) ? $candidate_data['rooms'] : [];
-        if ($this->roomLocator->findRoomIndex($rooms, $room_id) !== NULL) {
+        if ($this->payloadContainsRoomId($candidate_data, $room_id)) {
           if ($preferred_dungeon_id !== '' && (string) ($candidate_record['dungeon_id'] ?? '') === $preferred_dungeon_id) {
             $matched_record = $candidate_record;
+            $matched_record_data = $candidate_data;
             break;
           }
           $active_room_id = trim((string) ($candidate_data['active_room_id'] ?? $candidate_data['current_room_id'] ?? ''));
           if ($active_room_match === NULL && $active_room_id === $room_id) {
             $active_room_match = $candidate_record;
+            $active_room_match_data = $candidate_data;
           }
           if ($matched_record === NULL) {
             $matched_record = $candidate_record;
+            $matched_record_data = $candidate_data;
           }
         }
       }
       if ($active_room_match !== NULL) {
         $matched_record = $active_room_match;
+        $matched_record_data = $active_room_match_data;
       }
       if ($matched_record === NULL) {
         if ($allow_room_absent) {
@@ -650,11 +657,12 @@ trait RoomChatServiceGmPipelineTrait {
           $record = $latest_record;
         }
         else {
-        throw new \InvalidArgumentException(sprintf('Room %s not found in any dungeon', $room_id), 404);
+          throw new \InvalidArgumentException(sprintf('Room %s not found in any dungeon', $room_id), 404);
         }
       }
       if ($matched_record !== NULL) {
         $record = $matched_record;
+        $decoded_record_data = is_array($matched_record_data) ? $matched_record_data : NULL;
       }
     }
     else {
@@ -671,13 +679,158 @@ trait RoomChatServiceGmPipelineTrait {
       $record = $latest_record;
     }
 
-    $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
+    if (!is_array($decoded_record_data)) {
+      $decoded_record_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
+    }
+    if (is_array($decoded_record_data)) {
+      $decoded_record_data = $this->hydrateSnapshotRoomsFromCampaignAuthority($campaign_id, $decoded_record_data, $room_id);
+    }
 
     return [
       'dungeon_id' => $record['dungeon_id'] ?? '',
-      'dungeon_data' => is_array($dungeon_data) ? $dungeon_data : [],
+      'dungeon_data' => is_array($decoded_record_data) ? $decoded_record_data : [],
       'encoded_bytes' => strlen((string) ($record['dungeon_data'] ?? '')),
     ];
+  }
+
+  /**
+   * Determine whether a dungeon payload contains a room identifier.
+   */
+  protected function payloadContainsRoomId(array $dungeon_data, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    if ($this->roomLocator->findRoomIndex($rooms, $room_id) !== NULL) {
+      return TRUE;
+    }
+
+    $hex_rooms = is_array($dungeon_data['hex_map']['rooms'] ?? NULL) ? $dungeon_data['hex_map']['rooms'] : [];
+    if ($this->roomLocator->findRoomIndex($hex_rooms, $room_id) !== NULL) {
+      return TRUE;
+    }
+
+    foreach ((array) ($dungeon_data['room_ids'] ?? []) as $listed_room_id) {
+      if (trim((string) $listed_room_id) === $room_id) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Rehydrate dungeon_data rooms from campaign-room authority when snapshot rooms are sparse.
+   */
+  protected function hydrateSnapshotRoomsFromCampaignAuthority(int $campaign_id, array $dungeon_data, ?string $requested_room_id = NULL): array {
+    $requested_room_id = trim((string) $requested_room_id);
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    if ($rooms !== []) {
+      return $dungeon_data;
+    }
+
+    $hex_rooms = is_array($dungeon_data['hex_map']['rooms'] ?? NULL) ? $dungeon_data['hex_map']['rooms'] : [];
+    if ($hex_rooms !== []) {
+      $dungeon_data['rooms'] = $hex_rooms;
+      return $dungeon_data;
+    }
+
+    $candidate_room_ids = array_values(array_unique(array_filter(array_map(
+      static fn($room): string => trim((string) $room),
+      (array) ($dungeon_data['room_ids'] ?? [])
+    ), static fn(string $room): bool => $room !== '')));
+    if ($requested_room_id !== '' && !in_array($requested_room_id, $candidate_room_ids, TRUE)) {
+      $candidate_room_ids[] = $requested_room_id;
+    }
+    if ($candidate_room_ids === []) {
+      return $dungeon_data;
+    }
+
+    $rows = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'layout_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('room_id', $candidate_room_ids, 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    $rows_by_room_id = [];
+    foreach ((array) $rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $room_key = trim((string) ($row['room_id'] ?? ''));
+      if ($room_key !== '') {
+        $rows_by_room_id[$room_key] = $row;
+      }
+    }
+
+    if ($requested_room_id !== '' && !isset($rows_by_room_id[$requested_room_id])) {
+      $requested_row = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'layout_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('source_room_id', $requested_room_id)
+        ->orderBy('updated', 'DESC')
+        ->orderBy('id', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (is_array($requested_row) && trim((string) ($requested_row['room_id'] ?? '')) !== '') {
+        $rows_by_room_id[trim((string) $requested_row['room_id'])] = $requested_row;
+        $candidate_room_ids[] = trim((string) $requested_row['room_id']);
+      }
+    }
+
+    if ($rows_by_room_id === []) {
+      return $dungeon_data;
+    }
+
+    $hydrated_rooms = [];
+    foreach ($candidate_room_ids as $candidate_room_id) {
+      if (!isset($rows_by_room_id[$candidate_room_id])) {
+        continue;
+      }
+      $row = $rows_by_room_id[$candidate_room_id];
+      $layout_data = json_decode((string) ($row['layout_data'] ?? '{}'), TRUE);
+      if (!is_array($layout_data)) {
+        $layout_data = [];
+      }
+      $hydrated_rooms[] = [
+        'room_id' => (string) ($row['room_id'] ?? ''),
+        'source_room_id' => (string) ($row['source_room_id'] ?? ''),
+        'name' => (string) ($row['name'] ?? ''),
+        'description' => (string) ($row['description'] ?? ''),
+        'hexes' => is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [],
+        'entry_points' => is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [],
+        'exit_points' => is_array($layout_data['exit_points'] ?? NULL) ? $layout_data['exit_points'] : [],
+        'exits' => is_array($layout_data['exits'] ?? NULL) ? $layout_data['exits'] : [],
+        'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
+        'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [],
+        'chat' => [],
+        'channels' => [],
+        'entities' => [],
+      ];
+    }
+
+    if ($hydrated_rooms === []) {
+      return $dungeon_data;
+    }
+
+    $dungeon_data['rooms'] = $hydrated_rooms;
+    if (!isset($dungeon_data['hex_map']) || !is_array($dungeon_data['hex_map'])) {
+      $dungeon_data['hex_map'] = [];
+    }
+    if (!isset($dungeon_data['hex_map']['rooms']) || !is_array($dungeon_data['hex_map']['rooms']) || $dungeon_data['hex_map']['rooms'] === []) {
+      $dungeon_data['hex_map']['rooms'] = $hydrated_rooms;
+    }
+    if (!isset($dungeon_data['room_ids']) || !is_array($dungeon_data['room_ids']) || $dungeon_data['room_ids'] === []) {
+      $dungeon_data['room_ids'] = array_values(array_filter(array_map(
+        static fn(array $room): string => trim((string) ($room['room_id'] ?? '')),
+        $hydrated_rooms
+      ), static fn(string $room_id): bool => $room_id !== ''));
+    }
+
+    return $dungeon_data;
   }
 
   /**

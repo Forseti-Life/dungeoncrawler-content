@@ -91,6 +91,7 @@ class CharacterWizardHardeningService {
         'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
         'position_q' => 0,
         'position_r' => 0,
+        'position_h3' => '',
         'last_room_id' => '',
         'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
         'default_character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),

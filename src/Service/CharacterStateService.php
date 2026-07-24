@@ -1462,6 +1462,14 @@ class CharacterStateService {
     $positionQ = (int) ($position['q'] ?? 0);
     $positionR = (int) ($position['r'] ?? 0);
     $lastRoomId = (string) ($location['roomId'] ?? ($persisted_state['roomId'] ?? ''));
+    $positionH3 = strtolower(trim((string) (
+      $position['h3_index_res14']
+      ?? $position['h3_index']
+      ?? ''
+    )));
+    if ($positionH3 === '' && $lastRoomId !== '') {
+      $positionH3 = $this->lookupRoomHexH3IndexRes14($lastRoomId, $positionQ, $positionR);
+    }
 
     if ($campaign_row) {
       // Campaign-scoped runtime record
@@ -1482,6 +1490,7 @@ class CharacterStateService {
           'experience_points' => $experiencePoints,
           'position_q' => $positionQ,
           'position_r' => $positionR,
+          'position_h3' => $positionH3,
           'last_room_id' => $lastRoomId,
           'changed' => $now,
         ])
@@ -1505,6 +1514,7 @@ class CharacterStateService {
           'experience_points' => $experiencePoints,
           'position_q' => $positionQ,
           'position_r' => $positionR,
+          'position_h3' => $positionH3,
           'last_room_id' => $lastRoomId,
           'character_data' => json_encode($character_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
           'changed' => $now,
@@ -1551,6 +1561,7 @@ class CharacterStateService {
       'experience_points' => $experiencePoints,
       'position_q' => $positionQ,
       'position_r' => $positionR,
+      'position_h3' => $positionH3,
       'last_room_id' => $lastRoomId,
       'character_data' => json_encode($character_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
       'changed' => $now,
@@ -1628,6 +1639,30 @@ class CharacterStateService {
 
     $decoded = json_decode((string) $source_default, TRUE);
     return is_array($decoded) ? $decoded : $default_data;
+  }
+
+  /**
+   * Resolve room-owned endpoint H3 index from canonical sparse room-cell rows.
+   */
+  private function lookupRoomHexH3IndexRes14(string $room_id, int $q, int $r): string {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return '';
+    }
+    $row = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['h3_index'])
+      ->condition('room_id', $room_id)
+      ->condition('source_q', $q)
+      ->condition('source_r', $r)
+      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->orderBy('h3_resolution', 'DESC')
+      ->orderBy('id', 'ASC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return is_array($row)
+      ? strtolower(trim((string) ($row['h3_index'] ?? '')))
+      : '';
   }
 
   /**

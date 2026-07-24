@@ -167,6 +167,7 @@ services:
       - '@database'
       - '@dungeoncrawler_content.game_coordinator'
       - '@current_user'
+      - '@dungeoncrawler_content.h3_projection_queue'
 
   dungeoncrawler_content.gm_actor_chat_transport:
     class: Drupal\dungeoncrawler_content\Service\GmActorChatTransportService
@@ -221,11 +222,52 @@ services:
     arguments:
       - '@database'
 
+  dungeoncrawler_content.h3_projection_ledger:
+    class: Drupal\dungeoncrawler_content\Service\H3ProjectionLedgerService
+    arguments:
+      - '@database'
+
+  dungeoncrawler_content.h3_projection_queue:
+    class: Drupal\dungeoncrawler_content\Service\H3ProjectionQueueService
+    arguments:
+      - '@database'
+      - '@queue'
+      - '@lock'
+      - '@dungeoncrawler_content.graph_version_service'
+      - '@dungeoncrawler_content.h3_projection_ledger'
+      - '@logger.factory'
+
+  dungeoncrawler_content.starter_projection_artifact_registry:
+    class: Drupal\dungeoncrawler_content\Service\StarterProjectionArtifactRegistryService
+    arguments:
+      - '@database'
+      - '@logger.factory'
+
   dungeoncrawler_content.dungeon_payload_state_persistence:
     class: Drupal\dungeoncrawler_content\Service\DungeonPayloadStatePersistenceService
     arguments:
       - '@database'
       - '@dungeoncrawler_content.runtime_graph_assembler'
+
+  dungeoncrawler_content.campaign_runtime_state_store:
+    class: Drupal\dungeoncrawler_content\Service\CampaignRuntimeStateStore
+    arguments:
+      - '@database'
+
+  dungeoncrawler_content.actor_runtime_state_store:
+    class: Drupal\dungeoncrawler_content\Service\ActorRuntimeStateStore
+    arguments:
+      - '@database'
+
+  dungeoncrawler_content.room_runtime_state_store:
+    class: Drupal\dungeoncrawler_content\Service\RoomRuntimeStateStore
+    arguments:
+      - '@database'
+
+  dungeoncrawler_content.connection_runtime_state_store:
+    class: Drupal\dungeoncrawler_content\Service\ConnectionRuntimeStateStore
+    arguments:
+      - '@database'
 
   dungeoncrawler_content.roadmap_pipeline_status_resolver:
     class: Drupal\dungeoncrawler_content\Service\RoadmapPipelineStatusResolver
@@ -734,6 +776,7 @@ services:
     class: Drupal\dungeoncrawler_content\Service\NavigationTransitionPipeline
     arguments:
       - '@dungeoncrawler_content.navigation_runtime'
+      - '@dungeoncrawler_content.h3_projection_queue'
 
   dungeoncrawler_content.navigation_application_orchestrator:
     class: Drupal\dungeoncrawler_content\Service\NavigationApplicationOrchestrator
@@ -877,6 +920,8 @@ services:
       - '@dungeoncrawler_content.relationship_manager'
       - '@?dungeoncrawler_content.exit_connector_authority'
       - '@?dungeoncrawler_content.navigation_runtime'
+      - '@dungeoncrawler_content.h3_projection_queue'
+      - '@dungeoncrawler_content.starter_projection_artifact_registry'
 
   dungeoncrawler_content.room_state_service:
     class: Drupal\dungeoncrawler_content\Service\RoomStateService
@@ -1179,6 +1224,7 @@ services:
       - '@dungeoncrawler_content.encounter_action_executor'
       - '@dungeoncrawler_content.encounter_intent_router'
       - '@dungeoncrawler_content.runtime_graph_assembler'
+      - '@dungeoncrawler_content.h3_projection_queue'
 
   dungeoncrawler_content.encounter_master:
     alias: dungeoncrawler_content.encounter_phase_handler
@@ -1203,6 +1249,11 @@ services:
       - '@dungeoncrawler_content.campaign_time_resolver'
       - '@dungeoncrawler_content.runtime_bootstrap'
       - '@dungeoncrawler_content.dungeon_payload_state_persistence'
+      - '@dungeoncrawler_content.runtime_graph_assembler'
+      - '@dungeoncrawler_content.campaign_runtime_state_store'
+      - '@dungeoncrawler_content.actor_runtime_state_store'
+      - '@dungeoncrawler_content.room_runtime_state_store'
+      - '@dungeoncrawler_content.connection_runtime_state_store'
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.text_to_speech_integration'
       - '@file_url_generator'
@@ -1213,6 +1264,11 @@ services:
       - '@database'
       - '@dungeoncrawler_content.campaign_character_runtime_sync'
       - '@dungeoncrawler_content.dungeon_payload_state_persistence'
+      - '@dungeoncrawler_content.runtime_graph_assembler'
+      - '@dungeoncrawler_content.campaign_runtime_state_store'
+      - '@dungeoncrawler_content.actor_runtime_state_store'
+      - '@dungeoncrawler_content.room_runtime_state_store'
+      - '@dungeoncrawler_content.connection_runtime_state_store'
       - '@logger.factory'
 
   dungeoncrawler_content.ai_session_manager:

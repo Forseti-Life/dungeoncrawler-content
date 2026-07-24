@@ -1085,6 +1085,12 @@ class NpcService {
 
     $level = max(1, (int) ($npc['level'] ?? 1));
     $hit_points = (int) ($npc['hit_points'] ?? 0);
+    $position_h3 = strtolower(trim((string) (
+      $npc['position_h3']
+      ?? $npc['position']['h3_index_res14']
+      ?? $npc['position']['h3_index']
+      ?? ($existing_actor['position_h3'] ?? '')
+    )));
     $fields = [
       'name' => (string) ($npc['name'] ?? ''),
       'instance_id' => (string) ($npc['entity_ref'] ?? ''),
@@ -1118,6 +1124,7 @@ class NpcService {
         'experience_points' => 0,
         'position_q' => 0,
         'position_r' => 0,
+        'position_h3' => $position_h3,
         'last_room_id' => '',
         'version' => 1,
       ];

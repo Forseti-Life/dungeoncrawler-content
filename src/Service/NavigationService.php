@@ -47,8 +47,6 @@ class NavigationService {
         $capabilities[] = $capability;
       }
     }
-    $capabilities = $this->enforceDuplicateExitContractConflicts($capabilities);
-    $capabilities = $this->collapseDuplicateDestinationCapabilities($capabilities);
 
     return $this->sortCapabilities($capabilities);
   }
@@ -1337,8 +1335,11 @@ class NavigationService {
 
       $target_room = $this->findRoomByIdOrName($dungeon_data, $destination_identifier);
       if (!$target_room) {
+        $target_room = $this->resolveCanonicalQuestDestinationRoom($destination_identifier);
+      }
+      if (!$target_room) {
         throw new \InvalidArgumentException(sprintf(
-          'Quest destination contract violation: quest "%s" references "%s", but no matching room_id/name exists in dungeon_data.rooms.',
+          'Quest destination contract violation: quest "%s" references "%s", but no matching room_id/name exists in dungeon_data.rooms or canonical room library.',
           $quest_id,
           $destination_identifier
         ));
@@ -1479,6 +1480,41 @@ class NavigationService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve quest destination room from canonical room library.
+   */
+  protected function resolveCanonicalQuestDestinationRoom(string $identifier): ?array {
+    $identifier = trim($identifier);
+    if ($identifier === '') {
+      return NULL;
+    }
+
+    $query = \Drupal::database()->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id', 'source_room_id', 'name'])
+      ->range(0, 1)
+      ->orderBy('updated', 'DESC');
+    $or = $query->orConditionGroup()
+      ->condition('room_id', $identifier)
+      ->condition('source_room_id', $identifier)
+      ->condition('name', $identifier);
+
+    $row = $query->condition($or)->execute()->fetchAssoc();
+    if (!is_array($row)) {
+      return NULL;
+    }
+
+    $room_id = trim((string) ($row['room_id'] ?? ''));
+    if ($room_id === '') {
+      return NULL;
+    }
+
+    return [
+      'room_id' => $room_id,
+      'source_room_id' => trim((string) ($row['source_room_id'] ?? '')),
+      'name' => trim((string) ($row['name'] ?? $room_id)),
+    ];
   }
 
   /**

@@ -245,7 +245,7 @@ class QuestGeneratorService {
         'template_version' => $template_version,
         'contract_hash' => $contract_hash,
         'quest_data' => json_encode([
-          'variables' => $variables,
+          'variables' => $this->sanitizeQuestVariablesForStorage($variables),
           'party_level' => $context['party_level'] ?? 1,
           'difficulty' => $context['difficulty'] ?? 'moderate',
         ]),
@@ -272,10 +272,69 @@ class QuestGeneratorService {
 
       return $quest_data;
     }
+
     catch (\Throwable $e) {
       $this->logger->error('Quest generation failed: @error', ['@error' => $e->getMessage()]);
       throw $e;
     }
+  }
+
+  /**
+   * Ensure quest objective destination rooms are materialized for a quest row.
+   *
+   * @param array<string, mixed> $quest_row
+   *   Campaign quest row payload.
+   */
+  public function ensureQuestObjectiveDestinationRoomsMaterialized(int $campaign_id, array $quest_row): void {
+    if ($campaign_id <= 0 || $quest_row === []) {
+      return;
+    }
+
+    $objective_payload = $quest_row['generated_objectives'] ?? $quest_row['objective_states'] ?? NULL;
+    if (is_string($objective_payload)) {
+      $decoded = json_decode($objective_payload, TRUE);
+      $objective_payload = is_array($decoded) ? $decoded : [];
+    }
+    if (!is_array($objective_payload) || $objective_payload === []) {
+      return;
+    }
+
+    $context = [
+      'location_id' => trim((string) ($quest_row['location_id'] ?? '')),
+    ];
+    $dungeon_data = $this->getDungeonDataForContext($campaign_id, $context);
+    $this->materializeCanonicalDestinationRoomsForObjectives(
+      $campaign_id,
+      $context,
+      $dungeon_data,
+      $objective_payload
+    );
+  }
+
+  /**
+   * Strip heavyweight runtime blobs from quest_data.variables persistence.
+   *
+   * @param array<string, mixed> $variables
+   *   Resolved quest generation variables.
+   *
+   * @return array<string, mixed>
+   *   Storage-safe variables payload.
+   */
+  protected function sanitizeQuestVariablesForStorage(array $variables): array {
+    foreach ([
+      'dungeon_data',
+      'rooms',
+      'connections',
+      'entities',
+      'hex_map',
+      'object_definitions',
+      'runtime_snapshot',
+      'campaign_snapshot',
+    ] as $heavy_key) {
+      unset($variables[$heavy_key]);
+    }
+
+    return $variables;
   }
 
   /**
@@ -4093,7 +4152,7 @@ class QuestGeneratorService {
       return $this->decodeAndValidateDungeonPayload(
         $campaign_id,
         (string) ($context['map_id'] ?? $context['dungeon_id'] ?? 'inline'),
-        json_encode($inline_dungeon_data)
+        $inline_dungeon_data
       );
     }
 
@@ -4273,6 +4332,10 @@ class QuestGeneratorService {
         $room_id,
         [
           'require_connector_to_existing_room' => TRUE,
+          // Quest destination pre-seeding can legitimately happen before its
+          // bridge room is instantiated; keep room hidden and let connectors
+          // appear when adjacent canonical rooms are materialized.
+          'allow_disconnected_materialization' => TRUE,
           'explored' => FALSE,
           'visibility' => 'hidden',
         ]
@@ -4398,6 +4461,7 @@ class QuestGeneratorService {
       ));
     }
 
+    $decoded = $this->materializeValidationRoomsFromSparseSnapshot($campaign_id, $decoded);
     $rooms = $decoded['rooms'] ?? NULL;
     if (!is_array($rooms) || $rooms === []) {
       throw new \InvalidArgumentException(sprintf(
@@ -4405,6 +4469,108 @@ class QuestGeneratorService {
         $campaign_id,
         $dungeon_id !== '' ? $dungeon_id : 'unknown'
       ));
+    }
+
+    return $decoded;
+  }
+
+  /**
+   * Materialize validation-safe rooms from sparse runtime snapshots.
+   *
+   * Some runtime snapshots persist room ids in `room_ids` / `hex_map.rooms`
+   * without embedding a dense top-level `rooms` array. Quest destination
+   * validation still requires room records, so hydrate them deterministically
+   * from the snapshot and campaign room authority.
+   *
+   * @param int $campaign_id
+   *   Campaign id owning the payload.
+   * @param array<string, mixed> $decoded
+   *   Decoded dungeon payload.
+   *
+   * @return array<string, mixed>
+   *   Payload with best-effort `rooms` materialization.
+   */
+  protected function materializeValidationRoomsFromSparseSnapshot(int $campaign_id, array $decoded): array {
+    $existing_rooms = $decoded['rooms'] ?? NULL;
+    if (is_array($existing_rooms) && $existing_rooms !== []) {
+      return $decoded;
+    }
+
+    $hydrated_rooms = [];
+    $seen_room_ids = [];
+
+    $hex_rooms = $decoded['hex_map']['rooms'] ?? NULL;
+    if (is_array($hex_rooms)) {
+      foreach ($hex_rooms as $hex_room) {
+        if (!is_array($hex_room)) {
+          continue;
+        }
+        $room_id = trim((string) ($hex_room['room_id'] ?? $hex_room['id'] ?? ''));
+        if ($room_id === '') {
+          continue;
+        }
+        if (!isset($seen_room_ids[$room_id])) {
+          $hydrated_rooms[] = $hex_room + ['room_id' => $room_id];
+          $seen_room_ids[$room_id] = TRUE;
+        }
+      }
+    }
+
+    $room_ids = [];
+    foreach ((array) ($decoded['room_ids'] ?? []) as $room_id_candidate) {
+      $normalized_room_id = trim((string) $room_id_candidate);
+      if ($normalized_room_id !== '') {
+        $room_ids[$normalized_room_id] = TRUE;
+      }
+    }
+
+    if ($campaign_id > 0 && $room_ids !== [] && $this->database->schema()->tableExists('dc_campaign_rooms')) {
+      $room_id_values = array_keys($room_ids);
+      $room_query = $this->database->select('dc_campaign_rooms', 'r')
+        ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'layout_data', 'contents_data', 'updated'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('room_id', $room_id_values, 'IN')
+        ->orderBy('updated', 'DESC')
+        ->orderBy('id', 'DESC');
+      $room_rows = $room_query->execute()->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+      $latest_room_rows = [];
+      foreach ($room_rows as $room_row) {
+        if (!is_array($room_row)) {
+          continue;
+        }
+        $row_room_id = trim((string) ($room_row['room_id'] ?? ''));
+        if ($row_room_id === '' || isset($latest_room_rows[$row_room_id])) {
+          continue;
+        }
+        $latest_room_rows[$row_room_id] = $room_row;
+      }
+
+      foreach ($room_id_values as $room_id_value) {
+        if (isset($seen_room_ids[$room_id_value])) {
+          continue;
+        }
+
+        $room_row = $latest_room_rows[$room_id_value] ?? NULL;
+        if (is_array($room_row)) {
+          $hydrated_rooms[] = [
+            'room_id' => $room_id_value,
+            'source_room_id' => trim((string) ($room_row['source_room_id'] ?? '')),
+            'name' => (string) ($room_row['name'] ?? ''),
+            'description' => (string) ($room_row['description'] ?? ''),
+            'layout_data' => json_decode((string) ($room_row['layout_data'] ?? '{}'), TRUE),
+            'contents_data' => json_decode((string) ($room_row['contents_data'] ?? '{}'), TRUE),
+          ];
+        }
+        else {
+          $hydrated_rooms[] = ['room_id' => $room_id_value];
+        }
+        $seen_room_ids[$room_id_value] = TRUE;
+      }
+    }
+
+    if ($hydrated_rooms !== []) {
+      $decoded['rooms'] = $hydrated_rooms;
     }
 
     return $decoded;

@@ -916,6 +916,11 @@ class StorylineRealizationService {
       'experience_points' => (int) ($existing['experience_points'] ?? 0),
       'position_q' => (int) ($existing['position_q'] ?? 0),
       'position_r' => (int) ($existing['position_r'] ?? 0),
+      'position_h3' => strtolower(trim((string) (
+        $fields['position_h3']
+        ?? $existing['position_h3']
+        ?? ''
+      ))),
       'last_room_id' => $location_type === 'room' ? $location_ref : (string) ($existing['last_room_id'] ?? ''),
       'instance_id' => $instance_id,
       'type' => 'npc',

@@ -55,12 +55,12 @@ assert(
 
 assert(
   gameShellSource.includes("import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';")
-    && gameShellSource.includes("import { QuestPanel } from './panels/QuestPanel.js?v=20260612-v2-quest-storyline-grouping-1';"),
+    && gameShellSource.includes("import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';"),
   'GameShell uses a cache-busted QuestSystem import so refactors load immediately'
 );
 
 assert(
-  questPanelSource.includes('renderStorylineGroupedQuestSection(')
+  questPanelSource.includes('renderStorylineFirstJournal(')
     && questPanelSource.includes('buildStorylineContextIndexes(')
     && questPanelSource.includes('quest-entry quest-entry--storyline'),
   'QuestPanel groups quest entries under storyline parent nodes in the character journal'

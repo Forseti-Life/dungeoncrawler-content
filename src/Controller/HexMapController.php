@@ -12,6 +12,7 @@ use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\MapVisualStateProjector;
 use Drupal\dungeoncrawler_content\Service\NavigationRuntimeService;
 use Drupal\dungeoncrawler_content\Service\NavigationService;
+use Drupal\dungeoncrawler_content\Service\H3ProjectionQueueService;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
 use Drupal\dungeoncrawler_content\Service\QuestTrackerService;
 use Drupal\dungeoncrawler_content\Service\RelationshipManagerService;
@@ -20,10 +21,13 @@ use Drupal\dungeoncrawler_content\Service\GraphVersionService;
 use Drupal\dungeoncrawler_content\Service\RuntimeGraphAssemblerService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\dungeoncrawler_content\Service\StorylineManagerService;
+use Drupal\Component\Utility\Html;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 
 /**
  * Controller for hex map rendering and interaction.
@@ -37,6 +41,8 @@ class HexMapController extends ControllerBase {
 
   protected const DEFAULT_OBJECT_ORIENTATION = 'n';
   protected const QUEST_SUMMARY_SCHEMA_VERSION = 'quest-summary-v2';
+  protected const STARTER_TAVERN_ROOM_ID = 'tavern_entrance';
+  protected const STARTER_STREETS_ROOM_ID = 'tpl_room_absalom_streets';
 
   protected RequestStack $requestStack;
 
@@ -57,6 +63,7 @@ class HexMapController extends ControllerBase {
   protected StateValidationService $stateValidationService;
   protected CharacterManager $characterManager;
   protected CharacterStateService $characterStateService;
+  protected H3ProjectionQueueService $h3ProjectionQueue;
 
   /**
    * Per-request cache of room contents_data to avoid redundant DB reads.
@@ -66,7 +73,7 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, DungeonSnapshotRefresherService $dungeon_snapshot_refresher, GraphVersionService $graph_version_service, NavigationRuntimeService $navigation_runtime, NavigationService $navigation_service, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, RuntimeGraphAssemblerService $runtime_graph_assembler, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service) {
+  public function __construct(RequestStack $request_stack, Connection $database, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, DungeonSnapshotRefresherService $dungeon_snapshot_refresher, GraphVersionService $graph_version_service, NavigationRuntimeService $navigation_runtime, NavigationService $navigation_service, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, RuntimeGraphAssemblerService $runtime_graph_assembler, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service, H3ProjectionQueueService $h3_projection_queue) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->campaignCharacterRuntimeResolver = $campaign_character_runtime_resolver;
@@ -85,6 +92,7 @@ class HexMapController extends ControllerBase {
     $this->stateValidationService = $state_validation_service;
     $this->characterManager = $character_manager;
     $this->characterStateService = $character_state_service;
+    $this->h3ProjectionQueue = $h3_projection_queue;
   }
 
   /**
@@ -110,6 +118,7 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.state_validation_service'),
       $container->get('dungeoncrawler_content.character_manager'),
       $container->get('dungeoncrawler_content.character_state'),
+      $container->get('dungeoncrawler_content.h3_projection_queue'),
     );
   }
 
@@ -139,7 +148,12 @@ class HexMapController extends ControllerBase {
       || (int) $account->id() === 1;
 
     $this->assertCampaignAccess($launch_context, $is_admin);
-    $hexmap_state = $this->buildHexmapStateBundle($launch_context);
+    try {
+      $hexmap_state = $this->buildHexmapStateBundle($launch_context);
+    }
+    catch (ServiceUnavailableHttpException $e) {
+      return $this->buildReadinessDefectResponse($launch_context, $e->getMessage());
+    }
     $dungeon_payload = $hexmap_state['dungeon_payload'];
     $client_dungeon_payload = $this->buildClientBootstrapDungeonPayload($dungeon_payload);
     $client_visual_map_state = $this->buildClientBootstrapMapVisualState($hexmap_state['map_visual_state']);
@@ -182,9 +196,39 @@ class HexMapController extends ControllerBase {
   public function visualState(): JsonResponse {
     $launch_context = $this->buildLaunchContextFromRequest();
     $this->assertCampaignAccess($launch_context);
-    $hexmap_state = $this->buildHexmapStateBundle($launch_context);
+    try {
+      $hexmap_state = $this->buildHexmapStateBundle($launch_context);
+    }
+    catch (ServiceUnavailableHttpException $e) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => 'launch_slice_not_ready',
+        'message' => $e->getMessage(),
+        'campaign_id' => (int) ($launch_context['campaign_id'] ?? 0),
+        'dungeon_id' => (string) ($launch_context['map_id'] ?? ''),
+      ], 503);
+    }
 
     return new JsonResponse($this->buildVisualStatePayload($launch_context, $hexmap_state));
+  }
+
+  /**
+   * Build a hard-failure launch response when readiness certification is missing.
+   */
+  protected function buildReadinessDefectResponse(array $launch_context, string $details): Response {
+    $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
+    $map_id = (string) ($launch_context['map_id'] ?? '');
+    $safe_details = Html::escape($details);
+    $html = '<!doctype html><html><head><meta charset="utf-8"><title>Campaign Readiness Defect</title></head><body style="font-family:Arial,sans-serif;padding:24px;">'
+      . '<h2>Campaign map is not launch-ready.</h2>'
+      . '<p>Starter frontier readiness certification is missing for this campaign and must be repaired at the provisioning layer before launch.</p>'
+      . '<p><small>' . $safe_details . '</small></p>'
+      . '<p><small>campaign_id=' . $campaign_id . ' map_id=' . Html::escape($map_id) . '</small></p>'
+      . '</body></html>';
+
+    return new Response($html, 503, [
+      'Content-Type' => 'text/html; charset=UTF-8',
+    ]);
   }
 
   /**
@@ -1176,6 +1220,9 @@ class HexMapController extends ControllerBase {
    */
   protected function loadDungeonPayload(array $launch_context): array {
     $campaign_id = $launch_context['campaign_id'] ?? 0;
+    $load_started_at = microtime(TRUE);
+    $runtime_graph_ms_total = 0.0;
+    $normalize_ms_total = 0.0;
     $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap loadDungeonPayload entry: campaign_id=@campaign_id map_id=@map_id requested_room_id=@requested_room_id', [
       '@campaign_id' => (int) $campaign_id,
       '@map_id' => (string) ($launch_context['map_id'] ?? ''),
@@ -1198,39 +1245,85 @@ class HexMapController extends ControllerBase {
       if (is_array($row) && isset($row['dungeon_data'])) {
         $decoded = json_decode((string) $row['dungeon_data'], TRUE);
         if (is_array($decoded)) {
-          $requested_or_active_room_id = trim((string) (
-            $launch_context['room_id']
-            ?? $decoded['active_room_id']
-            ?? ''
-          ));
+          $requested_room_id = trim((string) ($launch_context['room_id'] ?? ''));
+          $selected_dungeon_id = (string) ($row['dungeon_id'] ?? ($launch_context['map_id'] ?? ''));
+          $used_fallback_dungeon = FALSE;
+
+          if ($requested_room_id !== '' && !$this->dungeonPayloadContainsRoom($decoded, $requested_room_id)) {
+            $fallback = $this->findDungeonContainingRoom($campaign_id, $requested_room_id, (string) ($launch_context['map_id'] ?? ''));
+            if ($fallback !== NULL) {
+              $decoded = $fallback;
+              $selected_dungeon_id = (string) ($fallback['dungeon_id'] ?? $selected_dungeon_id);
+              $used_fallback_dungeon = TRUE;
+            }
+          }
+
+          $requested_or_active_room_id = $requested_room_id !== ''
+            ? $requested_room_id
+            : trim((string) ($decoded['active_room_id'] ?? ''));
           if (
-            $requested_or_active_room_id !== ''
+            !$used_fallback_dungeon
+            && $requested_or_active_room_id !== ''
             && !$this->dungeonPayloadContainsRoom($decoded, $requested_or_active_room_id)
           ) {
             $this->eagerlyInstantiateCanonicalRoomNeighborhood((int) $campaign_id, $decoded, $requested_or_active_room_id, 1);
             $this->persistCampaignDungeonPayloadIfChanged(
               (int) ($row['id'] ?? 0),
               (int) $campaign_id,
-              (string) ($row['dungeon_id'] ?? ($launch_context['map_id'] ?? '')),
+              $selected_dungeon_id,
               $decoded,
               (string) $row['dungeon_data'],
               [
                 'active_room_id' => $requested_or_active_room_id,
-                'requested_room_id' => trim((string) ($launch_context['room_id'] ?? '')),
+                'requested_room_id' => $requested_room_id,
               ]
             );
           }
-          $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
-            (int) $campaign_id,
-            (string) ($row['dungeon_id'] ?? ($launch_context['map_id'] ?? '')),
-            $decoded,
-            [
-              'active_room_id' => $requested_or_active_room_id !== '' ? $requested_or_active_room_id : (string) ($decoded['active_room_id'] ?? ''),
-              'requested_room_id' => trim((string) ($launch_context['room_id'] ?? '')),
-              'room_scope_depth' => 1,
-            ]
-          );
-          $normalized = $this->normalizeDungeonPayload($decoded, $launch_context);
+          try {
+            $runtime_graph_started_at = microtime(TRUE);
+            $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
+              (int) $campaign_id,
+              $selected_dungeon_id,
+              $decoded,
+              [
+                'active_room_id' => $requested_or_active_room_id !== '' ? $requested_or_active_room_id : (string) ($decoded['active_room_id'] ?? ''),
+                'requested_room_id' => $requested_room_id,
+                'room_scope_depth' => 1,
+              ]
+            );
+            $runtime_graph_ms_total += (microtime(TRUE) - $runtime_graph_started_at) * 1000.0;
+            $normalize_started_at = microtime(TRUE);
+            $normalized = $this->normalizeDungeonPayload($decoded, $launch_context);
+            $normalize_ms_total += (microtime(TRUE) - $normalize_started_at) * 1000.0;
+          }
+          catch (\RuntimeException $runtime_exception) {
+            if ($requested_room_id === '') {
+              throw $runtime_exception;
+            }
+            $fallback = $this->findDungeonContainingRoom($campaign_id, $requested_room_id, $selected_dungeon_id);
+            if ($fallback === NULL) {
+              throw $runtime_exception;
+            }
+            $fallback_dungeon_id = (string) ($fallback['dungeon_id'] ?? '');
+            if ($fallback_dungeon_id === '') {
+              throw $runtime_exception;
+            }
+            $runtime_graph_started_at = microtime(TRUE);
+            $fallback = $this->runtimeGraphAssembler->buildRuntimeGraph(
+              (int) $campaign_id,
+              $fallback_dungeon_id,
+              $fallback,
+              [
+                'active_room_id' => $requested_room_id,
+                'requested_room_id' => $requested_room_id,
+                'room_scope_depth' => 1,
+              ]
+            );
+            $runtime_graph_ms_total += (microtime(TRUE) - $runtime_graph_started_at) * 1000.0;
+            $normalize_started_at = microtime(TRUE);
+            $normalized = $this->normalizeDungeonPayload($fallback, $launch_context);
+            $normalize_ms_total += (microtime(TRUE) - $normalize_started_at) * 1000.0;
+          }
 
           // If the requested room is missing from the loaded dungeon, search
           // all other campaign dungeons for it before falling through.
@@ -1241,6 +1334,7 @@ class HexMapController extends ControllerBase {
               if (!$this->dungeonPayloadContainsRoom($fallback, $requested_room)) {
                 $this->eagerlyInstantiateCanonicalRoomNeighborhood((int) $campaign_id, $fallback, $requested_room, 1);
               }
+              $runtime_graph_started_at = microtime(TRUE);
               $fallback = $this->runtimeGraphAssembler->buildRuntimeGraph(
                 (int) $campaign_id,
                 (string) ($fallback['dungeon_id'] ?? ($launch_context['map_id'] ?? '')),
@@ -1251,7 +1345,10 @@ class HexMapController extends ControllerBase {
                   'room_scope_depth' => 1,
                 ]
               );
+              $runtime_graph_ms_total += (microtime(TRUE) - $runtime_graph_started_at) * 1000.0;
+              $normalize_started_at = microtime(TRUE);
               $normalized = $this->normalizeDungeonPayload($fallback, $launch_context);
+              $normalize_ms_total += (microtime(TRUE) - $normalize_started_at) * 1000.0;
             }
 
           }
@@ -1261,6 +1358,9 @@ class HexMapController extends ControllerBase {
             '@active_room_id' => (string) ($normalized['active_room_id'] ?? ''),
             '@room_count' => count($normalized['rooms'] ?? []),
             '@entity_count' => count($normalized['entities'] ?? []),
+            '@duration_ms' => (int) round((microtime(TRUE) - $load_started_at) * 1000.0),
+            '@runtime_graph_ms' => (int) round($runtime_graph_ms_total),
+            '@normalize_ms' => (int) round($normalize_ms_total),
           ]);
           return $normalized;
         }
@@ -1273,6 +1373,7 @@ class HexMapController extends ControllerBase {
     ]);
     $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap loadDungeonPayload exit: campaign_id=@campaign_id result=empty_payload', [
       '@campaign_id' => (int) $campaign_id,
+      '@duration_ms' => (int) round((microtime(TRUE) - $load_started_at) * 1000.0),
     ]);
     return [];
   }
@@ -1306,6 +1407,11 @@ class HexMapController extends ControllerBase {
     if ($room_id === '') {
       return FALSE;
     }
+    foreach ((array) ($dungeon_data['room_ids'] ?? []) as $listed_room_id) {
+      if (trim((string) $listed_room_id) === $room_id) {
+        return TRUE;
+      }
+    }
     foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
       if (!is_array($room)) {
         continue;
@@ -1328,7 +1434,7 @@ class HexMapController extends ControllerBase {
     string $original_encoded_payload,
     array $options = []
   ): void {
-    $this->dungeonSnapshotRefresher->refreshIfChanged(
+    $snapshot_changed = $this->dungeonSnapshotRefresher->refreshIfChanged(
       $campaign_dungeon_row_id,
       $campaign_id,
       $dungeon_id,
@@ -1336,6 +1442,75 @@ class HexMapController extends ControllerBase {
       $original_encoded_payload,
       $options
     );
+    if (!$snapshot_changed) {
+      return;
+    }
+
+    $launch_room_scope = [];
+    foreach ([
+      (string) ($options['active_room_id'] ?? ''),
+      (string) ($options['requested_room_id'] ?? ''),
+      (string) ($expanded_dungeon_data['active_room_id'] ?? ''),
+    ] as $candidate_room_id) {
+      $candidate_room_id = trim($candidate_room_id);
+      if ($candidate_room_id !== '') {
+        $launch_room_scope[$candidate_room_id] = TRUE;
+      }
+    }
+    if ($launch_room_scope === []) {
+      foreach ($this->extractDungeonDataRoomIds($expanded_dungeon_data) as $room_id) {
+        $launch_room_scope[$room_id] = TRUE;
+        break;
+      }
+    }
+    if ($launch_room_scope === []) {
+      throw new \RuntimeException(sprintf(
+        'H3 projection trigger contract violation: refreshed dungeon %s has no discoverable launch room scope.',
+        $dungeon_id
+      ));
+    }
+
+    $provision_result = $this->h3ProjectionQueue->provisionLaunchSliceNow(
+      $campaign_id,
+      $dungeon_id,
+      array_keys($launch_room_scope)
+    );
+    $this->getLogger('dungeoncrawler_hexmap')->notice(
+      'Hexmap H3 projection sync after snapshot refresh: campaign_id=@campaign_id dungeon_id=@dungeon_id reason=@reason job_id=@job_id room_scope=@room_scope',
+      [
+        '@campaign_id' => $campaign_id,
+        '@dungeon_id' => $dungeon_id,
+        '@reason' => (string) ($provision_result['reason'] ?? 'unknown'),
+        '@job_id' => (string) ($provision_result['job_id'] ?? ''),
+        '@room_scope' => implode(',', array_keys($launch_room_scope)),
+      ]
+    );
+  }
+
+  /**
+   * Extract room identifiers from a campaign dungeon payload shape.
+   *
+   * @return array<int, string>
+   *   Unique non-empty room ids.
+   */
+  protected function extractDungeonDataRoomIds(array $dungeon_data): array {
+    $room_ids = [];
+    foreach ((array) ($dungeon_data['room_ids'] ?? []) as $room_id) {
+      $room_id = trim((string) $room_id);
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+    return array_keys($room_ids);
   }
 
   /**
@@ -1377,10 +1552,8 @@ class HexMapController extends ControllerBase {
       if (trim((string) ($decoded['hex_map']['map_id'] ?? '')) === '') {
         $decoded['hex_map']['map_id'] = (string) ($row['dungeon_id'] ?? '');
       }
-      foreach ((array) ($decoded['rooms'] ?? []) as $room) {
-        if (is_array($room) && (string) ($room['room_id'] ?? '') === $room_id) {
-          return $decoded;
-        }
+      if ($this->dungeonPayloadContainsRoom($decoded, $room_id)) {
+        return $decoded;
       }
     }
 
@@ -2876,6 +3049,7 @@ class HexMapController extends ControllerBase {
    * Normalize a dungeon payload to the hexmap-ready shape.
    */
   protected function normalizeDungeonPayload(array $decoded, array $launch_context): array {
+    $normalize_started_at = microtime(TRUE);
     $object_definitions = [];
     foreach (($decoded['object_definitions'] ?? []) as $definition_key => $object_definition) {
       if (!is_array($object_definition)) {
@@ -3095,15 +3269,50 @@ class HexMapController extends ControllerBase {
     $connections = $this->ensureRoomsHaveAtLeastOneExit($rooms, $connections, $active_room_id);
     $connections = $this->ensureConnectionsHaveLinkedHexes($rooms, $connections, $active_room_id);
     $dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $decoded['hex_map']['map_id'] ?? $launch_context['map_id'] ?? ''));
-    $authoritative_h3 = $this->loadAuthoritativeSparseH3Payload($dungeon_id, array_keys($rooms));
+    $h3_load_started_at = microtime(TRUE);
+    $launch_slice_room_ids = $this->resolveLaunchSliceRoomScope($launch_context, $active_room_id, $rooms);
+    $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
+    if ($campaign_id > 0 && $launch_slice_room_ids !== []) {
+      $readiness = $this->h3ProjectionQueue->ensureLaunchSliceReadiness($campaign_id, $dungeon_id, $launch_slice_room_ids);
+      if (!(bool) ($readiness['ready'] ?? FALSE)) {
+        $status = trim((string) ($readiness['status'] ?? 'pending'));
+        $reason = trim((string) ($readiness['reason'] ?? 'readiness_missing'));
+        $last_error = trim((string) ($readiness['last_error'] ?? ''));
+        $this->getLogger('dungeoncrawler_hexmap')->warning(
+          'Hexmap launch-slice readiness defect: campaign_id=@campaign_id dungeon_id=@dungeon_id status=@status reason=@reason room_scope=@room_scope last_error=@last_error',
+          [
+            '@campaign_id' => $campaign_id,
+            '@dungeon_id' => $dungeon_id,
+            '@status' => $status,
+            '@reason' => $reason,
+            '@room_scope' => implode(',', $launch_slice_room_ids),
+            '@last_error' => $last_error !== '' ? $last_error : 'none',
+          ]
+        );
+        throw new ServiceUnavailableHttpException(
+          NULL,
+          sprintf(
+            'H3 launch-slice readiness is missing for campaign %d dungeon %s (status=%s reason=%s).',
+            $campaign_id,
+            $dungeon_id,
+            $status,
+            $reason
+          )
+        );
+      }
+    }
+    $authoritative_h3 = $this->loadAuthoritativeSparseH3Payload($dungeon_id, $launch_slice_room_ids);
+    $h3_load_ms = (microtime(TRUE) - $h3_load_started_at) * 1000.0;
     $placement_surface = is_array($decoded['hex_map']['placement_surface'] ?? NULL)
       ? $decoded['hex_map']['placement_surface']
       : (is_array($decoded['placement_surface'] ?? NULL) ? $decoded['placement_surface'] : []);
+    $placement_reconcile_started_at = microtime(TRUE);
     $placement_surface = $this->reconcilePlacementSurfaceWithAuthoritativeH3(
       $placement_surface,
       is_array($authoritative_h3['cells'] ?? NULL) ? $authoritative_h3['cells'] : [],
       $dungeon_id
     );
+    $placement_reconcile_ms = (microtime(TRUE) - $placement_reconcile_started_at) * 1000.0;
     $placement_surfaces_by_level = is_array($decoded['hex_map']['placement_surfaces_by_level'] ?? NULL)
       ? $decoded['hex_map']['placement_surfaces_by_level']
       : [];
@@ -3153,7 +3362,67 @@ class HexMapController extends ControllerBase {
       ];
     }
 
+    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap normalizeDungeonPayload metrics: dungeon_id=@dungeon_id room_count=@room_count launch_slice_room_count=@launch_slice_room_count connection_count=@connection_count h3_anchor_count=@h3_anchor_count h3_cell_count=@h3_cell_count h3_load_ms=@h3_load_ms placement_reconcile_ms=@placement_reconcile_ms duration_ms=@duration_ms', [
+      '@dungeon_id' => $dungeon_id,
+      '@room_count' => count($rooms),
+      '@launch_slice_room_count' => count($launch_slice_room_ids),
+      '@connection_count' => count($connections),
+      '@h3_anchor_count' => count((array) ($authoritative_h3['anchors'] ?? [])),
+      '@h3_cell_count' => count((array) ($authoritative_h3['cells'] ?? [])),
+      '@h3_load_ms' => (int) round($h3_load_ms),
+      '@placement_reconcile_ms' => (int) round($placement_reconcile_ms),
+      '@duration_ms' => (int) round((microtime(TRUE) - $normalize_started_at) * 1000.0),
+    ]);
+
     return $this->ensurePayloadObjectOrientations($normalized_payload);
+  }
+
+  /**
+   * Resolve launch-critical room scope for authoritative H3 lookup.
+   *
+   * Scope is intentionally bounded to active room + direct destination rooms.
+   *
+   * @param array<string, mixed> $launch_context
+   *   Active launch context.
+   * @param string $active_room_id
+   *   Active room id.
+   * @param array<string, array<string, mixed>> $rooms
+   *   Runtime room payload keyed by room id.
+   *
+   * @return array<int, string>
+   *   Launch-slice room ids.
+   */
+  protected function resolveLaunchSliceRoomScope(array $launch_context, string $active_room_id, array $rooms): array {
+    $room_scope = [];
+    $active_room_id = trim($active_room_id);
+    foreach ([
+      $active_room_id,
+      trim((string) ($launch_context['room_id'] ?? '')),
+      trim((string) ($launch_context['next_room_id'] ?? '')),
+      trim((string) ($launch_context['requested_room_id'] ?? '')),
+    ] as $candidate_room_id) {
+      if ($candidate_room_id !== '' && isset($rooms[$candidate_room_id])) {
+        $room_scope[$candidate_room_id] = TRUE;
+      }
+    }
+    if (
+      isset($rooms[self::STARTER_TAVERN_ROOM_ID], $rooms[self::STARTER_STREETS_ROOM_ID])
+      && (isset($room_scope[self::STARTER_TAVERN_ROOM_ID]) || isset($room_scope[self::STARTER_STREETS_ROOM_ID]))
+    ) {
+      $room_scope[self::STARTER_TAVERN_ROOM_ID] = TRUE;
+      $room_scope[self::STARTER_STREETS_ROOM_ID] = TRUE;
+    }
+
+    if ($room_scope === []) {
+      $fallback_room_id = $active_room_id !== '' && isset($rooms[$active_room_id])
+        ? $active_room_id
+        : (string) array_key_first($rooms);
+      if ($fallback_room_id !== '') {
+        $room_scope[$fallback_room_id] = TRUE;
+      }
+    }
+
+    return array_values(array_keys($room_scope));
   }
 
   /**
@@ -3266,6 +3535,7 @@ class HexMapController extends ControllerBase {
    *   Normalized H3 payload.
    */
   protected function loadAuthoritativeSparseH3Payload(string $dungeon_id, array $room_ids): array {
+    $h3_lookup_started_at = microtime(TRUE);
     $dungeon_id = trim($dungeon_id);
     if ($dungeon_id === '') {
       throw new \RuntimeException('H3 system-of-record contract violation: dungeon_id is required for sparse H3 lookup.');
@@ -3366,13 +3636,214 @@ class HexMapController extends ControllerBase {
       ];
     }
 
+    if ($room_ids !== []) {
+      $anchor_room_set = [];
+      foreach ($anchors as $anchor) {
+        if (!is_array($anchor)) {
+          continue;
+        }
+        $anchor_room_id = trim((string) ($anchor['room_id'] ?? ''));
+        if ($anchor_room_id !== '') {
+          $anchor_room_set[$anchor_room_id] = TRUE;
+        }
+      }
+      $room_hex_room_set = [];
+      foreach ($cells as $cell) {
+        if (!is_array($cell)) {
+          continue;
+        }
+        $cell_room_id = trim((string) ($cell['room_id'] ?? ''));
+        $cell_role = trim((string) ($cell['role'] ?? ''));
+        if ($cell_room_id !== '' && $cell_role === 'room_hex') {
+          $room_hex_room_set[$cell_room_id] = TRUE;
+        }
+      }
+
+      $missing_anchor_rooms = [];
+      $missing_room_hex_rooms = [];
+      foreach ($room_ids as $room_id) {
+        if (!isset($anchor_room_set[$room_id])) {
+          $missing_anchor_rooms[] = $room_id;
+        }
+        if (!isset($room_hex_room_set[$room_id])) {
+          $missing_room_hex_rooms[] = $room_id;
+        }
+      }
+
+      if ($missing_anchor_rooms !== []) {
+        throw new \RuntimeException(sprintf(
+          'H3 system-of-record contract violation: sparse room-anchors missing for launch scope rooms in dungeon %s (%s).',
+          $dungeon_id,
+          implode(', ', $missing_anchor_rooms)
+        ));
+      }
+      if ($missing_room_hex_rooms !== []) {
+        throw new \RuntimeException(sprintf(
+          'H3 system-of-record contract violation: sparse room_hex cells missing for launch scope rooms in dungeon %s (%s).',
+          $dungeon_id,
+          implode(', ', $missing_room_hex_rooms)
+        ));
+      }
+    }
+
     usort($anchors, static fn(array $a, array $b): int => strcmp((string) ($a['room_id'] ?? ''), (string) ($b['room_id'] ?? '')));
+
+    $this->getLogger('dungeoncrawler_hexmap')->notice('Hexmap authoritative H3 lookup metrics: dungeon_id=@dungeon_id room_scope_count=@room_scope_count anchor_count=@anchor_count cell_count=@cell_count request_h3_writes=@request_h3_writes duration_ms=@duration_ms', [
+      '@dungeon_id' => $dungeon_id,
+      '@room_scope_count' => count($room_ids),
+      '@anchor_count' => count($anchors),
+      '@cell_count' => count($cells),
+      '@request_h3_writes' => 0,
+      '@duration_ms' => (int) round((microtime(TRUE) - $h3_lookup_started_at) * 1000.0),
+    ]);
 
     return [
       'dungeon_id' => $dungeon_id,
       'resolution' => $max_resolution,
       'anchors' => $anchors,
       'cells' => $cells,
+    ];
+  }
+
+  /**
+   * Ensure sparse H3 anchor/cell coverage exists for the dungeon/room set.
+   *
+   * Copies authoritative room-level sparse rows into the target dungeon_id when
+   * runtime graph expansion introduces rooms that have not yet been hydrated for
+   * that campaign dungeon namespace.
+   *
+   * @param string $dungeon_id
+   *   Target dungeon id.
+   * @param array<int, string> $room_ids
+   *   Room ids requiring sparse coverage.
+   */
+  protected function ensureSparseH3CoverageForDungeonRooms(string $dungeon_id, array $room_ids): array {
+    $coverage_started_at = microtime(TRUE);
+    $anchor_writes = 0;
+    $cell_writes = 0;
+    $room_ids = array_values(array_unique(array_filter(array_map('strval', $room_ids), static fn(string $room_id): bool => trim($room_id) !== '')));
+    if ($dungeon_id === '' || $room_ids === []) {
+      return [
+        'missing_room_count' => 0,
+        'anchor_writes' => 0,
+        'cell_writes' => 0,
+        'duration_ms' => (microtime(TRUE) - $coverage_started_at) * 1000.0,
+      ];
+    }
+
+    $anchor_rows = $this->database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+      ->fields('a', ['room_id'])
+      ->condition('a.dungeon_id', $dungeon_id)
+      ->condition('a.room_id', $room_ids, 'IN')
+      ->execute()
+      ->fetchCol() ?: [];
+    $anchored_room_set = array_fill_keys(array_map('strval', $anchor_rows), TRUE);
+
+    $room_hex_rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['room_id'])
+      ->condition('c.dungeon_id', $dungeon_id)
+      ->condition('c.room_id', $room_ids, 'IN')
+      ->condition('c.cell_role', 'room_hex')
+      ->execute()
+      ->fetchCol() ?: [];
+    $room_hex_set = array_fill_keys(array_map('strval', $room_hex_rows), TRUE);
+
+    $missing_room_ids = [];
+    foreach ($room_ids as $room_id) {
+      $room_id = trim($room_id);
+      if ($room_id === '') {
+        continue;
+      }
+      if (!isset($anchored_room_set[$room_id]) || !isset($room_hex_set[$room_id])) {
+        $missing_room_ids[] = $room_id;
+      }
+    }
+    if ($missing_room_ids === []) {
+      return [
+        'missing_room_count' => 0,
+        'anchor_writes' => 0,
+        'cell_writes' => 0,
+        'duration_ms' => (microtime(TRUE) - $coverage_started_at) * 1000.0,
+      ];
+    }
+
+    $now = \Drupal::time()->getRequestTime();
+    foreach ($missing_room_ids as $room_id) {
+      $source_anchor = $this->database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+        ->fields('a', ['room_id', 'h3_resolution', 'h3_index', 'center_latitude', 'center_longitude', 'reference_q', 'reference_r', 'hex_size_meters', 'metadata'])
+        ->condition('a.room_id', $room_id)
+        ->orderBy('a.h3_resolution', 'DESC')
+        ->orderBy('a.id', 'ASC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (!is_array($source_anchor)) {
+        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: no sparse room-anchor rows found for room %s.', $room_id));
+      }
+
+      $source_cells = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+        ->fields('c', ['cell_role', 'h3_resolution', 'h3_index', 'source_q', 'source_r', 'center_latitude', 'center_longitude', 'metadata'])
+        ->condition('c.room_id', $room_id)
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+      if ($source_cells === []) {
+        throw new \RuntimeException(sprintf('H3 system-of-record contract violation: no sparse room-cell rows found for room %s.', $room_id));
+      }
+
+      $this->database->merge('dungeoncrawler_content_h3_room_anchors')
+        ->keys([
+          'dungeon_id' => $dungeon_id,
+          'room_id' => $room_id,
+        ])
+        ->fields([
+          'h3_resolution' => (int) ($source_anchor['h3_resolution'] ?? 14),
+          'h3_index' => (string) ($source_anchor['h3_index'] ?? ''),
+          'center_latitude' => isset($source_anchor['center_latitude']) && is_numeric($source_anchor['center_latitude']) ? (float) $source_anchor['center_latitude'] : NULL,
+          'center_longitude' => isset($source_anchor['center_longitude']) && is_numeric($source_anchor['center_longitude']) ? (float) $source_anchor['center_longitude'] : NULL,
+          'reference_q' => (int) ($source_anchor['reference_q'] ?? 0),
+          'reference_r' => (int) ($source_anchor['reference_r'] ?? 0),
+          'hex_size_meters' => isset($source_anchor['hex_size_meters']) && is_numeric($source_anchor['hex_size_meters']) ? (float) $source_anchor['hex_size_meters'] : 1.524,
+          'metadata' => (string) ($source_anchor['metadata'] ?? ''),
+          'created' => $now,
+          'updated' => $now,
+        ])
+        ->execute();
+      $anchor_writes++;
+
+      foreach ($source_cells as $source_cell) {
+        if (!is_array($source_cell)) {
+          continue;
+        }
+        if (!is_numeric($source_cell['source_q'] ?? NULL) || !is_numeric($source_cell['source_r'] ?? NULL)) {
+          continue;
+        }
+        $this->database->merge('dungeoncrawler_content_h3_room_cells')
+          ->keys([
+            'dungeon_id' => $dungeon_id,
+            'room_id' => $room_id,
+            'cell_role' => (string) ($source_cell['cell_role'] ?? 'room_hex'),
+            'h3_resolution' => (int) ($source_cell['h3_resolution'] ?? 14),
+            'h3_index' => (string) ($source_cell['h3_index'] ?? ''),
+            'source_q' => (int) $source_cell['source_q'],
+            'source_r' => (int) $source_cell['source_r'],
+          ])
+          ->fields([
+            'center_latitude' => isset($source_cell['center_latitude']) && is_numeric($source_cell['center_latitude']) ? (float) $source_cell['center_latitude'] : NULL,
+            'center_longitude' => isset($source_cell['center_longitude']) && is_numeric($source_cell['center_longitude']) ? (float) $source_cell['center_longitude'] : NULL,
+            'metadata' => (string) ($source_cell['metadata'] ?? ''),
+            'created' => $now,
+            'updated' => $now,
+          ])
+          ->execute();
+        $cell_writes++;
+      }
+    }
+
+    return [
+      'missing_room_count' => count($missing_room_ids),
+      'anchor_writes' => $anchor_writes,
+      'cell_writes' => $cell_writes,
+      'duration_ms' => (microtime(TRUE) - $coverage_started_at) * 1000.0,
     ];
   }
 

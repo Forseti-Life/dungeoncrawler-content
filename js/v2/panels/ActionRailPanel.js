@@ -11,7 +11,7 @@ import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEn
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
 import { buildActionRailContext } from '../services/action-rail-context-service.js';
-import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260721-v2-nav-authority-2';
+import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260723-v2-nav-exit-numbering-4';
 import {
   getActionRailDirectRoute,
   getServerActionIdForExecute,
@@ -958,9 +958,7 @@ export class ActionRailPanel {
   buildSearchActionRailPanel(context) {
     const searchAvailable = this.isServerActionAvailable(context, getServerActionIdForExecute('search'));
     const hasActor = Boolean(context.actorRef);
-    const disabled = context.encounterActive
-      ? this.isActionRailExecutionDisabled(1, context, !searchAvailable)
-      : !hasActor;
+    const disabled = !hasActor || !searchAvailable;
     const entries = [this.renderActionRailEntry({
       execute: 'search',
       title: 'Search the room',

@@ -37,9 +37,9 @@ class DungeonSnapshotRefresherService {
     array $base_payload,
     string $original_encoded_payload,
     array $options = []
-  ): void {
+  ): bool {
     if ($campaign_dungeon_row_id <= 0 || $campaign_id <= 0 || trim($dungeon_id) === '') {
-      return;
+      return FALSE;
     }
 
     $rebuilt_payload = $this->runtimeGraphAssembler->buildRuntimeGraph(
@@ -50,7 +50,7 @@ class DungeonSnapshotRefresherService {
     );
     $encoded_payload = json_encode($rebuilt_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (!is_string($encoded_payload) || $encoded_payload === '' || $encoded_payload === $original_encoded_payload) {
-      return;
+      return FALSE;
     }
 
     $this->database->update('dc_campaign_dungeons')
@@ -60,6 +60,7 @@ class DungeonSnapshotRefresherService {
       ])
       ->condition('id', $campaign_dungeon_row_id)
       ->execute();
+    return TRUE;
   }
 
 }

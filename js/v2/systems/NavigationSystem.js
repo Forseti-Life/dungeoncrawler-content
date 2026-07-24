@@ -348,19 +348,38 @@ export class NavigationSystem {
         }
       }
       if (nextRoomId && this.shell?.loadRuntimeStateBundle) {
-        await this.shell.loadRuntimeStateBundle({
+        const authoritativeMapId = String(
+          result?.dungeon_id
+          || result?.map_id
+          || result?.game_state?.dungeon_id
+          || result?.navigation?.dungeon_id
+          || result?.navigation?.map_id
+          || ''
+        ).trim();
+        const authoritativeDungeonLevelId = String(
+          result?.dungeon_level_id
+          || result?.game_state?.dungeon_level_id
+          || result?.navigation?.dungeon_level_id
+          || ''
+        ).trim();
+        const runtimeBundleQuery = {
           campaign_id: hexmap.resolveCampaignId?.() || this.shell.resolveCampaignId?.() || 0,
           character_id: hexmap.launchContext?.character_id || this.shell.launchContext?.character_id || 0,
           room_id: nextRoomId,
-          map_id: mapId || undefined,
-          dungeon_level_id: dungeonLevelId || undefined,
+          map_id: authoritativeMapId || undefined,
+          dungeon_level_id: authoritativeDungeonLevelId || undefined,
           start_q: Number.isFinite(Number(result?.entry_hex?.q ?? result?.navigation?.entry_hex?.q))
             ? Number(result?.entry_hex?.q ?? result?.navigation?.entry_hex?.q)
             : 0,
           start_r: Number.isFinite(Number(result?.entry_hex?.r ?? result?.navigation?.entry_hex?.r))
             ? Number(result?.entry_hex?.r ?? result?.navigation?.entry_hex?.r)
             : 0,
-        });
+        };
+        try {
+          await this.shell.loadRuntimeStateBundle(runtimeBundleQuery);
+        } catch (error) {
+          this._handleRuntimeBundleLoadFailure(error, roomName, nextRoomId);
+        }
       }
       void this._reconcileAuthoritativeStateAfterTransition(coordinator, hexmap, nextRoomId);
       this._refreshActionRail();
@@ -1106,6 +1125,23 @@ export class NavigationSystem {
       authority: 'authoritative',
       messageClass: 'authoritative_transcript',
     });
+  }
+
+  _handleRuntimeBundleLoadFailure(error, roomName = '', roomId = '') {
+    const status = Number(error?.status || 0);
+    const code = String(error?.code || '').trim().toLowerCase();
+    const retryAfter = Number(error?.retryAfter || 0) || 0;
+    const destination = String(roomName || roomId || 'destination').trim();
+
+    let message = String(error?.message || 'Unable to load runtime state for this destination.').trim();
+    if (status === 503 && code === 'launch_slice_not_ready') {
+      message = retryAfter > 0
+        ? `Destination ${destination} is still provisioning (${retryAfter}s). Please retry in a moment.`
+        : `Destination ${destination} is still provisioning. Please retry in a moment.`;
+    }
+
+    this.bus.emit('game:server-unavailable', { message });
+    this._appendChatLine('System', message, 'error');
   }
 
   _beginActionRailPendingChatRequest(button) {

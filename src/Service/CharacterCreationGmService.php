@@ -609,6 +609,11 @@ PROMPT;
             'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
             'position_q' => (int) ($schema_data['position']['q'] ?? 0),
             'position_r' => (int) ($schema_data['position']['r'] ?? 0),
+            'position_h3' => strtolower(trim((string) (
+              $schema_data['position']['h3_index_res14']
+              ?? $schema_data['position']['h3_index']
+              ?? ''
+            ))),
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
             'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''
@@ -647,6 +652,11 @@ PROMPT;
             'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
             'position_q' => (int) ($schema_data['position']['q'] ?? 0),
             'position_r' => (int) ($schema_data['position']['r'] ?? 0),
+            'position_h3' => strtolower(trim((string) (
+              $schema_data['position']['h3_index_res14']
+              ?? $schema_data['position']['h3_index']
+              ?? ''
+            ))),
             'last_room_id' => (string) ($schema_data['position']['room_id'] ?? ''),
             'character_data' => json_encode($schema_data, JSON_PRETTY_PRINT),
             'default_locations' => trim((string) ($schema_data['default_locations'] ?? '')) !== ''

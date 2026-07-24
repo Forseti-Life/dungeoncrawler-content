@@ -65,11 +65,19 @@ class GmTurnCoordinatorService {
     $active_conversation_npc = $persisted_conversation_npc ?? $callbacks->resolveActiveDirectConversationNpc($chat, $room_npcs);
     $effective_direct_npc = $directly_addressed_npc;
     $continued_conversation = FALSE;
+    $implicit_single_npc_question = FALSE;
     if ($effective_direct_npc === NULL && $active_conversation_npc !== NULL) {
       $normalized_player_message = $callbacks->normalizeNpcNameForMatch($latest_player_message);
       if ($callbacks->shouldContinueActiveRoomConversation($latest_player_message, $normalized_player_message, $active_conversation_npc)) {
         $effective_direct_npc = $active_conversation_npc;
         $continued_conversation = TRUE;
+      }
+    }
+    if ($effective_direct_npc === NULL) {
+      $single_room_npc = $this->resolveImplicitSingleRoomNpcQuestionTarget($latest_player_message, $room_npcs);
+      if ($single_room_npc !== NULL) {
+        $effective_direct_npc = $single_room_npc;
+        $implicit_single_npc_question = TRUE;
       }
     }
     $turn_intent = $callbacks->classifyRoomTurnIntent($latest_player_message, $room_npcs, $effective_direct_npc, $active_conversation_npc);
@@ -83,6 +91,7 @@ class GmTurnCoordinatorService {
       'persisted_conversation_npc' => $persisted_conversation_npc['entity_ref'] ?? NULL,
       'active_conversation_npc' => $active_conversation_npc['entity_ref'] ?? NULL,
       'continued_conversation' => $continued_conversation,
+      'implicit_single_npc_question' => $implicit_single_npc_question,
     ]);
 
     $stage_started_at = hrtime(true);
@@ -106,6 +115,37 @@ class GmTurnCoordinatorService {
       'prompt_artifacts' => is_array($prompt_artifacts) ? $prompt_artifacts : [],
       'scene_parts' => is_array($scene_parts) ? $scene_parts : [],
     ];
+  }
+
+  /**
+   * Resolve one implicit direct-NPC target when exactly one room NPC is present.
+   */
+  protected function resolveImplicitSingleRoomNpcQuestionTarget(string $latest_player_message, array $room_npcs): ?array {
+    if (count($room_npcs) !== 1) {
+      return NULL;
+    }
+    if (!$this->isLikelyNpcQuestion($latest_player_message)) {
+      return NULL;
+    }
+
+    $npc = $room_npcs[0] ?? NULL;
+    return is_array($npc) ? $npc : NULL;
+  }
+
+  /**
+   * Heuristic for chat questions that should implicitly address a sole room NPC.
+   */
+  protected function isLikelyNpcQuestion(string $message): bool {
+    $trimmed = trim($message);
+    if ($trimmed === '') {
+      return FALSE;
+    }
+
+    if (str_ends_with($trimmed, '?')) {
+      return TRUE;
+    }
+
+    return preg_match('/^(who|what|when|where|why|how|can|could|would|will|do|does|did|is|are|am|should|tell)\b/i', $trimmed) === 1;
   }
 
   /**

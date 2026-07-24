@@ -124,6 +124,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected ?NavigationService $navigationService;
   protected ?NavigationRuntimeService $navigationRuntime;
   protected ?RuntimeGraphAssemblerService $runtimeGraphAssembler;
+  protected ?H3ProjectionQueueService $h3ProjectionQueue;
 
   /**
    * Shared actor action-availability resolver.
@@ -313,7 +314,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     ?CanonicalProjectionService $canonical_projection_service = NULL,
     ?EncounterActionExecutor $encounter_action_executor = NULL,
     ?EncounterIntentRouter $encounter_intent_router = NULL,
-    ?RuntimeGraphAssemblerService $runtime_graph_assembler = NULL
+    ?RuntimeGraphAssemblerService $runtime_graph_assembler = NULL,
+    ?H3ProjectionQueueService $h3_projection_queue = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -339,6 +341,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $this->actionAvailability = $action_availability ?? new ActorActionAvailabilityService();
     $this->navigationRuntime = $navigation_runtime;
     $this->runtimeGraphAssembler = $runtime_graph_assembler;
+    $this->h3ProjectionQueue = $h3_projection_queue;
     $this->actorContextBuilder = $actor_context_builder ?? new EncounterActorContextBuilder(
       $this->psychologyService,
       $this->actionAvailability
@@ -6265,6 +6268,36 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $from_room = $dungeon_data['active_room_id'] ?? NULL;
     $dungeon_data['active_room_id'] = $target_room_id;
     $dungeon_data['current_room_id'] = $target_room_id;
+    $runtime_dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['map_id']
+      ?? ''
+    ));
+    if ($runtime_dungeon_id === '') {
+      throw new \RuntimeException(sprintf(
+        'Encounter transition contract violation: campaign %d target room %s has no runtime dungeon_id for launch-slice provisioning.',
+        $campaign_id,
+        $target_room_id
+      ));
+    }
+    if (!$this->h3ProjectionQueue instanceof H3ProjectionQueueService) {
+      throw new \RuntimeException(sprintf(
+        'Encounter transition contract violation: H3 projection queue service is required for campaign %d room %s transition provisioning.',
+        $campaign_id,
+        $target_room_id
+      ));
+    }
+    $launch_slice_scope = $this->resolveLaunchSliceRoomScopeFromDungeonData($dungeon_data, is_scalar($from_room) ? (string) $from_room : '');
+    if ($launch_slice_scope === []) {
+      throw new \RuntimeException(sprintf(
+        'Encounter transition contract violation: launch-slice scope is empty for campaign %d dungeon %s room %s.',
+        $campaign_id,
+        $runtime_dungeon_id,
+        $target_room_id
+      ));
+    }
+    $this->h3ProjectionQueue->provisionLaunchSliceNow($campaign_id, $runtime_dungeon_id, $launch_slice_scope);
     $game_state['phase'] = 'encounter';
     $game_state['exploration']['previous_room'] = $from_room;
 
@@ -6574,6 +6607,52 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ])
       ->condition('id', (int) $row['id'])
       ->execute();
+  }
+
+  /**
+   * Resolve transition frontier as active room plus direct neighbors.
+   *
+   * @return array<int, string>
+   *   Provisioning scope for launch slice.
+   */
+  protected function resolveLaunchSliceRoomScopeFromDungeonData(array $dungeon_data, string $previous_room_id = ''): array {
+    $rooms = [];
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+      if ($room_id !== '') {
+        $rooms[$room_id] = TRUE;
+      }
+    }
+
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? $dungeon_data['current_room_id'] ?? ''));
+    $previous_room_id = trim($previous_room_id);
+    $scope = [];
+    if ($active_room_id !== '' && isset($rooms[$active_room_id])) {
+      $scope[$active_room_id] = TRUE;
+    }
+    if ($previous_room_id !== '' && isset($rooms[$previous_room_id])) {
+      $scope[$previous_room_id] = TRUE;
+    }
+
+    if (
+      isset($rooms['ltba-tavern-room'], $rooms['ltba-streets-room'])
+      && (isset($scope['ltba-tavern-room']) || isset($scope['ltba-streets-room']))
+    ) {
+      $scope['ltba-tavern-room'] = TRUE;
+      $scope['ltba-streets-room'] = TRUE;
+    }
+
+    if ($scope === [] && $active_room_id !== '') {
+      $scope[$active_room_id] = TRUE;
+    }
+    if ($scope === [] && $rooms !== []) {
+      $scope[(string) array_key_first($rooms)] = TRUE;
+    }
+
+    return array_values(array_keys($scope));
   }
 
   /**

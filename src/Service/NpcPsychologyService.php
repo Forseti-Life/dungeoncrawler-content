@@ -1684,6 +1684,12 @@ class NpcPsychologyService {
         'experience_points' => 0,
         'position_q' => 0,
         'position_r' => 0,
+        'position_h3' => strtolower(trim((string) (
+          $seed_data['position_h3']
+          ?? $seed_data['position']['h3_index_res14']
+          ?? $seed_data['position']['h3_index']
+          ?? ''
+        ))),
         'last_room_id' => $location_seed['last_room_id'],
         'version' => 1,
         'lifecycle_state' => $role === 'merchant' ? 'campaign_merchant' : 'campaign_npc',
@@ -1732,12 +1738,47 @@ class NpcPsychologyService {
       return $row;
     }
 
+    $room_id = trim((string) ($location_seed['last_room_id'] ?? $location_seed['location_ref'] ?? ''));
+    $position_q = isset($seed_data['position']['q']) && is_numeric($seed_data['position']['q'])
+      ? (int) $seed_data['position']['q']
+      : (isset($seed_data['position_q']) && is_numeric($seed_data['position_q']) ? (int) $seed_data['position_q'] : (int) ($row['position_q'] ?? 0));
+    $position_r = isset($seed_data['position']['r']) && is_numeric($seed_data['position']['r'])
+      ? (int) $seed_data['position']['r']
+      : (isset($seed_data['position_r']) && is_numeric($seed_data['position_r']) ? (int) $seed_data['position_r'] : (int) ($row['position_r'] ?? 0));
+    $position_h3 = strtolower(trim((string) (
+      $seed_data['position_h3']
+      ?? $seed_data['position']['h3_index_res14']
+      ?? $seed_data['position']['h3_index']
+      ?? ($row['position_h3'] ?? '')
+    )));
+    if ($position_h3 === '' && $room_id !== '') {
+      $position_h3 = $this->lookupRoomHexH3IndexRes14($room_id, $position_q, $position_r);
+    }
+    if ($position_h3 === '' && $room_id !== '') {
+      $fallback = $this->resolveDefaultRoomPlacementFromSparseStorage($room_id, $position_q, $position_r);
+      if (is_array($fallback)) {
+        $position_q = $fallback['q'];
+        $position_r = $fallback['r'];
+        $position_h3 = $fallback['h3_index_res14'];
+      }
+    }
+    if ($room_id !== '' && !$this->isCanonicalH3IndexValue($position_h3)) {
+      throw new \RuntimeException(sprintf(
+        'Unable to resolve canonical res14 H3 placement for NPC row %d in room %s.',
+        $actor_id,
+        $room_id
+      ));
+    }
+
     $now = time();
     $updated = $this->database->update('dc_campaign_characters')
       ->fields([
         'location_type' => 'room',
         'location_ref' => $location_seed['location_ref'],
         'last_room_id' => $location_seed['last_room_id'],
+        'position_q' => $position_q,
+        'position_r' => $position_r,
+        'position_h3' => $position_h3,
         'updated' => $now,
         'changed' => $now,
       ])
@@ -1784,6 +1825,91 @@ class NpcPsychologyService {
       'location_ref' => $location_ref !== '' ? $location_ref : $room_anchor,
       'last_room_id' => $last_room_id !== '' ? $last_room_id : $room_anchor,
     ];
+  }
+
+  /**
+   * Resolve room-owned endpoint H3 index from canonical sparse room-cell rows.
+   */
+  protected function lookupRoomHexH3IndexRes14(string $room_id, int $q, int $r): string {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return '';
+    }
+    $row = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['h3_index'])
+      ->condition('room_id', $room_id)
+      ->condition('source_q', $q)
+      ->condition('source_r', $r)
+      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->orderBy('h3_resolution', 'DESC')
+      ->orderBy('id', 'ASC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return is_array($row)
+      ? strtolower(trim((string) ($row['h3_index'] ?? '')))
+      : '';
+  }
+
+  /**
+   * Resolve deterministic default placement from sparse canonical room cells.
+   *
+   * @return array{q:int,r:int,h3_index_res14:string}|null
+   *   Canonical placement or NULL when unresolved.
+   */
+  protected function resolveDefaultRoomPlacementFromSparseStorage(string $room_id, int $preferred_q, int $preferred_r): ?array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return NULL;
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['source_q', 'source_r', 'h3_index'])
+      ->condition('room_id', $room_id)
+      ->condition('h3_resolution', 14)
+      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll();
+    if ($rows === []) {
+      return NULL;
+    }
+
+    foreach ($rows as $row) {
+      $q = (int) ($row->source_q ?? 0);
+      $r = (int) ($row->source_r ?? 0);
+      if ($q !== $preferred_q || $r !== $preferred_r) {
+        continue;
+      }
+      $h3_index = strtolower(trim((string) ($row->h3_index ?? '')));
+      if ($this->isCanonicalH3IndexValue($h3_index)) {
+        return ['q' => $q, 'r' => $r, 'h3_index_res14' => $h3_index];
+      }
+    }
+
+    foreach ($rows as $row) {
+      $h3_index = strtolower(trim((string) ($row->h3_index ?? '')));
+      if (!$this->isCanonicalH3IndexValue($h3_index)) {
+        continue;
+      }
+      return [
+        'q' => (int) ($row->source_q ?? 0),
+        'r' => (int) ($row->source_r ?? 0),
+        'h3_index_res14' => $h3_index,
+      ];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Canonical H3 index guard.
+   */
+  protected function isCanonicalH3IndexValue(string $h3_index): bool {
+    if ($h3_index === '') {
+      return FALSE;
+    }
+    return (bool) preg_match('/^[0-9a-f]{15,16}$/', strtolower(trim($h3_index)));
   }
 
 }

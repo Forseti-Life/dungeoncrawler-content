@@ -79,6 +79,13 @@ class CampaignCharacterRuntimeResolverService {
       }
     }
 
+    foreach ((array) ($decoded['room_ids'] ?? []) as $room_id) {
+      $room_id = trim((string) $room_id);
+      if ($room_id !== '') {
+        return $room_id;
+      }
+    }
+
     return '';
   }
 
@@ -128,6 +135,7 @@ class CampaignCharacterRuntimeResolverService {
       'experience_points',
       'position_q',
       'position_r',
+      'position_h3',
       'last_room_id',
       'location_type',
       'location_ref',
@@ -268,6 +276,7 @@ class CampaignCharacterRuntimeResolverService {
       'experience_points' => $hot['experience_points'],
       'position_q' => $location_fields['position_q'],
       'position_r' => $location_fields['position_r'],
+      'position_h3' => $location_fields['position_h3'],
       'last_room_id' => $location_fields['last_room_id'],
       'role' => 'player',
       'type' => 'pc',
@@ -803,7 +812,7 @@ class CampaignCharacterRuntimeResolverService {
    * @param array<string,mixed> $launch_context
    *   Optional launch overrides.
    *
-   * @return array{position_q:int,position_r:int,last_room_id:string,location_type:string,location_ref:string}
+   * @return array{position_q:int,position_r:int,position_h3:string,last_room_id:string,location_type:string,location_ref:string}
    *   Normalized location fields.
    */
   protected function resolveRuntimeLocationFields(int $campaign_id, ?array $existing_row, object $selected_character, array $launch_context = []): array {
@@ -813,11 +822,19 @@ class CampaignCharacterRuntimeResolverService {
 
     $position_q = (int) ($existing_row['position_q'] ?? $selected_character->position_q ?? 0);
     $position_r = (int) ($existing_row['position_r'] ?? $selected_character->position_r ?? 0);
+    $position_h3 = strtolower(trim((string) (
+      $existing_row['position_h3']
+      ?? $selected_character->position_h3
+      ?? ''
+    )));
     if ($start_q_explicit) {
       $position_q = (int) ($launch_context['start_q'] ?? $position_q);
     }
     if ($start_r_explicit) {
       $position_r = (int) ($launch_context['start_r'] ?? $position_r);
+    }
+    if (array_key_exists('start_h3_index_res14', $launch_context)) {
+      $position_h3 = strtolower(trim((string) ($launch_context['start_h3_index_res14'] ?? '')));
     }
 
     $is_new_runtime_row = $existing_row === NULL;
@@ -834,6 +851,9 @@ class CampaignCharacterRuntimeResolverService {
     if ($room_id === '' || ($is_new_runtime_row && !$room_explicit)) {
       $room_id = $this->resolveStarterRoomIdForCampaign($campaign_id);
     }
+    if ($room_id === '') {
+      $room_id = 'tavern_entrance';
+    }
 
     $location_type = $room_id !== ''
       ? 'room'
@@ -841,10 +861,31 @@ class CampaignCharacterRuntimeResolverService {
     $location_ref = $room_id !== ''
       ? $room_id
       : trim((string) ($existing_row['location_ref'] ?? $selected_character->location_ref ?? ''));
+    if ($position_h3 === '' && $room_id !== '') {
+      $position_h3 = $this->lookupRoomHexH3IndexRes14($room_id, $position_q, $position_r);
+    }
+    if ($position_h3 === '' && $room_id !== '') {
+      $fallback = $this->resolveDefaultRoomPlacementFromSparseStorage($room_id, $position_q, $position_r);
+      if (is_array($fallback)) {
+        $position_q = $fallback['q'];
+        $position_r = $fallback['r'];
+        $position_h3 = $fallback['h3_index_res14'];
+      }
+    }
+    if ($room_id !== '' && $position_h3 === '') {
+      throw new \RuntimeException(sprintf(
+        'Unable to resolve canonical res14 H3 placement for campaign %d room %s (%d,%d).',
+        $campaign_id,
+        $room_id,
+        $position_q,
+        $position_r
+      ));
+    }
 
     return [
       'position_q' => $position_q,
       'position_r' => $position_r,
+      'position_h3' => $position_h3,
       'last_room_id' => $room_id,
       'location_type' => $location_type,
       'location_ref' => $location_ref,
@@ -980,6 +1021,7 @@ class CampaignCharacterRuntimeResolverService {
         'experience_points' => (int) ($schema_data['experience_points'] ?? 0),
         'position_q' => 0,
         'position_r' => 0,
+        'position_h3' => '',
         'last_room_id' => '',
         'character_data' => $schema_json,
         'default_character_data' => $schema_json,
@@ -1270,6 +1312,91 @@ class CampaignCharacterRuntimeResolverService {
    */
   private function normalizeCharacterName(string $name): string {
     return strtolower(trim($name));
+  }
+
+  /**
+   * Resolve room-owned endpoint H3 index from canonical sparse room-cell rows.
+   */
+  protected function lookupRoomHexH3IndexRes14(string $room_id, int $q, int $r): string {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return '';
+    }
+    $row = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['h3_index'])
+      ->condition('room_id', $room_id)
+      ->condition('source_q', $q)
+      ->condition('source_r', $r)
+      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->orderBy('h3_resolution', 'DESC')
+      ->orderBy('id', 'ASC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    return is_array($row)
+      ? strtolower(trim((string) ($row['h3_index'] ?? '')))
+      : '';
+  }
+
+  /**
+   * Resolve a deterministic default room placement from sparse canonical cells.
+   *
+   * @return array{q:int,r:int,h3_index_res14:string}|null
+   *   Canonical placement or NULL when unresolved.
+   */
+  protected function resolveDefaultRoomPlacementFromSparseStorage(string $room_id, int $preferred_q, int $preferred_r): ?array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return NULL;
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['source_q', 'source_r', 'h3_index'])
+      ->condition('room_id', $room_id)
+      ->condition('h3_resolution', 14)
+      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll();
+    if ($rows === []) {
+      return NULL;
+    }
+
+    foreach ($rows as $row) {
+      $q = (int) ($row->source_q ?? 0);
+      $r = (int) ($row->source_r ?? 0);
+      if ($q !== $preferred_q || $r !== $preferred_r) {
+        continue;
+      }
+      $h3_index = strtolower(trim((string) ($row->h3_index ?? '')));
+      if ($this->isCanonicalH3IndexValue($h3_index)) {
+        return ['q' => $q, 'r' => $r, 'h3_index_res14' => $h3_index];
+      }
+    }
+
+    foreach ($rows as $row) {
+      $h3_index = strtolower(trim((string) ($row->h3_index ?? '')));
+      if (!$this->isCanonicalH3IndexValue($h3_index)) {
+        continue;
+      }
+      return [
+        'q' => (int) ($row->source_q ?? 0),
+        'r' => (int) ($row->source_r ?? 0),
+        'h3_index_res14' => $h3_index,
+      ];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Canonical H3 index guard used by runtime placement normalization.
+   */
+  protected function isCanonicalH3IndexValue(string $h3_index): bool {
+    if ($h3_index === '') {
+      return FALSE;
+    }
+    return (bool) preg_match('/^[0-9a-f]{15,16}$/', strtolower(trim($h3_index)));
   }
 
 }

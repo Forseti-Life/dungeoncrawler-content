@@ -169,55 +169,85 @@ export class QuestPanel {
 
     const storylineIndexes = this.buildStorylineContextIndexes(managementTree);
 
-    const activeHtml = this.renderStorylineGroupedQuestSection(activeQuests, (quest) => this.renderActiveQuestNodeHtml(quest), storylineIndexes, {
-      defaultStorylineStatus: 'active',
-      defaultStorylineNextStep: 'Review active quest objectives.',
+    list.innerHTML = this.renderStorylineFirstJournal({
+      activeQuests,
+      offeredQuests,
+      leadQuests,
+      completedQuests,
+      storylineIndexes,
     });
-
-    const offerHtml = this.renderStorylineGroupedQuestSection(offeredQuests, (quest) => renderQuestTreeNodeHtml({
-      itemClass: 'quest-entry quest-entry--quest',
-      title: resolveQuestTitle(quest),
-      titlePrefix: '🤝',
-      metaLines: ['Status: Offered'],
-      bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest offered. Review the details and accept it to begin.')}</ul>`,
-    }), storylineIndexes, {
-      defaultStorylineStatus: 'offered',
-      defaultStorylineNextStep: 'Review available quest offers in this storyline.',
-    });
-
-    const leadHtml = this.renderStorylineGroupedQuestSection(leadQuests, (quest) => renderQuestTreeNodeHtml({
-      itemClass: 'quest-entry quest-entry--quest',
-      title: resolveQuestTitle(quest),
-      titlePrefix: '🧭',
-      metaLines: ['Status: Lead'],
-      bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, this.buildQuestLeadFallbackLine(quest))}</ul>`,
-    }), storylineIndexes, {
-      defaultStorylineStatus: 'lead',
-      defaultStorylineNextStep: 'Follow up on the next storyline lead.',
-    });
-
-    const completedHtml = this.renderStorylineGroupedQuestSection(completedQuests, (quest) => renderQuestTreeNodeHtml({
-      itemClass: 'quest-entry quest-entry--quest',
-      title: resolveQuestTitle(quest),
-      titlePrefix: '✅',
-      metaLines: ['Status: Completed'],
-      bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest complete. Review outcomes and rewards in your journal.')}</ul>`,
-    }), storylineIndexes, {
-      defaultStorylineStatus: 'completed',
-      defaultStorylineNextStep: 'Review completed storyline progress.',
-    });
-
-    const activeSectionHtml = activeHtml
-      ? `${this.renderQuestSectionLabelHtml('Active Quests')}${activeHtml}`
-      : '';
-    const availableSectionHtml = offerHtml || leadHtml
-      ? `${this.renderQuestSectionLabelHtml('Available Quests')}${offerHtml}${leadHtml}`
-      : '';
-    const completedSectionHtml = `${this.renderQuestSectionLabelHtml('Completed Quests')}${completedHtml || '<li class="quest-empty">No completed quests yet</li>'}`;
-
-    list.innerHTML = `${activeSectionHtml}${availableSectionHtml}${completedSectionHtml}`;
-    console.log('[QuestPanel] renderQuestJournal:branch', { branch: 'active', htmlLen: list.innerHTML.length });
+    console.log('[QuestPanel] renderQuestJournal:branch', { branch: 'storyline', htmlLen: list.innerHTML.length });
     this.updateQuestJournalControlState();
+  }
+
+  renderStorylineFirstJournal({ activeQuests, offeredQuests, leadQuests, completedQuests, storylineIndexes }) {
+    const grouped = new Map();
+    const ensureGroup = (context) => {
+      const key = context.storylineId || context.name;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          context,
+          active: [],
+          offered: [],
+          leads: [],
+          completed: [],
+        });
+      }
+      return grouped.get(key);
+    };
+    const addQuest = (quest, status) => {
+      const context = this.resolveQuestStorylineContext(quest, storylineIndexes, status);
+      const bucket = ensureGroup(context);
+      if (status === 'active') {
+        bucket.active.push(this.renderActiveQuestNodeHtml(quest));
+      } else if (status === 'offered') {
+        bucket.offered.push(renderQuestTreeNodeHtml({
+          itemClass: 'quest-entry quest-entry--quest',
+          title: resolveQuestTitle(quest),
+          titlePrefix: '🤝',
+          metaLines: ['Status: Offered'],
+          bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest offered. Review the details and accept it to begin.')}</ul>`,
+        }));
+      } else if (status === 'lead') {
+        bucket.leads.push(renderQuestTreeNodeHtml({
+          itemClass: 'quest-entry quest-entry--quest',
+          title: resolveQuestTitle(quest),
+          titlePrefix: '🧭',
+          metaLines: ['Status: Lead'],
+          bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, this.buildQuestLeadFallbackLine(quest))}</ul>`,
+        }));
+      } else if (status === 'completed') {
+        bucket.completed.push(renderQuestTreeNodeHtml({
+          itemClass: 'quest-entry quest-entry--quest',
+          title: resolveQuestTitle(quest),
+          titlePrefix: '✅',
+          metaLines: ['Status: Completed'],
+          bodyHtml: `<ul class="quest-objectives">${this.renderQuestSummaryPreviewLines(quest, 'Quest complete. Review outcomes and rewards in your journal.')}</ul>`,
+        }));
+      }
+    };
+
+    activeQuests.forEach((quest) => addQuest(quest, 'active'));
+    offeredQuests.forEach((quest) => addQuest(quest, 'offered'));
+    leadQuests.forEach((quest) => addQuest(quest, 'lead'));
+    completedQuests.forEach((quest) => addQuest(quest, 'completed'));
+
+    return Array.from(grouped.values())
+      .sort((a, b) => a.context.name.localeCompare(b.context.name))
+      .map(({ context, active, offered, leads, completed }) => {
+        const body = [];
+        if (active.length > 0) body.push(this.renderQuestSectionLabelHtml('Active Quests'), ...active);
+        if (offered.length > 0 || leads.length > 0) body.push(this.renderQuestSectionLabelHtml('Available Quests'), ...offered, ...leads);
+        if (completed.length > 0) body.push(this.renderQuestSectionLabelHtml('Completed Quests'), ...completed);
+        return renderQuestTreeNodeHtml({
+          itemClass: 'quest-entry quest-entry--storyline',
+          title: context.name,
+          titlePrefix: '🧭',
+          metaLines: [`Next: ${context.nextStep || 'Review this storyline.'}`, ...(context.synopsis ? [context.synopsis] : [])],
+          bodyHtml: `<ul class="quest-objectives">${body.join('')}</ul>`,
+        });
+      })
+      .join('');
   }
 
   renderActiveQuestNodeHtml(quest) {
@@ -262,45 +292,6 @@ export class QuestPanel {
       metaLines: [`Status: ${status}`, nextStep ? `Next: ${nextStep}` : 'Next: Review quest completion.'],
       bodyHtml: `<ul class="quest-objectives">${this.renderQuestRewardLine(quest)}${objectiveHtml}</ul>`,
     });
-  }
-
-  renderStorylineGroupedQuestSection(quests, renderQuestNode, storylineIndexes, options = {}) {
-    if (!Array.isArray(quests) || quests.length === 0) {
-      return '';
-    }
-
-    const grouped = new Map();
-    quests.forEach((quest) => {
-      const context = this.resolveQuestStorylineContext(quest, storylineIndexes, options.defaultStorylineStatus || 'active');
-      const key = context.storylineId || context.name;
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          context,
-          questNodes: [],
-        });
-      }
-      grouped.get(key).questNodes.push(renderQuestNode(quest));
-    });
-
-    const rawSectionStatus = String(options.defaultStorylineStatus || '').trim().toLowerCase();
-    const sectionStatus = rawSectionStatus
-      ? `${rawSectionStatus.charAt(0).toUpperCase()}${rawSectionStatus.slice(1)}`
-      : '';
-
-    return Array.from(grouped.values())
-      .sort((a, b) => a.context.name.localeCompare(b.context.name))
-      .map(({ context, questNodes }) => renderQuestTreeNodeHtml({
-        itemClass: 'quest-entry quest-entry--storyline',
-        title: context.name,
-        titlePrefix: '🧭',
-        metaLines: [
-          `Status: ${sectionStatus || context.status}`,
-          `Next: ${context.nextStep || options.defaultStorylineNextStep || 'Review this storyline.'}`,
-          ...(context.synopsis ? [context.synopsis] : []),
-        ],
-        bodyHtml: `<ul class="quest-objectives">${questNodes.join('') || '<li class="quest-objective">No quests recorded for this storyline.</li>'}</ul>`,
-      }))
-      .join('');
   }
 
   buildStorylineContextIndexes(managementTree) {

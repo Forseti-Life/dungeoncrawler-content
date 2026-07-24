@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\DungeonGeneratorService;
+use Drupal\dungeoncrawler_content\Service\H3ProjectionQueueService;
 use Drupal\dungeoncrawler_content\Service\MapGeneratorService;
 use Drupal\dungeoncrawler_content\Service\NarrationEngine;
 use Drupal\dungeoncrawler_content\Service\QuestGeneratorService;
@@ -63,6 +64,7 @@ class LocationGenerationController extends ControllerBase {
   protected DungeonGeneratorService $dungeonGenerator;
   protected NarrationEngine $narrationEngine;
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
+  protected H3ProjectionQueueService $h3ProjectionQueue;
 
   /**
    * Constructs a LocationGenerationController.
@@ -75,7 +77,8 @@ class LocationGenerationController extends ControllerBase {
     RoomStateService $room_state_service,
     DungeonGeneratorService $dungeon_generator,
     NarrationEngine $narration_engine,
-    StorylineQuestLifecycleService $storyline_quest_lifecycle_service
+    StorylineQuestLifecycleService $storyline_quest_lifecycle_service,
+    H3ProjectionQueueService $h3_projection_queue
   ) {
     $this->database = $database;
     $this->mapGenerator = $map_generator;
@@ -85,6 +88,7 @@ class LocationGenerationController extends ControllerBase {
     $this->dungeonGenerator = $dungeon_generator;
     $this->narrationEngine = $narration_engine;
     $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
+    $this->h3ProjectionQueue = $h3_projection_queue;
   }
 
   /**
@@ -99,7 +103,8 @@ class LocationGenerationController extends ControllerBase {
       $container->get('dungeoncrawler_content.room_state_service'),
       $container->get('dungeoncrawler_content.dungeon_generator'),
       $container->get('dungeoncrawler_content.narration_engine'),
-      $container->get('dungeoncrawler_content.storyline_quest_lifecycle')
+      $container->get('dungeoncrawler_content.storyline_quest_lifecycle'),
+      $container->get('dungeoncrawler_content.h3_projection_queue')
     );
   }
 
@@ -607,7 +612,7 @@ class LocationGenerationController extends ControllerBase {
    * Persist updated dungeon payload.
    */
   protected function persistDungeonPayload(int $campaign_id, string $dungeon_id, array $dungeon_data): void {
-    $this->database->update('dc_campaign_dungeons')
+    $updated_rows = (int) $this->database->update('dc_campaign_dungeons')
       ->fields([
         'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE),
         'updated' => time(),
@@ -615,6 +620,83 @@ class LocationGenerationController extends ControllerBase {
       ->condition('campaign_id', $campaign_id)
       ->condition('dungeon_id', $dungeon_id)
       ->execute();
+    if ($updated_rows !== 1) {
+      throw new \RuntimeException(sprintf(
+        'Failed to persist dungeon payload for campaign_id=%d dungeon_id=%s.',
+        $campaign_id,
+        $dungeon_id
+      ));
+    }
+
+    $launch_slice_scope = $this->resolveLaunchSliceRoomScope($dungeon_data);
+    if ($launch_slice_scope === []) {
+      throw new \RuntimeException(sprintf(
+        'H3 projection trigger contract violation: no launch-slice room scope resolved after location-generation persistence (campaign_id=%d dungeon_id=%s).',
+        $campaign_id,
+        $dungeon_id
+      ));
+    }
+    $this->h3ProjectionQueue->provisionLaunchSliceNow($campaign_id, $dungeon_id, $launch_slice_scope);
+  }
+
+  /**
+   * Resolve launch-slice room scope from dungeon_data for hydration trigger.
+   *
+   * @return array<int, string>
+   *   Active room plus direct neighbors.
+   */
+  protected function resolveLaunchSliceRoomScope(array $dungeon_data): array {
+    $room_ids = [];
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+      if (!is_array($room)) {
+        continue;
+      }
+      $room_id = trim((string) ($room['room_id'] ?? ''));
+      if ($room_id !== '') {
+        $room_ids[$room_id] = TRUE;
+      }
+    }
+
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    $scope = [];
+    if ($active_room_id !== '' && isset($room_ids[$active_room_id])) {
+      $scope[$active_room_id] = TRUE;
+    }
+
+    $connections = [];
+    if (is_array($dungeon_data['connections'] ?? NULL)) {
+      $connections = array_merge($connections, $dungeon_data['connections']);
+    }
+    if (is_array($dungeon_data['hex_map']['connections'] ?? NULL)) {
+      $connections = array_merge($connections, $dungeon_data['hex_map']['connections']);
+    }
+    foreach ($connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room_id = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? ''));
+      $to_room_id = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? ''));
+      if ($from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      if ($active_room_id !== '' && $from_room_id !== $active_room_id && $to_room_id !== $active_room_id) {
+        continue;
+      }
+      if (isset($room_ids[$from_room_id])) {
+        $scope[$from_room_id] = TRUE;
+      }
+      if (isset($room_ids[$to_room_id])) {
+        $scope[$to_room_id] = TRUE;
+      }
+    }
+
+    if ($scope === [] && $active_room_id !== '') {
+      $scope[$active_room_id] = TRUE;
+    }
+    if ($scope === [] && $room_ids !== []) {
+      $scope[(string) array_key_first($room_ids)] = TRUE;
+    }
+    return array_values(array_keys($scope));
   }
 
   /**

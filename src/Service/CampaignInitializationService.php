@@ -59,6 +59,8 @@ class CampaignInitializationService {
   protected ?RelationshipManagerService $relationshipManager;
   protected ?ExitConnectorAuthorityService $connectorDefinitionService;
   protected ?NavigationRuntimeService $navigationRuntime;
+  protected ?H3ProjectionQueueService $h3ProjectionQueue;
+  protected ?StarterProjectionArtifactRegistryService $starterProjectionArtifactRegistry;
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected CampaignClockService $campaignClockService;
 
@@ -78,7 +80,9 @@ class CampaignInitializationService {
     ?StorylineManagerService $storyline_manager = NULL,
     ?RelationshipManagerService $relationship_manager = NULL,
     ?ExitConnectorAuthorityService $connector_definition_service = NULL,
-    ?NavigationRuntimeService $navigation_runtime = NULL
+    ?NavigationRuntimeService $navigation_runtime = NULL,
+    ?H3ProjectionQueueService $h3_projection_queue = NULL,
+    ?StarterProjectionArtifactRegistryService $starter_projection_artifact_registry = NULL
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -95,6 +99,8 @@ class CampaignInitializationService {
     $this->relationshipManager = $relationship_manager;
     $this->connectorDefinitionService = $connector_definition_service;
     $this->navigationRuntime = $navigation_runtime;
+    $this->h3ProjectionQueue = $h3_projection_queue;
+    $this->starterProjectionArtifactRegistry = $starter_projection_artifact_registry;
     $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
   }
 
@@ -158,6 +164,12 @@ class CampaignInitializationService {
         return 0;
       }
       $this->seedStarterConnectorAuthority($campaign_id, $dungeon_id, $starter_runtime_room_id);
+      $starter_frontier_room_ids = array_values(array_unique([
+        $starter_runtime_room_id,
+        self::STARTER_CITY_STREETS_ROOM_ID,
+      ]));
+      sort($starter_frontier_room_ids);
+      $starter_profile_id = 'starter-frontier-default-v1';
 
       // 3. Load Tavern Entrance room and content
       if (!$this->loadTavernEntranceRoom($campaign_id, $now, $starter_room)) {
@@ -182,12 +194,52 @@ class CampaignInitializationService {
         (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
         (string) ($starter_room['description'] ?? '')
       );
+      $this->seedStarterRoomChatHistory(
+        $campaign_id,
+        $dungeon_id,
+        $starter_runtime_room_id,
+        (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
+        (string) ($starter_room['description'] ?? ''),
+        $now
+      );
       if ($this->roomViewImageService) {
         $this->roomViewImageService->warmRoomViewImageCache($starter_room, [
           'campaign_id' => $campaign_id,
           'dungeon_id' => $dungeon_id,
           'room_id' => $starter_runtime_room_id,
         ]);
+      }
+      if (!$this->h3ProjectionQueue) {
+        throw new \RuntimeException('Campaign initialization contract violation: H3 projection provisioning service is required for starter readiness.');
+      }
+      $starter_provisioning_result = $this->h3ProjectionQueue->provisionLaunchSliceNow(
+        $campaign_id,
+        $dungeon_id,
+        $starter_frontier_room_ids
+      );
+      $canonical_graph_version = trim((string) ($starter_provisioning_result['canonical_graph_version'] ?? ''));
+      $campaign_graph_version = trim((string) ($starter_provisioning_result['campaign_graph_version'] ?? ''));
+      if ($canonical_graph_version === '' || $campaign_graph_version === '') {
+        throw new \RuntimeException('Campaign initialization contract violation: starter frontier provisioning did not return graph versions.');
+      }
+      if (!$this->starterProjectionArtifactRegistry) {
+        throw new \RuntimeException('Campaign initialization contract violation: starter artifact registry service is required.');
+      }
+      $starter_manifest = $this->starterProjectionArtifactRegistry->upsertStarterArtifactManifest(
+        $starter_profile_id,
+        $canonical_graph_version,
+        $starter_frontier_room_ids,
+        [
+          'campaign_graph_version' => $campaign_graph_version,
+          'trigger' => 'campaign_creation',
+          'campaign_id' => $campaign_id,
+          'dungeon_id' => $dungeon_id,
+        ]
+      );
+      $starter_source_contract_hash = trim((string) ($starter_manifest['starter_source_contract_hash'] ?? ''));
+      $starter_artifact_version = trim((string) ($starter_manifest['starter_artifact_version'] ?? ''));
+      if ($starter_source_contract_hash === '' || $starter_artifact_version === '') {
+        throw new \RuntimeException('Campaign initialization contract violation: starter artifact manifest is missing required version/hash metadata.');
       }
       $this->completeInitializationStep(
         $campaign_id,
@@ -203,8 +255,20 @@ class CampaignInitializationService {
         'owner' => 'CampaignInitializationService',
         'ready_at' => gmdate('c', $now),
         'dungeon_id' => $dungeon_id,
+        'runtime_dungeon_id' => $dungeon_id,
+        'runtime_active_room_id' => $starter_runtime_room_id,
         'starter_room_id' => $starter_runtime_room_id,
         'operation_uuid' => $operation_uuid,
+        'starter_profile_id' => $starter_profile_id,
+        'starter_artifact_version' => $starter_artifact_version,
+        'starter_source_contract_hash' => $starter_source_contract_hash,
+        'starter_frontier_room_ids' => $starter_frontier_room_ids,
+        'starter_frontier_scope_hash' => hash('sha256', implode(',', $starter_frontier_room_ids)),
+        'starter_canonical_graph_version' => $canonical_graph_version,
+        'starter_campaign_graph_version' => $campaign_graph_version,
+        'starter_frontier_certified_at' => gmdate('c', $now),
+        'starter_artifact_registry_content_type' => StarterProjectionArtifactRegistryService::CONTENT_TYPE,
+        'starter_artifact_registry_content_id' => $starter_profile_id,
       ], $now);
 
       $this->logger->info('Campaign {campaign_id} initialized with starter dungeon {dungeon_id}', [
@@ -531,6 +595,8 @@ class CampaignInitializationService {
 
     $dungeon_data = [
       'schema_version' => '1.0.0',
+      'active_room_id' => $runtime_room_id,
+      'current_room_id' => $runtime_room_id,
       'level_id' => $level_id,
       'depth' => 1,
       'theme' => 'starter_asset',
@@ -1652,6 +1718,7 @@ class CampaignInitializationService {
           'experience_points' => 0,
           'position_q' => $npc['position']['q'],
           'position_r' => $npc['position']['r'],
+          'position_h3' => strtolower(trim((string) ($npc['position']['h3_index_res14'] ?? $npc['position']['h3_index'] ?? ''))),
           'last_room_id' => $runtime_room_id,
           'instance_id' => $instance_id,
           'type' => 'npc',
@@ -2566,8 +2633,10 @@ class CampaignInitializationService {
       $seed_message = $this->buildStarterRoomSeedNarration($resolved_room_name, $resolved_room_description);
 
       foreach ($room['chat'] as $message) {
-        if (($message['speaker'] ?? '') === 'Game Master'
-          && ($message['message'] ?? '') === $seed_message) {
+        $speaker = strtolower(trim((string) ($message['speaker'] ?? '')));
+        $existing_message = trim((string) ($message['message'] ?? ''));
+        if (in_array($speaker, ['narrator', 'game master'], TRUE)
+          && $existing_message === $seed_message) {
           return;
         }
       }

@@ -33,7 +33,12 @@ trait RoomChatServiceNpcInterjectionTrait {
       if (!empty($dungeon_data) && $room_id !== '') {
         $room_index = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
         if ($room_index !== NULL) {
-          $conversation_state = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index);
+          $this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index);
+          $normalized_room_index = (int) $room_index;
+          if (isset($dungeon_data['rooms'][$normalized_room_index]['conversation_state'])
+            && is_array($dungeon_data['rooms'][$normalized_room_index]['conversation_state'])) {
+            $conversation_state = $dungeon_data['rooms'][$normalized_room_index]['conversation_state'];
+          }
         }
       }
     }

@@ -422,6 +422,10 @@ class StateValidationService {
         ['id' => 'start_hex_coordinates_required', 'label' => 'every actor must define integer start hex coordinates (position_q/position_r).'],
         ['id' => 'start_hex_must_exist_in_canonical_room_layout', 'label' => 'every actor start hex must exist in the canonical room layout hex set.'],
         ['id' => 'start_hex_requires_canonical_h3_index', 'label' => 'every actor start hex must provide canonical h3_index_res14/h3_index in room layout data.'],
+        ['id' => 'facing_required', 'label' => 'every actor must persist facing direction.'],
+        ['id' => 'facing_h3_direction_range', 'label' => 'facing must be an H3-valid hex edge direction integer (0-5).'],
+        ['id' => 'position_h3_owned_by_start_room_sparse_cells', 'label' => 'room-scoped actor position_h3 must be owned by the actor start room in sparse res14 room-cell authority.'],
+        ['id' => 'position_h3_matches_start_qr_sparse_mapping', 'label' => 'room-scoped actor position_h3 must match sparse room-cell mapping for position_q/position_r.'],
         ['id' => 'status_allowed', 'label' => 'status must be one of: -1, 0, 1, 2.'],
         ['id' => 'quest_giver_requires_room_scope', 'label' => 'quest_giver NPC actors must be room-scoped with location_ref and last_room_id.'],
         ['id' => 'npc_portrait_required', 'label' => 'npc actor rows must provide a portrait via portrait column or portrait image link.'],
@@ -448,6 +452,14 @@ class StateValidationService {
       $report['errors'][] = 'Canonical actor table dc_campaign_characters is unavailable.';
       return $report;
     }
+    if (!$schema->fieldExists('dc_campaign_characters', 'position_h3')) {
+      $report['errors'][] = 'Canonical actor table must include position_h3. Run update hook 10177.';
+      return $report;
+    }
+    if (!$schema->fieldExists('dc_campaign_characters', 'facing')) {
+      $report['errors'][] = 'Canonical actor table must include facing. Run update hook 10178.';
+      return $report;
+    }
 
     $rows = $this->database->select('dc_campaign_characters', 'c')
       ->fields('c', [
@@ -465,6 +477,8 @@ class StateValidationService {
         'location_ref',
         'position_q',
         'position_r',
+        'position_h3',
+        'facing',
         'last_room_id',
         'status',
         'portrait',
@@ -481,6 +495,10 @@ class StateValidationService {
 
     if (!$schema->tableExists('dungeoncrawler_content_rooms')) {
       $report['errors'][] = 'Canonical actor validation requires dungeoncrawler_content_rooms for start-room/start-hex contract checks.';
+      return $report;
+    }
+    if (!$schema->tableExists('dungeoncrawler_content_h3_room_cells')) {
+      $report['errors'][] = 'Canonical actor validation requires dungeoncrawler_content_h3_room_cells for H3 ownership contract checks.';
       return $report;
     }
 
@@ -515,10 +533,40 @@ class StateValidationService {
         $room_hexes[$q . ':' . $r] = [
           'q' => $q,
           'r' => $r,
+          'canonical_h3' => $h3_index,
           'has_canonical_h3' => $this->isCanonicalH3IndexValue($h3_index),
         ];
       }
       $canonical_room_hex_map[$canonical_room_id] = $room_hexes;
+    }
+
+    $sparse_room_h3_map = [];
+    $sparse_room_qr_map = [];
+    $sparse_rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['room_id', 'source_q', 'source_r', 'h3_index'])
+      ->condition('h3_resolution', 14)
+      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+    foreach ((array) $sparse_rows as $sparse_row) {
+      if (!is_array($sparse_row)) {
+        continue;
+      }
+      $room_id = trim((string) ($sparse_row['room_id'] ?? ''));
+      $h3_index = strtolower(trim((string) ($sparse_row['h3_index'] ?? '')));
+      if ($room_id === '' || !$this->isCanonicalH3IndexValue($h3_index)) {
+        continue;
+      }
+      $q = isset($sparse_row['source_q']) && is_numeric($sparse_row['source_q']) ? (int) $sparse_row['source_q'] : NULL;
+      $r = isset($sparse_row['source_r']) && is_numeric($sparse_row['source_r']) ? (int) $sparse_row['source_r'] : NULL;
+      $sparse_room_h3_map[$room_id][$h3_index] = [
+        'q' => $q,
+        'r' => $r,
+      ];
+      if ($q !== NULL && $r !== NULL) {
+        $sparse_room_qr_map[$room_id][$q . ':' . $r] = $h3_index;
+      }
     }
 
     $runtime_actor_portrait_links = [];
@@ -591,6 +639,8 @@ class StateValidationService {
       $location_ref = trim((string) ($row['location_ref'] ?? ''));
       $position_q = isset($row['position_q']) && is_numeric($row['position_q']) ? (int) $row['position_q'] : NULL;
       $position_r = isset($row['position_r']) && is_numeric($row['position_r']) ? (int) $row['position_r'] : NULL;
+      $position_h3 = strtolower(trim((string) ($row['position_h3'] ?? '')));
+      $facing = isset($row['facing']) && is_numeric($row['facing']) ? (int) $row['facing'] : NULL;
       $last_room_id = trim((string) ($row['last_room_id'] ?? ''));
       $status = isset($row['status']) && is_numeric($row['status']) ? (int) $row['status'] : NULL;
       $portrait = trim((string) ($row['portrait'] ?? ''));
@@ -603,10 +653,16 @@ class StateValidationService {
       $template_has_portrait = $template_actor_id > 0 && isset($template_actor_portrait_links[(string) $template_actor_id]);
       $start_room_id = $last_room_id !== '' ? $last_room_id : $location_ref;
       $start_room_hexes = $start_room_id !== '' ? ($canonical_room_hex_map[$start_room_id] ?? NULL) : NULL;
+      $start_room_sparse_h3 = $start_room_id !== '' ? ($sparse_room_h3_map[$start_room_id] ?? []) : [];
+      $start_room_sparse_qr = $start_room_id !== '' ? ($sparse_room_qr_map[$start_room_id] ?? []) : [];
       $start_hex_key = ($position_q !== NULL && $position_r !== NULL) ? ($position_q . ':' . $position_r) : '';
       $start_hex = ($start_hex_key !== '' && is_array($start_room_hexes) && isset($start_room_hexes[$start_hex_key]))
         ? $start_room_hexes[$start_hex_key]
         : NULL;
+      $sparse_mapped_h3_from_qr = ($start_hex_key !== '' && is_array($start_room_sparse_qr))
+        ? strtolower(trim((string) ($start_room_sparse_qr[$start_hex_key] ?? '')))
+        : '';
+      $room_scoped = !in_array($location_type, $location_ref_optional_types, TRUE);
 
       $character_data_raw = trim((string) ($row['character_data'] ?? ''));
       $character_data = [];
@@ -711,6 +767,57 @@ class StateValidationService {
           'error' => "start hex '{$start_hex_key}' in canonical room '{$start_room_id}' must provide canonical h3_index_res14/h3_index.",
         ],
         [
+          'id' => 'position_h3_required',
+          'label' => 'every actor must persist position_h3.',
+          'passed' => $position_h3 !== '',
+          'error' => 'every actor must persist position_h3.',
+        ],
+        [
+          'id' => 'position_h3_is_canonical_h3_index',
+          'label' => 'position_h3 must be a canonical H3 index value.',
+          'passed' => $position_h3 !== '' && $this->isCanonicalH3IndexValue($position_h3),
+          'error' => 'position_h3 must be a canonical H3 index value.',
+        ],
+        [
+          'id' => 'position_h3_matches_start_hex_canonical_h3',
+          'label' => 'position_h3 must match the canonical H3 index of the actor start hex.',
+          'passed' => is_array($start_hex)
+            && !empty($start_hex['has_canonical_h3'])
+            && $position_h3 !== ''
+            && $position_h3 === strtolower(trim((string) ($start_hex['canonical_h3'] ?? ''))),
+          'error' => "position_h3 must match canonical start-hex h3 for '{$start_hex_key}' in room '{$start_room_id}'.",
+        ],
+        [
+          'id' => 'facing_required',
+          'label' => 'every actor must persist facing direction.',
+          'passed' => $facing !== NULL,
+          'error' => 'every actor must persist facing direction.',
+        ],
+        [
+          'id' => 'facing_h3_direction_range',
+          'label' => 'facing must be an H3-valid hex edge direction integer (0-5).',
+          'passed' => $facing !== NULL && $facing >= 0 && $facing <= 5,
+          'error' => 'facing must be an H3-valid hex edge direction integer (0-5).',
+        ],
+        [
+          'id' => 'position_h3_owned_by_start_room_sparse_cells',
+          'label' => 'room-scoped actor position_h3 must be owned by the actor start room in sparse res14 room-cell authority.',
+          'passed' => !$room_scoped || ($position_h3 !== '' && isset($start_room_sparse_h3[$position_h3])),
+          'error' => "position_h3 '{$position_h3}' must be owned by start room '{$start_room_id}' in sparse res14 room-cell authority.",
+        ],
+        [
+          'id' => 'position_h3_matches_start_qr_sparse_mapping',
+          'label' => 'room-scoped actor position_h3 must match sparse room-cell mapping for position_q/position_r.',
+          'passed' => !$room_scoped || (
+            $position_q !== NULL
+            && $position_r !== NULL
+            && $position_h3 !== ''
+            && $sparse_mapped_h3_from_qr !== ''
+            && $position_h3 === $sparse_mapped_h3_from_qr
+          ),
+          'error' => "position_h3 '{$position_h3}' must match sparse mapping for start hex '{$start_hex_key}' in room '{$start_room_id}'.",
+        ],
+        [
           'id' => 'status_allowed',
           'label' => 'status must be one of: -1, 0, 1, 2.',
           'passed' => $status !== NULL && in_array($status, [-1, 0, 1, 2], TRUE),
@@ -794,6 +901,9 @@ class StateValidationService {
             'location_ref' => $location_ref,
             'position_q' => $position_q,
             'position_r' => $position_r,
+            'position_h3' => $position_h3,
+            'facing' => $facing,
+            'sparse_mapped_h3_from_qr' => $sparse_mapped_h3_from_qr,
             'last_room_id' => $last_room_id,
             'start_room_id' => $start_room_id,
             'portrait' => $portrait,
@@ -1653,6 +1763,23 @@ class StateValidationService {
   }
 
   /**
+   * Resolve canonical H3 index for one q/r coordinate in layout_data.hexes.
+   */
+  private function resolveLayoutHexCanonicalH3Index(array $layout_data, int $q, int $r): string {
+    foreach ((array) ($layout_data['hexes'] ?? []) as $hex) {
+      if (!is_array($hex) || !isset($hex['q'], $hex['r'])) {
+        continue;
+      }
+      if ((int) $hex['q'] !== $q || (int) $hex['r'] !== $r) {
+        continue;
+      }
+      return strtolower(trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? '')));
+    }
+
+    return '';
+  }
+
+  /**
    * Extract explicit exit-link endpoint hex for one target room.
    *
    * @param array<string, mixed> $layout_data
@@ -1792,6 +1919,56 @@ class StateValidationService {
       }
     }
 
+    $sparse_h3_by_room_qr = [];
+    $rooms_with_sparse_cells = [];
+    if (!$schema->tableExists('dungeoncrawler_content_h3_room_cells')) {
+      $errors[] = 'Canonical sparse room-cell table dungeoncrawler_content_h3_room_cells is unavailable.';
+    }
+    else {
+      $required_sparse_fields = ['room_id', 'cell_role', 'h3_resolution', 'source_q', 'source_r', 'h3_index'];
+      $missing_sparse_fields = [];
+      foreach ($required_sparse_fields as $required_sparse_field) {
+        if (!$schema->fieldExists('dungeoncrawler_content_h3_room_cells', $required_sparse_field)) {
+          $missing_sparse_fields[] = $required_sparse_field;
+        }
+      }
+      if ($missing_sparse_fields !== []) {
+        $errors[] = 'Canonical sparse room-cell schema is missing required fields: ' . implode(', ', $missing_sparse_fields) . '.';
+      }
+      else {
+        $sparse_rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+          ->fields('c', ['room_id', 'cell_role', 'h3_resolution', 'source_q', 'source_r', 'h3_index'])
+          ->condition('room_id', array_keys($canonical_room_ids), 'IN')
+          ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+          ->orderBy('h3_resolution', 'DESC')
+          ->orderBy('id', 'ASC')
+          ->execute()
+          ->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ((array) $sparse_rows as $sparse_row) {
+          if (!is_array($sparse_row)) {
+            continue;
+          }
+          $room_id = trim((string) ($sparse_row['room_id'] ?? ''));
+          if (
+            $room_id === ''
+            || !is_numeric($sparse_row['source_q'] ?? NULL)
+            || !is_numeric($sparse_row['source_r'] ?? NULL)
+          ) {
+            continue;
+          }
+          $h3_index = strtolower(trim((string) ($sparse_row['h3_index'] ?? '')));
+          if (!$this->isCanonicalH3IndexValue($h3_index)) {
+            continue;
+          }
+          $rooms_with_sparse_cells[$room_id] = TRUE;
+          $key = $room_id . ':' . (int) $sparse_row['source_q'] . ':' . (int) $sparse_row['source_r'];
+          if (!isset($sparse_h3_by_room_qr[$key])) {
+            $sparse_h3_by_room_qr[$key] = $h3_index;
+          }
+        }
+      }
+    }
+
     $dungeon_rooms = [];
     $dungeon_payload_connections = [];
     $room_to_dungeons = [];
@@ -1859,7 +2036,7 @@ class StateValidationService {
 
     $connector_rows_by_dungeon = [];
     if ($schema->tableExists('dungeoncrawler_content_connections')) {
-      $required_connector_fields = ['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'];
+      $required_connector_fields = ['from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r', 'from_h3_index_res14', 'to_h3_index_res14'];
       $missing_connector_fields = [];
       foreach ($required_connector_fields as $required_connector_field) {
         if (!$schema->fieldExists('dungeoncrawler_content_connections', $required_connector_field)) {
@@ -1869,11 +2046,11 @@ class StateValidationService {
       if ($missing_connector_fields !== []) {
         $errors[] = 'Canonical connector schema missing endpoint hex fields: '
           . implode(', ', $missing_connector_fields)
-          . '. Run module update hook 10159.';
+          . '. Run module update hooks 10159 and 10177.';
       }
       else {
       $connector_rows = $this->database->select('dungeoncrawler_content_connections', 'c')
-        ->fields('c', ['dungeon_id', 'from_room_id', 'to_room_id', 'direction', 'default_state', 'from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r'])
+        ->fields('c', ['dungeon_id', 'from_room_id', 'to_room_id', 'direction', 'default_state', 'from_hex_q', 'from_hex_r', 'to_hex_q', 'to_hex_r', 'from_h3_index_res14', 'to_h3_index_res14'])
         ->orderBy('dungeon_id', 'ASC')
         ->orderBy('id', 'ASC')
         ->execute()
@@ -1973,6 +2150,8 @@ class StateValidationService {
         $from_hex_r = $connector_row['from_hex_r'] ?? NULL;
         $to_hex_q = $connector_row['to_hex_q'] ?? NULL;
         $to_hex_r = $connector_row['to_hex_r'] ?? NULL;
+        $from_h3_index_res14 = strtolower(trim((string) ($connector_row['from_h3_index_res14'] ?? '')));
+        $to_h3_index_res14 = strtolower(trim((string) ($connector_row['to_h3_index_res14'] ?? '')));
 
         if ($from_room_id === '' || $to_room_id === '') {
           $errors[] = "Dungeon '{$dungeon_id}' has connector rows missing from_room_id/to_room_id.";
@@ -1990,6 +2169,10 @@ class StateValidationService {
           $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' is missing endpoint hex coordinates.";
           continue;
         }
+        if (!$this->isCanonicalH3IndexValue($from_h3_index_res14) || !$this->isCanonicalH3IndexValue($to_h3_index_res14)) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' must provide canonical endpoint H3 indexes.";
+          continue;
+        }
         $from_hex_q = (int) $from_hex_q;
         $from_hex_r = (int) $from_hex_r;
         $to_hex_q = (int) $to_hex_q;
@@ -2002,6 +2185,28 @@ class StateValidationService {
         }
         if (!$this->layoutContainsHexCoordinate($to_layout, $to_hex_q, $to_hex_r)) {
           $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' to_hex '{$to_hex_q}:{$to_hex_r}' does not map to to_room layout_data.hexes.";
+        }
+        $from_layout_h3 = $this->resolveLayoutHexCanonicalH3Index($from_layout, $from_hex_q, $from_hex_r);
+        if (!$this->isCanonicalH3IndexValue($from_layout_h3) || $from_layout_h3 !== $from_h3_index_res14) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' from_h3_index_res14 '{$from_h3_index_res14}' does not match canonical layout hex '{$from_hex_q}:{$from_hex_r}'.";
+        }
+        $to_layout_h3 = $this->resolveLayoutHexCanonicalH3Index($to_layout, $to_hex_q, $to_hex_r);
+        if (!$this->isCanonicalH3IndexValue($to_layout_h3) || $to_layout_h3 !== $to_h3_index_res14) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' to_h3_index_res14 '{$to_h3_index_res14}' does not match canonical layout hex '{$to_hex_q}:{$to_hex_r}'.";
+        }
+        $from_sparse_h3 = strtolower(trim((string) ($sparse_h3_by_room_qr[$from_room_id . ':' . $from_hex_q . ':' . $from_hex_r] ?? '')));
+        if (!$this->isCanonicalH3IndexValue($from_sparse_h3)) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' from_hex '{$from_hex_q}:{$from_hex_r}' is missing sparse room-cell H3 authority.";
+        }
+        elseif ($from_sparse_h3 !== $from_h3_index_res14) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' from_h3_index_res14 '{$from_h3_index_res14}' does not match sparse room-cell authority '{$from_sparse_h3}'.";
+        }
+        $to_sparse_h3 = strtolower(trim((string) ($sparse_h3_by_room_qr[$to_room_id . ':' . $to_hex_q . ':' . $to_hex_r] ?? '')));
+        if (!$this->isCanonicalH3IndexValue($to_sparse_h3)) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' to_hex '{$to_hex_q}:{$to_hex_r}' is missing sparse room-cell H3 authority.";
+        }
+        elseif ($to_sparse_h3 !== $to_h3_index_res14) {
+          $errors[] = "Dungeon '{$dungeon_id}' connector '{$from_room_id}' -> '{$to_room_id}' to_h3_index_res14 '{$to_h3_index_res14}' does not match sparse room-cell authority '{$to_sparse_h3}'.";
         }
         $from_exit_hex = $this->extractRoomExitHexCoordinateForTarget($from_layout, $to_room_id);
         if (
@@ -2058,6 +2263,12 @@ class StateValidationService {
           }
         }
 
+      }
+
+      foreach ($room_ids as $room_id) {
+        if (!isset($rooms_with_sparse_cells[$room_id])) {
+          $errors[] = "Dungeon '{$dungeon_id}' room '{$room_id}' has no sparse room-cell H3 coverage for connector validation.";
+        }
       }
 
       $payload_connections = (array) ($dungeon_payload_connections[$dungeon_id] ?? []);

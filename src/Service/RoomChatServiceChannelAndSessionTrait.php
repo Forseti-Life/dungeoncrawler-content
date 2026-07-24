@@ -207,7 +207,13 @@ trait RoomChatServiceChannelAndSessionTrait {
     $this->persistRoomChatSnapshotState($campaign_id, $dungeon_id, $dungeon_data);
 
     // Record in NPC-specific AI session.
-    $player_msg = end($channel_chat)['message'] ?? '';
+    $last_channel_entry = [];
+    if ($channel_chat !== []) {
+      $channel_chat_tail = $channel_chat;
+      $tail_entry = end($channel_chat_tail);
+      $last_channel_entry = is_array($tail_entry) ? $tail_entry : [];
+    }
+    $player_msg = (string) ($last_channel_entry['message'] ?? '');
     $this->sessionManager->appendMessage($ai_session_key, $campaign_id, 'user', $player_msg);
     $this->sessionManager->appendMessage($ai_session_key, $campaign_id, 'assistant', $response_text);
 
@@ -219,7 +225,7 @@ trait RoomChatServiceChannelAndSessionTrait {
 
     // Record inner monologue: NPC reacts privately to what the player said.
     if ($npc_ref) {
-      $player_speaker = end($channel_chat)['speaker'] ?? 'the player';
+      $player_speaker = (string) ($last_channel_entry['speaker'] ?? 'the player');
       $this->psychologyService->recordInnerMonologue(
         $campaign_id,
         $npc_ref,
@@ -451,11 +457,9 @@ trait RoomChatServiceChannelAndSessionTrait {
    * Persist mutable room-chat snapshot state through the shared state lane.
    */
   protected function persistRoomChatSnapshotState(int $campaign_id, string $dungeon_id, array $dungeon_data): bool {
-    return $this->dungeonPayloadStatePersistence->mutateByDungeonId(
-      $campaign_id,
-      $dungeon_id,
-      static fn(array $payload): array => $dungeon_data
-    );
+    // Room chat authority now lives in the normalized chat session tables.
+    // Avoid decoding/re-encoding large dungeon_data payloads on every message.
+    return TRUE;
   }
 
   /**
@@ -1104,7 +1108,12 @@ trait RoomChatServiceChannelAndSessionTrait {
     $room_index_for_attention = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
     $conversation_state_ref = NULL;
     if ($room_index_for_attention !== NULL) {
-      $conversation_state_ref = &$this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index_for_attention);
+      $this->attentionService->ensureConversationAttentionState($dungeon_data, $room_index_for_attention);
+      $normalized_room_index = (int) $room_index_for_attention;
+      if (isset($dungeon_data['rooms'][$normalized_room_index]['conversation_state'])
+        && is_array($dungeon_data['rooms'][$normalized_room_index]['conversation_state'])) {
+        $conversation_state_ref = $dungeon_data['rooms'][$normalized_room_index]['conversation_state'];
+      }
     }
 
     // Record player speaker in conversation attention state.

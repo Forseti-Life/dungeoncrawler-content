@@ -270,10 +270,11 @@ class ActorActionAvailabilityService {
     if ($room_scene) {
       if ($is_active_turn_actor) {
         $actions[] = 'transition';
+        // Product policy: Search should remain available throughout encounter turns.
+        $actions[] = 'search';
         if ($actions_remaining >= 1) {
           $actions = array_merge($actions, [
             'talk',
-            'search',
             'interact',
             'delay',
           ]);
@@ -295,13 +296,14 @@ class ActorActionAvailabilityService {
 
     if ($is_active_turn_actor) {
       $actions[] = 'transition';
+      // Product policy: Search should remain available throughout encounter turns.
+      $actions[] = 'search';
       if ($actions_remaining >= 1) {
         $actions = array_merge($actions, [
           'strike',
           'step',
           'stride',
           'interact',
-          'search',
           'talk',
           'demoralize',
           'raise_shield',
