@@ -6375,6 +6375,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       return $dungeon_data;
     }
 
+    if (!$this->shouldRebuildTransitionNeighborhood($dungeon_data, $requested_room_id)) {
+      return $dungeon_data;
+    }
+
     $dungeon_id = trim((string) (
       $dungeon_data['dungeon_id']
       ?? $dungeon_data['hex_map']['map_id']
@@ -6388,9 +6392,79 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     return $this->runtimeGraphAssembler->buildRuntimeGraph($campaign_id, $dungeon_id, $dungeon_data, [
       'active_room_id' => trim((string) ($dungeon_data['active_room_id'] ?? '')),
       'requested_room_id' => trim($requested_room_id),
-      // Transition reads only need the active-room frontier plus direct neighbors.
+      // Transition rebuilds are bounded to the active-room frontier.
       'room_scope_depth' => 1,
     ]);
+  }
+
+  /**
+   * Decide whether transition should refresh its bounded neighborhood graph.
+   *
+   * Rebuild only when the requested transition room or one-hop connected room
+   * for the active room is absent from the currently loaded payload.
+   */
+  protected function shouldRebuildTransitionNeighborhood(array $dungeon_data, string $requested_room_id): bool {
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    $requested_room_id = trim($requested_room_id);
+    if ($active_room_id === '') {
+      return TRUE;
+    }
+    if ($this->findRoomById($dungeon_data, $active_room_id) === NULL) {
+      return TRUE;
+    }
+    if ($requested_room_id !== '' && $this->findRoomById($dungeon_data, $requested_room_id) === NULL) {
+      return TRUE;
+    }
+
+    $neighbor_room_ids = $this->collectActiveRoomNeighborIds($dungeon_data, $active_room_id);
+    foreach ($neighbor_room_ids as $neighbor_room_id) {
+      if ($this->findRoomById($dungeon_data, $neighbor_room_id) === NULL) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Collect one-hop neighboring room IDs for the active room from connections.
+   *
+   * @return array<int, string>
+   *   Directly connected room ids.
+   */
+  protected function collectActiveRoomNeighborIds(array $dungeon_data, string $active_room_id): array {
+    $active_room_id = trim($active_room_id);
+    if ($active_room_id === '') {
+      return [];
+    }
+
+    $connections = is_array($dungeon_data['hex_map']['connections'] ?? NULL) ? $dungeon_data['hex_map']['connections'] : [];
+    $neighbors = [];
+    foreach ($connections as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      $from_room_id = trim((string) (
+        $connection['from_room']
+        ?? $connection['from_room_id']
+        ?? ($connection['from']['room_id'] ?? '')
+      ));
+      $to_room_id = trim((string) (
+        $connection['to_room']
+        ?? $connection['to_room_id']
+        ?? ($connection['to']['room_id'] ?? '')
+      ));
+      if ($from_room_id === '' || $to_room_id === '' || $from_room_id === $to_room_id) {
+        continue;
+      }
+      if ($from_room_id === $active_room_id) {
+        $neighbors[$to_room_id] = TRUE;
+      }
+      elseif ($to_room_id === $active_room_id) {
+        $neighbors[$from_room_id] = TRUE;
+      }
+    }
+
+    return array_values(array_keys($neighbors));
   }
 
   /**
