@@ -108,11 +108,13 @@ export class ChatPanel {
     this.roomChatQueueDraining = false;
     this.roomChatDeferredMessages = [];
     this.currentRoomLabel = '';
+    this.currentRoomDescription = '';
     this._lastRoomTransitionId = '';
     this._occupantPresenceRoomId = '';
     this._occupantPresenceKnownIds = new Set();
     this._occupantPresenceEntries = [];
     this._occupantPresenceInitialized = false;
+    this._occupantPresenceHistoryRenderedRoomId = '';
     this._speakerPortraitByName = new Map();
     this._roomHistoryRequestSequence = 0;
     this._roomHistoryLastShellRequestToken = 0;
@@ -181,15 +183,23 @@ export class ChatPanel {
       this._lastRoomTransitionId = transitionId;
     }
     const roomName = String(payload?.roomName || payload?.room?.name || '').trim();
+    const roomDescription = String(
+      payload?.roomDescription
+      || payload?.room?.description
+      || payload?.room?.summary
+      || ''
+    ).trim();
     const roomId = String(payload?.roomId || payload?.room?.room_id || payload?.room?.id || '').trim();
     if (roomName) {
       this.currentRoomLabel = roomName;
     }
+    this.currentRoomDescription = roomDescription;
     if (roomId && roomId !== this._occupantPresenceRoomId) {
       this._occupantPresenceRoomId = roomId;
       this._occupantPresenceKnownIds = new Set();
       this._occupantPresenceEntries = [];
       this._occupantPresenceInitialized = false;
+      this._occupantPresenceHistoryRenderedRoomId = '';
       this._speakerPortraitByName = new Map();
       this.clearRoomOccupantPresenceLines();
     }
@@ -219,10 +229,15 @@ export class ChatPanel {
       : normalizedEntries;
 
     if (this.activeSessionView === 'room' && this.activeChannel === 'room') {
-      if (!this._occupantPresenceInitialized) {
-        this.clearRoomOccupantPresenceLines(roomId, 'present');
-        this.renderRoomOccupantPresenceSnapshot(normalizedEntries, 'Present', roomId);
-      } else if (enteringEntries.length > 0) {
+      const shouldRenderInitialPresent = (
+        this._occupantPresenceHistoryRenderedRoomId === roomId
+        && normalizedEntries.length > 0
+        && !this.hasRoomOccupantPresenceLines(roomId, 'present')
+      );
+      if (shouldRenderInitialPresent) {
+        this.renderCurrentRoomOccupantsAsPresent();
+      }
+      if (this._occupantPresenceInitialized && enteringEntries.length > 0) {
         this.renderRoomOccupantPresenceSnapshot(enteringEntries, 'Entered', roomId);
       }
     }
@@ -1395,7 +1410,17 @@ export class ChatPanel {
       emptyText: 'Quick summary: No one has said anything in this room yet.',
     });
 
-    this.renderCurrentRoomOccupantsAsPresent();
+    const historyRoomId = String(activeRoomId || payloadRoomId || this._occupantPresenceRoomId || '').trim();
+    if (historyRoomId) {
+      this._occupantPresenceHistoryRenderedRoomId = historyRoomId;
+    }
+    if (
+      historyRoomId
+      && this._occupantPresenceEntries.length > 0
+      && !this.hasRoomOccupantPresenceLines(historyRoomId, 'present')
+    ) {
+      this.renderCurrentRoomOccupantsAsPresent();
+    }
 
     this.scrollChatToBottom({ defer: true });
   }
@@ -1413,7 +1438,7 @@ export class ChatPanel {
     }
     this.clearRoomOccupantPresenceLines(roomId, 'present');
     if (this._occupantPresenceEntries.length > 0) {
-      this.renderRoomOccupantPresenceSnapshot(this._occupantPresenceEntries, 'Present', roomId);
+      this.renderRoomOccupantPresenceHeader(this._occupantPresenceEntries, roomId);
     }
     this.enforceRoomOccupantPortraitSizing();
     this.decorateSpeakerPortraitsInChatLog();
@@ -1511,6 +1536,111 @@ export class ChatPanel {
     });
   }
 
+  renderRoomOccupantPresenceHeader(entries = [], roomId = '') {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return;
+    }
+    const line = this.appendChatLine('', '', 'system', {
+      lineId: `room-occupant-presence:${roomId}:present-header`,
+      source: 'room-occupants',
+      authority: 'local',
+      messageClass: 'room_occupant_presence',
+      channel: 'room',
+      view: 'room',
+      suppressRemember: true,
+    });
+    if (!(line instanceof HTMLElement)) {
+      return;
+    }
+    line.classList.add('chat-line--occupant-presence', 'chat-line--occupant-presence-header');
+    line.dataset.occupantPresence = '1';
+    line.dataset.occupantRoomId = String(roomId || '');
+    line.dataset.occupantStatus = 'present';
+
+    const messageEl = line.querySelector('.chat-line__message');
+    if (!(messageEl instanceof HTMLElement)) {
+      return;
+    }
+    const messageContainer = document.createElement('div');
+    messageContainer.className = 'chat-line__message chat-line__message--occupant-presence chat-line__message--occupant-presence-header';
+    messageEl.replaceWith(messageContainer);
+
+    const roomName = String(this.currentRoomLabel || '').trim();
+    const roomDescription = String(this.currentRoomDescription || '').trim();
+
+    if (roomName) {
+      const titleEl = document.createElement('div');
+      titleEl.className = 'chat-line__occupant-room-title';
+      titleEl.textContent = roomName;
+      messageContainer.appendChild(titleEl);
+    }
+    if (roomDescription) {
+      const descriptionEl = document.createElement('div');
+      descriptionEl.className = 'chat-line__occupant-room-description';
+      descriptionEl.textContent = roomDescription;
+      messageContainer.appendChild(descriptionEl);
+    }
+
+    const gridEl = document.createElement('div');
+    gridEl.className = 'chat-line__occupant-grid';
+    const columnCount = (typeof window !== 'undefined' && Number(window.innerWidth || 0) >= 980) ? 3 : 2;
+    gridEl.style.display = 'grid';
+    gridEl.style.gridTemplateColumns = `repeat(${columnCount}, minmax(0, 1fr))`;
+    gridEl.style.gap = '8px';
+    gridEl.style.width = '100%';
+    gridEl.style.maxWidth = '100%';
+    gridEl.style.boxSizing = 'border-box';
+    entries.forEach((entry) => {
+      const cardEl = document.createElement('div');
+      cardEl.className = 'chat-line__occupant-card';
+      cardEl.style.width = '100%';
+      cardEl.style.minWidth = '0';
+
+      const thumb = document.createElement('span');
+      thumb.className = 'chat-line__occupant-thumb';
+      if (entry?.portraitUrl) {
+        const image = document.createElement('img');
+        image.className = 'chat-line__occupant-thumb-image';
+        image.src = entry.portraitUrl;
+        image.alt = `${entry.name || 'Actor'} portrait`;
+        thumb.appendChild(image);
+      } else {
+        const placeholder = document.createElement('span');
+        placeholder.className = 'chat-line__occupant-thumb-placeholder';
+        placeholder.textContent = String(entry?.name || '?').trim().charAt(0).toUpperCase() || '?';
+        thumb.appendChild(placeholder);
+      }
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'chat-line__occupant-name';
+      nameEl.textContent = String(entry?.name || '').trim();
+
+      cardEl.appendChild(thumb);
+      cardEl.appendChild(nameEl);
+      gridEl.appendChild(cardEl);
+    });
+    messageContainer.appendChild(gridEl);
+    this.placeOccupantPresenceHeaderBeforeTranscript(line);
+  }
+
+  placeOccupantPresenceHeaderBeforeTranscript(line) {
+    if (!(line instanceof HTMLElement) || line.dataset?.occupantPresence !== '1') {
+      return;
+    }
+    const log = this._el?.chatLog;
+    if (!log || line.parentElement !== log) {
+      return;
+    }
+    const firstTranscriptLine = Array.from(log.children).find((candidate) => (
+      candidate instanceof HTMLElement
+      && candidate !== line
+      && candidate.dataset?.occupantPresence !== '1'
+    ));
+    if (firstTranscriptLine instanceof HTMLElement) {
+      log.insertBefore(line, firstTranscriptLine);
+    }
+  }
+
   decorateRoomOccupantPresenceLine(line, entry, status, roomId) {
     if (!(line instanceof HTMLElement)) {
       return;
@@ -1587,6 +1717,25 @@ export class ChatPanel {
         return;
       }
       line.remove();
+    });
+  }
+
+  hasRoomOccupantPresenceLines(roomId = '', status = '') {
+    const log = this._el?.chatLog;
+    if (!log) {
+      return false;
+    }
+    const normalizedRoomId = String(roomId || '').trim();
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    const selector = normalizedStatus
+      ? `.chat-line[data-occupant-presence="1"][data-occupant-status="${normalizedStatus}"]`
+      : '.chat-line[data-occupant-presence="1"]';
+    return Array.from(log.querySelectorAll(selector)).some((line) => {
+      if (!normalizedRoomId) {
+        return true;
+      }
+      const lineRoomId = String(line?.dataset?.occupantRoomId || '').trim();
+      return lineRoomId === normalizedRoomId;
     });
   }
 
