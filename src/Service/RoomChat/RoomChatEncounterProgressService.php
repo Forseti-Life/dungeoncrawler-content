@@ -27,7 +27,7 @@ class RoomChatEncounterProgressService {
     }
 
     try {
-      $state = $this->coordinator->getRuntimeReadState($campaign_id);
+      $state = $this->coordinator->getEncounterProgressState($campaign_id);
     }
     catch (\Throwable $e) {
       $this->logger->warning('Encounter progress snapshot fallback: campaign={campaign_id} message={message}', [
@@ -40,8 +40,8 @@ class RoomChatEncounterProgressService {
       return [];
     }
 
-    $round_raw = $state['round'] ?? ($state['game_state']['round'] ?? NULL);
-    $turn = $state['turn'] ?? ($state['game_state']['turn'] ?? []);
+    $round_raw = $state['round'] ?? NULL;
+    $turn = is_array($state['turn'] ?? NULL) ? $state['turn'] : [];
     $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index'])
       ? (int) $turn['index']
       : NULL;
@@ -100,7 +100,7 @@ class RoomChatEncounterProgressService {
 
     if ($round_raw === NULL || $turn_index_raw === NULL) {
       try {
-        $state = $this->coordinator->getRuntimeReadState($campaign_id);
+        $state = $this->coordinator->getEncounterProgressState($campaign_id);
       }
       catch (\Throwable $e) {
         $this->logger->warning('Encounter progress prefix fallback: campaign={campaign_id} message={message}', [
@@ -110,10 +110,10 @@ class RoomChatEncounterProgressService {
         $state = [];
       }
       if ($round_raw === NULL) {
-        $round_raw = is_array($state) ? ($state['round'] ?? ($state['game_state']['round'] ?? 1)) : 1;
+        $round_raw = is_array($state) ? ($state['round'] ?? 1) : 1;
       }
       if ($turn_index_raw === NULL) {
-        $turn = is_array($state) ? ($state['turn'] ?? ($state['game_state']['turn'] ?? [])) : [];
+        $turn = is_array($state) && is_array($state['turn'] ?? NULL) ? $state['turn'] : [];
         $turn_index_raw = is_array($turn) && isset($turn['index']) && is_numeric($turn['index']) ? (int) $turn['index'] : NULL;
       }
     }

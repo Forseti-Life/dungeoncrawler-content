@@ -454,6 +454,20 @@ class GameCoordinatorService {
   }
 
   /**
+   * Return lightweight encounter progress state for read-mostly callers.
+   *
+   * This avoids runtime-graph assembly and only loads the mutable runtime slice.
+     */
+  public function getEncounterProgressState(int $campaign_id): array {
+    if ($campaign_id <= 0) {
+      return [];
+    }
+
+    $game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
+    return is_array($game_state) ? $game_state : [];
+  }
+
+  /**
    * Get the full game state for client sync.
    *
    * @param int $campaign_id
@@ -905,18 +919,22 @@ class GameCoordinatorService {
    */
   public function getEventsSince(int $campaign_id, int $since_cursor = 0): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $dungeon_data = $this->loadDungeonData($campaign_id);
+    $dungeon_data = $this->loadDungeonData($campaign_id, NULL, FALSE);
     if (!$dungeon_data) {
       return ['success' => FALSE, 'events' => [], 'error' => 'Dungeon data not found.'];
     }
 
     $events = $this->eventLogger->getEventsSince($dungeon_data, $since_cursor);
+    $runtime_game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
+    $state_version = is_array($runtime_game_state) && isset($runtime_game_state['state_version']) && is_numeric($runtime_game_state['state_version'])
+      ? (int) $runtime_game_state['state_version']
+      : (int) ($dungeon_data['game_state']['state_version'] ?? 1);
 
     return [
       'success' => TRUE,
       'events' => $events,
       'cursor' => !empty($events) ? end($events)['id'] : $since_cursor,
-      'state_version' => $dungeon_data['game_state']['state_version'] ?? 1,
+      'state_version' => $state_version,
     ];
   }
 
@@ -1017,7 +1035,7 @@ class GameCoordinatorService {
   /**
    * Loads dungeon_data from the database.
    */
-  protected function loadDungeonData(int $campaign_id, ?string $preferred_actor_id = NULL): ?array {
+  protected function loadDungeonData(int $campaign_id, ?string $preferred_actor_id = NULL, bool $rebuild_runtime_graph = TRUE): ?array {
     try {
       $runtime_character_id = NULL;
       if (is_string($preferred_actor_id) && trim($preferred_actor_id) !== '') {
@@ -1033,7 +1051,7 @@ class GameCoordinatorService {
             $decoded['dungeon_id'] = trim((string) ($row['dungeon_id'] ?? ''));
           }
           $resolved_dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $row['dungeon_id'] ?? ''));
-          if ($resolved_dungeon_id !== '') {
+          if ($rebuild_runtime_graph && $resolved_dungeon_id !== '') {
             $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
               $campaign_id,
               $resolved_dungeon_id,
