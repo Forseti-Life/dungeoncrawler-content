@@ -6388,6 +6388,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     return $this->runtimeGraphAssembler->buildRuntimeGraph($campaign_id, $dungeon_id, $dungeon_data, [
       'active_room_id' => trim((string) ($dungeon_data['active_room_id'] ?? '')),
       'requested_room_id' => trim($requested_room_id),
+      // Transition reads only need the active-room frontier plus direct neighbors.
+      'room_scope_depth' => 1,
     ]);
   }
 

@@ -632,7 +632,7 @@ class GameCoordinatorService {
       return NULL;
     }
 
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id, FALSE);
     if (!$dungeon_data) {
       return NULL;
     }
@@ -669,7 +669,7 @@ class GameCoordinatorService {
       return NULL;
     }
 
-    $dungeon_data = $this->loadDungeonData($campaign_id);
+    $dungeon_data = $this->loadDungeonData($campaign_id, NULL, FALSE);
     if (!$dungeon_data || empty($dungeon_data['entities']) || !is_array($dungeon_data['entities'])) {
       return NULL;
     }
@@ -718,7 +718,7 @@ class GameCoordinatorService {
   }
 
   public function getActiveRoomId(int $campaign_id, ?string $actor_id = NULL): ?string {
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id, FALSE);
     if (!$dungeon_data) {
       return NULL;
     }
