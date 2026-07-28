@@ -568,7 +568,6 @@ class HexMapController extends ControllerBase {
     $quest_summary = $this->loadQuestSummary($launch_context);
     $storyline_contacts = $this->loadStorylineContactSummary($launch_context);
     $campaign_title = $this->loadCampaignTitle($launch_context);
-    $dungeon_payload['campaign_id'] = (int) ($launch_context['campaign_id'] ?? 0);
     if (trim((string) ($dungeon_payload['dungeon_id'] ?? '')) === '') {
       $dungeon_payload['dungeon_id'] = (string) (
         $launch_context['map_id']
@@ -577,6 +576,7 @@ class HexMapController extends ControllerBase {
       );
     }
     $dungeon_payload['quest_summary'] = $quest_summary;
+    $dungeon_payload['campaign_id'] = (int) ($launch_context['campaign_id'] ?? 0);
     $active_room_id = trim((string) ($dungeon_payload['active_room_id'] ?? ''));
     $dungeon_payload['navigation_capabilities'] = $active_room_id !== ''
       ? $this->navigationService->buildNavigationCapabilitiesWithRoadNetwork($dungeon_payload, $active_room_id, [])
@@ -3404,13 +3404,6 @@ class HexMapController extends ControllerBase {
       if ($candidate_room_id !== '' && isset($rooms[$candidate_room_id])) {
         $room_scope[$candidate_room_id] = TRUE;
       }
-    }
-    if (
-      isset($rooms[self::STARTER_TAVERN_ROOM_ID], $rooms[self::STARTER_STREETS_ROOM_ID])
-      && (isset($room_scope[self::STARTER_TAVERN_ROOM_ID]) || isset($room_scope[self::STARTER_STREETS_ROOM_ID]))
-    ) {
-      $room_scope[self::STARTER_TAVERN_ROOM_ID] = TRUE;
-      $room_scope[self::STARTER_STREETS_ROOM_ID] = TRUE;
     }
 
     if ($room_scope === []) {
