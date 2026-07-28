@@ -17,6 +17,8 @@ export class NavigationSystem {
     this.dungeonData = null;
     this._unsubs = [];
     this._actionRailPendingRequests = new Map();
+    this._navigationTransitionPending = false;
+    this._navigationTransitionRoomId = '';
   }
 
   init(dungeonData, stateManager) {
@@ -29,6 +31,8 @@ export class NavigationSystem {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
     this._actionRailPendingRequests.clear();
+    this._navigationTransitionPending = false;
+    this._navigationTransitionRoomId = '';
   }
 
   _subscribe() {
@@ -49,11 +53,22 @@ export class NavigationSystem {
       dungeonLevelId: button?.dataset?.dungeonLevelId,
     });
 
+    if (this._navigationTransitionPending) {
+      console.warn('[Navigation] executeDirectNavigate: ignored because a prior transition is still synchronizing', {
+        pendingRoomId: this._navigationTransitionRoomId || null,
+        requestedRoomId: String(button?.dataset?.roomId || '').trim() || null,
+      });
+      this._appendChatLine('System', 'Navigation is still synchronizing the previous room transition. Please wait a moment.', 'system');
+      return;
+    }
+
     if (!this._beginActionRailRequest(button)) {
       console.error('[Navigation] executeDirectNavigate: _beginActionRailRequest returned false — aborting');
       return;
     }
 
+    this._navigationTransitionPending = true;
+    this._navigationTransitionRoomId = String(button?.dataset?.roomId || '').trim();
     try {
       const context = this._getActionRailContext();
       const hexmap = context.hexmap;
@@ -207,14 +222,8 @@ export class NavigationSystem {
       console.log('[Navigation] executeDirectNavigate: sending transition action', { actorId, params });
       // Authoritative transition validation and state mutation happen on server.
       let optimisticApplied = false;
-      if (typeof hexmap.setActiveRoom === 'function') {
-        hexmap.setActiveRoom(roomId, {
-          source: 'navigation-system',
-          phase: 'navigation-optimistic',
-          loadData: false,
-        });
-        optimisticApplied = true;
-      }
+      // Avoid optimistic room projection here: it can trigger duplicate room-load
+      // fan-out before authoritative navigation capabilities arrive.
       let result = null;
       try {
         result = await coordinator.api.sendAction('transition', actorId, params, {
@@ -326,64 +335,137 @@ export class NavigationSystem {
       }
 
       coordinator.applyAuthoritativeUpdate?.(result);
+      const navigationResult = result?.navigation && typeof result.navigation === 'object'
+        ? result.navigation
+        : null;
+      const hasAuthoritativeNavigationReceipt = Boolean(
+        navigationResult
+        && Array.isArray(navigationResult.navigation_capabilities)
+        && String(navigationResult.target_room_id || '').trim() !== ''
+      );
+      const fallbackNavigationCapabilities = Array.isArray(result?.navigation_capabilities)
+        ? result.navigation_capabilities
+        : (Array.isArray(result?.game_state?.navigation_capabilities) ? result.game_state.navigation_capabilities : null);
       const nextRoomId = String(
         result?.game_state?.active_room_id
+        || navigationResult?.target_room_id
         || result?.active_room_id
         || roomId
         || ''
       ).trim();
-      if (nextRoomId && typeof hexmap.setActiveRoom === 'function') {
-        console.info('[Navigation] Syncing active room after successful navigate', {
-          requestedRoomId: roomId,
-          activeRoomId: nextRoomId,
-        });
-        hexmap.setActiveRoom(nextRoomId, {
-          source: 'navigation-system',
-          phase: 'navigation-authoritative',
-        });
-        const entryHex = result?.entry_hex || result?.navigation?.entry_hex || null;
-        if (entryHex && Number.isFinite(Number(entryHex.q)) && Number.isFinite(Number(entryHex.r))) {
-          this._persistPartyLocationAfterTransition(hexmap, nextRoomId, entryHex);
-          hexmap.updateLaunchLocationContext?.(nextRoomId, Number(entryHex.q), Number(entryHex.r));
+
+      if (hasAuthoritativeNavigationReceipt) {
+        this.handleNavigationResult(navigationResult);
+        this._refreshActionRail();
+      } else {
+        if (Array.isArray(fallbackNavigationCapabilities)) {
+          hexmap.dungeonData.navigation_capabilities = fallbackNavigationCapabilities;
+          this.bus.emit('navigation:capabilities-updated', {
+            roomId: nextRoomId || null,
+            capabilityCount: fallbackNavigationCapabilities.length,
+            source: 'transition-result-fallback',
+          });
         }
+
+        if (nextRoomId && typeof hexmap.setActiveRoom === 'function') {
+          console.info('[Navigation] Syncing active room after successful navigate', {
+            requestedRoomId: roomId,
+            activeRoomId: nextRoomId,
+          });
+          hexmap.setActiveRoom(nextRoomId, {
+            source: 'navigation-system',
+            phase: 'navigation-authoritative',
+          });
+          const entryHex = result?.entry_hex || navigationResult?.entry_hex || null;
+          if (entryHex && Number.isFinite(Number(entryHex.q)) && Number.isFinite(Number(entryHex.r))) {
+            this._persistPartyLocationAfterTransition(hexmap, nextRoomId, entryHex);
+            hexmap.updateLaunchLocationContext?.(nextRoomId, Number(entryHex.q), Number(entryHex.r));
+          }
+        }
+        this._refreshActionRail();
       }
-      if (nextRoomId && this.shell?.loadRuntimeStateBundle) {
+
+      const postTransitionTasks = [];
+      if (nextRoomId && this.shell?.loadRuntimeStateBundle && !hasAuthoritativeNavigationReceipt) {
         const authoritativeMapId = String(
           result?.dungeon_id
           || result?.map_id
           || result?.game_state?.dungeon_id
-          || result?.navigation?.dungeon_id
-          || result?.navigation?.map_id
+          || navigationResult?.dungeon_id
+          || navigationResult?.map_id
           || ''
         ).trim();
         const authoritativeDungeonLevelId = String(
           result?.dungeon_level_id
           || result?.game_state?.dungeon_level_id
-          || result?.navigation?.dungeon_level_id
+          || navigationResult?.dungeon_level_id
           || ''
         ).trim();
-        const runtimeBundleQuery = {
-          campaign_id: hexmap.resolveCampaignId?.() || this.shell.resolveCampaignId?.() || 0,
-          character_id: hexmap.launchContext?.character_id || this.shell.launchContext?.character_id || 0,
-          room_id: nextRoomId,
-          map_id: authoritativeMapId || undefined,
-          dungeon_level_id: authoritativeDungeonLevelId || undefined,
-          start_q: Number.isFinite(Number(result?.entry_hex?.q ?? result?.navigation?.entry_hex?.q))
-            ? Number(result?.entry_hex?.q ?? result?.navigation?.entry_hex?.q)
-            : 0,
-          start_r: Number.isFinite(Number(result?.entry_hex?.r ?? result?.navigation?.entry_hex?.r))
-            ? Number(result?.entry_hex?.r ?? result?.navigation?.entry_hex?.r)
-            : 0,
-        };
-        try {
-          await this.shell.loadRuntimeStateBundle(runtimeBundleQuery);
-        } catch (error) {
-          this._handleRuntimeBundleLoadFailure(error, roomName, nextRoomId);
+        const currentMapId = String(
+          hexmap?.dungeonData?.map_id
+          || hexmap?.launchContext?.map_id
+          || this.shell?.launchContext?.map_id
+          || ''
+        ).trim();
+        const currentDungeonLevelId = String(
+          hexmap?.dungeonData?.level_id
+          || hexmap?.launchContext?.dungeon_level_id
+          || this.shell?.launchContext?.dungeon_level_id
+          || ''
+        ).trim();
+        const roomScopedCapabilities = typeof hexmap?.resolveNavigationCapabilities === 'function'
+          ? hexmap.resolveNavigationCapabilities(nextRoomId)
+          : [];
+        const requiresRuntimeBundleHydration = (
+          !Array.isArray(fallbackNavigationCapabilities)
+          || fallbackNavigationCapabilities.length === 0
+          || !Array.isArray(hexmap?.dungeonData?.navigation_capabilities)
+          || hexmap.dungeonData.navigation_capabilities.length === 0
+          || String(hexmap?.resolveActiveRoomId?.() || '').trim() !== nextRoomId
+          || !Array.isArray(roomScopedCapabilities)
+          || roomScopedCapabilities.length === 0
+          || (authoritativeMapId === '' && authoritativeDungeonLevelId === '' && navigationResult === null)
+          || (authoritativeMapId !== '' && authoritativeMapId !== currentMapId)
+          || (authoritativeDungeonLevelId !== '' && authoritativeDungeonLevelId !== currentDungeonLevelId)
+        );
+        if (requiresRuntimeBundleHydration) {
+          const runtimeBundleQuery = this.shell.buildRuntimeBundleQueryForRoom(nextRoomId, {
+            mapId: authoritativeMapId || undefined,
+            dungeonLevelId: authoritativeDungeonLevelId || undefined,
+            startQ: Number.isFinite(Number(result?.entry_hex?.q ?? navigationResult?.entry_hex?.q))
+              ? Number(result?.entry_hex?.q ?? navigationResult?.entry_hex?.q)
+              : 0,
+            startR: Number.isFinite(Number(result?.entry_hex?.r ?? navigationResult?.entry_hex?.r))
+              ? Number(result?.entry_hex?.r ?? navigationResult?.entry_hex?.r)
+              : 0,
+          });
+          postTransitionTasks.push(
+            this.shell.loadRuntimeStateBundle(runtimeBundleQuery)
+              .then(() => {
+                if (typeof this.shell?.syncCoordinatorStateFromServer === 'function') {
+                  return this.shell.syncCoordinatorStateFromServer(nextRoomId);
+                }
+                return true;
+              })
+              .then(() => {
+                this._refreshActionRail();
+              })
+              .catch((error) => {
+                this._handleRuntimeBundleLoadFailure(error, roomName, nextRoomId);
+              })
+          );
         }
       }
-      void this._reconcileAuthoritativeStateAfterTransition(coordinator, hexmap, nextRoomId);
+      if (nextRoomId) {
+        postTransitionTasks.push(this._reconcileAuthoritativeStateAfterTransition(coordinator, hexmap, nextRoomId));
+      }
+      if (postTransitionTasks.length > 0) {
+        await Promise.allSettled(postTransitionTasks);
+      }
       this._refreshActionRail();
     } finally {
+      this._navigationTransitionPending = false;
+      this._navigationTransitionRoomId = '';
       this._endActionRailRequest(button);
     }
   }
@@ -459,6 +541,11 @@ export class NavigationSystem {
 
     // Keep active-room navigation strictly sourced from server navigation service.
     hexmap.dungeonData.navigation_capabilities = navigationCapabilities;
+    this.bus.emit('navigation:capabilities-updated', {
+      roomId: String(targetRoomId || '').trim(),
+      capabilityCount: Array.isArray(navigationCapabilities) ? navigationCapabilities.length : 0,
+      source: 'navigation-receipt',
+    });
 
     // 4. Move the full party formation to the destination entry hex.
     const selectedEntity = hexmap.stateManager?.get('selectedEntity');
@@ -885,16 +972,15 @@ export class NavigationSystem {
     }
 
     try {
-      const bundle = await this.shell.loadRuntimeStateBundle({
-        campaign_id: campaignId,
-        character_id: characterId || undefined,
-        room_id: roomId,
-        map_id: mapId || undefined,
-        dungeon_level_id: dungeonLevelId || undefined,
-        next_room_id: nextRoomId || undefined,
-        start_q: 0,
-        start_r: 0,
-      });
+      const bundle = await this.shell.loadRuntimeStateBundle(
+        this.shell.buildRuntimeBundleQueryForRoom(roomId, {
+          mapId: mapId || undefined,
+          dungeonLevelId: dungeonLevelId || undefined,
+          nextRoomId: nextRoomId || undefined,
+          startQ: 0,
+          startR: 0,
+        }),
+      );
       const resolvedRoomName = this.resolveRoomNameFromBundle(bundle, roomId);
       this._appendChatLine('System', `🗺️ Traveling to ${resolvedRoomName}...`, 'system');
       this._refreshActionRail();
@@ -1022,31 +1108,37 @@ export class NavigationSystem {
 
   async _reconcileAuthoritativeStateAfterTransition(coordinator, hexmap, optimisticRoomId = '') {
     const expectedRoomId = String(optimisticRoomId || '').trim();
+    if (typeof this.shell?.syncCoordinatorStateFromServer === 'function') {
+      return this.shell.syncCoordinatorStateFromServer(expectedRoomId);
+    }
     if (!coordinator?.api?.getState) {
-      return;
+      return false;
     }
     try {
       const state = await coordinator.api.getState();
-      if (state?.success) {
-        coordinator.applyAuthoritativeUpdate?.(state);
-      }
       const serverRoomId = String(
         state?.active_room_id
         ?? state?.game_state?.active_room_id
         ?? coordinator?.phaseManager?.activeRoomId
         ?? ''
       ).trim();
+      if (state?.success && (!serverRoomId || !expectedRoomId || serverRoomId === expectedRoomId)) {
+        coordinator.applyAuthoritativeUpdate?.(state);
+        return true;
+      }
       if (!serverRoomId || !expectedRoomId || serverRoomId === expectedRoomId) {
-        return;
+        return false;
       }
-      if (typeof hexmap?.setActiveRoom === 'function') {
-        hexmap.setActiveRoom(serverRoomId, {
-          source: 'navigation-system',
-          phase: 'navigation-reconcile',
-        });
-      }
+      // Do not force a room rollback from reconcile polling; transition receipts
+      // are authoritative for room projection and this poll can lag briefly.
+      console.warn('[Navigation] reconcile mismatch ignored to avoid stale room rollback', {
+        expectedRoomId,
+        serverRoomId,
+      });
+      return false;
     } catch (error) {
       console.warn('[Navigation] reconcile authoritative state after transition failed', error);
+      return false;
     }
   }
 
@@ -1111,7 +1203,16 @@ export class NavigationSystem {
   }
 
   _refreshActionRail() {
-    this.shell.panels.actionRail?.refreshActionRail?.();
+    const actionRail = this.shell?.panels?.actionRail || null;
+    if (typeof actionRail?.invalidateActionRail === 'function') {
+      actionRail.invalidateActionRail(['navigation', 'room', 'header']);
+      return;
+    }
+    if (typeof actionRail?.queueActionRailRefresh === 'function') {
+      actionRail.queueActionRailRefresh();
+      return;
+    }
+    actionRail?.refreshActionRail?.();
   }
 
   _appendChatLine(speaker, message, type = 'system') {

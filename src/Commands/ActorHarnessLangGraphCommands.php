@@ -229,27 +229,43 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
       return NULL;
     }
 
+    $matches = [];
     foreach ($this->characterManager->getUserCharacters($uid) as $record) {
       $candidate_name = strtolower(trim((string) ($record->name ?? '')));
       if ($candidate_name !== $normalized_name) {
         continue;
       }
 
-      $status = (int) ($record->status ?? 0);
-      if ($status !== 1) {
+      if (!$this->isReadyHarnessSelectableCharacterRecord($record)) {
         continue;
       }
 
-      $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
-      $step = (int) ($character_data['step'] ?? 8);
-      if ($step < 8) {
-        continue;
-      }
+      $matches[] = $record;
+    }
 
-      return $record;
+    // Canonical library rows are campaign_id=0; prefer these so bootstrap does
+    // not inherit campaign-scoped runtime/follower state from prior runs.
+    foreach ($matches as $record) {
+      if ((int) ($record->campaign_id ?? 0) === 0) {
+        return $record;
+      }
     }
 
     return NULL;
+  }
+
+  /**
+   * Determine whether a character row is ready for harness selection.
+   */
+  protected function isReadyHarnessSelectableCharacterRecord(object $record): bool {
+    $status = (int) ($record->status ?? 0);
+    if ($status !== 1) {
+      return FALSE;
+    }
+
+    $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
+    $step = (int) ($character_data['step'] ?? 8);
+    return $step >= 8;
   }
 
   /**

@@ -1641,7 +1641,280 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'events' => $events,
       'phase_transition' => $phase_transition,
       'narration' => $narration,
+      'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, $mutations),
     ];
+  }
+
+  /**
+   * Build typed mutation envelope from exploration runtime context.
+   *
+   * @return array<string,mixed>
+   *   Mutation envelope compatible with coordinator persistence.
+   */
+  protected function buildMutationEnvelopeFromRuntimeContext(
+    int $campaign_id,
+    array $game_state,
+    array $dungeon_data,
+    array $mutations = []
+  ): array {
+    [$include_actor_entities, $include_rooms, $include_connections] = $this->inferMutationEnvelopeSliceNeeds($mutations);
+    $targets = $this->extractMutationEnvelopeTargets($mutations);
+    return [
+      'campaign_id' => $campaign_id,
+      'active_room_id' => (string) ($dungeon_data['active_room_id'] ?? ''),
+      'campaign_state' => $game_state,
+      'actor_entities' => $include_actor_entities && is_array($dungeon_data['entities'] ?? NULL)
+        ? $this->selectMutationTargetedActorEntities($dungeon_data['entities'], $targets['entity_ids'])
+        : [],
+      'rooms' => $include_rooms && is_array($dungeon_data['rooms'] ?? NULL)
+        ? $this->selectMutationTargetedRooms($dungeon_data['rooms'], $targets['room_ids'])
+        : [],
+      'connections' => $include_connections
+        ? $this->selectMutationTargetedConnections(
+          $dungeon_data,
+          $targets['connection_ids'],
+          $targets['room_ids']
+        )
+        : [],
+    ];
+  }
+
+  /**
+   * Infer which runtime slices are touched by mutation descriptors.
+   *
+   * @param array<int,mixed> $mutations
+   *   Handler mutation descriptors.
+   *
+   * @return array{0: bool, 1: bool, 2: bool}
+   *   include_actor_entities, include_rooms, include_connections.
+   */
+  protected function inferMutationEnvelopeSliceNeeds(array $mutations): array {
+    if ($mutations === []) {
+      return [FALSE, FALSE, FALSE];
+    }
+
+    $include_actor_entities = FALSE;
+    $include_rooms = FALSE;
+    $include_connections = FALSE;
+
+    foreach ($mutations as $mutation) {
+      if (!is_array($mutation)) {
+        return [TRUE, TRUE, TRUE];
+      }
+      $field = strtolower(trim((string) ($mutation['field'] ?? $mutation['path'] ?? $mutation['type'] ?? '')));
+
+      $actor_hint = isset($mutation['entity']) || isset($mutation['entity_id'])
+        || str_contains($field, 'entity')
+        || str_contains($field, 'actor')
+        || str_contains($field, 'placement')
+        || str_contains($field, 'condition')
+        || str_contains($field, 'resource')
+        || str_contains($field, 'hp');
+
+      $room_hint = isset($mutation['room_id'])
+        || str_contains($field, 'room')
+        || str_contains($field, 'hazard')
+        || str_contains($field, 'reveal');
+
+      $connection_hint = isset($mutation['connection_id'])
+        || str_contains($field, 'connection')
+        || str_contains($field, 'door')
+        || str_contains($field, 'passable')
+        || str_contains($field, 'locked');
+
+      if (!$actor_hint && !$room_hint && !$connection_hint) {
+        return [TRUE, TRUE, TRUE];
+      }
+
+      $include_actor_entities = $include_actor_entities || $actor_hint;
+      $include_rooms = $include_rooms || $room_hint;
+      $include_connections = $include_connections || $connection_hint;
+    }
+
+    return [$include_actor_entities, $include_rooms, $include_connections];
+  }
+
+  /**
+   * Extract targeted runtime identifiers from mutation descriptors.
+   *
+   * @param array<int,mixed> $mutations
+   *   Handler mutation descriptors.
+   *
+   * @return array{entity_ids: array<int,string>, room_ids: array<int,string>, connection_ids: array<int,string>}
+   *   Unique target IDs by runtime slice.
+   */
+  protected function extractMutationEnvelopeTargets(array $mutations): array {
+    $entity_ids = [];
+    $room_ids = [];
+    $connection_ids = [];
+
+    foreach ($mutations as $mutation) {
+      if (!is_array($mutation)) {
+        continue;
+      }
+
+      foreach ([
+        $mutation['entity'] ?? NULL,
+        $mutation['entity_id'] ?? NULL,
+        $mutation['actor'] ?? NULL,
+        $mutation['actor_id'] ?? NULL,
+      ] as $candidate) {
+        $normalized = $this->normalizeMutationTargetId($candidate);
+        if ($normalized !== NULL) {
+          $entity_ids[$normalized] = TRUE;
+        }
+      }
+
+      foreach ([
+        $mutation['room_id'] ?? NULL,
+        $mutation['from_room'] ?? NULL,
+        $mutation['to_room'] ?? NULL,
+      ] as $candidate) {
+        $normalized = $this->normalizeMutationTargetId($candidate);
+        if ($normalized !== NULL) {
+          $room_ids[$normalized] = TRUE;
+        }
+      }
+
+      foreach ([
+        $mutation['connection_id'] ?? NULL,
+      ] as $candidate) {
+        $normalized = $this->normalizeMutationTargetId($candidate);
+        if ($normalized !== NULL) {
+          $connection_ids[$normalized] = TRUE;
+        }
+      }
+    }
+
+    return [
+      'entity_ids' => array_keys($entity_ids),
+      'room_ids' => array_keys($room_ids),
+      'connection_ids' => array_keys($connection_ids),
+    ];
+  }
+
+  /**
+   * Build actor-entity envelope payload with optional ID narrowing.
+   *
+   * @param array<int,mixed> $entities
+   *   Runtime actor entity list.
+   * @param array<int,string> $target_entity_ids
+   *   Optional list of touched entity IDs.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Normalized actor entities to persist.
+   */
+  protected function selectMutationTargetedActorEntities(array $entities, array $target_entity_ids): array {
+    $normalized_entities = array_values(array_filter($entities, static function ($entity): bool {
+      return is_array($entity);
+    }));
+    if ($target_entity_ids === []) {
+      return $normalized_entities;
+    }
+
+    $target_lookup = array_fill_keys($target_entity_ids, TRUE);
+    $filtered = array_values(array_filter($normalized_entities, static function (array $entity) use ($target_lookup): bool {
+      $entity_id = trim((string) (
+        $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? ''
+      ));
+      return $entity_id !== '' && isset($target_lookup[$entity_id]);
+    }));
+
+    return $filtered !== [] ? $filtered : $normalized_entities;
+  }
+
+  /**
+   * Build room envelope payload with optional ID narrowing.
+   *
+   * @param array<int,mixed> $rooms
+   *   Runtime room list.
+   * @param array<int,string> $target_room_ids
+   *   Optional list of touched room IDs.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Normalized rooms to persist.
+   */
+  protected function selectMutationTargetedRooms(array $rooms, array $target_room_ids): array {
+    $normalized_rooms = array_values(array_filter($rooms, static function ($room): bool {
+      return is_array($room);
+    }));
+    if ($target_room_ids === []) {
+      return $normalized_rooms;
+    }
+
+    $target_lookup = array_fill_keys($target_room_ids, TRUE);
+    $filtered = array_values(array_filter($normalized_rooms, static function (array $room) use ($target_lookup): bool {
+      $room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+      return $room_id !== '' && isset($target_lookup[$room_id]);
+    }));
+
+    return $filtered !== [] ? $filtered : $normalized_rooms;
+  }
+
+  /**
+   * Build connection envelope payload with optional ID/room narrowing.
+   *
+   * @param array<string,mixed> $dungeon_data
+   *   Runtime payload context.
+   * @param array<int,string> $target_connection_ids
+   *   Optional touched connection IDs.
+   * @param array<int,string> $target_room_ids
+   *   Optional touched room IDs.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Normalized connections to persist.
+   */
+  protected function selectMutationTargetedConnections(array $dungeon_data, array $target_connection_ids, array $target_room_ids): array {
+    $connections = array_values(array_filter(array_merge(
+      is_array($dungeon_data['connections'] ?? NULL) ? $dungeon_data['connections'] : [],
+      is_array($dungeon_data['hex_map']['connections'] ?? NULL) ? $dungeon_data['hex_map']['connections'] : []
+    ), static function ($connection): bool {
+      return is_array($connection);
+    }));
+
+    if ($target_connection_ids === [] && $target_room_ids === []) {
+      return $connections;
+    }
+
+    $connection_lookup = $target_connection_ids !== [] ? array_fill_keys($target_connection_ids, TRUE) : [];
+    $room_lookup = $target_room_ids !== [] ? array_fill_keys($target_room_ids, TRUE) : [];
+
+    $filtered = array_values(array_filter($connections, static function (array $connection) use ($connection_lookup, $room_lookup): bool {
+      $connection_id = trim((string) (
+        $connection['connection_id']
+        ?? $connection['id']
+        ?? ''
+      ));
+      if ($connection_id !== '' && isset($connection_lookup[$connection_id])) {
+        return TRUE;
+      }
+
+      $from_room_id = trim((string) (
+        $connection['from_room_id']
+        ?? $connection['from']['room_id']
+        ?? ''
+      ));
+      $to_room_id = trim((string) (
+        $connection['to_room_id']
+        ?? $connection['to']['room_id']
+        ?? ''
+      ));
+      return ($from_room_id !== '' && isset($room_lookup[$from_room_id]))
+        || ($to_room_id !== '' && isset($room_lookup[$to_room_id]));
+    }));
+
+    return $filtered !== [] ? $filtered : $connections;
+  }
+
+  /**
+   * Normalize one mutation target identifier.
+   */
+  protected function normalizeMutationTargetId(mixed $candidate): ?string {
+    $value = trim((string) $candidate);
+    return $value !== '' ? $value : NULL;
   }
 
   /**
@@ -1684,9 +1957,12 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     return [
-      GameEventLogger::buildEvent('phase_entered', 'exploration', NULL, [
-        'from_phase' => $from_phase,
-      ]),
+      'events' => [
+        GameEventLogger::buildEvent('phase_entered', 'exploration', NULL, [
+          'from_phase' => $from_phase,
+        ]),
+      ],
+      'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, []),
     ];
   }
 
@@ -1697,9 +1973,12 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     // Snapshot exploration state so it can be restored when re-entering.
     // The exploration sub-state persists in game_state.exploration.
     return [
-      GameEventLogger::buildEvent('phase_exited', 'exploration', NULL, [
-        'time_elapsed' => $game_state['exploration']['time_elapsed_minutes'] ?? 0,
-      ]),
+      'events' => [
+        GameEventLogger::buildEvent('phase_exited', 'exploration', NULL, [
+          'time_elapsed' => $game_state['exploration']['time_elapsed_minutes'] ?? 0,
+        ]),
+      ],
+      'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, []),
     ];
   }
 
@@ -2006,9 +2285,11 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         ]
       );
 
-      if (!empty($chat_result['dungeon_data']) && is_array($chat_result['dungeon_data'])) {
-        $dungeon_data = $chat_result['dungeon_data'];
-        $game_state = $dungeon_data['game_state'] ?? $game_state;
+      if (is_array($chat_result['runtime_snapshot']['game_state'] ?? NULL)) {
+        $game_state = $chat_result['runtime_snapshot']['game_state'];
+      }
+      elseif (is_array($chat_result['combat_transition']['game_state'] ?? NULL)) {
+        $game_state = $chat_result['combat_transition']['game_state'];
       }
 
       $quest_updates = $chat_result['quest_updates'] ?? [];

@@ -95,30 +95,30 @@ SCRIPTED_TARGET_QUEST_TEMPLATES: tuple[str, ...] = (
 SCRIPTED_RANDOM_NAV_EXIT_TRANSITION_COUNT = 40
 BASE_SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
     {
-        "id": "ask_eldric_for_work",
+        "id": "ask_eldric_any_work_or_quests",
         "tool_name": "talk",
         "tool_payload": {
             "type": "talk",
             "target": "tavern_keeper",
-            "params": {"message": "Eldric, what work do you have for me?"},
+            "params": {"message": "Eldric, any work or quests?"},
         },
     },
     {
-        "id": "ask_marta_for_work",
+        "id": "ask_marta_any_work",
         "tool_name": "talk",
         "tool_payload": {
             "type": "talk",
             "target": "scholar_npc",
-            "params": {"message": "Marta, what work do you have for me?"},
+            "params": {"message": "Marta, any work?"},
         },
     },
     {
-        "id": "ask_gribbles_for_work",
+        "id": "ask_gribbles_any_work",
         "tool_name": "talk",
         "tool_payload": {
             "type": "talk",
             "target": "gribbles_rindsworth",
-            "params": {"message": "Gribbles, what work do you have for me?"},
+            "params": {"message": "Gribbles, any work?"},
         },
     },
     {
@@ -130,75 +130,101 @@ BASE_SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
         },
     },
     {
-        "id": "turn_in_items_to_eldric",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "tavern_keeper",
-            "params": {
-                "target": "tavern_keeper",
-                "target_name": "Eldric",
-                "message": "Eldric, I have the items. Please process my turn-in.",
-            },
-        },
-    },
-    {
-        "id": "turn_in_items_to_marta",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "scholar_npc",
-            "params": {
-                "target": "scholar_npc",
-                "target_name": "Marta",
-                "message": "Marta, I have the items. Please process my turn-in.",
-            },
-        },
-    },
-    {
-        "id": "turn_in_items_to_gribbles",
+        "id": "ask_gribbles_your_stuff",
         "tool_name": "talk",
         "tool_payload": {
             "type": "talk",
             "target": "gribbles_rindsworth",
             "params": {
-                "target": "gribbles_rindsworth",
-                "target_name": "Gribbles",
-                "message": "Gribbles, I have the items. Please process my turn-in.",
+                "message": "Gribbles, your stuff.",
             },
         },
     },
     {
-        "id": "ask_eldric_for_more_work",
+        "id": "ask_marta_your_stuff",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "target": "scholar_npc",
+            "params": {
+                "message": "Marta, your stuff.",
+            },
+        },
+    },
+    {
+        "id": "ask_eldric_your_stuff",
         "tool_name": "talk",
         "tool_payload": {
             "type": "talk",
             "target": "tavern_keeper",
-            "params": {"message": "Eldric, have any more work for me?"},
+            "params": {
+                "message": "Eldric, your stuff.",
+            },
+        },
+    },
+    {
+        "id": "ask_eldric_any_other_quests",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "target": "tavern_keeper",
+            "params": {"message": "Eldric, you have any other quests?"},
         },
     },
     {
         "id": "navigate_to_absalom_streets",
-        "tool_name": "talk",
+        "tool_name": "transition",
         "tool_payload": {
-            "type": "talk",
-            "params": {"message": "I leave the tavern and head to Absalom Streets."},
+            "type": "transition",
+            "params": {"target_room_id": "tpl_room_absalom_streets"},
         },
     },
     {
         "id": "navigate_to_grandmas_parlor",
-        "tool_name": "talk",
+        "tool_name": "transition",
         "tool_payload": {
-            "type": "talk",
-            "params": {"message": "I navigate from Absalom Streets to Grandma's parlor."},
+            "type": "transition",
+            "params": {"target_room_id": "ltba-grandmas-house-parlor"},
         },
     },
     {
-        "id": "talk_to_grandma_about_the_job",
+        "id": "ask_grandma_any_work_for_me",
         "tool_name": "talk",
         "tool_payload": {
             "type": "talk",
-            "params": {"message": "Grandma, tell me about the job."},
+            "params": {"message": "Grandma, any work for me?"},
+        },
+    },
+    {
+        "id": "navigate_back_to_absalom_streets",
+        "tool_name": "transition",
+        "tool_payload": {
+            "type": "transition",
+            "params": {"target_room_id": "tpl_room_absalom_streets"},
+        },
+    },
+    {
+        "id": "navigate_to_graveyard",
+        "tool_name": "transition",
+        "tool_payload": {
+            "type": "transition",
+            "params": {"target_room_id": "tpl_room_absalom_graveyard_mausoleum_complex"},
+        },
+    },
+    {
+        "id": "navigate_to_crypt_entrance",
+        "tool_name": "transition",
+        "tool_payload": {
+            "type": "transition",
+            "params": {"target_room_id": "ltba-vault-entry"},
+        },
+    },
+    {
+        "id": "ask_what_are_we_doing_here",
+        "tool_name": "talk",
+        "tool_payload": {
+            "type": "talk",
+            "params": {"message": "What are we doing here?"},
         },
     },
 )
@@ -865,6 +891,69 @@ def extract_action_contract(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def extract_social_progression(snapshot: dict[str, Any]) -> dict[str, Any]:
+    social = snapshot.get("social_progression")
+    if isinstance(social, dict):
+        return social
+    return {}
+
+
+def exhausted_lead_sources(snapshot: dict[str, Any]) -> set[str]:
+    social = extract_social_progression(snapshot)
+    raw = social.get("exhausted_lead_sources")
+    if not isinstance(raw, list):
+        return set()
+    return {
+        str(item).strip()
+        for item in raw
+        if str(item).strip() != ""
+    }
+
+
+def is_actor_exhausted_for_lead_seek(snapshot: dict[str, Any], actor_id: str) -> bool:
+    actor_id = str(actor_id or "").strip()
+    if actor_id == "":
+        return False
+    return actor_id in exhausted_lead_sources(snapshot)
+
+
+def is_lead_seek_talk_params(params: dict[str, Any]) -> bool:
+    objective_id = str(params.get("objective_id") or "").strip()
+    quest_id = str(params.get("quest_id") or "").strip()
+    if objective_id != "" or quest_id != "":
+        return False
+    message = str(params.get("message") or "").strip().lower()
+    if message == "":
+        return False
+    turn_in_markers = (
+        "turning them in",
+        "turning this in",
+        "turn this in",
+        "i found the requested items",
+        "objective complete",
+        "quest complete",
+    )
+    if any(marker in message for marker in turn_in_markers):
+        return False
+    lead_markers = (
+        "rumor",
+        "rumour",
+        "lead",
+        "job",
+        "work",
+        "danger",
+        "clue",
+        "what should i do next",
+        "what should i tackle",
+        "where should i start",
+        "additional work",
+        "urgent problem",
+        "storyline lead",
+        "what next",
+    )
+    return any(marker in message for marker in lead_markers)
+
+
 def extract_canonical_active_objectives(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     active_quests = snapshot.get("active_quests")
     if not isinstance(active_quests, list):
@@ -1054,6 +1143,13 @@ def validate_tool_decision_contract(state: HarnessState, decision: dict[str, Any
     if action_type == "talk":
         if not is_non_empty_string(params.get("message")):
             return "tool_payload_params_missing_talk_message"
+        target = str(intent.get("target") or params.get("target") or "").strip()
+        if (
+            target != ""
+            and is_lead_seek_talk_params(params)
+            and is_actor_exhausted_for_lead_seek(snapshot, target)
+        ):
+            return f"talk_target_exhausted_for_lead_seeking:{target}"
 
     return None
 
@@ -1186,6 +1282,7 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
     # This is documented here for humans only and is not passed to the decider runtime.
     visible_npcs = summarize_visible_npcs(snapshot)
     connected_rooms = summarize_connected_rooms(snapshot)
+    social_progression = extract_social_progression(snapshot)
 
     system_prompt = (
         "You are controlling Burasco in DungeonCrawler. "
@@ -1198,6 +1295,7 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
         "tool_name must exactly match tool_payload.type. "
         "For type=transition, params.target_room_id is required. "
         "For type=talk, params.message is required. "
+        "Never choose a lead-seeking talk action targeting an exhausted lead source from social_progression.exhausted_lead_sources. "
         "If no legal action is appropriate, return decision_type=stop with a concrete reason. "
         "Do not include any keys other than decision_type, tool_name, tool_payload, and reason. "
         "Prefer the active quest_context and storyline_context fields when choosing the next move. "
@@ -1219,6 +1317,12 @@ def call_routed_decider(state: HarnessState) -> dict[str, Any]:
         "storyline_context": storyline_context,
         "visible_npcs": visible_npcs,
         "connected_rooms": connected_rooms,
+        "social_progression": {
+            "policy_version": social_progression.get("policy_version"),
+            "room_id": social_progression.get("room_id"),
+            "lead_seek_counts": social_progression.get("lead_seek_counts", {}),
+            "exhausted_lead_sources": sorted(exhausted_lead_sources(snapshot)),
+        },
         "available_actions": available_actions,
         "available_action_contract": available_action_contract,
         "canonical_context": {
@@ -1429,6 +1533,13 @@ def node_decide(state: HarnessState) -> HarnessState:
         objective = current_objective.get("objective") if isinstance(current_objective.get("objective"), dict) else {}
         target_name = str(objective.get("target_display_name") or "Eldric").strip() or "Eldric"
         target_entity_instance_id = str(objective.get("target_entity_instance_id") or "npc_tavern_keeper").strip()
+        if is_actor_exhausted_for_lead_seek(snapshot, target_entity_instance_id):
+            next_state: HarnessState = dict(state)
+            next_state["decision"] = stamp_decision_metadata(
+                state,
+                build_non_stop_fallback_decision(state, snapshot, f"lead_source_exhausted:{target_entity_instance_id}")
+            )
+            return next_state
         next_state: HarnessState = dict(state)
         next_state["decision"] = stamp_decision_metadata(state, create_tool_decision(
             "talk",
@@ -1498,6 +1609,14 @@ def node_decide(state: HarnessState) -> HarnessState:
         return next_state
 
     if actor_talked_to_other_actor(state.get("last_result")) and not bool(state.get("gm_clue_requested")):
+        clue_target = str((state.get("last_result") or {}).get("target") or "").strip()
+        if clue_target != "" and is_actor_exhausted_for_lead_seek(snapshot, clue_target):
+            next_state = dict(state)
+            next_state["decision"] = stamp_decision_metadata(
+                state,
+                build_non_stop_fallback_decision(state, snapshot, f"lead_source_exhausted:{clue_target}")
+            )
+            return next_state
         next_state: HarnessState = dict(state)
         next_state["decision"] = stamp_decision_metadata(state, create_tool_decision(
             "talk",

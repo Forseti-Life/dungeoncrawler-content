@@ -219,6 +219,13 @@ class ActorActionAvailabilityService {
       $is_active_turn_actor,
       $actions_remaining
     );
+    $transition_option_count = (int) (($high_option_families['transition']['option_count'] ?? 0));
+    if ($transition_option_count <= 0) {
+      $available_actions = array_values(array_filter(
+        $available_actions,
+        static fn(string $action_id): bool => $action_id !== 'transition'
+      ));
+    }
     $action_contract = $this->buildActionContractFromAvailableActions(
       $available_actions,
       $effective_actor_id,
@@ -410,6 +417,7 @@ class ActorActionAvailabilityService {
     $consumables = $this->resolveActorConsumableOptions($state);
     $item_activations = $this->resolveActorItemActivationOptions($state);
     $hazard_actions = $this->resolveRoomHazardOptions($room);
+    $transition_options = $this->resolveTransitionOptions($game_state, $dungeon_data);
 
     return [
       'cast_spell' => [
@@ -451,6 +459,14 @@ class ActorActionAvailabilityService {
         'option_count' => count($hazard_actions),
         'is_action_currently_legal' => TRUE,
         'options' => $hazard_actions,
+      ],
+      'transition' => [
+        'family' => 'connected_rooms',
+        'requires_turn' => FALSE,
+        'requires_llm_interpretation' => FALSE,
+        'option_count' => count($transition_options),
+        'is_action_currently_legal' => count($transition_options) > 0,
+        'options' => $transition_options,
       ],
     ];
   }
@@ -723,6 +739,59 @@ class ActorActionAvailabilityService {
       }
     }
     return array_values($hazards);
+  }
+
+  /**
+   * Resolve room transition options from passable connections in active context.
+   *
+   * @return array<int, array{id: string, label: string, action_cost: int, targeting: string, metadata: array<string,mixed>}>
+   *   Canonical connected-room transition options.
+   */
+  protected function resolveTransitionOptions(array $game_state, array $dungeon_data): array {
+    $active_room_id = trim((string) ($game_state['encounter_context']['room_id'] ?? $dungeon_data['active_room_id'] ?? ''));
+    if ($active_room_id === '') {
+      return [];
+    }
+
+    $options = [];
+    foreach ((array) ($dungeon_data['connections'] ?? []) as $connection) {
+      if (!is_array($connection) || empty($connection['is_passable'])) {
+        continue;
+      }
+      $from_room = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? $connection['from']['room_id'] ?? ''));
+      $to_room = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? $connection['to']['room_id'] ?? ''));
+      $target_room_id = '';
+      if ($from_room === $active_room_id && $to_room !== '') {
+        $target_room_id = $to_room;
+      }
+      elseif ($to_room === $active_room_id && $from_room !== '') {
+        $target_room_id = $from_room;
+      }
+      if ($target_room_id === '' || $target_room_id === $active_room_id) {
+        continue;
+      }
+      if (array_key_exists($target_room_id, $options)) {
+        continue;
+      }
+
+      $room = $this->resolveRoomById($target_room_id, $dungeon_data);
+      $label = trim((string) ($room['name'] ?? ''));
+      if ($label === '') {
+        $label = $this->humanizeOptionId($target_room_id);
+      }
+      $options[$target_room_id] = [
+        'id' => $target_room_id,
+        'label' => $label,
+        'action_cost' => 0,
+        'targeting' => 'connected_room',
+        'metadata' => [
+          'room_id' => $target_room_id,
+          'connection_id' => trim((string) ($connection['connection_id'] ?? '')),
+        ],
+      ];
+    }
+
+    return array_values($options);
   }
 
   /**

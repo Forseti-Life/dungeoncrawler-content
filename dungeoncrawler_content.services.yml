@@ -254,20 +254,41 @@ services:
     arguments:
       - '@database'
 
+  dungeoncrawler_content.campaign_runtime_mutation_service:
+    class: Drupal\dungeoncrawler_content\Service\CampaignRuntimeMutationService
+    arguments:
+      - '@dungeoncrawler_content.campaign_runtime_state_store'
+      - '@logger.factory'
+
   dungeoncrawler_content.actor_runtime_state_store:
     class: Drupal\dungeoncrawler_content\Service\ActorRuntimeStateStore
     arguments:
       - '@database'
+
+  dungeoncrawler_content.actor_runtime_mutation_service:
+    class: Drupal\dungeoncrawler_content\Service\ActorRuntimeMutationService
+    arguments:
+      - '@dungeoncrawler_content.actor_runtime_state_store'
 
   dungeoncrawler_content.room_runtime_state_store:
     class: Drupal\dungeoncrawler_content\Service\RoomRuntimeStateStore
     arguments:
       - '@database'
 
+  dungeoncrawler_content.room_runtime_mutation_service:
+    class: Drupal\dungeoncrawler_content\Service\RoomRuntimeMutationService
+    arguments:
+      - '@dungeoncrawler_content.room_runtime_state_store'
+
   dungeoncrawler_content.connection_runtime_state_store:
     class: Drupal\dungeoncrawler_content\Service\ConnectionRuntimeStateStore
     arguments:
       - '@database'
+
+  dungeoncrawler_content.connection_runtime_mutation_service:
+    class: Drupal\dungeoncrawler_content\Service\ConnectionRuntimeMutationService
+    arguments:
+      - '@dungeoncrawler_content.connection_runtime_state_store'
 
   dungeoncrawler_content.roadmap_pipeline_status_resolver:
     class: Drupal\dungeoncrawler_content\Service\RoadmapPipelineStatusResolver
@@ -900,6 +921,7 @@ services:
       - '@?dungeoncrawler_content.actor_action_availability'
       - '@?dungeoncrawler_content.actor_decision_contract'
       - '@?dungeoncrawler_content.actor_decision_validator'
+      - '@?dungeoncrawler_content.runtime_graph_assembler'
 
   dungeoncrawler_content.campaign_initialization:
     class: Drupal\dungeoncrawler_content\Service\CampaignInitializationService
@@ -1169,6 +1191,7 @@ services:
     class: Drupal\dungeoncrawler_content\Service\GameEventLogger
     arguments:
       - '@logger.factory'
+      - '@database'
 
   dungeoncrawler_content.exploration_phase_handler:
     class: Drupal\dungeoncrawler_content\Service\ExplorationPhaseHandler
@@ -1251,9 +1274,13 @@ services:
       - '@dungeoncrawler_content.dungeon_payload_state_persistence'
       - '@dungeoncrawler_content.runtime_graph_assembler'
       - '@dungeoncrawler_content.campaign_runtime_state_store'
+      - '@dungeoncrawler_content.campaign_runtime_mutation_service'
       - '@dungeoncrawler_content.actor_runtime_state_store'
       - '@dungeoncrawler_content.room_runtime_state_store'
       - '@dungeoncrawler_content.connection_runtime_state_store'
+      - '@dungeoncrawler_content.actor_runtime_mutation_service'
+      - '@dungeoncrawler_content.room_runtime_mutation_service'
+      - '@dungeoncrawler_content.connection_runtime_mutation_service'
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.text_to_speech_integration'
       - '@file_url_generator'

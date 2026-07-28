@@ -1013,7 +1013,16 @@ export class EncounterSystem {
   }
 
   _refreshActionRail() {
-    this.shell.panels.actionRail?.refreshActionRail?.();
+    const actionRail = this.shell?.panels?.actionRail || null;
+    if (typeof actionRail?.invalidateActionRail === 'function') {
+      actionRail.invalidateActionRail(['turn', 'combat', 'header']);
+      return;
+    }
+    if (typeof actionRail?.queueActionRailRefresh === 'function') {
+      actionRail.queueActionRailRefresh();
+      return;
+    }
+    actionRail?.refreshActionRail?.();
   }
 
   _appendChatLine(speaker, message, type = 'system') {

@@ -1,0 +1,297 @@
+{
+  "timestamp": "2026-07-27T14:24:00.042482Z",
+  "correlation_id": "langgraph-harness-20260727141906807244",
+  "campaign_id": 700,
+  "character_name": "Burasco",
+  "character_id": 4154,
+  "actor_id": "pc-700-1033",
+  "room_id": "tavern_entrance",
+  "stop_reason": "scripted_target_state_missing_quests:collect_spellbooks",
+  "decision": {
+    "decision_type": "tool",
+    "tool_name": "talk",
+    "tool_payload": {
+      "type": "talk",
+      "actor": "pc-700-1033",
+      "target": "npc_tavern_keeper",
+      "params": {
+        "message": "Eldric, I heard you know about work or danger in this tavern. Do you have a storyline lead for me to follow?",
+        "objective_id": "talk_to_eldric_for_storyline",
+        "character_id": 4154
+      }
+    },
+    "reason": "deterministic_default_storyline_seed",
+    "context_id": "langgraph-harness-20260727141906807244:turn-11",
+    "runtime_state_version": 5,
+    "decision_id": "langgraph-harness-20260727141906807244:turn-12:talk"
+  },
+  "last_result_summary": {
+    "success": true,
+    "error": null
+  },
+  "canonical_context": {
+    "context_id": "langgraph-harness-20260727141906807244:turn-11",
+    "runtime_state_version": 5,
+    "actor_state_version": 5,
+    "quest_state_version": 5,
+    "available_tools": [
+      "choose_not_to_act",
+      "delay",
+      "end_turn",
+      "interact",
+      "search",
+      "talk",
+      "transition"
+    ],
+    "active_room_id": "tavern_entrance"
+  },
+  "active_objective": {
+    "quest_id": "automation_default_storyline",
+    "quest_name": "Automation Storyline Bootstrap",
+    "source_template_id": "",
+    "storyline_id": "",
+    "current_phase": 0,
+    "objective_id": "talk_to_eldric_for_storyline",
+    "type": "interact",
+    "objective_action": "interact",
+    "description": "No open objectives remain; talk to Eldric to request a new storyline lead.",
+    "next_step": "Talk to Eldric in the current room and ask for a storyline lead.",
+    "target": "tavern_keeper",
+    "location_id": "tavern_entrance",
+    "target_entity_instance_id": "npc_tavern_keeper",
+    "target_display_name": "Eldric"
+  },
+  "quest_context": [
+    {
+      "quest_id": "follow_the_whispers_700_6a676975171c5",
+      "quest_name": "Follow the Whispers",
+      "source_template_id": "follow_the_whispers",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "completed",
+      "current_phase": 3,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "gather_whisper_network",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Question Gribbles about current whisper traffic.",
+          "next_step": "Speak with Gribbles and gather a rumor lead chain.",
+          "target": "gribbles_rindsworth",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "trace_arcane_route",
+          "type": "explore",
+          "objective_action": "explore",
+          "description": "Trace where the contraband route leaves the tavern district.",
+          "next_step": "Travel to Absalom Streets and verify the suspected route.",
+          "target": "",
+          "location_id": "tpl_room_absalom_streets",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "report_whisper_route",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Report the identified route to Eldric.",
+          "next_step": "Return to Eldric and provide the route details.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "recover_blackmail_ledger_700_6a67697417e8b",
+      "quest_name": "Recover Blackmail Ledger",
+      "source_template_id": "recover_blackmail_ledger",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "completed",
+      "current_phase": 3,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "locate_ledger_cache",
+          "type": "explore",
+          "objective_action": "explore",
+          "description": "Search the tavern for the hidden ledger cache.",
+          "next_step": "Inspect the tavern and identify where the ledger was stashed.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "recover_ledger_item",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Recover the concealed blackmail ledger.",
+          "next_step": "Retrieve the blackmail ledger from the discovered cache.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_ledger_to_gribbles",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Return the ledger to Gribbles.",
+          "next_step": "Hand the recovered ledger to Gribbles.",
+          "target": "gribbles_rindsworth",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "stabilize_arcane_resonance_700_6a6769731f8a0",
+      "quest_name": "Stabilize Arcane Resonance",
+      "source_template_id": "stabilize_arcane_resonance",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "completed",
+      "current_phase": 2,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_resonance_samples",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Collect three resonance samples from the tavern.",
+          "next_step": "Search the tavern and collect 3 resonance samples.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "stabilize_codex_with_marta",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Work with Marta to stabilize the codex resonance.",
+          "next_step": "Bring the samples to Marta and complete the stabilization ritual.",
+          "target": "scholar_npc",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "gather_torch_components_700_6a676926d6722",
+      "quest_name": "Gather Torch Rod for the Tavern",
+      "source_template_id": "gather_torch_components",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "completed",
+      "current_phase": 2,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_torches",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Gather Torch Rod scattered around the tavern",
+          "next_step": "Search the tavern common room and pick up each Torch Rod quest item.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_torches",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Bring the torch components to the tavern keeper",
+          "next_step": "Speak to the tavern keeper after collecting the torch components.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "gather_wine_700_6a676926bea10",
+      "quest_name": "Collect Wine Bottle from the Tavern",
+      "source_template_id": "gather_wine",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "completed",
+      "current_phase": 2,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "collect_wine",
+          "type": "collect",
+          "objective_action": "collect",
+          "description": "Collect Wine Bottle from around the tavern",
+          "next_step": "Search the tavern common room and pick up each Wine Bottle quest item.",
+          "target": "",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "return_wine",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Return the wine to the tavern keeper",
+          "next_step": "Speak to the tavern keeper after collecting the wine.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    },
+    {
+      "quest_id": "tavern_storyline_leads_700_6a6768dcc3f4d",
+      "quest_name": "Gather Storyline Leads in the Tavern",
+      "source_template_id": "tavern_storyline_leads",
+      "storyline_id": "introduction-to-game-mechanics",
+      "status": "completed",
+      "current_phase": 1,
+      "location_id": "tavern_entrance",
+      "current_objectives": [
+        {
+          "objective_id": "speak_to_eldric",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Speak to Eldric and gather his storyline lead.",
+          "next_step": "Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
+          "target": "tavern_keeper",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        },
+        {
+          "objective_id": "speak_to_marta",
+          "type": "interact",
+          "objective_action": "interact",
+          "description": "Speak to Marta the Scholar and gather her storyline lead.",
+          "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
+          "target": "scholar_npc",
+          "location_id": "tavern_entrance",
+          "target_entity_instance_id": "",
+          "target_display_name": ""
+        }
+      ]
+    }
+  ],
+  "storyline_context": [],
+  "available_actions": [
+    "choose_not_to_act",
+    "delay",
+    "end_turn",
+    "interact",
+    "search",
+    "talk",
+    "transition"
+  ],
+  "active_quest_count": 0
+}

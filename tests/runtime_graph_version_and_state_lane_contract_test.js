@@ -92,6 +92,23 @@ const path = require('path');
   );
 
   assert(
+    gameCoordinatorSource.includes('ensurePersistedRuntimeStateMatches(int $campaign_id, array $game_state, ?string $active_room_id = NULL): void')
+      && gameCoordinatorSource.includes('$this->ensurePersistedRuntimeStateMatches($campaign_id, $game_state, (string) ($dungeon_data[\'active_room_id\'] ?? \'\'));')
+      && gameCoordinatorSource.includes('Coordinator runtime-state mismatch detected after persist; repairing slice write for campaign {campaign_id}'),
+    'GameCoordinatorService should verify and repair campaign runtime-state slice persistence after authoritative writes',
+  );
+
+  const runtimeStateStoreSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'Service', 'CampaignRuntimeStateStore.php'),
+    'utf8'
+  );
+  assert(
+    runtimeStateStoreSource.includes('refusing stale downgrade for campaign %d')
+      && runtimeStateStoreSource.includes('refusing conflicting same-version room rewrite for campaign %d'),
+    'CampaignRuntimeStateStore should reject stale or conflicting monotonic runtime-state rewrites',
+  );
+
+  assert(
     explorationSource.includes('DungeonPayloadStatePersistenceService')
       && explorationSource.includes("$updated = $this->dungeonPayloadStatePersistence->mutateByDungeonId("),
     'ExplorationPhaseHandler should route mutable snapshot writes through DungeonPayloadStatePersistenceService',

@@ -22,6 +22,7 @@ use Psr\Log\LoggerInterface;
 class NavigationRuntimeService {
 
   protected const NAVIGATION_ACTION_SCHEMA_VERSION = 'navigation-action-v2';
+  protected const NAVIGATION_TIMING_SLOW_THRESHOLD_MS = 500;
   protected Connection $database;
   protected MapGeneratorService $mapGenerator;
   protected ?ExitConnectorAuthorityService $connectorDefinitionService;
@@ -156,6 +157,7 @@ class NavigationRuntimeService {
     array $dungeon_data,
     string $gm_narrative
   ): ?array {
+    $timing_started_at = microtime(TRUE);
     $this->logger->notice('Navigation handoff enter: campaign=@campaign_id origin_room_id=@origin_room_id action_count=@action_count gm_narrative_chars=@gm_narrative_chars', [
       '@campaign_id' => $campaign_id,
       '@origin_room_id' => $origin_room_id,
@@ -172,6 +174,7 @@ class NavigationRuntimeService {
       return NULL;
     }
 
+    $normalize_payload_started_at = microtime(TRUE);
     $nav = reset($nav_actions);
     $nav_payload = $this->buildCanonicalNavigationActionPayload(
       is_array($nav) ? $nav : [],
@@ -179,6 +182,7 @@ class NavigationRuntimeService {
       $origin_room_id
     );
     $this->validateNavigationActionPayload($nav_payload);
+    $normalize_payload_ms = (microtime(TRUE) - $normalize_payload_started_at) * 1000.0;
     $details = $nav_payload['details'];
     $destination = $details['destination'];
     $destination_desc = $details['destination_description'];
@@ -201,12 +205,14 @@ class NavigationRuntimeService {
       'destination_description' => $destination_desc,
     ];
 
+    $generate_setting_started_at = microtime(TRUE);
     $result = $this->mapGenerator->generateSetting(
       $campaign_id,
       $destination,
       $origin_room_id,
       $narrative_context
     );
+    $generate_setting_ms = (microtime(TRUE) - $generate_setting_started_at) * 1000.0;
 
     $this->logger->info('Navigation triggered: @dest → room @name (index @idx, @hexes hexes)', [
       '@dest' => $destination,
@@ -241,7 +247,26 @@ class NavigationRuntimeService {
       'template_id' => $result['template_id'] ?? NULL,
     ];
 
+    $build_client_payload_started_at = microtime(TRUE);
     $client_payload = $this->mapGenerator->buildClientNavigationPayload($navigation_result);
+    $build_client_payload_ms = (microtime(TRUE) - $build_client_payload_started_at) * 1000.0;
+    $total_ms = (microtime(TRUE) - $timing_started_at) * 1000.0;
+
+    if ($total_ms >= self::NAVIGATION_TIMING_SLOW_THRESHOLD_MS) {
+      $this->logger->notice(
+        'Navigation timing: handleNavigationActions slow (campaign=@campaign_id, origin_room_id=@origin_room_id, destination=@destination, total_ms=@total_ms, normalize_ms=@normalize_ms, generate_setting_ms=@generate_setting_ms, build_client_payload_ms=@build_client_payload_ms)',
+        [
+          '@campaign_id' => $campaign_id,
+          '@origin_room_id' => $origin_room_id,
+          '@destination' => $destination,
+          '@total_ms' => round($total_ms, 2),
+          '@normalize_ms' => round($normalize_payload_ms, 2),
+          '@generate_setting_ms' => round($generate_setting_ms, 2),
+          '@build_client_payload_ms' => round($build_client_payload_ms, 2),
+        ]
+      );
+    }
+
     return $client_payload + [
       'new_room' => $navigation_result['new_room'],
       'new_room_index' => $navigation_result['new_room_index'],
@@ -414,6 +439,7 @@ class NavigationRuntimeService {
     string $target_room_id,
     array $options = []
   ): bool {
+    $timing_started_at = microtime(TRUE);
     $target_room_id = trim($target_room_id);
     if ($campaign_id <= 0 || $target_room_id === '') {
       return FALSE;
@@ -422,11 +448,14 @@ class NavigationRuntimeService {
       return TRUE;
     }
 
+    $load_row_started_at = microtime(TRUE);
     $canonical_row = $this->loadCanonicalRoomRow($target_room_id);
+    $load_row_ms = (microtime(TRUE) - $load_row_started_at) * 1000.0;
     if ($canonical_row === NULL) {
       return FALSE;
     }
 
+    $decode_payload_started_at = microtime(TRUE);
     $layout_data = json_decode((string) ($canonical_row['layout_data'] ?? '{}'), TRUE);
     if (!is_array($layout_data)) {
       $layout_data = [];
@@ -439,6 +468,7 @@ class NavigationRuntimeService {
     if (!is_array($environment_tags)) {
       $environment_tags = [];
     }
+    $decode_payload_ms = (microtime(TRUE) - $decode_payload_started_at) * 1000.0;
 
     $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
     if ($hexes === []) {
@@ -455,15 +485,19 @@ class NavigationRuntimeService {
       'room_id' => $target_room_id,
       'hexes' => $hexes,
     ];
+    $resolve_h3_started_at = microtime(TRUE);
     $room_for_h3 = $this->mapGenerator->requireRoomHexH3Indexes($room_for_h3, 'canonical template room materialization');
     $hexes = is_array($room_for_h3['hexes'] ?? NULL) ? $room_for_h3['hexes'] : $hexes;
+    $resolve_h3_ms = (microtime(TRUE) - $resolve_h3_started_at) * 1000.0;
 
+    $connector_discovery_started_at = microtime(TRUE);
     $existing_room_ids = $this->collectCampaignAuthorityRoomIds($campaign_id);
     foreach ($this->collectDungeonPayloadRoomIds($dungeon_data) as $room_id => $_) {
       $existing_room_ids[$room_id] = TRUE;
     }
     unset($existing_room_ids[$target_room_id]);
     $connector_rows = $this->loadCanonicalConnectorsLinkingRoomToExistingDungeonRooms($target_room_id, array_keys($existing_room_ids));
+    $connector_discovery_ms = (microtime(TRUE) - $connector_discovery_started_at) * 1000.0;
     $origin_room_id = trim((string) ($options['origin_room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
     $origin_can_bridge = $origin_room_id !== '' && isset($existing_room_ids[$origin_room_id]);
     $allow_disconnected_materialization = !empty($options['allow_disconnected_materialization']);
@@ -522,6 +556,7 @@ class NavigationRuntimeService {
       'entities' => NULL,
     ];
 
+    $append_payload_started_at = microtime(TRUE);
     if (!isset($dungeon_data['rooms']) || !is_array($dungeon_data['rooms'])) {
       $dungeon_data['rooms'] = [];
     }
@@ -537,7 +572,9 @@ class NavigationRuntimeService {
       $dungeon_data['hex_map']['metadata'] = [];
     }
     $dungeon_data['hex_map']['metadata']['total_rooms'] = count($dungeon_data['hex_map']['rooms']);
+    $append_payload_ms = (microtime(TRUE) - $append_payload_started_at) * 1000.0;
 
+    $persist_connector_started_at = microtime(TRUE);
     $this->appendCanonicalConnectorRowsToDungeonPayload($dungeon_data, $connector_rows);
     if ($connector_rows !== []) {
       if ($dungeon_id === '') {
@@ -554,7 +591,9 @@ class NavigationRuntimeService {
         $this->persistCanonicalConnectorForCampaign($campaign_id, $dungeon_id, $connector_row);
       }
     }
+    $persist_connector_ms = (microtime(TRUE) - $persist_connector_started_at) * 1000.0;
 
+    $transition_bridge_started_at = microtime(TRUE);
     if ($origin_room_id !== '') {
       $this->appendTransitionConnection(
         $dungeon_data,
@@ -564,6 +603,7 @@ class NavigationRuntimeService {
         is_array($options['target_hex'] ?? NULL) ? $options['target_hex'] : NULL
       );
     }
+    $transition_bridge_ms = (microtime(TRUE) - $transition_bridge_started_at) * 1000.0;
 
     $layout_record = [
       'hexes' => $hexes,
@@ -583,6 +623,26 @@ class NavigationRuntimeService {
       $environment_tags,
       (string) $room_payload['source_room_id']
     );
+
+    $total_ms = (microtime(TRUE) - $timing_started_at) * 1000.0;
+    if ($total_ms >= self::NAVIGATION_TIMING_SLOW_THRESHOLD_MS) {
+      $this->logger->notice(
+        'Navigation timing: materializeCanonicalRoomForCampaign slow (campaign=@campaign_id, room_id=@room_id, total_ms=@total_ms, load_row_ms=@load_row_ms, decode_ms=@decode_ms, h3_ms=@h3_ms, connector_discovery_ms=@connector_discovery_ms, append_payload_ms=@append_payload_ms, persist_connector_ms=@persist_connector_ms, transition_bridge_ms=@transition_bridge_ms, connector_count=@connector_count)',
+        [
+          '@campaign_id' => $campaign_id,
+          '@room_id' => $target_room_id,
+          '@total_ms' => round($total_ms, 2),
+          '@load_row_ms' => round($load_row_ms, 2),
+          '@decode_ms' => round($decode_payload_ms, 2),
+          '@h3_ms' => round($resolve_h3_ms, 2),
+          '@connector_discovery_ms' => round($connector_discovery_ms, 2),
+          '@append_payload_ms' => round($append_payload_ms, 2),
+          '@persist_connector_ms' => round($persist_connector_ms, 2),
+          '@transition_bridge_ms' => round($transition_bridge_ms, 2),
+          '@connector_count' => count($connector_rows),
+        ]
+      );
+    }
 
     return TRUE;
   }

@@ -301,11 +301,17 @@ export class GameCoordinator {
       return;
     }
 
-    if (result.game_state) {
-      this.phaseManager.applyServerState(this._buildStatePayloadFromResponse(result), result.available_actions, result.action_contract || null);
+    const normalizedResult = this._normalizeAuthoritativeResult(result);
+
+    if (normalizedResult.game_state) {
+      this.phaseManager.applyServerState(
+        this._buildStatePayloadFromResponse(normalizedResult),
+        normalizedResult.available_actions,
+        normalizedResult.action_contract || null
+      );
       const cursor = Number(
-        result.game_state?.event_log_cursor
-        ?? result.event_log_cursor
+        normalizedResult.game_state?.event_log_cursor
+        ?? normalizedResult.event_log_cursor
         ?? this.eventCursor
         ?? 0
       );
@@ -314,9 +320,70 @@ export class GameCoordinator {
       }
     }
 
-    if (Array.isArray(result.events) && result.events.length > 0) {
-      this._processNewEvents(result.events);
+    if (Array.isArray(normalizedResult.events) && normalizedResult.events.length > 0) {
+      this._processNewEvents(normalizedResult.events);
     }
+  }
+
+  /**
+   * Normalize coordinator-compatible server payloads.
+   *
+   * Accepts runtime-snapshot and combat-transition payloads and projects them
+   * into the canonical { game_state, available_actions, action_contract } shape
+   * consumed by the phase manager.
+   *
+   * @param {object} response
+   * @returns {object}
+   * @private
+   */
+  _normalizeAuthoritativeResult(response = {}) {
+    if (!response || typeof response !== 'object') {
+      return {};
+    }
+    if (response.game_state && typeof response.game_state === 'object') {
+      return response;
+    }
+
+    const runtimeSnapshot = response.runtime_snapshot && typeof response.runtime_snapshot === 'object'
+      ? response.runtime_snapshot
+      : null;
+    const combatTransition = response.combat_transition && typeof response.combat_transition === 'object'
+      ? response.combat_transition
+      : null;
+    const projected = runtimeSnapshot || combatTransition;
+    if (!projected || !projected.game_state || typeof projected.game_state !== 'object') {
+      return response;
+    }
+
+    return {
+      ...response,
+      game_state: projected.game_state,
+      available_actions: response.available_actions ?? runtimeSnapshot?.available_actions ?? null,
+      action_contract: response.action_contract ?? runtimeSnapshot?.action_contract ?? null,
+      active_room_id: response.active_room_id
+        ?? runtimeSnapshot?.active_room_id
+        ?? runtimeSnapshot?.active_room?.room_id
+        ?? projected?.game_state?.encounter_context?.room_id
+        ?? null,
+      encounter_id: response.encounter_id
+        ?? runtimeSnapshot?.encounter_id
+        ?? projected?.game_state?.encounter_id
+        ?? null,
+      round: response.round
+        ?? runtimeSnapshot?.round
+        ?? projected?.game_state?.round
+        ?? null,
+      turn: response.turn
+        ?? runtimeSnapshot?.turn
+        ?? projected?.game_state?.turn
+        ?? null,
+      legal_intents: response.legal_intents
+        ?? runtimeSnapshot?.legal_intents
+        ?? null,
+      event_log_cursor: response.event_log_cursor
+        ?? projected?.game_state?.event_log_cursor
+        ?? null,
+    };
   }
 
   /**
@@ -332,10 +399,13 @@ export class GameCoordinator {
     }
     return {
       ...response.game_state,
+      state_version: response.state_version ?? response.game_state.state_version,
+      phase: response.phase ?? response.game_state.phase,
       active_room_id: response.active_room_id ?? response.game_state.active_room_id,
       encounter_id: response.encounter_id ?? response.game_state.encounter_id,
       round: response.round ?? response.game_state.round,
       turn: response.turn ?? response.game_state.turn,
+      event_log_cursor: response.event_log_cursor ?? response.game_state.event_log_cursor,
       legal_intents: response.legal_intents ?? response.game_state.legal_intents,
     };
   }

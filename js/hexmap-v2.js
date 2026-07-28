@@ -15,7 +15,7 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260724-v2-nav-bundle-error-1';
+import { GameShell } from './v2/GameShell.js?v=20260728-v2-nav-room-scope-1';
 
 (function (Drupal, drupalSettings, once) {
   'use strict';

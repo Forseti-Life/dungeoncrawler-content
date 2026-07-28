@@ -301,6 +301,55 @@ class RoomChatController extends ControllerBase {
   }
 
   /**
+   * Trigger one asynchronous room-entry NPC acknowledgement.
+   *
+   * POST /api/campaign/{campaign_id}/room/{room_id}/chat/entry-acknowledgement
+   */
+  public function postRoomEntryAcknowledgement(int $campaign_id, string $room_id, Request $request): JsonResponse {
+    try {
+      $access_denied = $this->getCampaignAccessDeniedResponse($campaign_id);
+      if ($access_denied !== NULL) {
+        return $access_denied;
+      }
+
+      $payload = [];
+      $content = trim((string) $request->getContent());
+      if ($content !== '') {
+        $payload = $this->decodeJsonPayload($request);
+      }
+
+      $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : NULL;
+      $map_id = trim((string) ($payload['map_id'] ?? ''));
+      $transition_id = trim((string) ($payload['transition_id'] ?? ''));
+
+      $result = $this->chatService->generateRoomEntryAcknowledgement(
+        $campaign_id,
+        $room_id,
+        $character_id,
+        $map_id !== '' ? $map_id : NULL,
+        $transition_id !== '' ? $transition_id : NULL
+      );
+
+      return $this->responseMapper->buildSuccessDataResponse($result);
+    }
+    catch (\InvalidArgumentException $e) {
+      return $this->responseMapper->buildInvalidRequestResponse($e->getMessage(), (int) $e->getCode() ?: 400);
+    }
+    catch (\Throwable $e) {
+      $this->getLogger('dungeoncrawler_chat')->error(
+        'Room entry acknowledgement failed: campaign={campaign_id} room={room_id} exception={exception} message={message}',
+        [
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'exception' => get_class($e),
+          'message' => $e->getMessage(),
+        ]
+      );
+      return $this->responseMapper->buildUnhandledErrorResponse();
+    }
+  }
+
+  /**
    * Normalize post-chat request payload to canonical context.
    *
    * @param array<string,mixed> $payload

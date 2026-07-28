@@ -1,0 +1,19 @@
+{
+  "generated_at": "2026-07-27T15:10:33.438494Z",
+  "campaign_id": 704,
+  "chat_session_count": 14,
+  "chat_message_count": 346,
+  "quest_count": 8,
+  "quest_progress_count": 7,
+  "quest_log_count": 38,
+  "storyline_count": 4,
+  "storyline_log_count": 18,
+  "storyline_link_count": 52,
+  "watchdog_campaign_count": 309,
+  "quest_status_counts": {
+    "offered": 1,
+    "completed": 7
+  },
+  "active_quests_missing_current_objectives": 0,
+  "duplicate_started_events": []
+}

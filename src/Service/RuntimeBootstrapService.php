@@ -80,6 +80,12 @@ class RuntimeBootstrapService {
         $runtime_character_id
       ));
     }
+    if (
+      $phase === self::INIT_PHASE_RUNTIME_READY
+      && $this->hasSatisfiedRuntimeStores($campaign_id, $instance_id)
+    ) {
+      return;
+    }
 
     $dungeon = $this->loadAuthoritativeDungeonRowForBootstrap($campaign_id, $campaign_data, $runtime_row);
     $dungeon_data = json_decode((string) ($dungeon['dungeon_data'] ?? '{}'), TRUE);
@@ -96,6 +102,19 @@ class RuntimeBootstrapService {
         $campaign_id
       ));
     }
+    $existing_runtime_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
+    $runtime_active_room_id = trim((string) (
+      $existing_runtime_state['active_room_id']
+      ?? $existing_runtime_state['encounter_context']['room_id']
+      ?? ''
+    ));
+    if (is_array($existing_runtime_state)) {
+      $dungeon_data['game_state'] = $existing_runtime_state;
+      if ($runtime_active_room_id !== '') {
+        $dungeon_data['active_room_id'] = $runtime_active_room_id;
+        $dungeon_data['current_room_id'] = $runtime_active_room_id;
+      }
+    }
     $dungeon_data = $this->runtimeGraphAssembler->buildRuntimeGraph(
       $campaign_id,
       $dungeon_id,
@@ -111,7 +130,12 @@ class RuntimeBootstrapService {
 
     $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
     if ($active_room_id === '') {
-      $active_room_id = trim((string) ($runtime_row['last_room_id'] ?? ''));
+      if ($runtime_active_room_id !== '') {
+        $active_room_id = $runtime_active_room_id;
+      }
+      if ($active_room_id === '') {
+        $active_room_id = trim((string) ($runtime_row['last_room_id'] ?? ''));
+      }
       if ($active_room_id === '') {
         $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
         foreach ($rooms as $room) {
@@ -188,6 +212,47 @@ class RuntimeBootstrapService {
       'campaign_id' => $campaign_id,
       'character_id' => $runtime_character_id,
     ]);
+  }
+
+  /**
+   * Determine whether runtime state stores already satisfy action-lane needs.
+   */
+  protected function hasSatisfiedRuntimeStores(int $campaign_id, string $instance_id): bool {
+    $instance_id = trim($instance_id);
+    if ($campaign_id <= 0 || $instance_id === '') {
+      return FALSE;
+    }
+
+    $runtime_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
+    if (!is_array($runtime_state)) {
+      return FALSE;
+    }
+    $active_room_id = trim((string) (
+      $runtime_state['active_room_id']
+      ?? $runtime_state['encounter_context']['room_id']
+      ?? ''
+    ));
+    if ($active_room_id === '') {
+      return FALSE;
+    }
+
+    foreach ($this->actorRuntimeStateStore->loadActorEntities($campaign_id) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_instance_id = trim((string) (
+        $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? ''
+      ));
+      if ($entity_instance_id !== $instance_id) {
+        continue;
+      }
+      return trim((string) ($entity['placement']['room_id'] ?? '')) === $active_room_id;
+    }
+
+    return FALSE;
   }
 
   /**

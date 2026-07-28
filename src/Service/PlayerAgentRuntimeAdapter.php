@@ -44,14 +44,6 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
       ];
     }
 
-    $dungeon_data = $this->loadDungeonData($campaign_id);
-    if ($dungeon_data === NULL) {
-      return [
-        'success' => FALSE,
-        'error' => 'Failed to load dungeon runtime payload.',
-      ];
-    }
-
     $event_cursor = (int) ($run_state['event_cursor'] ?? 0);
     $events_payload = $this->gameCoordinator->getEventsSince($campaign_id, $event_cursor);
     $new_events = !empty($events_payload['success']) && is_array($events_payload['events'] ?? NULL)
@@ -62,18 +54,21 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
       : $event_cursor;
 
     $game_state = is_array($state_payload['game_state'] ?? NULL) ? $state_payload['game_state'] : [];
-    $active_room_id = (string) ($state_payload['active_room_id'] ?? $dungeon_data['active_room_id'] ?? '');
-    $active_room = $this->findRoom($dungeon_data, $active_room_id);
-    $visible_entities = $this->findRoomEntities($dungeon_data, $active_room_id);
-    $actor_entity = $this->findEntity($dungeon_data, $actor_id);
-
-    $action_availability = $this->gameCoordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
-    $available_actions = is_array($action_availability['available_actions'] ?? NULL)
-      ? $action_availability['available_actions']
-      : $this->gameCoordinator->getAvailableActionsForActor($campaign_id, $actor_id);
-    $action_contract = is_array($action_availability['action_contract'] ?? NULL)
-      ? $action_availability['action_contract']
-      : NULL;
+    $active_room_id = (string) ($state_payload['active_room_id'] ?? '');
+    $active_room = is_array($state_payload['active_room'] ?? NULL) ? $state_payload['active_room'] : NULL;
+    $visible_entities = is_array($state_payload['visible_entities'] ?? NULL) ? $state_payload['visible_entities'] : [];
+    $actor_entity = is_array($state_payload['actor_entity'] ?? NULL) ? $state_payload['actor_entity'] : NULL;
+    $connected_rooms = is_array($state_payload['connected_rooms'] ?? NULL) ? $state_payload['connected_rooms'] : [];
+    $hostile_targets = is_array($state_payload['hostile_targets'] ?? NULL) ? $state_payload['hostile_targets'] : [];
+    $available_actions = is_array($state_payload['available_actions'] ?? NULL) ? $state_payload['available_actions'] : [];
+    $action_contract = is_array($state_payload['action_contract'] ?? NULL) ? $state_payload['action_contract'] : NULL;
+    $social_progression = is_array($state_payload['social_progression'] ?? NULL) ? $state_payload['social_progression'] : [];
+    $last_encounter = $state_payload['last_encounter'] ?? ($game_state['last_encounter'] ?? NULL);
+    $visible_npcs = is_array($state_payload['visible_npcs'] ?? NULL)
+      ? $state_payload['visible_npcs']
+      : array_values(array_filter($visible_entities, function (array $entity): bool {
+        return strtolower((string) ($entity['entity_type'] ?? '')) === 'npc';
+      }));
 
     return [
       'success' => TRUE,
@@ -88,14 +83,13 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
       'active_room' => $active_room,
       'actor_entity' => $actor_entity,
       'visible_entities' => $visible_entities,
-      'visible_npcs' => array_values(array_filter($visible_entities, function (array $entity): bool {
-        return strtolower((string) ($entity['entity_type'] ?? '')) === 'npc';
-      })),
-      'connected_rooms' => $this->findConnectedRooms($dungeon_data, $active_room_id),
-      'hostile_targets' => $this->findHostileTargets($game_state, $actor_id),
+      'visible_npcs' => $visible_npcs,
+      'connected_rooms' => $connected_rooms,
+      'hostile_targets' => $hostile_targets,
       'available_actions' => $available_actions,
       'action_contract' => $action_contract,
-      'last_encounter' => $game_state['last_encounter'] ?? NULL,
+      'social_progression' => $social_progression,
+      'last_encounter' => $last_encounter,
     ];
   }
 
@@ -118,164 +112,6 @@ class PlayerAgentRuntimeAdapter implements PlayerAgentRuntimeAdapterInterface {
       }
     }
     return $this->gameCoordinator->processAction($campaign_id, $intent);
-  }
-
-  /**
-   * Load the dungeon payload for a campaign.
-   */
-  protected function loadDungeonData(int $campaign_id): ?array {
-    $row = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->orderBy('id', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
-
-    if (!$row) {
-      return NULL;
-    }
-
-    $decoded = json_decode($row, TRUE) ?: NULL;
-    if (!is_array($decoded)) {
-      return NULL;
-    }
-    $decoded['campaign_id'] = $campaign_id;
-
-    return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id);
-  }
-
-  /**
-   * Find a room by room ID.
-   */
-  protected function findRoom(array $dungeon_data, string $room_id): ?array {
-    if ($room_id === '') {
-      return NULL;
-    }
-    foreach ($dungeon_data['rooms'] ?? [] as $room) {
-      if (($room['room_id'] ?? '') === $room_id) {
-        return $room;
-      }
-    }
-    return NULL;
-  }
-
-  /**
-   * Find an entity by runtime entity ID.
-   */
-  protected function findEntity(array $dungeon_data, string $entity_id): ?array {
-    if ($entity_id === '') {
-      return NULL;
-    }
-    foreach ($dungeon_data['entities'] ?? [] as $entity) {
-      if ($this->resolveEntityId($entity) === $entity_id) {
-        return $entity;
-      }
-    }
-    return NULL;
-  }
-
-  /**
-   * Find entities currently placed in the active room.
-   *
-   * @return array<int, array<string, mixed>>
-   *   Visible entities.
-   */
-  protected function findRoomEntities(array $dungeon_data, string $room_id): array {
-    if ($room_id === '') {
-      return [];
-    }
-
-    $visible = [];
-    foreach ($dungeon_data['entities'] ?? [] as $entity) {
-      if (($entity['placement']['room_id'] ?? '') === $room_id) {
-        $visible[] = $entity;
-      }
-    }
-
-    return array_values($visible);
-  }
-
-  /**
-   * Build passable room transitions for the active room.
-   *
-   * @return array<int, array<string, mixed>>
-   *   Connected room summaries.
-   */
-  protected function findConnectedRooms(array $dungeon_data, string $room_id): array {
-    if ($room_id === '') {
-      return [];
-    }
-
-    $connections = [];
-    foreach ($dungeon_data['connections'] ?? [] as $connection) {
-      if (!is_array($connection)) {
-        continue;
-      }
-      if (empty($connection['is_passable'])) {
-        continue;
-      }
-
-      $from_room = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? $connection['from']['room_id'] ?? ''));
-      $to_room = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? $connection['to']['room_id'] ?? ''));
-
-      if ($from_room === $room_id && $to_room !== '') {
-        $connections[] = $this->buildConnectedRoomSummary($dungeon_data, $to_room, $connection);
-      }
-      elseif ($to_room === $room_id && $from_room !== '') {
-        $connections[] = $this->buildConnectedRoomSummary($dungeon_data, $from_room, $connection);
-      }
-    }
-
-    return array_values($connections);
-  }
-
-  /**
-   * Build a connected room summary.
-   */
-  protected function buildConnectedRoomSummary(array $dungeon_data, string $room_id, array $connection): array {
-    $room = $this->findRoom($dungeon_data, $room_id);
-
-    return [
-      'room_id' => $room_id,
-      'name' => (string) ($room['name'] ?? $room_id),
-      'description' => (string) ($room['description'] ?? ''),
-      'connection' => $connection,
-    ];
-  }
-
-  /**
-   * Build a list of hostile targets from encounter initiative order.
-   *
-   * @return array<int, array<string, mixed>>
-   *   Hostile target summaries.
-   */
-  protected function findHostileTargets(array $game_state, string $actor_id): array {
-    $phase = (string) ($game_state['phase'] ?? 'encounter');
-    if ($phase !== 'encounter') {
-      return [];
-    }
-
-    $targets = [];
-    foreach ($game_state['initiative_order'] ?? [] as $participant) {
-      $target_id = (string) ($participant['entity_id'] ?? '');
-      $team = strtolower((string) ($participant['team'] ?? ''));
-      if ($target_id === '' || $target_id === $actor_id || !empty($participant['is_defeated'])) {
-        continue;
-      }
-      if (in_array($team, ['enemy', 'hostile', 'monsters'], TRUE)) {
-        $targets[] = $participant;
-      }
-    }
-
-    return array_values($targets);
-  }
-
-  /**
-   * Resolve the runtime entity ID for an entity payload.
-   */
-  protected function resolveEntityId(array $entity): string {
-    return (string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? '');
   }
 
 }

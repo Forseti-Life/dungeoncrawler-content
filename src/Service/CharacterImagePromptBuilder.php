@@ -31,10 +31,19 @@ class CharacterImagePromptBuilder {
     $resolved_user_prompt = trim($user_prompt);
     $role = $this->resolvePortraitRole($character_data);
     $familiar_species = $this->resolveFamiliarSpeciesName($character_data);
+    $sheet_context_lines = $this->buildAttributeLines($character_data);
+    $full_sheet_context = $this->buildFullCharacterSheetContext($character_data);
 
     $subject = $this->buildSubjectPhrase($base_ancestry, $class, $background, $role, $familiar_species);
     $lines = [];
-    $lines[] = 'Full-body portrait illustration of ' . $subject . ', standing alone with the entire body visible from head to toe.';
+    $lines[] = 'Head-and-shoulders portrait illustration of ' . $subject . ', framed as a close portrait with clear facial detail.';
+    if ($sheet_context_lines !== []) {
+      $lines[] = 'Character sheet context:';
+      array_push($lines, ...$sheet_context_lines);
+    }
+    if ($full_sheet_context !== '') {
+      $lines[] = 'Full character sheet payload (JSON): ' . $full_sheet_context;
+    }
 
     if ($role === 'familiar') {
       $familiar_profile = $this->buildFamiliarPromptLine($character_data, $familiar_species);
@@ -44,7 +53,7 @@ class CharacterImagePromptBuilder {
       $lines[] = 'Render a true animal body plan only: non-anthropomorphic anatomy, on all fours, realistic animal proportions, and natural facial structure.';
       $lines[] = 'Do not depict humanoid posture, human hands, human feet, human torso, clothing, armor, tools, or weapons.';
       $lines[] = 'Keep scene composition simple and clear with minimal background detail so the familiar remains the sole focal point.';
-      $lines[] = 'Pure illustration only: no readable text, no labels, no signs, no runes, no spell circles, and no decorative borders.';
+      $lines[] = 'Pure illustration only: no readable text, no labels, no signs, and no decorative borders.';
 
       if ($resolved_user_prompt !== '') {
         $lines[] = 'Additional art direction: ' . $this->truncateValue($resolved_user_prompt, 140) . '.';
@@ -74,9 +83,9 @@ class CharacterImagePromptBuilder {
       $lines[] = $mood_line;
     }
 
-    $lines[] = 'The background should be grounded and context-appropriate, with subtle environmental cues and no symbolic text elements.';
+    $lines[] = 'Use a clean, neutral background with subtle depth cues and no symbolic text elements.';
 
-    $lines[] = 'Pure illustration only: no readable text, no labels, no posters, no parchment sheets, no books or scrolls with writing, no signs, no runes, no spell circles, no side panels, and no decorative borders.';
+    $lines[] = 'Pure illustration only: no readable text, no labels, no posters, no parchment sheets, no books or scrolls with writing, no signs, no side panels, and no decorative borders.';
 
     if ($resolved_user_prompt !== '') {
       $lines[] = 'Additional art direction: ' . $this->truncateValue($resolved_user_prompt, 140) . '.';
@@ -97,6 +106,8 @@ class CharacterImagePromptBuilder {
   private function buildAttributeLines(array $character_data): array {
     $lines = [];
     $map = [
+      'Name' => $this->extractScalarValue($character_data, [['name'], ['display_name']]),
+      'Level' => $this->extractScalarValue($character_data, [['level']]),
       'Ancestry' => $this->buildAncestryLine($character_data),
       'Class' => $this->buildClassLine($character_data),
       'Background' => $this->humanizeShortValue($this->extractScalarValue($character_data, [['background']])),
@@ -212,12 +223,7 @@ class CharacterImagePromptBuilder {
     $map = [
       'sly' => 'cunning',
       'sharp-tongued' => 'wry',
-      'illusion' => 'mischievous',
-      'illusions' => 'mischievous',
-      'enchantment' => 'self-possessed',
-      'enchantments' => 'self-possessed',
       'scholar' => 'studious',
-      'wizard' => 'intellectually focused',
       'confuse' => 'playful',
       'three steps ahead' => 'alert',
     ];
@@ -482,7 +488,7 @@ class CharacterImagePromptBuilder {
    */
   private function buildSubjectPhrase(string $base_ancestry, string $class, string $background, string $role = '', string $familiar_species = ''): string {
     if ($role === 'familiar') {
-      $species = trim($familiar_species) !== '' ? strtolower(trim($familiar_species)) : ($base_ancestry !== '' ? $base_ancestry : 'small magical');
+      $species = trim($familiar_species) !== '' ? strtolower(trim($familiar_species)) : ($base_ancestry !== '' ? $base_ancestry : 'small animal');
       return 'a ' . $species . ' familiar companion';
     }
 
@@ -579,6 +585,54 @@ class CharacterImagePromptBuilder {
     }
 
     return $parts !== [] ? 'Familiar profile — ' . implode('. ', $parts) . '.' : '';
+  }
+
+  /**
+   * Build full character sheet context as compact JSON for prompt grounding.
+   */
+  private function buildFullCharacterSheetContext(array $character_data): string {
+    $normalized = $this->normalizePromptContextValue($character_data, 0);
+    if (!is_array($normalized) || $normalized === []) {
+      return '';
+    }
+
+    $encoded = json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded) || $encoded === '') {
+      return '';
+    }
+
+    return $this->truncateValue($encoded, 6000);
+  }
+
+  /**
+   * Normalize character sheet payload into prompt-safe JSON-serializable values.
+   *
+   * @return mixed
+   *   Scalar/array/object-tree for JSON encoding.
+   */
+  private function normalizePromptContextValue($value, int $depth = 0) {
+    if ($depth > 6) {
+      return NULL;
+    }
+
+    if ($value === NULL || is_scalar($value)) {
+      return $value;
+    }
+
+    if (!is_array($value)) {
+      return NULL;
+    }
+
+    $normalized = [];
+    foreach ($value as $key => $item) {
+      $key_string = is_scalar($key) ? strtolower(trim((string) $key)) : '';
+      if (in_array($key_string, ['image_data_uri', 'portrait_data_uri', 'binary', 'base64', 'raw_image'], TRUE)) {
+        continue;
+      }
+      $normalized[$key] = $this->normalizePromptContextValue($item, $depth + 1);
+    }
+
+    return $normalized;
   }
 
 }

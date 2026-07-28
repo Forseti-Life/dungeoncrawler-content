@@ -40,6 +40,18 @@ class GameCoordinatorService {
   protected const ROOM_ENTRY_NARRATOR_SPEAKING_RATE = 0.85;
   protected const ROOM_ENTRY_NARRATOR_PITCH = -6.0;
   protected const ROOM_ENTRY_NARRATOR_VOLUME_GAIN_DB = 2.0;
+  protected const FULL_RUNTIME_PROJECTION_REASON_ALLOWLIST = [
+    'legacy_runtime_hydration_api',
+    'compatibility_adapter',
+    'runtime_repair',
+    'incident_diagnostics',
+  ];
+  protected const FULL_RUNTIME_PROJECTION_REASON_PREFIX_ALLOWLIST = [
+    'debug:',
+    'compat:',
+    'migration:',
+    'incident:',
+  ];
   protected const DEFAULT_ACTIVE_PHASE = 'encounter';
   protected const DEPRECATED_PHASES = ['exploration'];
   protected const FORBIDDEN_INTENT_CAPABILITY_KEYS = [
@@ -63,6 +75,7 @@ class GameCoordinatorService {
     'wget',
     'system',
   ];
+  protected const NAVIGATION_TIMING_SLOW_THRESHOLD_MS = 250;
 
   /**
    * Default game state structure for new sessions.
@@ -82,7 +95,10 @@ class GameCoordinatorService {
     ],
     'timed_activities' => [],
     'state_version' => 1,
+    'active_room_id' => NULL,
     'event_log_cursor' => 0,
+    'initial_room_entry_room_id' => NULL,
+    'initial_room_entry_completed_at' => NULL,
     'last_encounter' => NULL,
   ];
 
@@ -105,9 +121,13 @@ class GameCoordinatorService {
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
   protected RuntimeGraphAssemblerService $runtimeGraphAssembler;
   protected CampaignRuntimeStateStore $campaignRuntimeStateStore;
+  protected CampaignRuntimeMutationService $campaignRuntimeMutationService;
   protected ActorRuntimeStateStore $actorRuntimeStateStore;
   protected RoomRuntimeStateStore $roomRuntimeStateStore;
   protected ConnectionRuntimeStateStore $connectionRuntimeStateStore;
+  protected ActorRuntimeMutationService $actorRuntimeMutationService;
+  protected RoomRuntimeMutationService $roomRuntimeMutationService;
+  protected ConnectionRuntimeMutationService $connectionRuntimeMutationService;
 
   /**
    * @var \Psr\Log\LoggerInterface
@@ -170,9 +190,13 @@ class GameCoordinatorService {
     DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
     RuntimeGraphAssemblerService $runtime_graph_assembler,
     CampaignRuntimeStateStore $campaign_runtime_state_store,
+    CampaignRuntimeMutationService $campaign_runtime_mutation_service,
     ActorRuntimeStateStore $actor_runtime_state_store,
     RoomRuntimeStateStore $room_runtime_state_store,
     ConnectionRuntimeStateStore $connection_runtime_state_store,
+    ActorRuntimeMutationService $actor_runtime_mutation_service,
+    RoomRuntimeMutationService $room_runtime_mutation_service,
+    ConnectionRuntimeMutationService $connection_runtime_mutation_service,
     ?NarrationEngine $narration_engine = NULL,
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
     ?FileUrlGeneratorInterface $file_url_generator = NULL
@@ -187,9 +211,13 @@ class GameCoordinatorService {
     $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     $this->runtimeGraphAssembler = $runtime_graph_assembler;
     $this->campaignRuntimeStateStore = $campaign_runtime_state_store;
+    $this->campaignRuntimeMutationService = $campaign_runtime_mutation_service;
     $this->actorRuntimeStateStore = $actor_runtime_state_store;
     $this->roomRuntimeStateStore = $room_runtime_state_store;
     $this->connectionRuntimeStateStore = $connection_runtime_state_store;
+    $this->actorRuntimeMutationService = $actor_runtime_mutation_service;
+    $this->roomRuntimeMutationService = $room_runtime_mutation_service;
+    $this->connectionRuntimeMutationService = $connection_runtime_mutation_service;
     $this->narrationEngine = $narration_engine;
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
@@ -293,7 +321,14 @@ class GameCoordinatorService {
     }
 
     // 1. Load dungeon data and game state.
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id !== '' ? $actor_id : NULL);
+    $requested_room_id = $this->resolveActorRoomIdFromRuntimeStore($campaign_id, $actor_id !== '' ? $actor_id : NULL);
+    $dungeon_data = $this->loadDungeonData(
+      $campaign_id,
+      $actor_id !== '' ? $actor_id : NULL,
+      TRUE,
+      1,
+      $requested_room_id
+    );
     if (!$dungeon_data) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
@@ -310,8 +345,7 @@ class GameCoordinatorService {
         static fn (array $event): int => (int) ($event['id'] ?? 0),
         $bootstrap_events
       ));
-      $dungeon_data['game_state'] = $game_state;
-      $this->persistDungeonData($campaign_id, $dungeon_data);
+      $this->persistGameStateSlice($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
     }
 
     // 2. Optimistic concurrency check.
@@ -337,10 +371,15 @@ class GameCoordinatorService {
       return $this->errorResponse("No handler for phase: $phase", $game_state);
     }
 
-    $autoplay_events = $this->autoResolveRoomSceneNonPlayerTurns($campaign_id, $game_state, $dungeon_data, $handler);
+    $autoplay_events = $bootstrap_events === []
+      ? $this->autoResolveRoomSceneNonPlayerTurns($campaign_id, $game_state, $dungeon_data, $handler)
+      : [];
     if ($autoplay_events !== []) {
-      $dungeon_data['game_state'] = $game_state;
-      $this->persistDungeonData($campaign_id, $dungeon_data);
+      $game_state['event_log_cursor'] = max(array_map(
+        static fn (array $event): int => (int) ($event['id'] ?? 0),
+        $autoplay_events
+      ));
+      $this->persistGameStateSlice($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
     }
     $pre_action_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
 
@@ -355,7 +394,11 @@ class GameCoordinatorService {
 
     // 5. Process the action.
     $this->campaignTimeResolver->beginDeferredTimeEffects($game_state);
-    $action_result = $handler->processIntent($intent, $game_state, $dungeon_data, $campaign_id);
+    $action_result = $this->normalizeHandlerActionResult(
+      $handler->processIntent($intent, $game_state, $dungeon_data, $campaign_id),
+      $campaign_id,
+      $phase
+    );
     $time_effects = array_merge(
       $this->campaignTimeResolver->consumePendingTimeEffects($game_state),
       array_values(array_filter($action_result['time_effects'] ?? [], 'is_array'))
@@ -377,6 +420,7 @@ class GameCoordinatorService {
     }
     // 7. Handle phase transitions.
     $phase_transition = $action_result['phase_transition'] ?? NULL;
+    $phase_transition_mutation_envelope = NULL;
     if ($phase_transition) {
       $transition_result = $this->executePhaseTransition(
         $phase_transition['from'] ?? $phase,
@@ -387,18 +431,31 @@ class GameCoordinatorService {
         $campaign_id
       );
       $logged_events = array_merge($logged_events, $transition_result['events'] ?? []);
+      $phase_transition_mutation_envelope = is_array($transition_result['mutation_envelope'] ?? NULL)
+        ? $transition_result['mutation_envelope']
+        : NULL;
     }
+    $this->synchronizeActiveRoomAuthority($game_state, $dungeon_data);
 
     // 8. Increment state version.
     $game_state['state_version'] = ($game_state['state_version'] ?? 0) + 1;
 
     // 9. Persist state through the minimal required lane.
+    $mutation_envelope = $this->resolveMutationEnvelopeForPersistence(
+      $campaign_id,
+      $phase_transition_mutation_envelope ?? ($action_result['mutation_envelope'] ?? NULL),
+      $game_state,
+      $dungeon_data,
+      $pre_action_payload_fingerprint
+    );
     $this->persistStateWithMinimalWrite(
       $campaign_id,
       $dungeon_data,
       $game_state,
-      $pre_action_payload_fingerprint
+      $pre_action_payload_fingerprint,
+      $mutation_envelope
     );
+    $this->ensurePersistedRuntimeStateMatches($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
 
     // 10. Build response.
     $current_phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
@@ -430,6 +487,13 @@ class GameCoordinatorService {
 
     $success = $action_result['success'] ?? TRUE;
     $result_payload = $action_result['result'] ?? [];
+    $result_payload = $this->enrichTransitionResultPayloadIfNeeded(
+      $success,
+      $intent,
+      $result_payload,
+      $action_result,
+      $dungeon_data
+    );
     $error_message = $action_result['error']
       ?? (is_array($result_payload) ? ($result_payload['error'] ?? NULL) : NULL)
       ?? NULL;
@@ -437,6 +501,7 @@ class GameCoordinatorService {
     return [
       'success' => $success,
       'game_state' => $this->buildClientGameState($game_state),
+      'active_room_id' => $game_state['active_room_id'] ?? NULL,
       'result' => $result_payload,
       'mutations' => $action_result['mutations'] ?? [],
       'events' => $logged_events,
@@ -449,6 +514,8 @@ class GameCoordinatorService {
       'action_contract' => $action_contract,
       'state_version' => $game_state['state_version'],
       'time_effects' => $time_effects,
+      'runtime_snapshot' => $this->buildRuntimeSnapshotPayload($game_state, $dungeon_data, $actor_id),
+      'mutation_envelope' => $mutation_envelope,
       'error' => $success ? NULL : (is_string($error_message) ? trim($error_message) : NULL),
     ];
   }
@@ -478,7 +545,7 @@ class GameCoordinatorService {
    */
   public function getFullState(int $campaign_id): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $dungeon_data = $this->loadDungeonData($campaign_id);
+    $dungeon_data = $this->loadDungeonData($campaign_id, NULL, TRUE, 1);
     if (!$dungeon_data) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
@@ -494,22 +561,25 @@ class GameCoordinatorService {
         $bootstrap_events
       ));
     }
-    $autoplay_events = $this->autoResolveRoomSceneNonPlayerTurns($campaign_id, $game_state, $dungeon_data, $handler);
-    if ($autoplay_events !== []) {
-      $game_state['event_log_cursor'] = max(array_map(
-        static fn (array $event): int => (int) ($event['id'] ?? 0),
-        $autoplay_events
+    $this->synchronizeActiveRoomAuthority($game_state, $dungeon_data);
+    $initial_events = $bootstrap_events !== []
+      ? $bootstrap_events
+      : $this->collectUnseenInitialEvents($dungeon_data, $game_state, FALSE);
+    if ($bootstrap_events !== []) {
+      $this->persistMutationEnvelope($this->buildMutationEnvelopeFromPayload(
+        $campaign_id,
+        $game_state,
+        $dungeon_data,
+        TRUE
       ));
     }
-    $initial_events = ($bootstrap_events !== [] || $autoplay_events !== [])
-      ? array_merge($bootstrap_events, $autoplay_events)
-      : $this->collectUnseenInitialEvents($dungeon_data, $game_state);
-    if ($bootstrap_events !== [] || $autoplay_events !== []) {
-      $dungeon_data['game_state'] = $game_state;
-      $this->persistDungeonData($campaign_id, $dungeon_data);
-    }
-    elseif (!$had_game_state || $initial_events !== []) {
-      $this->persistGameStateSlice($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
+    elseif (!$had_game_state) {
+      $this->persistMutationEnvelope($this->buildMutationEnvelopeFromPayload(
+        $campaign_id,
+        $game_state,
+        $dungeon_data,
+        FALSE
+      ));
     }
     $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
     $handler = $this->getPhaseHandler($phase);
@@ -598,29 +668,71 @@ class GameCoordinatorService {
 
     $dungeon_data = $context['dungeon_data'];
     $game_state = $context['game_state'];
-    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
+    $actor_id = trim((string) $actor_id);
 
     /** @var \Drupal\dungeoncrawler_content\Service\PhaseHandlerInterface|null $handler */
     $handler = $context['handler'];
-    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data, $actor_id);
+    $runtime_snapshot = $this->buildRuntimeSnapshotPayload($game_state, $dungeon_data, $actor_id);
+    $runtime_snapshot['available_actions'] = $handler
+      ? $handler->getAvailableActions($game_state, $dungeon_data, $actor_id)
+      : [];
+    $runtime_snapshot['action_contract'] = $this->buildActionContract($handler, $game_state, $dungeon_data, $actor_id);
+    return $runtime_snapshot;
+  }
 
-    return [
-      'success' => TRUE,
-      'game_state' => $this->buildClientGameState($game_state),
-      'phase' => $phase,
-      'available_actions' => $handler
-        ? $handler->getAvailableActions($game_state, $dungeon_data, $actor_id)
-        : [],
-      'action_contract' => $action_contract,
-      'state_version' => $game_state['state_version'] ?? 1,
-      'active_room_id' => $dungeon_data['active_room_id'] ?? NULL,
-      'encounter_id' => $game_state['encounter_id'] ?? NULL,
-      'round' => $game_state['round'] ?? NULL,
-      'turn' => $game_state['turn'] ?? NULL,
-      'initiative_order' => is_array($game_state['initiative_order'] ?? NULL)
-        ? $game_state['initiative_order']
-        : [],
-    ];
+  /**
+   * Return explicit full runtime projection (heavy read lane).
+   *
+   * This is an opt-in compatibility/debug projection path and should not be
+   * used by default runtime reads.
+   */
+  public function getFullRuntimeProjection(int $campaign_id, ?string $actor_id = NULL, string $reason = 'unspecified'): ?array {
+    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+    $reason = trim($reason);
+    if ($reason === '') {
+      throw new \RuntimeException(sprintf(
+        'Full runtime projection contract violation: reason is required for campaign %d.',
+        $campaign_id
+      ));
+    }
+    $reason = strtolower($reason);
+    if (!$this->isAllowedFullRuntimeProjectionReason($reason)) {
+      throw new \RuntimeException(sprintf(
+        'Full runtime projection contract violation: reason "%s" is not allowlisted for campaign %d.',
+        $reason,
+        $campaign_id
+      ));
+    }
+    $this->logger->notice('Full runtime projection requested for campaign @id (reason=@reason).', [
+      '@id' => $campaign_id,
+      '@reason' => $reason,
+    ]);
+    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id, TRUE);
+    return is_array($dungeon_data) ? $dungeon_data : NULL;
+  }
+
+  /**
+   * Legacy alias for full runtime projection reads.
+   *
+   * Prefer getFullRuntimeProjection() with an explicit reason.
+   */
+  public function getRuntimeHydratedDungeonData(int $campaign_id, ?string $actor_id = NULL): ?array {
+    return $this->getFullRuntimeProjection($campaign_id, $actor_id, 'legacy_runtime_hydration_api');
+  }
+
+  /**
+   * Check whether a full-runtime projection reason is explicitly allowlisted.
+   */
+  protected function isAllowedFullRuntimeProjectionReason(string $reason): bool {
+    if (in_array($reason, self::FULL_RUNTIME_PROJECTION_REASON_ALLOWLIST, TRUE)) {
+      return TRUE;
+    }
+    foreach (self::FULL_RUNTIME_PROJECTION_REASON_PREFIX_ALLOWLIST as $prefix) {
+      if (str_starts_with($reason, $prefix)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**
@@ -632,12 +744,7 @@ class GameCoordinatorService {
       return NULL;
     }
 
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id, FALSE);
-    if (!$dungeon_data) {
-      return NULL;
-    }
-
-    $game_state = $this->ensureGameState($dungeon_data);
+    $game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id) ?? [];
     foreach ($game_state['initiative_order'] ?? [] as $combatant) {
       if (($combatant['entity_id'] ?? '') === $actor_id) {
         $name = trim((string) ($combatant['name'] ?? $combatant['display_name'] ?? ''));
@@ -645,11 +752,17 @@ class GameCoordinatorService {
       }
     }
 
-    foreach ($dungeon_data['entities'] ?? [] as $entity) {
+    foreach ($this->actorRuntimeStateStore->loadActorEntities($campaign_id) as $entity) {
       if (!is_array($entity)) {
         continue;
       }
-      $entity_instance_id = (string) ($entity['entity_instance_id'] ?? ($entity['entity_ref']['content_id'] ?? ''));
+      $entity_instance_id = trim((string) (
+        $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? $entity['entity_ref']['content_id']
+        ?? ''
+      ));
       if ($entity_instance_id !== $actor_id) {
         continue;
       }
@@ -669,12 +782,12 @@ class GameCoordinatorService {
       return NULL;
     }
 
-    $dungeon_data = $this->loadDungeonData($campaign_id, NULL, FALSE);
-    if (!$dungeon_data || empty($dungeon_data['entities']) || !is_array($dungeon_data['entities'])) {
+    $entities = $this->actorRuntimeStateStore->loadActorEntities($campaign_id);
+    if ($entities === []) {
       return NULL;
     }
 
-    foreach ($dungeon_data['entities'] as $entity) {
+    foreach ($entities as $entity) {
       if (!is_array($entity)) {
         continue;
       }
@@ -718,13 +831,46 @@ class GameCoordinatorService {
   }
 
   public function getActiveRoomId(int $campaign_id, ?string $actor_id = NULL): ?string {
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id, FALSE);
-    if (!$dungeon_data) {
-      return NULL;
+    $runtime_game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id) ?? [];
+    $room_id = trim((string) (
+      $runtime_game_state['active_room_id']
+      ?? $runtime_game_state['encounter_context']['room_id']
+      ?? ''
+    ));
+    if ($room_id === '' && $this->database->schema()->tableExists('dc_campaign_runtime_state')) {
+      $runtime_state_row = $this->database->select('dc_campaign_runtime_state', 's')
+        ->fields('s', ['active_room_id'])
+        ->condition('campaign_id', $campaign_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      $room_id = trim((string) ($runtime_state_row['active_room_id'] ?? ''));
+    }
+    if ($room_id !== '') {
+      return $room_id;
     }
 
-    $room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
-    return $room_id !== '' ? $room_id : NULL;
+    $actor_id = trim((string) $actor_id);
+    if ($actor_id !== '') {
+      foreach ($this->actorRuntimeStateStore->loadActorEntities($campaign_id) as $entity) {
+        if (!is_array($entity)) {
+          continue;
+        }
+        $entity_instance_id = trim((string) (
+          $entity['entity_instance_id']
+          ?? $entity['instance_id']
+          ?? $entity['id']
+          ?? ''
+        ));
+        if ($entity_instance_id !== $actor_id) {
+          continue;
+        }
+        $actor_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+        return $actor_room_id !== '' ? $actor_room_id : NULL;
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -746,7 +892,14 @@ class GameCoordinatorService {
    */
   public function transitionPhase(int $campaign_id, string $target_phase, array $context = []): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $dungeon_data = $this->loadDungeonData($campaign_id);
+    $requested_room_id = trim((string) ($context['encounter_context']['room_id'] ?? ''));
+    $dungeon_data = $this->loadDungeonData(
+      $campaign_id,
+      NULL,
+      TRUE,
+      1,
+      $requested_room_id !== '' ? $requested_room_id : NULL
+    );
     if (!$dungeon_data) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
@@ -785,11 +938,19 @@ class GameCoordinatorService {
 
     // Increment version and persist.
     $game_state['state_version'] = ($game_state['state_version'] ?? 0) + 1;
+    $mutation_envelope = $this->resolveMutationEnvelopeForPersistence(
+      $campaign_id,
+      $result['mutation_envelope'] ?? NULL,
+      $game_state,
+      $dungeon_data,
+      $pre_transition_payload_fingerprint
+    );
     $this->persistStateWithMinimalWrite(
       $campaign_id,
       $dungeon_data,
       $game_state,
-      $pre_transition_payload_fingerprint
+      $pre_transition_payload_fingerprint,
+      $mutation_envelope
     );
 
     $handler = $this->getPhaseHandler($target_phase);
@@ -805,6 +966,8 @@ class GameCoordinatorService {
         : [],
       'action_contract' => $action_contract,
       'state_version' => $game_state['state_version'],
+      'mutation_envelope' => $mutation_envelope,
+      'runtime_snapshot' => $this->buildRuntimeSnapshotPayload($game_state, $dungeon_data),
     ];
   }
 
@@ -816,7 +979,17 @@ class GameCoordinatorService {
    */
   public function startCombatEncounter(int $campaign_id, array $context = []): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $dungeon_data = $this->loadDungeonData($campaign_id);
+    $requested_room_id = trim((string) (
+      $context['encounter_context']['room_id']
+      ?? ''
+    ));
+    $dungeon_data = $this->loadDungeonData(
+      $campaign_id,
+      NULL,
+      TRUE,
+      1,
+      $requested_room_id !== '' ? $requested_room_id : NULL
+    );
     if (!$dungeon_data) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
@@ -837,18 +1010,29 @@ class GameCoordinatorService {
       return $this->errorResponse('Encounter handler unavailable.', $game_state);
     }
     $pre_combat_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
+    $combat_mutation_envelope = is_array($context['mutation_envelope'] ?? NULL)
+      ? $context['mutation_envelope']
+      : NULL;
 
     $logged_events = [];
     $encounter_mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
     $force_hostile_start = FALSE;
     if (!empty($game_state['encounter_id'])) {
       if ($encounter_mode === 'room_scene') {
-        $exit_events = $handler->onExit($game_state, $dungeon_data, $campaign_id);
-        if ($exit_events !== []) {
+        $exit_result = $this->normalizePhaseLifecycleResult(
+          $handler->onExit($game_state, $dungeon_data, $campaign_id),
+          self::DEFAULT_ACTIVE_PHASE,
+          'onExit',
+          $campaign_id
+        );
+        if ($exit_result['events'] !== []) {
           $logged_events = array_merge(
             $logged_events,
-            $this->eventLogger->logEvents($dungeon_data, $exit_events)
+            $this->eventLogger->logEvents($dungeon_data, $exit_result['events'])
           );
+        }
+        if (is_array($exit_result['mutation_envelope'])) {
+          $combat_mutation_envelope = $exit_result['mutation_envelope'];
         }
         $force_hostile_start = TRUE;
       }
@@ -876,21 +1060,37 @@ class GameCoordinatorService {
     }
 
     if (empty($game_state['encounter_id']) || $force_hostile_start) {
-      $combat_events = $handler->onEnter($context, $game_state, $dungeon_data, $campaign_id);
-      if ($combat_events !== []) {
+      $enter_result = $this->normalizePhaseLifecycleResult(
+        $handler->onEnter($context, $game_state, $dungeon_data, $campaign_id),
+        self::DEFAULT_ACTIVE_PHASE,
+        'onEnter',
+        $campaign_id
+      );
+      if ($enter_result['events'] !== []) {
         $logged_events = array_merge(
           $logged_events,
-          $this->eventLogger->logEvents($dungeon_data, $combat_events)
+          $this->eventLogger->logEvents($dungeon_data, $enter_result['events'])
         );
+      }
+      if (is_array($enter_result['mutation_envelope'])) {
+        $combat_mutation_envelope = $enter_result['mutation_envelope'];
       }
     }
 
     $game_state['state_version'] = ($game_state['state_version'] ?? 0) + 1;
+    $mutation_envelope = $this->resolveMutationEnvelopeForPersistence(
+      $campaign_id,
+      $combat_mutation_envelope,
+      $game_state,
+      $dungeon_data,
+      $pre_combat_payload_fingerprint
+    );
     $this->persistStateWithMinimalWrite(
       $campaign_id,
       $dungeon_data,
       $game_state,
-      $pre_combat_payload_fingerprint
+      $pre_combat_payload_fingerprint,
+      $mutation_envelope
     );
 
     $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
@@ -903,6 +1103,8 @@ class GameCoordinatorService {
       'available_actions' => $handler->getAvailableActions($game_state, $dungeon_data),
       'action_contract' => $action_contract,
       'state_version' => $game_state['state_version'],
+      'mutation_envelope' => $mutation_envelope,
+      'runtime_snapshot' => $this->buildRuntimeSnapshotPayload($game_state, $dungeon_data),
     ];
   }
 
@@ -919,16 +1121,11 @@ class GameCoordinatorService {
    */
   public function getEventsSince(int $campaign_id, int $since_cursor = 0): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $dungeon_data = $this->loadDungeonData($campaign_id, NULL, FALSE);
-    if (!$dungeon_data) {
-      return ['success' => FALSE, 'events' => [], 'error' => 'Dungeon data not found.'];
-    }
-
-    $events = $this->eventLogger->getEventsSince($dungeon_data, $since_cursor);
+    $events = $this->eventLogger->getEventsSince([], $since_cursor, $campaign_id);
     $runtime_game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
     $state_version = is_array($runtime_game_state) && isset($runtime_game_state['state_version']) && is_numeric($runtime_game_state['state_version'])
       ? (int) $runtime_game_state['state_version']
-      : (int) ($dungeon_data['game_state']['state_version'] ?? 1);
+      : 1;
 
     return [
       'success' => TRUE,
@@ -954,12 +1151,21 @@ class GameCoordinatorService {
     int $campaign_id
   ): array {
     $all_events = [];
+    $transition_mutation_envelope = NULL;
 
     // 1. Exit the current phase.
     $from_handler = $this->getPhaseHandler($from_phase);
     if ($from_handler) {
-      $exit_events = $from_handler->onExit($game_state, $dungeon_data, $campaign_id);
-      $all_events = array_merge($all_events, $exit_events);
+      $exit_result = $this->normalizePhaseLifecycleResult(
+        $from_handler->onExit($game_state, $dungeon_data, $campaign_id),
+        $from_phase,
+        'onExit',
+        $campaign_id
+      );
+      $all_events = array_merge($all_events, $exit_result['events']);
+      if (is_array($exit_result['mutation_envelope'])) {
+        $transition_mutation_envelope = $exit_result['mutation_envelope'];
+      }
     }
 
     // 2. Log the transition event with AI GM narration.
@@ -1010,8 +1216,16 @@ class GameCoordinatorService {
     // 3. Enter the new phase.
     $to_handler = $this->getPhaseHandler($to_phase);
     if ($to_handler) {
-      $enter_events = $to_handler->onEnter($context, $game_state, $dungeon_data, $campaign_id);
-      $all_events = array_merge($all_events, $enter_events);
+      $enter_result = $this->normalizePhaseLifecycleResult(
+        $to_handler->onEnter($context, $game_state, $dungeon_data, $campaign_id),
+        $to_phase,
+        'onEnter',
+        $campaign_id
+      );
+      $all_events = array_merge($all_events, $enter_result['events']);
+      if (is_array($enter_result['mutation_envelope'])) {
+        $transition_mutation_envelope = $enter_result['mutation_envelope'];
+      }
     }
 
     // 4. Log all transition events.
@@ -1025,7 +1239,10 @@ class GameCoordinatorService {
       '@id' => $campaign_id,
     ]);
 
-    return ['events' => $all_events];
+    return [
+      'events' => $all_events,
+      'mutation_envelope' => $transition_mutation_envelope,
+    ];
   }
 
   // =========================================================================
@@ -1035,7 +1252,13 @@ class GameCoordinatorService {
   /**
    * Loads dungeon_data from the database.
    */
-  protected function loadDungeonData(int $campaign_id, ?string $preferred_actor_id = NULL, bool $rebuild_runtime_graph = TRUE): ?array {
+  protected function loadDungeonData(
+    int $campaign_id,
+    ?string $preferred_actor_id = NULL,
+    bool $rebuild_runtime_graph = TRUE,
+    int $room_scope_depth = -1,
+    ?string $requested_room_id = NULL
+  ): ?array {
     try {
       $runtime_character_id = NULL;
       if (is_string($preferred_actor_id) && trim($preferred_actor_id) !== '') {
@@ -1050,8 +1273,22 @@ class GameCoordinatorService {
           if (trim((string) ($decoded['dungeon_id'] ?? '')) === '') {
             $decoded['dungeon_id'] = trim((string) ($row['dungeon_id'] ?? ''));
           }
+          $runtime_game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
+          if (is_array($runtime_game_state)) {
+            $decoded['game_state'] = $runtime_game_state;
+            $authoritative_active_room_id = trim((string) (
+              $runtime_game_state['active_room_id']
+              ?? $runtime_game_state['encounter_context']['room_id']
+              ?? ''
+            ));
+            if ($authoritative_active_room_id !== '') {
+              $decoded['active_room_id'] = $authoritative_active_room_id;
+              $decoded['current_room_id'] = $authoritative_active_room_id;
+            }
+          }
           $resolved_dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $row['dungeon_id'] ?? ''));
           if ($rebuild_runtime_graph && $resolved_dungeon_id !== '') {
+            $resolved_requested_room_id = trim((string) ($requested_room_id ?? ''));
             $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
               $campaign_id,
               $resolved_dungeon_id,
@@ -1059,17 +1296,44 @@ class GameCoordinatorService {
               [
                 'active_room_id' => trim((string) ($decoded['active_room_id'] ?? '')),
                 'room_batch_size' => 8,
+                'room_scope_depth' => $room_scope_depth,
+                'requested_room_id' => $resolved_requested_room_id,
               ]
             );
           }
           if (empty($decoded['active_room_id'])) {
             $this->resolveStartupRoomId($decoded);
           }
-          $runtime_game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
-          if (is_array($runtime_game_state)) {
-            $decoded['game_state'] = $runtime_game_state;
-          }
           $runtime_entities = $this->actorRuntimeStateStore->loadActorEntities($campaign_id);
+          if ($room_scope_depth >= 0 && $runtime_entities !== []) {
+            $scoped_room_ids = [];
+            foreach ($decoded['rooms'] ?? [] as $room) {
+              if (!is_array($room)) {
+                continue;
+              }
+              $room_id = trim((string) ($room['room_id'] ?? ''));
+              if ($room_id !== '') {
+                $scoped_room_ids[$room_id] = TRUE;
+              }
+            }
+            $preferred_actor_id = trim((string) ($preferred_actor_id ?? ''));
+            $runtime_entities = array_values(array_filter($runtime_entities, function ($entity) use ($scoped_room_ids, $preferred_actor_id): bool {
+              if (!is_array($entity)) {
+                return FALSE;
+              }
+              $entity_id = trim((string) (
+                $entity['entity_instance_id']
+                ?? $entity['instance_id']
+                ?? $entity['id']
+                ?? ''
+              ));
+              if ($preferred_actor_id !== '' && $entity_id === $preferred_actor_id) {
+                return TRUE;
+              }
+              $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+              return $entity_room_id !== '' && isset($scoped_room_ids[$entity_room_id]);
+            }));
+          }
           if ($runtime_entities !== []) {
             $decoded['entities'] = $runtime_entities;
           }
@@ -1086,50 +1350,6 @@ class GameCoordinatorService {
     }
 
     return NULL;
-  }
-
-  /**
-   * Persists dungeon_data to the database.
-   */
-  protected function persistDungeonData(int $campaign_id, array $dungeon_data): bool {
-    try {
-      $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
-      $game_state = is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : NULL;
-      $row_id = (int) ($dungeon_data['__campaign_dungeon_row_id'] ?? 0);
-      unset($dungeon_data['__campaign_dungeon_row_id']);
-      if ($row_id <= 0) {
-        throw new \RuntimeException(sprintf(
-          'GameCoordinator persistence contract violation: __campaign_dungeon_row_id is required for campaign %d.',
-          $campaign_id
-        ));
-      }
-      $persisted = $this->dungeonPayloadStatePersistence->mutateStateByRowId(
-        $campaign_id,
-        $row_id,
-        static fn(array $payload): array => $dungeon_data
-      );
-      if ($persisted && is_array($game_state)) {
-        $this->persistGameStateSlice($campaign_id, $game_state, $active_room_id);
-        if (is_array($dungeon_data['entities'] ?? NULL)) {
-          $this->actorRuntimeStateStore->syncFromEntities($campaign_id, $dungeon_data['entities']);
-        }
-        if (is_array($dungeon_data['rooms'] ?? NULL)) {
-          $this->roomRuntimeStateStore->syncFromRooms($campaign_id, $dungeon_data['rooms']);
-        }
-        $this->connectionRuntimeStateStore->syncFromConnections(
-          $campaign_id,
-          $this->collectRuntimeConnectionsFromPayload($dungeon_data)
-        );
-      }
-      return $persisted;
-    }
-    catch (\Throwable $e) {
-      $this->logger->error('Failed to persist dungeon data for campaign @id: @error', [
-        '@id' => $campaign_id,
-        '@error' => $e->getMessage(),
-      ]);
-      return FALSE;
-    }
   }
 
   /**
@@ -1160,8 +1380,31 @@ class GameCoordinatorService {
     if ($phase === '' || in_array($phase, self::DEPRECATED_PHASES, TRUE)) {
       $dungeon_data['game_state']['phase'] = self::DEFAULT_ACTIVE_PHASE;
     }
+    $this->synchronizeActiveRoomAuthority($dungeon_data['game_state'], $dungeon_data);
 
     return $dungeon_data['game_state'];
+  }
+
+  /**
+   * Mirror the authoritative room id into runtime game_state.
+   */
+  protected function synchronizeActiveRoomAuthority(array &$game_state, array $dungeon_data): void {
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    if ($active_room_id === '') {
+      $active_room_id = trim((string) ($game_state['encounter_context']['room_id'] ?? ''));
+    }
+    if ($active_room_id === '') {
+      return;
+    }
+
+    $game_state['active_room_id'] = $active_room_id;
+    if (
+      isset($game_state['encounter_context'])
+      && is_array($game_state['encounter_context'])
+      && trim((string) ($game_state['encounter_context']['room_id'] ?? '')) === ''
+    ) {
+      $game_state['encounter_context']['room_id'] = $active_room_id;
+    }
   }
 
   /**
@@ -1171,12 +1414,30 @@ class GameCoordinatorService {
    *   Newly created events, if any.
    */
   protected function bootstrapInitialRoomEntry(int $campaign_id, array &$dungeon_data, array &$game_state): array {
-    if (!empty($dungeon_data['event_log'])) {
+    $room_id = $this->resolveStartupRoomId($dungeon_data);
+    if ($room_id === NULL) {
       return [];
     }
 
-    $room_id = $this->resolveStartupRoomId($dungeon_data);
-    if ($room_id === NULL) {
+    if ($this->hasBootstrappedInitialRoomEntry($game_state, $room_id)) {
+      return [];
+    }
+
+    if ($this->hasActiveEncounterContextForRoom($game_state, $room_id)) {
+      $this->markInitialRoomEntryBootstrapped($game_state, $room_id);
+      return [];
+    }
+
+    $event_log_cursor = (int) ($game_state['event_log_cursor'] ?? 0);
+    if ($event_log_cursor > 0) {
+      $this->markInitialRoomEntryBootstrapped($game_state, $room_id);
+      return [];
+    }
+
+    $latest_event_cursor = $this->eventLogger->getLatestCursor($dungeon_data, $campaign_id);
+    if ($latest_event_cursor > 0) {
+      $game_state['event_log_cursor'] = max($event_log_cursor, $latest_event_cursor);
+      $this->markInitialRoomEntryBootstrapped($game_state, $room_id);
       return [];
     }
 
@@ -1187,12 +1448,80 @@ class GameCoordinatorService {
 
     $handler = $this->getPhaseHandler(self::DEFAULT_ACTIVE_PHASE);
     if ($handler instanceof EncounterPhaseHandler) {
-      $result = $handler->enterRoomFramework(NULL, $room_id, [], $game_state, $dungeon_data, $campaign_id);
-      $events = $result['events'] ?? [];
-      return $events !== [] ? $this->eventLogger->logEvents($dungeon_data, $events) : [];
+      $game_state['suppress_room_scene_narration'] = TRUE;
+      try {
+        $result = $handler->bootstrapRoomSceneFramework($room_id, $game_state, $dungeon_data, $campaign_id);
+        $events = $result['events'] ?? [];
+        $bootstrap_events = $events !== [] ? $this->eventLogger->logEvents($dungeon_data, $events) : [];
+        $autoplay_events = $this->autoResolveRoomSceneNonPlayerTurns($campaign_id, $game_state, $dungeon_data, $handler);
+      }
+      finally {
+        unset($game_state['suppress_room_scene_narration']);
+      }
+
+      if ($bootstrap_events === [] && $autoplay_events === []) {
+        return [];
+      }
+
+      $this->markInitialRoomEntryBootstrapped($game_state, $room_id);
+      return array_merge($bootstrap_events, $autoplay_events);
     }
 
     return [];
+  }
+
+  /**
+   * Determine whether initial room entry has already been bootstrapped.
+   */
+  protected function hasBootstrappedInitialRoomEntry(array $game_state, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    $bootstrapped_room_id = trim((string) ($game_state['initial_room_entry_room_id'] ?? ''));
+    if ($bootstrapped_room_id !== '' && $bootstrapped_room_id === $room_id) {
+      return TRUE;
+    }
+
+    return (int) ($game_state['event_log_cursor'] ?? 0) > 0;
+  }
+
+  /**
+   * Determine whether runtime state already owns a live encounter context.
+   */
+  protected function hasActiveEncounterContextForRoom(array $game_state, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    $phase = trim((string) ($game_state['phase'] ?? ''));
+    $context_room_id = trim((string) ($game_state['encounter_context']['room_id'] ?? ''));
+    if ($phase !== self::DEFAULT_ACTIVE_PHASE || $context_room_id !== $room_id) {
+      return FALSE;
+    }
+
+    if (!empty($game_state['encounter_id'])) {
+      return TRUE;
+    }
+
+    return !empty($game_state['initiative_order']) || !empty($game_state['turn']);
+  }
+
+  /**
+   * Mark initial room-entry bootstrap as complete for the active room.
+   */
+  protected function markInitialRoomEntryBootstrapped(array &$game_state, string $room_id): void {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return;
+    }
+
+    $game_state['initial_room_entry_room_id'] = $room_id;
+    if (trim((string) ($game_state['initial_room_entry_completed_at'] ?? '')) === '') {
+      $game_state['initial_room_entry_completed_at'] = date('c');
+    }
   }
 
   /**
@@ -1220,7 +1549,7 @@ class GameCoordinatorService {
    */
   protected function persistGameStateSlice(int $campaign_id, array $game_state, ?string $active_room_id = NULL): bool {
     try {
-      return $this->campaignRuntimeStateStore->persistGameState($campaign_id, $game_state, $active_room_id);
+      return $this->campaignRuntimeMutationService->persistGameState($campaign_id, $game_state, $active_room_id);
     }
     catch (\Throwable $e) {
       $this->logger->error('Failed to persist campaign runtime state for campaign @id: @error', [
@@ -1238,26 +1567,102 @@ class GameCoordinatorService {
     int $campaign_id,
     array $dungeon_data,
     array $game_state,
-    string $before_non_game_state_fingerprint
+    string $before_non_game_state_fingerprint,
+    ?array $mutation_envelope = NULL
   ): bool {
-    $after_non_game_state_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
-    if ($after_non_game_state_fingerprint === $before_non_game_state_fingerprint) {
-      return $this->persistGameStateSlice(
+    if ($mutation_envelope === NULL) {
+      $after_non_game_state_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
+      $mutation_envelope = $this->buildMutationEnvelopeFromPayload(
         $campaign_id,
         $game_state,
-        (string) ($dungeon_data['active_room_id'] ?? '')
+        $dungeon_data,
+        $after_non_game_state_fingerprint !== $before_non_game_state_fingerprint
       );
     }
+    return $this->persistMutationEnvelope($mutation_envelope);
+  }
 
-    $dungeon_data['game_state'] = $game_state;
-    return $this->persistDungeonData($campaign_id, $dungeon_data);
+  /**
+   * Verify the runtime state row reflects the authoritative in-memory game state.
+   *
+   * Transition/navigation actions proved able to return success while the
+   * persisted runtime-state slice remained on the previous room/version. Make
+   * the coordinator contract explicit here: repair one time, then fail loudly
+   * if the authoritative slice still does not match.
+   */
+  protected function ensurePersistedRuntimeStateMatches(int $campaign_id, array $game_state, ?string $active_room_id = NULL): void {
+    $expected_state_version = max(1, (int) ($game_state['state_version'] ?? 1));
+    $expected_active_room_id = trim((string) (
+      $active_room_id
+      ?? ($game_state['active_room_id'] ?? NULL)
+      ?? ($game_state['encounter_context']['room_id'] ?? '')
+    ));
+    $persisted_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id) ?? [];
+    $persisted_state_version = max(1, (int) ($persisted_state['state_version'] ?? 1));
+    $persisted_active_room_id = trim((string) (
+      $persisted_state['active_room_id']
+      ?? ($persisted_state['encounter_context']['room_id'] ?? '')
+    ));
+
+    if (
+      $persisted_state_version === $expected_state_version
+      && $persisted_active_room_id === $expected_active_room_id
+    ) {
+      return;
+    }
+
+    $this->logger->warning(
+      'Coordinator runtime-state mismatch detected after persist; repairing slice write for campaign {campaign_id} (expected_version={expected_version}, persisted_version={persisted_version}, expected_room={expected_room}, persisted_room={persisted_room})',
+      [
+        'campaign_id' => $campaign_id,
+        'expected_version' => $expected_state_version,
+        'persisted_version' => $persisted_state_version,
+        'expected_room' => $expected_active_room_id,
+        'persisted_room' => $persisted_active_room_id,
+      ]
+    );
+
+    if (!$this->persistGameStateSlice(
+      $campaign_id,
+      $game_state,
+      $expected_active_room_id !== '' ? $expected_active_room_id : NULL
+    )) {
+      throw new \RuntimeException(sprintf(
+        'Coordinator runtime-state repair failed for campaign %d: could not persist authoritative game_state slice.',
+        $campaign_id
+      ));
+    }
+
+    $reloaded_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id) ?? [];
+    $reloaded_state_version = max(1, (int) ($reloaded_state['state_version'] ?? 1));
+    $reloaded_active_room_id = trim((string) (
+      $reloaded_state['active_room_id']
+      ?? ($reloaded_state['encounter_context']['room_id'] ?? '')
+    ));
+    if (
+      $reloaded_state_version !== $expected_state_version
+      || $reloaded_active_room_id !== $expected_active_room_id
+    ) {
+      throw new \RuntimeException(sprintf(
+        'Coordinator runtime-state contract violation after repair for campaign %d (expected version=%d room=%s, persisted version=%d room=%s).',
+        $campaign_id,
+        $expected_state_version,
+        $expected_active_room_id !== '' ? $expected_active_room_id : '<none>',
+        $reloaded_state_version,
+        $reloaded_active_room_id !== '' ? $reloaded_active_room_id : '<none>'
+      ));
+    }
   }
 
   /**
    * Build a deterministic fingerprint excluding game_state lane content.
    */
   protected function computeNonGameStatePayloadFingerprint(array $dungeon_data): string {
-    unset($dungeon_data['game_state'], $dungeon_data['__campaign_dungeon_row_id']);
+    unset(
+      $dungeon_data['game_state'],
+      $dungeon_data['event_log'],
+      $dungeon_data['__campaign_dungeon_row_id']
+    );
     $encoded = json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (!is_string($encoded)) {
       throw new \RuntimeException('GameCoordinator payload fingerprint contract violation: unable to encode payload.');
@@ -1306,6 +1711,292 @@ class GameCoordinatorService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Ensure transition actions return an authoritative navigation receipt.
+   *
+   * @param array<string,mixed> $intent
+   *   Canonical intent payload.
+   * @param array<string,mixed> $result_payload
+   *   Handler result payload.
+   * @param array<string,mixed> $action_result
+   *   Full normalized handler action result.
+   * @param array<string,mixed> $dungeon_data
+   *   Runtime dungeon payload after action mutation.
+   *
+   * @return array<string,mixed>
+   *   Result payload with canonical navigation receipt when applicable.
+   */
+  protected function enrichTransitionResultPayloadIfNeeded(
+    bool $action_success,
+    array $intent,
+    array $result_payload,
+    array $action_result,
+    array $dungeon_data
+  ): array {
+    $timing_started_at = microtime(TRUE);
+    $intent_type = strtolower(trim((string) ($intent['type'] ?? '')));
+    if (!$action_success || $intent_type !== 'transition') {
+      return $result_payload;
+    }
+
+    $target_room_id = trim((string) (
+      $result_payload['to_room']
+      ?? $result_payload['target_room_id']
+      ?? $dungeon_data['active_room_id']
+      ?? ''
+    ));
+    if ($target_room_id === '') {
+      throw new \RuntimeException('Transition response contract violation: target_room_id is required for successful transition results.');
+    }
+
+    $entry_hex = $this->resolveTransitionEntryHexForResultPayload($intent, $action_result, $result_payload, $dungeon_data, $target_room_id);
+    $navigation_receipt = $this->buildTransitionNavigationReceiptPayload(
+      $dungeon_data,
+      trim((string) ($result_payload['from_room'] ?? '')),
+      $target_room_id,
+      $entry_hex
+    );
+
+    $result_payload['entry_hex'] = $entry_hex;
+    $result_payload['navigation_capabilities'] = $navigation_receipt['navigation_capabilities'];
+    $result_payload['navigation'] = $navigation_receipt;
+
+    $total_ms = (microtime(TRUE) - $timing_started_at) * 1000.0;
+    if ($total_ms >= self::NAVIGATION_TIMING_SLOW_THRESHOLD_MS) {
+      $this->logger->notice(
+        'Navigation timing: enrichTransitionResultPayloadIfNeeded slow (campaign=@campaign_id, actor=@actor, target_room_id=@target_room_id, total_ms=@total_ms, capability_count=@capability_count)',
+        [
+          '@campaign_id' => (int) ($dungeon_data['campaign_id'] ?? 0),
+          '@actor' => trim((string) ($intent['actor'] ?? '')),
+          '@target_room_id' => $target_room_id,
+          '@total_ms' => round($total_ms, 2),
+          '@capability_count' => count((array) ($navigation_receipt['navigation_capabilities'] ?? [])),
+        ]
+      );
+    }
+    return $result_payload;
+  }
+
+  /**
+   * Build canonical navigation payload for transition action responses.
+   *
+   * @return array<string,mixed>
+   *   Navigation receipt consumed by NavigationSystem.js.
+   */
+  protected function buildTransitionNavigationReceiptPayload(
+    array $dungeon_data,
+    string $origin_room_id,
+    string $target_room_id,
+    array $entry_hex
+  ): array {
+    $navigation_service = \Drupal::service('dungeoncrawler_content.navigation_service');
+    if (!($navigation_service instanceof NavigationService)) {
+      throw new \RuntimeException('Transition response contract violation: navigation service is unavailable.');
+    }
+
+    $target_room = $this->findRoomInDungeon($target_room_id, $dungeon_data);
+    if (!is_array($target_room)) {
+      throw new \RuntimeException(sprintf(
+        'Transition response contract violation: target room %s missing from runtime payload.',
+        $target_room_id
+      ));
+    }
+
+    $navigation_capabilities = $navigation_service
+      ->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $target_room_id);
+
+    $receipt = [
+      'target_room_id' => $target_room_id,
+      'destination' => trim((string) ($target_room['name'] ?? '')) !== ''
+        ? (string) $target_room['name']
+        : $target_room_id,
+      'room' => $target_room,
+      'entities' => $this->collectRoomEntitiesForTransitionReceipt($dungeon_data, $target_room_id),
+      'connections' => $this->buildTransitionConnectionsFromCapabilities($navigation_capabilities, $target_room_id),
+      'navigation_capabilities' => $navigation_capabilities,
+      'entry_hex' => [
+        'q' => (int) ($entry_hex['q'] ?? 0),
+        'r' => (int) ($entry_hex['r'] ?? 0),
+      ],
+    ];
+
+    if ($origin_room_id !== '') {
+      $receipt['origin_room_id'] = $origin_room_id;
+    }
+
+    return $receipt;
+  }
+
+  /**
+   * Resolve entry hex for one transition result payload.
+   *
+   * Priority:
+   * 1. explicit result payload entry_hex
+   * 2. actor placement from post-mutation runtime payload
+   * 3. intent params target_hex/entry_hex
+   * 4. zero origin fallback
+   *
+   * @return array{q:int,r:int}
+   *   Canonical entry hex coordinate.
+   */
+  protected function resolveTransitionEntryHexForResultPayload(
+    array $intent,
+    array $action_result,
+    array $result_payload,
+    array $dungeon_data,
+    string $target_room_id
+  ): array {
+    $target_room_id = trim($target_room_id);
+    if (is_array($result_payload['entry_hex'] ?? NULL)) {
+      return [
+        'q' => (int) ($result_payload['entry_hex']['q'] ?? 0),
+        'r' => (int) ($result_payload['entry_hex']['r'] ?? 0),
+      ];
+    }
+
+    $actor_id = trim((string) ($intent['actor'] ?? ''));
+    if ($actor_id !== '') {
+      foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+        if (!is_array($entity)) {
+          continue;
+        }
+        $entity_id = $this->resolveEntityIdFromPayload($entity);
+        if ($entity_id !== $actor_id) {
+          continue;
+        }
+        $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+        if ($entity_room_id !== $target_room_id) {
+          continue;
+        }
+        if (is_array($entity['placement']['hex'] ?? NULL)) {
+          return [
+            'q' => (int) ($entity['placement']['hex']['q'] ?? 0),
+            'r' => (int) ($entity['placement']['hex']['r'] ?? 0),
+          ];
+        }
+      }
+    }
+
+    foreach ((array) ($action_result['mutations'] ?? []) as $mutation) {
+      if (!is_array($mutation)) {
+        continue;
+      }
+      if ((string) ($mutation['field'] ?? '') !== 'placement.hex') {
+        continue;
+      }
+      if (is_array($mutation['to'] ?? NULL)) {
+        return [
+          'q' => (int) ($mutation['to']['q'] ?? 0),
+          'r' => (int) ($mutation['to']['r'] ?? 0),
+        ];
+      }
+    }
+
+    $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+    if (is_array($params['target_hex'] ?? NULL)) {
+      return [
+        'q' => (int) ($params['target_hex']['q'] ?? 0),
+        'r' => (int) ($params['target_hex']['r'] ?? 0),
+      ];
+    }
+    if (is_array($params['entry_hex'] ?? NULL)) {
+      return [
+        'q' => (int) ($params['entry_hex']['q'] ?? 0),
+        'r' => (int) ($params['entry_hex']['r'] ?? 0),
+      ];
+    }
+
+    return ['q' => 0, 'r' => 0];
+  }
+
+  /**
+   * Collect entities currently placed in one room for transition receipts.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Room-local entity payload rows.
+   */
+  protected function collectRoomEntitiesForTransitionReceipt(array $dungeon_data, string $room_id): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return [];
+    }
+
+    $entities = [];
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+      if ($entity_room_id === $room_id) {
+        $entities[] = $entity;
+      }
+    }
+    return $entities;
+  }
+
+  /**
+   * Build connection payload rows from navigation capability projections.
+   *
+   * @param array<int,array<string,mixed>> $capabilities
+   *   Navigation capabilities for active room.
+   * @param string $active_room_id
+   *   Active room id.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Connection payload rows.
+   */
+  protected function buildTransitionConnectionsFromCapabilities(array $capabilities, string $active_room_id): array {
+    $active_room_id = trim($active_room_id);
+    $connections = [];
+
+    foreach ($capabilities as $capability) {
+      if (!is_array($capability)) {
+        continue;
+      }
+      $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+      if ($target_room_id === '') {
+        continue;
+      }
+
+      $origin_room_id = trim((string) ($capability['origin_room_id'] ?? $active_room_id));
+      if ($origin_room_id === '') {
+        $origin_room_id = $active_room_id;
+      }
+
+      $connection_id = trim((string) ($capability['connection_id'] ?? ''));
+      if ($connection_id === '') {
+        $connection_id = sprintf('receipt-%s-%s', $origin_room_id, $target_room_id);
+      }
+
+      $available = !array_key_exists('available', $capability) || !empty($capability['available']);
+      $connection = [
+        'connection_id' => $connection_id,
+        'from_room' => $origin_room_id,
+        'to_room' => $target_room_id,
+        'target_room_id' => $target_room_id,
+        'available' => $available,
+        'blocked' => !$available,
+        'blocked_reason' => $available ? '' : (string) ($capability['blocked_reason'] ?? 'blocked'),
+        'type' => (string) ($capability['type'] ?? $capability['connection_type'] ?? 'passage'),
+      ];
+      if (is_array($capability['origin_hex'] ?? NULL)) {
+        $connection['from_hex'] = [
+          'q' => (int) ($capability['origin_hex']['q'] ?? 0),
+          'r' => (int) ($capability['origin_hex']['r'] ?? 0),
+        ];
+      }
+      if (is_array($capability['target_hex'] ?? NULL)) {
+        $connection['to_hex'] = [
+          'q' => (int) ($capability['target_hex']['q'] ?? 0),
+          'r' => (int) ($capability['target_hex']['r'] ?? 0),
+        ];
+      }
+      $connections[] = $connection;
+    }
+
+    return $connections;
   }
 
   /**
@@ -1368,22 +2059,328 @@ class GameCoordinatorService {
    * @return array<int, array<string, mixed>>
    *   Events the client has not yet received from initial state.
    */
-  protected function collectUnseenInitialEvents(array $dungeon_data, array &$game_state): array {
-    $latest_event_id = 0;
-    $event_log = $dungeon_data['event_log'] ?? [];
-    if ($event_log !== []) {
-      $last_event = end($event_log);
-      $latest_event_id = (int) ($last_event['id'] ?? 0);
-    }
+  protected function collectUnseenInitialEvents(array $dungeon_data, array &$game_state, bool $advance_cursor = TRUE): array {
+    $campaign_id = (int) ($dungeon_data['campaign_id'] ?? 0);
+    $latest_event_id = $this->eventLogger->getLatestCursor(
+      $dungeon_data,
+      $campaign_id > 0 ? $campaign_id : NULL
+    );
 
     $cursor = (int) ($game_state['event_log_cursor'] ?? 0);
     if ($latest_event_id <= $cursor) {
       return [];
     }
 
-    $events = $this->eventLogger->getEventsSince($dungeon_data, $cursor);
-    $game_state['event_log_cursor'] = $latest_event_id;
+    $events = $this->eventLogger->getEventsSince(
+      $dungeon_data,
+      $cursor,
+      $campaign_id > 0 ? $campaign_id : NULL
+    );
+    if ($advance_cursor) {
+      $game_state['event_log_cursor'] = $latest_event_id;
+    }
     return $events;
+  }
+
+  /**
+   * Build a typed mutation envelope from current payload context.
+   *
+   * @return array<string,mixed>
+   *   Mutation envelope for mutation services.
+   */
+  protected function buildMutationEnvelopeFromPayload(
+    int $campaign_id,
+    array $game_state,
+    array $dungeon_data,
+    bool $include_non_game_state_mutations
+  ): array {
+    $envelope = [
+      'campaign_id' => $campaign_id,
+      'active_room_id' => (string) ($dungeon_data['active_room_id'] ?? ''),
+      'campaign_state' => $game_state,
+      'actor_entities' => [],
+      'rooms' => [],
+      'connections' => [],
+    ];
+    if ($include_non_game_state_mutations) {
+      $envelope['actor_entities'] = is_array($dungeon_data['entities'] ?? NULL) ? $dungeon_data['entities'] : [];
+      $envelope['rooms'] = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+      $envelope['connections'] = $this->collectRuntimeConnectionsFromPayload($dungeon_data);
+    }
+    return $envelope;
+  }
+
+  /**
+   * Resolve the mutation envelope to persist for one runtime write.
+   *
+   * @param array<string,mixed>|null $candidate_envelope
+   *   Handler-provided candidate envelope.
+   *
+   * @return array<string,mixed>
+   *   Normalized envelope.
+   */
+  protected function resolveMutationEnvelopeForPersistence(
+    int $campaign_id,
+    ?array $candidate_envelope,
+    array $game_state,
+    array $dungeon_data,
+    string $before_non_game_state_fingerprint
+  ): array {
+    $after_non_game_state_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
+    $non_game_state_changed = $after_non_game_state_fingerprint !== $before_non_game_state_fingerprint;
+
+    if (!is_array($candidate_envelope) || $candidate_envelope === []) {
+      return $this->buildMutationEnvelopeFromPayload(
+        $campaign_id,
+        $game_state,
+        $dungeon_data,
+        $non_game_state_changed
+      );
+    }
+
+    $envelope_campaign_id = (int) ($candidate_envelope['campaign_id'] ?? $campaign_id);
+    if ($envelope_campaign_id !== $campaign_id) {
+      throw new \RuntimeException(sprintf(
+        'Mutation envelope contract violation: campaign_id mismatch (expected=%d, got=%d).',
+        $campaign_id,
+        $envelope_campaign_id
+      ));
+    }
+    if (!array_key_exists('campaign_state', $candidate_envelope) || !is_array($candidate_envelope['campaign_state'])) {
+      throw new \RuntimeException(sprintf(
+        'Mutation envelope contract violation: campaign_state must be an array for campaign %d.',
+        $campaign_id
+      ));
+    }
+    foreach (['actor_entities', 'rooms', 'connections'] as $collection_key) {
+      if (array_key_exists($collection_key, $candidate_envelope) && !is_array($candidate_envelope[$collection_key])) {
+        throw new \RuntimeException(sprintf(
+          'Mutation envelope contract violation: %s must be an array for campaign %d.',
+          $collection_key,
+          $campaign_id
+        ));
+      }
+    }
+
+    $normalized = [
+      'campaign_id' => $campaign_id,
+      'active_room_id' => (string) (
+        $candidate_envelope['active_room_id']
+        ?? $dungeon_data['active_room_id']
+        ?? ''
+      ),
+      'campaign_state' => $game_state,
+      'actor_entities' => is_array($candidate_envelope['actor_entities'] ?? NULL)
+        ? $candidate_envelope['actor_entities']
+        : [],
+      'rooms' => is_array($candidate_envelope['rooms'] ?? NULL)
+        ? $candidate_envelope['rooms']
+        : [],
+      'connections' => is_array($candidate_envelope['connections'] ?? NULL)
+        ? $candidate_envelope['connections']
+        : [],
+    ];
+
+    // Safety fallback: if payload non-game-state changed but the envelope carries
+    // no non-game-state slices, persist from current payload so changes are not
+    // silently dropped during incremental handler migration.
+    if (
+      $non_game_state_changed
+      && $normalized['actor_entities'] === []
+      && $normalized['rooms'] === []
+      && $normalized['connections'] === []
+    ) {
+      $normalized['actor_entities'] = is_array($dungeon_data['entities'] ?? NULL) ? $dungeon_data['entities'] : [];
+      $normalized['rooms'] = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+      $normalized['connections'] = $this->collectRuntimeConnectionsFromPayload($dungeon_data);
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Normalize one handler processIntent() result payload.
+   *
+   * @param mixed $raw_result
+   *   Raw handler result.
+   *
+   * @return array<string,mixed>
+   *   Normalized action result contract.
+   */
+  protected function normalizeHandlerActionResult(mixed $raw_result, int $campaign_id, string $phase): array {
+    if (!is_array($raw_result)) {
+      throw new \RuntimeException(sprintf(
+        'Phase handler contract violation: %s::processIntent must return an array (campaign=%d).',
+        $phase,
+        $campaign_id
+      ));
+    }
+
+    $result = $raw_result;
+    foreach (['result', 'mutations', 'events', 'time_effects'] as $array_key) {
+      if (array_key_exists($array_key, $result) && !is_array($result[$array_key])) {
+        throw new \RuntimeException(sprintf(
+          'Phase handler contract violation: %s::processIntent key "%s" must be an array (campaign=%d).',
+          $phase,
+          $array_key,
+          $campaign_id
+        ));
+      }
+    }
+    if (array_key_exists('success', $result) && !is_bool($result['success'])) {
+      throw new \RuntimeException(sprintf(
+        'Phase handler contract violation: %s::processIntent key "success" must be a boolean (campaign=%d).',
+        $phase,
+        $campaign_id
+      ));
+    }
+    if (array_key_exists('phase_transition', $result) && $result['phase_transition'] !== NULL) {
+      if (!is_array($result['phase_transition'])) {
+        throw new \RuntimeException(sprintf(
+          'Phase handler contract violation: %s::processIntent key "phase_transition" must be an array or null (campaign=%d).',
+          $phase,
+          $campaign_id
+        ));
+      }
+      $target_phase = trim((string) ($result['phase_transition']['to'] ?? ''));
+      if ($target_phase === '') {
+        throw new \RuntimeException(sprintf(
+          'Phase handler contract violation: %s::processIntent phase_transition.to is required when phase_transition is present (campaign=%d).',
+          $phase,
+          $campaign_id
+        ));
+      }
+    }
+    if (array_key_exists('mutation_envelope', $result) && $result['mutation_envelope'] !== NULL && !is_array($result['mutation_envelope'])) {
+      throw new \RuntimeException(sprintf(
+        'Phase handler contract violation: %s::processIntent key "mutation_envelope" must be an array or null (campaign=%d).',
+        $phase,
+        $campaign_id
+      ));
+    }
+
+    $result['success'] = array_key_exists('success', $result) ? (bool) $result['success'] : TRUE;
+    $result['result'] = is_array($result['result'] ?? NULL) ? $result['result'] : [];
+    $result['mutations'] = is_array($result['mutations'] ?? NULL) ? $result['mutations'] : [];
+    $result['events'] = is_array($result['events'] ?? NULL) ? $result['events'] : [];
+    $result['time_effects'] = is_array($result['time_effects'] ?? NULL) ? $result['time_effects'] : [];
+    $result['phase_transition'] = is_array($result['phase_transition'] ?? NULL) ? $result['phase_transition'] : NULL;
+    $result['mutation_envelope'] = is_array($result['mutation_envelope'] ?? NULL) ? $result['mutation_envelope'] : NULL;
+
+    return $result;
+  }
+
+  /**
+   * Normalize onEnter()/onExit() lifecycle hook returns.
+   *
+   * Supports legacy event-list returns and newer structured envelopes.
+   *
+   * @param mixed $raw_result
+   *   Raw hook result.
+   *
+   * @return array{events: array<int,array<string,mixed>>, mutation_envelope: ?array<string,mixed>}
+   *   Normalized lifecycle result.
+   */
+  protected function normalizePhaseLifecycleResult(mixed $raw_result, string $phase, string $hook, int $campaign_id): array {
+    if (!is_array($raw_result)) {
+      throw new \RuntimeException(sprintf(
+        'Phase lifecycle contract violation: %s::%s must return an array (campaign=%d).',
+        $phase,
+        $hook,
+        $campaign_id
+      ));
+    }
+
+    $has_structured_keys = array_key_exists('events', $raw_result) || array_key_exists('mutation_envelope', $raw_result);
+    $events = $has_structured_keys
+      ? (is_array($raw_result['events'] ?? NULL) ? $raw_result['events'] : [])
+      : $raw_result;
+    $mutation_envelope = $has_structured_keys ? ($raw_result['mutation_envelope'] ?? NULL) : NULL;
+
+    if ($has_structured_keys && array_key_exists('events', $raw_result) && !is_array($raw_result['events'])) {
+      throw new \RuntimeException(sprintf(
+        'Phase lifecycle contract violation: %s::%s key "events" must be an array (campaign=%d).',
+        $phase,
+        $hook,
+        $campaign_id
+      ));
+    }
+    if ($mutation_envelope !== NULL && !is_array($mutation_envelope)) {
+      throw new \RuntimeException(sprintf(
+        'Phase lifecycle contract violation: %s::%s key "mutation_envelope" must be an array or null (campaign=%d).',
+        $phase,
+        $hook,
+        $campaign_id
+      ));
+    }
+
+    foreach ($events as $event_index => $event) {
+      if (!is_array($event)) {
+        throw new \RuntimeException(sprintf(
+          'Phase lifecycle contract violation: %s::%s event at index %d must be an array (campaign=%d).',
+          $phase,
+          $hook,
+          (int) $event_index,
+          $campaign_id
+        ));
+      }
+    }
+
+    return [
+      'events' => array_values($events),
+      'mutation_envelope' => is_array($mutation_envelope) ? $mutation_envelope : NULL,
+    ];
+  }
+
+  /**
+   * Persist a typed mutation envelope through mutation services.
+   *
+   * @param array<string,mixed> $mutation_envelope
+   *   Mutation envelope.
+   */
+  protected function persistMutationEnvelope(array $mutation_envelope): bool {
+    $campaign_id = (int) ($mutation_envelope['campaign_id'] ?? 0);
+    if ($campaign_id <= 0) {
+      throw new \RuntimeException('Mutation envelope contract violation: campaign_id must be > 0.');
+    }
+
+    $campaign_state = is_array($mutation_envelope['campaign_state'] ?? NULL)
+      ? $mutation_envelope['campaign_state']
+      : NULL;
+    if ($campaign_state === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Mutation envelope contract violation: campaign_state is required for campaign %d.',
+        $campaign_id
+      ));
+    }
+
+    $active_room_id = trim((string) ($mutation_envelope['active_room_id'] ?? ''));
+    $this->persistGameStateSlice(
+      $campaign_id,
+      $campaign_state,
+      $active_room_id !== '' ? $active_room_id : NULL
+    );
+
+    $actor_entities = is_array($mutation_envelope['actor_entities'] ?? NULL)
+      ? $mutation_envelope['actor_entities']
+      : [];
+    if ($actor_entities !== []) {
+      $this->actorRuntimeMutationService->persistEntities($campaign_id, $actor_entities);
+    }
+
+    $rooms = is_array($mutation_envelope['rooms'] ?? NULL) ? $mutation_envelope['rooms'] : [];
+    if ($rooms !== []) {
+      $this->roomRuntimeMutationService->persistRooms($campaign_id, $rooms);
+    }
+
+    $connections = is_array($mutation_envelope['connections'] ?? NULL)
+      ? $mutation_envelope['connections']
+      : [];
+    if ($connections !== []) {
+      $this->connectionRuntimeMutationService->persistConnections($campaign_id, $connections);
+    }
+
+    return TRUE;
   }
 
   // =========================================================================
@@ -1407,6 +2404,7 @@ class GameCoordinatorService {
     return [
       'phase' => $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE,
       'session_id' => $game_state['session_id'] ?? NULL,
+      'active_room_id' => $game_state['active_room_id'] ?? NULL,
       'round' => $game_state['round'] ?? NULL,
       'turn' => $game_state['turn'] ?? NULL,
       'encounter_id' => $game_state['encounter_id'] ?? NULL,
@@ -1429,6 +2427,7 @@ class GameCoordinatorService {
       'success' => FALSE,
       'error' => $message,
       'game_state' => $game_state ? $this->buildClientGameState($game_state) : NULL,
+      'active_room_id' => $game_state['active_room_id'] ?? NULL,
       'result' => [],
       'mutations' => [],
       'events' => [],
@@ -1448,7 +2447,14 @@ class GameCoordinatorService {
    *   when dungeon data is unavailable.
    */
   protected function resolveActionAvailabilityContext(int $campaign_id, ?string $actor_id = NULL): ?array {
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id);
+    $requested_room_id = $this->resolveActorRoomIdFromRuntimeStore($campaign_id, $actor_id);
+    $dungeon_data = $this->loadDungeonData(
+      $campaign_id,
+      $actor_id,
+      TRUE,
+      1,
+      $requested_room_id
+    );
     if (!$dungeon_data) {
       return NULL;
     }
@@ -1485,6 +2491,61 @@ class GameCoordinatorService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Build compact runtime snapshot payload from current request context.
+   *
+   * @return array<string,mixed>
+   *   Runtime snapshot object suitable for transition/action consumers.
+   */
+  protected function buildRuntimeSnapshotPayload(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    $visible_entities = [];
+    foreach ($dungeon_data['entities'] ?? [] as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      if (trim((string) ($entity['placement']['room_id'] ?? '')) === $active_room_id) {
+        $visible_entities[] = $entity;
+      }
+    }
+    $actor_entity = NULL;
+    $actor_id = trim((string) ($actor_id ?? ''));
+    if ($actor_id !== '') {
+      foreach ($dungeon_data['entities'] ?? [] as $entity) {
+        if (!is_array($entity)) {
+          continue;
+        }
+        if ($this->resolveEntityIdFromPayload($entity) === $actor_id) {
+          $actor_entity = $entity;
+          break;
+        }
+      }
+    }
+    return [
+      'success' => TRUE,
+      'game_state' => $this->buildClientGameState($game_state),
+      'phase' => $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE,
+      'state_version' => $game_state['state_version'] ?? 1,
+      'active_room_id' => $active_room_id !== '' ? $active_room_id : NULL,
+      'active_room' => $this->findRoomInDungeon($active_room_id !== '' ? $active_room_id : NULL, $dungeon_data),
+      'actor_entity' => $actor_entity,
+      'visible_entities' => array_values($visible_entities),
+      'visible_npcs' => array_values(array_filter($visible_entities, static function (array $entity): bool {
+        return strtolower((string) ($entity['entity_type'] ?? '')) === 'npc';
+      })),
+      'connected_rooms' => $this->findConnectedRoomsForReadState($dungeon_data, $active_room_id),
+      'hostile_targets' => $this->findHostileTargetsFromGameState($game_state, $actor_id),
+      'social_progression' => $this->extractRoomSceneSocialProgressionFromGameState($game_state, $active_room_id),
+      'last_encounter' => $game_state['last_encounter'] ?? NULL,
+      'encounter_id' => $game_state['encounter_id'] ?? NULL,
+      'round' => $game_state['round'] ?? NULL,
+      'turn' => $game_state['turn'] ?? NULL,
+      'initiative_order' => is_array($game_state['initiative_order'] ?? NULL)
+        ? $game_state['initiative_order']
+        : [],
+    ];
   }
 
   /**
@@ -1531,6 +2592,147 @@ class GameCoordinatorService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve runtime actor entity id from a payload entity row.
+   */
+  protected function resolveEntityIdFromPayload(array $entity): string {
+    return trim((string) (
+      $entity['entity_instance_id']
+      ?? $entity['instance_id']
+      ?? $entity['id']
+      ?? ''
+    ));
+  }
+
+  /**
+   * Resolve one actor's current room id from actor runtime slice rows.
+   */
+  protected function resolveActorRoomIdFromRuntimeStore(int $campaign_id, ?string $actor_id = NULL): ?string {
+    $actor_id = trim((string) $actor_id);
+    if ($actor_id === '') {
+      return NULL;
+    }
+    foreach ($this->actorRuntimeStateStore->loadActorEntities($campaign_id) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      if ($this->resolveEntityIdFromPayload($entity) !== $actor_id) {
+        continue;
+      }
+      $room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+      return $room_id !== '' ? $room_id : NULL;
+    }
+    return NULL;
+  }
+
+  /**
+   * Build passable connected-room summaries for read-state payloads.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Connected room summaries.
+   */
+  protected function findConnectedRoomsForReadState(array $dungeon_data, string $room_id): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return [];
+    }
+
+    $connections = [];
+    foreach ($dungeon_data['connections'] ?? [] as $connection) {
+      if (!is_array($connection)) {
+        continue;
+      }
+      if (empty($connection['is_passable'])) {
+        continue;
+      }
+      $from_room = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? $connection['from']['room_id'] ?? ''));
+      $to_room = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? $connection['to']['room_id'] ?? ''));
+      if ($from_room === $room_id && $to_room !== '') {
+        $connections[] = $this->buildConnectedRoomSummaryForReadState($dungeon_data, $to_room, $connection);
+      }
+      elseif ($to_room === $room_id && $from_room !== '') {
+        $connections[] = $this->buildConnectedRoomSummaryForReadState($dungeon_data, $from_room, $connection);
+      }
+    }
+
+    return array_values($connections);
+  }
+
+  /**
+   * Build one connected-room summary row.
+   */
+  protected function buildConnectedRoomSummaryForReadState(array $dungeon_data, string $room_id, array $connection): array {
+    $room = $this->findRoomInDungeon($room_id, $dungeon_data);
+    return [
+      'room_id' => $room_id,
+      'name' => (string) ($room['name'] ?? $room_id),
+      'description' => (string) ($room['description'] ?? ''),
+      'connection' => $connection,
+    ];
+  }
+
+  /**
+   * Build hostile target list from initiative order.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Hostile participants.
+   */
+  protected function findHostileTargetsFromGameState(array $game_state, string $actor_id): array {
+    if ((string) ($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE) !== self::DEFAULT_ACTIVE_PHASE) {
+      return [];
+    }
+    $targets = [];
+    foreach ($game_state['initiative_order'] ?? [] as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $target_id = trim((string) ($participant['entity_id'] ?? ''));
+      $team = strtolower(trim((string) ($participant['team'] ?? '')));
+      if ($target_id === '' || $target_id === $actor_id || !empty($participant['is_defeated'])) {
+        continue;
+      }
+      if (in_array($team, ['enemy', 'hostile', 'monsters'], TRUE)) {
+        $targets[] = $participant;
+      }
+    }
+    return array_values($targets);
+  }
+
+  /**
+   * Extract room-scene social progression diagnostics.
+   *
+   * @return array<string,mixed>
+   *   Room-scene progression state.
+   */
+  protected function extractRoomSceneSocialProgressionFromGameState(array $game_state, string $active_room_id): array {
+    $encounter_context = is_array($game_state['encounter_context'] ?? NULL)
+      ? $game_state['encounter_context']
+      : [];
+    $social_progression = is_array($encounter_context['social_progression'] ?? NULL)
+      ? $encounter_context['social_progression']
+      : [];
+    if ($social_progression === []) {
+      return [];
+    }
+    $room_id = trim((string) ($social_progression['room_id'] ?? ($encounter_context['room_id'] ?? '')));
+    if ($room_id !== '' && $active_room_id !== '' && $room_id !== $active_room_id) {
+      return [];
+    }
+    $lead_seek_counts = is_array($social_progression['lead_seek_counts'] ?? NULL)
+      ? $social_progression['lead_seek_counts']
+      : [];
+    $exhausted = is_array($social_progression['exhausted_lead_sources'] ?? NULL)
+      ? array_values(array_unique(array_filter(array_map('strval', $social_progression['exhausted_lead_sources']), static fn(string $value): bool => trim($value) !== '')))
+      : [];
+    return [
+      'policy_version' => (int) ($social_progression['policy_version'] ?? 1),
+      'room_id' => $room_id,
+      'lead_seek_counts' => $lead_seek_counts,
+      'exhausted_lead_sources' => $exhausted,
+      'last_progress_signal' => (string) ($social_progression['last_progress_signal'] ?? 'none'),
+    ];
   }
 
 }

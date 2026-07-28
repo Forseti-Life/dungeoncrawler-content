@@ -232,7 +232,7 @@ Decider prompt contract notes:
 ### Run example
 
 ```bash
-python3 scripts/langgraph-actor-harness-run.py --character-name Burasco --uid 17 --max-turns 12
+python3 scripts/langgraph-actor-harness-run.py --character-name Burasco --uid 1 --max-turns 12
 ```
 
 `--uid` (or `HARNESS_OWNER_UID`) is required when bootstrapping a new campaign.

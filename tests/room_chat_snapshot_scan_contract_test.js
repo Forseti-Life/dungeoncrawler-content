@@ -23,14 +23,14 @@ function assert(condition, message) {
 }
 
 const source = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
+  path.resolve(__dirname, '../src/Service/RoomChatServiceGmPipelineTrait.php'),
   'utf8'
 );
 
 console.log('\n=== Room chat snapshot scan contract ===');
 
 assert(
-  source.includes("$candidate_data = json_decode($candidate['dungeon_data'] ?? '{}', TRUE);"),
+  source.includes("$candidate_data = json_decode($candidate_record['dungeon_data'] ?? '{}', TRUE);"),
   'snapshot scanner decodes candidate dungeon rows before room matching'
 );
 assert(

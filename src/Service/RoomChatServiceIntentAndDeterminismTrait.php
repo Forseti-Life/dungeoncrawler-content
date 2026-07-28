@@ -1587,6 +1587,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       'turn_harness',
       'canonical_actions',
       'combat_transition',
+      'runtime_snapshot',
       'navigation',
       'timing',
       'debug_trace',

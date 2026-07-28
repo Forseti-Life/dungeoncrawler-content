@@ -26,6 +26,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected const ROOM_SCENE_ERR_RESEED_MISSING_ROOM = 'room_scene_reseed_failed_missing_room';
   protected const ROOM_SCENE_ERR_RESEED_NO_PLAYER_CANDIDATE = 'room_scene_reseed_failed_no_player_candidate';
   protected const ROOM_SCENE_ERR_START_MISSING_PLAYER = 'room_scene_start_failed_missing_player_participant';
+  protected const NAVIGATION_TIMING_SLOW_THRESHOLD_MS = 500;
+  protected const SOCIAL_PROGRESSION_POLICY_VERSION = 1;
+  protected const MAX_LEAD_SEEK_INTERACTIONS_PER_ACTOR_PER_ROOM = 3;
 
   /**
    * @var \Drupal\Core\Database\Connection
@@ -645,6 +648,21 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         ];
       }
 
+      if ($type === 'talk' && $this->isLeadSeekingAutomationTalkIntent($intent, $game_state)) {
+        $lead_source_id = $this->resolveLeadSeekTalkTargetEntityId($intent);
+        $room_id = trim((string) ($game_state['encounter_context']['room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
+        if ($this->isActorLeadSourceExhaustedForRoom($game_state, $lead_source_id, $room_id)) {
+          return [
+            'valid' => FALSE,
+            'reason' => sprintf(
+              "Lead-seeking talk cap reached for lead source '%s' in room '%s'.",
+              $lead_source_id,
+              $room_id !== '' ? $room_id : 'unknown'
+            ),
+          ];
+        }
+      }
+
       return ['valid' => TRUE, 'reason' => NULL];
     }
 
@@ -684,7 +702,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * {@inheritdoc}
    */
   public function processIntent(array $intent, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    return $this->encounterIntentRouter->routeIntent(
+    $result = $this->encounterIntentRouter->routeIntent(
       $intent,
       $game_state,
       $dungeon_data,
@@ -693,6 +711,290 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         return $this->processIntentCore($core_intent, $core_game_state, $core_dungeon_data, $core_campaign_id);
       }
     );
+    if (!is_array($result)) {
+      throw new \RuntimeException('Encounter intent routing contract violation: routeIntent must return an array.');
+    }
+    if (!array_key_exists('mutation_envelope', $result)) {
+      $result['mutation_envelope'] = $this->buildMutationEnvelopeFromRuntimeContext(
+        $campaign_id,
+        $game_state,
+        $dungeon_data,
+        is_array($result['mutations'] ?? NULL) ? $result['mutations'] : []
+      );
+    }
+    return $result;
+  }
+
+  /**
+   * Build typed mutation envelope from encounter runtime context.
+   *
+   * @return array<string,mixed>
+   *   Mutation envelope compatible with coordinator persistence.
+   */
+  protected function buildMutationEnvelopeFromRuntimeContext(
+    int $campaign_id,
+    array $game_state,
+    array $dungeon_data,
+    array $mutations = []
+  ): array {
+    [$include_actor_entities, $include_rooms, $include_connections] = $this->inferMutationEnvelopeSliceNeeds($mutations);
+    $targets = $this->extractMutationEnvelopeTargets($mutations);
+    return [
+      'campaign_id' => $campaign_id,
+      'active_room_id' => (string) ($dungeon_data['active_room_id'] ?? ''),
+      'campaign_state' => $game_state,
+      'actor_entities' => $include_actor_entities && is_array($dungeon_data['entities'] ?? NULL)
+        ? $this->selectMutationTargetedActorEntities($dungeon_data['entities'], $targets['entity_ids'])
+        : [],
+      'rooms' => $include_rooms && is_array($dungeon_data['rooms'] ?? NULL)
+        ? $this->selectMutationTargetedRooms($dungeon_data['rooms'], $targets['room_ids'])
+        : [],
+      'connections' => $include_connections
+        ? $this->selectMutationTargetedConnections(
+          $dungeon_data,
+          $targets['connection_ids'],
+          $targets['room_ids']
+        )
+        : [],
+    ];
+  }
+
+  /**
+   * Infer which runtime slices are touched by mutation descriptors.
+   *
+   * @param array<int,mixed> $mutations
+   *   Handler mutation descriptors.
+   *
+   * @return array{0: bool, 1: bool, 2: bool}
+   *   include_actor_entities, include_rooms, include_connections.
+   */
+  protected function inferMutationEnvelopeSliceNeeds(array $mutations): array {
+    if ($mutations === []) {
+      return [FALSE, FALSE, FALSE];
+    }
+
+    $include_actor_entities = FALSE;
+    $include_rooms = FALSE;
+    $include_connections = FALSE;
+
+    foreach ($mutations as $mutation) {
+      if (!is_array($mutation)) {
+        return [TRUE, TRUE, TRUE];
+      }
+      $field = strtolower(trim((string) ($mutation['field'] ?? $mutation['path'] ?? $mutation['type'] ?? '')));
+
+      $actor_hint = isset($mutation['entity']) || isset($mutation['entity_id'])
+        || str_contains($field, 'entity')
+        || str_contains($field, 'actor')
+        || str_contains($field, 'placement')
+        || str_contains($field, 'condition')
+        || str_contains($field, 'resource')
+        || str_contains($field, 'hp');
+
+      $room_hint = isset($mutation['room_id'])
+        || str_contains($field, 'room')
+        || str_contains($field, 'hazard')
+        || str_contains($field, 'reveal');
+
+      $connection_hint = isset($mutation['connection_id'])
+        || str_contains($field, 'connection')
+        || str_contains($field, 'door')
+        || str_contains($field, 'passable')
+        || str_contains($field, 'locked');
+
+      if (!$actor_hint && !$room_hint && !$connection_hint) {
+        return [TRUE, TRUE, TRUE];
+      }
+
+      $include_actor_entities = $include_actor_entities || $actor_hint;
+      $include_rooms = $include_rooms || $room_hint;
+      $include_connections = $include_connections || $connection_hint;
+    }
+
+    return [$include_actor_entities, $include_rooms, $include_connections];
+  }
+
+  /**
+   * Extract targeted runtime identifiers from mutation descriptors.
+   *
+   * @param array<int,mixed> $mutations
+   *   Handler mutation descriptors.
+   *
+   * @return array{entity_ids: array<int,string>, room_ids: array<int,string>, connection_ids: array<int,string>}
+   *   Unique target IDs by runtime slice.
+   */
+  protected function extractMutationEnvelopeTargets(array $mutations): array {
+    $entity_ids = [];
+    $room_ids = [];
+    $connection_ids = [];
+
+    foreach ($mutations as $mutation) {
+      if (!is_array($mutation)) {
+        continue;
+      }
+
+      foreach ([
+        $mutation['entity'] ?? NULL,
+        $mutation['entity_id'] ?? NULL,
+        $mutation['actor'] ?? NULL,
+        $mutation['actor_id'] ?? NULL,
+      ] as $candidate) {
+        $normalized = $this->normalizeMutationTargetId($candidate);
+        if ($normalized !== NULL) {
+          $entity_ids[$normalized] = TRUE;
+        }
+      }
+
+      foreach ([
+        $mutation['room_id'] ?? NULL,
+        $mutation['from_room'] ?? NULL,
+        $mutation['to_room'] ?? NULL,
+      ] as $candidate) {
+        $normalized = $this->normalizeMutationTargetId($candidate);
+        if ($normalized !== NULL) {
+          $room_ids[$normalized] = TRUE;
+        }
+      }
+
+      foreach ([
+        $mutation['connection_id'] ?? NULL,
+      ] as $candidate) {
+        $normalized = $this->normalizeMutationTargetId($candidate);
+        if ($normalized !== NULL) {
+          $connection_ids[$normalized] = TRUE;
+        }
+      }
+    }
+
+    return [
+      'entity_ids' => array_keys($entity_ids),
+      'room_ids' => array_keys($room_ids),
+      'connection_ids' => array_keys($connection_ids),
+    ];
+  }
+
+  /**
+   * Build actor-entity envelope payload with optional ID narrowing.
+   *
+   * @param array<int,mixed> $entities
+   *   Runtime actor entity list.
+   * @param array<int,string> $target_entity_ids
+   *   Optional list of touched entity IDs.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Normalized actor entities to persist.
+   */
+  protected function selectMutationTargetedActorEntities(array $entities, array $target_entity_ids): array {
+    $normalized_entities = array_values(array_filter($entities, static function ($entity): bool {
+      return is_array($entity);
+    }));
+    if ($target_entity_ids === []) {
+      return $normalized_entities;
+    }
+
+    $target_lookup = array_fill_keys($target_entity_ids, TRUE);
+    $filtered = array_values(array_filter($normalized_entities, static function (array $entity) use ($target_lookup): bool {
+      $entity_id = trim((string) (
+        $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? ''
+      ));
+      return $entity_id !== '' && isset($target_lookup[$entity_id]);
+    }));
+
+    return $filtered !== [] ? $filtered : $normalized_entities;
+  }
+
+  /**
+   * Build room envelope payload with optional ID narrowing.
+   *
+   * @param array<int,mixed> $rooms
+   *   Runtime room list.
+   * @param array<int,string> $target_room_ids
+   *   Optional list of touched room IDs.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Normalized rooms to persist.
+   */
+  protected function selectMutationTargetedRooms(array $rooms, array $target_room_ids): array {
+    $normalized_rooms = array_values(array_filter($rooms, static function ($room): bool {
+      return is_array($room);
+    }));
+    if ($target_room_ids === []) {
+      return $normalized_rooms;
+    }
+
+    $target_lookup = array_fill_keys($target_room_ids, TRUE);
+    $filtered = array_values(array_filter($normalized_rooms, static function (array $room) use ($target_lookup): bool {
+      $room_id = trim((string) ($room['room_id'] ?? $room['id'] ?? ''));
+      return $room_id !== '' && isset($target_lookup[$room_id]);
+    }));
+
+    return $filtered !== [] ? $filtered : $normalized_rooms;
+  }
+
+  /**
+   * Build connection envelope payload with optional ID/room narrowing.
+   *
+   * @param array<string,mixed> $dungeon_data
+   *   Runtime payload context.
+   * @param array<int,string> $target_connection_ids
+   *   Optional touched connection IDs.
+   * @param array<int,string> $target_room_ids
+   *   Optional touched room IDs.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Normalized connections to persist.
+   */
+  protected function selectMutationTargetedConnections(array $dungeon_data, array $target_connection_ids, array $target_room_ids): array {
+    $connections = array_values(array_filter(array_merge(
+      is_array($dungeon_data['connections'] ?? NULL) ? $dungeon_data['connections'] : [],
+      is_array($dungeon_data['hex_map']['connections'] ?? NULL) ? $dungeon_data['hex_map']['connections'] : []
+    ), static function ($connection): bool {
+      return is_array($connection);
+    }));
+
+    if ($target_connection_ids === [] && $target_room_ids === []) {
+      return $connections;
+    }
+
+    $connection_lookup = $target_connection_ids !== [] ? array_fill_keys($target_connection_ids, TRUE) : [];
+    $room_lookup = $target_room_ids !== [] ? array_fill_keys($target_room_ids, TRUE) : [];
+
+    $filtered = array_values(array_filter($connections, static function (array $connection) use ($connection_lookup, $room_lookup): bool {
+      $connection_id = trim((string) (
+        $connection['connection_id']
+        ?? $connection['id']
+        ?? ''
+      ));
+      if ($connection_id !== '' && isset($connection_lookup[$connection_id])) {
+        return TRUE;
+      }
+
+      $from_room_id = trim((string) (
+        $connection['from_room_id']
+        ?? $connection['from']['room_id']
+        ?? ''
+      ));
+      $to_room_id = trim((string) (
+        $connection['to_room_id']
+        ?? $connection['to']['room_id']
+        ?? ''
+      ));
+      return ($from_room_id !== '' && isset($room_lookup[$from_room_id]))
+        || ($to_room_id !== '' && isset($room_lookup[$to_room_id]));
+    }));
+
+    return $filtered !== [] ? $filtered : $connections;
+  }
+
+  /**
+   * Normalize one mutation target identifier.
+   */
+  protected function normalizeMutationTargetId(mixed $candidate): ?string {
+    $value = trim((string) $candidate);
+    return $value !== '' ? $value : NULL;
   }
 
   /**
@@ -1460,6 +1762,17 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
     }
     }
+    }
+
+    $social_progression_events = $this->applyRoomSceneSocialProgressionPolicy(
+      $intent,
+      $result,
+      $game_state,
+      $dungeon_data,
+      $campaign_id
+    );
+    if ($social_progression_events !== []) {
+      $events = array_merge($events, $social_progression_events);
     }
 
     $this->maybeQueueMechanicalSystemLogEntry([
@@ -2890,6 +3203,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $mechanical_result = $search_result;
     $mutations = $search_result['mutations'] ?? [];
     $narration = $search_result['narration'] ?? NULL;
+    $resolved_room_id = trim((string) (
+      $params['room_id']
+      ?? $dungeon_data['active_room_id']
+      ?? $game_state['encounter_context']['room_id']
+      ?? ''
+    ));
     if (!empty($game_state['turn'])) {
       $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     }
@@ -2900,6 +3219,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       $events[] = GameEventLogger::buildEvent('search', 'encounter', $actor_id, [
         'discoveries' => $public_discoveries,
         'round' => $game_state['round'] ?? NULL,
+        'room_id' => $resolved_room_id !== '' ? $resolved_room_id : NULL,
       ], $narration);
     }
 
@@ -6193,12 +6513,16 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    * Enters a room and ensures an encounter-framework context is active.
    */
   public function enterRoomFramework(?string $actor_id, string $target_room_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $timing_started_at = microtime(TRUE);
+    $timing_breakdown = [];
     $target_room_id = trim($target_room_id);
     if ($target_room_id === '') {
       return ['error' => 'No target room specified.'];
     }
 
+    $rebuild_started_at = microtime(TRUE);
     $dungeon_data = $this->rebuildAuthoritativeRuntimeGraph($campaign_id, $dungeon_data, $target_room_id);
+    $timing_breakdown['rebuild_runtime_graph_ms'] = (microtime(TRUE) - $rebuild_started_at) * 1000.0;
 
     $this->logger->info('Encounter transition requested: campaign={campaign_id} actor={actor} from_room={from_room} target_room={target_room} connection_id={connection_id}', [
       'campaign_id' => $campaign_id,
@@ -6209,6 +6533,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     ]);
 
     $capability = NULL;
+    $capability_resolution_started_at = microtime(TRUE);
     if (!empty($dungeon_data['active_room_id']) && (string) $dungeon_data['active_room_id'] !== $target_room_id) {
       $capability = $this->resolveRoomTransitionCapability($dungeon_data, $target_room_id, $params);
       if ($capability === NULL) {
@@ -6243,7 +6568,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         return ['error' => sprintf("Room '%s' is not available for transition: %s.", $target_room_id, (string) ($capability['blocked_reason'] ?? 'blocked'))];
       }
     }
+    $timing_breakdown['resolve_capability_ms'] = (microtime(TRUE) - $capability_resolution_started_at) * 1000.0;
 
+    $materialize_room_started_at = microtime(TRUE);
     $room = $this->findRoomById($dungeon_data, $target_room_id);
     if ($room === NULL) {
       if (!$this->materializeCanonicalRoomForTransition($campaign_id, $dungeon_data, $target_room_id, $capability)) {
@@ -6263,7 +6590,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         throw new \RuntimeException(sprintf('Encounter transition contract violation: materialized room %s was not present in dungeon payload after instantiation.', $target_room_id));
       }
     }
+    $timing_breakdown['materialize_room_ms'] = (microtime(TRUE) - $materialize_room_started_at) * 1000.0;
+
+    $neighbor_preseed_started_at = microtime(TRUE);
     $this->enqueueLinkedRoomNeighborPreseed($campaign_id, $dungeon_data, $target_room_id);
+    $timing_breakdown['neighbor_preseed_ms'] = (microtime(TRUE) - $neighbor_preseed_started_at) * 1000.0;
 
     $from_room = $dungeon_data['active_room_id'] ?? NULL;
     $dungeon_data['active_room_id'] = $target_room_id;
@@ -6297,10 +6628,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $target_room_id
       ));
     }
+    $launch_slice_started_at = microtime(TRUE);
     $this->h3ProjectionQueue->provisionLaunchSliceNow($campaign_id, $runtime_dungeon_id, $launch_slice_scope);
+    $timing_breakdown['launch_slice_ms'] = (microtime(TRUE) - $launch_slice_started_at) * 1000.0;
     $game_state['phase'] = 'encounter';
     $game_state['exploration']['previous_room'] = $from_room;
 
+    $entry_resolution_started_at = microtime(TRUE);
     $entry_hex = $this->resolveTransitionEntryHex($room, $params, $capability);
     $entry_facing = isset($params['entry_facing']) ? (int) $params['entry_facing'] : 0;
     if ($actor_id) {
@@ -6312,7 +6646,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $entry_facing
       );
     }
+    $timing_breakdown['entry_and_actor_move_ms'] = (microtime(TRUE) - $entry_resolution_started_at) * 1000.0;
 
+    $room_scene_events_started_at = microtime(TRUE);
     $events = [];
     if (!empty($game_state['encounter_id']) && $from_room !== NULL && (string) $from_room !== $target_room_id) {
       $events = array_merge($events, $this->onExit($game_state, $dungeon_data, $campaign_id));
@@ -6334,15 +6670,55 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $this->startRoomSceneEncounter($actor_id, $target_room_id, $game_state, $dungeon_data, $campaign_id, $room)
       );
     }
+    $timing_breakdown['room_scene_events_ms'] = (microtime(TRUE) - $room_scene_events_started_at) * 1000.0;
 
     // Persist the room-scene intro into the instantiated room chat so the UI can
     // render the authoritative room description on room entry.
+    $room_intro_started_at = microtime(TRUE);
     $this->roomChatService->injectRoomSceneNarratorIntroIfNeeded($dungeon_data, $target_room_id);
+    $timing_breakdown['room_intro_ms'] = (microtime(TRUE) - $room_intro_started_at) * 1000.0;
+
+    $receipt_build_started_at = microtime(TRUE);
+    $transition_navigation_receipt = $this->buildTransitionNavigationReceipt(
+      $dungeon_data,
+      is_scalar($from_room) ? (string) $from_room : '',
+      $target_room_id,
+      $entry_hex,
+      $room
+    );
+    $timing_breakdown['build_navigation_receipt_ms'] = (microtime(TRUE) - $receipt_build_started_at) * 1000.0;
+
+    $total_ms = (microtime(TRUE) - $timing_started_at) * 1000.0;
+    if ($total_ms >= self::NAVIGATION_TIMING_SLOW_THRESHOLD_MS) {
+      $this->logger->notice(
+        'Navigation timing: enterRoomFramework slow (campaign={campaign_id}, actor={actor}, from_room={from_room}, target_room={target_room}, total_ms={total_ms}, rebuild_runtime_graph_ms={rebuild_runtime_graph_ms}, resolve_capability_ms={resolve_capability_ms}, materialize_room_ms={materialize_room_ms}, neighbor_preseed_ms={neighbor_preseed_ms}, launch_slice_ms={launch_slice_ms}, entry_and_actor_move_ms={entry_and_actor_move_ms}, room_scene_events_ms={room_scene_events_ms}, room_intro_ms={room_intro_ms}, build_navigation_receipt_ms={build_navigation_receipt_ms}, event_count={event_count})',
+        [
+          'campaign_id' => $campaign_id,
+          'actor' => (string) ($actor_id ?? ''),
+          'from_room' => (string) ($from_room ?? ''),
+          'target_room' => $target_room_id,
+          'total_ms' => round($total_ms, 2),
+          'rebuild_runtime_graph_ms' => round((float) ($timing_breakdown['rebuild_runtime_graph_ms'] ?? 0.0), 2),
+          'resolve_capability_ms' => round((float) ($timing_breakdown['resolve_capability_ms'] ?? 0.0), 2),
+          'materialize_room_ms' => round((float) ($timing_breakdown['materialize_room_ms'] ?? 0.0), 2),
+          'neighbor_preseed_ms' => round((float) ($timing_breakdown['neighbor_preseed_ms'] ?? 0.0), 2),
+          'launch_slice_ms' => round((float) ($timing_breakdown['launch_slice_ms'] ?? 0.0), 2),
+          'entry_and_actor_move_ms' => round((float) ($timing_breakdown['entry_and_actor_move_ms'] ?? 0.0), 2),
+          'room_scene_events_ms' => round((float) ($timing_breakdown['room_scene_events_ms'] ?? 0.0), 2),
+          'room_intro_ms' => round((float) ($timing_breakdown['room_intro_ms'] ?? 0.0), 2),
+          'build_navigation_receipt_ms' => round((float) ($timing_breakdown['build_navigation_receipt_ms'] ?? 0.0), 2),
+          'event_count' => count($events),
+        ]
+      );
+    }
 
     return [
       'transitioned' => $from_room !== $target_room_id,
       'from_room' => $from_room,
       'to_room' => $target_room_id,
+      'entry_hex' => $entry_hex,
+      'navigation_capabilities' => $transition_navigation_receipt['navigation_capabilities'],
+      'navigation' => $transition_navigation_receipt,
       'events' => $events,
       'time_effects' => $this->buildTransitionTimeEffects($actor_id, $from_room, $target_room_id, $capability, $params),
       'mutations' => $actor_id ? [
@@ -6352,6 +6728,190 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14($dungeon_data, $target_room_id, $entry_hex)],
       ] : [],
     ];
+  }
+
+  /**
+   * Bootstrap the active room into room-scene encounter mode without transition flow.
+   *
+   * This is a read-lane-safe initializer for fresh campaign startup. It avoids
+   * transition validation, graph mutation/materialization, and launch-slice
+   * provisioning while still establishing the room-scene encounter framework.
+   */
+  public function bootstrapRoomSceneFramework(string $room_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return ['error' => 'No room specified for room-scene bootstrap.'];
+    }
+
+    $room = $this->findRoomById($dungeon_data, $room_id);
+    if ($room === NULL) {
+      return ['error' => sprintf("Room '%s' does not exist.", $room_id)];
+    }
+
+    $dungeon_data['active_room_id'] = $room_id;
+    $dungeon_data['current_room_id'] = $room_id;
+    $game_state['phase'] = 'encounter';
+    if (!isset($game_state['exploration']) || !is_array($game_state['exploration'])) {
+      $game_state['exploration'] = [];
+    }
+    if (!array_key_exists('previous_room', $game_state['exploration'])) {
+      $game_state['exploration']['previous_room'] = NULL;
+    }
+
+    $events = [
+      GameEventLogger::buildEvent('room_entered', 'encounter', NULL, [
+        'from_room' => NULL,
+        'to_room' => $room_id,
+      ], (string) ($room['description'] ?? $room['name'] ?? '')),
+    ];
+
+    $events = array_merge(
+      $events,
+      $this->startRoomSceneEncounter(NULL, $room_id, $game_state, $dungeon_data, $campaign_id, $room)
+    );
+
+    $this->roomChatService->injectRoomSceneNarratorIntroIfNeeded($dungeon_data, $room_id);
+
+    return [
+      'success' => TRUE,
+      'events' => array_values($events),
+      'mutations' => [],
+      'time_effects' => [],
+      'phase_transition' => NULL,
+      'narration' => NULL,
+    ];
+  }
+
+  /**
+   * Builds a server-authoritative navigation receipt for in-session transitions.
+   */
+  protected function buildTransitionNavigationReceipt(
+    array $dungeon_data,
+    string $from_room_id,
+    string $target_room_id,
+    array $entry_hex,
+    ?array $room = NULL
+  ): array {
+    $target_room_id = trim($target_room_id);
+    if ($target_room_id === '') {
+      throw new \RuntimeException('Encounter transition contract violation: target_room_id is required for navigation receipt.');
+    }
+
+    $room_payload = is_array($room) ? $room : ($this->findRoomById($dungeon_data, $target_room_id) ?? []);
+    $navigation_capabilities = $this->requireNavigationService()
+      ->buildNavigationCapabilitiesWithRoadNetwork($dungeon_data, $target_room_id);
+
+    $origin_room_id = trim($from_room_id);
+    $receipt = [
+      'target_room_id' => $target_room_id,
+      'destination' => trim((string) ($room_payload['name'] ?? '')) !== ''
+        ? (string) $room_payload['name']
+        : $target_room_id,
+      'room' => is_array($room_payload) ? $room_payload : [],
+      'entities' => $this->collectTransitionRoomEntities($dungeon_data, $target_room_id),
+      'connections' => $this->buildTransitionReceiptConnectionsFromCapabilities($navigation_capabilities, $target_room_id),
+      'navigation_capabilities' => $navigation_capabilities,
+      'entry_hex' => [
+        'q' => (int) ($entry_hex['q'] ?? 0),
+        'r' => (int) ($entry_hex['r'] ?? 0),
+      ],
+    ];
+
+    if ($origin_room_id !== '') {
+      $receipt['origin_room_id'] = $origin_room_id;
+    }
+
+    return $receipt;
+  }
+
+  /**
+   * Build normalized runtime connections from navigation capabilities.
+   *
+   * @param array<int, array<string, mixed>> $capabilities
+   *   Navigation capabilities authored for one active room.
+   * @param string $active_room_id
+   *   Active room owning those capabilities.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Connection payload rows keyed for client dedupe.
+   */
+  protected function buildTransitionReceiptConnectionsFromCapabilities(array $capabilities, string $active_room_id): array {
+    $connections = [];
+    $active_room_id = trim($active_room_id);
+
+    foreach ($capabilities as $capability) {
+      if (!is_array($capability)) {
+        continue;
+      }
+      $target_room_id = trim((string) ($capability['target_room_id'] ?? ''));
+      if ($target_room_id === '') {
+        continue;
+      }
+
+      $origin_room_id = trim((string) ($capability['origin_room_id'] ?? $active_room_id));
+      if ($origin_room_id === '') {
+        $origin_room_id = $active_room_id;
+      }
+      $connection_id = trim((string) ($capability['connection_id'] ?? ''));
+      if ($connection_id === '') {
+        $connection_id = sprintf('receipt-%s-%s', $origin_room_id, $target_room_id);
+      }
+
+      $available = !array_key_exists('available', $capability) || !empty($capability['available']);
+      $connection = [
+        'connection_id' => $connection_id,
+        'from_room' => $origin_room_id,
+        'to_room' => $target_room_id,
+        'target_room_id' => $target_room_id,
+        'available' => $available,
+        'blocked' => !$available,
+        'blocked_reason' => $available ? '' : (string) ($capability['blocked_reason'] ?? 'blocked'),
+        'type' => (string) ($capability['type'] ?? $capability['connection_type'] ?? 'passage'),
+      ];
+
+      if (is_array($capability['origin_hex'] ?? NULL)) {
+        $connection['from_hex'] = [
+          'q' => (int) ($capability['origin_hex']['q'] ?? 0),
+          'r' => (int) ($capability['origin_hex']['r'] ?? 0),
+        ];
+      }
+      if (is_array($capability['target_hex'] ?? NULL)) {
+        $connection['to_hex'] = [
+          'q' => (int) ($capability['target_hex']['q'] ?? 0),
+          'r' => (int) ($capability['target_hex']['r'] ?? 0),
+        ];
+      }
+
+      $connections[] = $connection;
+    }
+
+    return $connections;
+  }
+
+  /**
+   * Collect entities currently placed in one room for transition receipt sync.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Room-local entity payload rows.
+   */
+  protected function collectTransitionRoomEntities(array $dungeon_data, string $room_id): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return [];
+    }
+
+    $entities = [];
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+      if ($entity_room_id === $room_id) {
+        $entities[] = $entity;
+      }
+    }
+
+    return $entities;
   }
 
   /**
@@ -6389,12 +6949,22 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       return $dungeon_data;
     }
 
-    return $this->runtimeGraphAssembler->buildRuntimeGraph($campaign_id, $dungeon_id, $dungeon_data, [
+    $rebuilt = $this->runtimeGraphAssembler->buildRuntimeGraph($campaign_id, $dungeon_id, $dungeon_data, [
       'active_room_id' => trim((string) ($dungeon_data['active_room_id'] ?? '')),
       'requested_room_id' => trim($requested_room_id),
       // Transition rebuilds are bounded to the active-room frontier.
       'room_scope_depth' => 1,
     ]);
+    if (!is_array($rebuilt)) {
+      return $dungeon_data;
+    }
+
+    // Preserve coordinator persistence metadata across graph rebuild replacement.
+    if (array_key_exists('__campaign_dungeon_row_id', $dungeon_data) && !array_key_exists('__campaign_dungeon_row_id', $rebuilt)) {
+      $rebuilt['__campaign_dungeon_row_id'] = $dungeon_data['__campaign_dungeon_row_id'];
+    }
+
+    return $rebuilt;
   }
 
   /**
@@ -6938,7 +7508,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       ]);
     }
 
-    return $events;
+    return [
+      'events' => $events,
+      'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, []),
+    ];
   }
 
   /**
@@ -7005,7 +7578,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $game_state['turn'] = NULL;
     $game_state['initiative_order'] = NULL;
 
-    return $events;
+    return [
+      'events' => $events,
+      'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, []),
+    ];
   }
 
   /**
@@ -7728,6 +8304,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         'discoveries' => $discoveries,
         'round' => $game_state['round'] ?? NULL,
         'trigger' => 'turn_start',
+        'room_id' => $room_id !== '' ? $room_id : NULL,
       ], $narration),
     ];
   }
@@ -8863,6 +9440,220 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       default:
         return 1;
     }
+  }
+
+  /**
+   * Applies room-scene lead-seeking caps for automation/harness talk actions.
+   */
+  protected function applyRoomSceneSocialProgressionPolicy(
+    array $intent,
+    array $result,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if (!$this->isRoomSceneMode($game_state)) {
+      return [];
+    }
+    if (!$this->isLeadSeekingAutomationTalkIntent($intent, $game_state)) {
+      return [];
+    }
+    if (!empty($result['error']) || array_key_exists('success', $result) && empty($result['success'])) {
+      return [];
+    }
+
+    $lead_source_id = $this->resolveLeadSeekTalkTargetEntityId($intent);
+    if ($lead_source_id === '') {
+      return [];
+    }
+    $room_id = trim((string) ($game_state['encounter_context']['room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
+    if ($room_id === '') {
+      return [];
+    }
+
+    $social_progression = $this->getRoomSceneSocialProgressionState($game_state, $room_id);
+    $lead_seek_counts = is_array($social_progression['lead_seek_counts'] ?? NULL)
+      ? $social_progression['lead_seek_counts']
+      : [];
+    $current_count = max(0, (int) ($lead_seek_counts[$lead_source_id] ?? 0));
+    $next_count = $current_count + 1;
+    $lead_seek_counts[$lead_source_id] = $next_count;
+
+    $exhausted = is_array($social_progression['exhausted_lead_sources'] ?? NULL)
+      ? array_values(array_filter(array_map('strval', $social_progression['exhausted_lead_sources']), static fn(string $value): bool => trim($value) !== ''))
+      : [];
+    if ($next_count >= self::MAX_LEAD_SEEK_INTERACTIONS_PER_ACTOR_PER_ROOM && !in_array($lead_source_id, $exhausted, TRUE)) {
+      $exhausted[] = $lead_source_id;
+    }
+
+    $social_progression['lead_seek_counts'] = $lead_seek_counts;
+    $social_progression['exhausted_lead_sources'] = array_values(array_unique($exhausted));
+    $social_progression['last_progress_signal'] = $this->resolveSocialProgressSignal($result);
+    $game_state['encounter_context']['social_progression'] = $social_progression;
+
+    if ($next_count < self::MAX_LEAD_SEEK_INTERACTIONS_PER_ACTOR_PER_ROOM) {
+      return [];
+    }
+
+    $lead_source_name = $this->resolveEntityName($lead_source_id, $game_state, $dungeon_data);
+    return [
+      GameEventLogger::buildEvent('room_scene_lead_source_exhausted', 'encounter', $lead_source_id, [
+        'room_id' => $room_id,
+        'lead_source_id' => $lead_source_id,
+        'lead_source_name' => $lead_source_name,
+        'lead_seek_count' => $next_count,
+        'lead_seek_cap' => self::MAX_LEAD_SEEK_INTERACTIONS_PER_ACTOR_PER_ROOM,
+      ], sprintf(
+        '%s has no additional rumor/quest leads to offer right now.',
+        $lead_source_name !== '' ? $lead_source_name : 'This actor'
+      )),
+    ];
+  }
+
+  /**
+   * Returns true when an automation talk intent is seeking rumors/quest leads.
+   */
+  protected function isLeadSeekingAutomationTalkIntent(array $intent, array $game_state): bool {
+    if (strtolower(trim((string) ($intent['type'] ?? ''))) !== 'talk') {
+      return FALSE;
+    }
+    $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+    if (!$this->isAutomationSocialIntent($intent, $params)) {
+      return FALSE;
+    }
+
+    if (trim((string) ($params['objective_id'] ?? '')) !== '' || trim((string) ($params['quest_id'] ?? '')) !== '') {
+      return FALSE;
+    }
+
+    $message = strtolower(trim((string) ($params['message'] ?? '')));
+    if ($message === '') {
+      return FALSE;
+    }
+
+    $turn_in_markers = [
+      'turning them in',
+      'turning this in',
+      'turn this in',
+      'turn in now',
+      'i found the requested items',
+      'objective complete',
+      'quest complete',
+    ];
+    foreach ($turn_in_markers as $marker) {
+      if (str_contains($message, $marker)) {
+        return FALSE;
+      }
+    }
+
+    $lead_markers = [
+      'rumor',
+      'rumour',
+      'lead',
+      'job',
+      'work',
+      'danger',
+      'clue',
+      'what should i do next',
+      'what should i tackle',
+      'where should i start',
+      'additional work',
+      'urgent problem',
+      'storyline lead',
+      'what next',
+    ];
+    foreach ($lead_markers as $marker) {
+      if (str_contains($message, $marker)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Detects harness/automation-origin intents for social-cap enforcement.
+   */
+    protected function isAutomationSocialIntent(array $intent, array $params): bool {
+      if (trim((string) ($intent['decision_id'] ?? '')) !== '') {
+        return TRUE;
+      }
+      if (trim((string) ($params['automation_goal'] ?? '')) !== '') {
+        return TRUE;
+      }
+    if (!empty($params['automation'])) {
+      return TRUE;
+    }
+    $source = strtolower(trim((string) ($params['source'] ?? '')));
+    return in_array($source, ['harness', 'automation', 'player_agent'], TRUE);
+  }
+
+  /**
+   * Resolve the target actor/entity identifier for lead-seeking talk actions.
+   */
+  protected function resolveLeadSeekTalkTargetEntityId(array $intent): string {
+    $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+    return trim((string) (
+      $intent['target']
+      ?? $params['target']
+      ?? ''
+    ));
+  }
+
+  /**
+   * Returns current room-scene social progression state with safe defaults.
+   */
+  protected function getRoomSceneSocialProgressionState(array $game_state, string $room_id): array {
+    $encounter_context = is_array($game_state['encounter_context'] ?? NULL)
+      ? $game_state['encounter_context']
+      : [];
+    $social_progression = is_array($encounter_context['social_progression'] ?? NULL)
+      ? $encounter_context['social_progression']
+      : [];
+    $progression_room_id = trim((string) ($social_progression['room_id'] ?? ''));
+    if ($progression_room_id === '' || ($room_id !== '' && $progression_room_id !== $room_id)) {
+      $social_progression = [];
+    }
+
+    return [
+      'policy_version' => (int) ($social_progression['policy_version'] ?? self::SOCIAL_PROGRESSION_POLICY_VERSION),
+      'room_id' => $room_id,
+      'lead_seek_counts' => is_array($social_progression['lead_seek_counts'] ?? NULL)
+        ? $social_progression['lead_seek_counts']
+        : [],
+      'exhausted_lead_sources' => is_array($social_progression['exhausted_lead_sources'] ?? NULL)
+        ? $social_progression['exhausted_lead_sources']
+        : [],
+      'last_progress_signal' => (string) ($social_progression['last_progress_signal'] ?? 'none'),
+    ];
+  }
+
+  /**
+   * Checks whether an actor is exhausted for lead-seeking in the room.
+   */
+  protected function isActorLeadSourceExhaustedForRoom(array $game_state, string $actor_id, string $room_id): bool {
+    if ($actor_id === '' || $room_id === '') {
+      return FALSE;
+    }
+    $social_progression = $this->getRoomSceneSocialProgressionState($game_state, $room_id);
+    $exhausted = is_array($social_progression['exhausted_lead_sources'] ?? NULL)
+      ? $social_progression['exhausted_lead_sources']
+      : [];
+    return in_array($actor_id, array_map('strval', $exhausted), TRUE);
+  }
+
+  /**
+   * Classifies whether the latest talk produced objective progression signals.
+   */
+  protected function resolveSocialProgressSignal(array $result): string {
+    $result_blob = strtolower(json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '');
+    if ($result_blob === '') {
+      return 'none';
+    }
+    if (str_contains($result_blob, 'objective') || str_contains($result_blob, 'quest')) {
+      return 'objective_update';
+    }
+    return 'none';
   }
 
   /**
@@ -10454,6 +11245,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     $game_state = is_array($game_state_override ?? NULL)
       ? $game_state_override
       : (is_array($dungeon_data['game_state'] ?? NULL) ? $dungeon_data['game_state'] : []);
+    if (!empty($game_state['suppress_room_scene_narration'])) {
+      return [];
+    }
     if (isset($event['content']) && is_string($event['content'])) {
       $prefix_actor_id = NULL;
       if (isset($event['speaker_ref']) && is_string($event['speaker_ref']) && trim($event['speaker_ref']) !== '') {

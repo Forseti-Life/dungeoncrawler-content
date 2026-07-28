@@ -76,8 +76,11 @@ class CanonicalExecutionPipeline {
     if ($errors !== []) {
       $validation_errors = array_merge($validation_errors, $errors);
     }
-    if (!empty($canonical_execution['reloaded_dungeon_data']) && is_array($canonical_execution['reloaded_dungeon_data'])) {
-      $dungeon_data = $canonical_execution['reloaded_dungeon_data'];
+    if (!empty($canonical_execution['combat_runtime_snapshot']) && is_array($canonical_execution['combat_runtime_snapshot'])) {
+      $dungeon_data = $this->applyRuntimeSnapshotToDungeonData(
+        $dungeon_data,
+        $canonical_execution['combat_runtime_snapshot']
+      );
     }
 
     return [
@@ -89,5 +92,36 @@ class CanonicalExecutionPipeline {
     ];
   }
 
-}
+  /**
+   * Apply compact runtime snapshot updates to the local dungeon_data context.
+   *
+   * This keeps downstream mutation processing aligned with authoritative
+   * coordinator transitions without requiring full payload compatibility blobs.
+   */
+  protected function applyRuntimeSnapshotToDungeonData(array $dungeon_data, array $runtime_snapshot): array {
+    $game_state = is_array($runtime_snapshot['game_state'] ?? NULL)
+      ? $runtime_snapshot['game_state']
+      : NULL;
+    if ($game_state !== NULL) {
+      $dungeon_data['game_state'] = $game_state;
+    }
 
+    $active_room_id = trim((string) (
+      $runtime_snapshot['active_room_id']
+      ?? ($runtime_snapshot['active_room']['room_id'] ?? '')
+    ));
+    if ($active_room_id !== '') {
+      $dungeon_data['active_room_id'] = $active_room_id;
+    }
+
+    if (is_numeric($runtime_snapshot['state_version'] ?? NULL)) {
+      if (!is_array($dungeon_data['game_state'] ?? NULL)) {
+        $dungeon_data['game_state'] = [];
+      }
+      $dungeon_data['game_state']['state_version'] = (int) $runtime_snapshot['state_version'];
+    }
+
+    return $dungeon_data;
+  }
+
+}

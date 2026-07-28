@@ -14517,7 +14517,10 @@ import { SpriteService } from './SpriteService.js';
             quest_updates: Array.isArray(responseData.quest_updates) ? responseData.quest_updates : [],
           },
           events: Array.isArray(responseData.events) ? responseData.events : [],
-          game_state: responseData.game_state || null,
+          game_state: responseData.game_state
+            || responseData.runtime_snapshot?.game_state
+            || responseData.combat_transition?.game_state
+            || null,
         },
         run_state: nextRunState,
         ui_already_rendered: true,
@@ -19013,14 +19016,50 @@ import { SpriteService } from './SpriteService.js';
         return null;
       }
 
+      const preferredPlayerEntities = playerEntities.filter((entity) => {
+        const entityRef = String(
+          entity?.dcEntityRef ||
+          entity?.dcEntityInstanceId ||
+          entity?.instanceId ||
+          entity?.id ||
+          ''
+        ).trim().toLowerCase();
+        const entityType = String(entity?.dcEntityType || entity?.dcStatePayload?.entity_type || '').trim().toLowerCase();
+        const metadata = entity?.dcStatePayload?.state?.metadata || entity?.dcStatePayload?.metadata || {};
+        const followerKind = String(metadata?.follower_kind || metadata?.bond_contract?.follower_kind || '').trim().toLowerCase();
+        const roleKind = String(
+          metadata?.role ||
+          metadata?.bond_contract?.role ||
+          entity?.dcStatePayload?.role ||
+          entity?.dcStatePayload?.state?.role ||
+          ''
+        ).trim().toLowerCase();
+        const isFollowerLike = entityRef.startsWith('familiar-')
+          || entityRef.startsWith('companion-')
+          || entityRef.startsWith('follower-')
+          || followerKind === 'familiar'
+          || followerKind === 'companion'
+          || followerKind === 'follower'
+          || roleKind.includes('familiar')
+          || roleKind.includes('companion')
+          || roleKind.includes('follower');
+        if (isFollowerLike) {
+          return false;
+        }
+        const campaignCharacterId = Number(metadata.campaign_character_id || metadata.character_id || entity?.dcCharacterId || 0);
+        return entityType === 'player_character'
+          || (launchCharacterId > 0 && campaignCharacterId === launchCharacterId);
+      });
+      const launchCandidates = preferredPlayerEntities.length ? preferredPlayerEntities : playerEntities;
+
       const startQ = Number.isFinite(Number(this.launchContext?.start_q)) ? Number(this.launchContext.start_q) : 0;
       const startR = Number.isFinite(Number(this.launchContext?.start_r)) ? Number(this.launchContext.start_r) : 0;
-      const onStartHex = playerEntities.find((entity) => {
+      const onStartHex = launchCandidates.find((entity) => {
         const pos = entity.getComponent('PositionComponent');
         return pos && pos.q === startQ && pos.r === startR;
       });
 
-      return onStartHex || playerEntities[0] || null;
+      return onStartHex || launchCandidates[0] || null;
     }
 
     ,

@@ -2,6 +2,8 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Psr\Log\LoggerInterface;
+
 /**
  * Centralizes navigation capability resolution over dungeon room connections.
  */
@@ -10,16 +12,20 @@ class NavigationService {
   private const CONNECTOR_SOURCE_CANONICAL_TABLE = 'canonical_table';
   private const CONNECTOR_SOURCE_CAMPAIGN_TABLE = 'campaign_table';
   private const NON_PASSABLE_CONNECTOR_STATES = ['locked', 'barred', 'collapsed', 'destroyed', 'trapped'];
+  private const NAVIGATION_TIMING_SLOW_THRESHOLD_MS = 300;
 
   protected NavigationRoadGraphService $navigationRoadGraphService;
   protected ?ConnectorDefinitionService $connectorDefinitionService;
+  protected ?LoggerInterface $logger = NULL;
 
   public function __construct(
     ?NavigationRoadGraphService $navigation_road_graph_service = NULL,
-    ?ConnectorDefinitionService $connector_definition_service = NULL
+    ?ConnectorDefinitionService $connector_definition_service = NULL,
+    ?LoggerInterface $logger = NULL
   ) {
     $this->navigationRoadGraphService = $navigation_road_graph_service ?? new NavigationRoadGraphService();
     $this->connectorDefinitionService = $connector_definition_service;
+    $this->logger = $logger;
   }
 
   /**
@@ -1537,16 +1543,29 @@ class NavigationService {
     string $room_id,
     ?array $quest_entries = NULL
   ): array {
+    $timing_started_at = microtime(TRUE);
+    $capability_build_started_at = microtime(TRUE);
     // Start with normal capabilities
     $capabilities = $this->buildNavigationCapabilities($dungeon_data, $room_id);
+    $base_capability_build_ms = (microtime(TRUE) - $capability_build_started_at) * 1000.0;
+
+    $target_set_started_at = microtime(TRUE);
     $target_room_ids = $this->collectCapabilityTargetRoomIds($capabilities);
+    $target_set_ms = (microtime(TRUE) - $target_set_started_at) * 1000.0;
+
+    $road_source_started_at = microtime(TRUE);
     $road_source_rooms = $this->collectRoadConnectedSourceRooms($dungeon_data);
+    $road_source_ms = (microtime(TRUE) - $road_source_started_at) * 1000.0;
 
     // Check if current room has any road connection
+    $road_expand_started_at = microtime(TRUE);
     $current_room_has_road = $this->hasRoadConnection($dungeon_data, $room_id, $road_source_rooms);
+    $road_candidates = 0;
+    $road_added = 0;
     if ($current_room_has_road) {
       // Current room has road access — add all other road-connected rooms.
       $road_network_rooms = $this->extractRoadNetworkRooms($dungeon_data, $room_id, $road_source_rooms);
+      $road_candidates = count($road_network_rooms);
 
       foreach ($road_network_rooms as $target_room_id) {
         if (!isset($target_room_ids[$target_room_id])) {
@@ -1555,13 +1574,46 @@ class NavigationService {
           if ($capability !== NULL) {
             $capabilities[] = $capability;
             $target_room_ids[$target_room_id] = TRUE;
+            $road_added++;
           }
         }
       }
     }
+    $road_expand_ms = (microtime(TRUE) - $road_expand_started_at) * 1000.0;
 
+    $quest_append_started_at = microtime(TRUE);
     $capabilities = $this->appendQuestDestinationCapabilities($capabilities, $dungeon_data, $room_id, $quest_entries);
-    return $this->sortCapabilities($capabilities);
+    $quest_append_ms = (microtime(TRUE) - $quest_append_started_at) * 1000.0;
+
+    $sort_started_at = microtime(TRUE);
+    $sorted_capabilities = $this->sortCapabilities($capabilities);
+    $sort_ms = (microtime(TRUE) - $sort_started_at) * 1000.0;
+    $total_ms = (microtime(TRUE) - $timing_started_at) * 1000.0;
+
+    $logger = $this->logger;
+    if ($logger === NULL && class_exists(\Drupal::class)) {
+      $logger = \Drupal::logger('dungeoncrawler');
+    }
+    if ($logger && $total_ms >= self::NAVIGATION_TIMING_SLOW_THRESHOLD_MS) {
+      $logger->notice(
+        'Navigation timing: buildNavigationCapabilitiesWithRoadNetwork slow (room_id={room_id}, total_ms={total_ms}, base_ms={base_ms}, target_set_ms={target_set_ms}, road_source_ms={road_source_ms}, road_expand_ms={road_expand_ms}, quest_ms={quest_ms}, sort_ms={sort_ms}, road_candidates={road_candidates}, road_added={road_added}, capability_count={capability_count})',
+        [
+          'room_id' => trim($room_id),
+          'total_ms' => round($total_ms, 2),
+          'base_ms' => round($base_capability_build_ms, 2),
+          'target_set_ms' => round($target_set_ms, 2),
+          'road_source_ms' => round($road_source_ms, 2),
+          'road_expand_ms' => round($road_expand_ms, 2),
+          'quest_ms' => round($quest_append_ms, 2),
+          'sort_ms' => round($sort_ms, 2),
+          'road_candidates' => $road_candidates,
+          'road_added' => $road_added,
+          'capability_count' => count($sorted_capabilities),
+        ]
+      );
+    }
+
+    return $sorted_capabilities;
   }
 
   /**

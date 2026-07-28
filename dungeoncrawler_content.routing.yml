@@ -150,6 +150,15 @@ dungeoncrawler_content.world_game_flow:
   requirements:
     _access: 'TRUE'
 
+dungeoncrawler_content.engine_status:
+  path: '/world/engine-status'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\EngineStatusController::index'
+    _title: 'Engine Status'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+
 dungeoncrawler_content.how_to_play:
   path: '/how-to-play'
   defaults:
@@ -935,6 +944,19 @@ dungeoncrawler_content.api.room_chat_post:
   path: '/api/campaign/{campaign_id}/room/{room_id}/chat'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::postChatMessage'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+    room_id: '[A-Za-z0-9_-]+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.room_chat_entry_acknowledgement:
+  path: '/api/campaign/{campaign_id}/room/{room_id}/chat/entry-acknowledgement'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomChatController::postRoomEntryAcknowledgement'
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE

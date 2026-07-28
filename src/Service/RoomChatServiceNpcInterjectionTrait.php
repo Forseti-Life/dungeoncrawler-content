@@ -681,8 +681,14 @@ PROMPT;
     string $speaker_ref,
     string $speaker_name,
     bool $feed_room_sessions = TRUE,
-    ?string $encounter_prefix = NULL
+    ?string $encounter_prefix = NULL,
+    ?string $consumption_key_override = NULL
   ): array {
+    $normalized_consumption_key = trim((string) ($consumption_key_override ?? ''));
+    if ($normalized_consumption_key !== '' && $this->hasConsumedNpcResponse($dungeon_data, $room_index, $normalized_consumption_key)) {
+      return [];
+    }
+
     $dialogue_payload = $this->generateNpcRoomDialogue(
       $campaign_id, $room_id, $room_index, $dungeon_data,
       $speaker_ref, $speaker_name, $player_message, $gm_narrative
@@ -694,7 +700,10 @@ PROMPT;
     }
 
     $npc_dialogue = (string) $dialogue_payload['text'];
-    if (!$this->consumeNpcResponseOnce(
+    if ($normalized_consumption_key !== '') {
+      $this->markConsumedNpcResponse($dungeon_data, $room_index, $normalized_consumption_key);
+    }
+    elseif (!$this->consumeNpcResponseOnce(
       $dungeon_data,
       $room_index,
       $room_id,

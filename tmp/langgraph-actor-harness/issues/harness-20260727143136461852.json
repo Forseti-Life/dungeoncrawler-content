@@ -1,0 +1,5187 @@
+{
+  "timestamp": "2026-07-27T14:37:50.922882Z",
+  "correlation_id": "langgraph-harness-20260727143136461852",
+  "campaign_id": 702,
+  "character_name": "Burasco",
+  "character_id": 4171,
+  "actor_id": "pc-702-1033",
+  "room_id": "tavern_entrance",
+  "stop_reason": "max_turns_reached",
+  "decision": {
+    "decision_type": "tool",
+    "tool_name": "talk",
+    "tool_payload": {
+      "type": "talk",
+      "actor": "pc-702-1033",
+      "target": "scholar_npc",
+      "params": {
+        "target": "scholar_npc",
+        "message": "Bring the samples to Marta and complete the stabilization ritual.",
+        "objective_id": "stabilize_codex_with_marta",
+        "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+        "character_id": 4171
+      }
+    },
+    "reason": "deterministic_active_objective_interact",
+    "context_id": "langgraph-harness-20260727143136461852:turn-11",
+    "runtime_state_version": 12,
+    "decision_id": "langgraph-harness-20260727143136461852:turn-12:talk"
+  },
+  "last_result": {
+    "success": true,
+    "game_state": {
+      "phase": "encounter",
+      "session_id": "runtime_bootstrap_20260727_143139",
+      "round": 2,
+      "turn": {
+        "entity": "pc-702-1033",
+        "index": 3,
+        "actions_remaining": 2,
+        "attacks_this_turn": 0,
+        "reaction_available": true,
+        "delayed": false
+      },
+      "encounter_id": 1268,
+      "encounter_context": {
+        "room_id": "tavern_entrance",
+        "mode": "room_scene",
+        "started_at": "2026-07-27T14:36:16+00:00"
+      },
+      "initiative_order": [
+        {
+          "id": "3997",
+          "encounter_id": "1268",
+          "entity_id": "npc_gribbles_rindsworth",
+          "entity_ref": "{\"content_type\":\"npc\",\"content_id\":\"gribbles_rindsworth\",\"perception_modifier\":0,\"heritage\":null,\"fly_used_this_turn\":false,\"shield_raised\":false,\"avert_gaze_active\":false}",
+          "name": "Gribbles Rindsworth",
+          "team": "npc",
+          "initiative": "20",
+          "initiative_roll": "20",
+          "ac": "10",
+          "hp": "10",
+          "max_hp": "10",
+          "actions_remaining": "3",
+          "attacks_this_turn": "0",
+          "position_q": "-2",
+          "position_r": "-3",
+          "reaction_available": "1",
+          "is_defeated": "0",
+          "created": "1785162976",
+          "updated": "1785162994",
+          "temp_hp": "0",
+          "status": "active"
+        },
+        {
+          "id": "3998",
+          "encounter_id": "1268",
+          "entity_id": "npc_scholar_npc",
+          "entity_ref": "{\"content_type\":\"npc\",\"content_id\":\"scholar_npc\",\"perception_modifier\":0,\"heritage\":null,\"fly_used_this_turn\":false,\"shield_raised\":false,\"avert_gaze_active\":false}",
+          "name": "Marta the Scholar",
+          "team": "npc",
+          "initiative": "19",
+          "initiative_roll": "19",
+          "ac": "10",
+          "hp": "10",
+          "max_hp": "10",
+          "actions_remaining": "3",
+          "attacks_this_turn": "0",
+          "position_q": "-3",
+          "position_r": "-3",
+          "reaction_available": "1",
+          "is_defeated": "0",
+          "created": "1785162976",
+          "updated": "1785162994",
+          "temp_hp": "0",
+          "status": "active"
+        },
+        {
+          "id": "3999",
+          "encounter_id": "1268",
+          "entity_id": "npc_tavern_keeper",
+          "entity_ref": "{\"content_type\":\"npc\",\"content_id\":\"tavern_keeper\",\"perception_modifier\":0,\"heritage\":null,\"fly_used_this_turn\":false,\"shield_raised\":false,\"avert_gaze_active\":false}",
+          "name": "Eldric",
+          "team": "npc",
+          "initiative": "13",
+          "initiative_roll": "13",
+          "ac": "10",
+          "hp": "10",
+          "max_hp": "10",
+          "actions_remaining": "3",
+          "attacks_this_turn": "0",
+          "position_q": "-4",
+          "position_r": "-3",
+          "reaction_available": "1",
+          "is_defeated": "0",
+          "created": "1785162976",
+          "updated": "1785162994",
+          "temp_hp": "0",
+          "status": "active"
+        },
+        {
+          "id": "4000",
+          "encounter_id": "1268",
+          "entity_id": "pc-702-1033",
+          "entity_ref": "{\"content_type\":\"player_character\",\"content_id\":\"pc-702-1033\",\"perception_modifier\":0,\"heritage\":null}",
+          "name": "pc-702-1033",
+          "team": "player",
+          "initiative": "1",
+          "initiative_roll": "1",
+          "ac": "13",
+          "hp": "15",
+          "max_hp": "15",
+          "actions_remaining": "2",
+          "attacks_this_turn": "0",
+          "position_q": "0",
+          "position_r": "0",
+          "reaction_available": "1",
+          "is_defeated": "0",
+          "created": "1785162976",
+          "updated": "1785163006",
+          "temp_hp": "0",
+          "status": "active"
+        }
+      ],
+      "campaign_clock": {
+        "datetime": "2026-07-27T14:35:12Z",
+        "date": "2026-07-27",
+        "time": "14:35:12",
+        "timezone": "UTC",
+        "year": 2026,
+        "month": 7,
+        "day": 27,
+        "hour": 14,
+        "minute": 35,
+        "second": 12,
+        "weekday": "Monday",
+        "season": "summer"
+      },
+      "game_time": {
+        "day": 27,
+        "hour": 14,
+        "minute": 35,
+        "second": 12,
+        "date": "2026-07-27",
+        "datetime": "2026-07-27T14:35:12Z",
+        "timezone": "UTC"
+      },
+      "timed_activities": [
+        {
+          "activity_id": "activity_6a676c846bc2f4.42885535",
+          "actor_ids": [
+            "pc-702-1033"
+          ],
+          "phase": "encounter",
+          "action_type": "encounter_round",
+          "status": "completed",
+          "started_at": "2026-07-27T14:33:00Z",
+          "ends_at": "2026-07-27T14:33:06Z",
+          "duration_minutes": 0,
+          "duration_seconds": 6,
+          "concurrency_group": "encounter_rounds",
+          "location_context": {
+            "room_id": "tavern_entrance",
+            "round_advances": 1
+          },
+          "completed_at": "2026-07-27T14:33:06Z"
+        },
+        {
+          "activity_id": "activity_6a676cbc737b54.33836651",
+          "actor_ids": [
+            "pc-702-1033"
+          ],
+          "phase": "encounter",
+          "action_type": "room_transition",
+          "status": "completed",
+          "started_at": "2026-07-27T14:33:06Z",
+          "ends_at": "2026-07-27T14:34:06Z",
+          "duration_minutes": 1,
+          "duration_seconds": 60,
+          "concurrency_group": "party_travel",
+          "location_context": {
+            "from_room_id": "tavern_entrance",
+            "to_room_id": "tpl_room_absalom_streets",
+            "connection_id": "asset-library-starter-room::tavern_entrance::tpl_room_absalom_streets::hallway"
+          },
+          "completed_at": "2026-07-27T14:34:06Z"
+        },
+        {
+          "activity_id": "activity_6a676ce07390c0.62808184",
+          "actor_ids": [
+            "pc-702-1033"
+          ],
+          "phase": "encounter",
+          "action_type": "room_transition",
+          "status": "completed",
+          "started_at": "2026-07-27T14:34:06Z",
+          "ends_at": "2026-07-27T14:35:06Z",
+          "duration_minutes": 1,
+          "duration_seconds": 60,
+          "concurrency_group": "party_travel",
+          "location_context": {
+            "from_room_id": "tpl_room_absalom_streets",
+            "to_room_id": "tavern_entrance",
+            "connection_id": "asset-library-starter-room::tavern_entrance::tpl_room_absalom_streets::hallway"
+          },
+          "completed_at": "2026-07-27T14:35:06Z"
+        },
+        {
+          "activity_id": "activity_6a676d2d17ab06.78904498",
+          "actor_ids": [
+            "pc-702-1033"
+          ],
+          "phase": "encounter",
+          "action_type": "encounter_round",
+          "status": "completed",
+          "started_at": "2026-07-27T14:35:06Z",
+          "ends_at": "2026-07-27T14:35:12Z",
+          "duration_minutes": 0,
+          "duration_seconds": 6,
+          "concurrency_group": "encounter_rounds",
+          "location_context": {
+            "room_id": "tavern_entrance",
+            "round_advances": 1
+          },
+          "completed_at": "2026-07-27T14:35:12Z"
+        }
+      ],
+      "state_version": 13,
+      "event_log_cursor": 4,
+      "last_encounter": {
+        "encounter_id": 1267,
+        "final_round": 1,
+        "ended_at": "2026-07-27T14:36:16+00:00"
+      }
+    },
+    "result": {
+      "talked": true,
+      "message": "Round 1: Turn 4: Actor pc-702-1033: scholar_npc, Bring the samples to Marta and complete the stabilization ritual.",
+      "chat_message": {
+        "speaker": "pc-702-1033",
+        "message": "Round 1: Turn 4: Actor pc-702-1033: scholar_npc, Bring the samples to Marta and complete the stabilization ritual.",
+        "type": "player",
+        "channel": "room",
+        "timestamp": "2026-07-27T14:37:39+00:00",
+        "character_id": 4171,
+        "user_id": 0,
+        "sequence_index": 1
+      },
+      "gm_response": null,
+      "gm_deferred": false,
+      "npc_interjections": [
+        {
+          "speaker": "Marta the Scholar",
+          "message": "Round 1: Turn 4: Actor Marta the Scholar: *Marta glances at the samples, then back at you with a measured look.* \"The stabilization ritual requires precise timing and the right reagents. I'll see it done, but I'm going to need you to step back and not crowd the workspace. I've had too many accidents from well-meaning assistants getting underfoot.\"",
+          "type": "npc",
+          "channel": "room",
+          "timestamp": "2026-07-27T14:37:43+00:00",
+          "character_id": null,
+          "user_id": 0,
+          "entity_ref": "npc_scholar_npc",
+          "interjection": true,
+          "dialogue_payload": {
+            "schema_version": "character-dialogue-v1",
+            "entity_ref": "npc_scholar_npc",
+            "speaker_name": "Marta the Scholar",
+            "channel": "room",
+            "delivery_type": "room_interjection",
+            "text": "*Marta glances at the samples, then back at you with a measured look.* \"The stabilization ritual requires precise timing and the right reagents. I'll see it done, but I'm going to need you to step back and not crowd the workspace. I've had too many accidents from well-meaning assistants getting underfoot.\"",
+            "context": {
+              "campaign_id": 702,
+              "room_id": "tavern_entrance",
+              "generation_source": "model",
+              "target_entity": null,
+              "source_ability": null
+            },
+            "flags": {
+              "interjection": true,
+              "direct_addressed": false
+            },
+            "actor_decision": {
+              "decision_contract_version": "actor_decision_v1",
+              "actor_instance_id": "npc_scholar_npc",
+              "tool": "chat",
+              "provider": "model",
+              "decision_reason": "Generated room_interjection dialogue via model path.",
+              "decision_basis": {
+                "used_profile": true,
+                "used_psychology": true,
+                "used_availability": true
+              },
+              "confidence": 0.7,
+              "contract_version": "chat-decision-v1",
+              "payload": {
+                "chat": {
+                  "channel": "room",
+                  "message": "*Marta glances at the samples, then back at you with a measured look.* \"The stabilization ritual requires precise timing and the right reagents. I'll see it done, but I'm going to need you to step back and not crowd the workspace. I've had too many accidents from well-meaning assistants getting underfoot.\"",
+                  "delivery_type": "room_interjection"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "quest_updates": [],
+      "state_diff": [],
+      "combat_transition": null,
+      "canonical_actions": {
+        "quest_turn_in": [],
+        "combat_initiation": null
+      },
+      "npc_interjections_deferred": false,
+      "turn_log_key": "room_turn_6a676d344bb523.40071602",
+      "turn_logs": [
+        {
+          "speaker": "System",
+          "message": "Round 1: Turn 1: Actor System: Turn order: Narrator -> Marta the Scholar.",
+          "type": "system",
+          "channel": "room",
+          "timestamp": "2026-07-27T14:37:40+00:00",
+          "character_id": null,
+          "user_id": 0,
+          "internal_log": true,
+          "turn_role": "system",
+          "turn_name": "Turn Order",
+          "turn_index": 1
+        },
+        {
+          "speaker": "System",
+          "message": "Round 1: Turn 1: Actor System: Current turn: Narrator.",
+          "type": "system",
+          "channel": "room",
+          "timestamp": "2026-07-27T14:37:40+00:00",
+          "character_id": null,
+          "user_id": 0,
+          "internal_log": true,
+          "turn_role": "narrator",
+          "turn_name": "Narrator",
+          "turn_index": 1
+        },
+        {
+          "speaker": "System",
+          "message": "Round 1: Turn 2: Actor System: Current turn: Marta the Scholar.",
+          "type": "system",
+          "channel": "room",
+          "timestamp": "2026-07-27T14:37:40+00:00",
+          "character_id": null,
+          "user_id": 0,
+          "internal_log": true,
+          "turn_role": "npc",
+          "turn_name": "Marta the Scholar",
+          "turn_index": 2,
+          "initiative_total": null,
+          "initiative_roll": null,
+          "initiative_modifier": null
+        },
+        {
+          "speaker": "System",
+          "message": "Round 1: Turn 3: Actor System: Current turn: Burasco.",
+          "type": "system",
+          "channel": "room",
+          "timestamp": "2026-07-27T14:37:46+00:00",
+          "character_id": null,
+          "user_id": 0,
+          "internal_log": false,
+          "turn_role": "player",
+          "turn_name": "Burasco",
+          "turn_index": 3,
+          "turn_prompt": true
+        },
+        {
+          "speaker": "System",
+          "message": "pc-702-1033 still has 2 action(s) this turn. What do you want to do next? If you only wanted to chat, use Delay to hold until the end of the round.",
+          "type": "system",
+          "line_id": "room-scene-actions-pc-702-1033-2-3",
+          "lineId": "room-scene-actions-pc-702-1033-2-3",
+          "round": 2,
+          "turn_index": 3,
+          "actor_name": "pc-702-1033",
+          "turn_name": "pc-702-1033",
+          "turn_role": "player",
+          "remaining_actions": 2,
+          "suggested_action": "delay"
+        }
+      ],
+      "chat_response": {
+        "gm_response": null,
+        "npc_interjections": [
+          {
+            "speaker": "Marta the Scholar",
+            "message": "Round 1: Turn 4: Actor Marta the Scholar: *Marta glances at the samples, then back at you with a measured look.* \"The stabilization ritual requires precise timing and the right reagents. I'll see it done, but I'm going to need you to step back and not crowd the workspace. I've had too many accidents from well-meaning assistants getting underfoot.\"",
+            "type": "npc",
+            "channel": "room",
+            "timestamp": "2026-07-27T14:37:43+00:00",
+            "character_id": null,
+            "user_id": 0,
+            "entity_ref": "npc_scholar_npc",
+            "interjection": true,
+            "dialogue_payload": {
+              "schema_version": "character-dialogue-v1",
+              "entity_ref": "npc_scholar_npc",
+              "speaker_name": "Marta the Scholar",
+              "channel": "room",
+              "delivery_type": "room_interjection",
+              "text": "*Marta glances at the samples, then back at you with a measured look.* \"The stabilization ritual requires precise timing and the right reagents. I'll see it done, but I'm going to need you to step back and not crowd the workspace. I've had too many accidents from well-meaning assistants getting underfoot.\"",
+              "context": {
+                "campaign_id": 702,
+                "room_id": "tavern_entrance",
+                "generation_source": "model",
+                "target_entity": null,
+                "source_ability": null
+              },
+              "flags": {
+                "interjection": true,
+                "direct_addressed": false
+              },
+              "actor_decision": {
+                "decision_contract_version": "actor_decision_v1",
+                "actor_instance_id": "npc_scholar_npc",
+                "tool": "chat",
+                "provider": "model",
+                "decision_reason": "Generated room_interjection dialogue via model path.",
+                "decision_basis": {
+                  "used_profile": true,
+                  "used_psychology": true,
+                  "used_availability": true
+                },
+                "confidence": 0.7,
+                "contract_version": "chat-decision-v1",
+                "payload": {
+                  "chat": {
+                    "channel": "room",
+                    "message": "*Marta glances at the samples, then back at you with a measured look.* \"The stabilization ritual requires precise timing and the right reagents. I'll see it done, but I'm going to need you to step back and not crowd the workspace. I've had too many accidents from well-meaning assistants getting underfoot.\"",
+                    "delivery_type": "room_interjection"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "quest_updates": [],
+        "state_diff": [],
+        "combat_transition": null,
+        "canonical_actions": {
+          "quest_turn_in": [],
+          "combat_initiation": null
+        }
+      },
+      "narration": null,
+      "mutations": [],
+      "remaining_turn_prompt": {
+        "speaker": "System",
+        "message": "pc-702-1033 still has 2 action(s) this turn. What do you want to do next? If you only wanted to chat, use Delay to hold until the end of the round.",
+        "type": "system",
+        "line_id": "room-scene-actions-pc-702-1033-2-3",
+        "lineId": "room-scene-actions-pc-702-1033-2-3",
+        "round": 2,
+        "turn_index": 3,
+        "actor_name": "pc-702-1033",
+        "turn_name": "pc-702-1033",
+        "turn_role": "player",
+        "remaining_actions": 2,
+        "suggested_action": "delay"
+      },
+      "quest_touchpoint": {
+        "success": true,
+        "decision": "APPLY_PROGRESS",
+        "requires_confirmation": false,
+        "quest_id": "tavern_storyline_leads_702_6a676bca70f12",
+        "objective_id": "speak_to_marta",
+        "progress_delta": 1,
+        "objective_state": {
+          "success": true,
+          "objective_states": [
+            {
+              "phase": 1,
+              "objectives": [
+                {
+                  "objective_id": "speak_to_eldric",
+                  "type": "interact",
+                  "description": "Speak to Eldric and gather his storyline lead.",
+                  "completed": true,
+                  "next_step": "Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
+                  "target": "tavern_keeper",
+                  "location_id": "tavern_entrance",
+                  "completion_criteria": {
+                    "kind": "flag",
+                    "metric": "completed",
+                    "description": "Complete when Eldric's storyline lead has been added to the journal.",
+                    "required_value": true
+                  },
+                  "depends_on": [],
+                  "revealed": true,
+                  "children": []
+                },
+                {
+                  "objective_id": "speak_to_marta",
+                  "type": "interact",
+                  "description": "Speak to Marta the Scholar and gather her storyline lead.",
+                  "completed": true,
+                  "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
+                  "target": "scholar_npc",
+                  "location_id": "tavern_entrance",
+                  "completion_criteria": {
+                    "kind": "flag",
+                    "metric": "completed",
+                    "description": "Complete when Marta's storyline lead has been added to the journal.",
+                    "required_value": true
+                  },
+                  "depends_on": [],
+                  "revealed": true,
+                  "children": []
+                }
+              ]
+            }
+          ],
+          "quest_completed": true,
+          "phase_completed": true,
+          "objective_completed": true,
+          "quest_status": "completed",
+          "narrator_notes": [
+            "Objective completed for Gather Storyline Leads in the Tavern: Speak to Marta the Scholar and gather her storyline lead.",
+            "Quest completed: Gather Storyline Leads in the Tavern. All goals accomplished."
+          ]
+        }
+      }
+    },
+    "mutations": [],
+    "events": [
+      {
+        "id": 59,
+        "timestamp": "2026-07-27T14:37:50+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "scholar_npc",
+        "data": {
+          "message": "Round 1: Turn 4: Actor pc-702-1033: scholar_npc, Bring the samples to Marta and complete the stabilization ritual.",
+          "round": 2,
+          "turn_index": 3,
+          "actor_name": "pc-702-1033",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      }
+    ],
+    "phase_transition": null,
+    "narration": null,
+    "session_narration": null,
+    "available_actions": [
+      "transition",
+      "search",
+      "talk",
+      "interact",
+      "delay",
+      "end_turn",
+      "choose_not_to_act"
+    ],
+    "action_contract": {
+      "phase": "encounter",
+      "actor_id": "pc-702-1033",
+      "current_turn_entity": "pc-702-1033",
+      "available_actions": [
+        "transition",
+        "search",
+        "talk",
+        "interact",
+        "delay",
+        "end_turn",
+        "choose_not_to_act"
+      ],
+      "actions": [
+        {
+          "id": "strike",
+          "label": "Strike",
+          "cost": 1,
+          "category": "offense",
+          "requires_turn": true,
+          "targeting": "hostile_entity",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "step",
+          "label": "Step",
+          "cost": 1,
+          "category": "movement",
+          "requires_turn": true,
+          "targeting": "hex",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "stride",
+          "label": "Stride",
+          "cost": 1,
+          "category": "movement",
+          "requires_turn": true,
+          "targeting": "hex",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "interact",
+          "label": "Interact",
+          "cost": 1,
+          "category": "utility",
+          "requires_turn": true,
+          "targeting": "entity_or_object",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "search",
+          "label": "Search",
+          "cost": 1,
+          "category": "perception",
+          "requires_turn": true,
+          "targeting": "room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "talk",
+          "label": "Talk",
+          "cost": 1,
+          "category": "conversation",
+          "requires_turn": true,
+          "targeting": "entity_or_room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "cast_spell",
+          "label": "Cast Spell",
+          "cost": 2,
+          "category": "magic",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "use_feat",
+          "label": "Use Feat",
+          "cost": 1,
+          "category": "feat",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "use_consumable",
+          "label": "Use Consumable",
+          "cost": 1,
+          "category": "item",
+          "requires_turn": true,
+          "targeting": "self_or_target",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "activate_item",
+          "label": "Activate Item",
+          "cost": 1,
+          "category": "item",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "trigger_hazard",
+          "label": "Trigger Hazard Action",
+          "cost": 1,
+          "category": "hazard",
+          "requires_turn": true,
+          "targeting": "room_hazard",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "demoralize",
+          "label": "Demoralize",
+          "cost": 1,
+          "category": "social",
+          "requires_turn": true,
+          "targeting": "hostile_entity",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "raise_shield",
+          "label": "Raise Shield",
+          "cost": 1,
+          "category": "defense",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "delay",
+          "label": "Delay",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "end_turn",
+          "label": "End Turn",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "choose_not_to_act",
+          "label": "Choose Not to Act",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "reaction",
+          "label": "Reaction",
+          "cost": "reaction",
+          "category": "reaction",
+          "requires_turn": false,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "minor_color_shift",
+          "label": "Minor Color Shift",
+          "cost": 1,
+          "category": "heritage",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "treat_wounds",
+          "label": "Treat Wounds",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "ally_or_self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "refocus",
+          "label": "Refocus",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "repair",
+          "label": "Repair",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "daily_preparations",
+          "label": "Daily Preparations",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "transition",
+          "label": "Move to connected room",
+          "cost": 0,
+          "category": "navigation",
+          "requires_turn": false,
+          "targeting": "connected_room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        }
+      ],
+      "action_option_families": {
+        "activate_item": {
+          "family": "item_activations",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "cast_spell": {
+          "family": "spells",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "trigger_hazard": {
+          "family": "hazard_actions",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "use_consumable": {
+          "family": "consumables",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "use_feat": {
+          "family": "feats",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        }
+      }
+    },
+    "state_version": 13,
+    "time_effects": [],
+    "error": null,
+    "decision_id": "langgraph-harness-20260727143136461852:turn-12:talk",
+    "runtime_state_version_after": 13,
+    "runtime_state_version_before": 12
+  },
+  "snapshot": {
+    "success": true,
+    "campaign_id": 702,
+    "actor_id": "pc-702-1033",
+    "phase": "encounter",
+    "game_state": {
+      "phase": "encounter",
+      "session_id": "runtime_bootstrap_20260727_143139",
+      "round": 2,
+      "turn": {
+        "entity": "pc-702-1033",
+        "index": 3,
+        "actions_remaining": 3,
+        "attacks_this_turn": 0,
+        "reaction_available": true,
+        "delayed": false
+      },
+      "encounter_id": 1268,
+      "encounter_context": {
+        "room_id": "tavern_entrance",
+        "mode": "room_scene",
+        "started_at": "2026-07-27T14:36:16+00:00"
+      },
+      "initiative_order": [
+        {
+          "id": "3997",
+          "encounter_id": "1268",
+          "entity_id": "npc_gribbles_rindsworth",
+          "entity_ref": "{\"content_type\":\"npc\",\"content_id\":\"gribbles_rindsworth\",\"perception_modifier\":0,\"heritage\":null,\"fly_used_this_turn\":false,\"shield_raised\":false,\"avert_gaze_active\":false}",
+          "name": "Gribbles Rindsworth",
+          "team": "npc",
+          "initiative": "20",
+          "initiative_roll": "20",
+          "ac": "10",
+          "hp": "10",
+          "max_hp": "10",
+          "actions_remaining": "3",
+          "attacks_this_turn": "0",
+          "position_q": "-2",
+          "position_r": "-3",
+          "reaction_available": "1",
+          "is_defeated": "0",
+          "created": "1785162976",
+          "updated": "1785162994",
+          "temp_hp": "0",
+          "status": "active"
+        },
+        {
+          "id": "3998",
+          "encounter_id": "1268",
+          "entity_id": "npc_scholar_npc",
+          "entity_ref": "{\"content_type\":\"npc\",\"content_id\":\"scholar_npc\",\"perception_modifier\":0,\"heritage\":null,\"fly_used_this_turn\":false,\"shield_raised\":false,\"avert_gaze_active\":false}",
+          "name": "Marta the Scholar",
+          "team": "npc",
+          "initiative": "19",
+          "initiative_roll": "19",
+          "ac": "10",
+          "hp": "10",
+          "max_hp": "10",
+          "actions_remaining": "3",
+          "attacks_this_turn": "0",
+          "position_q": "-3",
+          "position_r": "-3",
+          "reaction_available": "1",
+          "is_defeated": "0",
+          "created": "1785162976",
+          "updated": "1785162994",
+          "temp_hp": "0",
+          "status": "active"
+        },
+        {
+          "id": "3999",
+          "encounter_id": "1268",
+          "entity_id": "npc_tavern_keeper",
+          "entity_ref": "{\"content_type\":\"npc\",\"content_id\":\"tavern_keeper\",\"perception_modifier\":0,\"heritage\":null,\"fly_used_this_turn\":false,\"shield_raised\":false,\"avert_gaze_active\":false}",
+          "name": "Eldric",
+          "team": "npc",
+          "initiative": "13",
+          "initiative_roll": "13",
+          "ac": "10",
+          "hp": "10",
+          "max_hp": "10",
+          "actions_remaining": "3",
+          "attacks_this_turn": "0",
+          "position_q": "-4",
+          "position_r": "-3",
+          "reaction_available": "1",
+          "is_defeated": "0",
+          "created": "1785162976",
+          "updated": "1785162994",
+          "temp_hp": "0",
+          "status": "active"
+        },
+        {
+          "id": "4000",
+          "encounter_id": "1268",
+          "entity_id": "pc-702-1033",
+          "entity_ref": "{\"content_type\":\"player_character\",\"content_id\":\"pc-702-1033\",\"perception_modifier\":0,\"heritage\":null}",
+          "name": "pc-702-1033",
+          "team": "player",
+          "initiative": "1",
+          "initiative_roll": "1",
+          "ac": "13",
+          "hp": "15",
+          "max_hp": "15",
+          "actions_remaining": "2",
+          "attacks_this_turn": "0",
+          "position_q": "0",
+          "position_r": "0",
+          "reaction_available": "1",
+          "is_defeated": "0",
+          "created": "1785162976",
+          "updated": "1785163006",
+          "temp_hp": "0",
+          "status": "active"
+        }
+      ],
+      "campaign_clock": {
+        "datetime": "2026-07-27T14:35:12Z",
+        "date": "2026-07-27",
+        "time": "14:35:12",
+        "timezone": "UTC",
+        "year": 2026,
+        "month": 7,
+        "day": 27,
+        "hour": 14,
+        "minute": 35,
+        "second": 12,
+        "weekday": "Monday",
+        "season": "summer"
+      },
+      "game_time": {
+        "day": 27,
+        "hour": 14,
+        "minute": 35,
+        "second": 12,
+        "date": "2026-07-27",
+        "datetime": "2026-07-27T14:35:12Z",
+        "timezone": "UTC"
+      },
+      "timed_activities": [
+        {
+          "activity_id": "activity_6a676c846bc2f4.42885535",
+          "actor_ids": [
+            "pc-702-1033"
+          ],
+          "phase": "encounter",
+          "action_type": "encounter_round",
+          "status": "completed",
+          "started_at": "2026-07-27T14:33:00Z",
+          "ends_at": "2026-07-27T14:33:06Z",
+          "duration_minutes": 0,
+          "duration_seconds": 6,
+          "concurrency_group": "encounter_rounds",
+          "location_context": {
+            "room_id": "tavern_entrance",
+            "round_advances": 1
+          },
+          "completed_at": "2026-07-27T14:33:06Z"
+        },
+        {
+          "activity_id": "activity_6a676cbc737b54.33836651",
+          "actor_ids": [
+            "pc-702-1033"
+          ],
+          "phase": "encounter",
+          "action_type": "room_transition",
+          "status": "completed",
+          "started_at": "2026-07-27T14:33:06Z",
+          "ends_at": "2026-07-27T14:34:06Z",
+          "duration_minutes": 1,
+          "duration_seconds": 60,
+          "concurrency_group": "party_travel",
+          "location_context": {
+            "from_room_id": "tavern_entrance",
+            "to_room_id": "tpl_room_absalom_streets",
+            "connection_id": "asset-library-starter-room::tavern_entrance::tpl_room_absalom_streets::hallway"
+          },
+          "completed_at": "2026-07-27T14:34:06Z"
+        },
+        {
+          "activity_id": "activity_6a676ce07390c0.62808184",
+          "actor_ids": [
+            "pc-702-1033"
+          ],
+          "phase": "encounter",
+          "action_type": "room_transition",
+          "status": "completed",
+          "started_at": "2026-07-27T14:34:06Z",
+          "ends_at": "2026-07-27T14:35:06Z",
+          "duration_minutes": 1,
+          "duration_seconds": 60,
+          "concurrency_group": "party_travel",
+          "location_context": {
+            "from_room_id": "tpl_room_absalom_streets",
+            "to_room_id": "tavern_entrance",
+            "connection_id": "asset-library-starter-room::tavern_entrance::tpl_room_absalom_streets::hallway"
+          },
+          "completed_at": "2026-07-27T14:35:06Z"
+        },
+        {
+          "activity_id": "activity_6a676d2d17ab06.78904498",
+          "actor_ids": [
+            "pc-702-1033"
+          ],
+          "phase": "encounter",
+          "action_type": "encounter_round",
+          "status": "completed",
+          "started_at": "2026-07-27T14:35:06Z",
+          "ends_at": "2026-07-27T14:35:12Z",
+          "duration_minutes": 0,
+          "duration_seconds": 6,
+          "concurrency_group": "encounter_rounds",
+          "location_context": {
+            "room_id": "tavern_entrance",
+            "round_advances": 1
+          },
+          "completed_at": "2026-07-27T14:35:12Z"
+        }
+      ],
+      "state_version": 12,
+      "event_log_cursor": 4,
+      "last_encounter": {
+        "encounter_id": 1267,
+        "final_round": 1,
+        "ended_at": "2026-07-27T14:36:16+00:00"
+      }
+    },
+    "state_version": 12,
+    "event_cursor": 58,
+    "new_events": [
+      {
+        "id": 1,
+        "timestamp": "2026-07-27T14:33:08+00:00",
+        "phase": "encounter",
+        "type": "room_entered",
+        "actor": null,
+        "target": null,
+        "data": {
+          "from_room": "tavern_entrance",
+          "to_room": "tavern_entrance"
+        },
+        "narration": "The Gilded Tankard in Absalom is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth. Warm candlelight washes over rough-hewn wooden floors and a polished bar lined with bottles and tankards. Eldric, the broad-shouldered barkeep, stands behind the bar polishing a mug while keeping a steady eye on the room. Marta the Scholar works at a table buried in spellbooks, loose notes, and a crystal-bound codex. Gribbles Rindsworth lounges nearby with a tankard in hand, his sharp goblin eyes tracking every conversation from a seat close to Marta. Iron sconces and a stone fireplace cast steady amber light across the otherwise empty tavern."
+      },
+      {
+        "id": 2,
+        "timestamp": "2026-07-27T14:33:08+00:00",
+        "phase": "encounter",
+        "type": "encounter_framework_started",
+        "actor": null,
+        "target": null,
+        "data": {
+          "encounter_id": 1266,
+          "room_id": "tavern_entrance",
+          "participants": 5
+        },
+        "narration": "The scene in The Gilded Tankard is active."
+      },
+      {
+        "id": 3,
+        "timestamp": "2026-07-27T14:33:08+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 0: Actor Narrator: Round 1 begins."
+      },
+      {
+        "id": 4,
+        "timestamp": "2026-07-27T14:33:08+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "turn_index": 0,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 1: Actor Marta the Scholar: Marta the Scholar's turn begins."
+      },
+      {
+        "id": 5,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Marta the Scholar chooses not to take any further actions."
+      },
+      {
+        "id": 6,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "familiar-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Mimi",
+          "turn_index": 1,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 2: Actor Mimi: Mimi's turn begins."
+      },
+      {
+        "id": 7,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "familiar-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Mimi",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Mimi chooses not to take any further actions."
+      },
+      {
+        "id": 8,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "turn_index": 2,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 3: Actor Gribbles Rindsworth: Gribbles Rindsworth's turn begins."
+      },
+      {
+        "id": 9,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Gribbles Rindsworth chooses not to take any further actions."
+      },
+      {
+        "id": 10,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "turn_index": 3,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 4: Actor Eldric: Eldric's turn begins."
+      },
+      {
+        "id": 11,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Eldric chooses not to take any further actions."
+      },
+      {
+        "id": 12,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Burasco",
+          "turn_index": 4,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 5: Actor Burasco: Burasco's turn begins."
+      },
+      {
+        "id": 13,
+        "timestamp": "2026-07-27T14:33:35+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "tavern_keeper",
+        "data": {
+          "message": "Round 0: Turn 5: Actor Burasco: tavern_keeper, Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
+          "round": 1,
+          "turn_index": 4,
+          "actor_name": "Burasco",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 14,
+        "timestamp": "2026-07-27T14:33:48+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "message": "Round 0: Turn 5: Actor Burasco: Game Master, based on the conversations I just had, give me concrete clues and the single best next actionable step to progress my active objective.",
+          "round": 1,
+          "turn_index": 4,
+          "actor_name": "Burasco",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 15,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "search",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "discoveries": [
+            {
+              "instance_id": "room_item_702_torch_component_1",
+              "name": "Torch Rod",
+              "quest_id": "gather_torch_components_702_6a676c3594d69",
+              "objective_id": "collect_torches"
+            },
+            {
+              "instance_id": "room_item_702_torch_component_2",
+              "name": "Cloth Wrapping",
+              "quest_id": "gather_torch_components_702_6a676c3594d69",
+              "objective_id": "collect_torches"
+            },
+            {
+              "instance_id": "room_item_702_wine_bottle_1",
+              "name": "Wine Bottle",
+              "quest_id": "gather_wine_702_6a676c357de93",
+              "objective_id": "collect_wine"
+            },
+            {
+              "instance_id": "room_item_702_wine_bottle_2",
+              "name": "Wine Bottle",
+              "quest_id": "gather_wine_702_6a676c357de93",
+              "objective_id": "collect_wine"
+            },
+            {
+              "instance_id": "quest_item_702_92318e7206f66524_01",
+              "name": "Torch Rod",
+              "quest_id": "gather_torch_components_702_6a676c3594d69",
+              "objective_id": "collect_torches"
+            },
+            {
+              "instance_id": "quest_item_702_92318e7206f66524_02",
+              "name": "Torch Rod",
+              "quest_id": "gather_torch_components_702_6a676c3594d69",
+              "objective_id": "collect_torches"
+            },
+            {
+              "instance_id": "quest_item_702_5098558a18e15d0d_01",
+              "name": "Wine Bottle",
+              "quest_id": "gather_wine_702_6a676c357de93",
+              "objective_id": "collect_wine"
+            },
+            {
+              "instance_id": "quest_item_702_5098558a18e15d0d_02",
+              "name": "Wine Bottle",
+              "quest_id": "gather_wine_702_6a676c357de93",
+              "objective_id": "collect_wine"
+            }
+          ],
+          "round": 1
+        },
+        "narration": "You notice Torch Rod.\nYou notice Cloth Wrapping.\nYou notice Wine Bottle.\nYou notice Wine Bottle.\nYou notice Torch Rod.\nYou notice Torch Rod.\nYou notice Wine Bottle.\nYou notice Wine Bottle.\n\nObjective completed for Gather Torch Rod for the Tavern: Gather Torch Rod scattered around the tavern.\nNext step: Bring the torch components to the tavern keeper.\n\nObjective completed for Collect Wine Bottle from the Tavern: Collect Wine Bottle from around the tavern.\nNext step: Return the wine to the tavern keeper."
+      },
+      {
+        "id": 16,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "auto_end_turn",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 2
+        },
+        "narration": null
+      },
+      {
+        "id": 17,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 1: Actor Narrator: Round 2 begins."
+      },
+      {
+        "id": 18,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "turn_index": 0,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 1: Actor Marta the Scholar: Marta the Scholar's turn begins."
+      },
+      {
+        "id": 19,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Marta the Scholar chooses not to take any further actions."
+      },
+      {
+        "id": 20,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "familiar-1033",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Mimi",
+          "turn_index": 1,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 2: Actor Mimi: Mimi's turn begins."
+      },
+      {
+        "id": 21,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "familiar-1033",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Mimi",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Mimi chooses not to take any further actions."
+      },
+      {
+        "id": 22,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "turn_index": 2,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 3: Actor Gribbles Rindsworth: Gribbles Rindsworth's turn begins."
+      },
+      {
+        "id": 23,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Gribbles Rindsworth chooses not to take any further actions."
+      },
+      {
+        "id": 24,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "turn_index": 3,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 4: Actor Eldric: Eldric's turn begins."
+      },
+      {
+        "id": 25,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Eldric chooses not to take any further actions."
+      },
+      {
+        "id": 26,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Burasco",
+          "turn_index": 4,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 5: Actor Burasco: Burasco's turn begins."
+      },
+      {
+        "id": 27,
+        "timestamp": "2026-07-27T14:35:20+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "tavern_keeper",
+        "data": {
+          "message": "Round 1: Turn 5: Actor Burasco: tavern_keeper, Speak to the tavern keeper after collecting the torch components.",
+          "round": 2,
+          "turn_index": 4,
+          "actor_name": "Burasco",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 28,
+        "timestamp": "2026-07-27T14:35:32+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "gribbles_rindsworth",
+        "data": {
+          "message": "Round 1: Turn 5: Actor Burasco: gribbles_rindsworth, Speak with Gribbles and gather a rumor lead chain.",
+          "round": 2,
+          "turn_index": 4,
+          "actor_name": "Burasco",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 29,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "encounter_ended",
+        "actor": null,
+        "target": null,
+        "data": {
+          "encounter_id": 1266,
+          "final_round": 2
+        },
+        "narration": null
+      },
+      {
+        "id": 30,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "room_entered",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "from_room": "tavern_entrance",
+          "to_room": "tpl_room_absalom_streets"
+        },
+        "narration": "Primary city streets that connect the starter tavern to nearby districts."
+      },
+      {
+        "id": 31,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "encounter_framework_started",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "encounter_id": 1267,
+          "room_id": "tpl_room_absalom_streets",
+          "participants": 1
+        },
+        "narration": "The scene in Absalom Streets is active."
+      },
+      {
+        "id": 32,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tpl_room_absalom_streets",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 0: Actor Narrator: Round 1 begins."
+      },
+      {
+        "id": 33,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tpl_room_absalom_streets",
+          "actor_name": "pc-702-1033",
+          "turn_index": 0,
+          "total_turns": 1,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 1: Actor pc-702-1033: pc-702-1033's turn begins."
+      },
+      {
+        "id": 34,
+        "timestamp": "2026-07-27T14:36:07+00:00",
+        "phase": "encounter",
+        "type": "search",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "discoveries": [],
+          "round": 1
+        },
+        "narration": "You search the area carefully but do not uncover anything new."
+      },
+      {
+        "id": 35,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "encounter_ended",
+        "actor": null,
+        "target": null,
+        "data": {
+          "encounter_id": 1267,
+          "final_round": 1
+        },
+        "narration": null
+      },
+      {
+        "id": 36,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "room_entered",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "from_room": "tpl_room_absalom_streets",
+          "to_room": "tavern_entrance"
+        },
+        "narration": "The Gilded Tankard in Absalom is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth. Warm candlelight washes over rough-hewn wooden floors and a polished bar lined with bottles and tankards. Eldric, the broad-shouldered barkeep, stands behind the bar polishing a mug while keeping a steady eye on the room. Marta the Scholar works at a table buried in spellbooks, loose notes, and a crystal-bound codex. Gribbles Rindsworth lounges nearby with a tankard in hand, his sharp goblin eyes tracking every conversation from a seat close to Marta. Iron sconces and a stone fireplace cast steady amber light across the otherwise empty tavern."
+      },
+      {
+        "id": 37,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "encounter_framework_started",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "encounter_id": 1268,
+          "room_id": "tavern_entrance",
+          "participants": 4
+        },
+        "narration": "The scene in The Gilded Tankard is active."
+      },
+      {
+        "id": 38,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 0: Actor Narrator: Round 1 begins."
+      },
+      {
+        "id": 39,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "turn_index": 0,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 1: Actor Gribbles Rindsworth: Gribbles Rindsworth's turn begins."
+      },
+      {
+        "id": 40,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Gribbles Rindsworth chooses not to take any further actions."
+      },
+      {
+        "id": 41,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "turn_index": 1,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 2: Actor Marta the Scholar: Marta the Scholar's turn begins."
+      },
+      {
+        "id": 42,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Marta the Scholar chooses not to take any further actions."
+      },
+      {
+        "id": 43,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "turn_index": 2,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 3: Actor Eldric: Eldric's turn begins."
+      },
+      {
+        "id": 44,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Eldric chooses not to take any further actions."
+      },
+      {
+        "id": 45,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "pc-702-1033",
+          "turn_index": 3,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 4: Actor pc-702-1033: pc-702-1033's turn begins."
+      },
+      {
+        "id": 46,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "search",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "discoveries": [
+            {
+              "instance_id": "quest_item_702_4ca785f78f53d053_01",
+              "name": "resonance_sample",
+              "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+              "objective_id": "collect_resonance_samples"
+            }
+          ],
+          "round": 1,
+          "trigger": "turn_start"
+        },
+        "narration": "You notice resonance_sample."
+      },
+      {
+        "id": 47,
+        "timestamp": "2026-07-27T14:36:46+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "tavern_keeper",
+        "data": {
+          "message": "Round 0: Turn 4: Actor pc-702-1033: tavern_keeper, Return to Eldric and provide the route details.",
+          "round": 1,
+          "turn_index": 3,
+          "actor_name": "pc-702-1033",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 48,
+        "timestamp": "2026-07-27T14:37:15+00:00",
+        "phase": "encounter",
+        "type": "search",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "discoveries": [
+            {
+              "instance_id": "quest_item_702_4ca785f78f53d053_02",
+              "name": "resonance_sample",
+              "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+              "objective_id": "collect_resonance_samples"
+            },
+            {
+              "instance_id": "quest_item_702_4ca785f78f53d053_03",
+              "name": "resonance_sample",
+              "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+              "objective_id": "collect_resonance_samples"
+            },
+            {
+              "instance_id": "quest_item_702_22fdbd45aca6a7cd_01",
+              "name": "blackmail_ledger",
+              "quest_id": "recover_blackmail_ledger_702_6a676ca2f1ef8",
+              "objective_id": "recover_ledger_item"
+            }
+          ],
+          "round": 1
+        },
+        "narration": "You notice resonance_sample.\nYou notice resonance_sample.\nYou notice blackmail_ledger.\n\nObjective completed for Stabilize Arcane Resonance: Collect three resonance samples from the tavern.\nNext step: Work with Marta to stabilize the codex resonance.\n\nObjective completed for Recover Blackmail Ledger: Recover the concealed blackmail ledger.\nNext step: Return the ledger to Gribbles."
+      },
+      {
+        "id": 49,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "gribbles_rindsworth",
+        "data": {
+          "message": "Round 0: Turn 4: Actor pc-702-1033: gribbles_rindsworth, Hand the recovered ledger to Gribbles.",
+          "round": 1,
+          "turn_index": 3,
+          "actor_name": "pc-702-1033",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 50,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "auto_end_turn",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 2
+        },
+        "narration": null
+      },
+      {
+        "id": 51,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 1: Actor Narrator: Round 2 begins."
+      },
+      {
+        "id": 52,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "turn_index": 0,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 1: Actor Gribbles Rindsworth: Gribbles Rindsworth's turn begins."
+      },
+      {
+        "id": 53,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Gribbles Rindsworth chooses not to take any further actions."
+      },
+      {
+        "id": 54,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "turn_index": 1,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 2: Actor Marta the Scholar: Marta the Scholar's turn begins."
+      },
+      {
+        "id": 55,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Marta the Scholar chooses not to take any further actions."
+      },
+      {
+        "id": 56,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "turn_index": 2,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 3: Actor Eldric: Eldric's turn begins."
+      },
+      {
+        "id": 57,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Eldric chooses not to take any further actions."
+      },
+      {
+        "id": 58,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "pc-702-1033",
+          "turn_index": 3,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 4: Actor pc-702-1033: pc-702-1033's turn begins."
+      }
+    ],
+    "active_room_id": "tavern_entrance",
+    "active_room": null,
+    "actor_entity": {
+      "entity_type": "player_character",
+      "instance_id": "pc-702-1033",
+      "entity_instance_id": "pc-702-1033",
+      "entity_ref": {
+        "content_id": "pc-702-1033"
+      },
+      "placement": {
+        "room_id": "tavern_entrance",
+        "hex": {
+          "q": 0,
+          "r": 0,
+          "h3_index_res14": "8e754e64d2d26ef"
+        },
+        "facing": 0,
+        "h3_index_res14": "8e754e64d2d26ef"
+      },
+      "state": {
+        "metadata": {
+          "display_name": "Burasco",
+          "name": "Burasco",
+          "team": "player",
+          "character_id": 4171,
+          "source_character_id": 1033,
+          "campaign_character_id": 4171,
+          "runtime_entity_id": "pc-702-1033",
+          "stats": {
+            "maxHp": 15,
+            "currentHp": 15,
+            "ac": 13,
+            "speed": 25
+          },
+          "movement_speed": 25,
+          "actions_per_turn": 3,
+          "initiative_bonus": 0
+        }
+      }
+    },
+    "visible_entities": [
+      {
+        "entity_type": "npc",
+        "instance_id": "npc_tavern_keeper",
+        "entity_instance_id": "npc_tavern_keeper",
+        "entity_ref": {
+          "content_type": "npc",
+          "content_id": "tavern_keeper"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": -1,
+            "r": -3,
+            "h3_index_res14": "8e754e64992c8f7"
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64992c8f7",
+          "spawn_type": "npc"
+        },
+        "state": {
+          "active": true,
+          "metadata": {
+            "display_name": "Eldric",
+            "name": "Eldric",
+            "role": "contact",
+            "description": "Eldric can put the party in touch with a Pathfinder handler looking for recruits.",
+            "team": "neutral",
+            "character_id": 4168,
+            "campaign_character_id": 4168,
+            "runtime_entity_id": "npc_tavern_keeper",
+            "setting_state": true,
+            "spawn_policy": "campaign_runtime"
+          }
+        }
+      },
+      {
+        "entity_type": "npc",
+        "instance_id": "npc_scholar_npc",
+        "entity_instance_id": "npc_scholar_npc",
+        "entity_ref": {
+          "content_type": "npc",
+          "content_id": "scholar_npc"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": 0,
+            "r": -3,
+            "h3_index_res14": "8e754e64992c81f"
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64992c81f",
+          "spawn_type": "npc"
+        },
+        "state": {
+          "active": true,
+          "metadata": {
+            "display_name": "Marta the Scholar",
+            "name": "Marta the Scholar",
+            "role": "contact",
+            "description": "Arcane stabilization objective owner.",
+            "team": "neutral",
+            "character_id": 4169,
+            "campaign_character_id": 4169,
+            "runtime_entity_id": "npc_scholar_npc",
+            "setting_state": true,
+            "spawn_policy": "campaign_runtime"
+          }
+        }
+      },
+      {
+        "entity_type": "npc",
+        "instance_id": "npc_gribbles_rindsworth",
+        "entity_instance_id": "npc_gribbles_rindsworth",
+        "entity_ref": {
+          "content_type": "npc",
+          "content_id": "gribbles_rindsworth"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": 1,
+            "r": -3,
+            "h3_index_res14": "8e754e64992c827"
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64992c827",
+          "spawn_type": "npc"
+        },
+        "state": {
+          "active": true,
+          "metadata": {
+            "display_name": "Gribbles Rindsworth",
+            "name": "Gribbles Rindsworth",
+            "role": "contact",
+            "description": "Whispers and ledger objectives owner.",
+            "team": "neutral",
+            "character_id": 4170,
+            "campaign_character_id": 4170,
+            "runtime_entity_id": "npc_gribbles_rindsworth",
+            "setting_state": true,
+            "spawn_policy": "campaign_runtime"
+          }
+        }
+      },
+      {
+        "entity_type": "npc",
+        "instance_id": "familiar-1033",
+        "entity_instance_id": "familiar-1033",
+        "entity_ref": {
+          "content_type": "npc",
+          "content_id": "familiar_standard"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": 3,
+            "r": -3
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64d2d22c7",
+          "spawn_type": "npc"
+        },
+        "state": {
+          "active": true,
+          "metadata": {
+            "name": "Mimi",
+            "role": "familiar",
+            "team": "ally",
+            "saves": [],
+            "stats": {
+              "maxHp": 5,
+              "speed": 25,
+              "currentHp": 5
+            },
+            "skills": [],
+            "traits": [
+              "Familiar"
+            ],
+            "attacks": [],
+            "class_id": "familiar",
+            "abilities": [],
+            "equipment": [],
+            "resources": [],
+            "description": "Bound familiar familiar ally.",
+            "display_name": "Mimi",
+            "portrait_url": "/sites/default/files/generated-images/2026/07/ddfff57a-c0c9-462d-a8f9-550288621538.webp",
+            "spawn_policy": "owner_follower",
+            "spellcasting": [],
+            "bond_contract": {
+              "follower_kind": "familiar",
+              "loyalty_profile": "owner_bound",
+              "contract_version": "follower-creation-v1",
+              "motivation_profile": "support_owner_objectives",
+              "owner_character_id": 1033,
+              "psychology_defaults": {
+                "autonomy": "guided",
+                "temperament": "supportive",
+                "social_orientation": "owner_focused"
+              }
+            },
+            "familiar_type": "standard",
+            "follower_kind": "familiar",
+            "relationships": [],
+            "setting_state": false,
+            "familiar_state": "alive",
+            "movement_speed": 25,
+            "schema_version": "follower-actor-v2",
+            "loyalty_profile": "owner_bound",
+            "actions_per_turn": 2,
+            "initiative_bonus": 0,
+            "follower_contract": {
+              "source": "improved-familiar-attunement",
+              "status": "configured",
+              "build_state": "configured",
+              "follower_kind": "familiar",
+              "runtime_policy": "conditional",
+              "schema_version": "follower-actor-v2",
+              "runtime_enabled": true,
+              "owner_character_id": 1033
+            },
+            "familiar_abilities": [
+              "speech",
+              "spellcasting",
+              "tough"
+            ],
+            "motivation_profile": "support_owner_objectives",
+            "owner_character_id": 4171,
+            "psychology_profile": [],
+            "motivation_contract": {
+              "loyalty_profile": "owner_bound",
+              "contract_version": "follower-creation-v1",
+              "motivation_profile": "support_owner_objectives",
+              "psychology_defaults": {
+                "autonomy": "guided",
+                "temperament": "supportive",
+                "social_orientation": "owner_focused"
+              }
+            },
+            "psychology_defaults": {
+              "autonomy": "guided",
+              "temperament": "supportive",
+              "social_orientation": "owner_focused"
+            },
+            "class_feature_options": [
+              {
+                "id": "familiar:speech",
+                "name": "Speech",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "speech",
+                "description": "Familiar can speak one language you know.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              },
+              {
+                "id": "familiar:spellcasting",
+                "name": "Spellcasting",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "spellcasting",
+                "description": "Familiar stores 1 extra spell slot of the highest level you can cast.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              },
+              {
+                "id": "familiar:tough",
+                "name": "Tough",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "tough",
+                "description": "Familiar's max HP increases by 2 \u00d7 character level.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              }
+            ],
+            "familiar_species_name": "Familiar",
+            "familiar_ability_count": 3,
+            "familiar_ability_details": [
+              {
+                "id": "speech",
+                "name": "Speech",
+                "description": "Familiar can speak one language you know.",
+                "class_feature_option_id": "familiar:speech"
+              },
+              {
+                "id": "spellcasting",
+                "name": "Spellcasting",
+                "description": "Familiar stores 1 extra spell slot of the highest level you can cast.",
+                "class_feature_option_id": "familiar:spellcasting"
+              },
+              {
+                "id": "tough",
+                "name": "Tough",
+                "description": "Familiar's max HP increases by 2 \u00d7 character level.",
+                "class_feature_option_id": "familiar:tough"
+              }
+            ],
+            "familiar_class_feature_options": [
+              {
+                "id": "familiar:speech",
+                "name": "Speech",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "speech",
+                "description": "Familiar can speak one language you know.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              },
+              {
+                "id": "familiar:spellcasting",
+                "name": "Spellcasting",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "spellcasting",
+                "description": "Familiar stores 1 extra spell slot of the highest level you can cast.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              },
+              {
+                "id": "familiar:tough",
+                "name": "Tough",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "tough",
+                "description": "Familiar's max HP increases by 2 \u00d7 character level.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              }
+            ],
+            "owner_source_character_id": 1033,
+            "character_id": 4172,
+            "campaign_character_id": 4172,
+            "follower_character_id": 4172,
+            "source_character_id": 1033,
+            "follower_source_character_id": 1033,
+            "runtime_entity_id": "familiar-1033",
+            "portrait": "/sites/default/files/generated-images/2026/07/ddfff57a-c0c9-462d-a8f9-550288621538.webp"
+          }
+        }
+      },
+      {
+        "entity_type": "player_character",
+        "instance_id": "pc-702-1033",
+        "entity_instance_id": "pc-702-1033",
+        "entity_ref": {
+          "content_id": "pc-702-1033"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": 0,
+            "r": 0,
+            "h3_index_res14": "8e754e64d2d26ef"
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64d2d26ef"
+        },
+        "state": {
+          "metadata": {
+            "display_name": "Burasco",
+            "name": "Burasco",
+            "team": "player",
+            "character_id": 4171,
+            "source_character_id": 1033,
+            "campaign_character_id": 4171,
+            "runtime_entity_id": "pc-702-1033",
+            "stats": {
+              "maxHp": 15,
+              "currentHp": 15,
+              "ac": 13,
+              "speed": 25
+            },
+            "movement_speed": 25,
+            "actions_per_turn": 3,
+            "initiative_bonus": 0
+          }
+        }
+      }
+    ],
+    "visible_npcs": [
+      {
+        "entity_type": "npc",
+        "instance_id": "npc_tavern_keeper",
+        "entity_instance_id": "npc_tavern_keeper",
+        "entity_ref": {
+          "content_type": "npc",
+          "content_id": "tavern_keeper"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": -1,
+            "r": -3,
+            "h3_index_res14": "8e754e64992c8f7"
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64992c8f7",
+          "spawn_type": "npc"
+        },
+        "state": {
+          "active": true,
+          "metadata": {
+            "display_name": "Eldric",
+            "name": "Eldric",
+            "role": "contact",
+            "description": "Eldric can put the party in touch with a Pathfinder handler looking for recruits.",
+            "team": "neutral",
+            "character_id": 4168,
+            "campaign_character_id": 4168,
+            "runtime_entity_id": "npc_tavern_keeper",
+            "setting_state": true,
+            "spawn_policy": "campaign_runtime"
+          }
+        }
+      },
+      {
+        "entity_type": "npc",
+        "instance_id": "npc_scholar_npc",
+        "entity_instance_id": "npc_scholar_npc",
+        "entity_ref": {
+          "content_type": "npc",
+          "content_id": "scholar_npc"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": 0,
+            "r": -3,
+            "h3_index_res14": "8e754e64992c81f"
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64992c81f",
+          "spawn_type": "npc"
+        },
+        "state": {
+          "active": true,
+          "metadata": {
+            "display_name": "Marta the Scholar",
+            "name": "Marta the Scholar",
+            "role": "contact",
+            "description": "Arcane stabilization objective owner.",
+            "team": "neutral",
+            "character_id": 4169,
+            "campaign_character_id": 4169,
+            "runtime_entity_id": "npc_scholar_npc",
+            "setting_state": true,
+            "spawn_policy": "campaign_runtime"
+          }
+        }
+      },
+      {
+        "entity_type": "npc",
+        "instance_id": "npc_gribbles_rindsworth",
+        "entity_instance_id": "npc_gribbles_rindsworth",
+        "entity_ref": {
+          "content_type": "npc",
+          "content_id": "gribbles_rindsworth"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": 1,
+            "r": -3,
+            "h3_index_res14": "8e754e64992c827"
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64992c827",
+          "spawn_type": "npc"
+        },
+        "state": {
+          "active": true,
+          "metadata": {
+            "display_name": "Gribbles Rindsworth",
+            "name": "Gribbles Rindsworth",
+            "role": "contact",
+            "description": "Whispers and ledger objectives owner.",
+            "team": "neutral",
+            "character_id": 4170,
+            "campaign_character_id": 4170,
+            "runtime_entity_id": "npc_gribbles_rindsworth",
+            "setting_state": true,
+            "spawn_policy": "campaign_runtime"
+          }
+        }
+      },
+      {
+        "entity_type": "npc",
+        "instance_id": "familiar-1033",
+        "entity_instance_id": "familiar-1033",
+        "entity_ref": {
+          "content_type": "npc",
+          "content_id": "familiar_standard"
+        },
+        "placement": {
+          "room_id": "tavern_entrance",
+          "hex": {
+            "q": 3,
+            "r": -3
+          },
+          "facing": 0,
+          "h3_index_res14": "8e754e64d2d22c7",
+          "spawn_type": "npc"
+        },
+        "state": {
+          "active": true,
+          "metadata": {
+            "name": "Mimi",
+            "role": "familiar",
+            "team": "ally",
+            "saves": [],
+            "stats": {
+              "maxHp": 5,
+              "speed": 25,
+              "currentHp": 5
+            },
+            "skills": [],
+            "traits": [
+              "Familiar"
+            ],
+            "attacks": [],
+            "class_id": "familiar",
+            "abilities": [],
+            "equipment": [],
+            "resources": [],
+            "description": "Bound familiar familiar ally.",
+            "display_name": "Mimi",
+            "portrait_url": "/sites/default/files/generated-images/2026/07/ddfff57a-c0c9-462d-a8f9-550288621538.webp",
+            "spawn_policy": "owner_follower",
+            "spellcasting": [],
+            "bond_contract": {
+              "follower_kind": "familiar",
+              "loyalty_profile": "owner_bound",
+              "contract_version": "follower-creation-v1",
+              "motivation_profile": "support_owner_objectives",
+              "owner_character_id": 1033,
+              "psychology_defaults": {
+                "autonomy": "guided",
+                "temperament": "supportive",
+                "social_orientation": "owner_focused"
+              }
+            },
+            "familiar_type": "standard",
+            "follower_kind": "familiar",
+            "relationships": [],
+            "setting_state": false,
+            "familiar_state": "alive",
+            "movement_speed": 25,
+            "schema_version": "follower-actor-v2",
+            "loyalty_profile": "owner_bound",
+            "actions_per_turn": 2,
+            "initiative_bonus": 0,
+            "follower_contract": {
+              "source": "improved-familiar-attunement",
+              "status": "configured",
+              "build_state": "configured",
+              "follower_kind": "familiar",
+              "runtime_policy": "conditional",
+              "schema_version": "follower-actor-v2",
+              "runtime_enabled": true,
+              "owner_character_id": 1033
+            },
+            "familiar_abilities": [
+              "speech",
+              "spellcasting",
+              "tough"
+            ],
+            "motivation_profile": "support_owner_objectives",
+            "owner_character_id": 4171,
+            "psychology_profile": [],
+            "motivation_contract": {
+              "loyalty_profile": "owner_bound",
+              "contract_version": "follower-creation-v1",
+              "motivation_profile": "support_owner_objectives",
+              "psychology_defaults": {
+                "autonomy": "guided",
+                "temperament": "supportive",
+                "social_orientation": "owner_focused"
+              }
+            },
+            "psychology_defaults": {
+              "autonomy": "guided",
+              "temperament": "supportive",
+              "social_orientation": "owner_focused"
+            },
+            "class_feature_options": [
+              {
+                "id": "familiar:speech",
+                "name": "Speech",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "speech",
+                "description": "Familiar can speak one language you know.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              },
+              {
+                "id": "familiar:spellcasting",
+                "name": "Spellcasting",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "spellcasting",
+                "description": "Familiar stores 1 extra spell slot of the highest level you can cast.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              },
+              {
+                "id": "familiar:tough",
+                "name": "Tough",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "tough",
+                "description": "Familiar's max HP increases by 2 \u00d7 character level.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              }
+            ],
+            "familiar_species_name": "Familiar",
+            "familiar_ability_count": 3,
+            "familiar_ability_details": [
+              {
+                "id": "speech",
+                "name": "Speech",
+                "description": "Familiar can speak one language you know.",
+                "class_feature_option_id": "familiar:speech"
+              },
+              {
+                "id": "spellcasting",
+                "name": "Spellcasting",
+                "description": "Familiar stores 1 extra spell slot of the highest level you can cast.",
+                "class_feature_option_id": "familiar:spellcasting"
+              },
+              {
+                "id": "tough",
+                "name": "Tough",
+                "description": "Familiar's max HP increases by 2 \u00d7 character level.",
+                "class_feature_option_id": "familiar:tough"
+              }
+            ],
+            "familiar_class_feature_options": [
+              {
+                "id": "familiar:speech",
+                "name": "Speech",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "speech",
+                "description": "Familiar can speak one language you know.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              },
+              {
+                "id": "familiar:spellcasting",
+                "name": "Spellcasting",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "spellcasting",
+                "description": "Familiar stores 1 extra spell slot of the highest level you can cast.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              },
+              {
+                "id": "familiar:tough",
+                "name": "Tough",
+                "source": "familiar_ability",
+                "class_id": "familiar",
+                "selected": true,
+                "feat_type": "familiar_class_feature",
+                "option_id": "tough",
+                "description": "Familiar's max HP increases by 2 \u00d7 character level.",
+                "feature_type": "class_feature_option",
+                "prerequisites": []
+              }
+            ],
+            "owner_source_character_id": 1033,
+            "character_id": 4172,
+            "campaign_character_id": 4172,
+            "follower_character_id": 4172,
+            "source_character_id": 1033,
+            "follower_source_character_id": 1033,
+            "runtime_entity_id": "familiar-1033",
+            "portrait": "/sites/default/files/generated-images/2026/07/ddfff57a-c0c9-462d-a8f9-550288621538.webp"
+          }
+        }
+      }
+    ],
+    "connected_rooms": [],
+    "hostile_targets": [],
+    "available_actions": [
+      "transition",
+      "search",
+      "talk",
+      "interact",
+      "delay",
+      "end_turn",
+      "choose_not_to_act"
+    ],
+    "action_contract": {
+      "phase": "encounter",
+      "actor_id": "pc-702-1033",
+      "current_turn_entity": "pc-702-1033",
+      "available_actions": [
+        "transition",
+        "search",
+        "talk",
+        "interact",
+        "delay",
+        "end_turn",
+        "choose_not_to_act"
+      ],
+      "actions": [
+        {
+          "id": "strike",
+          "label": "Strike",
+          "cost": 1,
+          "category": "offense",
+          "requires_turn": true,
+          "targeting": "hostile_entity",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "step",
+          "label": "Step",
+          "cost": 1,
+          "category": "movement",
+          "requires_turn": true,
+          "targeting": "hex",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "stride",
+          "label": "Stride",
+          "cost": 1,
+          "category": "movement",
+          "requires_turn": true,
+          "targeting": "hex",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "interact",
+          "label": "Interact",
+          "cost": 1,
+          "category": "utility",
+          "requires_turn": true,
+          "targeting": "entity_or_object",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "search",
+          "label": "Search",
+          "cost": 1,
+          "category": "perception",
+          "requires_turn": true,
+          "targeting": "room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "talk",
+          "label": "Talk",
+          "cost": 1,
+          "category": "conversation",
+          "requires_turn": true,
+          "targeting": "entity_or_room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "cast_spell",
+          "label": "Cast Spell",
+          "cost": 2,
+          "category": "magic",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "use_feat",
+          "label": "Use Feat",
+          "cost": 1,
+          "category": "feat",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "use_consumable",
+          "label": "Use Consumable",
+          "cost": 1,
+          "category": "item",
+          "requires_turn": true,
+          "targeting": "self_or_target",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "activate_item",
+          "label": "Activate Item",
+          "cost": 1,
+          "category": "item",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "trigger_hazard",
+          "label": "Trigger Hazard Action",
+          "cost": 1,
+          "category": "hazard",
+          "requires_turn": true,
+          "targeting": "room_hazard",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "demoralize",
+          "label": "Demoralize",
+          "cost": 1,
+          "category": "social",
+          "requires_turn": true,
+          "targeting": "hostile_entity",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "raise_shield",
+          "label": "Raise Shield",
+          "cost": 1,
+          "category": "defense",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "delay",
+          "label": "Delay",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "end_turn",
+          "label": "End Turn",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "choose_not_to_act",
+          "label": "Choose Not to Act",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "reaction",
+          "label": "Reaction",
+          "cost": "reaction",
+          "category": "reaction",
+          "requires_turn": false,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "minor_color_shift",
+          "label": "Minor Color Shift",
+          "cost": 1,
+          "category": "heritage",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "treat_wounds",
+          "label": "Treat Wounds",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "ally_or_self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "refocus",
+          "label": "Refocus",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "repair",
+          "label": "Repair",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "daily_preparations",
+          "label": "Daily Preparations",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "transition",
+          "label": "Move to connected room",
+          "cost": 0,
+          "category": "navigation",
+          "requires_turn": false,
+          "targeting": "connected_room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        }
+      ],
+      "action_option_families": {
+        "activate_item": {
+          "family": "item_activations",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "cast_spell": {
+          "family": "spells",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "trigger_hazard": {
+          "family": "hazard_actions",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "use_consumable": {
+          "family": "consumables",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "use_feat": {
+          "family": "feats",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        }
+      }
+    },
+    "social_progression": [],
+    "last_encounter": {
+      "encounter_id": 1267,
+      "final_round": 1,
+      "ended_at": "2026-07-27T14:36:16+00:00"
+    },
+    "quest_context": [
+      {
+        "id": "2730",
+        "campaign_id": "702",
+        "quest_id": "follow_the_whispers_702_6a676ca411880",
+        "source_template_id": "follow_the_whispers",
+        "quest_name": "Follow the Whispers",
+        "quest_description": "Track tavern rumors to identify who is moving contraband arcana through town.",
+        "quest_type": "investigation",
+        "quest_data": "{\"variables\":{\"location\":\"tavern_entrance\",\"initial_status\":\"offered\",\"storyline_template_id\":\"introduction-to-game-mechanics\",\"storyline_chapter_id\":\"intro-mechanics\",\"storyline_scene_id\":\"tavern-foundations\",\"storyline_id\":\"introduction-to-game-mechanics\",\"campaign_id\":702,\"room_name\":\"The Gilded Tankard\",\"item_name\":\"Follow the Whispers\"},\"party_level\":1,\"difficulty\":\"moderate\"}",
+        "generated_objectives": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"gather_whisper_network\",\"type\":\"interact\",\"description\":\"Question Gribbles about current whisper traffic.\",\"completed\":false,\"next_step\":\"Speak with Gribbles and gather a rumor lead chain.\",\"target\":\"gribbles_rindsworth\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Collect a usable rumor lead from Gribbles.\",\"required_value\":true},\"depends_on\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"trace_arcane_route\",\"type\":\"explore\",\"description\":\"Trace where the contraband route leaves the tavern district.\",\"completed\":false,\"next_step\":\"Travel to Absalom Streets and verify the suspected route.\",\"location\":\"tpl_room_absalom_streets\",\"discovered\":false,\"location_id\":\"tpl_room_absalom_streets\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"discovered\",\"description\":\"Discover the route pivot in Absalom Streets.\",\"required_value\":true},\"depends_on\":[\"gather_whisper_network\"]}]},{\"phase\":3,\"objectives\":[{\"objective_id\":\"report_whisper_route\",\"type\":\"interact\",\"description\":\"Report the identified route to Eldric.\",\"completed\":false,\"next_step\":\"Return to Eldric and provide the route details.\",\"target\":\"tavern_keeper\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Eldric confirms the route report.\",\"required_value\":true},\"depends_on\":[\"trace_arcane_route\"]}]}]",
+        "generated_rewards": "{\"xp\":103,\"gold\":7,\"items\":[{\"item_id\":\"healing_potion_minor\",\"quantity\":1}]}",
+        "status": "completed",
+        "giver_npc_id": null,
+        "location_id": "tavern_entrance",
+        "parent_chain_id": null,
+        "chain_position": null,
+        "created_at": "1785162900",
+        "available_at": "1785162900",
+        "expires_at": null,
+        "storyline_id": "introduction-to-game-mechanics",
+        "storyline_chapter_id": "intro-mechanics",
+        "storyline_scene_id": "tavern-foundations",
+        "objective_states": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"gather_whisper_network\",\"type\":\"interact\",\"description\":\"Question Gribbles about current whisper traffic.\",\"completed\":true,\"next_step\":\"Speak with Gribbles and gather a rumor lead chain.\",\"target\":\"gribbles_rindsworth\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Collect a usable rumor lead from Gribbles.\",\"required_value\":true},\"depends_on\":[],\"revealed\":true,\"children\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"trace_arcane_route\",\"type\":\"explore\",\"description\":\"Trace where the contraband route leaves the tavern district.\",\"completed\":true,\"next_step\":\"Travel to Absalom Streets and verify the suspected route.\",\"location\":\"tpl_room_absalom_streets\",\"discovered\":true,\"location_id\":\"tpl_room_absalom_streets\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"discovered\",\"description\":\"Discover the route pivot in Absalom Streets.\",\"required_value\":true},\"depends_on\":[\"gather_whisper_network\"],\"revealed\":true,\"children\":[]}]},{\"phase\":3,\"objectives\":[{\"objective_id\":\"report_whisper_route\",\"type\":\"interact\",\"description\":\"Report the identified route to Eldric.\",\"completed\":true,\"next_step\":\"Return to Eldric and provide the route details.\",\"target\":\"tavern_keeper\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Eldric confirms the route report.\",\"required_value\":true},\"depends_on\":[\"trace_arcane_route\"],\"revealed\":true,\"children\":[]}]}]",
+        "template_version": "1.0.0",
+        "contract_hash": "2b0d8d01d7236cc424cba56c701aadb7373d1876abbf0d8d57da065a10573ffa",
+        "character_id": "4171",
+        "party_id": null,
+        "current_phase": "3",
+        "started_at": "1785162900",
+        "last_updated": "1785162990",
+        "completed_at": "1785162990",
+        "outcome": "success"
+      },
+      {
+        "id": "2729",
+        "campaign_id": "702",
+        "quest_id": "recover_blackmail_ledger_702_6a676ca2f1ef8",
+        "source_template_id": "recover_blackmail_ledger",
+        "quest_name": "Recover Blackmail Ledger",
+        "quest_description": "Retrieve Gribbles' stolen ledger before rival brokers weaponize its secrets.",
+        "quest_type": "recovery",
+        "quest_data": "{\"variables\":{\"location\":\"tavern_entrance\",\"initial_status\":\"offered\",\"storyline_template_id\":\"introduction-to-game-mechanics\",\"storyline_chapter_id\":\"intro-mechanics\",\"storyline_scene_id\":\"tavern-foundations\",\"storyline_id\":\"introduction-to-game-mechanics\",\"campaign_id\":702,\"room_name\":\"The Gilded Tankard\",\"item_name\":\"Blackmail Ledger\"},\"party_level\":1,\"difficulty\":\"moderate\"}",
+        "generated_objectives": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"locate_ledger_cache\",\"type\":\"explore\",\"description\":\"Search the tavern for the hidden ledger cache.\",\"completed\":false,\"next_step\":\"Inspect the tavern and identify where the ledger was stashed.\",\"location\":\"tavern_entrance\",\"discovered\":false,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"discovered\",\"description\":\"Discover the ledger cache location.\",\"required_value\":true},\"depends_on\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"recover_ledger_item\",\"type\":\"collect\",\"description\":\"Recover the concealed blackmail ledger.\",\"completed\":false,\"next_step\":\"Retrieve the blackmail ledger from the discovered cache.\",\"item\":\"blackmail_ledger\",\"current\":0,\"target_count\":1,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"count\",\"metric\":\"current\",\"description\":\"Collect the blackmail ledger.\",\"target_count\":1},\"depends_on\":[\"locate_ledger_cache\"]}]},{\"phase\":3,\"objectives\":[{\"objective_id\":\"return_ledger_to_gribbles\",\"type\":\"interact\",\"description\":\"Return the ledger to Gribbles.\",\"completed\":false,\"next_step\":\"Hand the recovered ledger to Gribbles.\",\"target\":\"gribbles_rindsworth\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Gribbles confirms the ledger handoff.\",\"required_value\":true},\"depends_on\":[\"recover_ledger_item\"]}]}]",
+        "generated_rewards": "{\"xp\":112,\"gold\":9,\"items\":[{\"item_id\":\"healers_tools\",\"quantity\":1}]}",
+        "status": "completed",
+        "giver_npc_id": null,
+        "location_id": "tavern_entrance",
+        "parent_chain_id": null,
+        "chain_position": null,
+        "created_at": "1785162900",
+        "available_at": "1785162900",
+        "expires_at": null,
+        "storyline_id": "introduction-to-game-mechanics",
+        "storyline_chapter_id": "intro-mechanics",
+        "storyline_scene_id": "tavern-foundations",
+        "objective_states": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"locate_ledger_cache\",\"type\":\"explore\",\"description\":\"Search the tavern for the hidden ledger cache.\",\"completed\":true,\"next_step\":\"Inspect the tavern and identify where the ledger was stashed.\",\"location\":\"tavern_entrance\",\"discovered\":true,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"discovered\",\"description\":\"Discover the ledger cache location.\",\"required_value\":true},\"depends_on\":[],\"revealed\":true,\"children\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"recover_ledger_item\",\"type\":\"collect\",\"description\":\"Recover the concealed blackmail ledger.\",\"completed\":true,\"next_step\":\"Retrieve the blackmail ledger from the discovered cache.\",\"item\":\"blackmail_ledger\",\"current\":1,\"target_count\":1,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"count\",\"metric\":\"current\",\"description\":\"Collect the blackmail ledger.\",\"target_count\":1},\"depends_on\":[\"locate_ledger_cache\"],\"revealed\":true,\"children\":[]}]},{\"phase\":3,\"objectives\":[{\"objective_id\":\"return_ledger_to_gribbles\",\"type\":\"interact\",\"description\":\"Return the ledger to Gribbles.\",\"completed\":true,\"next_step\":\"Hand the recovered ledger to Gribbles.\",\"target\":\"gribbles_rindsworth\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Gribbles confirms the ledger handoff.\",\"required_value\":true},\"depends_on\":[\"recover_ledger_item\"],\"revealed\":true,\"children\":[]}]}]",
+        "template_version": "1.0.0",
+        "contract_hash": "4d8642a84a9e5c04b3494a74fd7a56f64bfe8e9a937124e65a25802827afd8b3",
+        "character_id": "4171",
+        "party_id": null,
+        "current_phase": "3",
+        "started_at": "1785162900",
+        "last_updated": "1785163039",
+        "completed_at": "1785163039",
+        "outcome": "success"
+      },
+      {
+        "id": "2728",
+        "campaign_id": "702",
+        "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+        "source_template_id": "stabilize_arcane_resonance",
+        "quest_name": "Stabilize Arcane Resonance",
+        "quest_description": "Help Marta collect resonance samples and stabilize the codex's ambient magical feedback.",
+        "quest_type": "ritual_support",
+        "quest_data": "{\"variables\":{\"location\":\"tavern_entrance\",\"initial_status\":\"offered\",\"storyline_template_id\":\"introduction-to-game-mechanics\",\"storyline_chapter_id\":\"intro-mechanics\",\"storyline_scene_id\":\"tavern-foundations\",\"storyline_id\":\"introduction-to-game-mechanics\",\"campaign_id\":702,\"room_name\":\"The Gilded Tankard\",\"item_name\":\"Stabilize Arcane Resonance\"},\"party_level\":1,\"difficulty\":\"moderate\"}",
+        "generated_objectives": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"collect_resonance_samples\",\"type\":\"collect\",\"description\":\"Collect three resonance samples from the tavern.\",\"completed\":false,\"next_step\":\"Search the tavern and collect 3 resonance samples.\",\"item\":\"resonance_sample\",\"current\":0,\"target_count\":3,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"count\",\"metric\":\"current\",\"description\":\"Collect 3 resonance samples.\",\"target_count\":3},\"depends_on\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"stabilize_codex_with_marta\",\"type\":\"interact\",\"description\":\"Work with Marta to stabilize the codex resonance.\",\"completed\":false,\"next_step\":\"Bring the samples to Marta and complete the stabilization ritual.\",\"target\":\"scholar_npc\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Marta confirms the codex resonance is stable.\",\"required_value\":true},\"depends_on\":[\"collect_resonance_samples\"]}]}]",
+        "generated_rewards": "{\"xp\":118,\"gold\":13,\"items\":[{\"item_id\":\"healing_potion_minor\",\"quantity\":1}]}",
+        "status": "active",
+        "giver_npc_id": null,
+        "location_id": "tavern_entrance",
+        "parent_chain_id": null,
+        "chain_position": null,
+        "created_at": "1785162900",
+        "available_at": "1785162900",
+        "expires_at": null,
+        "storyline_id": "introduction-to-game-mechanics",
+        "storyline_chapter_id": "intro-mechanics",
+        "storyline_scene_id": "tavern-foundations",
+        "objective_states": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"collect_resonance_samples\",\"type\":\"collect\",\"description\":\"Collect three resonance samples from the tavern.\",\"completed\":true,\"next_step\":\"Search the tavern and collect 3 resonance samples.\",\"item\":\"resonance_sample\",\"current\":3,\"target_count\":3,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"count\",\"metric\":\"current\",\"description\":\"Collect 3 resonance samples.\",\"target_count\":3},\"depends_on\":[],\"revealed\":true,\"children\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"stabilize_codex_with_marta\",\"type\":\"interact\",\"description\":\"Work with Marta to stabilize the codex resonance.\",\"completed\":false,\"next_step\":\"Bring the samples to Marta and complete the stabilization ritual.\",\"target\":\"scholar_npc\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Marta confirms the codex resonance is stable.\",\"required_value\":true},\"depends_on\":[\"collect_resonance_samples\"],\"revealed\":true,\"children\":[]}]}]",
+        "template_version": "1.0.0",
+        "contract_hash": "d266d8f8afe3b29b17ce7e499a50005b51e6fdcd4680ab640b2412e39057bfb0",
+        "character_id": "4171",
+        "party_id": null,
+        "current_phase": "2",
+        "started_at": "1785162900",
+        "last_updated": "1785163031",
+        "completed_at": null,
+        "outcome": null
+      },
+      {
+        "id": "2727",
+        "campaign_id": "702",
+        "quest_id": "gather_torch_components_702_6a676c3594d69",
+        "source_template_id": "gather_torch_components",
+        "quest_name": "Gather Torch Rod for the Tavern",
+        "quest_description": "The tavern's lighting is dim. Help gather Torch Rod to brighten up the common room.",
+        "quest_type": "side_quest",
+        "quest_data": "{\"variables\":{\"party_level\":1,\"difficulty\":\"moderate\",\"location\":\"tavern_entrance\",\"location_tags\":[\"indoor\",\"tavern\",\"safe\",\"starting_area\",\"social\"],\"giver_npc_id\":4168,\"initial_status\":\"offered\",\"campaign_id\":702,\"room_name\":\"The Gilded Tankard\",\"item_name\":\"Torch Rod\",\"target_count\":\"2\"},\"party_level\":1,\"difficulty\":\"moderate\"}",
+        "generated_objectives": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"collect_torches\",\"type\":\"collect\",\"description\":\"Gather Torch Rod scattered around the tavern\",\"completed\":false,\"next_step\":\"Search the tavern common room and pick up each Torch Rod quest item.\",\"item\":\"Torch Rod\",\"current\":0,\"target_count\":2,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"count\",\"metric\":\"current\",\"description\":\"Complete when 2 Torch Rod have been collected from the tavern.\",\"target_count\":2},\"depends_on\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"return_torches\",\"type\":\"interact\",\"description\":\"Bring the torch components to the tavern keeper\",\"completed\":false,\"next_step\":\"Speak to the tavern keeper after collecting the torch components.\",\"target\":\"tavern_keeper\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when the torch components are delivered to the tavern keeper.\",\"required_value\":true},\"depends_on\":[\"collect_torches\"]}]}]",
+        "generated_rewards": "{\"xp\":57,\"gold\":6,\"items\":[{\"item_id\":\"elixir_of_life_minor\",\"quantity\":1}]}",
+        "status": "completed",
+        "giver_npc_id": "4168",
+        "location_id": "tavern_entrance",
+        "parent_chain_id": null,
+        "chain_position": null,
+        "created_at": "1785162784",
+        "available_at": "1785162784",
+        "expires_at": null,
+        "storyline_id": "introduction-to-game-mechanics",
+        "storyline_chapter_id": "intro-mechanics",
+        "storyline_scene_id": "tavern-foundations",
+        "objective_states": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"collect_torches\",\"type\":\"collect\",\"description\":\"Gather Torch Rod scattered around the tavern\",\"completed\":true,\"next_step\":\"Search the tavern common room and pick up each Torch Rod quest item.\",\"item\":\"Torch Rod\",\"current\":2,\"target_count\":2,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"count\",\"metric\":\"current\",\"description\":\"Complete when 2 Torch Rod have been collected from the tavern.\",\"target_count\":2},\"depends_on\":[],\"revealed\":true,\"children\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"return_torches\",\"type\":\"interact\",\"description\":\"Bring the torch components to the tavern keeper\",\"completed\":true,\"next_step\":\"Speak to the tavern keeper after collecting the torch components.\",\"target\":\"tavern_keeper\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when the torch components are delivered to the tavern keeper.\",\"required_value\":true},\"depends_on\":[\"collect_torches\"],\"revealed\":true,\"children\":[]}]}]",
+        "template_version": "1.0.0",
+        "contract_hash": "43480d617ac70a4c58b3ac5dd5c8f334383110f5f822871956f4bb9150103fe6",
+        "character_id": "4171",
+        "party_id": null,
+        "current_phase": "2",
+        "started_at": "1785162784",
+        "last_updated": "1785162900",
+        "completed_at": "1785162900",
+        "outcome": "success"
+      },
+      {
+        "id": "2726",
+        "campaign_id": "702",
+        "quest_id": "gather_wine_702_6a676c357de93",
+        "source_template_id": "gather_wine",
+        "quest_name": "Collect Wine Bottle from the Tavern",
+        "quest_description": "The tavern keeper needs Wine Bottle for the evening service. Gather some from around the tavern common room.",
+        "quest_type": "side_quest",
+        "quest_data": "{\"variables\":{\"party_level\":1,\"difficulty\":\"moderate\",\"location\":\"tavern_entrance\",\"location_tags\":[\"indoor\",\"tavern\",\"safe\",\"starting_area\",\"social\"],\"giver_npc_id\":4168,\"initial_status\":\"offered\",\"campaign_id\":702,\"room_name\":\"The Gilded Tankard\",\"item_name\":\"Wine Bottle\",\"target_count\":\"2\"},\"party_level\":1,\"difficulty\":\"moderate\"}",
+        "generated_objectives": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"collect_wine\",\"type\":\"collect\",\"description\":\"Collect Wine Bottle from around the tavern\",\"completed\":false,\"next_step\":\"Search the tavern common room and pick up each Wine Bottle quest item.\",\"item\":\"Wine Bottle\",\"current\":0,\"target_count\":2,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"count\",\"metric\":\"current\",\"description\":\"Complete when 2 Wine Bottle have been collected from the tavern.\",\"target_count\":2},\"depends_on\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"return_wine\",\"type\":\"interact\",\"description\":\"Return the wine to the tavern keeper\",\"completed\":false,\"next_step\":\"Speak to the tavern keeper after collecting the wine.\",\"target\":\"tavern_keeper\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when the wine handoff to the tavern keeper is finished.\",\"required_value\":true},\"depends_on\":[\"collect_wine\"]}]}]",
+        "generated_rewards": "{\"xp\":65,\"gold\":5,\"items\":[{\"item_id\":\"elixir_of_life_minor\",\"quantity\":1}]}",
+        "status": "completed",
+        "giver_npc_id": "4168",
+        "location_id": "tavern_entrance",
+        "parent_chain_id": null,
+        "chain_position": null,
+        "created_at": "1785162784",
+        "available_at": "1785162784",
+        "expires_at": null,
+        "storyline_id": "introduction-to-game-mechanics",
+        "storyline_chapter_id": "intro-mechanics",
+        "storyline_scene_id": "tavern-foundations",
+        "objective_states": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"collect_wine\",\"type\":\"collect\",\"description\":\"Collect Wine Bottle from around the tavern\",\"completed\":true,\"next_step\":\"Search the tavern common room and pick up each Wine Bottle quest item.\",\"item\":\"Wine Bottle\",\"current\":2,\"target_count\":2,\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"count\",\"metric\":\"current\",\"description\":\"Complete when 2 Wine Bottle have been collected from the tavern.\",\"target_count\":2},\"depends_on\":[],\"revealed\":true,\"children\":[]}]},{\"phase\":2,\"objectives\":[{\"objective_id\":\"return_wine\",\"type\":\"interact\",\"description\":\"Return the wine to the tavern keeper\",\"completed\":true,\"next_step\":\"Speak to the tavern keeper after collecting the wine.\",\"target\":\"tavern_keeper\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when the wine handoff to the tavern keeper is finished.\",\"required_value\":true},\"depends_on\":[\"collect_wine\"],\"revealed\":true,\"children\":[]}]}]",
+        "template_version": "1.0.0",
+        "contract_hash": "78617ee93c61a0ca2ef9cca9c3edae5fda84c872d38a3a3b2ec2db0a3f261120",
+        "character_id": "4171",
+        "party_id": null,
+        "current_phase": "2",
+        "started_at": "1785162784",
+        "last_updated": "1785162900",
+        "completed_at": "1785162900",
+        "outcome": "success"
+      },
+      {
+        "id": "2725",
+        "campaign_id": "702",
+        "quest_id": "tavern_storyline_leads_702_6a676bca70f12",
+        "source_template_id": "tavern_storyline_leads",
+        "quest_name": "Gather Storyline Leads in the Tavern",
+        "quest_description": "A new adventurer should begin by speaking with the tavern regulars and gathering the strongest leads before leaving the Gilded Tankard.",
+        "quest_type": "main_quest",
+        "quest_data": "{\"variables\":{\"party_level\":1,\"difficulty\":\"moderate\",\"location\":\"tavern_entrance\",\"location_tags\":[\"tavern\",\"starting_area\"],\"giver_npc_id\":4168,\"initial_status\":\"offered\",\"campaign_id\":702,\"room_name\":\"The Gilded Tankard\",\"item_name\":\"Ask About Storyline Leads\"},\"party_level\":1,\"difficulty\":\"moderate\"}",
+        "generated_objectives": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"speak_to_eldric\",\"type\":\"interact\",\"description\":\"Speak to Eldric and gather his storyline lead.\",\"completed\":false,\"next_step\":\"Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.\",\"target\":\"tavern_keeper\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Eldric's storyline lead has been added to the journal.\",\"required_value\":true},\"depends_on\":[]},{\"objective_id\":\"speak_to_marta\",\"type\":\"interact\",\"description\":\"Speak to Marta the Scholar and gather her storyline lead.\",\"completed\":false,\"next_step\":\"Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.\",\"target\":\"scholar_npc\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Marta's storyline lead has been added to the journal.\",\"required_value\":true},\"depends_on\":[]}]}]",
+        "generated_rewards": "{\"xp\":50,\"gold\":4,\"items\":[]}",
+        "status": "active",
+        "giver_npc_id": "4168",
+        "location_id": "tavern_entrance",
+        "parent_chain_id": null,
+        "chain_position": null,
+        "created_at": "1785162696",
+        "available_at": "1785162696",
+        "expires_at": null,
+        "storyline_id": "introduction-to-game-mechanics",
+        "storyline_chapter_id": "intro-mechanics",
+        "storyline_scene_id": "tavern-foundations",
+        "objective_states": "[{\"phase\":1,\"objectives\":[{\"objective_id\":\"speak_to_eldric\",\"type\":\"interact\",\"description\":\"Speak to Eldric and gather his storyline lead.\",\"completed\":true,\"next_step\":\"Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.\",\"target\":\"tavern_keeper\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Eldric's storyline lead has been added to the journal.\",\"required_value\":true},\"depends_on\":[],\"revealed\":true,\"children\":[]},{\"objective_id\":\"speak_to_marta\",\"type\":\"interact\",\"description\":\"Speak to Marta the Scholar and gather her storyline lead.\",\"completed\":false,\"next_step\":\"Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.\",\"target\":\"scholar_npc\",\"location_id\":\"tavern_entrance\",\"completion_criteria\":{\"kind\":\"flag\",\"metric\":\"completed\",\"description\":\"Complete when Marta's storyline lead has been added to the journal.\",\"required_value\":true},\"depends_on\":[],\"revealed\":true,\"children\":[]}]}]",
+        "template_version": "1.0.0",
+        "contract_hash": "f7ee837e42af729e1f9166a78eeac46a28256ce26f1d52384af496da44613bf9",
+        "character_id": "4171",
+        "party_id": null,
+        "current_phase": "1",
+        "started_at": "1785162696",
+        "last_updated": "1785162784",
+        "completed_at": null,
+        "outcome": null
+      }
+    ],
+    "active_quests": [
+      {
+        "id": "2728",
+        "campaign_id": "702",
+        "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+        "source_template_id": "stabilize_arcane_resonance",
+        "quest_name": "Stabilize Arcane Resonance",
+        "quest_description": "Help Marta collect resonance samples and stabilize the codex's ambient magical feedback.",
+        "quest_type": "ritual_support",
+        "quest_data": [],
+        "generated_objectives": [
+          {
+            "phase": 1,
+            "objectives": [
+              {
+                "objective_id": "collect_resonance_samples",
+                "type": "collect",
+                "description": "Collect three resonance samples from the tavern.",
+                "completed": false,
+                "next_step": "Search the tavern and collect 3 resonance samples.",
+                "item": "resonance_sample",
+                "current": 0,
+                "target_count": 3,
+                "location_id": "tavern_entrance",
+                "completion_criteria": {
+                  "kind": "count",
+                  "metric": "current",
+                  "description": "Collect 3 resonance samples.",
+                  "target_count": 3
+                },
+                "depends_on": []
+              }
+            ]
+          },
+          {
+            "phase": 2,
+            "objectives": [
+              {
+                "objective_id": "stabilize_codex_with_marta",
+                "type": "interact",
+                "description": "Work with Marta to stabilize the codex resonance.",
+                "completed": false,
+                "next_step": "Bring the samples to Marta and complete the stabilization ritual.",
+                "target": "scholar_npc",
+                "location_id": "tavern_entrance",
+                "completion_criteria": {
+                  "kind": "flag",
+                  "metric": "completed",
+                  "description": "Complete when Marta confirms the codex resonance is stable.",
+                  "required_value": true
+                },
+                "depends_on": [
+                  "collect_resonance_samples"
+                ]
+              }
+            ]
+          }
+        ],
+        "generated_rewards": "{\"xp\":118,\"gold\":13,\"items\":[{\"item_id\":\"healing_potion_minor\",\"quantity\":1}]}",
+        "status": "active",
+        "giver_npc_id": null,
+        "location_id": "tavern_entrance",
+        "parent_chain_id": null,
+        "chain_position": null,
+        "created_at": "1785162900",
+        "available_at": "1785162900",
+        "expires_at": null,
+        "storyline_id": "introduction-to-game-mechanics",
+        "storyline_chapter_id": "intro-mechanics",
+        "storyline_scene_id": "tavern-foundations",
+        "objective_states": [
+          {
+            "phase": 1,
+            "objectives": [
+              {
+                "objective_id": "collect_resonance_samples",
+                "type": "collect",
+                "description": "Collect three resonance samples from the tavern.",
+                "completed": true,
+                "next_step": "Search the tavern and collect 3 resonance samples.",
+                "item": "resonance_sample",
+                "current": 3,
+                "target_count": 3,
+                "location_id": "tavern_entrance",
+                "completion_criteria": {
+                  "kind": "count",
+                  "metric": "current",
+                  "description": "Collect 3 resonance samples.",
+                  "target_count": 3
+                },
+                "depends_on": [],
+                "revealed": true,
+                "children": []
+              }
+            ]
+          },
+          {
+            "phase": 2,
+            "objectives": [
+              {
+                "objective_id": "stabilize_codex_with_marta",
+                "type": "interact",
+                "description": "Work with Marta to stabilize the codex resonance.",
+                "completed": false,
+                "next_step": "Bring the samples to Marta and complete the stabilization ritual.",
+                "target": "scholar_npc",
+                "location_id": "tavern_entrance",
+                "completion_criteria": {
+                  "kind": "flag",
+                  "metric": "completed",
+                  "description": "Complete when Marta confirms the codex resonance is stable.",
+                  "required_value": true
+                },
+                "depends_on": [
+                  "collect_resonance_samples"
+                ],
+                "revealed": true,
+                "children": []
+              }
+            ]
+          }
+        ],
+        "template_version": "1.0.0",
+        "contract_hash": "d266d8f8afe3b29b17ce7e499a50005b51e6fdcd4680ab640b2412e39057bfb0",
+        "character_id": "4171",
+        "party_id": null,
+        "current_phase": "2",
+        "started_at": "1785162900",
+        "last_updated": "1785163031",
+        "completed_at": null,
+        "outcome": null,
+        "current_objectives": [
+          {
+            "objective_id": "stabilize_codex_with_marta",
+            "type": "interact",
+            "description": "Work with Marta to stabilize the codex resonance.",
+            "completed": false,
+            "next_step": "Bring the samples to Marta and complete the stabilization ritual.",
+            "target": "scholar_npc",
+            "location_id": "tavern_entrance",
+            "completion_criteria": {
+              "kind": "flag",
+              "metric": "completed",
+              "description": "Complete when Marta confirms the codex resonance is stable.",
+              "required_value": true
+            },
+            "depends_on": [
+              "collect_resonance_samples"
+            ],
+            "revealed": true,
+            "children": []
+          }
+        ],
+        "next_objectives": []
+      },
+      {
+        "id": "2725",
+        "campaign_id": "702",
+        "quest_id": "tavern_storyline_leads_702_6a676bca70f12",
+        "source_template_id": "tavern_storyline_leads",
+        "quest_name": "Gather Storyline Leads in the Tavern",
+        "quest_description": "A new adventurer should begin by speaking with the tavern regulars and gathering the strongest leads before leaving the Gilded Tankard.",
+        "quest_type": "main_quest",
+        "quest_data": [],
+        "generated_objectives": [
+          {
+            "phase": 1,
+            "objectives": [
+              {
+                "objective_id": "speak_to_eldric",
+                "type": "interact",
+                "description": "Speak to Eldric and gather his storyline lead.",
+                "completed": false,
+                "next_step": "Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
+                "target": "tavern_keeper",
+                "location_id": "tavern_entrance",
+                "completion_criteria": {
+                  "kind": "flag",
+                  "metric": "completed",
+                  "description": "Complete when Eldric's storyline lead has been added to the journal.",
+                  "required_value": true
+                },
+                "depends_on": []
+              },
+              {
+                "objective_id": "speak_to_marta",
+                "type": "interact",
+                "description": "Speak to Marta the Scholar and gather her storyline lead.",
+                "completed": false,
+                "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
+                "target": "scholar_npc",
+                "location_id": "tavern_entrance",
+                "completion_criteria": {
+                  "kind": "flag",
+                  "metric": "completed",
+                  "description": "Complete when Marta's storyline lead has been added to the journal.",
+                  "required_value": true
+                },
+                "depends_on": []
+              }
+            ]
+          }
+        ],
+        "generated_rewards": "{\"xp\":50,\"gold\":4,\"items\":[]}",
+        "status": "active",
+        "giver_npc_id": "4168",
+        "location_id": "tavern_entrance",
+        "parent_chain_id": null,
+        "chain_position": null,
+        "created_at": "1785162696",
+        "available_at": "1785162696",
+        "expires_at": null,
+        "storyline_id": "introduction-to-game-mechanics",
+        "storyline_chapter_id": "intro-mechanics",
+        "storyline_scene_id": "tavern-foundations",
+        "objective_states": [
+          {
+            "phase": 1,
+            "objectives": [
+              {
+                "objective_id": "speak_to_eldric",
+                "type": "interact",
+                "description": "Speak to Eldric and gather his storyline lead.",
+                "completed": true,
+                "next_step": "Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
+                "target": "tavern_keeper",
+                "location_id": "tavern_entrance",
+                "completion_criteria": {
+                  "kind": "flag",
+                  "metric": "completed",
+                  "description": "Complete when Eldric's storyline lead has been added to the journal.",
+                  "required_value": true
+                },
+                "depends_on": [],
+                "revealed": true,
+                "children": []
+              },
+              {
+                "objective_id": "speak_to_marta",
+                "type": "interact",
+                "description": "Speak to Marta the Scholar and gather her storyline lead.",
+                "completed": false,
+                "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
+                "target": "scholar_npc",
+                "location_id": "tavern_entrance",
+                "completion_criteria": {
+                  "kind": "flag",
+                  "metric": "completed",
+                  "description": "Complete when Marta's storyline lead has been added to the journal.",
+                  "required_value": true
+                },
+                "depends_on": [],
+                "revealed": true,
+                "children": []
+              }
+            ]
+          }
+        ],
+        "template_version": "1.0.0",
+        "contract_hash": "f7ee837e42af729e1f9166a78eeac46a28256ce26f1d52384af496da44613bf9",
+        "character_id": "4171",
+        "party_id": null,
+        "current_phase": "1",
+        "started_at": "1785162696",
+        "last_updated": "1785162784",
+        "completed_at": null,
+        "outcome": null,
+        "current_objectives": [
+          {
+            "objective_id": "speak_to_marta",
+            "type": "interact",
+            "description": "Speak to Marta the Scholar and gather her storyline lead.",
+            "completed": false,
+            "next_step": "Talk to Marta the Scholar in The Gilded Tankard and ask what problem needs help.",
+            "target": "scholar_npc",
+            "location_id": "tavern_entrance",
+            "completion_criteria": {
+              "kind": "flag",
+              "metric": "completed",
+              "description": "Complete when Marta's storyline lead has been added to the journal.",
+              "required_value": true
+            },
+            "depends_on": [],
+            "revealed": true,
+            "children": []
+          }
+        ],
+        "next_objectives": []
+      }
+    ],
+    "deterministic_wayfinding": {
+      "available": false,
+      "reason": "objective_destination_in_active_room",
+      "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+      "objective_id": "stabilize_codex_with_marta",
+      "destination": "tavern_entrance",
+      "destination_room_id": "tavern_entrance"
+    }
+  },
+  "canonical_context": {
+    "context_id": "langgraph-harness-20260727143136461852:turn-11",
+    "campaign_id": 702,
+    "actor_id": "pc-702-1033",
+    "character_id": 4171,
+    "runtime_state_version": 12,
+    "actor_state_version": 12,
+    "quest_state_version": 12,
+    "phase": "encounter",
+    "active_room_id": "tavern_entrance",
+    "active_objective": {
+      "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+      "quest_name": "Stabilize Arcane Resonance",
+      "source_template_id": "",
+      "storyline_id": "",
+      "current_phase": 0,
+      "objective_id": "stabilize_codex_with_marta",
+      "type": "interact",
+      "objective_action": "interact",
+      "description": "Work with Marta to stabilize the codex resonance.",
+      "next_step": "Bring the samples to Marta and complete the stabilization ritual.",
+      "target": "scholar_npc",
+      "location_id": "tavern_entrance",
+      "target_entity_instance_id": "",
+      "target_display_name": ""
+    },
+    "active_objectives": [
+      {
+        "quest_instance_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+        "objective_instance_id": "stabilize_codex_with_marta",
+        "objective_type": "interact",
+        "status": "",
+        "priority": null,
+        "target_actor_id": "",
+        "target_entity_id": "scholar_npc",
+        "destination_room_id": "tavern_entrance",
+        "required_tool_types": [],
+        "completion_conditions": {},
+        "source_template_id": "stabilize_arcane_resonance",
+        "storyline_id": "introduction-to-game-mechanics"
+      },
+      {
+        "quest_instance_id": "tavern_storyline_leads_702_6a676bca70f12",
+        "objective_instance_id": "speak_to_marta",
+        "objective_type": "interact",
+        "status": "",
+        "priority": null,
+        "target_actor_id": "",
+        "target_entity_id": "scholar_npc",
+        "destination_room_id": "tavern_entrance",
+        "required_tool_types": [],
+        "completion_conditions": {},
+        "source_template_id": "tavern_storyline_leads",
+        "storyline_id": "introduction-to-game-mechanics"
+      }
+    ],
+    "available_tools": [
+      "choose_not_to_act",
+      "delay",
+      "end_turn",
+      "interact",
+      "search",
+      "talk",
+      "transition"
+    ],
+    "tool_contract": {
+      "phase": "encounter",
+      "actor_id": "pc-702-1033",
+      "current_turn_entity": "pc-702-1033",
+      "available_actions": [
+        "transition",
+        "search",
+        "talk",
+        "interact",
+        "delay",
+        "end_turn",
+        "choose_not_to_act"
+      ],
+      "actions": [
+        {
+          "id": "strike",
+          "label": "Strike",
+          "cost": 1,
+          "category": "offense",
+          "requires_turn": true,
+          "targeting": "hostile_entity",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "step",
+          "label": "Step",
+          "cost": 1,
+          "category": "movement",
+          "requires_turn": true,
+          "targeting": "hex",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "stride",
+          "label": "Stride",
+          "cost": 1,
+          "category": "movement",
+          "requires_turn": true,
+          "targeting": "hex",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "interact",
+          "label": "Interact",
+          "cost": 1,
+          "category": "utility",
+          "requires_turn": true,
+          "targeting": "entity_or_object",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "search",
+          "label": "Search",
+          "cost": 1,
+          "category": "perception",
+          "requires_turn": true,
+          "targeting": "room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "talk",
+          "label": "Talk",
+          "cost": 1,
+          "category": "conversation",
+          "requires_turn": true,
+          "targeting": "entity_or_room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "cast_spell",
+          "label": "Cast Spell",
+          "cost": 2,
+          "category": "magic",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "use_feat",
+          "label": "Use Feat",
+          "cost": 1,
+          "category": "feat",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "use_consumable",
+          "label": "Use Consumable",
+          "cost": 1,
+          "category": "item",
+          "requires_turn": true,
+          "targeting": "self_or_target",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "activate_item",
+          "label": "Activate Item",
+          "cost": 1,
+          "category": "item",
+          "requires_turn": true,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "trigger_hazard",
+          "label": "Trigger Hazard Action",
+          "cost": 1,
+          "category": "hazard",
+          "requires_turn": true,
+          "targeting": "room_hazard",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "demoralize",
+          "label": "Demoralize",
+          "cost": 1,
+          "category": "social",
+          "requires_turn": true,
+          "targeting": "hostile_entity",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "raise_shield",
+          "label": "Raise Shield",
+          "cost": 1,
+          "category": "defense",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "delay",
+          "label": "Delay",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "end_turn",
+          "label": "End Turn",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "choose_not_to_act",
+          "label": "Choose Not to Act",
+          "cost": 0,
+          "category": "turn",
+          "requires_turn": true,
+          "targeting": "none",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "reaction",
+          "label": "Reaction",
+          "cost": "reaction",
+          "category": "reaction",
+          "requires_turn": false,
+          "targeting": "contextual",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "minor_color_shift",
+          "label": "Minor Color Shift",
+          "cost": 1,
+          "category": "heritage",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "treat_wounds",
+          "label": "Treat Wounds",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "ally_or_self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "refocus",
+          "label": "Refocus",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "repair",
+          "label": "Repair",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "daily_preparations",
+          "label": "Daily Preparations",
+          "cost": 0,
+          "category": "recovery",
+          "requires_turn": true,
+          "targeting": "self",
+          "available": false,
+          "option_count": 0,
+          "resolved_options": []
+        },
+        {
+          "id": "transition",
+          "label": "Move to connected room",
+          "cost": 0,
+          "category": "navigation",
+          "requires_turn": false,
+          "targeting": "connected_room",
+          "available": true,
+          "option_count": 0,
+          "resolved_options": []
+        }
+      ],
+      "action_option_families": {
+        "activate_item": {
+          "family": "item_activations",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "cast_spell": {
+          "family": "spells",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "trigger_hazard": {
+          "family": "hazard_actions",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "use_consumable": {
+          "family": "consumables",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        },
+        "use_feat": {
+          "family": "feats",
+          "requires_turn": true,
+          "requires_llm_interpretation": true,
+          "is_action_currently_legal": true,
+          "option_count": 0,
+          "options": []
+        }
+      }
+    },
+    "navigation_capabilities": [],
+    "route_plan_hints": {
+      "deterministic_wayfinding": {
+        "available": false,
+        "reason": "objective_destination_in_active_room",
+        "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+        "objective_id": "stabilize_codex_with_marta",
+        "destination": "tavern_entrance",
+        "destination_room_id": "tavern_entrance"
+      }
+    },
+    "recent_events": [
+      {
+        "id": 1,
+        "timestamp": "2026-07-27T14:33:08+00:00",
+        "phase": "encounter",
+        "type": "room_entered",
+        "actor": null,
+        "target": null,
+        "data": {
+          "from_room": "tavern_entrance",
+          "to_room": "tavern_entrance"
+        },
+        "narration": "The Gilded Tankard in Absalom is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth. Warm candlelight washes over rough-hewn wooden floors and a polished bar lined with bottles and tankards. Eldric, the broad-shouldered barkeep, stands behind the bar polishing a mug while keeping a steady eye on the room. Marta the Scholar works at a table buried in spellbooks, loose notes, and a crystal-bound codex. Gribbles Rindsworth lounges nearby with a tankard in hand, his sharp goblin eyes tracking every conversation from a seat close to Marta. Iron sconces and a stone fireplace cast steady amber light across the otherwise empty tavern."
+      },
+      {
+        "id": 2,
+        "timestamp": "2026-07-27T14:33:08+00:00",
+        "phase": "encounter",
+        "type": "encounter_framework_started",
+        "actor": null,
+        "target": null,
+        "data": {
+          "encounter_id": 1266,
+          "room_id": "tavern_entrance",
+          "participants": 5
+        },
+        "narration": "The scene in The Gilded Tankard is active."
+      },
+      {
+        "id": 3,
+        "timestamp": "2026-07-27T14:33:08+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 0: Actor Narrator: Round 1 begins."
+      },
+      {
+        "id": 4,
+        "timestamp": "2026-07-27T14:33:08+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "turn_index": 0,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 1: Actor Marta the Scholar: Marta the Scholar's turn begins."
+      },
+      {
+        "id": 5,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Marta the Scholar chooses not to take any further actions."
+      },
+      {
+        "id": 6,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "familiar-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Mimi",
+          "turn_index": 1,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 2: Actor Mimi: Mimi's turn begins."
+      },
+      {
+        "id": 7,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "familiar-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Mimi",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Mimi chooses not to take any further actions."
+      },
+      {
+        "id": 8,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "turn_index": 2,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 3: Actor Gribbles Rindsworth: Gribbles Rindsworth's turn begins."
+      },
+      {
+        "id": 9,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Gribbles Rindsworth chooses not to take any further actions."
+      },
+      {
+        "id": 10,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "turn_index": 3,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 4: Actor Eldric: Eldric's turn begins."
+      },
+      {
+        "id": 11,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Eldric chooses not to take any further actions."
+      },
+      {
+        "id": 12,
+        "timestamp": "2026-07-27T14:33:24+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Burasco",
+          "turn_index": 4,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 5: Actor Burasco: Burasco's turn begins."
+      },
+      {
+        "id": 13,
+        "timestamp": "2026-07-27T14:33:35+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "tavern_keeper",
+        "data": {
+          "message": "Round 0: Turn 5: Actor Burasco: tavern_keeper, Talk to Eldric in The Gilded Tankard and ask what work or danger he knows about.",
+          "round": 1,
+          "turn_index": 4,
+          "actor_name": "Burasco",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 14,
+        "timestamp": "2026-07-27T14:33:48+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "message": "Round 0: Turn 5: Actor Burasco: Game Master, based on the conversations I just had, give me concrete clues and the single best next actionable step to progress my active objective.",
+          "round": 1,
+          "turn_index": 4,
+          "actor_name": "Burasco",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 15,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "search",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "discoveries": [
+            {
+              "instance_id": "room_item_702_torch_component_1",
+              "name": "Torch Rod",
+              "quest_id": "gather_torch_components_702_6a676c3594d69",
+              "objective_id": "collect_torches"
+            },
+            {
+              "instance_id": "room_item_702_torch_component_2",
+              "name": "Cloth Wrapping",
+              "quest_id": "gather_torch_components_702_6a676c3594d69",
+              "objective_id": "collect_torches"
+            },
+            {
+              "instance_id": "room_item_702_wine_bottle_1",
+              "name": "Wine Bottle",
+              "quest_id": "gather_wine_702_6a676c357de93",
+              "objective_id": "collect_wine"
+            },
+            {
+              "instance_id": "room_item_702_wine_bottle_2",
+              "name": "Wine Bottle",
+              "quest_id": "gather_wine_702_6a676c357de93",
+              "objective_id": "collect_wine"
+            },
+            {
+              "instance_id": "quest_item_702_92318e7206f66524_01",
+              "name": "Torch Rod",
+              "quest_id": "gather_torch_components_702_6a676c3594d69",
+              "objective_id": "collect_torches"
+            },
+            {
+              "instance_id": "quest_item_702_92318e7206f66524_02",
+              "name": "Torch Rod",
+              "quest_id": "gather_torch_components_702_6a676c3594d69",
+              "objective_id": "collect_torches"
+            },
+            {
+              "instance_id": "quest_item_702_5098558a18e15d0d_01",
+              "name": "Wine Bottle",
+              "quest_id": "gather_wine_702_6a676c357de93",
+              "objective_id": "collect_wine"
+            },
+            {
+              "instance_id": "quest_item_702_5098558a18e15d0d_02",
+              "name": "Wine Bottle",
+              "quest_id": "gather_wine_702_6a676c357de93",
+              "objective_id": "collect_wine"
+            }
+          ],
+          "round": 1
+        },
+        "narration": "You notice Torch Rod.\nYou notice Cloth Wrapping.\nYou notice Wine Bottle.\nYou notice Wine Bottle.\nYou notice Torch Rod.\nYou notice Torch Rod.\nYou notice Wine Bottle.\nYou notice Wine Bottle.\n\nObjective completed for Gather Torch Rod for the Tavern: Gather Torch Rod scattered around the tavern.\nNext step: Bring the torch components to the tavern keeper.\n\nObjective completed for Collect Wine Bottle from the Tavern: Collect Wine Bottle from around the tavern.\nNext step: Return the wine to the tavern keeper."
+      },
+      {
+        "id": 16,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "auto_end_turn",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 2
+        },
+        "narration": null
+      },
+      {
+        "id": 17,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 1: Actor Narrator: Round 2 begins."
+      },
+      {
+        "id": 18,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "turn_index": 0,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 1: Actor Marta the Scholar: Marta the Scholar's turn begins."
+      },
+      {
+        "id": 19,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Marta the Scholar chooses not to take any further actions."
+      },
+      {
+        "id": 20,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "familiar-1033",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Mimi",
+          "turn_index": 1,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 2: Actor Mimi: Mimi's turn begins."
+      },
+      {
+        "id": 21,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "familiar-1033",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Mimi",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Mimi chooses not to take any further actions."
+      },
+      {
+        "id": 22,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "turn_index": 2,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 3: Actor Gribbles Rindsworth: Gribbles Rindsworth's turn begins."
+      },
+      {
+        "id": 23,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Gribbles Rindsworth chooses not to take any further actions."
+      },
+      {
+        "id": 24,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "turn_index": 3,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 4: Actor Eldric: Eldric's turn begins."
+      },
+      {
+        "id": 25,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Eldric chooses not to take any further actions."
+      },
+      {
+        "id": 26,
+        "timestamp": "2026-07-27T14:34:44+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Burasco",
+          "turn_index": 4,
+          "total_turns": 5,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 5: Actor Burasco: Burasco's turn begins."
+      },
+      {
+        "id": 27,
+        "timestamp": "2026-07-27T14:35:20+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "tavern_keeper",
+        "data": {
+          "message": "Round 1: Turn 5: Actor Burasco: tavern_keeper, Speak to the tavern keeper after collecting the torch components.",
+          "round": 2,
+          "turn_index": 4,
+          "actor_name": "Burasco",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 28,
+        "timestamp": "2026-07-27T14:35:32+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "gribbles_rindsworth",
+        "data": {
+          "message": "Round 1: Turn 5: Actor Burasco: gribbles_rindsworth, Speak with Gribbles and gather a rumor lead chain.",
+          "round": 2,
+          "turn_index": 4,
+          "actor_name": "Burasco",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 29,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "encounter_ended",
+        "actor": null,
+        "target": null,
+        "data": {
+          "encounter_id": 1266,
+          "final_round": 2
+        },
+        "narration": null
+      },
+      {
+        "id": 30,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "room_entered",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "from_room": "tavern_entrance",
+          "to_room": "tpl_room_absalom_streets"
+        },
+        "narration": "Primary city streets that connect the starter tavern to nearby districts."
+      },
+      {
+        "id": 31,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "encounter_framework_started",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "encounter_id": 1267,
+          "room_id": "tpl_room_absalom_streets",
+          "participants": 1
+        },
+        "narration": "The scene in Absalom Streets is active."
+      },
+      {
+        "id": 32,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tpl_room_absalom_streets",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 0: Actor Narrator: Round 1 begins."
+      },
+      {
+        "id": 33,
+        "timestamp": "2026-07-27T14:35:40+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tpl_room_absalom_streets",
+          "actor_name": "pc-702-1033",
+          "turn_index": 0,
+          "total_turns": 1,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 1: Actor pc-702-1033: pc-702-1033's turn begins."
+      },
+      {
+        "id": 34,
+        "timestamp": "2026-07-27T14:36:07+00:00",
+        "phase": "encounter",
+        "type": "search",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "discoveries": [],
+          "round": 1
+        },
+        "narration": "You search the area carefully but do not uncover anything new."
+      },
+      {
+        "id": 35,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "encounter_ended",
+        "actor": null,
+        "target": null,
+        "data": {
+          "encounter_id": 1267,
+          "final_round": 1
+        },
+        "narration": null
+      },
+      {
+        "id": 36,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "room_entered",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "from_room": "tpl_room_absalom_streets",
+          "to_room": "tavern_entrance"
+        },
+        "narration": "The Gilded Tankard in Absalom is quiet and nearly empty, with no patrons beyond Eldric, Marta the Scholar, and Gribbles Rindsworth. Warm candlelight washes over rough-hewn wooden floors and a polished bar lined with bottles and tankards. Eldric, the broad-shouldered barkeep, stands behind the bar polishing a mug while keeping a steady eye on the room. Marta the Scholar works at a table buried in spellbooks, loose notes, and a crystal-bound codex. Gribbles Rindsworth lounges nearby with a tankard in hand, his sharp goblin eyes tracking every conversation from a seat close to Marta. Iron sconces and a stone fireplace cast steady amber light across the otherwise empty tavern."
+      },
+      {
+        "id": 37,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "encounter_framework_started",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "encounter_id": 1268,
+          "room_id": "tavern_entrance",
+          "participants": 4
+        },
+        "narration": "The scene in The Gilded Tankard is active."
+      },
+      {
+        "id": 38,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 0: Actor Narrator: Round 1 begins."
+      },
+      {
+        "id": 39,
+        "timestamp": "2026-07-27T14:36:16+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "turn_index": 0,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 1: Actor Gribbles Rindsworth: Gribbles Rindsworth's turn begins."
+      },
+      {
+        "id": 40,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Gribbles Rindsworth chooses not to take any further actions."
+      },
+      {
+        "id": 41,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "turn_index": 1,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 2: Actor Marta the Scholar: Marta the Scholar's turn begins."
+      },
+      {
+        "id": 42,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Marta the Scholar chooses not to take any further actions."
+      },
+      {
+        "id": 43,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "turn_index": 2,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 3: Actor Eldric: Eldric's turn begins."
+      },
+      {
+        "id": 44,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Eldric chooses not to take any further actions."
+      },
+      {
+        "id": 45,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 1,
+          "room_id": "tavern_entrance",
+          "actor_name": "pc-702-1033",
+          "turn_index": 3,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 0: Turn 4: Actor pc-702-1033: pc-702-1033's turn begins."
+      },
+      {
+        "id": 46,
+        "timestamp": "2026-07-27T14:36:34+00:00",
+        "phase": "encounter",
+        "type": "search",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "discoveries": [
+            {
+              "instance_id": "quest_item_702_4ca785f78f53d053_01",
+              "name": "resonance_sample",
+              "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+              "objective_id": "collect_resonance_samples"
+            }
+          ],
+          "round": 1,
+          "trigger": "turn_start"
+        },
+        "narration": "You notice resonance_sample."
+      },
+      {
+        "id": 47,
+        "timestamp": "2026-07-27T14:36:46+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "tavern_keeper",
+        "data": {
+          "message": "Round 0: Turn 4: Actor pc-702-1033: tavern_keeper, Return to Eldric and provide the route details.",
+          "round": 1,
+          "turn_index": 3,
+          "actor_name": "pc-702-1033",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 48,
+        "timestamp": "2026-07-27T14:37:15+00:00",
+        "phase": "encounter",
+        "type": "search",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "discoveries": [
+            {
+              "instance_id": "quest_item_702_4ca785f78f53d053_02",
+              "name": "resonance_sample",
+              "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+              "objective_id": "collect_resonance_samples"
+            },
+            {
+              "instance_id": "quest_item_702_4ca785f78f53d053_03",
+              "name": "resonance_sample",
+              "quest_id": "stabilize_arcane_resonance_702_6a676ca1eeb35",
+              "objective_id": "collect_resonance_samples"
+            },
+            {
+              "instance_id": "quest_item_702_22fdbd45aca6a7cd_01",
+              "name": "blackmail_ledger",
+              "quest_id": "recover_blackmail_ledger_702_6a676ca2f1ef8",
+              "objective_id": "recover_ledger_item"
+            }
+          ],
+          "round": 1
+        },
+        "narration": "You notice resonance_sample.\nYou notice resonance_sample.\nYou notice blackmail_ledger.\n\nObjective completed for Stabilize Arcane Resonance: Collect three resonance samples from the tavern.\nNext step: Work with Marta to stabilize the codex resonance.\n\nObjective completed for Recover Blackmail Ledger: Recover the concealed blackmail ledger.\nNext step: Return the ledger to Gribbles."
+      },
+      {
+        "id": 49,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "talk",
+        "actor": "pc-702-1033",
+        "target": "gribbles_rindsworth",
+        "data": {
+          "message": "Round 0: Turn 4: Actor pc-702-1033: gribbles_rindsworth, Hand the recovered ledger to Gribbles.",
+          "round": 1,
+          "turn_index": 3,
+          "actor_name": "pc-702-1033",
+          "gm_response_generated": false,
+          "state_diff_present": false
+        },
+        "narration": null
+      },
+      {
+        "id": 50,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "auto_end_turn",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 2
+        },
+        "narration": null
+      },
+      {
+        "id": 51,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "round_start",
+        "actor": null,
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Narrator",
+          "turn_index": -1
+        },
+        "narration": "Round 1: Actor Narrator: Round 2 begins."
+      },
+      {
+        "id": 52,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "turn_index": 0,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 1: Actor Gribbles Rindsworth: Gribbles Rindsworth's turn begins."
+      },
+      {
+        "id": 53,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_gribbles_rindsworth",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Gribbles Rindsworth",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Gribbles Rindsworth chooses not to take any further actions."
+      },
+      {
+        "id": 54,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "turn_index": 1,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 2: Actor Marta the Scholar: Marta the Scholar's turn begins."
+      },
+      {
+        "id": 55,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_scholar_npc",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Marta the Scholar",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Marta the Scholar chooses not to take any further actions."
+      },
+      {
+        "id": 56,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "turn_index": 2,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 3: Actor Eldric: Eldric's turn begins."
+      },
+      {
+        "id": 57,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "npc_choose_not_to_act",
+        "actor": "npc_tavern_keeper",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "Eldric",
+          "actions_remaining": 0,
+          "reason": "No further action selected.",
+          "decision_reason": "No queued room-scene dialogue or deterministic room action was available for this actor turn.",
+          "decision_basis": {
+            "intent": "room_scene_pass",
+            "mode": "room_scene",
+            "room_id": "tavern_entrance"
+          }
+        },
+        "narration": "Eldric chooses not to take any further actions."
+      },
+      {
+        "id": 58,
+        "timestamp": "2026-07-27T14:37:33+00:00",
+        "phase": "encounter",
+        "type": "turn_start",
+        "actor": "pc-702-1033",
+        "target": null,
+        "data": {
+          "round": 2,
+          "room_id": "tavern_entrance",
+          "actor_name": "pc-702-1033",
+          "turn_index": 3,
+          "total_turns": 4,
+          "actions_available": 3
+        },
+        "narration": "Round 1: Turn 4: Actor pc-702-1033: pc-702-1033's turn begins."
+      }
+    ]
+  }
+}

@@ -58,6 +58,10 @@ const dungeonPayloadPersistenceSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/DungeonPayloadStatePersistenceService.php'),
   'utf8'
 );
+const encounterPhaseHandlerSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
+  'utf8'
+);
 const drushServices = fs.readFileSync(
   path.resolve(__dirname, '../drush.services.yml'),
   'utf8'
@@ -125,14 +129,21 @@ assert(
 );
 
 assert(
-  runnerSource.includes('ask_eldric_for_work')
-    && runnerSource.includes('ask_marta_for_work')
-    && runnerSource.includes('ask_gribbles_for_work')
+  runnerSource.includes('ask_eldric_any_work_or_quests')
+    && runnerSource.includes('ask_marta_any_work')
+    && runnerSource.includes('ask_gribbles_any_work')
     && runnerSource.includes('search_room_for_items')
-    && runnerSource.includes('turn_in_items_to_eldric')
-    && runnerSource.includes('turn_in_items_to_marta')
-    && runnerSource.includes('turn_in_items_to_gribbles')
-    && runnerSource.includes('ask_eldric_for_more_work')
+    && runnerSource.includes('ask_gribbles_your_stuff')
+    && runnerSource.includes('ask_marta_your_stuff')
+    && runnerSource.includes('ask_eldric_your_stuff')
+    && runnerSource.includes('ask_eldric_any_other_quests')
+    && runnerSource.includes('navigate_to_absalom_streets')
+    && runnerSource.includes('navigate_to_grandmas_parlor')
+    && runnerSource.includes('ask_grandma_any_work_for_me')
+    && runnerSource.includes('navigate_back_to_absalom_streets')
+    && runnerSource.includes('navigate_to_graveyard')
+    && runnerSource.includes('navigate_to_crypt_entrance')
+    && runnerSource.includes('ask_what_are_we_doing_here')
     && !runnerSource.includes('chat_eldric_more_work')
     && !runnerSource.includes('chat_eldric_storyline_lead')
     && !runnerSource.includes('chat_gribbles_jobs')
@@ -243,6 +254,20 @@ assert(
   mapGeneratorSource.includes('normalizeCampaignRoomContentsReferences')
     && mapGeneratorSource.includes('contents_data.%s[%d] is missing content identifier'),
   'Campaign room persistence normalizes contents_data to identifier-oriented references and hard-fails missing identifiers'
+);
+
+assert(
+  encounterPhaseHandlerSource.includes('resolveLeadSeekTalkTargetEntityId')
+    && encounterPhaseHandlerSource.includes('$lead_seek_counts[$lead_source_id]')
+    && encounterPhaseHandlerSource.includes('lead_source_id')
+    && !encounterPhaseHandlerSource.includes('$lead_seek_counts[$actor_id]'),
+  'Room-scene social progression tracks lead-seeking exhaustion by talk target lead-source id, not acting actor id'
+);
+
+assert(
+  encounterPhaseHandlerSource.includes("'room_id' => $resolved_room_id !== '' ? $resolved_room_id : NULL")
+    && encounterPhaseHandlerSource.includes("'room_id' => $room_id !== '' ? $room_id : NULL"),
+  'Encounter Search events stamp room_id so transcript filtering stays room-scoped across room transitions'
 );
 
 console.log(`\nPassed: ${passed}`);

@@ -19,6 +19,19 @@ import {
   resolveActionRailCategory as resolveContractActionRailCategory,
 } from '../contracts/action-rail-contract.js';
 
+const ACTION_RAIL_DOMAIN_ALL = 'all';
+const ACTION_RAIL_CATEGORY_DEPENDENCIES = {
+  navigate: ['navigation', 'room'],
+  turn: ['turn', 'combat'],
+  search: ['turn', 'combat', 'room'],
+  rest: ['character', 'inventory', 'room'],
+  spells: ['character', 'inventory', 'turn', 'combat'],
+  consumables: ['inventory', 'turn', 'combat'],
+  skills: ['character', 'turn', 'combat'],
+  feats: ['character', 'inventory', 'turn', 'combat'],
+};
+const ACTION_RAIL_HEADER_DEPENDENCIES = ['header', 'turn', 'combat', 'automation', 'clock', 'character', 'room'];
+
 function resolveSkillEntry(state, skillName) {
   const target = String(skillName || '').trim().toLowerCase();
   return collectCharacterSkillEntries(state).find((entry) => String(entry?.name || '').trim().toLowerCase() === target) || null;
@@ -101,6 +114,15 @@ export class ActionRailPanel {
     this._actionRailRequestSequence = 0;
     this._actionRailRefreshRaf = null;
     this._actionRailRefreshTimer = null;
+    this._actionRailDirtyDomains = new Set([ACTION_RAIL_DOMAIN_ALL]);
+    this._lastHeaderFingerprint = '';
+    this._lastCategoryFingerprints = {};
+    this._actionRailMetrics = {
+      flushes: 0,
+      skips: 0,
+      headerRenders: 0,
+      bodyRenders: 0,
+    };
     this._domListeners = [];
   }
 
@@ -225,50 +247,100 @@ export class ActionRailPanel {
     if (this.actionRailRealClockTimer) clearInterval(this.actionRailRealClockTimer);
   }
 
+  invalidateActionRail(domains = [ACTION_RAIL_DOMAIN_ALL]) {
+    const nextDomains = Array.isArray(domains) ? domains : [domains];
+    if (!nextDomains.length) {
+      this._actionRailDirtyDomains.add(ACTION_RAIL_DOMAIN_ALL);
+    } else {
+      nextDomains.forEach((domain) => {
+        const normalized = String(domain || '').trim().toLowerCase();
+        if (normalized) {
+          this._actionRailDirtyDomains.add(normalized);
+        }
+      });
+    }
+    this.scheduleActionRailFlush();
+  }
+
   queueActionRailRefresh() {
+    this.invalidateActionRail([ACTION_RAIL_DOMAIN_ALL]);
+  }
+
+  scheduleActionRailFlush() {
     if (this._actionRailRefreshRaf !== null || this._actionRailRefreshTimer !== null) {
       return;
     }
     if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
       this._actionRailRefreshRaf = window.requestAnimationFrame(() => {
         this._actionRailRefreshRaf = null;
-        this.refreshActionRail();
+        this.flushActionRailRefresh();
       });
       return;
     }
     this._actionRailRefreshTimer = setTimeout(() => {
       this._actionRailRefreshTimer = null;
-      this.refreshActionRail();
+      this.flushActionRailRefresh();
     }, 0);
+  }
+
+  flushActionRailRefresh() {
+    const dirtyDomains = this._actionRailDirtyDomains.size
+      ? Array.from(this._actionRailDirtyDomains)
+      : [ACTION_RAIL_DOMAIN_ALL];
+    this._actionRailDirtyDomains.clear();
+    this._actionRailMetrics.flushes += 1;
+    this.refreshActionRail(dirtyDomains);
+  }
+
+  getActionRailMetrics() {
+    return { ...this._actionRailMetrics };
   }
 
   _subscribe() {
     this._unsubs.push(
       this.bus.on('combat:turn-changed', (d) => {
-        this.queueActionRailRefresh();
+        this.invalidateActionRail(['turn', 'combat', 'header']);
         this.updateActionRailClocks(d);
       }),
-      this.bus.on('combat:state-changed', () => this.queueActionRailRefresh()),
-      this.bus.on('game:init', () => this.queueActionRailRefresh()),
-      this.bus.on('room:changed', (payload) => this.handleRoomContextChanged(payload)),
-      this.bus.on('room:occupants-changed', (payload) => this.handleRoomContextChanged(payload)),
-      this.bus.on('character:updated', () => this.queueActionRailRefresh()),
-      this.bus.on('inventory:changed', () => this.queueActionRailRefresh()),
-      this.bus.on('quest:progress-updated', () => this.queueActionRailRefresh()),
+      this.bus.on('combat:state-changed', () => this.invalidateActionRail(['combat', 'header'])),
+      this.bus.on('game:init', () => this.invalidateActionRail([ACTION_RAIL_DOMAIN_ALL])),
+      this.bus.on('room:changed', (payload) => this.handleRoomContextChanged(payload, 'room:changed')),
+      this.bus.on('room:transitioned', (payload) => this.handleRoomContextChanged(payload, 'room:transitioned')),
+      this.bus.on('room:occupants-changed', (payload) => this.handleRoomContextChanged(payload, 'room:occupants-changed')),
+      this.bus.on('room:occupants-decoration-changed', (payload) => this.handleRoomContextChanged(payload, 'room:occupants-decoration-changed')),
+      this.bus.on('character:updated', () => this.invalidateActionRail(['character', 'header'])),
+      this.bus.on('inventory:changed', () => this.invalidateActionRail(['inventory'])),
+      this.bus.on('quest:progress-updated', () => this.invalidateActionRail(['quest'])),
+      this.bus.on('navigation:capabilities-updated', () => this.invalidateActionRail(['navigation'])),
+      this.bus.on('merchant:stock-loaded', () => this.invalidateActionRail(['merchant'])),
     );
   }
 
-  handleRoomContextChanged(payload = {}) {
+  handleRoomContextChanged(payload = {}, sourceEvent = '') {
     const transitionId = String(payload?.transition?.id || '').trim();
     if (transitionId && transitionId === this._lastRoomTransitionId) {
       return;
     }
-    if (transitionId) {
+    const normalizedSource = String(sourceEvent || '').trim().toLowerCase();
+    if (transitionId && (normalizedSource === 'room:changed' || normalizedSource === 'room:transitioned')) {
       this._lastRoomTransitionId = transitionId;
+      this.navigateActiveRoom = null;
+      this.navigateLocationsCampaignId = null;
+      this.invalidateActionRail(['room', 'navigation', 'header']);
+      return;
     }
-    this.navigateActiveRoom = null;
-    this.navigateLocationsCampaignId = null;
-    this.queueActionRailRefresh();
+
+    // Room-level authoritative changes should invalidate navigate and header.
+    if (normalizedSource === 'room:changed' || normalizedSource === 'room:transitioned') {
+      this.navigateActiveRoom = null;
+      this.navigateLocationsCampaignId = null;
+      this.invalidateActionRail(['room', 'navigation', 'header']);
+      return;
+    }
+
+    // Occupant fan-out (merchant enrichment, decoration, transient overlays)
+    // must not force navigation recomputation.
+    this.invalidateActionRail(['occupants-decoration']);
   }
 
   setupActionRail() {
@@ -525,12 +597,127 @@ export class ActionRailPanel {
     }
 
     if (refresh) {
-      this.refreshActionRail();
+      this.invalidateActionRail([ACTION_RAIL_DOMAIN_ALL]);
     }
   }
 
-  refreshActionRail() {
-    console.log('[ActionRailPanel] refreshActionRail');
+  shouldRefreshActionRailHeader(dirtyDomains = []) {
+    if (!Array.isArray(dirtyDomains) || dirtyDomains.length === 0) {
+      return true;
+    }
+    if (dirtyDomains.includes(ACTION_RAIL_DOMAIN_ALL)) {
+      return true;
+    }
+    return dirtyDomains.some((domain) => ACTION_RAIL_HEADER_DEPENDENCIES.includes(String(domain || '').trim().toLowerCase()));
+  }
+
+  getActiveCategoryDomains(category = '') {
+    const resolvedCategory = this.resolveActionRailCategory(category || this.activeActionRailCategory);
+    return ACTION_RAIL_CATEGORY_DEPENDENCIES[resolvedCategory] || [ACTION_RAIL_DOMAIN_ALL];
+  }
+
+  shouldRefreshActionRailBody(dirtyDomains = [], activeCategory = '') {
+    if (!Array.isArray(dirtyDomains) || dirtyDomains.length === 0) {
+      return true;
+    }
+    if (dirtyDomains.includes(ACTION_RAIL_DOMAIN_ALL)) {
+      return true;
+    }
+    const categoryDomains = this.getActiveCategoryDomains(activeCategory);
+    return dirtyDomains.some((domain) => categoryDomains.includes(String(domain || '').trim().toLowerCase()));
+  }
+
+  buildActionRailHeaderFingerprint(context = null, actorCardTarget = null) {
+    const resolvedContext = context || this.getActionRailContext();
+    const target = actorCardTarget || this.resolveActionRailActorCardTarget(resolvedContext);
+    const automation = resolvedContext?.automationState || {};
+    const clock = resolvedContext?.campaignClock || {};
+    return JSON.stringify({
+      actorRef: String(target?.actorRef || '').trim(),
+      characterId: Number(target?.characterId || 0) || 0,
+      actorLabel: String(target?.actorLabel || resolvedContext?.actorLabel || '').trim(),
+      actorPortrait: String(target?.actorPortraitUrl || resolvedContext?.actorPortraitUrl || '').trim(),
+      statusLabel: String(resolvedContext?.statusLabel || '').trim(),
+      automationActive: Boolean(automation?.active),
+      automationInflight: Boolean(automation?.inflight || this.actionRailAutomationTogglePending),
+      automationStatusLabel: String(automation?.statusLabel || '').trim(),
+      canAutomate: Boolean(resolvedContext?.canAutomate),
+      encounterActive: Boolean(resolvedContext?.encounterActive),
+      turnEntity: String(resolvedContext?.phaseSnapshot?.turn?.entity || '').trim(),
+      actionsRemaining: Number(resolvedContext?.phaseSnapshot?.turn?.actions_remaining ?? -1),
+      clockDatetime: String(clock?.datetime || '').trim(),
+      clockTimezone: String(clock?.timezone || '').trim(),
+    });
+  }
+
+  buildActionRailCategoryFingerprint(category = '', context = null) {
+    const resolvedCategory = this.resolveActionRailCategory(category || this.activeActionRailCategory);
+    const resolvedContext = context || this.getActionRailContext();
+    const roomId = String(resolvedContext?.runtimeContext?.roomId || resolvedContext?.hexmap?.resolveActiveRoomId?.() || '').trim();
+    const actionContractActions = Array.isArray(resolvedContext?.actionContract?.actions)
+      ? resolvedContext.actionContract.actions.map((action) => ({
+        id: String(action?.id || ''),
+        available: action?.available !== false,
+      }))
+      : [];
+    const common = {
+      category: resolvedCategory,
+      actorRef: String(resolvedContext?.actorRef || '').trim(),
+      characterId: Number(resolvedContext?.characterId || 0) || 0,
+      roomId,
+      encounterActive: Boolean(resolvedContext?.encounterActive),
+      isActorTurn: Boolean(resolvedContext?.isActorTurn),
+      availableActions: Array.isArray(resolvedContext?.availableActions) ? resolvedContext.availableActions : [],
+      actionContractActions,
+    };
+
+    switch (resolvedCategory) {
+      case 'navigate': {
+        const capabilities = Array.isArray(resolvedContext?.hexmap?.resolveNavigationCapabilities?.(roomId))
+          ? resolvedContext.hexmap.resolveNavigationCapabilities(roomId)
+          : [];
+        return JSON.stringify({
+          ...common,
+          exits: capabilities.map((capability) => ({
+            target: String(capability?.target_room_id || ''),
+            name: String(capability?.target_room_name || ''),
+            connection: String(capability?.connection_id || ''),
+            available: capability?.available !== false,
+            blocked: String(capability?.blocked_reason || ''),
+            quest: capability?.quest_reference === true,
+          })),
+        });
+      }
+      case 'consumables':
+        return JSON.stringify({
+          ...common,
+          inventory: resolvedContext?.state?.inventory || {},
+          equipment: resolvedContext?.state?.equipment || {},
+        });
+      case 'spells':
+        return JSON.stringify({
+          ...common,
+          spells: resolvedContext?.state?.spells || {},
+          spellSlots: resolvedContext?.state?.resources?.spellSlots || {},
+          focusPoints: resolvedContext?.state?.resources?.focusPoints || {},
+        });
+      case 'skills':
+      case 'feats':
+      case 'rest':
+        return JSON.stringify({
+          ...common,
+          state: resolvedContext?.state || {},
+        });
+      default:
+        return JSON.stringify(common);
+    }
+  }
+
+  refreshActionRail(dirtyDomains = [ACTION_RAIL_DOMAIN_ALL]) {
+    const refreshStartedAt = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+      ? performance.now()
+      : Date.now();
+    console.log('[ActionRailPanel] refreshActionRail', { dirtyDomains });
     const categories = this._el.actionRailCategories;
     const panelTitle = this._el.actionRailPanelTitle;
     const panelChip = this._el.actionRailPanelChip;
@@ -551,6 +738,16 @@ export class ActionRailPanel {
       return;
     }
 
+    const normalizedDomains = Array.isArray(dirtyDomains)
+      ? Array.from(new Set(dirtyDomains.map((domain) => String(domain || '').trim().toLowerCase()).filter(Boolean)))
+      : [ACTION_RAIL_DOMAIN_ALL];
+    const shouldRefreshHeader = this.shouldRefreshActionRailHeader(normalizedDomains);
+    const shouldRefreshBody = this.shouldRefreshActionRailBody(normalizedDomains, this.activeActionRailCategory);
+    if (!shouldRefreshHeader && !shouldRefreshBody) {
+      this._actionRailMetrics.skips += 1;
+      console.log('[ActionRailPanel] refreshActionRail:skip', { dirtyDomains: normalizedDomains, activeCategory: this.activeActionRailCategory });
+      return;
+    }
     const context = this.getActionRailContext();
     const actorCardTarget = this.resolveActionRailActorCardTarget(context);
     const maybeWakeAutomation = () => {
@@ -558,53 +755,58 @@ export class ActionRailPanel {
         hexmap?.queuePlayerAutomationStep?.('action-rail-refresh');
       }
     };
-    actorName.textContent = actorCardTarget.actorLabel || context.actorLabel;
-    if (actorCard) {
-      const actorRef = String(actorCardTarget.actorRef || '').trim();
-      const canOpen = Boolean(actorCardTarget.characterId || actorRef);
-      actorCard.setAttribute('aria-disabled', canOpen ? 'false' : 'true');
-      actorCard.classList.toggle('action-rail__actor-card--disabled', !canOpen);
-      actorCard.setAttribute('aria-label', canOpen ? `${actorCardTarget.actorLabel || context.actorLabel}: open character sheet` : (actorCardTarget.actorLabel || context.actorLabel));
-      if (actorRef) {
-        actorCard.dataset.entityId = actorRef;
-      } else {
-        delete actorCard.dataset.entityId;
+    const nextHeaderFingerprint = this.buildActionRailHeaderFingerprint(context, actorCardTarget);
+    if (shouldRefreshHeader || nextHeaderFingerprint !== this._lastHeaderFingerprint) {
+      actorName.textContent = actorCardTarget.actorLabel || context.actorLabel;
+      if (actorCard) {
+        const actorRef = String(actorCardTarget.actorRef || '').trim();
+        const canOpen = Boolean(actorCardTarget.characterId || actorRef);
+        actorCard.setAttribute('aria-disabled', canOpen ? 'false' : 'true');
+        actorCard.classList.toggle('action-rail__actor-card--disabled', !canOpen);
+        actorCard.setAttribute('aria-label', canOpen ? `${actorCardTarget.actorLabel || context.actorLabel}: open character sheet` : (actorCardTarget.actorLabel || context.actorLabel));
+        if (actorRef) {
+          actorCard.dataset.entityId = actorRef;
+        } else {
+          delete actorCard.dataset.entityId;
+        }
       }
-    }
-    if (actorImage && actorInitial) {
-      const portraitUrl = String(actorCardTarget.actorPortraitUrl || context.actorPortraitUrl || '').trim();
-      if (portraitUrl) {
-        actorImage.src = portraitUrl;
-        actorImage.alt = actorCardTarget.actorLabel || context.actorLabel;
-        actorImage.hidden = false;
-        actorInitial.hidden = true;
-      } else {
-        actorImage.hidden = true;
-        actorImage.removeAttribute('src');
-        actorImage.alt = '';
-        actorInitial.hidden = false;
-        const actorInitialLabel = actorCardTarget.actorLabel || context.actorLabel;
-        actorInitial.textContent = actorInitialLabel.charAt(0).toUpperCase() || '?';
+      if (actorImage && actorInitial) {
+        const portraitUrl = String(actorCardTarget.actorPortraitUrl || context.actorPortraitUrl || '').trim();
+        if (portraitUrl) {
+          actorImage.src = portraitUrl;
+          actorImage.alt = actorCardTarget.actorLabel || context.actorLabel;
+          actorImage.hidden = false;
+          actorInitial.hidden = true;
+        } else {
+          actorImage.hidden = true;
+          actorImage.removeAttribute('src');
+          actorImage.alt = '';
+          actorInitial.hidden = false;
+          const actorInitialLabel = actorCardTarget.actorLabel || context.actorLabel;
+          actorInitial.textContent = actorInitialLabel.charAt(0).toUpperCase() || '?';
+        }
       }
+      status.textContent = context.statusLabel;
+      if (automationToggle) {
+        const automationActive = Boolean(context.automationState?.active);
+        const automationBusy = Boolean(context.automationState?.inflight || this.actionRailAutomationTogglePending);
+        const canToggle = automationActive || context.canAutomate;
+        const toggleDisabled = !canToggle || (!automationActive && automationBusy);
+        automationToggle.disabled = toggleDisabled;
+        automationToggle.setAttribute('aria-disabled', toggleDisabled ? 'true' : 'false');
+        automationToggle.setAttribute('aria-pressed', automationActive ? 'true' : 'false');
+        automationToggle.textContent = automationActive ? 'Stop automation' : (automationBusy ? 'Thinking…' : 'Suggest next move');
+        automationToggle.classList.toggle('action-rail__automation-toggle--active', automationActive);
+      }
+      if (automationMeta) {
+        automationMeta.textContent = context.automationState?.statusLabel
+          || 'Draft and send the next in-character room chat line.';
+      }
+      this.updateActionRailClocks(context);
+      console.log('[ActionRailPanel] refreshActionRail:header', { actor: context.actorLabel, status: context.statusLabel, encounter: context.encounterActive });
+      this._lastHeaderFingerprint = nextHeaderFingerprint;
+      this._actionRailMetrics.headerRenders += 1;
     }
-    status.textContent = context.statusLabel;
-    console.log('[ActionRailPanel] refreshActionRail:render', { actor: context.actorLabel, status: context.statusLabel, encounter: context.encounterActive });
-    if (automationToggle) {
-      const automationActive = Boolean(context.automationState?.active);
-      const automationBusy = Boolean(context.automationState?.inflight || this.actionRailAutomationTogglePending);
-      const canToggle = automationActive || context.canAutomate;
-      const toggleDisabled = !canToggle || (!automationActive && automationBusy);
-      automationToggle.disabled = toggleDisabled;
-      automationToggle.setAttribute('aria-disabled', toggleDisabled ? 'true' : 'false');
-      automationToggle.setAttribute('aria-pressed', automationActive ? 'true' : 'false');
-      automationToggle.textContent = automationActive ? 'Stop automation' : (automationBusy ? 'Thinking…' : 'Suggest next move');
-      automationToggle.classList.toggle('action-rail__automation-toggle--active', automationActive);
-    }
-    if (automationMeta) {
-      automationMeta.textContent = context.automationState?.statusLabel
-        || 'Draft and send the next in-character room chat line.';
-    }
-    this.updateActionRailClocks(context);
 
     categories.querySelectorAll('[data-action-rail-category]').forEach((button) => {
       const nextButton = /** @type {HTMLButtonElement} */ (button);
@@ -619,24 +821,45 @@ export class ActionRailPanel {
     });
 
     this.activeActionRailCategory = this.resolveActionRailCategory(this.activeActionRailCategory);
-
-    const panel = this.buildActionRailPanel(this.activeActionRailCategory, context);
-    if (panelTitle) {
-      panelTitle.textContent = panel.title;
-    }
-    if (panelChip) {
-      panelChip.textContent = panel.chip;
-    }
-    panelBody.innerHTML = panel.html;
-    if (context.automationState?.active) {
-      panelBody.querySelectorAll('[data-action-rail-execute]').forEach((entry) => {
-        if (entry instanceof HTMLButtonElement) {
-          entry.disabled = true;
-          entry.setAttribute('aria-disabled', 'true');
-        }
+    const categoryKey = this.activeActionRailCategory;
+    if (shouldRefreshBody) {
+      const nextCategoryFingerprint = this.buildActionRailCategoryFingerprint(categoryKey, context);
+      const previousCategoryFingerprint = String(this._lastCategoryFingerprints[categoryKey] || '');
+      const panel = this.buildActionRailPanel(categoryKey, context);
+      if (panelTitle) {
+        panelTitle.textContent = panel.title;
+      }
+      if (panelChip) {
+        panelChip.textContent = panel.chip;
+      }
+      panelBody.innerHTML = panel.html;
+      if (context.automationState?.active) {
+        panelBody.querySelectorAll('[data-action-rail-execute]').forEach((entry) => {
+          if (entry instanceof HTMLButtonElement) {
+            entry.disabled = true;
+            entry.setAttribute('aria-disabled', 'true');
+          }
+        });
+      }
+      this.syncActionRailPanelState();
+      this._lastCategoryFingerprints[categoryKey] = nextCategoryFingerprint;
+      this._actionRailMetrics.bodyRenders += 1;
+      console.log('[ActionRailPanel] refreshActionRail:body', {
+        category: categoryKey,
+        reason: nextCategoryFingerprint !== previousCategoryFingerprint ? 'domain-invalidated+fingerprint-changed' : 'domain-invalidated',
       });
     }
-    this.syncActionRailPanelState();
+    const refreshElapsedMs = ((typeof performance !== 'undefined' && typeof performance.now === 'function')
+      ? performance.now()
+      : Date.now()) - refreshStartedAt;
+    console.log('[ActionRailPanel] refreshActionRail:complete', {
+      dirtyDomains: normalizedDomains,
+      activeCategory: categoryKey,
+      header: shouldRefreshHeader,
+      body: shouldRefreshBody,
+      elapsedMs: Number(refreshElapsedMs.toFixed(2)),
+      metrics: { ...this._actionRailMetrics },
+    });
     maybeWakeAutomation();
   }
 

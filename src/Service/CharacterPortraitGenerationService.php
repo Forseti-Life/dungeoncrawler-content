@@ -129,7 +129,7 @@ class CharacterPortraitGenerationService {
 
     $payload = [
       'prompt' => $prompt,
-      'style' => (string) ($options['style'] ?? 'fantasy'),
+      'style' => (string) ($options['style'] ?? 'portrait'),
       'aspect_ratio' => (string) ($options['aspect_ratio'] ?? '3:4'),
       'campaign_context' => (string) ($options['campaign_context'] ?? 'character_creation'),
       'requested_by_uid' => $owner_uid,
@@ -137,6 +137,17 @@ class CharacterPortraitGenerationService {
 
     try {
       $result = $this->integrationService->generateImage($payload, $provider);
+      $reused_storage = $this->reuseCachedPromptImage($result, $payload, $character_id, $owner_uid, $campaign_id);
+      if (is_array($reused_storage)) {
+        $this->syncLegacyPortraitColumn($character_id, (string) ($reused_storage['url'] ?? ''));
+        return [
+          'attempted' => TRUE,
+          'provider' => $provider,
+          'result' => $result,
+          'storage' => $reused_storage,
+        ];
+      }
+
       $storage = $this->generatedImageRepository->persistGeneratedImage($result, [
         'owner_uid' => $owner_uid,
         'scope_type' => 'campaign',
@@ -167,6 +178,89 @@ class CharacterPortraitGenerationService {
         'reason' => 'exception',
       ];
     }
+  }
+
+  /**
+   * Reuse an existing stored image when provider returns a prompt-cache hit.
+   *
+   * @return array<string,mixed>|null
+   *   Storage summary when reuse succeeds; NULL otherwise.
+   */
+  private function reuseCachedPromptImage(array $generation_result, array $payload, int $character_id, int $owner_uid, ?int $campaign_id): ?array {
+    if (
+      empty($generation_result['success'])
+      || strtolower(trim((string) ($generation_result['mode'] ?? ''))) !== 'cache'
+      || !$this->database->schema()->tableExists('dc_generated_images')
+      || !$this->database->schema()->tableExists('dc_generated_image_links')
+    ) {
+      return NULL;
+    }
+
+    $provider = strtolower(trim((string) ($generation_result['provider'] ?? '')));
+    $provider_model = trim((string) ($generation_result['provider_model'] ?? ''));
+    $prompt_text = trim((string) ($payload['prompt'] ?? ''));
+    if ($provider === '' || $prompt_text === '' || $character_id <= 0 || $owner_uid <= 0) {
+      return NULL;
+    }
+
+    $negative_prompt = trim((string) ($payload['negative_prompt'] ?? ''));
+
+    $query = $this->database->select('dc_generated_images', 'i')
+      ->fields('i', ['id', 'public_url', 'file_uri'])
+      ->condition('i.provider', $provider)
+      ->condition('i.owner_uid', $owner_uid)
+      ->condition('i.prompt_text', $prompt_text)
+      ->condition('i.negative_prompt', $negative_prompt)
+      ->condition('i.status', 'ready')
+      ->condition('i.deleted', 0)
+      ->orderBy('i.created', 'DESC')
+      ->range(0, 1);
+    if ($provider_model !== '') {
+      $query->condition('i.provider_model', $provider_model);
+    }
+
+    $image = $query->execute()->fetchAssoc();
+    if (!is_array($image) || (int) ($image['id'] ?? 0) <= 0) {
+      return NULL;
+    }
+
+    $existing_link = $this->database->select('dc_generated_image_links', 'l')
+      ->fields('l', ['id'])
+      ->condition('l.image_id', (int) $image['id'])
+      ->condition('l.table_name', 'dc_campaign_characters')
+      ->condition('l.object_id', (string) $character_id)
+      ->condition('l.slot', 'portrait')
+      ->condition('l.variant', 'original')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    if ($existing_link === FALSE) {
+      $now = time();
+      $this->database->insert('dc_generated_image_links')
+        ->fields([
+          'image_id' => (int) $image['id'],
+          'scope_type' => 'campaign',
+          'campaign_id' => $campaign_id,
+          'table_name' => 'dc_campaign_characters',
+          'object_id' => (string) $character_id,
+          'slot' => 'portrait',
+          'variant' => 'original',
+          'is_primary' => 1,
+          'sort_weight' => 0,
+          'visibility' => 'owner',
+          'created' => $now,
+          'updated' => $now,
+        ])
+        ->execute();
+    }
+
+    return [
+      'stored' => TRUE,
+      'reused' => TRUE,
+      'image_id' => (int) $image['id'],
+      'url' => $this->generatedImageRepository->resolveClientUrl($image),
+    ];
   }
 
   /**

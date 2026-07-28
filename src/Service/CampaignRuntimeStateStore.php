@@ -25,7 +25,7 @@ class CampaignRuntimeStateStore {
     }
 
     $row = $this->database->select('dc_campaign_runtime_state', 's')
-      ->fields('s', ['game_state'])
+      ->fields('s', ['game_state', 'active_room_id'])
       ->condition('campaign_id', $campaign_id)
       ->range(0, 1)
       ->execute()
@@ -41,6 +41,11 @@ class CampaignRuntimeStateStore {
         'Campaign runtime state store contract violation: campaign %d game_state payload is invalid JSON.',
         $campaign_id
       ));
+    }
+
+    $active_room_id = trim((string) ($row['active_room_id'] ?? ''));
+    if ($active_room_id !== '' && trim((string) ($decoded['active_room_id'] ?? '')) === '') {
+      $decoded['active_room_id'] = $active_room_id;
     }
 
     return $decoded;
@@ -62,9 +67,47 @@ class CampaignRuntimeStateStore {
       ));
     }
 
-    $resolved_active_room_id = trim((string) ($active_room_id ?? ($game_state['encounter_context']['room_id'] ?? '')));
+    $resolved_active_room_id = trim((string) (
+      $active_room_id
+      ?? ($game_state['active_room_id'] ?? NULL)
+      ?? ($game_state['encounter_context']['room_id'] ?? '')
+    ));
     if ($resolved_active_room_id === '') {
       $resolved_active_room_id = NULL;
+    }
+
+    $incoming_state_version = max(1, (int) ($game_state['state_version'] ?? 1));
+    $existing_row = $this->database->select('dc_campaign_runtime_state', 's')
+      ->fields('s', ['state_version', 'active_room_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($existing_row)) {
+      $existing_state_version = max(1, (int) ($existing_row['state_version'] ?? 1));
+      $existing_active_room_id = trim((string) ($existing_row['active_room_id'] ?? ''));
+      if ($incoming_state_version < $existing_state_version) {
+        throw new \RuntimeException(sprintf(
+          'Campaign runtime state store contract violation: refusing stale downgrade for campaign %d (incoming version=%d, persisted version=%d).',
+          $campaign_id,
+          $incoming_state_version,
+          $existing_state_version
+        ));
+      }
+      if (
+        $incoming_state_version === $existing_state_version
+        && $existing_active_room_id !== ''
+        && $resolved_active_room_id !== NULL
+        && $existing_active_room_id !== $resolved_active_room_id
+      ) {
+        throw new \RuntimeException(sprintf(
+          'Campaign runtime state store contract violation: refusing conflicting same-version room rewrite for campaign %d (version=%d, persisted room=%s, incoming room=%s).',
+          $campaign_id,
+          $incoming_state_version,
+          $existing_active_room_id,
+          $resolved_active_room_id
+        ));
+      }
     }
 
     $now = time();
@@ -72,14 +115,14 @@ class CampaignRuntimeStateStore {
       ->keys(['campaign_id' => $campaign_id])
       ->fields([
         'game_state' => $encoded,
-        'state_version' => max(1, (int) ($game_state['state_version'] ?? 1)),
+        'state_version' => $incoming_state_version,
         'active_room_id' => $resolved_active_room_id,
         'updated' => $now,
       ])
       ->insertFields([
         'campaign_id' => $campaign_id,
         'game_state' => $encoded,
-        'state_version' => max(1, (int) ($game_state['state_version'] ?? 1)),
+        'state_version' => $incoming_state_version,
         'active_room_id' => $resolved_active_room_id,
         'created' => $now,
         'updated' => $now,

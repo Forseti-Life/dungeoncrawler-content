@@ -26,6 +26,7 @@ const navigatePanelServiceSource = fs.readFileSync(path.resolve(__dirname, '../j
 const legacyHexmapSource = fs.readFileSync(path.resolve(__dirname, '../js/hexmap.js'), 'utf8');
 const panelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
 const navigationSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/NavigationSystem.js'), 'utf8');
+const gameShellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
 
 console.log('\n=== Action rail navigate service contract ===');
 
@@ -48,7 +49,7 @@ assert(
 );
 
 assert(
-  panelSource.includes("import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js';")
+  /import\s+\{\s*buildNavigateActionRailPanel\s*\}\s+from\s+'\.\.\/services\/action-rail-navigate-panel-service\.js(?:\?v=[^']+)?';/.test(panelSource)
     && panelSource.includes('navigate: () => buildNavigateActionRailPanel(this, context),')
     && !panelSource.includes('this.navigateLocationsInflight = fetchVisitedNavigateLocationGroups(campaignId)'),
   'ActionRailPanel delegates navigate category rendering/preload to the dedicated navigate panel service'
@@ -59,9 +60,28 @@ assert(
     && !navigationSystemSource.includes('ensureNavigateLocationGroups(')
     && navigationSystemSource.includes("this.bus.on('user:navigate', (d) => this.executeDirectNavigate(d?.button))")
     && navigationSystemSource.includes('const authoritativeState = await this._getAuthoritativeCoordinatorState(coordinator, hexmap);')
-    && navigationSystemSource.includes('await this.shell.loadRuntimeStateBundle({')
-    && navigationSystemSource.includes('room_id: nextRoomId,'),
+    && navigationSystemSource.includes('this._navigationTransitionPending = true;')
+    && navigationSystemSource.includes('Navigation is still synchronizing the previous room transition. Please wait a moment.')
+    && navigationSystemSource.includes('await Promise.allSettled(postTransitionTasks);')
+    && navigationSystemSource.includes('this.shell.buildRuntimeBundleQueryForRoom(nextRoomId, {'),
   'NavigationSystem owns only navigate execution; visited-location preloading stays in ActionRailPanel'
+);
+
+assert(
+  gameShellSource.includes('buildRuntimeBundleQueryForRoom(roomId = \'\', options = {}) {')
+    && gameShellSource.includes('await this.loadRuntimeStateBundle(')
+    && gameShellSource.includes('this.buildRuntimeBundleQueryForRoom(authoritativeRoomId, {')
+    && gameShellSource.includes('Coordinator bootstrap room sync failed; suppressing unsynchronized room activation')
+    && gameShellSource.includes('async syncCoordinatorStateFromServer(expectedRoomId = \'\') {')
+    && gameShellSource.includes('Skipping stale coordinator resync snapshot after runtime bundle apply'),
+  'GameShell synchronizes coordinator bootstrap room changes through canonical runtime bundle hydration and rejects stale coordinator snapshots'
+);
+
+assert(
+  gameShellSource.includes('Refusing stale navigation capabilities for mismatched active room')
+    && gameShellSource.includes('cache.byRoom.set(activeRoomId, []);')
+    && gameShellSource.includes('// Unscoped capability payloads are still usable when the server omitted'),
+  'GameShell navigation selector refuses stale previous-room capability payloads while still allowing unscoped authoritative payloads'
 );
 
 assert(

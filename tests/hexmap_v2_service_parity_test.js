@@ -81,7 +81,6 @@ const helperNames = [
   '_getAxialLine',
   '_hasLineOfSight',
   '_getHostileTargets',
-  '_resolveNavigationCapabilities',
   '_findLaunchPlayerEntity',
 ];
 
@@ -105,39 +104,6 @@ function makeEntity(id, components = {}, extras = {}) {
 }
 
 console.log('\n=== Hexmap V2 legacy service parity helpers ===');
-
-{
-  const capabilities = helpers._resolveNavigationCapabilities(
-    [
-      {
-        connection_id: 'north-door',
-        from_room_id: 'room_a',
-        from_hex_id: 'room_a:1:0',
-        to_room_id: 'room_b',
-        to_hex_id: 'room_b:0:0',
-        type: 'door',
-        is_discovered: true,
-        is_passable: true,
-      },
-      {
-        connection_id: 'secret-east',
-        from_room_id: 'room_a',
-        from_hex_id: 'room_a:2:1',
-        to_room_id: 'room_c',
-        to_hex_id: 'room_c:0:0',
-        type: 'secret_door',
-        is_discovered: false,
-        is_passable: true,
-      },
-    ],
-    'room_a',
-  );
-
-  assert(capabilities.length === 2, 'builds one navigation capability per active-room connection');
-  assert(capabilities[0].origin_hex?.q === 1 && capabilities[0].target_room_id === 'room_b', 'parses visual hex ids into origin and target coordinates');
-  assert(capabilities[0].requires_interaction === true, 'marks door transitions as interaction-driven');
-  assert(capabilities[1].available === false && capabilities[1].blocked_reason === 'undiscovered', 'keeps undiscovered transitions unavailable');
-}
 
 {
   const room = {
@@ -270,6 +236,46 @@ console.log('\n=== Hexmap V2 legacy service parity helpers ===');
 
   const entity = helpers._findLaunchPlayerEntity(entityManager, { start_q: 4, start_r: 2 }, 55);
   assert(entity?.id === 10, 'prefers the player entity standing on the launch start hex');
+}
+
+{
+  const familiarOnStartHex = makeEntity(12, {
+    PositionComponent: { q: 4, r: 2 },
+    CombatComponent: { team: 'player', isPlayerTeam: () => true },
+  }, {
+    dcEntityRef: 'familiar-1033',
+    dcCharacterId: 55,
+    dcStatePayload: {
+      metadata: {
+        team: 'player',
+        character_id: 55,
+        follower_kind: 'familiar',
+        owner_character_id: 55,
+      },
+    },
+  });
+  const launchPlayer = makeEntity(13, {
+    PositionComponent: { q: 5, r: 2 },
+    CombatComponent: { team: 'player', isPlayerTeam: () => true },
+  }, {
+    dcEntityRef: 'pc-723-1033',
+    dcCharacterId: 55,
+    dcStatePayload: {
+      entity_type: 'player_character',
+      metadata: {
+        team: 'player',
+        character_id: 55,
+      },
+    },
+  });
+  const entityManager = {
+    getEntitiesWith() {
+      return [familiarOnStartHex, launchPlayer];
+    },
+  };
+
+  const entity = helpers._findLaunchPlayerEntity(entityManager, { start_q: 4, start_r: 2 }, 55);
+  assert(entity?.id === 13, 'excludes familiar-style allies when resolving the canonical launch player entity');
 }
 
 console.log(`\nPassed: ${passed}`);

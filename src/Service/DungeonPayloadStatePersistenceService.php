@@ -165,7 +165,7 @@ class DungeonPayloadStatePersistenceService {
         $room_ids[$room_id] = TRUE;
       }
     }
-    if ($room_ids === [] && is_array($payload['rooms'] ?? NULL)) {
+    if (is_array($payload['rooms'] ?? NULL)) {
       foreach ($payload['rooms'] as $room) {
         if (!is_array($room)) {
           continue;
@@ -184,19 +184,17 @@ class DungeonPayloadStatePersistenceService {
         $connection_ids[$connection_id] = TRUE;
       }
     }
-    if ($connection_ids === []) {
-      foreach ([
-        $payload['connections'] ?? [],
-        $payload['hex_map']['connections'] ?? [],
-      ] as $bucket) {
-        foreach ((array) $bucket as $connection) {
-          if (!is_array($connection)) {
-            continue;
-          }
-          $connection_id = trim((string) ($connection['connection_id'] ?? ''));
-          if ($connection_id !== '') {
-            $connection_ids[$connection_id] = TRUE;
-          }
+    foreach ([
+      $payload['connections'] ?? [],
+      $payload['hex_map']['connections'] ?? [],
+    ] as $bucket) {
+      foreach ((array) $bucket as $connection) {
+        if (!is_array($connection)) {
+          continue;
+        }
+        $connection_id = trim((string) ($connection['connection_id'] ?? ''));
+        if ($connection_id !== '') {
+          $connection_ids[$connection_id] = TRUE;
         }
       }
     }

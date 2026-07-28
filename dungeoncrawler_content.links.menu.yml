@@ -164,6 +164,13 @@ dungeoncrawler_content.menu.world_game_flow:
   parent: dungeoncrawler_content.menu.world
   weight: 2
 
+dungeoncrawler_content.menu.engine_status:
+  title: 'Engine Status'
+  description: 'Public operational status of major systems and subsystems'
+  route_name: dungeoncrawler_content.engine_status
+  parent: dungeoncrawler_content.menu.world
+  weight: 3
+
 dungeoncrawler_content.menu.dc_administration:
   title: 'DC Administration'
   description: 'Administrative tools for Dungeon Crawler.'

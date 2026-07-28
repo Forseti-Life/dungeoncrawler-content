@@ -31,7 +31,7 @@ import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
 import { EncounterSystem } from './systems/EncounterSystem.js?v=20260619-v2-search-reward-refresh-1';
-import { NavigationSystem } from './systems/NavigationSystem.js?v=20260724-v2-nav-bundle-error-1';
+import { NavigationSystem } from './systems/NavigationSystem.js?v=20260728-v2-nav-transition-receipt-4';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
@@ -46,7 +46,7 @@ import { StatusPanel } from './panels/StatusPanel.js';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
 import { SpriteService } from '../SpriteService.js';
-import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260722-v2-startup-state-1';
+import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260728-v2-state-version-sync-1';
 import {
   EntityManager,
   PositionComponent,
@@ -147,10 +147,23 @@ export class GameShell {
     this._chatHistoryLoaded = false;
     /** @type {number} monotonic chat-history request sequence */
     this._chatHistoryRequestToken = 0;
+    /** @type {{transitionId:string, roomId:string, campaignId:number, characterId:number|null, mapId:string}|null} */
+    this._pendingRoomEntryAcknowledgement = null;
+    /** @type {Set<string>} transition-scoped acknowledgement requests already sent */
+    this._completedRoomEntryAcknowledgements = new Set();
+    /** @type {string} active acknowledgement request key */
+    this._roomEntryAcknowledgementInflightKey = '';
     /** @type {string} currently active tab id */
     this.activeGameShellTab = 'map';
     /** @type {Set<string>} dedupe set for missing navigation capability contract warnings */
     this._missingNavigationExitsWarnings = new Set();
+    /** @type {{ sourceRef: Array|null, sourceLength: number, normalized: Array, byRoom: Map<string, Array> }} */
+    this._navigationCapabilitiesCache = {
+      sourceRef: null,
+      sourceLength: 0,
+      normalized: [],
+      byRoom: new Map(),
+    };
     /** @type {number} monotonic room transition sequence */
     this._roomTransitionSequence = 0;
     /** @type {string} last processed external room transition id */
@@ -406,22 +419,27 @@ export class GameShell {
     const hexmapShim = this._buildHexmapShim();
     this.gameCoordinator = new GameCoordinator(campaignId, hexmapShim);
     this.gameCoordinator.init()
-      .then(() => {
+      .then(async () => {
         const authoritativeRoomId = String(this.gameCoordinator?.phaseManager?.activeRoomId || '').trim();
         if (authoritativeRoomId && authoritativeRoomId !== this.activeRoomId) {
-          const room = _mergeRoomMetadata(this.mapVisualState?.topology?.rooms?.[authoritativeRoomId] ?? null, {}, authoritativeRoomId);
-          this.activeRoomId = authoritativeRoomId;
-          this._activeRoomData = room;
-          this._setStateValue('activeRoomId', authoritativeRoomId);
-          this._emitCanonicalRoomChanged({
-            roomId: authoritativeRoomId,
-            roomName: room?.name ?? authoritativeRoomId,
-            room,
-            source: 'coordinator-bootstrap',
-            phase: 'authoritative-sync',
-            forceView: true,
-            preserveView: true,
-          });
+          // Keep room authority and navigation capabilities atomic: coordinator
+          // bootstrap room changes must be hydrated from canonical visual-state.
+          try {
+            await this.loadRuntimeStateBundle(
+              this.buildRuntimeBundleQueryForRoom(authoritativeRoomId, {
+                startQ: this.launchContext?.start_q,
+                startR: this.launchContext?.start_r,
+              }),
+            );
+          } catch (error) {
+            console.warn('[GameShell] Coordinator bootstrap room sync failed; suppressing unsynchronized room activation', {
+              authoritativeRoomId,
+              activeRoomId: this.activeRoomId || null,
+              status: Number(error?.status || 0) || null,
+              code: String(error?.code || '').trim() || null,
+              message: error?.message || error,
+            });
+          }
         }
         this.panels?.actionRail?.refreshActionRail?.();
       })
@@ -430,6 +448,55 @@ export class GameShell {
         this.gameCoordinator = null;
         this.panels?.actionRail?.refreshActionRail?.();
       });
+  }
+
+  buildRuntimeBundleQueryForRoom(roomId = '', options = {}) {
+    const normalizedRoomId = String(roomId || '').trim();
+    const campaignId = Number(this.resolveCampaignId?.() || this.launchContext?.campaign_id || 0) || 0;
+    const characterId = Number(this.launchContext?.character_id || 0) || 0;
+    const mapId = String(
+      options?.mapId
+      || this.launchContext?.map_id
+      || this.dungeonData?.map_id
+      || this.dungeonData?.dungeon_id
+      || ''
+    ).trim();
+    const dungeonLevelId = String(
+      options?.dungeonLevelId
+      || this.launchContext?.dungeon_level_id
+      || this.dungeonData?.level_id
+      || ''
+    ).trim();
+    const nextRoomId = String(options?.nextRoomId || '').trim();
+    const startQ = Number.isFinite(Number(options?.startQ))
+      ? Number(options.startQ)
+      : Number(this.launchContext?.start_q ?? 0);
+    const startR = Number.isFinite(Number(options?.startR))
+      ? Number(options.startR)
+      : Number(this.launchContext?.start_r ?? 0);
+
+    const query = {
+      campaign_id: campaignId,
+      start_q: Number.isFinite(startQ) ? startQ : 0,
+      start_r: Number.isFinite(startR) ? startR : 0,
+    };
+    if (characterId > 0) {
+      query.character_id = characterId;
+    }
+    if (normalizedRoomId !== '') {
+      query.room_id = normalizedRoomId;
+    }
+    if (mapId !== '') {
+      query.map_id = mapId;
+    }
+    if (dungeonLevelId !== '') {
+      query.dungeon_level_id = dungeonLevelId;
+    }
+    if (nextRoomId !== '') {
+      query.next_room_id = nextRoomId;
+    }
+
+    return query;
   }
 
   /**
@@ -537,6 +604,22 @@ export class GameShell {
     this._roomViewLastKey = null;
     this._roomViewHasContent = false;
     this._merchantStockLoading = false;
+    this._pendingRoomEntryAcknowledgement = {
+      transitionId: transition.id,
+      roomId: normalizedRoomId,
+      campaignId: Number(this.launchContext?.campaign_id || 0) || 0,
+      characterId: Number(
+        this.resolveLaunchCharacterRuntimeContext?.().characterId
+        || this.launchCharacter?.id
+        || this.launchContext?.character_id
+        || 0
+      ) || null,
+      mapId: String(
+        this.dungeonData?.map_id
+        || this.launchContext?.map_id
+        || ''
+      ).trim(),
+    };
 
     this.bus.emit('room:changed', {
       roomId: normalizedRoomId,
@@ -546,6 +629,15 @@ export class GameShell {
       connections: _buildRoomConnections(normalizedRoomId, this.mapVisualState),
       responders: [],
       transition,
+      _source: 'shell',
+    });
+    this.bus.emit('room:transitioned', {
+      roomId: normalizedRoomId,
+      roomName: resolvedRoomName,
+      room: resolvedRoom,
+      transition,
+      source,
+      phase,
       _source: 'shell',
     });
 
@@ -868,8 +960,91 @@ export class GameShell {
         campaignId: Number(campaignId) || null,
         requestToken,
       });
+      this.queueRoomEntryAcknowledgement({
+        campaignId: Number(campaignId) || null,
+        roomId: payloadRoomId || requestRoomId,
+        characterId: charId,
+        mapId,
+      });
     } catch (_) {
       // Chat history is best-effort; no user-facing error
+    }
+  }
+
+  queueRoomEntryAcknowledgement({ campaignId = null, roomId = '', characterId = null, mapId = '' } = {}) {
+    const pending = this._pendingRoomEntryAcknowledgement;
+    const normalizedRoomId = String(roomId || '').trim();
+    const normalizedCampaignId = Number(campaignId || 0) || 0;
+    if (!pending || !normalizedCampaignId || !normalizedRoomId) {
+      return;
+    }
+    if (pending.campaignId !== normalizedCampaignId || pending.roomId !== normalizedRoomId) {
+      return;
+    }
+    if (String(this.activeRoomId || '').trim() !== normalizedRoomId) {
+      return;
+    }
+
+    const requestKey = [
+      pending.transitionId,
+      pending.roomId,
+      Number(characterId || pending.characterId || 0) || 0,
+    ].join(':');
+    if (this._completedRoomEntryAcknowledgements.has(requestKey) || this._roomEntryAcknowledgementInflightKey === requestKey) {
+      return;
+    }
+
+    this._roomEntryAcknowledgementInflightKey = requestKey;
+    void this.requestRoomEntryAcknowledgement({
+      requestKey,
+      campaignId: normalizedCampaignId,
+      roomId: normalizedRoomId,
+      characterId: Number(characterId || pending.characterId || 0) || null,
+      mapId: String(mapId || pending.mapId || '').trim(),
+      transitionId: pending.transitionId,
+    });
+  }
+
+  async requestRoomEntryAcknowledgement({ requestKey = '', campaignId = 0, roomId = '', characterId = null, mapId = '', transitionId = '' } = {}) {
+    try {
+      const response = await fetch(
+        `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat/entry-acknowledgement`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            character_id: characterId,
+            map_id: mapId,
+            transition_id: transitionId,
+          }),
+        },
+      );
+      if (!response.ok) {
+        return;
+      }
+      const result = await response.json().catch(() => ({}));
+      if (!result?.success) {
+        return;
+      }
+      if (String(this.activeRoomId || '').trim() !== roomId) {
+        return;
+      }
+      this._completedRoomEntryAcknowledgements.add(requestKey);
+      if (!result?.data?.acknowledged) {
+        return;
+      }
+      void this._loadChatHistory();
+    } catch (_) {
+      // Entry acknowledgement is best-effort and must never block room load.
+    } finally {
+      if (this._roomEntryAcknowledgementInflightKey === requestKey) {
+        this._roomEntryAcknowledgementInflightKey = '';
+      }
     }
   }
 
@@ -1290,6 +1465,16 @@ export class GameShell {
       roomId,
       roomName: room?.name ?? roomId,
       occupants: updatedOccupants,
+    });
+    this.bus.emit('room:occupants-decoration-changed', {
+      roomId,
+      roomName: room?.name ?? roomId,
+      source: 'merchant-stock',
+    });
+    this.bus.emit('merchant:stock-loaded', {
+      roomId,
+      roomName: room?.name ?? roomId,
+      merchantCount: updatedOccupants.filter((entry) => entry?.presentation?.is_merchant).length,
     });
   }
 
@@ -2041,6 +2226,12 @@ export class GameShell {
     };
     if (Object.keys(dungeonPayload).length > 0) {
       this.dungeonData = dungeonPayload;
+      this._navigationCapabilitiesCache = {
+        sourceRef: null,
+        sourceLength: 0,
+        normalized: [],
+        byRoom: new Map(),
+      };
     }
     if (Object.keys(visualState).length > 0) {
       this.mapVisualState = visualState;
@@ -2060,25 +2251,57 @@ export class GameShell {
     this._syncActiveRoomEntities(this.activeRoomId);
     this._loadChatHistory();
     this._loadRoomView({ force: true, preserveExisting: true });
-    this.panels?.actionRail?.refreshActionRail?.();
-    void this.syncCoordinatorStateFromServer();
+    if (Array.isArray(this.dungeonData?.navigation_capabilities)) {
+      this.bus?.emit('navigation:capabilities-updated', {
+        roomId: this.resolveActiveRoomId?.() || this.activeRoomId || null,
+        capabilityCount: this.dungeonData.navigation_capabilities.length,
+      });
+    }
+    if (typeof this.panels?.actionRail?.invalidateActionRail === 'function') {
+      this.panels.actionRail.invalidateActionRail(['room', 'navigation', 'character', 'inventory', 'quest', 'header']);
+    } else if (typeof this.panels?.actionRail?.queueActionRailRefresh === 'function') {
+      this.panels.actionRail.queueActionRailRefresh();
+    } else {
+      this.panels?.actionRail?.refreshActionRail?.();
+    }
+    void this.syncCoordinatorStateFromServer(this.resolveActiveRoomId?.() || this.activeRoomId || '');
   }
 
-  async syncCoordinatorStateFromServer() {
+  async syncCoordinatorStateFromServer(expectedRoomId = '') {
     // Keep client coordinator aligned with authoritative server state after any
     // bundle swap to avoid local drift in phase/version snapshots.
     if (!this.gameCoordinator?.api?.getState || !this.gameCoordinator?.applyAuthoritativeUpdate) {
-      return;
+      return false;
     }
 
     try {
       const state = await this.gameCoordinator.api.getState();
+      const canonicalExpectedRoomId = String(
+        expectedRoomId
+        || this.resolveActiveRoomId?.()
+        || this.activeRoomId
+        || ''
+      ).trim();
+      const serverRoomId = String(
+        state?.active_room_id
+        ?? state?.game_state?.active_room_id
+        ?? ''
+      ).trim();
       if (state?.success) {
+        if (serverRoomId && canonicalExpectedRoomId && serverRoomId !== canonicalExpectedRoomId) {
+          console.warn('[GameShell] Skipping stale coordinator resync snapshot after runtime bundle apply', {
+            expectedRoomId: canonicalExpectedRoomId,
+            serverRoomId,
+          });
+          return false;
+        }
         this.gameCoordinator.applyAuthoritativeUpdate(state);
+        return true;
       }
     } catch (error) {
       console.warn('[GameShell] Failed to resync coordinator state after runtime bundle apply', error);
     }
+    return false;
   }
 
   // --- ported from hexmap.js ---
@@ -2414,11 +2637,30 @@ export class GameShell {
       return [];
     }
 
-    const normalizedCapabilities = capabilities
-      .map((capability) => _normalizeAuthoritativeNavigationCapability(capability, activeRoomId))
-      .filter((capability) => capability.target_room_id);
+    const cache = this._navigationCapabilitiesCache || {
+      sourceRef: null,
+      sourceLength: 0,
+      normalized: [],
+      byRoom: new Map(),
+    };
+    const sourceLength = capabilities.length;
+    const cacheIsCurrent = cache.sourceRef === capabilities && cache.sourceLength === sourceLength;
+    if (!cacheIsCurrent) {
+      cache.sourceRef = capabilities;
+      cache.sourceLength = sourceLength;
+      cache.normalized = capabilities
+        .map((capability) => _normalizeAuthoritativeNavigationCapability(capability, activeRoomId))
+        .filter((capability) => capability.target_room_id);
+      cache.byRoom = new Map();
+      this._navigationCapabilitiesCache = cache;
+    }
+    const normalizedCapabilities = cache.normalized;
     if (activeRoomId === '') {
       return normalizedCapabilities;
+    }
+
+    if (cache.byRoom.has(activeRoomId)) {
+      return cache.byRoom.get(activeRoomId);
     }
 
     const roomScopedCapabilities = normalizedCapabilities.filter((capability) => {
@@ -2426,11 +2668,28 @@ export class GameShell {
       return originRoomId === '' || originRoomId === activeRoomId;
     });
     if (roomScopedCapabilities.length > 0 || normalizedCapabilities.length === 0) {
+      cache.byRoom.set(activeRoomId, roomScopedCapabilities);
       return roomScopedCapabilities;
     }
 
-    // Preserve navigation continuity during brief room/capability skew windows
-    // (for example, optimistic room updates before the refreshed bundle lands).
+    const explicitOriginRoomIds = Array.from(new Set(
+      normalizedCapabilities
+        .map((capability) => String(capability?.origin_room_id || '').trim())
+        .filter(Boolean)
+    ));
+    if (explicitOriginRoomIds.length > 0) {
+      console.warn('[Navigation] Refusing stale navigation capabilities for mismatched active room', {
+        activeRoomId,
+        capabilityOriginRoomIds: explicitOriginRoomIds,
+        capabilityCount: normalizedCapabilities.length,
+      });
+      cache.byRoom.set(activeRoomId, []);
+      return [];
+    }
+
+    // Unscoped capability payloads are still usable when the server omitted
+    // per-room origin ids; keep those visible rather than blanking the menu.
+    cache.byRoom.set(activeRoomId, normalizedCapabilities);
     return normalizedCapabilities;
   }
 
@@ -3494,14 +3753,50 @@ function _findLaunchPlayerEntity(entityManager, launchContext = {}, launchCharac
     return null;
   }
 
+  const preferredPlayerEntities = playerEntities.filter((entity) => {
+    const entityRef = String(
+      entity?.dcEntityRef
+      || entity?.dcEntityInstanceId
+      || entity?.instanceId
+      || entity?.id
+      || ''
+    ).trim().toLowerCase();
+    const entityType = String(entity?.dcEntityType || entity?.dcStatePayload?.entity_type || '').trim().toLowerCase();
+    const metadata = entity?.dcStatePayload?.state?.metadata || entity?.dcStatePayload?.metadata || {};
+    const followerKind = String(metadata?.follower_kind || metadata?.bond_contract?.follower_kind || '').trim().toLowerCase();
+    const roleKind = String(
+      metadata?.role
+      || metadata?.bond_contract?.role
+      || entity?.dcStatePayload?.role
+      || entity?.dcStatePayload?.state?.role
+      || ''
+    ).trim().toLowerCase();
+    const isFollowerLike = entityRef.startsWith('familiar-')
+      || entityRef.startsWith('companion-')
+      || entityRef.startsWith('follower-')
+      || followerKind === 'familiar'
+      || followerKind === 'companion'
+      || followerKind === 'follower'
+      || roleKind.includes('familiar')
+      || roleKind.includes('companion')
+      || roleKind.includes('follower');
+    if (isFollowerLike) {
+      return false;
+    }
+    const campaignCharacterId = Number(metadata.campaign_character_id || metadata.character_id || entity?.dcCharacterId || 0);
+    return entityType === 'player_character'
+      || (launchCharacterId > 0 && campaignCharacterId === launchCharacterId);
+  });
+  const launchCandidates = preferredPlayerEntities.length ? preferredPlayerEntities : playerEntities;
+
   const startQ = Number.isFinite(Number(launchContext?.start_q)) ? Number(launchContext.start_q) : 0;
   const startR = Number.isFinite(Number(launchContext?.start_r)) ? Number(launchContext.start_r) : 0;
-  const onStartHex = playerEntities.find((entity) => {
+  const onStartHex = launchCandidates.find((entity) => {
     const pos = entity.getComponent?.('PositionComponent');
     return pos && pos.q === startQ && pos.r === startR;
   });
 
-  return onStartHex || playerEntities[0] || null;
+  return onStartHex || launchCandidates[0] || null;
 }
 
 function _preloadSpriteUrls(spriteService, blueprints = [], objectDefinitions = {}, launchCharacter = null) {

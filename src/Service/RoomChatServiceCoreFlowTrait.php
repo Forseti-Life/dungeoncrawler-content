@@ -26,6 +26,89 @@ trait RoomChatServiceCoreFlowTrait {
   }
 
   /**
+   * Generate one non-blocking room-entry acknowledgement from the strongest
+   * available non-party room NPC using the canonical NPC interjection pipeline.
+   *
+   * This is invoked asynchronously by the room-load client flow after the room
+   * transcript finishes loading so navigation is never blocked on model work.
+   *
+   * @return array<string,mixed>
+   *   A result payload with `acknowledged` and optional `message`.
+   */
+  public function generateRoomEntryAcknowledgement(
+    int $campaign_id,
+    string $room_id,
+    ?int $character_id = NULL,
+    ?string $map_id = NULL,
+    ?string $transition_id = NULL
+  ): array {
+    $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id, $map_id, TRUE);
+    $dungeon_id = (string) ($dungeon_snapshot['dungeon_id'] ?? '');
+    $dungeon_data = $dungeon_snapshot['dungeon_data'] ?? [];
+    if (!is_array($dungeon_data) || $dungeon_data === []) {
+      return ['acknowledged' => FALSE, 'reason' => 'missing_dungeon_snapshot'];
+    }
+
+    $room_index = $this->getRoomIndexFromRoomId($dungeon_data, $room_id);
+    if ($room_index === NULL || !isset($dungeon_data['rooms'][$room_index]) || !is_array($dungeon_data['rooms'][$room_index])) {
+      return ['acknowledged' => FALSE, 'reason' => 'room_not_found'];
+    }
+
+    $room_npcs = $this->gatherRoomNpcsWithProfiles($campaign_id, $room_id, $dungeon_data);
+    if ($room_npcs === []) {
+      return ['acknowledged' => FALSE, 'reason' => 'no_room_npcs'];
+    }
+
+    $speaker_npc = $this->selectHighestCharismaNpc($room_npcs);
+    if (!is_array($speaker_npc) || trim((string) ($speaker_npc['entity_ref'] ?? '')) === '') {
+      return ['acknowledged' => FALSE, 'reason' => 'no_acknowledging_npc'];
+    }
+
+    $room_meta = $dungeon_data['rooms'][$room_index];
+    $room_name = trim((string) ($room_meta['name'] ?? $room_meta['title'] ?? $room_id)) ?: $room_id;
+    $entry_transition_id = trim((string) ($transition_id ?? '')) ?: 'room-entry';
+    $player_message = 'The party enters the room and takes in the scene.';
+    $gm_narrative = sprintf('The party has just entered %s.', $room_name);
+    $consumption_key = sprintf(
+      'room-entry-ack:%d:%s:%s:%s:%d',
+      $campaign_id,
+      $room_id,
+      (string) $speaker_npc['entity_ref'],
+      $entry_transition_id,
+      (int) ($character_id ?? 0)
+    );
+
+    $messages = $this->buildNpcInterjectionMessage(
+      $campaign_id,
+      $room_id,
+      $room_index,
+      $dungeon_id,
+      $dungeon_data,
+      $player_message,
+      $gm_narrative,
+      $room_npcs,
+      (string) $speaker_npc['entity_ref'],
+      (string) ($speaker_npc['profile']['display_name'] ?? $speaker_npc['entity_ref']),
+      TRUE,
+      NULL,
+      $consumption_key
+    );
+
+    if ($messages === [] || !is_array($messages[0] ?? NULL)) {
+      return ['acknowledged' => FALSE, 'reason' => 'no_generated_message'];
+    }
+
+    return [
+      'acknowledged' => TRUE,
+      'message' => $messages[0],
+      'speaker_ref' => (string) ($speaker_npc['entity_ref'] ?? ''),
+      'speaker_name' => (string) ($speaker_npc['profile']['display_name'] ?? $speaker_npc['entity_ref'] ?? ''),
+      'room_id' => $room_id,
+      'transition_id' => $entry_transition_id,
+    ];
+  }
+
+  /**
    * Build normalized GM reply orchestration entry context.
    */
   protected function buildGmReplyEntryContext(int $campaign_id, string $room_id, string $channel, bool $is_gm_direct_channel): array {
@@ -765,7 +848,18 @@ trait RoomChatServiceCoreFlowTrait {
       $combat_transition = $gm_result['canonical_actions']['combat_initiation']['transition'] ?? NULL;
       if (is_array($combat_transition) && !empty($combat_transition['success'])) {
         $result['combat_transition'] = $combat_transition;
-        $result['dungeon_data'] = $this->reloadDungeonData($campaign_id);
+        $runtime_snapshot = is_array($gm_result['canonical_actions']['combat_initiation']['runtime_snapshot'] ?? NULL)
+          ? $gm_result['canonical_actions']['combat_initiation']['runtime_snapshot']
+          : [
+            'success' => TRUE,
+            'phase' => (string) ($combat_transition['phase'] ?? 'encounter'),
+            'game_state' => $combat_transition['game_state'] ?? NULL,
+            'state_version' => (int) ($combat_transition['state_version'] ?? 1),
+            'encounter_id' => $combat_transition['game_state']['encounter_id'] ?? NULL,
+            'round' => $combat_transition['game_state']['round'] ?? NULL,
+            'turn' => $combat_transition['game_state']['turn'] ?? NULL,
+          ];
+        $result['runtime_snapshot'] = $runtime_snapshot;
       }
     }
     // Include navigation data so the client can switch to the new room.

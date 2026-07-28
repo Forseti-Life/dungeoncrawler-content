@@ -431,7 +431,7 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     $records = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', ['id', 'instance_id', 'name', 'portrait', 'state_data', 'character_data', 'uid', 'position_q', 'position_r', 'position_h3', 'location_ref'])
+      ->fields('cc', ['id', 'instance_id', 'name', 'portrait', 'state_data', 'character_data', 'uid', 'source_character_id', 'position_q', 'position_r', 'position_h3', 'location_ref'])
       ->condition('campaign_id', $campaign_id)
       ->condition('type', 'npc')
       ->condition('location_type', 'room')
@@ -627,6 +627,12 @@ class CampaignCharacterRuntimeSyncService {
       return FALSE;
     }
 
+    $canonical_follower_portrait = $this->resolveCanonicalFollowerOwnerPortrait($campaign_id, $record, $state);
+    if ($canonical_follower_portrait !== '') {
+      $this->synchronizeFollowerRuntimePortrait($campaign_id, $record_id, $canonical_follower_portrait);
+      return FALSE;
+    }
+
     if ($this->hasCanonicalLibraryNpcPortrait($record, $content_id, $state)) {
       return FALSE;
     }
@@ -653,6 +659,126 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     return TRUE;
+  }
+
+  /**
+   * Resolve canonical follower portrait from owner actor record when available.
+   */
+  protected function resolveCanonicalFollowerOwnerPortrait(int $campaign_id, array $record, array $state = []): string {
+    $instance_id = strtolower(trim((string) ($record['instance_id'] ?? '')));
+    $metadata = is_array($state['metadata'] ?? NULL) ? $state['metadata'] : [];
+    $role = strtolower(trim((string) ($state['role'] ?? $metadata['role'] ?? '')));
+    $follower_kind = strtolower(trim((string) ($metadata['follower_kind'] ?? '')));
+    $is_follower_candidate = $follower_kind !== ''
+      || in_array($role, ['familiar', 'animal_companion', 'construct_companion', 'eidolon'], TRUE)
+      || preg_match('/^(?:familiar|animal-companion|construct-companion|eidolon)-\d+$/', $instance_id) === 1;
+    if (!$is_follower_candidate) {
+      return '';
+    }
+
+    $owner_source_character_id = (int) ($record['source_character_id'] ?? 0);
+    if ($owner_source_character_id <= 0) {
+      $owner_source_character_id = (int) ($metadata['owner_character_id'] ?? 0);
+    }
+    if ($owner_source_character_id <= 0 && preg_match('/^(?:familiar|animal-companion|construct-companion|eidolon)-(\d+)$/', $instance_id, $matches) === 1) {
+      $owner_source_character_id = (int) ($matches[1] ?? 0);
+    }
+    if ($campaign_id <= 0 || $owner_source_character_id <= 0) {
+      return '';
+    }
+
+    if ($follower_kind === '') {
+      if (str_starts_with($instance_id, 'familiar-') || $role === 'familiar') {
+        $follower_kind = FollowerSubsystemService::FOLLOWER_KIND_FAMILIAR;
+      }
+      elseif (str_starts_with($instance_id, 'animal-companion-') || $role === 'animal_companion') {
+        $follower_kind = FollowerSubsystemService::FOLLOWER_KIND_ANIMAL_COMPANION;
+      }
+      elseif (str_starts_with($instance_id, 'construct-companion-') || $role === 'construct_companion') {
+        $follower_kind = FollowerSubsystemService::FOLLOWER_KIND_CONSTRUCT_COMPANION;
+      }
+      elseif (str_starts_with($instance_id, 'eidolon-') || $role === 'eidolon') {
+        $follower_kind = FollowerSubsystemService::FOLLOWER_KIND_EIDOLON;
+      }
+    }
+
+    $owner_query = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['id', 'character_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('type', 'pc');
+    $owner_query->condition(
+      $owner_query->orConditionGroup()
+        ->condition('id', $owner_source_character_id)
+        ->condition('source_character_id', $owner_source_character_id)
+    );
+    $owner_record = $owner_query
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($owner_record)) {
+      return '';
+    }
+
+    $decoded = $this->decodeCharacterData($owner_record);
+    $owner_char_data = isset($decoded['character']) && is_array($decoded['character']) ? $decoded['character'] : $decoded;
+    $candidates = [];
+    if ($follower_kind !== '' && is_array($owner_char_data['follower_actor_records'][$follower_kind] ?? NULL)) {
+      $candidates[] = $owner_char_data['follower_actor_records'][$follower_kind];
+    }
+    if ($follower_kind === FollowerSubsystemService::FOLLOWER_KIND_FAMILIAR && is_array($owner_char_data['familiar']['actor_record'] ?? NULL)) {
+      $candidates[] = $owner_char_data['familiar']['actor_record'];
+    }
+    if ($follower_kind === FollowerSubsystemService::FOLLOWER_KIND_ANIMAL_COMPANION && is_array($owner_char_data['animal_companion']['actor_record'] ?? NULL)) {
+      $candidates[] = $owner_char_data['animal_companion']['actor_record'];
+    }
+    if ($follower_kind === FollowerSubsystemService::FOLLOWER_KIND_CONSTRUCT_COMPANION && is_array($owner_char_data['construct_companion']['actor_record'] ?? NULL)) {
+      $candidates[] = $owner_char_data['construct_companion']['actor_record'];
+    }
+    if ($follower_kind === FollowerSubsystemService::FOLLOWER_KIND_EIDOLON && is_array($owner_char_data['som_state']['eidolon']['actor_record'] ?? NULL)) {
+      $candidates[] = $owner_char_data['som_state']['eidolon']['actor_record'];
+    }
+
+    foreach ($candidates as $actor_record) {
+      $candidate_portrait = trim((string) (
+        $actor_record['state']['metadata']['portrait_url']
+        ?? $actor_record['state']['metadata']['portrait']
+        ?? ''
+      ));
+      if ($candidate_portrait !== '') {
+        return $candidate_portrait;
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Keep follower runtime portrait aligned with canonical owner actor record.
+   */
+  protected function synchronizeFollowerRuntimePortrait(int $campaign_id, int $record_id, string $portrait_url): void {
+    $portrait_url = trim($portrait_url);
+    if ($campaign_id <= 0 || $record_id <= 0 || $portrait_url === '') {
+      return;
+    }
+
+    $existing = $this->database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['portrait'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $record_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if (trim((string) $existing) === $portrait_url) {
+      return;
+    }
+
+    $this->database->update('dc_campaign_characters')
+      ->fields(['portrait' => $portrait_url])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('id', $record_id)
+      ->execute();
   }
 
   /**

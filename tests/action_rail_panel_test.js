@@ -55,7 +55,7 @@ assert(
 );
 
 assert(
-  panelSource.includes("import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js';")
+  panelSource.includes("import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js")
     && panelSource.includes('navigate: () => buildNavigateActionRailPanel(this, context),')
     && !panelSource.includes("import { fetchVisitedNavigateLocationGroups } from '../services/navigate-location-service.js';")
     && !panelSource.includes('fetch(`/api/campaign/${campaignId}/visited-locations`'),

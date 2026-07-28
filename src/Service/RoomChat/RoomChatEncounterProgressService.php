@@ -62,6 +62,9 @@ class RoomChatEncounterProgressService {
     if (is_array($result['game_state'] ?? NULL)) {
       $game_state = $result['game_state'];
     }
+    elseif (is_array($result['runtime_snapshot']['game_state'] ?? NULL)) {
+      $game_state = $result['runtime_snapshot']['game_state'];
+    }
     elseif (is_array($result['dungeon_data']['game_state'] ?? NULL)) {
       $game_state = $result['dungeon_data']['game_state'];
     }

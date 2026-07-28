@@ -139,9 +139,11 @@ class EncounterActionExecutor {
         ]
       );
 
-      if (!empty($chat_result['dungeon_data']) && is_array($chat_result['dungeon_data'])) {
-        $dungeon_data = $chat_result['dungeon_data'];
-        $game_state = $dungeon_data['game_state'] ?? $game_state;
+      if (is_array($chat_result['runtime_snapshot']['game_state'] ?? NULL)) {
+        $game_state = $chat_result['runtime_snapshot']['game_state'];
+      }
+      elseif (is_array($chat_result['combat_transition']['game_state'] ?? NULL)) {
+        $game_state = $chat_result['combat_transition']['game_state'];
       }
 
       $chat_response = [

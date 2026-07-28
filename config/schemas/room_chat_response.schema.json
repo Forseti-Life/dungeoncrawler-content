@@ -39,6 +39,7 @@
     "npc_interjections_deferred": { "type": "boolean" },
     "canonical_actions": { "type": ["object", "null"] },
     "combat_transition": { "type": ["object", "null"] },
+    "runtime_snapshot": { "type": ["object", "null"] },
     "navigation": { "type": ["object", "null"] },
     "client_request_id": { "type": ["string", "null"], "maxLength": 255 },
     "timing": { "type": ["object", "null"] },

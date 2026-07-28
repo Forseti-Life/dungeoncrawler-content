@@ -54,7 +54,7 @@ class GmOrchestrationBrokerService {
     $errors = [];
     $receipts = [];
     $remaining_actions = [];
-    $reloaded_dungeon_data = NULL;
+    $combat_runtime_snapshot = NULL;
 
     foreach ($actions as $action) {
       $type = (string) ($action['type'] ?? 'other');
@@ -80,8 +80,8 @@ class GmOrchestrationBrokerService {
         $receipts[] = $this->buildReceipt('combat_transition', $type, $action, $combat);
         if (!empty($combat['success'])) {
           $remaining_actions[] = $action;
-          if (!empty($combat['dungeon_data']) && is_array($combat['dungeon_data'])) {
-            $reloaded_dungeon_data = $combat['dungeon_data'];
+          if (!empty($combat['runtime_snapshot']) && is_array($combat['runtime_snapshot'])) {
+            $combat_runtime_snapshot = $combat['runtime_snapshot'];
           }
         }
         else {
@@ -140,7 +140,7 @@ class GmOrchestrationBrokerService {
       'results' => $results,
       'errors' => $errors,
       'receipts' => $receipts,
-      'reloaded_dungeon_data' => $reloaded_dungeon_data,
+      'combat_runtime_snapshot' => $combat_runtime_snapshot,
     ];
   }
 
@@ -389,10 +389,11 @@ class GmOrchestrationBrokerService {
       ];
     }
 
+    $runtime_snapshot = $this->getGameCoordinator()->getRuntimeReadState($campaign_id);
     return [
       'success' => TRUE,
       'transition' => $result,
-      'dungeon_data' => $this->reloadDungeonData($campaign_id),
+      'runtime_snapshot' => $runtime_snapshot,
     ];
   }
 
@@ -499,22 +500,6 @@ class GmOrchestrationBrokerService {
     }
 
     return $resolved;
-  }
-
-  /**
-   * Reload latest dungeon_data from persistence.
-   */
-  protected function reloadDungeonData(int $campaign_id): array {
-    $record = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->orderBy('updated', 'DESC')
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-
-    $dungeon_data = json_decode($record['dungeon_data'] ?? '{}', TRUE);
-    return is_array($dungeon_data) ? $dungeon_data : [];
   }
 
   /**

@@ -51,9 +51,21 @@ assert(
   'TurnManagementSystem emits turn updates when same-turn resources refresh'
 );
 assert(
-  coordinatorSource.includes("actions.push('strike', 'stride', 'interact', 'search');")
-    && coordinatorSource.includes("search: { label: 'Search', cost: 1, category: 'perception', requires_turn: true, targeting: 'room' }"),
+  coordinatorSource.includes('async performSearch() {')
+    && coordinatorSource.includes('const handler = this.deprecatedExplorationActions;')
+    && coordinatorSource.includes('return handler.performSearch(entity);'),
   'Projected combat action contract includes Search as a legal turn action'
+);
+assert(
+  coordinatorSource.includes('state_version: response.state_version ?? response.game_state.state_version,')
+    && coordinatorSource.includes('phase: response.phase ?? response.game_state.phase,')
+    && coordinatorSource.includes('event_log_cursor: response.event_log_cursor ?? response.game_state.event_log_cursor,'),
+  'Coordinator authoritative payload projection preserves top-level state version and related fields from action responses'
+);
+assert(
+  fs.readFileSync(path.resolve(__dirname, '../src/Service/GameCoordinatorService.php'), 'utf8').includes("'active_room_id' => \$game_state['active_room_id'] ?? NULL,")
+    && fs.readFileSync(path.resolve(__dirname, '../src/Service/GameCoordinatorService.php'), 'utf8').includes("'active_room_id' => \$game_state['active_room_id'] ?? NULL,\n      'result' => \$result_payload,"),
+  'Server coordinator responses expose active_room_id in client game_state and top-level action payloads'
 );
 
 console.log('\n========================================');
