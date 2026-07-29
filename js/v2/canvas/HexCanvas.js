@@ -185,6 +185,43 @@ export class HexCanvas {
     }
   }
 
+  /**
+   * Resize the PIXI renderer to the current container box.
+   *
+   * Hidden-tab initialization can produce stale canvas dimensions; this
+   * method rebinds renderer geometry once the map panel is visible.
+   */
+  resizeToContainer() {
+    if (!this.app || !this.container) {
+      return;
+    }
+
+    const width = Math.max(1, Number(this.container.clientWidth || 800));
+    const height = Math.max(1, Number(this.container.clientHeight || 600));
+    const previousWidth = Number(this.app.screen?.width || width);
+    const previousHeight = Number(this.app.screen?.height || height);
+    if (width === previousWidth && height === previousHeight) {
+      return;
+    }
+
+    const previousCenterX = previousWidth / 2;
+    const previousCenterY = previousHeight / 2;
+    const anchorLayer = this.hexContainer;
+    const previousOffsetX = Number(anchorLayer?.x || 0) - previousCenterX;
+    const previousOffsetY = Number(anchorLayer?.y || 0) - previousCenterY;
+
+    this.app.renderer.resize(width, height);
+    this.app.stage.hitArea = this.app.screen;
+
+    const nextCenterX = width / 2;
+    const nextCenterY = height / 2;
+    this.setWorldPosition(nextCenterX + previousOffsetX, nextCenterY + previousOffsetY);
+    this.drawCompassRose();
+    if (this.currentRoom?.name) {
+      this.showRoomBanner(this.currentRoom.name, this.currentRoom.subtitle ?? null);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Public: hex grid
   // ---------------------------------------------------------------------------

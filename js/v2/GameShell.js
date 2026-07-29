@@ -849,6 +849,7 @@ export class GameShell {
     const prevTab = this.activeGameShellTab;
     this.activeGameShellTab = tabId;
     console.log('[GameShell] _onTabChanged', { tabId, prevTab });
+    if (tabId === 'map') this._refreshMapCanvasViewport();
     if (tabId === 'view')      this._loadRoomView({ preserveExisting: this._roomViewHasContent });
     if (tabId === 'merchant')  this._loadMerchantStock();
     if (tabId !== 'view' && prevTab === 'view') this._clearRoomViewRetry();
@@ -862,6 +863,28 @@ export class GameShell {
         : {};
       void this.refreshQuestJournalFromApi(questRefreshContext);
     }
+  }
+
+  /**
+   * Ensure canvas geometry is refreshed when the map panel becomes visible.
+   */
+  _refreshMapCanvasViewport() {
+    const canvas = this.canvas?.app;
+    if (!canvas || typeof canvas.resizeToContainer !== 'function') {
+      return;
+    }
+
+    const applyResize = () => {
+      canvas.resizeToContainer();
+    };
+
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(applyResize);
+      });
+      return;
+    }
+    applyResize();
   }
 
   _handleRoomViewRefreshIntent(options = {}, eventName = 'room:view-refresh-intent') {
