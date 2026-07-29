@@ -678,7 +678,7 @@ class GameCoordinatorService {
       '@id' => $campaign_id,
       '@reason' => $reason,
     ]);
-    $dungeon_data = $this->loadDungeonData($campaign_id, $actor_id, TRUE);
+    $dungeon_data = $this->coordinatorRuntimeReadService->resolveFullRuntimeProjection($campaign_id, $actor_id);
     return is_array($dungeon_data) ? $dungeon_data : NULL;
   }
 

@@ -99,6 +99,22 @@ class CoordinatorRuntimeReadService {
   }
 
   /**
+   * Build explicit full runtime projection (heavy compatibility read lane).
+   *
+   * @return array<string,mixed>|null
+   *   Runtime projection payload, or NULL when unavailable.
+   */
+  public function resolveFullRuntimeProjection(int $campaign_id, ?string $actor_id = NULL): ?array {
+    return $this->loadDungeonData(
+      $campaign_id,
+      $actor_id,
+      TRUE,
+      -1,
+      NULL
+    );
+  }
+
+  /**
    * Build specialized mutation-lane execution context for coordinator writes.
    *
    * This lane intentionally hydrates only the scoped runtime projection needed

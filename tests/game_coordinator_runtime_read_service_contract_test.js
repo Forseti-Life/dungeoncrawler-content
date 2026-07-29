@@ -62,8 +62,16 @@ assert(
   'game coordinator resolves mutation execution context through specialized runtime-read hydration lane'
 );
 assert(
+  coordinatorSource.includes('$this->coordinatorRuntimeReadService->resolveFullRuntimeProjection($campaign_id, $actor_id);'),
+  'game coordinator resolves full runtime projection through runtime-read service'
+);
+assert(
   runtimeReadServiceSource.includes('public function resolveMutationExecutionContext('),
   'coordinator runtime-read service exposes specialized mutation execution context loader'
+);
+assert(
+  runtimeReadServiceSource.includes('public function resolveFullRuntimeProjection(int $campaign_id, ?string $actor_id = NULL): ?array {'),
+  'coordinator runtime-read service exposes heavy full-runtime projection hydration lane'
 );
 
 console.log(`\nPassed: ${passed}`);
