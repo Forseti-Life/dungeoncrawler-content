@@ -74,6 +74,31 @@ class CoordinatorRuntimeReadService {
   }
 
   /**
+   * Build side-effect-free full-state read context for coordinator callers.
+   *
+   * @return array{dungeon_data: array<string,mixed>, game_state: array<string,mixed>}|null
+   *   Runtime read context, or NULL when no authoritative dungeon payload exists.
+   */
+  public function resolveFullStateReadContext(int $campaign_id): ?array {
+    $dungeon_data = $this->loadDungeonData(
+      $campaign_id,
+      NULL,
+      TRUE,
+      1,
+      NULL
+    );
+    if (!is_array($dungeon_data)) {
+      return NULL;
+    }
+
+    $game_state = $this->ensureGameState($dungeon_data);
+    return [
+      'dungeon_data' => $dungeon_data,
+      'game_state' => $game_state,
+    ];
+  }
+
+  /**
    * Resolve one actor's current room id from actor runtime slice rows.
    */
   protected function resolveActorRoomIdFromRuntimeStore(int $campaign_id, ?string $actor_id = NULL): ?string {

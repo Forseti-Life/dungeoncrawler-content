@@ -1266,12 +1266,16 @@ services:
       - '@database'
       - '@dungeoncrawler_content.campaign_character_runtime_sync'
       - '@logger.factory'
+
+  dungeoncrawler_content.runtime_state_read_model_assembler:
+    class: Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler
       - '@dungeoncrawler_content.game_event_logger'
       - '@dungeoncrawler_content.encounter_master'
       - '@dungeoncrawler_content.ai_gm'
       - '@dungeoncrawler_content.campaign_time_resolver'
       - '@dungeoncrawler_content.runtime_bootstrap'
       - '@dungeoncrawler_content.coordinator_runtime_read'
+      - '@dungeoncrawler_content.runtime_state_read_model_assembler'
       - '@dungeoncrawler_content.dungeon_payload_state_persistence'
       - '@dungeoncrawler_content.runtime_graph_assembler'
       - '@dungeoncrawler_content.campaign_runtime_state_store'

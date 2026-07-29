@@ -49,6 +49,10 @@ assert(
   coordinatorSource.includes('$this->coordinatorRuntimeReadService->resolveActionAvailabilityContext($campaign_id, $actor_id);'),
   'game coordinator resolves action-availability read context through runtime-read service'
 );
+assert(
+  coordinatorSource.includes('$this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);'),
+  'game coordinator resolves full-state read context through runtime-read service'
+);
 
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);

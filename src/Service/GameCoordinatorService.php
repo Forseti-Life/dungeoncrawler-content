@@ -119,6 +119,7 @@ class GameCoordinatorService {
   protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
   protected RuntimeBootstrapService $runtimeBootstrap;
   protected CoordinatorRuntimeReadService $coordinatorRuntimeReadService;
+  protected RuntimeStateReadModelAssembler $runtimeStateReadModelAssembler;
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
   protected RuntimeGraphAssemblerService $runtimeGraphAssembler;
   protected CampaignRuntimeStateStore $campaignRuntimeStateStore;
@@ -189,6 +190,7 @@ class GameCoordinatorService {
     CampaignTimeResolverService $campaign_time_resolver,
     RuntimeBootstrapService $runtime_bootstrap,
     CoordinatorRuntimeReadService $coordinator_runtime_read_service,
+    RuntimeStateReadModelAssembler $runtime_state_read_model_assembler,
     DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
     RuntimeGraphAssemblerService $runtime_graph_assembler,
     CampaignRuntimeStateStore $campaign_runtime_state_store,
@@ -211,6 +213,7 @@ class GameCoordinatorService {
     $this->campaignTimeResolver = $campaign_time_resolver;
     $this->runtimeBootstrap = $runtime_bootstrap;
     $this->coordinatorRuntimeReadService = $coordinator_runtime_read_service;
+    $this->runtimeStateReadModelAssembler = $runtime_state_read_model_assembler;
     $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     $this->runtimeGraphAssembler = $runtime_graph_assembler;
     $this->campaignRuntimeStateStore = $campaign_runtime_state_store;
@@ -548,12 +551,13 @@ class GameCoordinatorService {
    */
   public function getFullState(int $campaign_id): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $dungeon_data = $this->loadDungeonData($campaign_id, NULL, TRUE, 1);
-    if (!$dungeon_data) {
+    $context = $this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);
+    if ($context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
 
-    $game_state = $this->ensureGameState($dungeon_data);
+    $dungeon_data = $context['dungeon_data'];
+    $game_state = $context['game_state'];
     return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, FALSE);
   }
 
@@ -565,12 +569,13 @@ class GameCoordinatorService {
    */
   public function getMaterializedFullState(int $campaign_id): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $dungeon_data = $this->loadDungeonData($campaign_id, NULL, TRUE, 1);
-    if (!$dungeon_data) {
+    $context = $this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);
+    if ($context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
 
-    $game_state = $this->ensureGameState($dungeon_data);
+    $dungeon_data = $context['dungeon_data'];
+    $game_state = $context['game_state'];
     return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, TRUE);
   }
 
@@ -2533,52 +2538,12 @@ class GameCoordinatorService {
    *   Runtime snapshot object suitable for transition/action consumers.
    */
   protected function buildRuntimeSnapshotPayload(array $game_state, array $dungeon_data, ?string $actor_id = NULL): array {
-    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
-    $visible_entities = [];
-    foreach ($dungeon_data['entities'] ?? [] as $entity) {
-      if (!is_array($entity)) {
-        continue;
-      }
-      if (trim((string) ($entity['placement']['room_id'] ?? '')) === $active_room_id) {
-        $visible_entities[] = $entity;
-      }
-    }
-    $actor_entity = NULL;
-    $actor_id = trim((string) ($actor_id ?? ''));
-    if ($actor_id !== '') {
-      foreach ($dungeon_data['entities'] ?? [] as $entity) {
-        if (!is_array($entity)) {
-          continue;
-        }
-        if ($this->resolveEntityIdFromPayload($entity) === $actor_id) {
-          $actor_entity = $entity;
-          break;
-        }
-      }
-    }
-    return [
-      'success' => TRUE,
-      'game_state' => $this->buildClientGameState($game_state),
-      'phase' => $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE,
-      'state_version' => $game_state['state_version'] ?? 1,
-      'active_room_id' => $active_room_id !== '' ? $active_room_id : NULL,
-      'active_room' => $this->findRoomInDungeon($active_room_id !== '' ? $active_room_id : NULL, $dungeon_data),
-      'actor_entity' => $actor_entity,
-      'visible_entities' => array_values($visible_entities),
-      'visible_npcs' => array_values(array_filter($visible_entities, static function (array $entity): bool {
-        return strtolower((string) ($entity['entity_type'] ?? '')) === 'npc';
-      })),
-      'connected_rooms' => $this->findConnectedRoomsForReadState($dungeon_data, $active_room_id),
-      'hostile_targets' => $this->findHostileTargetsFromGameState($game_state, $actor_id),
-      'social_progression' => $this->extractRoomSceneSocialProgressionFromGameState($game_state, $active_room_id),
-      'last_encounter' => $game_state['last_encounter'] ?? NULL,
-      'encounter_id' => $game_state['encounter_id'] ?? NULL,
-      'round' => $game_state['round'] ?? NULL,
-      'turn' => $game_state['turn'] ?? NULL,
-      'initiative_order' => is_array($game_state['initiative_order'] ?? NULL)
-        ? $game_state['initiative_order']
-        : [],
-    ];
+    return $this->runtimeStateReadModelAssembler->buildRuntimeSnapshotPayload(
+      $game_state,
+      $dungeon_data,
+      $this->buildClientGameState($game_state),
+      $actor_id
+    );
   }
 
   /**
@@ -2658,114 +2623,6 @@ class GameCoordinatorService {
       return $room_id !== '' ? $room_id : NULL;
     }
     return NULL;
-  }
-
-  /**
-   * Build passable connected-room summaries for read-state payloads.
-   *
-   * @return array<int, array<string,mixed>>
-   *   Connected room summaries.
-   */
-  protected function findConnectedRoomsForReadState(array $dungeon_data, string $room_id): array {
-    $room_id = trim($room_id);
-    if ($room_id === '') {
-      return [];
-    }
-
-    $connections = [];
-    foreach ($dungeon_data['connections'] ?? [] as $connection) {
-      if (!is_array($connection)) {
-        continue;
-      }
-      if (empty($connection['is_passable'])) {
-        continue;
-      }
-      $from_room = trim((string) ($connection['from_room_id'] ?? $connection['from_room'] ?? $connection['from']['room_id'] ?? ''));
-      $to_room = trim((string) ($connection['to_room_id'] ?? $connection['to_room'] ?? $connection['to']['room_id'] ?? ''));
-      if ($from_room === $room_id && $to_room !== '') {
-        $connections[] = $this->buildConnectedRoomSummaryForReadState($dungeon_data, $to_room, $connection);
-      }
-      elseif ($to_room === $room_id && $from_room !== '') {
-        $connections[] = $this->buildConnectedRoomSummaryForReadState($dungeon_data, $from_room, $connection);
-      }
-    }
-
-    return array_values($connections);
-  }
-
-  /**
-   * Build one connected-room summary row.
-   */
-  protected function buildConnectedRoomSummaryForReadState(array $dungeon_data, string $room_id, array $connection): array {
-    $room = $this->findRoomInDungeon($room_id, $dungeon_data);
-    return [
-      'room_id' => $room_id,
-      'name' => (string) ($room['name'] ?? $room_id),
-      'description' => (string) ($room['description'] ?? ''),
-      'connection' => $connection,
-    ];
-  }
-
-  /**
-   * Build hostile target list from initiative order.
-   *
-   * @return array<int, array<string,mixed>>
-   *   Hostile participants.
-   */
-  protected function findHostileTargetsFromGameState(array $game_state, string $actor_id): array {
-    if ((string) ($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE) !== self::DEFAULT_ACTIVE_PHASE) {
-      return [];
-    }
-    $targets = [];
-    foreach ($game_state['initiative_order'] ?? [] as $participant) {
-      if (!is_array($participant)) {
-        continue;
-      }
-      $target_id = trim((string) ($participant['entity_id'] ?? ''));
-      $team = strtolower(trim((string) ($participant['team'] ?? '')));
-      if ($target_id === '' || $target_id === $actor_id || !empty($participant['is_defeated'])) {
-        continue;
-      }
-      if (in_array($team, ['enemy', 'hostile', 'monsters'], TRUE)) {
-        $targets[] = $participant;
-      }
-    }
-    return array_values($targets);
-  }
-
-  /**
-   * Extract room-scene social progression diagnostics.
-   *
-   * @return array<string,mixed>
-   *   Room-scene progression state.
-   */
-  protected function extractRoomSceneSocialProgressionFromGameState(array $game_state, string $active_room_id): array {
-    $encounter_context = is_array($game_state['encounter_context'] ?? NULL)
-      ? $game_state['encounter_context']
-      : [];
-    $social_progression = is_array($encounter_context['social_progression'] ?? NULL)
-      ? $encounter_context['social_progression']
-      : [];
-    if ($social_progression === []) {
-      return [];
-    }
-    $room_id = trim((string) ($social_progression['room_id'] ?? ($encounter_context['room_id'] ?? '')));
-    if ($room_id !== '' && $active_room_id !== '' && $room_id !== $active_room_id) {
-      return [];
-    }
-    $lead_seek_counts = is_array($social_progression['lead_seek_counts'] ?? NULL)
-      ? $social_progression['lead_seek_counts']
-      : [];
-    $exhausted = is_array($social_progression['exhausted_lead_sources'] ?? NULL)
-      ? array_values(array_unique(array_filter(array_map('strval', $social_progression['exhausted_lead_sources']), static fn(string $value): bool => trim($value) !== '')))
-      : [];
-    return [
-      'policy_version' => (int) ($social_progression['policy_version'] ?? 1),
-      'room_id' => $room_id,
-      'lead_seek_counts' => $lead_seek_counts,
-      'exhausted_lead_sources' => $exhausted,
-      'last_progress_signal' => (string) ($social_progression['last_progress_signal'] ?? 'none'),
-    ];
   }
 
 }

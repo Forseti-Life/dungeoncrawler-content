@@ -38,6 +38,10 @@ assert(
   'getFullState uses the side-effect-free full-state response path'
 );
 assert(
+  coordinatorSource.includes('$this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);'),
+  'full-state read paths resolve context through coordinator runtime-read service'
+);
+assert(
   coordinatorSource.includes('public function getMaterializedFullState(int $campaign_id): array'),
   'materialized full-state entrypoint exists for bootstrap-compatible callers'
 );
