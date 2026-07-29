@@ -928,6 +928,7 @@ class GameCoordinatorService {
       $pre_transition_payload_fingerprint,
       $mutation_envelope
     );
+    $this->ensurePersistedRuntimeStateMatches($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
 
     $handler = $this->getPhaseHandler($target_phase);
     $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
@@ -1068,6 +1069,7 @@ class GameCoordinatorService {
       $pre_combat_payload_fingerprint,
       $mutation_envelope
     );
+    $this->ensurePersistedRuntimeStateMatches($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
 
     $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
 
@@ -2331,11 +2333,16 @@ class GameCoordinatorService {
     }
 
     $active_room_id = trim((string) ($mutation_envelope['active_room_id'] ?? ''));
-    $this->persistGameStateSlice(
+    if (!$this->persistGameStateSlice(
       $campaign_id,
       $campaign_state,
       $active_room_id !== '' ? $active_room_id : NULL
-    );
+    )) {
+      throw new \RuntimeException(sprintf(
+        'Mutation envelope contract violation: failed to persist campaign_state for campaign %d.',
+        $campaign_id
+      ));
+    }
 
     $actor_entities = is_array($mutation_envelope['actor_entities'] ?? NULL)
       ? $mutation_envelope['actor_entities']
