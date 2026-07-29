@@ -1266,9 +1266,6 @@ services:
       - '@database'
       - '@dungeoncrawler_content.campaign_character_runtime_sync'
       - '@logger.factory'
-
-  dungeoncrawler_content.runtime_state_read_model_assembler:
-    class: Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler
       - '@dungeoncrawler_content.game_event_logger'
       - '@dungeoncrawler_content.encounter_master'
       - '@dungeoncrawler_content.ai_gm'
@@ -1289,6 +1286,9 @@ services:
       - '@dungeoncrawler_content.narration_engine'
       - '@dungeoncrawler_content.text_to_speech_integration'
       - '@file_url_generator'
+
+  dungeoncrawler_content.runtime_state_read_model_assembler:
+    class: Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler
 
   dungeoncrawler_content.runtime_bootstrap:
     class: Drupal\dungeoncrawler_content\Service\RuntimeBootstrapService

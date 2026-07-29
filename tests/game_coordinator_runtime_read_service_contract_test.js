@@ -21,6 +21,10 @@ const runtimeReadServiceSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/CoordinatorRuntimeReadService.php'),
   'utf8'
 );
+const gameCoordinatorServiceBlockMatch = servicesSource.match(
+  /dungeoncrawler_content\.game_coordinator:\n([\s\S]*?)\n  dungeoncrawler_content\.runtime_state_read_model_assembler:/
+);
+const gameCoordinatorServiceBlock = gameCoordinatorServiceBlockMatch ? gameCoordinatorServiceBlockMatch[1] : '';
 
 let passed = 0;
 let failed = 0;
@@ -44,6 +48,18 @@ assert(
 assert(
   servicesSource.includes("- '@dungeoncrawler_content.coordinator_runtime_read'"),
   'game coordinator service wiring includes coordinator runtime-read dependency'
+);
+assert(
+  gameCoordinatorServiceBlock.includes("arguments:\n      - '@database'"),
+  'game coordinator service declares an explicit arguments list'
+);
+assert(
+  gameCoordinatorServiceBlock.includes("- '@dungeoncrawler_content.coordinator_runtime_read'\n      - '@dungeoncrawler_content.runtime_state_read_model_assembler'"),
+  'game coordinator service injects both runtime-read and read-model-assembler dependencies in order'
+);
+assert(
+  (gameCoordinatorServiceBlock.match(/^\s+-\s'@/gm) || []).length === 23,
+  'game coordinator service defines all 23 constructor arguments'
 );
 assert(
   coordinatorSource.includes('protected CoordinatorRuntimeReadService $coordinatorRuntimeReadService;'),
