@@ -21,7 +21,7 @@ use Psr\Log\LoggerInterface;
  * - Player room chat is accepted as canonical Talk actions on that actor's turn,
  *   while non-player turns are resolved by authoritative handler logic.
  */
-class EncounterPhaseHandler implements EncounterMasterInterface {
+class EncounterPhaseHandler implements EncounterMasterInterface, MutationContextPhaseHandlerInterface {
   protected const ROOM_SCENE_ERR_MISSING_PLAYER_PARTICIPANT = 'room_scene_initiative_missing_player_participant';
   protected const ROOM_SCENE_ERR_RESEED_MISSING_ROOM = 'room_scene_reseed_failed_missing_room';
   protected const ROOM_SCENE_ERR_RESEED_NO_PLAYER_CANDIDATE = 'room_scene_reseed_failed_no_player_candidate';
@@ -696,6 +696,19 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
     }
 
     return ['valid' => TRUE, 'reason' => NULL];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function processIntentWithMutationContext(
+    array $intent,
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->processIntent($intent, $game_state, $dungeon_data, $campaign_id);
   }
 
   /**
@@ -7529,6 +7542,19 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   /**
    * {@inheritdoc}
    */
+  public function onEnterWithMutationContext(
+    array $context,
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->onEnter($context, $game_state, $dungeon_data, $campaign_id);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function onEnter(array $context, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $game_state['phase'] = 'encounter';
     $events = [];
@@ -7685,6 +7711,18 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'events' => $events,
       'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, $lifecycle_mutations),
     ];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function onExitWithMutationContext(
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->onExit($game_state, $dungeon_data, $campaign_id);
   }
 
   /**

@@ -18,7 +18,7 @@ use Psr\Log\LoggerInterface;
  * Wraps existing services: entity movement, room chat, room state, quest
  * tracking. Does NOT rewrite them — delegates and coordinates.
  */
-class ExplorationPhaseHandler implements PhaseHandlerInterface {
+class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
 
   /**
    * AC-003: Maps each exploration activity to its initiative skill.
@@ -320,6 +320,19 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     }
 
     return ['valid' => TRUE, 'reason' => NULL];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function processIntentWithMutationContext(
+    array $intent,
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->processIntent($intent, $game_state, $dungeon_data, $campaign_id);
   }
 
   /**
@@ -2077,6 +2090,19 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   /**
    * {@inheritdoc}
    */
+  public function onEnterWithMutationContext(
+    array $context,
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->onEnter($context, $game_state, $dungeon_data, $campaign_id);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function onEnter(array $context, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $game_state['phase'] = 'exploration';
     $game_state['round'] = NULL;
@@ -2121,6 +2147,18 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       ],
       'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, []),
     ];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function onExitWithMutationContext(
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->onExit($game_state, $dungeon_data, $campaign_id);
   }
 
   /**

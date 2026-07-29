@@ -397,7 +397,7 @@ class GameCoordinatorService {
     // 5. Process the action.
     $this->campaignTimeResolver->beginDeferredTimeEffects($game_state);
     $action_result = $this->normalizeHandlerActionResult(
-      $handler->processIntent($intent, $game_state, $dungeon_data, $campaign_id),
+      $this->processHandlerIntent($handler, $intent, $game_state, $dungeon_data, $campaign_id),
       $campaign_id,
       $phase
     );
@@ -987,7 +987,7 @@ class GameCoordinatorService {
     if (!empty($game_state['encounter_id'])) {
       if ($encounter_mode === 'room_scene') {
         $exit_result = $this->normalizePhaseLifecycleResult(
-          $handler->onExit($game_state, $dungeon_data, $campaign_id),
+          $this->runHandlerOnExit($handler, $game_state, $dungeon_data, $campaign_id),
           self::DEFAULT_ACTIVE_PHASE,
           'onExit',
           $campaign_id
@@ -1028,7 +1028,7 @@ class GameCoordinatorService {
 
     if (empty($game_state['encounter_id']) || $force_hostile_start) {
       $enter_result = $this->normalizePhaseLifecycleResult(
-        $handler->onEnter($context, $game_state, $dungeon_data, $campaign_id),
+        $this->runHandlerOnEnter($handler, $context, $game_state, $dungeon_data, $campaign_id),
         self::DEFAULT_ACTIVE_PHASE,
         'onEnter',
         $campaign_id
@@ -1102,6 +1102,68 @@ class GameCoordinatorService {
     ];
   }
 
+  /**
+   * Execute one handler intent through the typed mutation-context lane.
+   */
+  protected function processHandlerIntent(
+    PhaseHandlerInterface $handler,
+    array $intent,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if (!$handler instanceof MutationContextPhaseHandlerInterface) {
+      return $handler->processIntent($intent, $game_state, $dungeon_data, $campaign_id);
+    }
+
+    $mutation_context = new RuntimeMutationExecutionContext($game_state, $dungeon_data);
+    $result = $handler->processIntentWithMutationContext($intent, $mutation_context, $campaign_id);
+    $game_state = $mutation_context->gameState;
+    $dungeon_data = $mutation_context->dungeonData;
+    return $result;
+  }
+
+  /**
+   * Execute one handler phase-enter hook through the typed mutation-context lane.
+   */
+  protected function runHandlerOnEnter(
+    PhaseHandlerInterface $handler,
+    array $context,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if (!$handler instanceof MutationContextPhaseHandlerInterface) {
+      return $handler->onEnter($context, $game_state, $dungeon_data, $campaign_id);
+    }
+
+    $mutation_context = new RuntimeMutationExecutionContext($game_state, $dungeon_data);
+    $result = $handler->onEnterWithMutationContext($context, $mutation_context, $campaign_id);
+    $game_state = $mutation_context->gameState;
+    $dungeon_data = $mutation_context->dungeonData;
+    return $result;
+  }
+
+  /**
+   * Execute one handler phase-exit hook through the typed mutation-context lane.
+   */
+  protected function runHandlerOnExit(
+    PhaseHandlerInterface $handler,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    if (!$handler instanceof MutationContextPhaseHandlerInterface) {
+      return $handler->onExit($game_state, $dungeon_data, $campaign_id);
+    }
+
+    $mutation_context = new RuntimeMutationExecutionContext($game_state, $dungeon_data);
+    $result = $handler->onExitWithMutationContext($mutation_context, $campaign_id);
+    $game_state = $mutation_context->gameState;
+    $dungeon_data = $mutation_context->dungeonData;
+    return $result;
+  }
+
   // =========================================================================
   // Phase transition lifecycle.
   // =========================================================================
@@ -1124,7 +1186,7 @@ class GameCoordinatorService {
     $from_handler = $this->getPhaseHandler($from_phase);
     if ($from_handler) {
       $exit_result = $this->normalizePhaseLifecycleResult(
-        $from_handler->onExit($game_state, $dungeon_data, $campaign_id),
+        $this->runHandlerOnExit($from_handler, $game_state, $dungeon_data, $campaign_id),
         $from_phase,
         'onExit',
         $campaign_id
@@ -1184,7 +1246,7 @@ class GameCoordinatorService {
     $to_handler = $this->getPhaseHandler($to_phase);
     if ($to_handler) {
       $enter_result = $this->normalizePhaseLifecycleResult(
-        $to_handler->onEnter($context, $game_state, $dungeon_data, $campaign_id),
+        $this->runHandlerOnEnter($to_handler, $context, $game_state, $dungeon_data, $campaign_id),
         $to_phase,
         'onEnter',
         $campaign_id
@@ -1210,113 +1272,6 @@ class GameCoordinatorService {
       'events' => $all_events,
       'mutation_envelope' => $transition_mutation_envelope,
     ];
-  }
-
-  // =========================================================================
-  // Data access.
-  // =========================================================================
-
-  /**
-   * Loads dungeon_data from the database.
-   */
-  protected function loadDungeonData(
-    int $campaign_id,
-    ?string $preferred_actor_id = NULL,
-    bool $rebuild_runtime_graph = TRUE,
-    int $room_scope_depth = -1,
-    ?string $requested_room_id = NULL
-  ): ?array {
-    try {
-      $runtime_character_id = NULL;
-      if (is_string($preferred_actor_id) && trim($preferred_actor_id) !== '') {
-        $runtime_character_id = $this->runtimeBootstrap->resolveRuntimeCharacterIdForActor($campaign_id, trim($preferred_actor_id));
-      }
-      $row = $this->runtimeBootstrap->loadAuthoritativeDungeonRowForRuntimeRead($campaign_id, $runtime_character_id);
-
-      if (!empty($row['dungeon_data'])) {
-        $decoded = json_decode($row['dungeon_data'], TRUE) ?: NULL;
-        if (is_array($decoded)) {
-          $decoded['campaign_id'] = $campaign_id;
-          if (trim((string) ($decoded['dungeon_id'] ?? '')) === '') {
-            $decoded['dungeon_id'] = trim((string) ($row['dungeon_id'] ?? ''));
-          }
-          $runtime_game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
-          if (is_array($runtime_game_state)) {
-            $decoded['game_state'] = $runtime_game_state;
-            $authoritative_active_room_id = trim((string) (
-              $runtime_game_state['active_room_id']
-              ?? $runtime_game_state['encounter_context']['room_id']
-              ?? ''
-            ));
-            if ($authoritative_active_room_id !== '') {
-              $decoded['active_room_id'] = $authoritative_active_room_id;
-              $decoded['current_room_id'] = $authoritative_active_room_id;
-            }
-          }
-          $resolved_dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $row['dungeon_id'] ?? ''));
-          if ($rebuild_runtime_graph && $resolved_dungeon_id !== '') {
-            $resolved_requested_room_id = trim((string) ($requested_room_id ?? ''));
-            $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
-              $campaign_id,
-              $resolved_dungeon_id,
-              $decoded,
-              [
-                'active_room_id' => trim((string) ($decoded['active_room_id'] ?? '')),
-                'room_batch_size' => 8,
-                'room_scope_depth' => $room_scope_depth,
-                'requested_room_id' => $resolved_requested_room_id,
-              ]
-            );
-          }
-          if (empty($decoded['active_room_id'])) {
-            $this->resolveStartupRoomId($decoded);
-          }
-          $runtime_entities = $this->actorRuntimeStateStore->loadActorEntities($campaign_id);
-          if ($room_scope_depth >= 0 && $runtime_entities !== []) {
-            $scoped_room_ids = [];
-            foreach ($decoded['rooms'] ?? [] as $room) {
-              if (!is_array($room)) {
-                continue;
-              }
-              $room_id = trim((string) ($room['room_id'] ?? ''));
-              if ($room_id !== '') {
-                $scoped_room_ids[$room_id] = TRUE;
-              }
-            }
-            $preferred_actor_id = trim((string) ($preferred_actor_id ?? ''));
-            $runtime_entities = array_values(array_filter($runtime_entities, function ($entity) use ($scoped_room_ids, $preferred_actor_id): bool {
-              if (!is_array($entity)) {
-                return FALSE;
-              }
-              $entity_id = trim((string) (
-                $entity['entity_instance_id']
-                ?? $entity['instance_id']
-                ?? $entity['id']
-                ?? ''
-              ));
-              if ($preferred_actor_id !== '' && $entity_id === $preferred_actor_id) {
-                return TRUE;
-              }
-              $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
-              return $entity_room_id !== '' && isset($scoped_room_ids[$entity_room_id]);
-            }));
-          }
-          if ($runtime_entities !== []) {
-            $decoded['entities'] = $runtime_entities;
-          }
-          $decoded['__campaign_dungeon_row_id'] = (int) ($row['id'] ?? 0);
-          return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id);
-        }
-      }
-    }
-    catch (\Throwable $e) {
-      $this->logger->error('Failed to load dungeon data for campaign @id: @error', [
-        '@id' => $campaign_id,
-        '@error' => $e->getMessage(),
-      ]);
-    }
-
-    return NULL;
   }
 
   /**

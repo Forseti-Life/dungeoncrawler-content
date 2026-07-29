@@ -16,7 +16,7 @@ use Psr\Log\LoggerInterface;
  * Implemented actions: long_rest, downtime_rest, craft, earn_income, retrain,
  * advance_day, talk, return_to_exploration, assign_watch, advance_starvation.
  */
-class DowntimePhaseHandler implements PhaseHandlerInterface {
+class DowntimePhaseHandler implements MutationContextPhaseHandlerInterface {
 
   /**
    * @var \Drupal\Core\Database\Connection
@@ -143,6 +143,19 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     }
 
     return ['valid' => TRUE, 'reason' => NULL];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function processIntentWithMutationContext(
+    array $intent,
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->processIntent($intent, $game_state, $dungeon_data, $campaign_id);
   }
 
   /**
@@ -953,6 +966,19 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
   /**
    * {@inheritdoc}
    */
+  public function onEnterWithMutationContext(
+    array $context,
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->onEnter($context, $game_state, $dungeon_data, $campaign_id);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function onEnter(array $context, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $game_state['phase'] = 'downtime';
     $game_state['round'] = NULL;
@@ -974,6 +1000,18 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
       ],
       'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, []),
     ];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function onExitWithMutationContext(
+    RuntimeMutationExecutionContext $mutation_context,
+    int $campaign_id
+  ): array {
+    $game_state =& $mutation_context->gameState;
+    $dungeon_data =& $mutation_context->dungeonData;
+    return $this->onExit($game_state, $dungeon_data, $campaign_id);
   }
 
   /**
