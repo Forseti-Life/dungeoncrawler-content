@@ -1868,14 +1868,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
 
       foreach ([
-        $mutation['entity'] ?? NULL,
         $mutation['entity_id'] ?? NULL,
-        $mutation['actor'] ?? NULL,
-        $mutation['actor_id'] ?? NULL,
-        $mutation['target'] ?? NULL,
-        $mutation['target_id'] ?? NULL,
-        $mutation['char_id'] ?? NULL,
-        $mutation['character_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -1885,12 +1878,6 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
       foreach ([
         $mutation['room_id'] ?? NULL,
-        $mutation['from_room'] ?? NULL,
-        $mutation['to_room'] ?? NULL,
-        $mutation['target_room_id'] ?? NULL,
-        $mutation['from_room_id'] ?? NULL,
-        $mutation['to_room_id'] ?? NULL,
-        $mutation['active_room_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -1900,7 +1887,6 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
       foreach ([
         $mutation['connection_id'] ?? NULL,
-        $mutation['connector_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -2060,12 +2046,54 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       }
 
       $field = strtolower(trim((string) ($mutation['field'] ?? $mutation['path'] ?? $mutation['type'] ?? '')));
-      $has_actor_target = trim((string) (
-        $mutation['entity'] ?? $mutation['entity_id'] ?? $mutation['actor'] ?? $mutation['actor_id'] ?? ''
-      )) !== '';
-      $has_room_target = trim((string) (
-        $mutation['room_id'] ?? $mutation['from_room'] ?? $mutation['to_room'] ?? $mutation['target_room_id'] ?? ''
-      )) !== '';
+      if (!isset($mutation['field']) && isset($mutation['path']) && is_string($mutation['path'])) {
+        $mutation['field'] = $mutation['path'];
+      }
+
+      if (!isset($mutation['entity_id'])) {
+        foreach ([
+          $mutation['entity'] ?? NULL,
+          $mutation['actor_id'] ?? NULL,
+          $mutation['actor'] ?? NULL,
+          $mutation['target_id'] ?? NULL,
+          $mutation['target'] ?? NULL,
+          $mutation['char_id'] ?? NULL,
+          $mutation['character_id'] ?? NULL,
+        ] as $candidate) {
+          $normalized_candidate = $this->normalizeMutationTargetId($candidate);
+          if ($normalized_candidate !== NULL) {
+            $mutation['entity_id'] = $normalized_candidate;
+            break;
+          }
+        }
+      }
+
+      if (!isset($mutation['room_id'])) {
+        foreach ([
+          $mutation['target_room_id'] ?? NULL,
+          $mutation['to_room_id'] ?? NULL,
+          $mutation['to_room'] ?? NULL,
+          $mutation['from_room_id'] ?? NULL,
+          $mutation['from_room'] ?? NULL,
+          $mutation['active_room_id'] ?? NULL,
+        ] as $candidate) {
+          $normalized_candidate = $this->normalizeMutationTargetId($candidate);
+          if ($normalized_candidate !== NULL) {
+            $mutation['room_id'] = $normalized_candidate;
+            break;
+          }
+        }
+      }
+
+      if (!isset($mutation['connection_id'])) {
+        $normalized_connection_id = $this->normalizeMutationTargetId($mutation['connector_id'] ?? NULL);
+        if ($normalized_connection_id !== NULL) {
+          $mutation['connection_id'] = $normalized_connection_id;
+        }
+      }
+
+      $has_actor_target = trim((string) ($mutation['entity_id'] ?? '')) !== '';
+      $has_room_target = trim((string) ($mutation['room_id'] ?? '')) !== '';
 
       if (
         !$has_actor_target
