@@ -42,6 +42,11 @@ assert(
   'processIntent passes mutation descriptors into changed-slice envelope completion'
 );
 assert(
+  source.includes('$result[\'mutations\'] = $this->normalizeMutationDescriptors(')
+  && source.includes('protected function normalizeMutationDescriptors(array $mutations, ?string $default_actor_id, string $default_room_id): array'),
+  'encounter processIntent normalizes mutation descriptors with default actor/room targets'
+);
+assert(
   source.includes('protected function ensureMutationEnvelopeIncludesChangedSlices('),
   'encounter handler provides changed-slice envelope completion helper'
 );

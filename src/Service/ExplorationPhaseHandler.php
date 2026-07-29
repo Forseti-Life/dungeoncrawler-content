@@ -1635,6 +1635,12 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'result' => is_array($mechanical_result) ? $mechanical_result : $result,
     ]);
 
+    $mutations = $this->normalizeMutationDescriptors(
+      $mutations,
+      is_string($actor_id) ? $actor_id : NULL,
+      (string) ($dungeon_data['active_room_id'] ?? '')
+    );
+
     $mutation_envelope = $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, $mutations);
     $mutation_envelope = $this->ensureMutationEnvelopeIncludesChangedSlices(
       $mutation_envelope,
@@ -1866,6 +1872,10 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $mutation['entity_id'] ?? NULL,
         $mutation['actor'] ?? NULL,
         $mutation['actor_id'] ?? NULL,
+        $mutation['target'] ?? NULL,
+        $mutation['target_id'] ?? NULL,
+        $mutation['char_id'] ?? NULL,
+        $mutation['character_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -1877,6 +1887,10 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $mutation['room_id'] ?? NULL,
         $mutation['from_room'] ?? NULL,
         $mutation['to_room'] ?? NULL,
+        $mutation['target_room_id'] ?? NULL,
+        $mutation['from_room_id'] ?? NULL,
+        $mutation['to_room_id'] ?? NULL,
+        $mutation['active_room_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -1886,6 +1900,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
 
       foreach ([
         $mutation['connection_id'] ?? NULL,
+        $mutation['connector_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -2023,6 +2038,55 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
   protected function normalizeMutationTargetId(mixed $candidate): ?string {
     $value = trim((string) $candidate);
     return $value !== '' ? $value : NULL;
+  }
+
+  /**
+   * Normalize mutation descriptors so runtime targets are explicit.
+   *
+   * @param array<int,mixed> $mutations
+   *   Raw mutation descriptors.
+   *
+   * @return array<int,mixed>
+   *   Normalized mutation descriptors.
+   */
+  protected function normalizeMutationDescriptors(array $mutations, ?string $default_actor_id, string $default_room_id): array {
+    $normalized_actor_id = trim((string) $default_actor_id);
+    $normalized_room_id = trim($default_room_id);
+    $normalized = [];
+    foreach ($mutations as $mutation) {
+      if (!is_array($mutation)) {
+        $normalized[] = $mutation;
+        continue;
+      }
+
+      $field = strtolower(trim((string) ($mutation['field'] ?? $mutation['path'] ?? $mutation['type'] ?? '')));
+      $has_actor_target = trim((string) (
+        $mutation['entity'] ?? $mutation['entity_id'] ?? $mutation['actor'] ?? $mutation['actor_id'] ?? ''
+      )) !== '';
+      $has_room_target = trim((string) (
+        $mutation['room_id'] ?? $mutation['from_room'] ?? $mutation['to_room'] ?? $mutation['target_room_id'] ?? ''
+      )) !== '';
+
+      if (
+        !$has_actor_target
+        && $normalized_actor_id !== ''
+        && (str_contains($field, 'entity') || str_contains($field, 'actor') || str_contains($field, 'char') || str_contains($field, 'placement') || str_contains($field, 'condition') || str_contains($field, 'resource') || str_contains($field, 'hp'))
+      ) {
+        $mutation['entity_id'] = $normalized_actor_id;
+        $mutation['actor_id'] = $normalized_actor_id;
+      }
+
+      if (
+        !$has_room_target
+        && $normalized_room_id !== ''
+        && (str_contains($field, 'room') || str_contains($field, 'hazard') || str_contains($field, 'reveal'))
+      ) {
+        $mutation['room_id'] = $normalized_room_id;
+      }
+
+      $normalized[] = $mutation;
+    }
+    return $normalized;
   }
 
   /**

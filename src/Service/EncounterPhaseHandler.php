@@ -703,6 +703,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
    */
   public function processIntent(array $intent, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $pre_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);
+    $intent_actor_id = is_string($intent['actor'] ?? NULL) ? trim((string) $intent['actor']) : '';
     $result = $this->encounterIntentRouter->routeIntent(
       $intent,
       $game_state,
@@ -716,11 +717,24 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       throw new \RuntimeException('Encounter intent routing contract violation: routeIntent must return an array.');
     }
     if (!array_key_exists('mutation_envelope', $result) || !is_array($result['mutation_envelope'])) {
+      $result_mutations = $this->normalizeMutationDescriptors(
+        is_array($result['mutations'] ?? NULL) ? $result['mutations'] : [],
+        $intent_actor_id !== '' ? $intent_actor_id : NULL,
+        (string) ($dungeon_data['active_room_id'] ?? '')
+      );
+      $result['mutations'] = $result_mutations;
       $result['mutation_envelope'] = $this->buildMutationEnvelopeFromRuntimeContext(
         $campaign_id,
         $game_state,
         $dungeon_data,
-        is_array($result['mutations'] ?? NULL) ? $result['mutations'] : []
+        $result_mutations
+      );
+    }
+    else {
+      $result['mutations'] = $this->normalizeMutationDescriptors(
+        is_array($result['mutations'] ?? NULL) ? $result['mutations'] : [],
+        $intent_actor_id !== '' ? $intent_actor_id : NULL,
+        (string) ($dungeon_data['active_room_id'] ?? '')
       );
     }
     $result['mutation_envelope'] = $this->ensureMutationEnvelopeIncludesChangedSlices(
@@ -944,6 +958,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $mutation['entity_id'] ?? NULL,
         $mutation['actor'] ?? NULL,
         $mutation['actor_id'] ?? NULL,
+        $mutation['target'] ?? NULL,
+        $mutation['target_id'] ?? NULL,
+        $mutation['char_id'] ?? NULL,
+        $mutation['character_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -955,6 +973,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $mutation['room_id'] ?? NULL,
         $mutation['from_room'] ?? NULL,
         $mutation['to_room'] ?? NULL,
+        $mutation['target_room_id'] ?? NULL,
+        $mutation['from_room_id'] ?? NULL,
+        $mutation['to_room_id'] ?? NULL,
+        $mutation['active_room_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -964,6 +986,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
 
       foreach ([
         $mutation['connection_id'] ?? NULL,
+        $mutation['connector_id'] ?? NULL,
       ] as $candidate) {
         $normalized = $this->normalizeMutationTargetId($candidate);
         if ($normalized !== NULL) {
@@ -1101,6 +1124,55 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
   protected function normalizeMutationTargetId(mixed $candidate): ?string {
     $value = trim((string) $candidate);
     return $value !== '' ? $value : NULL;
+  }
+
+  /**
+   * Normalize mutation descriptors so runtime targets are explicit.
+   *
+   * @param array<int,mixed> $mutations
+   *   Raw mutation descriptors.
+   *
+   * @return array<int,mixed>
+   *   Normalized mutation descriptors.
+   */
+  protected function normalizeMutationDescriptors(array $mutations, ?string $default_actor_id, string $default_room_id): array {
+    $normalized_actor_id = trim((string) $default_actor_id);
+    $normalized_room_id = trim($default_room_id);
+    $normalized = [];
+    foreach ($mutations as $mutation) {
+      if (!is_array($mutation)) {
+        $normalized[] = $mutation;
+        continue;
+      }
+
+      $field = strtolower(trim((string) ($mutation['field'] ?? $mutation['path'] ?? $mutation['type'] ?? '')));
+      $has_actor_target = trim((string) (
+        $mutation['entity'] ?? $mutation['entity_id'] ?? $mutation['actor'] ?? $mutation['actor_id'] ?? ''
+      )) !== '';
+      $has_room_target = trim((string) (
+        $mutation['room_id'] ?? $mutation['from_room'] ?? $mutation['to_room'] ?? $mutation['target_room_id'] ?? ''
+      )) !== '';
+
+      if (
+        !$has_actor_target
+        && $normalized_actor_id !== ''
+        && (str_contains($field, 'entity') || str_contains($field, 'actor') || str_contains($field, 'char') || str_contains($field, 'placement') || str_contains($field, 'condition') || str_contains($field, 'resource') || str_contains($field, 'hp'))
+      ) {
+        $mutation['entity_id'] = $normalized_actor_id;
+        $mutation['actor_id'] = $normalized_actor_id;
+      }
+
+      if (
+        !$has_room_target
+        && $normalized_room_id !== ''
+        && (str_contains($field, 'room') || str_contains($field, 'hazard') || str_contains($field, 'reveal'))
+      ) {
+        $mutation['room_id'] = $normalized_room_id;
+      }
+
+      $normalized[] = $mutation;
+    }
+    return $normalized;
   }
 
   /**
