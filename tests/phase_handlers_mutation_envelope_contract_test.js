@@ -40,8 +40,12 @@ assert(
 );
 assert(
   explorationSource.includes('protected function ensureMutationEnvelopeIncludesChangedSlices(')
-  && explorationSource.includes('protected function computeRuntimeSliceFingerprints(array $dungeon_data): array'),
-  'exploration defines runtime-slice completeness helpers'
+  && explorationSource.includes('protected function computeRuntimeSliceFingerprints(array $dungeon_data): array')
+  && explorationSource.includes('$targets = $this->extractMutationEnvelopeTargets($mutations);')
+  && explorationSource.includes('actor_entities changed without entity mutation targets.')
+  && explorationSource.includes('rooms changed without room mutation targets.')
+  && explorationSource.includes('connections changed without connection/room mutation targets.'),
+  'exploration enforces descriptor-targeted changed-slice completion'
 );
 assert(
   downtimeSource.includes('$pre_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);')
@@ -50,8 +54,12 @@ assert(
 );
 assert(
   downtimeSource.includes('protected function ensureMutationEnvelopeIncludesChangedSlices(')
-  && downtimeSource.includes('protected function computeRuntimeSliceFingerprints(array $dungeon_data): array'),
-  'downtime defines runtime-slice completeness helpers'
+  && downtimeSource.includes('protected function computeRuntimeSliceFingerprints(array $dungeon_data): array')
+  && downtimeSource.includes('$targets = $this->extractMutationEnvelopeTargets($mutations);')
+  && downtimeSource.includes('actor_entities changed without entity mutation targets.')
+  && downtimeSource.includes('rooms changed without room mutation targets.')
+  && downtimeSource.includes('connections changed without connection/room mutation targets.'),
+  'downtime enforces descriptor-targeted changed-slice completion'
 );
 
 console.log(`\nPassed: ${passed}`);

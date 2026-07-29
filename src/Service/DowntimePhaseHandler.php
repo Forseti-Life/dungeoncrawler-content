@@ -509,7 +509,8 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
     $mutation_envelope = $this->ensureMutationEnvelopeIncludesChangedSlices(
       $mutation_envelope,
       $pre_slice_fingerprints,
-      $dungeon_data
+      $dungeon_data,
+      $mutations
     );
 
     return [
@@ -571,7 +572,8 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
   protected function ensureMutationEnvelopeIncludesChangedSlices(
     array $mutation_envelope,
     array $pre_slice_fingerprints,
-    array $dungeon_data
+    array $dungeon_data,
+    array $mutations
   ): array {
     $after_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);
     $changed_slices = [];
@@ -587,23 +589,38 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
       return $mutation_envelope;
     }
 
+    $targets = $this->extractMutationEnvelopeTargets($mutations);
+
     foreach ($changed_slices as $slice_key) {
       $slice_payload = is_array($mutation_envelope[$slice_key] ?? NULL) ? $mutation_envelope[$slice_key] : [];
       if ($slice_payload !== []) {
         continue;
       }
       if ($slice_key === 'actor_entities') {
+        if ($targets['entity_ids'] === []) {
+          throw new \RuntimeException('Downtime mutation envelope contract violation: actor_entities changed without entity mutation targets.');
+        }
         $mutation_envelope['actor_entities'] = is_array($dungeon_data['entities'] ?? NULL)
-          ? $this->selectMutationTargetedActorEntities($dungeon_data['entities'], [])
+          ? $this->selectMutationTargetedActorEntities($dungeon_data['entities'], $targets['entity_ids'])
           : [];
       }
       elseif ($slice_key === 'rooms') {
+        if ($targets['room_ids'] === []) {
+          throw new \RuntimeException('Downtime mutation envelope contract violation: rooms changed without room mutation targets.');
+        }
         $mutation_envelope['rooms'] = is_array($dungeon_data['rooms'] ?? NULL)
-          ? $this->selectMutationTargetedRooms($dungeon_data['rooms'], [])
+          ? $this->selectMutationTargetedRooms($dungeon_data['rooms'], $targets['room_ids'])
           : [];
       }
       elseif ($slice_key === 'connections') {
-        $mutation_envelope['connections'] = $this->selectMutationTargetedConnections($dungeon_data, [], []);
+        if ($targets['connection_ids'] === [] && $targets['room_ids'] === []) {
+          throw new \RuntimeException('Downtime mutation envelope contract violation: connections changed without connection/room mutation targets.');
+        }
+        $mutation_envelope['connections'] = $this->selectMutationTargetedConnections(
+          $dungeon_data,
+          $targets['connection_ids'],
+          $targets['room_ids']
+        );
       }
     }
 

@@ -38,8 +38,19 @@ assert(
   'processIntent enforces changed-slice coverage on mutation envelopes'
 );
 assert(
+  source.includes('$dungeon_data,\n      is_array($result[\'mutations\'] ?? NULL) ? $result[\'mutations\'] : []'),
+  'processIntent passes mutation descriptors into changed-slice envelope completion'
+);
+assert(
   source.includes('protected function ensureMutationEnvelopeIncludesChangedSlices('),
   'encounter handler provides changed-slice envelope completion helper'
+);
+assert(
+  source.includes('$targets = $this->extractMutationEnvelopeTargets($mutations);')
+  && source.includes('actor_entities changed without entity mutation targets.')
+  && source.includes('rooms changed without room mutation targets.')
+  && source.includes('connections changed without connection/room mutation targets.'),
+  'encounter changed-slice completion requires descriptor targets per runtime slice'
 );
 assert(
   source.includes('protected function computeRuntimeSliceFingerprints(array $dungeon_data): array'),
