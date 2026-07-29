@@ -70,8 +70,16 @@ assert(
   'coordinator runtime-read service exposes specialized mutation execution context loader'
 );
 assert(
+  runtimeReadServiceSource.includes('$requested_room_id !== \'\' ? $requested_room_id : NULL,\n      FALSE'),
+  'mutation execution context defaults to narrow lane hydration before compatibility sync fallback'
+);
+assert(
   runtimeReadServiceSource.includes('public function resolveFullRuntimeProjection(int $campaign_id, ?string $actor_id = NULL): ?array {'),
   'coordinator runtime-read service exposes heavy full-runtime projection hydration lane'
+);
+assert(
+  runtimeReadServiceSource.includes('protected function requiresActiveRoomPlayerSync(array $dungeon_data, ?string $preferred_actor_id = NULL): bool {'),
+  'runtime-read service defines explicit compatibility sync fallback gate'
 );
 
 console.log(`\nPassed: ${passed}`);

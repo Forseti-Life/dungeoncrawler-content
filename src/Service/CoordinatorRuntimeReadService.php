@@ -143,7 +143,8 @@ class CoordinatorRuntimeReadService {
       $preferred_actor_id !== '' ? $preferred_actor_id : NULL,
       TRUE,
       1,
-      $requested_room_id !== '' ? $requested_room_id : NULL
+      $requested_room_id !== '' ? $requested_room_id : NULL,
+      FALSE
     );
     if (!is_array($dungeon_data)) {
       return NULL;
@@ -194,7 +195,8 @@ class CoordinatorRuntimeReadService {
     ?string $preferred_actor_id = NULL,
     bool $rebuild_runtime_graph = TRUE,
     int $room_scope_depth = -1,
-    ?string $requested_room_id = NULL
+    ?string $requested_room_id = NULL,
+    bool $sync_active_room_players = TRUE
   ): ?array {
     try {
       $runtime_character_id = NULL;
@@ -284,7 +286,11 @@ class CoordinatorRuntimeReadService {
         $decoded['entities'] = $runtime_entities;
       }
       $decoded['__campaign_dungeon_row_id'] = (int) ($row['id'] ?? 0);
-      return $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id);
+      $should_sync_active_room_players = $sync_active_room_players
+        || $this->requiresActiveRoomPlayerSync($decoded, $preferred_actor_id);
+      return $should_sync_active_room_players
+        ? $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id)
+        : $decoded;
     }
     catch (\Throwable $e) {
       $this->logger->error('Failed to load coordinator runtime read context for campaign @id: @error', [
@@ -294,6 +300,51 @@ class CoordinatorRuntimeReadService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Determine whether active-room player sync is required for this payload.
+   */
+  protected function requiresActiveRoomPlayerSync(array $dungeon_data, ?string $preferred_actor_id = NULL): bool {
+    $preferred_actor_id = trim((string) $preferred_actor_id);
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    $has_preferred_actor_entity = $preferred_actor_id === '';
+    $has_active_room_player = FALSE;
+
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_id = trim((string) (
+        $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? ''
+      ));
+      if ($preferred_actor_id !== '' && $entity_id === $preferred_actor_id) {
+        $has_preferred_actor_entity = TRUE;
+      }
+      if ($active_room_id === '') {
+        continue;
+      }
+      $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+      if ($entity_room_id !== $active_room_id) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''))));
+      $team = strtolower(trim((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? ''))));
+      if ($entity_type === 'player_character' || in_array($team, ['player', 'player_character', 'pc'], TRUE)) {
+        $has_active_room_player = TRUE;
+      }
+    }
+
+    if (!$has_preferred_actor_entity) {
+      return TRUE;
+    }
+    if ($active_room_id !== '' && !$has_active_room_player) {
+      return TRUE;
+    }
+    return FALSE;
   }
 
   /**
