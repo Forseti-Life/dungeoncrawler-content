@@ -387,7 +387,7 @@ class GameCoordinatorService {
       ));
       $this->persistGameStateSlice($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
     }
-    $pre_action_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
+    $pre_action_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);
 
     // 4. Validate the action.
     $validation = $handler->validateIntent($intent, $game_state, $dungeon_data);
@@ -452,7 +452,7 @@ class GameCoordinatorService {
       $phase_transition_mutation_envelope ?? ($action_result['mutation_envelope'] ?? NULL),
       $game_state,
       $dungeon_data,
-      $pre_action_payload_fingerprint,
+      $pre_action_slice_fingerprints,
       FALSE
     );
     $this->persistStateWithMinimalWrite(
@@ -900,7 +900,7 @@ class GameCoordinatorService {
     }
 
     $context['from_phase'] = $current_phase;
-    $pre_transition_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
+    $pre_transition_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);
 
     // Execute the transition.
     $result = $this->executePhaseTransition(
@@ -919,7 +919,7 @@ class GameCoordinatorService {
       $result['mutation_envelope'] ?? NULL,
       $game_state,
       $dungeon_data,
-      $pre_transition_payload_fingerprint,
+      $pre_transition_slice_fingerprints,
       FALSE
     );
     $this->persistStateWithMinimalWrite(
@@ -986,7 +986,7 @@ class GameCoordinatorService {
     if (!$handler instanceof EncounterPhaseHandler) {
       return $this->errorResponse('Encounter handler unavailable.', $game_state);
     }
-    $pre_combat_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
+    $pre_combat_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);
     $combat_mutation_envelope = is_array($context['mutation_envelope'] ?? NULL)
       ? $context['mutation_envelope']
       : NULL;
@@ -1060,7 +1060,7 @@ class GameCoordinatorService {
       $combat_mutation_envelope,
       $game_state,
       $dungeon_data,
-      $pre_combat_payload_fingerprint,
+      $pre_combat_slice_fingerprints,
       FALSE
     );
     $this->persistStateWithMinimalWrite(
@@ -1647,6 +1647,32 @@ class GameCoordinatorService {
   }
 
   /**
+   * Build deterministic fingerprints for runtime non-game-state slices.
+   *
+   * @return array{actor_entities: string, rooms: string, connections: string}
+   *   Fingerprints for explicit mutation-envelope slices.
+   */
+  protected function computeRuntimeSliceFingerprints(array $dungeon_data): array {
+    $actor_entities = is_array($dungeon_data['entities'] ?? NULL) ? $dungeon_data['entities'] : [];
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    $connections = $this->collectRuntimeConnectionsFromPayload($dungeon_data);
+
+    $encode = static function (array $payload): string {
+      $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      if (!is_string($encoded)) {
+        throw new \RuntimeException('GameCoordinator runtime-slice fingerprint contract violation: unable to encode payload.');
+      }
+      return hash('sha256', $encoded);
+    };
+
+    return [
+      'actor_entities' => $encode($actor_entities),
+      'rooms' => $encode($rooms),
+      'connections' => $encode($connections),
+    ];
+  }
+
+  /**
    * Collect canonical runtime connection payloads from snapshot buckets.
    *
    * @return array<int, array<string,mixed>>
@@ -2091,8 +2117,8 @@ class GameCoordinatorService {
    *
    * @param array<string,mixed>|null $candidate_envelope
    *   Handler-provided candidate envelope.
-   * @param string|null $before_non_game_state_fingerprint
-   *   Optional pre-mutation fingerprint for non-game-state payload sections.
+   * @param array<string,string>|null $before_slice_fingerprints
+   *   Optional pre-mutation fingerprints for actor_entities/rooms/connections.
    * @param bool $allow_payload_non_game_state_backfill
    *   TRUE to allow payload-derived actor/room/connection backfill when
    *   non-game-state data changed but envelope omitted those slices.
@@ -2105,12 +2131,42 @@ class GameCoordinatorService {
     ?array $candidate_envelope,
     array $game_state,
     array $dungeon_data,
-    ?string $before_non_game_state_fingerprint = NULL,
+    ?array $before_slice_fingerprints = NULL,
     bool $allow_payload_non_game_state_backfill = TRUE
   ): array {
-    $after_non_game_state_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
-    $non_game_state_changed = $before_non_game_state_fingerprint !== NULL
-      && $after_non_game_state_fingerprint !== $before_non_game_state_fingerprint;
+    $slice_aliases = [
+      'actor_entities' => 'entities',
+      'rooms' => 'rooms',
+      'connections' => 'connections',
+    ];
+    $after_slice_fingerprints = $before_slice_fingerprints !== NULL
+      ? $this->computeRuntimeSliceFingerprints($dungeon_data)
+      : NULL;
+    $changed_slices = [];
+    if ($before_slice_fingerprints !== NULL && $after_slice_fingerprints !== NULL) {
+      foreach ($slice_aliases as $slice_key => $_ignored_alias) {
+        $before = (string) ($before_slice_fingerprints[$slice_key] ?? '');
+        $after = (string) ($after_slice_fingerprints[$slice_key] ?? '');
+        if ($before !== '' && $after !== '' && $before !== $after) {
+          $changed_slices[] = $slice_key;
+        }
+      }
+    }
+    $non_game_state_changed = $changed_slices !== [];
+
+    $assertExplicitSlices = function (array $envelope) use ($changed_slices, $slice_aliases, $campaign_id): void {
+      foreach ($changed_slices as $slice_key) {
+        $slice_payload = is_array($envelope[$slice_key] ?? NULL) ? $envelope[$slice_key] : [];
+        if ($slice_payload === []) {
+          throw new \RuntimeException(sprintf(
+            'Mutation envelope contract violation: %s payload changed without explicit typed "%s" slice for campaign %d.',
+            (string) ($slice_aliases[$slice_key] ?? $slice_key),
+            $slice_key,
+            $campaign_id
+          ));
+        }
+      }
+    };
 
     if (!is_array($candidate_envelope) || $candidate_envelope === []) {
       if ($non_game_state_changed && !$allow_payload_non_game_state_backfill) {
@@ -2119,12 +2175,16 @@ class GameCoordinatorService {
           $campaign_id
         ));
       }
-      return $this->buildMutationEnvelopeFromPayload(
+      $fallback_envelope = $this->buildMutationEnvelopeFromPayload(
         $campaign_id,
         $game_state,
         $dungeon_data,
         $allow_payload_non_game_state_backfill && $non_game_state_changed
       );
+      if ($non_game_state_changed) {
+        $assertExplicitSlices($fallback_envelope);
+      }
+      return $fallback_envelope;
     }
 
     $envelope_campaign_id = (int) ($candidate_envelope['campaign_id'] ?? $campaign_id);
@@ -2183,6 +2243,26 @@ class GameCoordinatorService {
       $normalized['actor_entities'] = is_array($dungeon_data['entities'] ?? NULL) ? $dungeon_data['entities'] : [];
       $normalized['rooms'] = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
       $normalized['connections'] = $this->collectRuntimeConnectionsFromPayload($dungeon_data);
+    }
+
+    if ($non_game_state_changed) {
+      if ($allow_payload_non_game_state_backfill) {
+        foreach ($changed_slices as $slice_key) {
+          $slice_payload = is_array($normalized[$slice_key] ?? NULL) ? $normalized[$slice_key] : [];
+          if ($slice_payload === []) {
+            if ($slice_key === 'actor_entities') {
+              $normalized['actor_entities'] = is_array($dungeon_data['entities'] ?? NULL) ? $dungeon_data['entities'] : [];
+            }
+            elseif ($slice_key === 'rooms') {
+              $normalized['rooms'] = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+            }
+            elseif ($slice_key === 'connections') {
+              $normalized['connections'] = $this->collectRuntimeConnectionsFromPayload($dungeon_data);
+            }
+          }
+        }
+      }
+      $assertExplicitSlices($normalized);
     }
 
     return $normalized;
