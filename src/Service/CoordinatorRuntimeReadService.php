@@ -99,6 +99,48 @@ class CoordinatorRuntimeReadService {
   }
 
   /**
+   * Build specialized mutation-lane execution context for coordinator writes.
+   *
+   * This lane intentionally hydrates only the scoped runtime projection needed
+   * by compatibility handlers while keeping persistence responsibilities in the
+   * coordinator mutation pipeline.
+   *
+   * @return array{dungeon_data: array<string,mixed>, game_state: array<string,mixed>}|null
+   *   Runtime mutation execution context, or NULL when unavailable.
+   */
+  public function resolveMutationExecutionContext(
+    int $campaign_id,
+    ?string $preferred_actor_id = NULL,
+    ?string $requested_room_id = NULL
+  ): ?array {
+    $preferred_actor_id = trim((string) $preferred_actor_id);
+    $requested_room_id = trim((string) $requested_room_id);
+    if ($requested_room_id === '') {
+      $requested_room_id = $this->resolveActorRoomIdFromRuntimeStore(
+        $campaign_id,
+        $preferred_actor_id !== '' ? $preferred_actor_id : NULL
+      ) ?? '';
+    }
+
+    $dungeon_data = $this->loadDungeonData(
+      $campaign_id,
+      $preferred_actor_id !== '' ? $preferred_actor_id : NULL,
+      TRUE,
+      1,
+      $requested_room_id !== '' ? $requested_room_id : NULL
+    );
+    if (!is_array($dungeon_data)) {
+      return NULL;
+    }
+
+    $game_state = $this->ensureGameState($dungeon_data);
+    return [
+      'dungeon_data' => $dungeon_data,
+      'game_state' => $game_state,
+    ];
+  }
+
+  /**
    * Resolve one actor's current room id from actor runtime slice rows.
    */
   protected function resolveActorRoomIdFromRuntimeStore(int $campaign_id, ?string $actor_id = NULL): ?string {

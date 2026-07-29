@@ -326,20 +326,16 @@ class GameCoordinatorService {
       return $this->errorResponse('actor_capability_violation:' . $capability_violation);
     }
 
-    // 1. Load dungeon data and game state.
-    $requested_room_id = $this->resolveActorRoomIdFromRuntimeStore($campaign_id, $actor_id !== '' ? $actor_id : NULL);
-    $dungeon_data = $this->loadDungeonData(
+    // 1. Load specialized mutation-lane execution context.
+    $mutation_context = $this->coordinatorRuntimeReadService->resolveMutationExecutionContext(
       $campaign_id,
-      $actor_id !== '' ? $actor_id : NULL,
-      TRUE,
-      1,
-      $requested_room_id
+      $actor_id !== '' ? $actor_id : NULL
     );
-    if (!$dungeon_data) {
+    if ($mutation_context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
-
-    $game_state = $this->ensureGameState($dungeon_data);
+    $dungeon_data = $mutation_context['dungeon_data'];
+    $game_state = $mutation_context['game_state'];
     $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
 
     // Bootstrap the initial room-entered encounter framework when needed.
@@ -868,18 +864,16 @@ class GameCoordinatorService {
   public function transitionPhase(int $campaign_id, string $target_phase, array $context = []): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
     $requested_room_id = trim((string) ($context['encounter_context']['room_id'] ?? ''));
-    $dungeon_data = $this->loadDungeonData(
+    $mutation_context = $this->coordinatorRuntimeReadService->resolveMutationExecutionContext(
       $campaign_id,
       NULL,
-      TRUE,
-      1,
       $requested_room_id !== '' ? $requested_room_id : NULL
     );
-    if (!$dungeon_data) {
+    if ($mutation_context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
-
-    $game_state = $this->ensureGameState($dungeon_data);
+    $dungeon_data = $mutation_context['dungeon_data'];
+    $game_state = $mutation_context['game_state'];
     $current_phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
 
     if (in_array($target_phase, self::DEPRECATED_PHASES, TRUE)) {
@@ -958,18 +952,16 @@ class GameCoordinatorService {
       $context['encounter_context']['room_id']
       ?? ''
     ));
-    $dungeon_data = $this->loadDungeonData(
+    $mutation_context = $this->coordinatorRuntimeReadService->resolveMutationExecutionContext(
       $campaign_id,
       NULL,
-      TRUE,
-      1,
       $requested_room_id !== '' ? $requested_room_id : NULL
     );
-    if (!$dungeon_data) {
+    if ($mutation_context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
-
-    $game_state = $this->ensureGameState($dungeon_data);
+    $dungeon_data = $mutation_context['dungeon_data'];
+    $game_state = $mutation_context['game_state'];
     $room_id = (string) (
       $context['encounter_context']['room_id']
       ?? $dungeon_data['active_room_id']

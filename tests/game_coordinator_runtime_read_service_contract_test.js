@@ -17,6 +17,10 @@ const coordinatorSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/GameCoordinatorService.php'),
   'utf8'
 );
+const runtimeReadServiceSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/CoordinatorRuntimeReadService.php'),
+  'utf8'
+);
 
 let passed = 0;
 let failed = 0;
@@ -52,6 +56,14 @@ assert(
 assert(
   coordinatorSource.includes('$this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);'),
   'game coordinator resolves full-state read context through runtime-read service'
+);
+assert(
+  coordinatorSource.includes('$this->coordinatorRuntimeReadService->resolveMutationExecutionContext('),
+  'game coordinator resolves mutation execution context through specialized runtime-read hydration lane'
+);
+assert(
+  runtimeReadServiceSource.includes('public function resolveMutationExecutionContext('),
+  'coordinator runtime-read service exposes specialized mutation execution context loader'
 );
 
 console.log(`\nPassed: ${passed}`);
