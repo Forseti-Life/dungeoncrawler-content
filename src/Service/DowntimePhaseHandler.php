@@ -926,48 +926,6 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
         $mutation['field'] = $mutation['path'];
       }
 
-      if (!isset($mutation['entity_id'])) {
-        foreach ([
-          $mutation['entity'] ?? NULL,
-          $mutation['actor_id'] ?? NULL,
-          $mutation['actor'] ?? NULL,
-          $mutation['target_id'] ?? NULL,
-          $mutation['target'] ?? NULL,
-          $mutation['char_id'] ?? NULL,
-          $mutation['character_id'] ?? NULL,
-        ] as $candidate) {
-          $normalized_candidate = $this->normalizeMutationTargetId($candidate);
-          if ($normalized_candidate !== NULL) {
-            $mutation['entity_id'] = $normalized_candidate;
-            break;
-          }
-        }
-      }
-
-      if (!isset($mutation['room_id'])) {
-        foreach ([
-          $mutation['target_room_id'] ?? NULL,
-          $mutation['to_room_id'] ?? NULL,
-          $mutation['to_room'] ?? NULL,
-          $mutation['from_room_id'] ?? NULL,
-          $mutation['from_room'] ?? NULL,
-          $mutation['active_room_id'] ?? NULL,
-        ] as $candidate) {
-          $normalized_candidate = $this->normalizeMutationTargetId($candidate);
-          if ($normalized_candidate !== NULL) {
-            $mutation['room_id'] = $normalized_candidate;
-            break;
-          }
-        }
-      }
-
-      if (!isset($mutation['connection_id'])) {
-        $normalized_connection_id = $this->normalizeMutationTargetId($mutation['connector_id'] ?? NULL);
-        if ($normalized_connection_id !== NULL) {
-          $mutation['connection_id'] = $normalized_connection_id;
-        }
-      }
-
       $has_actor_target = trim((string) ($mutation['entity_id'] ?? '')) !== '';
       $has_room_target = trim((string) ($mutation['room_id'] ?? '')) !== '';
 
@@ -977,7 +935,6 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
         && (str_contains($field, 'entity') || str_contains($field, 'actor') || str_contains($field, 'char') || str_contains($field, 'placement') || str_contains($field, 'condition') || str_contains($field, 'resource') || str_contains($field, 'hp'))
       ) {
         $mutation['entity_id'] = $normalized_actor_id;
-        $mutation['actor_id'] = $normalized_actor_id;
       }
 
       if (
@@ -1538,7 +1495,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
       'conditions_removed' => $conditions_removed,
       'spell_slots_restored' => TRUE,
       'mutations' => [
-        ['entity' => $actor_id, 'field' => 'hit_points.current', 'to' => $new_hp],
+        ['entity_id' => $actor_id, 'field' => 'hit_points.current', 'to' => $new_hp],
       ],
     ];
   }
@@ -1651,7 +1608,7 @@ class DowntimePhaseHandler implements PhaseHandlerInterface {
       'hp_restored' => $hp_restored,
       'new_hp' => $new_hp,
       'mutations' => [
-        ['entity' => $actor_id, 'field' => 'hit_points.current', 'to' => $new_hp],
+        ['entity_id' => $actor_id, 'field' => 'hit_points.current', 'to' => $new_hp],
       ],
     ];
   }

@@ -68,10 +68,19 @@ for (const rel of files) {
     '\n  /**\n   * {@inheritdoc}\n   */\n  public function onEnter('
   );
   assert(
-    normalizeBody.includes("$mutation['entity_id'] = $normalized_candidate;")
-      && normalizeBody.includes("$mutation['room_id'] = $normalized_candidate;")
-      && normalizeBody.includes("$mutation['connection_id'] = $normalized_connection_id;"),
-    `${label} normalizes legacy aliases into canonical target keys`
+    normalizeBody.includes("$mutation['field'] = $mutation['path'];")
+      && normalizeBody.includes("$mutation['entity_id'] = $normalized_actor_id;")
+      && normalizeBody.includes("$mutation['room_id'] = $normalized_room_id;"),
+    `${label} normalizes defaults using canonical keys only`
+  );
+  assert(
+    !normalizeBody.includes("$mutation['entity'] ?? NULL")
+      && !normalizeBody.includes("$mutation['actor'] ?? NULL")
+      && !normalizeBody.includes("$mutation['target_id'] ?? NULL")
+      && !normalizeBody.includes("$mutation['target_room_id'] ?? NULL")
+      && !normalizeBody.includes("$mutation['connector_id'] ?? NULL")
+      && !normalizeBody.includes("$mutation['actor_id'] = $normalized_actor_id;"),
+    `${label} normalize-descriptors path has no legacy alias mapping branches`
   );
 }
 

@@ -1136,48 +1136,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         $mutation['field'] = $mutation['path'];
       }
 
-      if (!isset($mutation['entity_id'])) {
-        foreach ([
-          $mutation['entity'] ?? NULL,
-          $mutation['actor_id'] ?? NULL,
-          $mutation['actor'] ?? NULL,
-          $mutation['target_id'] ?? NULL,
-          $mutation['target'] ?? NULL,
-          $mutation['char_id'] ?? NULL,
-          $mutation['character_id'] ?? NULL,
-        ] as $candidate) {
-          $normalized_candidate = $this->normalizeMutationTargetId($candidate);
-          if ($normalized_candidate !== NULL) {
-            $mutation['entity_id'] = $normalized_candidate;
-            break;
-          }
-        }
-      }
-
-      if (!isset($mutation['room_id'])) {
-        foreach ([
-          $mutation['target_room_id'] ?? NULL,
-          $mutation['to_room_id'] ?? NULL,
-          $mutation['to_room'] ?? NULL,
-          $mutation['from_room_id'] ?? NULL,
-          $mutation['from_room'] ?? NULL,
-          $mutation['active_room_id'] ?? NULL,
-        ] as $candidate) {
-          $normalized_candidate = $this->normalizeMutationTargetId($candidate);
-          if ($normalized_candidate !== NULL) {
-            $mutation['room_id'] = $normalized_candidate;
-            break;
-          }
-        }
-      }
-
-      if (!isset($mutation['connection_id'])) {
-        $normalized_connection_id = $this->normalizeMutationTargetId($mutation['connector_id'] ?? NULL);
-        if ($normalized_connection_id !== NULL) {
-          $mutation['connection_id'] = $normalized_connection_id;
-        }
-      }
-
       $has_actor_target = trim((string) ($mutation['entity_id'] ?? '')) !== '';
       $has_room_target = trim((string) ($mutation['room_id'] ?? '')) !== '';
 
@@ -1187,7 +1145,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
         && (str_contains($field, 'entity') || str_contains($field, 'actor') || str_contains($field, 'char') || str_contains($field, 'placement') || str_contains($field, 'condition') || str_contains($field, 'resource') || str_contains($field, 'hp'))
       ) {
         $mutation['entity_id'] = $normalized_actor_id;
-        $mutation['actor_id'] = $normalized_actor_id;
       }
 
       if (
@@ -6928,10 +6885,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface {
       'events' => $events,
       'time_effects' => $this->buildTransitionTimeEffects($actor_id, $from_room, $target_room_id, $capability, $params),
       'mutations' => $actor_id ? [
-        ['entity' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
-        ['entity' => $actor_id, 'field' => 'placement.hex', 'to' => $entry_hex],
-        ['entity' => $actor_id, 'field' => 'placement.facing', 'to' => $this->normalizeFacingDirection($entry_facing)],
-        ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14($dungeon_data, $target_room_id, $entry_hex)],
+        ['entity_id' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
+        ['entity_id' => $actor_id, 'field' => 'placement.hex', 'to' => $entry_hex],
+        ['entity_id' => $actor_id, 'field' => 'placement.facing', 'to' => $this->normalizeFacingDirection($entry_facing)],
+        ['entity_id' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14($dungeon_data, $target_room_id, $entry_hex)],
       ] : [],
     ];
   }

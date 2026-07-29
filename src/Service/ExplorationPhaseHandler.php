@@ -2050,48 +2050,6 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $mutation['field'] = $mutation['path'];
       }
 
-      if (!isset($mutation['entity_id'])) {
-        foreach ([
-          $mutation['entity'] ?? NULL,
-          $mutation['actor_id'] ?? NULL,
-          $mutation['actor'] ?? NULL,
-          $mutation['target_id'] ?? NULL,
-          $mutation['target'] ?? NULL,
-          $mutation['char_id'] ?? NULL,
-          $mutation['character_id'] ?? NULL,
-        ] as $candidate) {
-          $normalized_candidate = $this->normalizeMutationTargetId($candidate);
-          if ($normalized_candidate !== NULL) {
-            $mutation['entity_id'] = $normalized_candidate;
-            break;
-          }
-        }
-      }
-
-      if (!isset($mutation['room_id'])) {
-        foreach ([
-          $mutation['target_room_id'] ?? NULL,
-          $mutation['to_room_id'] ?? NULL,
-          $mutation['to_room'] ?? NULL,
-          $mutation['from_room_id'] ?? NULL,
-          $mutation['from_room'] ?? NULL,
-          $mutation['active_room_id'] ?? NULL,
-        ] as $candidate) {
-          $normalized_candidate = $this->normalizeMutationTargetId($candidate);
-          if ($normalized_candidate !== NULL) {
-            $mutation['room_id'] = $normalized_candidate;
-            break;
-          }
-        }
-      }
-
-      if (!isset($mutation['connection_id'])) {
-        $normalized_connection_id = $this->normalizeMutationTargetId($mutation['connector_id'] ?? NULL);
-        if ($normalized_connection_id !== NULL) {
-          $mutation['connection_id'] = $normalized_connection_id;
-        }
-      }
-
       $has_actor_target = trim((string) ($mutation['entity_id'] ?? '')) !== '';
       $has_room_target = trim((string) ($mutation['room_id'] ?? '')) !== '';
 
@@ -2101,7 +2059,6 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         && (str_contains($field, 'entity') || str_contains($field, 'actor') || str_contains($field, 'char') || str_contains($field, 'placement') || str_contains($field, 'condition') || str_contains($field, 'resource') || str_contains($field, 'hp'))
       ) {
         $mutation['entity_id'] = $normalized_actor_id;
-        $mutation['actor_id'] = $normalized_actor_id;
       }
 
       if (
@@ -2229,7 +2186,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
     $entity['placement']['hex'] = ['q' => (int) $to_hex['q'], 'r' => (int) $to_hex['r']];
 
     $mutations = [
-      ['entity' => $actor_id, 'field' => 'placement.hex', 'from' => $from_hex, 'to' => $to_hex],
+      ['entity_id' => $actor_id, 'field' => 'placement.hex', 'from' => $from_hex, 'to' => $to_hex],
     ];
     $result = [
       'moved' => TRUE,
@@ -2291,7 +2248,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
         $entity['state']['conditions']['fatigued'] = TRUE;
         $result['fatigue_applied'] = TRUE;
         $result['hustle_minutes_elapsed'] = $hustle_elapsed;
-        $mutations[] = ['entity' => $actor_id, 'field' => 'state.conditions.fatigued', 'from' => FALSE, 'to' => TRUE];
+        $mutations[] = ['entity_id' => $actor_id, 'field' => 'state.conditions.fatigued', 'from' => FALSE, 'to' => TRUE];
       }
       $result['speed_bonus'] = 2.0;
       $result['hustle_minutes_elapsed'] = $hustle_elapsed;
@@ -3817,13 +3774,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'sensory_reveals' => $auto_sensory_reveal['reveals'] ?? [],
       'sensory_narration' => $this->buildRoomEntrySensoryNarration($auto_sensory_reveal),
       'mutations' => [
-        ['entity' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
-        ['entity' => $actor_id, 'field' => 'placement.hex', 'to' => [
+        ['entity_id' => $actor_id, 'field' => 'placement.room_id', 'to' => $target_room_id],
+        ['entity_id' => $actor_id, 'field' => 'placement.hex', 'to' => [
           'q' => (int) ($entry_hex['q'] ?? 0),
           'r' => (int) ($entry_hex['r'] ?? 0),
         ]],
-        ['entity' => $actor_id, 'field' => 'placement.facing', 'to' => $this->normalizeFacingDirection($entry_facing)],
-        ['entity' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14(
+        ['entity_id' => $actor_id, 'field' => 'placement.facing', 'to' => $this->normalizeFacingDirection($entry_facing)],
+        ['entity_id' => $actor_id, 'field' => 'placement.h3_index_res14', 'to' => $this->resolveRoomHexH3IndexRes14(
           $dungeon_data,
           $target_room_id,
           is_array($entry_hex) ? $entry_hex : ['q' => 0, 'r' => 0]
@@ -3948,7 +3905,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'target' => $target_id,
       'hazard_events' => $active_hazard_events,
       'mutations' => [
-        ['entity' => $target_id, 'field' => 'passable', 'to' => TRUE],
+        ['entity_id' => $target_id, 'field' => 'passable', 'to' => TRUE],
       ],
     ];
   }
