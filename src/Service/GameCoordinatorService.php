@@ -118,6 +118,7 @@ class GameCoordinatorService {
 
   protected CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync;
   protected RuntimeBootstrapService $runtimeBootstrap;
+  protected CoordinatorRuntimeReadService $coordinatorRuntimeReadService;
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
   protected RuntimeGraphAssemblerService $runtimeGraphAssembler;
   protected CampaignRuntimeStateStore $campaignRuntimeStateStore;
@@ -187,6 +188,7 @@ class GameCoordinatorService {
     AiGmService $ai_gm_service,
     CampaignTimeResolverService $campaign_time_resolver,
     RuntimeBootstrapService $runtime_bootstrap,
+    CoordinatorRuntimeReadService $coordinator_runtime_read_service,
     DungeonPayloadStatePersistenceService $dungeon_payload_state_persistence,
     RuntimeGraphAssemblerService $runtime_graph_assembler,
     CampaignRuntimeStateStore $campaign_runtime_state_store,
@@ -208,6 +210,7 @@ class GameCoordinatorService {
     $this->aiGmService = $ai_gm_service;
     $this->campaignTimeResolver = $campaign_time_resolver;
     $this->runtimeBootstrap = $runtime_bootstrap;
+    $this->coordinatorRuntimeReadService = $coordinator_runtime_read_service;
     $this->dungeonPayloadStatePersistence = $dungeon_payload_state_persistence;
     $this->runtimeGraphAssembler = $runtime_graph_assembler;
     $this->campaignRuntimeStateStore = $campaign_runtime_state_store;
@@ -2486,24 +2489,15 @@ class GameCoordinatorService {
    *   when dungeon data is unavailable.
    */
   protected function resolveActionAvailabilityContext(int $campaign_id, ?string $actor_id = NULL): ?array {
-    $requested_room_id = $this->resolveActorRoomIdFromRuntimeStore($campaign_id, $actor_id);
-    $dungeon_data = $this->loadDungeonData(
-      $campaign_id,
-      $actor_id,
-      TRUE,
-      1,
-      $requested_room_id
-    );
-    if (!$dungeon_data) {
+    $context = $this->coordinatorRuntimeReadService->resolveActionAvailabilityContext($campaign_id, $actor_id);
+    if ($context === NULL) {
       return NULL;
     }
-
-    $game_state = $this->ensureGameState($dungeon_data);
-    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
+    $phase = $context['game_state']['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
 
     return [
-      'dungeon_data' => $dungeon_data,
-      'game_state' => $game_state,
+      'dungeon_data' => $context['dungeon_data'],
+      'game_state' => $context['game_state'],
       'handler' => $this->getPhaseHandler($phase),
     ];
   }

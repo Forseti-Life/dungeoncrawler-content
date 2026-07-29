@@ -1271,6 +1271,7 @@ services:
       - '@dungeoncrawler_content.ai_gm'
       - '@dungeoncrawler_content.campaign_time_resolver'
       - '@dungeoncrawler_content.runtime_bootstrap'
+      - '@dungeoncrawler_content.coordinator_runtime_read'
       - '@dungeoncrawler_content.dungeon_payload_state_persistence'
       - '@dungeoncrawler_content.runtime_graph_assembler'
       - '@dungeoncrawler_content.campaign_runtime_state_store'
@@ -1296,6 +1297,16 @@ services:
       - '@dungeoncrawler_content.actor_runtime_state_store'
       - '@dungeoncrawler_content.room_runtime_state_store'
       - '@dungeoncrawler_content.connection_runtime_state_store'
+      - '@logger.factory'
+
+  dungeoncrawler_content.coordinator_runtime_read:
+    class: Drupal\dungeoncrawler_content\Service\CoordinatorRuntimeReadService
+    arguments:
+      - '@dungeoncrawler_content.runtime_bootstrap'
+      - '@dungeoncrawler_content.runtime_graph_assembler'
+      - '@dungeoncrawler_content.campaign_runtime_state_store'
+      - '@dungeoncrawler_content.actor_runtime_state_store'
+      - '@dungeoncrawler_content.campaign_character_runtime_sync'
       - '@logger.factory'
 
   dungeoncrawler_content.ai_session_manager:
