@@ -452,13 +452,13 @@ class GameCoordinatorService {
       $phase_transition_mutation_envelope ?? ($action_result['mutation_envelope'] ?? NULL),
       $game_state,
       $dungeon_data,
-      $pre_action_payload_fingerprint
+      $pre_action_payload_fingerprint,
+      FALSE
     );
     $this->persistStateWithMinimalWrite(
       $campaign_id,
       $dungeon_data,
       $game_state,
-      $pre_action_payload_fingerprint,
       $mutation_envelope
     );
     $this->ensurePersistedRuntimeStateMatches($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
@@ -919,13 +919,13 @@ class GameCoordinatorService {
       $result['mutation_envelope'] ?? NULL,
       $game_state,
       $dungeon_data,
-      $pre_transition_payload_fingerprint
+      $pre_transition_payload_fingerprint,
+      FALSE
     );
     $this->persistStateWithMinimalWrite(
       $campaign_id,
       $dungeon_data,
       $game_state,
-      $pre_transition_payload_fingerprint,
       $mutation_envelope
     );
     $this->ensurePersistedRuntimeStateMatches($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
@@ -1060,13 +1060,13 @@ class GameCoordinatorService {
       $combat_mutation_envelope,
       $game_state,
       $dungeon_data,
-      $pre_combat_payload_fingerprint
+      $pre_combat_payload_fingerprint,
+      FALSE
     );
     $this->persistStateWithMinimalWrite(
       $campaign_id,
       $dungeon_data,
       $game_state,
-      $pre_combat_payload_fingerprint,
       $mutation_envelope
     );
     $this->ensurePersistedRuntimeStateMatches($campaign_id, $game_state, (string) ($dungeon_data['active_room_id'] ?? ''));
@@ -1545,16 +1545,14 @@ class GameCoordinatorService {
     int $campaign_id,
     array $dungeon_data,
     array $game_state,
-    string $before_non_game_state_fingerprint,
     ?array $mutation_envelope = NULL
   ): bool {
     if ($mutation_envelope === NULL) {
-      $after_non_game_state_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
       $mutation_envelope = $this->buildMutationEnvelopeFromPayload(
         $campaign_id,
         $game_state,
         $dungeon_data,
-        $after_non_game_state_fingerprint !== $before_non_game_state_fingerprint
+        TRUE
       );
     }
     return $this->persistMutationEnvelope($mutation_envelope);
@@ -2093,6 +2091,11 @@ class GameCoordinatorService {
    *
    * @param array<string,mixed>|null $candidate_envelope
    *   Handler-provided candidate envelope.
+   * @param string|null $before_non_game_state_fingerprint
+   *   Optional pre-mutation fingerprint for non-game-state payload sections.
+   * @param bool $allow_payload_non_game_state_backfill
+   *   TRUE to allow payload-derived actor/room/connection backfill when
+   *   non-game-state data changed but envelope omitted those slices.
    *
    * @return array<string,mixed>
    *   Normalized envelope.
@@ -2102,17 +2105,25 @@ class GameCoordinatorService {
     ?array $candidate_envelope,
     array $game_state,
     array $dungeon_data,
-    string $before_non_game_state_fingerprint
+    ?string $before_non_game_state_fingerprint = NULL,
+    bool $allow_payload_non_game_state_backfill = TRUE
   ): array {
     $after_non_game_state_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);
-    $non_game_state_changed = $after_non_game_state_fingerprint !== $before_non_game_state_fingerprint;
+    $non_game_state_changed = $before_non_game_state_fingerprint !== NULL
+      && $after_non_game_state_fingerprint !== $before_non_game_state_fingerprint;
 
     if (!is_array($candidate_envelope) || $candidate_envelope === []) {
+      if ($non_game_state_changed && !$allow_payload_non_game_state_backfill) {
+        throw new \RuntimeException(sprintf(
+          'Mutation envelope contract violation: non-game-state payload changed without explicit typed slices for campaign %d.',
+          $campaign_id
+        ));
+      }
       return $this->buildMutationEnvelopeFromPayload(
         $campaign_id,
         $game_state,
         $dungeon_data,
-        $non_game_state_changed
+        $allow_payload_non_game_state_backfill && $non_game_state_changed
       );
     }
 
@@ -2162,12 +2173,13 @@ class GameCoordinatorService {
     // Safety fallback: if payload non-game-state changed but the envelope carries
     // no non-game-state slices, persist from current payload so changes are not
     // silently dropped during incremental handler migration.
-    if (
-      $non_game_state_changed
-      && $normalized['actor_entities'] === []
-      && $normalized['rooms'] === []
-      && $normalized['connections'] === []
-    ) {
+    if ($non_game_state_changed && $normalized['actor_entities'] === [] && $normalized['rooms'] === [] && $normalized['connections'] === []) {
+      if (!$allow_payload_non_game_state_backfill) {
+        throw new \RuntimeException(sprintf(
+          'Mutation envelope contract violation: non-game-state payload changed without explicit typed slices for campaign %d.',
+          $campaign_id
+        ));
+      }
       $normalized['actor_entities'] = is_array($dungeon_data['entities'] ?? NULL) ? $dungeon_data['entities'] : [];
       $normalized['rooms'] = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
       $normalized['connections'] = $this->collectRuntimeConnectionsFromPayload($dungeon_data);

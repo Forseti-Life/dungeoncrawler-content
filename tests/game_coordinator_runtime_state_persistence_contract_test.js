@@ -43,6 +43,22 @@ assert(
   source.includes('Mutation envelope contract violation: failed to persist campaign_state for campaign %d.'),
   'persistMutationEnvelope hard-fails when campaign-state slice persistence fails'
 );
+assert(
+  source.includes('$pre_action_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);')
+  && source.includes('$pre_transition_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);')
+  && source.includes('$pre_combat_payload_fingerprint = $this->computeNonGameStatePayloadFingerprint($dungeon_data);'),
+  'mutation lanes capture pre-mutation non-game-state fingerprints for contract enforcement'
+);
+assert(
+  source.includes('$pre_action_payload_fingerprint,\n      FALSE')
+  && source.includes('$pre_transition_payload_fingerprint,\n      FALSE')
+  && source.includes('$pre_combat_payload_fingerprint,\n      FALSE'),
+  'action, transition, and combat lanes disable payload backfill and require explicit typed non-game-state slices'
+);
+assert(
+  source.includes('Mutation envelope contract violation: non-game-state payload changed without explicit typed slices for campaign %d.'),
+  'coordinator throws when non-game-state payload mutates without explicit typed envelope slices'
+);
 
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);
