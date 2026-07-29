@@ -1,0 +1,58 @@
+/**
+ * @file
+ * Contract test: encounter phase handler mutation-envelope completeness.
+ *
+ * Run with:
+ *   node tests/encounter_phase_handler_mutation_envelope_contract_test.js
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const source = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
+  'utf8'
+);
+
+let passed = 0;
+let failed = 0;
+
+function assert(condition, message) {
+  if (condition) {
+    passed++;
+    console.log(`  ✓ ${message}`);
+  } else {
+    failed++;
+    console.error(`  ✗ ${message}`);
+  }
+}
+
+console.log('\n=== Encounter phase handler mutation-envelope contract ===');
+
+assert(
+  source.includes('$pre_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);'),
+  'processIntent captures pre-mutation runtime-slice fingerprints'
+);
+assert(
+  source.includes('$result[\'mutation_envelope\'] = $this->ensureMutationEnvelopeIncludesChangedSlices('),
+  'processIntent enforces changed-slice coverage on mutation envelopes'
+);
+assert(
+  source.includes('protected function ensureMutationEnvelopeIncludesChangedSlices('),
+  'encounter handler provides changed-slice envelope completion helper'
+);
+assert(
+  source.includes('protected function computeRuntimeSliceFingerprints(array $dungeon_data): array'),
+  'encounter handler defines runtime-slice fingerprint helper'
+);
+assert(
+  source.includes("'type' => 'room_encounter_triggered'")
+  && source.includes("'field' => 'room.encounter_triggered'"),
+  'onEnter includes explicit room mutation descriptor for encounter-trigger writes'
+);
+
+console.log(`\nPassed: ${passed}`);
+console.log(`Failed: ${failed}`);
+if (failed > 0) {
+  process.exit(1);
+}
