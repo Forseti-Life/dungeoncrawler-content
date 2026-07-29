@@ -27,6 +27,7 @@ final class RoomChatHistoryProjector {
     $chat = $channel_manager->filterMessagesByChannel($chat, $channel);
     if ($channel === 'room') {
       $chat = $this->normalizeOpeningNarratorLine($chat, $room_entry);
+      $chat = $this->suppressLeadingDuplicateRoomSceneIntro($chat, $room_entry, $prefix_service);
     }
 
     if ($channel !== 'room' && $character_id !== NULL) {
@@ -224,6 +225,55 @@ final class RoomChatHistoryProjector {
   }
 
   /**
+   * Remove the leading scene-intro chat line when it duplicates room chrome.
+   */
+  private function suppressLeadingDuplicateRoomSceneIntro(
+    array $chat,
+    array $room_entry,
+    EncounterTranscriptPrefixService $prefix_service
+  ): array {
+    $description = trim((string) ($room_entry['description'] ?? ''));
+    if ($description === '') {
+      return $chat;
+    }
+
+    $scene_intro = $this->normalizeSceneIntroComparisonText(
+      $this->buildRoomSceneNarratorIntro($room_entry),
+      $prefix_service
+    );
+    $description_only = $this->normalizeSceneIntroComparisonText($description, $prefix_service);
+    if ($scene_intro === '' && $description_only === '') {
+      return $chat;
+    }
+
+    foreach ($chat as $index => $message) {
+      if (!is_array($message) || !empty($message['internal_log'])) {
+        continue;
+      }
+
+      $body = trim((string) ($message['message'] ?? ''));
+      if ($body === '') {
+        continue;
+      }
+
+      $speaker = strtolower(trim((string) ($message['speaker'] ?? '')));
+      if (!in_array($speaker, ['narrator', 'game master'], TRUE)) {
+        return $chat;
+      }
+
+      $normalized_body = $this->normalizeSceneIntroComparisonText($body, $prefix_service);
+      if ($normalized_body === $scene_intro || $normalized_body === $description_only) {
+        unset($chat[$index]);
+        return array_values($chat);
+      }
+
+      return $chat;
+    }
+
+    return $chat;
+  }
+
+  /**
    * Build deterministic narrator scene intro for a room.
    */
   private function buildRoomSceneNarratorIntro(array $room_entry): string {
@@ -241,6 +291,19 @@ final class RoomChatHistoryProjector {
     $parts[] = $description;
 
     return implode("\n\n", $parts);
+  }
+
+  /**
+   * Normalize intro text for duplicate-comparison checks.
+   */
+  private function normalizeSceneIntroComparisonText(
+    string $content,
+    EncounterTranscriptPrefixService $prefix_service
+  ): string {
+    $content = $prefix_service->stripPrefix(trim($content));
+    $content = preg_replace('/^(Narrator|Game Master):\s*/iu', '', $content, 1) ?? $content;
+    $content = preg_replace('/\s+/u', ' ', trim($content)) ?? $content;
+    return mb_strtolower(trim($content));
   }
 
   /**

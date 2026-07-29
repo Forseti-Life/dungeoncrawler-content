@@ -110,7 +110,7 @@ class GameCoordinatorController extends ControllerBase {
    *   Full game state payload.
    */
   public function getState(int $campaign_id): JsonResponse {
-    $result = $this->gameCoordinator->getFullState($campaign_id);
+    $result = $this->gameCoordinator->getMaterializedFullState($campaign_id);
 
     $status = ($result['success'] ?? FALSE) ? 200 : 404;
     return new JsonResponse($result, $status);
@@ -240,7 +240,7 @@ class GameCoordinatorController extends ControllerBase {
       ]
     );
     $result = $this->playerAgentHarness->runStep($campaign_id, $profile, $run_state);
-    $result['state_sync'] = $this->gameCoordinator->getFullState($campaign_id);
+    $result['state_sync'] = $this->gameCoordinator->getMaterializedFullState($campaign_id);
 
     $decision = is_array($result['decision'] ?? NULL) ? $result['decision'] : [];
     $response_result = is_array($result['response']['result'] ?? NULL) ? $result['response']['result'] : [];

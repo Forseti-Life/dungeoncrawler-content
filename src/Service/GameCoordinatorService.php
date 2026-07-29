@@ -337,8 +337,8 @@ class GameCoordinatorService {
     $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
 
     // Bootstrap the initial room-entered encounter framework when needed.
-    // getFullState() already does this; processAction() must also do it so the
-    // first action cannot fail with "No active encounter".
+    // Materialized full-state reads do this too; processAction() must also do
+    // it so the first action cannot fail with "No active encounter".
     $bootstrap_events = $this->bootstrapInitialRoomEntry($campaign_id, $dungeon_data, $game_state);
     if ($bootstrap_events !== []) {
       $game_state['event_log_cursor'] = max(array_map(
@@ -550,57 +550,25 @@ class GameCoordinatorService {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
 
-    $had_game_state = isset($dungeon_data['game_state']) && is_array($dungeon_data['game_state']);
     $game_state = $this->ensureGameState($dungeon_data);
-    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
-    $handler = $this->getPhaseHandler($phase);
-    $bootstrap_events = $this->bootstrapInitialRoomEntry($campaign_id, $dungeon_data, $game_state);
-    if ($bootstrap_events !== []) {
-      $game_state['event_log_cursor'] = max(array_map(
-        static fn (array $event): int => (int) ($event['id'] ?? 0),
-        $bootstrap_events
-      ));
-    }
-    $this->synchronizeActiveRoomAuthority($game_state, $dungeon_data);
-    $initial_events = $bootstrap_events !== []
-      ? $bootstrap_events
-      : $this->collectUnseenInitialEvents($dungeon_data, $game_state, FALSE);
-    if ($bootstrap_events !== []) {
-      $this->persistMutationEnvelope($this->buildMutationEnvelopeFromPayload(
-        $campaign_id,
-        $game_state,
-        $dungeon_data,
-        TRUE
-      ));
-    }
-    elseif (!$had_game_state) {
-      $this->persistMutationEnvelope($this->buildMutationEnvelopeFromPayload(
-        $campaign_id,
-        $game_state,
-        $dungeon_data,
-        FALSE
-      ));
-    }
-    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
-    $handler = $this->getPhaseHandler($phase);
-    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
+    return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, FALSE);
+  }
 
-    return [
-      'success' => TRUE,
-      'game_state' => $this->buildClientGameState($game_state),
-      'phase' => $phase,
-      'available_actions' => $handler
-        ? $handler->getAvailableActions($game_state, $dungeon_data)
-        : [],
-      'action_contract' => $action_contract,
-      'legal_intents' => $handler ? $handler->getLegalIntents() : [],
-      'state_version' => $game_state['state_version'] ?? 1,
-      'active_room_id' => $dungeon_data['active_room_id'] ?? NULL,
-      'encounter_id' => $game_state['encounter_id'] ?? NULL,
-      'round' => $game_state['round'] ?? NULL,
-      'turn' => $game_state['turn'] ?? NULL,
-      'events' => $initial_events,
-    ];
+  /**
+   * Get a materialized full game state for runtime bootstrap-compatible callers.
+   *
+   * This path preserves legacy behavior by allowing initial room-entry
+   * bootstrap and cursor/materialization persistence during the read request.
+   */
+  public function getMaterializedFullState(int $campaign_id): array {
+    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+    $dungeon_data = $this->loadDungeonData($campaign_id, NULL, TRUE, 1);
+    if (!$dungeon_data) {
+      return $this->errorResponse('Campaign dungeon data not found.');
+    }
+
+    $game_state = $this->ensureGameState($dungeon_data);
+    return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, TRUE);
   }
 
   /**
@@ -2436,6 +2404,77 @@ class GameCoordinatorService {
       'available_actions' => [],
       'action_contract' => NULL,
       'state_version' => $game_state['state_version'] ?? NULL,
+    ];
+  }
+
+  /**
+   * Build full-state response from current runtime context.
+   *
+   * @param bool $materialize_initial_room_entry
+   *   TRUE to allow bootstrap/materialization writes for compatibility lanes.
+   */
+  protected function buildFullStateResponse(
+    int $campaign_id,
+    array &$dungeon_data,
+    array &$game_state,
+    bool $materialize_initial_room_entry
+  ): array {
+    $initial_events = [];
+    if ($materialize_initial_room_entry) {
+      $had_game_state = isset($dungeon_data['game_state']) && is_array($dungeon_data['game_state']);
+      $bootstrap_events = $this->bootstrapInitialRoomEntry($campaign_id, $dungeon_data, $game_state);
+      if ($bootstrap_events !== []) {
+        $game_state['event_log_cursor'] = max(array_map(
+          static fn (array $event): int => (int) ($event['id'] ?? 0),
+          $bootstrap_events
+        ));
+      }
+      $this->synchronizeActiveRoomAuthority($game_state, $dungeon_data);
+      $initial_events = $bootstrap_events !== []
+        ? $bootstrap_events
+        : $this->collectUnseenInitialEvents($dungeon_data, $game_state, FALSE);
+
+      if ($bootstrap_events !== []) {
+        $this->persistMutationEnvelope($this->buildMutationEnvelopeFromPayload(
+          $campaign_id,
+          $game_state,
+          $dungeon_data,
+          TRUE
+        ));
+      }
+      elseif (!$had_game_state) {
+        $this->persistMutationEnvelope($this->buildMutationEnvelopeFromPayload(
+          $campaign_id,
+          $game_state,
+          $dungeon_data,
+          FALSE
+        ));
+      }
+    }
+    else {
+      $this->synchronizeActiveRoomAuthority($game_state, $dungeon_data);
+      $initial_events = $this->collectUnseenInitialEvents($dungeon_data, $game_state, FALSE);
+    }
+
+    $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
+    $handler = $this->getPhaseHandler($phase);
+    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
+
+    return [
+      'success' => TRUE,
+      'game_state' => $this->buildClientGameState($game_state),
+      'phase' => $phase,
+      'available_actions' => $handler
+        ? $handler->getAvailableActions($game_state, $dungeon_data)
+        : [],
+      'action_contract' => $action_contract,
+      'legal_intents' => $handler ? $handler->getLegalIntents() : [],
+      'state_version' => $game_state['state_version'] ?? 1,
+      'active_room_id' => $dungeon_data['active_room_id'] ?? NULL,
+      'encounter_id' => $game_state['encounter_id'] ?? NULL,
+      'round' => $game_state['round'] ?? NULL,
+      'turn' => $game_state['turn'] ?? NULL,
+      'events' => $initial_events,
     ];
   }
 
