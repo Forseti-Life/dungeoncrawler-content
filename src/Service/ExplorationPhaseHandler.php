@@ -326,6 +326,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
    * {@inheritdoc}
    */
   public function processIntent(array $intent, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $pre_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);
     $type = $intent['type'] ?? '';
     $actor_id = $intent['actor'] ?? NULL;
     $target_id = $intent['target'] ?? NULL;
@@ -1634,6 +1635,13 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'result' => is_array($mechanical_result) ? $mechanical_result : $result,
     ]);
 
+    $mutation_envelope = $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, $mutations);
+    $mutation_envelope = $this->ensureMutationEnvelopeIncludesChangedSlices(
+      $mutation_envelope,
+      $pre_slice_fingerprints,
+      $dungeon_data
+    );
+
     return [
       'success' => TRUE,
       'result' => $result,
@@ -1641,7 +1649,7 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
       'events' => $events,
       'phase_transition' => $phase_transition,
       'narration' => $narration,
-      'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, $mutations),
+      'mutation_envelope' => $mutation_envelope,
     ];
   }
 
@@ -1676,6 +1684,89 @@ class ExplorationPhaseHandler implements PhaseHandlerInterface {
           $targets['room_ids']
         )
         : [],
+    ];
+  }
+
+  /**
+   * Ensure typed mutation envelope carries all runtime slices that changed.
+   *
+   * @param array<string,mixed> $mutation_envelope
+   *   Candidate mutation envelope.
+   * @param array<string,string> $pre_slice_fingerprints
+   *   Pre-mutation actor_entities/rooms/connections fingerprints.
+   *
+   * @return array<string,mixed>
+   *   Envelope with changed runtime slices explicitly populated.
+   */
+  protected function ensureMutationEnvelopeIncludesChangedSlices(
+    array $mutation_envelope,
+    array $pre_slice_fingerprints,
+    array $dungeon_data
+  ): array {
+    $after_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);
+    $changed_slices = [];
+    foreach (['actor_entities', 'rooms', 'connections'] as $slice_key) {
+      $before = (string) ($pre_slice_fingerprints[$slice_key] ?? '');
+      $after = (string) ($after_slice_fingerprints[$slice_key] ?? '');
+      if ($before !== '' && $after !== '' && $before !== $after) {
+        $changed_slices[] = $slice_key;
+      }
+    }
+
+    if ($changed_slices === []) {
+      return $mutation_envelope;
+    }
+
+    foreach ($changed_slices as $slice_key) {
+      $slice_payload = is_array($mutation_envelope[$slice_key] ?? NULL) ? $mutation_envelope[$slice_key] : [];
+      if ($slice_payload !== []) {
+        continue;
+      }
+      if ($slice_key === 'actor_entities') {
+        $mutation_envelope['actor_entities'] = is_array($dungeon_data['entities'] ?? NULL)
+          ? $this->selectMutationTargetedActorEntities($dungeon_data['entities'], [])
+          : [];
+      }
+      elseif ($slice_key === 'rooms') {
+        $mutation_envelope['rooms'] = is_array($dungeon_data['rooms'] ?? NULL)
+          ? $this->selectMutationTargetedRooms($dungeon_data['rooms'], [])
+          : [];
+      }
+      elseif ($slice_key === 'connections') {
+        $mutation_envelope['connections'] = $this->selectMutationTargetedConnections($dungeon_data, [], []);
+      }
+    }
+
+    return $mutation_envelope;
+  }
+
+  /**
+   * Build deterministic fingerprints for runtime non-game-state slices.
+   *
+   * @return array{actor_entities: string, rooms: string, connections: string}
+   *   Fingerprints for actor entities, rooms, and connections.
+   */
+  protected function computeRuntimeSliceFingerprints(array $dungeon_data): array {
+    $actor_entities = is_array($dungeon_data['entities'] ?? NULL)
+      ? $this->selectMutationTargetedActorEntities($dungeon_data['entities'], [])
+      : [];
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL)
+      ? $this->selectMutationTargetedRooms($dungeon_data['rooms'], [])
+      : [];
+    $connections = $this->selectMutationTargetedConnections($dungeon_data, [], []);
+
+    $encode = static function (array $payload): string {
+      $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      if (!is_string($encoded)) {
+        throw new \RuntimeException('Exploration runtime-slice fingerprint contract violation: unable to encode payload.');
+      }
+      return hash('sha256', $encoded);
+    };
+
+    return [
+      'actor_entities' => $encode($actor_entities),
+      'rooms' => $encode($rooms),
+      'connections' => $encode($connections),
     ];
   }
 

@@ -50,10 +50,10 @@ assert(
   'mutation lanes capture pre-mutation runtime-slice fingerprints for contract enforcement'
 );
 assert(
-  source.includes('$pre_action_slice_fingerprints,\n      FALSE')
-  && source.includes('$pre_transition_slice_fingerprints,\n      FALSE')
-  && source.includes('$pre_combat_slice_fingerprints,\n      FALSE'),
-  'action, transition, and combat lanes disable payload backfill and require explicit typed non-game-state slices'
+  source.includes('$pre_action_slice_fingerprints\n    );')
+  && source.includes('$pre_transition_slice_fingerprints\n    );')
+  && source.includes('$pre_combat_slice_fingerprints\n    );'),
+  'action, transition, and combat lanes pass strict pre-slice fingerprints into mutation envelope resolution'
 );
 assert(
   source.includes('Mutation envelope contract violation: non-game-state payload changed without explicit typed slices for campaign %d.'),
@@ -62,6 +62,10 @@ assert(
 assert(
   source.includes('payload changed without explicit typed "%s" slice for campaign %d.'),
   'coordinator enforces per-slice explicit typed envelope contracts for entities/rooms/connections'
+);
+assert(
+  !source.includes('allow_payload_non_game_state_backfill'),
+  'coordinator no longer contains payload backfill compatibility flag/path'
 );
 
 console.log(`\nPassed: ${passed}`);
