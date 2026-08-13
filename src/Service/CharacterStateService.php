@@ -2482,7 +2482,7 @@ class CharacterStateService {
    *
    * If the character_data has a stored 'traits' array (set at creation time),
    * it is returned directly. For legacy characters without stored traits, the
-   * ancestry machine ID is used to derive traits from CharacterManager::ANCESTRIES.
+   * ancestry machine ID is used to derive traits from CharacterRulesCatalog::ANCESTRIES.
    *
    * @param array $library
    *   The merged character library (default_data merged with character_data).

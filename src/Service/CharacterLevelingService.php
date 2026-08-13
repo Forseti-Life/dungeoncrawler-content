@@ -1452,7 +1452,7 @@ class CharacterLevelingService {
       }
       if (($grant_state['mode'] ?? '') === 'advanced_choice') {
         $selected_weapon_id = trim((string) ($feat_params['selected_weapon_id'] ?? ''));
-        $advanced_weapon_options = CharacterManager::getAdvancedWeaponOptions();
+        $advanced_weapon_options = CharacterRulesCatalog::ADVANCED_WEAPON_OPTIONS;
         if ($selected_weapon_id === '' || !array_key_exists($selected_weapon_id, $advanced_weapon_options)) {
           throw new \InvalidArgumentException(
             "Feat 'weapon-proficiency' requires feat_params['selected_weapon_id'] to be a valid advanced weapon id",
@@ -1472,7 +1472,7 @@ class CharacterLevelingService {
     }
     if ($feat_id === 'unconventional-weaponry') {
       $selected_weapon_id = trim((string) ($feat_params['selected_weapon_id'] ?? ''));
-      $weapon_options = CharacterManager::getUnconventionalWeaponOptions();
+      $weapon_options = CharacterRulesCatalog::UNCONVENTIONAL_WEAPON_OPTIONS;
       if ($selected_weapon_id === '' || !array_key_exists($selected_weapon_id, $weapon_options)) {
         throw new \InvalidArgumentException(
           "Feat 'unconventional-weaponry' requires feat_params['selected_weapon_id'] to be a valid uncommon weapon id",
@@ -1699,7 +1699,7 @@ class CharacterLevelingService {
     $heritage_id = trim((string) ($char_data['basicInfo']['heritage'] ?? $char_data['heritage'] ?? ''));
     $pools = [$ancestry_name];
     if ($heritage_id !== '') {
-      foreach (CharacterManager::HERITAGES[$ancestry_name] ?? [] as $heritage) {
+      foreach (CharacterRulesCatalog::HERITAGES[$ancestry_name] ?? [] as $heritage) {
         if (($heritage['id'] ?? '') !== $heritage_id) {
           continue;
         }
@@ -1810,12 +1810,12 @@ class CharacterLevelingService {
     if ($ancestry_value === '') {
       return '';
     }
-    if (isset(CharacterManager::ANCESTRIES[$ancestry_value])) {
+    if (isset(CharacterRulesCatalog::ANCESTRIES[$ancestry_value])) {
       return $ancestry_value;
     }
 
     $normalized_input = strtolower(str_replace([' ', "'"], ['-', ''], $ancestry_value));
-    foreach (array_keys(CharacterManager::ANCESTRIES) as $ancestry_name) {
+    foreach (array_keys(CharacterRulesCatalog::ANCESTRIES) as $ancestry_name) {
       $normalized_name = strtolower(str_replace([' ', "'"], ['-', ''], $ancestry_name));
       if ($normalized_name === $normalized_input) {
         return $ancestry_name;

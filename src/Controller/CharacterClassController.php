@@ -4,12 +4,13 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 /**
  * Character class API endpoints.
  *
- * Exposes PF2E class data from CharacterManager::CLASSES as JSON.
+ * Exposes PF2E class data from CharacterRulesCatalog::CLASSES as JSON.
  * Data source is the PHP constant — no data duplication.
  *
  * Routes:
@@ -25,7 +26,7 @@ class CharacterClassController extends ControllerBase {
    */
   public function list(): JsonResponse {
     $classes = [];
-    foreach (CharacterManager::CLASSES as $id => $data) {
+    foreach (CharacterRulesCatalog::CLASSES as $id => $data) {
       $classes[] = $this->buildItem($id, $data);
     }
     return new JsonResponse(['classes' => $classes], 200);
@@ -39,7 +40,7 @@ class CharacterClassController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    */
   public function detail(string $id): JsonResponse {
-    $data = CharacterManager::CLASSES[$id] ?? NULL;
+    $data = CharacterRulesCatalog::CLASSES[$id] ?? NULL;
     if ($data === NULL) {
       return new JsonResponse(['error' => 'Class not found: ' . $id], 404);
     }

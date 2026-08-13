@@ -14,14 +14,14 @@ class CharacterProgressionRegistry {
    */
   public function buildLevelPlan(string $class_name, int $level, array $character_data = []): array {
     $class_id = strtolower(trim($class_name));
-    if ($class_id === '' || !isset(CharacterManager::CLASSES[$class_id])) {
+    if ($class_id === '' || !isset(CharacterRulesCatalog::CLASSES[$class_id])) {
       throw new \InvalidArgumentException("Unsupported class '{$class_name}'", 400);
     }
     if ($level < 2 || $level > 20) {
       throw new \InvalidArgumentException("Unsupported target level '{$level}'", 400);
     }
 
-    $class_data = CharacterManager::CLASSES[$class_id];
+    $class_data = CharacterRulesCatalog::CLASSES[$class_id];
     $legacy_advancement = CharacterManager::getClassAdvancement($class_id, $level);
     $feat_slots = $this->buildFeatSlots($class_id, $level);
     $skill_increases = $this->resolveSkillIncreaseCount($class_id, $level);

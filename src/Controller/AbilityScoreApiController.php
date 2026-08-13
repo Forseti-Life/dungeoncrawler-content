@@ -3,6 +3,7 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -450,7 +451,7 @@ class AbilityScoreApiController extends ControllerBase {
       return NULL;
     }
 
-    $bg_data = \Drupal\dungeoncrawler_content\Service\CharacterManager::BACKGROUNDS[$background_id] ?? NULL;
+    $bg_data = CharacterRulesCatalog::BACKGROUNDS[$background_id] ?? NULL;
     if (!$bg_data || !isset($bg_data['fixed_boost'])) {
       return NULL;
     }

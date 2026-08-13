@@ -328,7 +328,7 @@ class AbilityScoreTracker {
     $boost_log = [];
 
     $background_id = $character_data['background'];
-    $bg_data = CharacterManager::BACKGROUNDS[$background_id] ?? NULL;
+    $bg_data = CharacterRulesCatalog::BACKGROUNDS[$background_id] ?? NULL;
     $selected_boosts = $character_data['background_boosts'] ?? [];
 
     // New model: fixed_boost (auto) + 1 free boost (player choice, must differ from fixed).
@@ -422,7 +422,7 @@ class AbilityScoreTracker {
     $selected_key_ability = $character_data['class_key_ability'] ?? NULL;
 
     // Find class data
-    $class_data = CharacterManager::CLASSES[$class_id] ?? NULL;
+    $class_data = CharacterRulesCatalog::CLASSES[$class_id] ?? NULL;
     if (!$class_data) {
       return [
         'scores' => $scores,
@@ -561,7 +561,7 @@ class AbilityScoreTracker {
   protected function findAncestryData(string $ancestry_id): ?array {
     $normalized_id = strtolower(str_replace(' ', '-', $ancestry_id));
 
-    foreach (CharacterManager::ANCESTRIES as $name => $data) {
+    foreach (CharacterRulesCatalog::ANCESTRIES as $name => $data) {
       $data_id = strtolower(str_replace(' ', '-', $name));
       if ($data_id === $normalized_id || strtolower($name) === strtolower($ancestry_id)) {
         $data['name'] = $name;

@@ -789,7 +789,7 @@ class InstitutionMembershipService {
   protected function buildSentimentPeerSubjects(int $campaign_id, string $sentiment_domain, array $primary_membership, array $resolved_memberships): array {
     if ($sentiment_domain === 'ancestry') {
       $subjects = [];
-      foreach (array_keys(CharacterManager::ANCESTRIES) as $display_name) {
+      foreach (array_keys(CharacterRulesCatalog::ANCESTRIES) as $display_name) {
         $subject = $this->campaignSubjectRegistry->resolveOrCreateInstitutionSubject($campaign_id, [
           'domain' => 'ancestry',
           'display_name' => $display_name,
@@ -818,7 +818,7 @@ class InstitutionMembershipService {
 
     if ($sentiment_domain === 'class') {
       $subjects = [];
-      foreach (CharacterManager::CLASSES as $definition) {
+      foreach (CharacterRulesCatalog::CLASSES as $definition) {
         $display_name = trim((string) ($definition['name'] ?? ''));
         if ($display_name === '') {
           continue;
@@ -1169,7 +1169,7 @@ class InstitutionMembershipService {
         'ancestry_default'
       );
     }
-    $canonical_ancestry = CharacterManager::resolveAncestryCanonicalName($ancestry);
+    $canonical_ancestry = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry);
     $display_name = $canonical_ancestry !== ''
       ? $canonical_ancestry
       : $this->humanizeValue($ancestry);

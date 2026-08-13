@@ -4,7 +4,8 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
-use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesUtility;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -43,7 +44,7 @@ class CharacterTraitsController extends ControllerBase {
    * GET /dungeoncrawler/traits
    */
   public function catalog(): JsonResponse {
-    $catalog = CharacterManager::TRAIT_CATALOG;
+    $catalog = CharacterRulesCatalog::TRAIT_CATALOG;
     sort($catalog);
     return new JsonResponse([
       'success' => TRUE,
@@ -112,7 +113,7 @@ class CharacterTraitsController extends ControllerBase {
     // Validate each requested trait against the catalog (case-sensitive).
     $unknown = [];
     foreach ($requested as $t) {
-      if (!CharacterManager::isValidTrait($t)) {
+      if (!CharacterRulesUtility::isValidTrait($t)) {
         $unknown[] = $t;
       }
     }
@@ -135,7 +136,7 @@ class CharacterTraitsController extends ControllerBase {
     }
 
     $character_traits = $state['traits'] ?? [];
-    $result = CharacterManager::hasTraits($character_traits, $requested);
+    $result = CharacterRulesUtility::hasTraits($character_traits, $requested);
 
     return new JsonResponse([
       'success' => TRUE,

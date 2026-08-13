@@ -97,8 +97,8 @@ class LanguageService {
     }
 
     // Get from CharacterManager ANCESTRIES constant
-    $ancestries = CharacterManager::ANCESTRIES;
-    $canonical = CharacterManager::resolveAncestryCanonicalName($ancestry);
+    $ancestries = CharacterRulesCatalog::ANCESTRIES;
+    $canonical = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry);
     
     if (isset($ancestries[$canonical]['languages'])) {
       $languages = $ancestries[$canonical]['languages'];

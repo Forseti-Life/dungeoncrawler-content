@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\ActorContextProjectionService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
 use Drupal\dungeoncrawler_content\Service\StanceRuntimeService;
@@ -98,7 +99,7 @@ class SomController extends ControllerBase {
 
   private function isValidHybridStudy(string $value): bool {
     $valid = array_column(
-      CharacterManager::CLASSES['magus']['subclass']['options'] ?? [],
+      CharacterRulesCatalog::CLASSES['magus']['subclass']['options'] ?? [],
       'id'
     );
     return in_array($value, $valid, TRUE);

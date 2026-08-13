@@ -7,6 +7,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesUtility;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -92,7 +93,7 @@ class CharacterApiController extends ControllerBase {
       // Validate ancestry ID if provided.
       $ancestry_val = $data['ancestry'] ?? NULL;
       if ($ancestry_val !== NULL && $ancestry_val !== '') {
-        $canonical = \Drupal\dungeoncrawler_content\Service\CharacterManager::resolveAncestryCanonicalName($ancestry_val);
+        $canonical = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry_val);
         if ($canonical === '') {
           return new JsonResponse([
             'success' => FALSE,
@@ -104,7 +105,7 @@ class CharacterApiController extends ControllerBase {
       // Validate heritage matches ancestry if both are provided.
       $heritage_val = $data['heritage'] ?? NULL;
       if ($heritage_val !== NULL && $heritage_val !== '' && $ancestry_val !== NULL && $ancestry_val !== '') {
-        $canonical_for_heritage = \Drupal\dungeoncrawler_content\Service\CharacterManager::resolveAncestryCanonicalName($ancestry_val);
+        $canonical_for_heritage = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry_val);
         if ($canonical_for_heritage !== '' && !\Drupal\dungeoncrawler_content\Service\CharacterManager::isValidHeritageForAncestry($canonical_for_heritage, $heritage_val)) {
           return new JsonResponse([
             'success' => FALSE,
@@ -116,7 +117,7 @@ class CharacterApiController extends ControllerBase {
       // Validate class ID if provided.
       $class_val = $data['class'] ?? NULL;
       if ($class_val !== NULL && $class_val !== '') {
-        if (!isset(\Drupal\dungeoncrawler_content\Service\CharacterManager::CLASSES[$class_val])) {
+        if (!isset(\Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog::CLASSES[$class_val])) {
           return new JsonResponse([
             'success' => FALSE,
             'error' => 'Invalid class: ' . $class_val,

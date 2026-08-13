@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -11,8 +12,8 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 /**
  * Ancestry API endpoints.
  *
- * Exposes PF2E ancestry data from CharacterManager::ANCESTRIES and
- * CharacterManager::HERITAGES as JSON API endpoints. Data source is the
+ * Exposes PF2E ancestry data from CharacterRulesCatalog::ANCESTRIES and
+ * CharacterRulesCatalog::HERITAGES as JSON API endpoints. Data source is the
  * PHP constants — do not duplicate data into a separate store.
  *
  * Routes:
@@ -30,7 +31,7 @@ class AncestryController extends ControllerBase {
   /**
    * List all ancestries.
    *
-   * Returns all entries from CharacterManager::ANCESTRIES as a JSON array.
+   * Returns all entries from CharacterRulesCatalog::ANCESTRIES as a JSON array.
    * Each entry includes id, name, hp, size, speed, boosts, flaw, languages,
    * senses (vision), and traits.
    *
@@ -38,7 +39,7 @@ class AncestryController extends ControllerBase {
    */
   public function list(): JsonResponse {
     $ancestries = [];
-    foreach (CharacterManager::ANCESTRIES as $name => $data) {
+    foreach (CharacterRulesCatalog::ANCESTRIES as $name => $data) {
       $ancestries[] = $this->buildAncestryItem($name, $data);
     }
     return new JsonResponse(['ancestries' => $ancestries], 200);
@@ -52,11 +53,11 @@ class AncestryController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    */
   public function detail(string $id): JsonResponse {
-    foreach (CharacterManager::ANCESTRIES as $name => $data) {
+    foreach (CharacterRulesCatalog::ANCESTRIES as $name => $data) {
       if ($this->toId($name) === $id) {
         $item = $this->buildAncestryItem($name, $data);
         // Attach heritages keyed by canonical name.
-        $item['heritages'] = CharacterManager::HERITAGES[$name] ?? [];
+        $item['heritages'] = CharacterRulesCatalog::HERITAGES[$name] ?? [];
         // TC-DWF-09–14: ancestry feats available for this ancestry (level 1+).
         $item['ancestry_feats'] = $this->featLibrary->getAncestryFeats($name);
         return new JsonResponse(['ancestry' => $item], 200);

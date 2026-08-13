@@ -4,6 +4,7 @@ namespace Drupal\Tests\dungeoncrawler_content\Functional\CharacterCreation;
 
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\Tests\BrowserTestBase;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
@@ -469,7 +470,7 @@ class CharacterCreationWorkflowTest extends BrowserTestBase {
       ->countQuery()
       ->execute()
       ->fetchField();
-    $this->assertEquals(count(CharacterManager::CLASSES), $prefab_count, 'Quick play should seed one library character per class.');
+    $this->assertEquals(count(CharacterRulesCatalog::CLASSES), $prefab_count, 'Quick play should seed one library character per class.');
 
     $selected_character_id = (int) \Drupal::database()->select('dc_campaigns', 'c')
       ->fields('c', ['active_character_id'])

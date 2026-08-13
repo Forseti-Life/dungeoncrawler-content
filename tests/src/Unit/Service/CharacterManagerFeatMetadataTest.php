@@ -3,6 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\Tests\UnitTestCase;
 
 /**
@@ -69,8 +70,8 @@ class CharacterManagerFeatMetadataTest extends UnitTestCase {
    * @coversNothing
    */
   public function testDruidOrdersGrantCanonicalFeatIds(): void {
-    $animal_order = CharacterManager::CLASSES['druid']['order']['orders']['animal'] ?? [];
-    $leaf_order = CharacterManager::CLASSES['druid']['order']['orders']['leaf'] ?? [];
+    $animal_order = CharacterRulesCatalog::CLASSES['druid']['order']['orders']['animal'] ?? [];
+    $leaf_order = CharacterRulesCatalog::CLASSES['druid']['order']['orders']['leaf'] ?? [];
 
     $this->assertSame(['animal-companion-druid'], $animal_order['granted_feats'] ?? []);
     $this->assertSame(['leshy-familiar-druid'], $leaf_order['granted_feats'] ?? []);

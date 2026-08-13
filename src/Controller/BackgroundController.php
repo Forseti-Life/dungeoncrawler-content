@@ -3,13 +3,13 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 /**
  * Background API endpoints.
  *
- * Exposes PF2E background data from CharacterManager::BACKGROUNDS as JSON.
+ * Exposes PF2E background data from CharacterRulesCatalog::BACKGROUNDS as JSON.
  * Data source is the PHP constant — no data duplication into a separate store.
  *
  * Routes:
@@ -25,7 +25,7 @@ class BackgroundController extends ControllerBase {
    */
   public function list(): JsonResponse {
     $backgrounds = [];
-    foreach (CharacterManager::BACKGROUNDS as $id => $data) {
+    foreach (CharacterRulesCatalog::BACKGROUNDS as $id => $data) {
       $backgrounds[] = $this->buildItem($id, $data);
     }
     return new JsonResponse(['backgrounds' => $backgrounds], 200);
@@ -39,7 +39,7 @@ class BackgroundController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    */
   public function detail(string $id): JsonResponse {
-    $data = CharacterManager::BACKGROUNDS[$id] ?? NULL;
+    $data = CharacterRulesCatalog::BACKGROUNDS[$id] ?? NULL;
     if ($data === NULL) {
       return new JsonResponse(['error' => 'Background not found: ' . $id], 404);
     }
@@ -47,7 +47,7 @@ class BackgroundController extends ControllerBase {
   }
 
   /**
-   * Build a normalized background array from raw CharacterManager data.
+   * Build a normalized background array from raw character rules catalog data.
    */
   protected function buildItem(string $id, array $data): array {
     return [

@@ -8,6 +8,8 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesUtility;
 use Drupal\dungeoncrawler_content\Service\AbilityScoreTracker;
 use Drupal\dungeoncrawler_content\Service\CharacterPortraitGenerationService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
@@ -669,8 +671,8 @@ class CharacterCreationStepController extends ControllerBase {
       $selected_class = $character_data['class'] ?? '';
 
       // Store class proficiencies from CLASSES constant.
-      if (!empty($selected_class) && isset(CharacterManager::CLASSES[$selected_class]['proficiencies'])) {
-        $character_data['class_proficiencies'] = CharacterManager::CLASSES[$selected_class]['proficiencies'];
+      if (!empty($selected_class) && isset(CharacterRulesCatalog::CLASSES[$selected_class]['proficiencies'])) {
+        $character_data['class_proficiencies'] = CharacterRulesCatalog::CLASSES[$selected_class]['proficiencies'];
       }
 
       // Store 1st-level class features from CLASS_ADVANCEMENT.
@@ -703,8 +705,8 @@ class CharacterCreationStepController extends ControllerBase {
     if ($step === 2) {
       $ancestry_id = $character_data['ancestry'] ?? '';
       if (!empty($ancestry_id)) {
-        $canonical = CharacterManager::resolveAncestryCanonicalName($ancestry_id);
-        $ancestry_data = $canonical ? (CharacterManager::ANCESTRIES[$canonical] ?? []) : [];
+        $canonical = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry_id);
+        $ancestry_data = $canonical ? (CharacterRulesCatalog::ANCESTRIES[$canonical] ?? []) : [];
         if (!empty($ancestry_data)) {
           // Store ancestry stats.
           $character_data['ancestry_hp'] = (int) ($ancestry_data['hp'] ?? 0);
@@ -720,8 +722,8 @@ class CharacterCreationStepController extends ControllerBase {
           // Reverse previous ancestry mods if ancestry was re-selected.
           $prev_ancestry_id = $character_data['_prev_ancestry'] ?? '';
           if (!empty($prev_ancestry_id) && $prev_ancestry_id !== $ancestry_id) {
-            $prev_canonical = CharacterManager::resolveAncestryCanonicalName($prev_ancestry_id);
-            $prev_data = $prev_canonical ? (CharacterManager::ANCESTRIES[$prev_canonical] ?? []) : [];
+            $prev_canonical = CharacterRulesUtility::resolveAncestryCanonicalName($prev_ancestry_id);
+            $prev_data = $prev_canonical ? (CharacterRulesCatalog::ANCESTRIES[$prev_canonical] ?? []) : [];
             foreach ($prev_data['boosts'] ?? [] as $boost) {
               if ($boost !== 'Free') {
                 $key = $ability_map[$boost] ?? '';
@@ -932,8 +934,8 @@ class CharacterCreationStepController extends ControllerBase {
     }
 
     $level = max(1, (int) ($character_data['level'] ?? 1));
-    $canonical_ancestry = CharacterManager::resolveAncestryCanonicalName((string) ($character_data['ancestry'] ?? ''));
-    $ancestry_data = $canonical_ancestry !== '' ? (CharacterManager::ANCESTRIES[$canonical_ancestry] ?? []) : [];
+    $canonical_ancestry = CharacterRulesUtility::resolveAncestryCanonicalName((string) ($character_data['ancestry'] ?? ''));
+    $ancestry_data = $canonical_ancestry !== '' ? (CharacterRulesCatalog::ANCESTRIES[$canonical_ancestry] ?? []) : [];
     $class_hp = $this->characterManager->getClassHP((string) ($character_data['class'] ?? ''));
     $con_mod = (int) ($ability_scores['constitution']['modifier'] ?? 0);
     $dex_mod = (int) ($ability_scores['dexterity']['modifier'] ?? 0);
@@ -1001,7 +1003,7 @@ class CharacterCreationStepController extends ControllerBase {
         }
         else {
           // Validate ancestry is known.
-          $canonical = CharacterManager::resolveAncestryCanonicalName($ancestry_val);
+          $canonical = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry_val);
           if ($canonical === '') {
             $errors['ancestry'] = 'Invalid ancestry: ' . $ancestry_val . '.';
           }
@@ -1062,7 +1064,7 @@ class CharacterCreationStepController extends ControllerBase {
         }
         else {
           $bg_id = $merged['background'];
-          $bg_data = CharacterManager::BACKGROUNDS[$bg_id] ?? NULL;
+          $bg_data = CharacterRulesCatalog::BACKGROUNDS[$bg_id] ?? NULL;
           if ($bg_data === NULL) {
             $errors['background'] = 'Invalid background selection.';
           }
@@ -1096,11 +1098,11 @@ class CharacterCreationStepController extends ControllerBase {
         }
         else {
           $selected_class_id = $merged['class'];
-          if (!isset(CharacterManager::CLASSES[$selected_class_id])) {
+          if (!isset(CharacterRulesCatalog::CLASSES[$selected_class_id])) {
             $errors['class'] = 'Invalid class: ' . $selected_class_id . '.';
           }
           else {
-            $class_data = CharacterManager::CLASSES[$selected_class_id];
+            $class_data = CharacterRulesCatalog::CLASSES[$selected_class_id];
             $ka_raw = $class_data['key_ability'] ?? '';
             $ka_opts = array_map('trim', explode(' or ', strtolower($ka_raw)));
             if (count($ka_opts) > 1 && empty($merged['class_key_ability'])) {
@@ -1166,17 +1168,17 @@ class CharacterCreationStepController extends ControllerBase {
       case 2:
         return [
           'ancestries' => $this->prepareAncestries(),
-          'heritages' => CharacterManager::HERITAGES,
+          'heritages' => CharacterRulesCatalog::HERITAGES,
         ];
 
       case 3:
         return [
-          'backgrounds' => CharacterManager::BACKGROUNDS,
+          'backgrounds' => CharacterRulesCatalog::BACKGROUNDS,
         ];
 
       case 4:
         return [
-          'classes' => array_values(CharacterManager::CLASSES),
+          'classes' => array_values(CharacterRulesCatalog::CLASSES),
         ];
 
       case 6:
@@ -1235,7 +1237,7 @@ class CharacterCreationStepController extends ControllerBase {
    */
   private function prepareAncestries() {
     $ancestries = [];
-    foreach (CharacterManager::ANCESTRIES as $name => $data) {
+    foreach (CharacterRulesCatalog::ANCESTRIES as $name => $data) {
       $ancestries[] = [
         'id' => strtolower(str_replace(' ', '-', $name)),
         'name' => $name,
@@ -1441,7 +1443,7 @@ class CharacterCreationStepController extends ControllerBase {
 
     // Auto-granted ancestry feats (e.g. Halfling Luck, Keen Eyes).
     $ancestry_name = ucfirst($character_data['ancestry'] ?? '');
-    $ancestry_stats = CharacterManager::ANCESTRIES[$ancestry_name] ?? [];
+    $ancestry_stats = CharacterRulesCatalog::ANCESTRIES[$ancestry_name] ?? [];
     $auto_grant_ids = $ancestry_stats['special']['auto_grant_feats'] ?? [];
     foreach ($auto_grant_ids as $auto_id) {
       // Look up display name from ANCESTRY_FEATS if available; fall back to ID.

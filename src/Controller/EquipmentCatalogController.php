@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\dungeoncrawler_content\Service\EquipmentCatalogService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -74,7 +75,7 @@ class EquipmentCatalogController extends ControllerBase {
    * Resolves each item ID to full catalog data.
    */
   public function startingEquipment(string $id): JsonResponse {
-    $class_data = CharacterManager::CLASSES[$id] ?? NULL;
+    $class_data = CharacterRulesCatalog::CLASSES[$id] ?? NULL;
     if ($class_data === NULL) {
       return new JsonResponse(['error' => 'Class not found: ' . $id], 404);
     }

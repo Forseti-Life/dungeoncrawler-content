@@ -3722,7 +3722,7 @@ class FeatEffectManager {
           }
           elseif (($grant_state['mode'] ?? '') === 'advanced_choice') {
             $selected_weapon_id = $this->resolveFeatSelectionValue($character_data, 'weapon-proficiency', ['selected_weapon_id', 'weapon_id', 'selected_weapon']);
-            $advanced_weapon_options = CharacterManager::getAdvancedWeaponOptions();
+            $advanced_weapon_options = CharacterRulesCatalog::ADVANCED_WEAPON_OPTIONS;
             if ($selected_weapon_id === NULL || !isset($advanced_weapon_options[$selected_weapon_id])) {
               $this->addSelectionGrant(
                 $effects,
@@ -5381,7 +5381,7 @@ class FeatEffectManager {
 
         case 'unconventional-weaponry':
           $selected_weapon_id = $this->resolveFeatSelectionValue($character_data, 'unconventional-weaponry', ['selected_weapon_id', 'weapon_id', 'selected_weapon']);
-          $weapon_options = CharacterManager::getUnconventionalWeaponOptions();
+          $weapon_options = CharacterRulesCatalog::UNCONVENTIONAL_WEAPON_OPTIONS;
           if ($selected_weapon_id === NULL || !isset($weapon_options[$selected_weapon_id])) {
             $this->addSelectionGrant(
               $effects,
@@ -6418,8 +6418,8 @@ class FeatEffectManager {
 
     if ($current_rank === '') {
       $selected_class = $this->resolveCharacterClassId($character_data);
-      if ($selected_class !== '' && isset(CharacterManager::CLASSES[$selected_class]['proficiencies'][$selected_proficiency])) {
-        $current_rank = (string) CharacterManager::CLASSES[$selected_class]['proficiencies'][$selected_proficiency];
+      if ($selected_class !== '' && isset(CharacterRulesCatalog::CLASSES[$selected_class]['proficiencies'][$selected_proficiency])) {
+        $current_rank = (string) CharacterRulesCatalog::CLASSES[$selected_class]['proficiencies'][$selected_proficiency];
       }
     }
 
@@ -6432,11 +6432,11 @@ class FeatEffectManager {
    */
   private function resolveArmorProficiencyTarget(array $character_data): ?string {
     $selected_class = $this->resolveCharacterClassId($character_data);
-    if ($selected_class === '' || !isset(CharacterManager::CLASSES[$selected_class])) {
+    if ($selected_class === '' || !isset(CharacterRulesCatalog::CLASSES[$selected_class])) {
       return NULL;
     }
 
-    $armor_proficiencies = CharacterManager::CLASSES[$selected_class]['armor_proficiency'] ?? [];
+    $armor_proficiencies = CharacterRulesCatalog::CLASSES[$selected_class]['armor_proficiency'] ?? [];
     if (is_string($armor_proficiencies)) {
       $armor_proficiencies = $armor_proficiencies === 'unarmored_only' ? ['unarmored'] : [$armor_proficiencies];
     }
@@ -7049,7 +7049,7 @@ class FeatEffectManager {
       ?? ''
     )));
 
-    if ($muse === '' || !isset(CharacterManager::CLASSES['bard']['muse']['options'][$muse])) {
+    if ($muse === '' || !isset(CharacterRulesCatalog::CLASSES['bard']['muse']['options'][$muse])) {
       return NULL;
     }
 
@@ -7062,11 +7062,11 @@ class FeatEffectManager {
    * @return array<string,mixed>|null
    */
   private function resolveBardMuseMetadataForId(?string $muse): ?array {
-    if ($muse === NULL || !isset(CharacterManager::CLASSES['bard']['muse']['options'][$muse])) {
+    if ($muse === NULL || !isset(CharacterRulesCatalog::CLASSES['bard']['muse']['options'][$muse])) {
       return NULL;
     }
 
-    $metadata = CharacterManager::CLASSES['bard']['muse']['options'][$muse];
+    $metadata = CharacterRulesCatalog::CLASSES['bard']['muse']['options'][$muse];
     return [
       'id' => $muse,
       'name' => $metadata['name'] ?? ucfirst($muse),
@@ -7122,7 +7122,7 @@ class FeatEffectManager {
 
     foreach ($candidates as $candidate) {
       $candidate = strtolower(trim((string) $candidate));
-      if ($candidate !== '' && isset(CharacterManager::CLASSES['druid']['order']['orders'][$candidate])) {
+      if ($candidate !== '' && isset(CharacterRulesCatalog::CLASSES['druid']['order']['orders'][$candidate])) {
         return $candidate;
       }
     }
@@ -7136,11 +7136,11 @@ class FeatEffectManager {
    * @return array<string,mixed>|null
    */
   private function resolveDruidOrderMetadataForId(?string $order): ?array {
-    if ($order === NULL || !isset(CharacterManager::CLASSES['druid']['order']['orders'][$order])) {
+    if ($order === NULL || !isset(CharacterRulesCatalog::CLASSES['druid']['order']['orders'][$order])) {
       return NULL;
     }
 
-    $metadata = CharacterManager::CLASSES['druid']['order']['orders'][$order];
+    $metadata = CharacterRulesCatalog::CLASSES['druid']['order']['orders'][$order];
     $granted_feat_ids = [];
     foreach ((array) ($metadata['granted_feats'] ?? []) as $granted_feat) {
       $normalized_feat = strtolower(str_replace('_', '-', trim((string) $granted_feat)));

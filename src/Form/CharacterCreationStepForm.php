@@ -18,6 +18,8 @@ use Drupal\dungeoncrawler_content\Service\CampaignSubjectRegistryService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CharacterCreationGmService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesUtility;
 use Drupal\dungeoncrawler_content\Service\CharacterWizardHardeningService;
 use Drupal\dungeoncrawler_content\Service\FamiliarService;
 use Drupal\dungeoncrawler_content\Service\FactionGenerationService;
@@ -598,7 +600,7 @@ class CharacterCreationStepForm extends FormBase {
     // AJAX on ancestry select refreshes #heritage-path-wrapper (heritage + feat).
     // Validation is in validateForm() case 2 (not #required, to avoid :invalid).
     $heritage_payload = [];
-    foreach (CharacterManager::HERITAGES as $ancestry_name => $heritages) {
+    foreach (CharacterRulesCatalog::HERITAGES as $ancestry_name => $heritages) {
       $ancestry_id = self::ancestryMachineId($ancestry_name);
       $heritage_payload[$ancestry_id] = $heritages;
     }
@@ -643,7 +645,7 @@ class CharacterCreationStepForm extends FormBase {
     $ancestry_cards_markup = '<div class="ancestry-selection" data-heritages="' . $heritage_json . '">';
     $ancestry_cards_markup .= '<div class="ancestry-grid">';
 
-    foreach (CharacterManager::ANCESTRIES as $ancestry_name => $ancestry_data) {
+    foreach (CharacterRulesCatalog::ANCESTRIES as $ancestry_name => $ancestry_data) {
       $ancestry_id = self::ancestryMachineId($ancestry_name);
       $selected_class = $selected_ancestry === $ancestry_id ? ' selected' : '';
       $boosts = $ancestry_data['boosts'] ?? [];
@@ -973,7 +975,7 @@ class CharacterCreationStepForm extends FormBase {
     // Background Ability Boosts: 1 fixed (auto) + 1 free (player choice).
     $selected_background_for_boosts = (string) ($form_state->getValue('background') ?: ($character_data['background'] ?? ''));
     $selected_background_boosts = self::normalizeList($form_state->getValue('background_boosts', $character_data['background_boosts'] ?? []));
-    $bg_boost_data = !empty($selected_background_for_boosts) ? (CharacterManager::BACKGROUNDS[$selected_background_for_boosts] ?? NULL) : NULL;
+    $bg_boost_data = !empty($selected_background_for_boosts) ? (CharacterRulesCatalog::BACKGROUNDS[$selected_background_for_boosts] ?? NULL) : NULL;
     $has_fixed_boost = $bg_boost_data && isset($bg_boost_data['fixed_boost']);
     $boost_total = $has_fixed_boost ? 1 : 2;
     $boost_desc = $has_fixed_boost
@@ -1042,7 +1044,7 @@ class CharacterCreationStepForm extends FormBase {
     // Background Skill Training
     $selected_background = $selected_background_for_boosts;
     if (!empty($selected_background)) {
-      $background_data = CharacterManager::BACKGROUNDS[$selected_background] ?? NULL;
+      $background_data = CharacterRulesCatalog::BACKGROUNDS[$selected_background] ?? NULL;
       
       if ($background_data) {
         $form['background_dynamic']['background_skills_section'] = [
@@ -1121,7 +1123,7 @@ class CharacterCreationStepForm extends FormBase {
       return;
     }
 
-    $class_data = CharacterManager::CLASSES[$selected_class] ?? NULL;
+    $class_data = CharacterRulesCatalog::CLASSES[$selected_class] ?? NULL;
     if (!$class_data) {
       return;
     }
@@ -1370,7 +1372,7 @@ class CharacterCreationStepForm extends FormBase {
       ];
       $thesis_options = [];
       $thesis_cards = [];
-      foreach ((CharacterManager::CLASSES['wizard']['arcane_thesis']['options'] ?? []) as $thesis_id => $thesis) {
+      foreach ((CharacterRulesCatalog::CLASSES['wizard']['arcane_thesis']['options'] ?? []) as $thesis_id => $thesis) {
         $thesis_options[$thesis_id] = $thesis['name'];
         $thesis_cards[$thesis_id] = $this->buildOptionCardData(
           $thesis['benefit'] ?? '',
@@ -1793,7 +1795,7 @@ class CharacterCreationStepForm extends FormBase {
     // Skill Training Selection
     $selected_class = $character_data['class'] ?? '';
     if (!empty($selected_class)) {
-      $class_data = CharacterManager::CLASSES[$selected_class] ?? NULL;
+      $class_data = CharacterRulesCatalog::CLASSES[$selected_class] ?? NULL;
       if ($class_data) {
         $trained_skills = $class_data['trained_skills'] ?? 3;
         
@@ -2466,7 +2468,7 @@ class CharacterCreationStepForm extends FormBase {
           $form_state->setErrorByName('background', $this->t('Background is required.'));
         }
         else {
-          $bg_data = CharacterManager::BACKGROUNDS[$bg_val] ?? NULL;
+          $bg_data = CharacterRulesCatalog::BACKGROUNDS[$bg_val] ?? NULL;
           if ($bg_data === NULL) {
             $form_state->setErrorByName('background', $this->t('Invalid background selection.'));
           }
@@ -2502,7 +2504,7 @@ class CharacterCreationStepForm extends FormBase {
         // Validate key ability choice for classes with multiple options.
         $class_val_for_ka = trim((string) $form_state->getValue('class', ''));
         if ($class_val_for_ka !== '') {
-          $class_data_for_ka = CharacterManager::CLASSES[$class_val_for_ka] ?? NULL;
+          $class_data_for_ka = CharacterRulesCatalog::CLASSES[$class_val_for_ka] ?? NULL;
           if ($class_data_for_ka) {
             $selected_class_feat_for_ka = trim((string) $form_state->getValue('class_feat', ''));
             $ka_opts = $class_val_for_ka === 'rogue'
@@ -2817,7 +2819,7 @@ class CharacterCreationStepForm extends FormBase {
     // Step 3: derive and store background skill training, lore, and feat.
     // These are display-only in the form (markup) so they must be applied here.
     if ((int) $step === 3 && !empty($character_data['background'])) {
-      $bg = CharacterManager::BACKGROUNDS[$character_data['background']] ?? NULL;
+      $bg = CharacterRulesCatalog::BACKGROUNDS[$character_data['background']] ?? NULL;
       if ($bg) {
         $character_data['background_skill_training'] = $bg['skill'] ?? '';
         $character_data['background_lore_skill']     = $bg['lore'] ?? '';
@@ -3046,8 +3048,8 @@ class CharacterCreationStepForm extends FormBase {
       $selected_class = $character_data['class'] ?? '';
 
       // Store class proficiency levels from the CLASSES constant.
-      if ($selected_class !== '' && isset(CharacterManager::CLASSES[$selected_class]['proficiencies'])) {
-        $character_data['class_proficiencies'] = CharacterManager::CLASSES[$selected_class]['proficiencies'];
+      if ($selected_class !== '' && isset(CharacterRulesCatalog::CLASSES[$selected_class]['proficiencies'])) {
+        $character_data['class_proficiencies'] = CharacterRulesCatalog::CLASSES[$selected_class]['proficiencies'];
       }
       $tradition = $this->characterManager->resolveClassTradition($selected_class, $character_data);
 
@@ -4235,8 +4237,8 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     $level = max(1, (int) ($character_data['level'] ?? 1));
-    $canonical_ancestry = CharacterManager::resolveAncestryCanonicalName((string) ($character_data['ancestry'] ?? ''));
-    $ancestry_data = $canonical_ancestry !== '' ? (CharacterManager::ANCESTRIES[$canonical_ancestry] ?? []) : [];
+    $canonical_ancestry = CharacterRulesUtility::resolveAncestryCanonicalName((string) ($character_data['ancestry'] ?? ''));
+    $ancestry_data = $canonical_ancestry !== '' ? (CharacterRulesCatalog::ANCESTRIES[$canonical_ancestry] ?? []) : [];
     $class_hp = $this->characterManager->getClassHP((string) ($character_data['class'] ?? ''));
     $con_mod = (int) ($ability_scores['constitution']['modifier'] ?? 0);
     $dex_mod = (int) ($ability_scores['dexterity']['modifier'] ?? 0);
@@ -4350,7 +4352,7 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function getAncestryOptions(): array {
     $options = ['' => $this->t('- Select -')];
-    foreach (CharacterManager::ANCESTRIES as $name => $data) {
+    foreach (CharacterRulesCatalog::ANCESTRIES as $name => $data) {
       $options[self::ancestryMachineId($name)] = $name;
     }
     return $options;
@@ -4369,7 +4371,7 @@ class CharacterCreationStepForm extends FormBase {
     $options = ['' => $this->t('- Select -')];
     if ($ancestry) {
       $ancestry_name = $this->resolveAncestryName((string) $ancestry);
-      $heritages = CharacterManager::HERITAGES[$ancestry_name] ?? [];
+      $heritages = CharacterRulesCatalog::HERITAGES[$ancestry_name] ?? [];
       foreach ($heritages as $heritage) {
         $options[$heritage['id']] = $heritage['name'];
       }
@@ -4445,7 +4447,7 @@ class CharacterCreationStepForm extends FormBase {
       return '';
     }
 
-    foreach (array_keys(CharacterManager::ANCESTRIES) as $name) {
+    foreach (array_keys(CharacterRulesCatalog::ANCESTRIES) as $name) {
       if (self::ancestryMachineId($name) === strtolower($ancestry_id)) {
         return $name;
       }
@@ -4460,7 +4462,7 @@ class CharacterCreationStepForm extends FormBase {
   private function getAdoptedAncestryOptions(array $character_data): array {
     $current_ancestry = trim((string) ($character_data['ancestry'] ?? ''));
     $options = [];
-    foreach (array_keys(CharacterManager::ANCESTRIES) as $ancestry_name) {
+    foreach (array_keys(CharacterRulesCatalog::ANCESTRIES) as $ancestry_name) {
       $ancestry_id = self::ancestryMachineId($ancestry_name);
       if ($ancestry_id === $current_ancestry) {
         continue;
@@ -4517,7 +4519,7 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function getBackgroundOptions(): array {
     $options = ['' => $this->t('- Select -')];
-    foreach (CharacterManager::BACKGROUNDS as $bg) {
+    foreach (CharacterRulesCatalog::BACKGROUNDS as $bg) {
       $options[$bg['id']] = $bg['name'];
     }
     return $options;
@@ -4531,7 +4533,7 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function getClassOptions(): array {
     $options = ['' => $this->t('- Select -')];
-    foreach (CharacterManager::CLASSES as $class) {
+    foreach (CharacterRulesCatalog::CLASSES as $class) {
       $options[$class['id']] = $class['name'];
     }
     return $options;
@@ -6300,7 +6302,7 @@ class CharacterCreationStepForm extends FormBase {
       ['feat_selections', 'unconventional-weaponry', 'selected_weapon_id'],
       $stored_selection['selected_weapon_id'] ?? ''
     );
-    $weapon_options = CharacterManager::getUnconventionalWeaponOptions();
+    $weapon_options = CharacterRulesCatalog::UNCONVENTIONAL_WEAPON_OPTIONS;
 
     if (!isset($container['feat_selections']) || !is_array($container['feat_selections'])) {
       $container['feat_selections'] = [
@@ -6679,7 +6681,7 @@ class CharacterCreationStepForm extends FormBase {
     ];
 
     if (($grant_state['mode'] ?? '') === 'advanced_choice') {
-      $weapon_options = CharacterManager::getAdvancedWeaponOptions();
+      $weapon_options = CharacterRulesCatalog::ADVANCED_WEAPON_OPTIONS;
       $selected_weapon_id = (string) $form_state->getValue(
         ['feat_selections', 'weapon-proficiency', 'selected_weapon_id'],
         $character_data['feat_selections']['weapon-proficiency']['selected_weapon_id'] ?? ''
@@ -7314,7 +7316,7 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function validateUnconventionalWeaponrySelection(FormStateInterface $form_state): void {
     $selected_weapon_id = trim((string) $form_state->getValue(['feat_selections', 'unconventional-weaponry', 'selected_weapon_id'], ''));
-    $weapon_options = CharacterManager::getUnconventionalWeaponOptions();
+    $weapon_options = CharacterRulesCatalog::UNCONVENTIONAL_WEAPON_OPTIONS;
     if ($selected_weapon_id === '' || !array_key_exists($selected_weapon_id, $weapon_options)) {
       $form_state->setErrorByName(
         'feat_selections][unconventional-weaponry][selected_weapon_id',
@@ -7607,7 +7609,7 @@ class CharacterCreationStepForm extends FormBase {
     }
 
     $selected_weapon_id = trim((string) $form_state->getValue(['feat_selections', 'weapon-proficiency', 'selected_weapon_id'], ''));
-    $weapon_options = CharacterManager::getAdvancedWeaponOptions();
+    $weapon_options = CharacterRulesCatalog::ADVANCED_WEAPON_OPTIONS;
     if ($selected_weapon_id === '' || !array_key_exists($selected_weapon_id, $weapon_options)) {
       $form_state->setErrorByName(
         'feat_selections][weapon-proficiency][selected_weapon_id',
@@ -7756,11 +7758,11 @@ class CharacterCreationStepForm extends FormBase {
    */
   private function resolveArmorProficiencyTarget(array $character_data): ?string {
     $selected_class = trim((string) ($character_data['class'] ?? ''));
-    if ($selected_class === '' || !isset(CharacterManager::CLASSES[$selected_class])) {
+    if ($selected_class === '' || !isset(CharacterRulesCatalog::CLASSES[$selected_class])) {
       return NULL;
     }
 
-    $armor_proficiencies = CharacterManager::CLASSES[$selected_class]['armor_proficiency'] ?? [];
+    $armor_proficiencies = CharacterRulesCatalog::CLASSES[$selected_class]['armor_proficiency'] ?? [];
     if (is_string($armor_proficiencies)) {
       $armor_proficiencies = $armor_proficiencies === 'unarmored_only' ? ['unarmored'] : [$armor_proficiencies];
     }
@@ -8358,7 +8360,7 @@ class CharacterCreationStepForm extends FormBase {
     $granted_feat_sources = [];
     if ($class_name === 'druid') {
       $selected_order = strtolower(trim((string) ($character_data['subclass'] ?? '')));
-      $order_definition = CharacterManager::CLASSES['druid']['order']['orders'][$selected_order] ?? NULL;
+      $order_definition = CharacterRulesCatalog::CLASSES['druid']['order']['orders'][$selected_order] ?? NULL;
       if (is_array($order_definition)) {
         foreach (($order_definition['granted_feats'] ?? []) as $granted_feat_id) {
           $granted_feat_sources[] = [

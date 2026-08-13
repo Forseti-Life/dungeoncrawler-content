@@ -11269,7 +11269,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
           $class_value = $class_value['id'] ?? $class_value['machine_name'] ?? $class_value['name'] ?? '';
         }
         $class_id = strtolower(trim((string) $class_value));
-        $class_data = CharacterManager::CLASSES[$class_id] ?? [];
+        $class_data = CharacterRulesCatalog::CLASSES[$class_id] ?? [];
         $weapons_text = strtolower(trim((string) ($class_data['weapons'] ?? '')));
 
         $category = strtolower(trim((string) ($weapon_stats['category'] ?? '')));

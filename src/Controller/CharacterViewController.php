@@ -9,6 +9,7 @@ use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitRegenerateForm;
 use Drupal\dungeoncrawler_content\Form\CharacterPortraitUploadForm;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesUtility;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\FeatLibraryService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
@@ -193,7 +194,7 @@ class CharacterViewController extends ControllerBase {
 
     $ancestry_name = is_array($char_data['ancestry'] ?? NULL)
       ? ($char_data['ancestry']['name'] ?? 'Unknown')
-      : (CharacterManager::resolveAncestryCanonicalName((string) ($char_data['ancestry'] ?? '')) ?: $this->humanizeName((string) ($char_data['ancestry'] ?? 'Unknown')));
+      : (CharacterRulesUtility::resolveAncestryCanonicalName((string) ($char_data['ancestry'] ?? '')) ?: $this->humanizeName((string) ($char_data['ancestry'] ?? 'Unknown')));
     $heritage = is_array($char_data['ancestry'] ?? NULL)
       ? ($char_data['ancestry']['heritage'] ?? NULL)
       : (!empty($char_data['heritage']) ? $this->humanizeName((string) $char_data['heritage']) : NULL);

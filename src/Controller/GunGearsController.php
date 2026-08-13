@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Drupal\dungeoncrawler_content\Service\EquipmentCatalogService;
 use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -106,7 +107,7 @@ class GunGearsController extends ControllerBase {
       return $this->jsonError('Missing required field: subtype.');
     }
 
-    $class_def = CharacterManager::CLASSES[$class] ?? [];
+    $class_def = CharacterRulesCatalog::CLASSES[$class] ?? [];
     $valid = $class_def['subclass']['valid_values'] ?? [];
     if (!in_array($subtype, $valid, TRUE)) {
       return $this->jsonError("Invalid {$class} subtype '{$subtype}'. Valid values: " . implode(', ', $valid) . '.', 422);

@@ -204,26 +204,26 @@ PROMPT;
     }
 
     $background_options = [];
-    foreach (CharacterManager::BACKGROUNDS as $id => $background) {
+    foreach (CharacterRulesCatalog::BACKGROUNDS as $id => $background) {
       $background_options[] = $id . ' = ' . ($background['name'] ?? $id);
     }
 
     $class_options = [];
-    foreach (CharacterManager::CLASSES as $id => $class) {
+    foreach (CharacterRulesCatalog::CLASSES as $id => $class) {
       $class_options[] = $id . ' = ' . ($class['name'] ?? $id);
     }
 
     $ancestry_options = [];
-    foreach (array_keys(CharacterManager::ANCESTRIES) as $canonical_name) {
+    foreach (array_keys(CharacterRulesCatalog::ANCESTRIES) as $canonical_name) {
       $machine_id = strtolower(str_replace(' ', '-', $canonical_name));
       $ancestry_options[] = $machine_id . ' = ' . $canonical_name;
     }
 
     $heritage_options = [];
     $current_ancestry = (string) ($character_data['ancestry'] ?? '');
-    $canonical_ancestry = CharacterManager::resolveAncestryCanonicalName($current_ancestry);
-    if ($canonical_ancestry !== '' && !empty(CharacterManager::HERITAGES[$canonical_ancestry])) {
-      foreach (CharacterManager::HERITAGES[$canonical_ancestry] as $heritage) {
+    $canonical_ancestry = CharacterRulesUtility::resolveAncestryCanonicalName($current_ancestry);
+    if ($canonical_ancestry !== '' && !empty(CharacterRulesCatalog::HERITAGES[$canonical_ancestry])) {
+      foreach (CharacterRulesCatalog::HERITAGES[$canonical_ancestry] as $heritage) {
         $heritage_options[] = ($heritage['id'] ?? '') . ' = ' . ($heritage['name'] ?? '');
       }
     }
@@ -382,16 +382,16 @@ PROMPT;
 
     if (isset($sanitized['ancestry'])) {
       $sanitized['ancestry'] = strtolower(str_replace(' ', '-', $sanitized['ancestry']));
-      if (CharacterManager::resolveAncestryCanonicalName($sanitized['ancestry']) === '') {
+      if (CharacterRulesUtility::resolveAncestryCanonicalName($sanitized['ancestry']) === '') {
         unset($sanitized['ancestry']);
       }
     }
 
-    if (isset($sanitized['background']) && !isset(CharacterManager::BACKGROUNDS[$sanitized['background']])) {
+    if (isset($sanitized['background']) && !isset(CharacterRulesCatalog::BACKGROUNDS[$sanitized['background']])) {
       unset($sanitized['background']);
     }
 
-    if (isset($sanitized['class']) && !isset(CharacterManager::CLASSES[$sanitized['class']])) {
+    if (isset($sanitized['class']) && !isset(CharacterRulesCatalog::CLASSES[$sanitized['class']])) {
       unset($sanitized['class']);
     }
 
@@ -421,7 +421,7 @@ PROMPT;
 
     $ancestry_for_heritage = $sanitized['ancestry'] ?? (string) ($current_data['ancestry'] ?? '');
     if (isset($sanitized['heritage']) && $ancestry_for_heritage !== '') {
-      $canonical = CharacterManager::resolveAncestryCanonicalName($ancestry_for_heritage);
+      $canonical = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry_for_heritage);
       if ($canonical === '' || !CharacterManager::isValidHeritageForAncestry($canonical, $sanitized['heritage'])) {
         unset($sanitized['heritage']);
       }
@@ -460,15 +460,15 @@ PROMPT;
     }
     $character_data['ability_sources'] = $calculation['sources'];
 
-    if (!empty($character_data['background']) && isset(CharacterManager::BACKGROUNDS[$character_data['background']])) {
-      $background = CharacterManager::BACKGROUNDS[$character_data['background']];
+    if (!empty($character_data['background']) && isset(CharacterRulesCatalog::BACKGROUNDS[$character_data['background']])) {
+      $background = CharacterRulesCatalog::BACKGROUNDS[$character_data['background']];
       $character_data['background_skill_training'] = $background['skill'] ?? '';
       $character_data['background_lore_skill'] = $background['lore'] ?? '';
       $character_data['background_skill_feat'] = $background['feat'] ?? '';
     }
 
-    if (!empty($character_data['class']) && isset(CharacterManager::CLASSES[$character_data['class']]['proficiencies'])) {
-      $character_data['class_proficiencies'] = CharacterManager::CLASSES[$character_data['class']]['proficiencies'];
+    if (!empty($character_data['class']) && isset(CharacterRulesCatalog::CLASSES[$character_data['class']]['proficiencies'])) {
+      $character_data['class_proficiencies'] = CharacterRulesCatalog::CLASSES[$character_data['class']]['proficiencies'];
     }
   }
 

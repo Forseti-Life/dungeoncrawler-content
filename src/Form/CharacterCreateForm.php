@@ -6,6 +6,7 @@ use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -41,7 +42,7 @@ class CharacterCreateForm extends FormBase {
     ];
 
     $ancestry_options = [];
-    foreach (CharacterManager::ANCESTRIES as $name => $data) {
+    foreach (CharacterRulesCatalog::ANCESTRIES as $name => $data) {
       $ancestry_options[$name] = $name . ' (HP ' . $data['hp'] . ', ' . $data['size'] . ', ' . $data['speed'] . 'ft)';
     }
     $form['ancestry'] = [
@@ -53,7 +54,7 @@ class CharacterCreateForm extends FormBase {
     ];
 
     $class_options = [];
-    foreach (CharacterManager::CLASSES as $name => $data) {
+    foreach (CharacterRulesCatalog::CLASSES as $name => $data) {
       $class_options[$name] = $name . ' (HP/lvl ' . $data['hp'] . ', Key: ' . $data['key_ability'] . ')';
     }
     $form['class'] = [

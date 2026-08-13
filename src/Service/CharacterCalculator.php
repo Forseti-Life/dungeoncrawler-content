@@ -49,7 +49,7 @@ class CharacterCalculator {
     $classHp = (int) ($characterData['class_hp'] ?? 0);
     if ($classHp <= 0 && !empty($characterData['class'])) {
       $classId = strtolower((string) $characterData['class']);
-      $classData = CharacterManager::CLASSES[$classId] ?? NULL;
+      $classData = CharacterRulesCatalog::CLASSES[$classId] ?? NULL;
       $classHp = (int) ($classData['hp'] ?? 8);
     }
     if ($classHp <= 0) {
@@ -70,7 +70,7 @@ class CharacterCalculator {
     }
     elseif (!empty($characterData['ancestry'])) {
       $ancestryId = strtolower((string) $characterData['ancestry']);
-      $ancestryData = CharacterManager::ANCESTRIES[$ancestryId] ?? NULL;
+      $ancestryData = CharacterRulesCatalog::ANCESTRIES[$ancestryId] ?? NULL;
       $ancestryHp = (int) ($ancestryData['hp'] ?? 0);
     }
 

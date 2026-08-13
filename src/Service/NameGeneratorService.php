@@ -102,7 +102,7 @@ class NameGeneratorService {
    * Resolve the best matching profile key for an ancestry.
    */
   protected function resolveProfileKey(string $ancestry, array $profiles): string {
-    $canonical = CharacterManager::resolveAncestryCanonicalName($ancestry);
+    $canonical = CharacterRulesUtility::resolveAncestryCanonicalName($ancestry);
     if ($canonical !== '' && isset($profiles[$canonical])) {
       return $canonical;
     }

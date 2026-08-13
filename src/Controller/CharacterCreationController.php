@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
+use Drupal\dungeoncrawler_content\Service\CharacterRulesCatalog;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -54,7 +55,7 @@ class CharacterCreationController extends ControllerBase {
    */
   private function prepareAncestries() {
     $ancestries = [];
-    foreach (CharacterManager::ANCESTRIES as $name => $data) {
+    foreach (CharacterRulesCatalog::ANCESTRIES as $name => $data) {
       $ancestries[] = [
         'id' => strtolower(str_replace(' ', '-', $name)),
         'name' => $name,
@@ -77,7 +78,7 @@ class CharacterCreationController extends ControllerBase {
    */
   private function prepareClasses() {
     $classes = [];
-    foreach (CharacterManager::CLASSES as $name => $data) {
+    foreach (CharacterRulesCatalog::CLASSES as $name => $data) {
       $classes[] = [
         'id' => strtolower(str_replace(' ', '-', $name)),
         'name' => $name,
@@ -183,7 +184,7 @@ class CharacterCreationController extends ControllerBase {
    * Get ancestry heritages.
    */
   private function getAncestryHeritages($name) {
-    return CharacterManager::HERITAGES[$name] ?? [];
+    return CharacterRulesCatalog::HERITAGES[$name] ?? [];
   }
 
   /**
