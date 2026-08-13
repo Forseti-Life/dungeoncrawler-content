@@ -119,6 +119,7 @@ export class ChatPanel {
     this._roomHistoryRequestSequence = 0;
     this._roomHistoryLastShellRequestToken = 0;
     this._roomEncounterEventCursorByRoom = new Map();
+    this._mapInitiativeFeedPlaceholderText = 'Narrative and action updates appear here.';
     this._handleGameEvents = (event) => this.handleGameEvents(event);
   }
 
@@ -130,6 +131,7 @@ export class ChatPanel {
       chatShell:                  id('hexmap-chat'),
       chatPanelTitle:             id('chat-panel-title'),
       chatLog:                    id('chat-log'),
+      mapInitiativeChatLog:       id('map-initiative-chat-log'),
       chatSummary:                id('chat-summary'),
       chatInput:                  id('chat-input'),
       chatSend:                   id('chat-send'),
@@ -166,6 +168,8 @@ export class ChatPanel {
       this.bus.on('chat:message-received',  (d) => this.handleBusChatMessageReceived(d)),
       this.bus.on('chat:system-message',    (d) => this.handleBusSystemMessage(d)),
       this.bus.on('room:changed', (d) => this.handleRoomChanged(d)),
+      this.bus.on('room:occupants-membership-changed', (d) => this.handleRoomOccupantsChanged(d)),
+      // Legacy compatibility event during bus migration.
       this.bus.on('room:occupants-changed', (d) => this.handleRoomOccupantsChanged(d)),
       this.bus.on('inventory:changed', (d) => this.handleCharacterContextChanged(d)),
       this.bus.on('session:view-data', (d) => {
@@ -202,6 +206,7 @@ export class ChatPanel {
       this._occupantPresenceHistoryRenderedRoomId = '';
       this._speakerPortraitByName = new Map();
       this.clearRoomOccupantPresenceLines();
+      this.clearMapInitiativeFeed();
     }
     this.refreshChatPanelTitle();
   }
@@ -462,21 +467,27 @@ export class ChatPanel {
 
   resolveActiveChatCharacterId() {
     const hexmap = this.stateManager?.hexmap || null;
+    const launchContextCharacterId = Number(hexmap?.launchContext?.character_id || 0);
     const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || null;
     const runtimeCharacterId = Number(runtimeContext?.characterId || 0);
+    if (launchContextCharacterId > 0 && runtimeCharacterId > 0 && runtimeCharacterId !== launchContextCharacterId) {
+      return launchContextCharacterId;
+    }
     if (runtimeCharacterId > 0) {
       return runtimeCharacterId;
+    }
+    if (launchContextCharacterId > 0) {
+      return launchContextCharacterId;
     }
 
     const characterData = hexmap?.characterData || {};
     return Number(
-      characterData.id
-      || characterData.characterId
-      || characterData.character_id
-      || hexmap?.launchCharacter?.id
+      hexmap?.launchCharacter?.id
       || hexmap?.launchCharacter?.characterId
       || hexmap?.launchCharacter?.character_id
-      || hexmap?.launchContext?.character_id
+      || characterData.id
+      || characterData.characterId
+      || characterData.character_id
       || 0
     ) || null;
   }
@@ -603,6 +614,10 @@ export class ChatPanel {
     const roomChannel = (chatTarget.channelKey || 'room') === 'room';
     const shouldStream = supportsStreaming && !options.suppressGm;
     const useStreamTransport = shouldStream && !roomChannel;
+    const responseMode = options.responseMode || 'actor_scoped';
+    const includeLegacyOverlay = typeof options.includeLegacyOverlay === 'boolean'
+      ? options.includeLegacyOverlay
+      : false;
     const backendRequestId = options.clientRequestId || `chat-${Date.now()}`;
     this.bus.emit('game:backend-request-start', {
       requestId: backendRequestId,
@@ -631,6 +646,8 @@ export class ChatPanel {
             client_request_id: options.clientRequestId || '',
             suppress_gm: Boolean(options.suppressGm),
             continue_gm: Boolean(options.continueGm),
+            response_mode: responseMode,
+            include_legacy_overlay: includeLegacyOverlay,
           }),
         }
       );
@@ -686,8 +703,9 @@ export class ChatPanel {
       if (!result.success) {
         throw new Error(result.error || 'Unknown error');
       }
+      const responseData = this.resolveAuthoritativeRoomChatData(result.data || result);
 
-      this.stateManager?.hexmap?.gameCoordinator?.applyAuthoritativeUpdate?.(result.data || result);
+      this.stateManager?.hexmap?.gameCoordinator?.applyAuthoritativeUpdate?.(responseData);
       const pending = options.pendingRequest || null;
       if (pending) {
         this.settlePendingChatRequest(pending, {
@@ -695,15 +713,15 @@ export class ChatPanel {
         });
       } else {
         this.appendChatLineToTarget(chatTarget, speaker, message, 'player', {
-          ...(result.data?.message || {}),
+          ...(responseData?.message || {}),
           source: 'room-response',
           authority: 'authoritative',
           messageClass: 'authoritative_transcript',
         });
       }
 
-      if (result.data?.turn_logs?.length) {
-        for (const logMsg of result.data.turn_logs) {
+      if (responseData?.turn_logs?.length) {
+        for (const logMsg of responseData.turn_logs) {
           if (!this.shouldRenderTurnLogLine(logMsg, chatTarget)) {
             continue;
           }
@@ -716,14 +734,14 @@ export class ChatPanel {
         }
       }
 
-      if (result.data?.gm_response) {
-        this.renderPendingGmResponse(pending, result.data.gm_response);
+      if (responseData?.gm_response) {
+        this.renderPendingGmResponse(pending, responseData.gm_response);
       } else if (!options.suppressGm && !options.continueGm) {
         await this.loadChatHistory({ force: true });
       }
 
-      if (result.data?.npc_interjections?.length) {
-        for (const npcMsg of result.data.npc_interjections) {
+      if (responseData?.npc_interjections?.length) {
+        for (const npcMsg of responseData.npc_interjections) {
           const sequenceIndex = Number(npcMsg.sequence_index);
           this.appendChatLineToTarget(chatTarget, npcMsg.speaker, npcMsg.message, 'npc', {
             ...npcMsg,
@@ -737,8 +755,8 @@ export class ChatPanel {
 
       const questHexmap = this.stateManager?.hexmap || null;
       let questJournalRefreshed = false;
-      if (result.data?.quest_updates?.length) {
-        await questHexmap?.applyQuestUpdates?.(result.data.quest_updates);
+      if (responseData?.quest_updates?.length) {
+        await questHexmap?.applyQuestUpdates?.(responseData.quest_updates);
         questJournalRefreshed = true;
       }
 
@@ -764,8 +782,8 @@ export class ChatPanel {
         await questHexmap?.refreshQuestJournalFromApi?.();
       }
 
-      if (result.data?.navigation?.target_room_id) {
-        this.handleNavigationResult(result.data.navigation);
+      if (responseData?.navigation?.target_room_id) {
+        this.handleNavigationResult(responseData.navigation);
       }
 
       const pinnedRoomId = this.resolvePinnedChatRoomTarget(chatTarget?.context?.roomId, roomId);
@@ -783,12 +801,33 @@ export class ChatPanel {
         sessionViews: ['party', 'gm-private', 'system-log'],
       });
       options.onPrimaryResponse?.(result);
-      this.logChatTimingSummary(result, pending);
+      this.logChatTimingSummary({ ...result, data: responseData }, pending);
       this.prefetchSessionViews();
       return result;
     } finally {
       this.bus.emit('game:backend-request-end', { requestId: backendRequestId, source: 'chat' });
     }
+  }
+
+  resolveAuthoritativeRoomChatData(resultData = {}) {
+    const data = resultData && typeof resultData === 'object' ? resultData : {};
+    const actorResponse = data.actor_response && typeof data.actor_response === 'object'
+      ? data.actor_response
+      : null;
+    if (!actorResponse) {
+      return data;
+    }
+
+    // Prefer actor-scoped projection surfaces while preserving any additional
+    // top-level compatibility data for transition-mode consumers.
+    return {
+      ...data,
+      ...actorResponse,
+      runtime_snapshot: actorResponse.runtime_snapshot || data.runtime_snapshot || null,
+      available_actions: actorResponse.available_actions ?? data.available_actions ?? null,
+      action_contract: actorResponse.action_contract ?? data.action_contract ?? null,
+      action_option_families: actorResponse.action_option_families ?? data.action_option_families ?? null,
+    };
   }
 
   isRoomNotReadyError(error) {
@@ -915,8 +954,8 @@ export class ChatPanel {
     };
   }
 
-  isChatCacheFresh(entry) {
-    return Boolean(entry && (Date.now() - entry.storedAt) < this.chatCacheTtlMs);
+  isChatCacheFresh(entry, ttlMs = this.chatCacheTtlMs) {
+    return Boolean(entry && (Date.now() - entry.storedAt) < ttlMs);
   }
 
   setCachedChatPayload(store, key, payload) {
@@ -930,12 +969,12 @@ export class ChatPanel {
     return payload;
   }
 
-  getCachedChatPayload(store, key) {
+  getCachedChatPayload(store, key, ttlMs = this.chatCacheTtlMs) {
     if (!key) {
       return null;
     }
     const entry = store.get(key);
-    return this.isChatCacheFresh(entry) ? entry.payload : null;
+    return this.isChatCacheFresh(entry, ttlMs) ? entry.payload : null;
   }
 
   buildRoomChatCacheKey(context = null, channelKey = null) {
@@ -2358,7 +2397,85 @@ export class ChatPanel {
       });
     }
 
+    if (this.shouldMirrorToMapInitiativeFeed(normalizedTarget, lineRecord)) {
+      this.appendMapInitiativeFeedLine(lineRecord);
+    }
+
     return line;
+  }
+
+  shouldMirrorToMapInitiativeFeed(target = {}, lineRecord = {}) {
+    const lineType = String(lineRecord?.type || '').trim().toLowerCase();
+    const systemLikeLine = lineType === 'system' || lineType === 'gm';
+    const roomFeedLine = target?.view === 'room' && target?.channelKey === 'room';
+    const globalSystemLine = target?.view === 'system-log' && systemLikeLine;
+
+    return !lineRecord?.transient
+      && (roomFeedLine || globalSystemLine);
+  }
+
+  clearMapInitiativeFeed() {
+    const mapLog = this._el?.mapInitiativeChatLog || document.getElementById('map-initiative-chat-log');
+    if (!mapLog) {
+      return;
+    }
+    this._el.mapInitiativeChatLog = mapLog;
+    mapLog.innerHTML = `<div class="chat-line chat-line--system">${this._mapInitiativeFeedPlaceholderText}</div>`;
+  }
+
+  appendMapInitiativeFeedLine(lineRecord = {}) {
+    const mapLog = this._el?.mapInitiativeChatLog || document.getElementById('map-initiative-chat-log');
+    if (!mapLog) {
+      return;
+    }
+    this._el.mapInitiativeChatLog = mapLog;
+
+    const feedKey = String(
+      lineRecord?.eventId
+      || lineRecord?.messageId
+      || lineRecord?.sourceMessageId
+      || lineRecord?.lineId
+      || ''
+    ).trim();
+    if (feedKey) {
+      const hasDuplicate = Array.from(mapLog.children || []).some((node) => String(node?.dataset?.mapFeedKey || '') === feedKey);
+      if (hasDuplicate) {
+        return;
+      }
+    }
+
+    const line = document.createElement('div');
+    line.className = `chat-line chat-line--${lineRecord?.type || 'system'}`;
+    if (feedKey) {
+      line.dataset.mapFeedKey = feedKey;
+    }
+    if (lineRecord?.speaker) {
+      const speakerEl = document.createElement('span');
+      speakerEl.className = 'chat-line__speaker';
+      speakerEl.textContent = `${lineRecord.speaker}:`;
+      line.appendChild(speakerEl);
+    }
+    const textEl = document.createElement('span');
+    textEl.className = 'chat-line__message';
+    textEl.textContent = String(lineRecord?.message || '').trim();
+    if (textEl.textContent === '') {
+      return;
+    }
+    line.appendChild(textEl);
+    const firstLine = mapLog.firstElementChild;
+    if (
+      firstLine
+      && String(firstLine?.textContent || '').trim() === this._mapInitiativeFeedPlaceholderText
+      && mapLog.children.length === 1
+    ) {
+      mapLog.removeChild(firstLine);
+    }
+    mapLog.appendChild(line);
+
+    while ((mapLog.children?.length || 0) > 120) {
+      mapLog.removeChild(mapLog.firstElementChild);
+    }
+    mapLog.scrollTop = mapLog.scrollHeight;
   }
 
   resolveMessageClassCssToken(messageClass = '') {
@@ -2661,7 +2778,7 @@ export class ChatPanel {
     const data = options.event?.data || {};
 
     const rawRound = Number(options.round ?? data.round ?? snapshot.round ?? gameState.round);
-    const round = Number.isFinite(rawRound) && rawRound > 0 ? Math.max(0, rawRound - 1) : '?';
+    const round = Number.isFinite(rawRound) && rawRound > 0 ? rawRound : '?';
 
     const actorId = String(options.actorId || options.event?.actor || data.entity_id || snapshot.turn?.entity || gameState.turn?.entity || '').trim();
     const explicitSpeaker = String(speaker || '').trim();
@@ -2683,6 +2800,38 @@ export class ChatPanel {
       actorId,
       actorName: actorName || 'Narrator',
     };
+  }
+
+  isCurrentTurnStartEvent(event = {}, activeCharacterName = '') {
+    const normalizedCharacterName = String(activeCharacterName || '').trim().toLowerCase();
+    if (!normalizedCharacterName) {
+      return false;
+    }
+    const eventType = String(event?.type || '').trim().toLowerCase();
+    if (eventType !== 'turn_start') {
+      return false;
+    }
+
+    const data = event?.data || {};
+    const actorId = String(event?.actor || data?.entity_id || '').trim();
+    const actorName = String(data?.actor_name || data?.actor || this.resolveEncounterActorName(actorId) || '').trim().toLowerCase();
+    if (!actorName || actorName !== normalizedCharacterName) {
+      return false;
+    }
+
+    const snapshot = this.stateManager?.hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+    const snapshotTurnActor = String(snapshot?.actionContract?.actor_id || snapshot?.turn?.entity || '').trim();
+    const eventRound = Number(data?.round);
+    const snapshotRound = Number(snapshot?.round);
+
+    if (snapshotTurnActor && actorId && snapshotTurnActor !== actorId) {
+      return false;
+    }
+    if (Number.isFinite(eventRound) && eventRound > 0 && Number.isFinite(snapshotRound) && snapshotRound > 0 && eventRound !== snapshotRound) {
+      return false;
+    }
+
+    return true;
   }
 
   resolveEncounterActorName(actorId = '') {
@@ -2820,16 +2969,7 @@ export class ChatPanel {
         });
       }
 
-      if (
-        gameEvent
-        && eventType === 'turn_start'
-        && activeCharacterName
-        && normalizeName(
-          chatLine?.actorName
-          || gameEvent?.data?.actor_name
-          || this.resolveEncounterActorName(String(gameEvent?.actor || gameEvent?.data?.entity_id || '').trim())
-        ) === normalizeName(activeCharacterName)
-      ) {
+      if (gameEvent && this.isCurrentTurnStartEvent(gameEvent, activeCharacterName)) {
         const rawRound = Number(gameEvent?.data?.round);
         const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine?.round) ? chatLine.round : NaN);
         const promptLineId = gameEvent.id
@@ -2874,26 +3014,181 @@ export class ChatPanel {
       : `encounter-event-${type}-${Number.isFinite(round) ? round : 'unknown'}-${actorId || 'narrator'}-${String(event.narration || '').slice(0, 32)}`;
     const timestamp = String(event.timestamp || '').trim();
     const created = timestamp !== '' ? Date.parse(timestamp) || 0 : 0;
-    if (['round_start', 'turn_start', 'choose_not_to_act', 'npc_choose_not_to_act', 'end_turn'].includes(type)) {
+    const narration = typeof event.narration === 'string' ? event.narration.trim() : '';
+    const message = narration || this.buildEncounterEventFallbackMessage(type, data, actorName, event);
+    if (!message) {
       return null;
     }
-    if (type === 'search' && typeof event.narration === 'string' && event.narration.trim()) {
-      return {
-        speaker: 'Narrator',
-        message: event.narration.trim(),
-        type: 'gm',
-        lineId,
-        created,
-        round,
-        actorId,
-        actorName,
-        source: 'encounter-event',
-        authority: 'authoritative',
-        messageClass: 'authoritative_transcript',
-        eventId: String(event.id || ''),
-      };
+
+    const lineType = (type === 'round_start' || type === 'turn_start') ? 'system' : 'gm';
+    const speaker = (lineType === 'system' || actorName === 'Narrator') ? 'Narrator' : actorName;
+
+    return {
+      speaker,
+      message,
+      type: lineType,
+      lineId,
+      created,
+      round,
+      actorId,
+      actorName,
+      source: 'encounter-event',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+      eventId: String(event.id || ''),
+    };
+  }
+
+  buildEncounterEventFallbackMessage(type = '', data = {}, actorName = 'Narrator', event = {}) {
+    const normalizedType = String(type || '').trim().toLowerCase();
+    const targetId = String(event?.target || data?.target || '').trim();
+    const targetName = targetId ? this.resolveEncounterActorName(targetId) : '';
+    const resolutionEnvelope = (data?.resolution_envelope && typeof data.resolution_envelope === 'object')
+      ? data.resolution_envelope
+      : null;
+    const resolutionPackets = Array.isArray(resolutionEnvelope?.packets)
+      ? resolutionEnvelope.packets.filter((packet) => packet && typeof packet === 'object')
+      : [];
+    const hazardResolutionEnvelope = (data?.hazard_resolution_envelope && typeof data.hazard_resolution_envelope === 'object')
+      ? data.hazard_resolution_envelope
+      : null;
+    const hazardResolutionPackets = Array.isArray(hazardResolutionEnvelope?.packets)
+      ? hazardResolutionEnvelope.packets.filter((packet) => packet && typeof packet === 'object')
+      : [];
+    const findResolutionPacket = (kind) => resolutionPackets.find((packet) => String(packet?.kind || '').trim().toLowerCase() === kind) || null;
+    const findHazardResolutionPacket = (kind) => hazardResolutionPackets.find((packet) => String(packet?.kind || '').trim().toLowerCase() === kind) || null;
+    const damagePacket = findResolutionPacket('damage_application')
+      || ((data?.damage_packet && typeof data.damage_packet === 'object') ? data.damage_packet : null);
+    const hazardDamagePacket = findHazardResolutionPacket('damage_application')
+      || ((data?.damage_packet && typeof data.damage_packet === 'object') ? data.damage_packet : null);
+    const movementPacket = findResolutionPacket('movement_resolution')
+      || ((data?.movement_packet && typeof data.movement_packet === 'object') ? data.movement_packet : null);
+    const stateEffectPacket = findResolutionPacket('state_effect_change')
+      || ((data?.state_effect_packet && typeof data.state_effect_packet === 'object') ? data.state_effect_packet : null);
+    const reactionPacket = findResolutionPacket('reaction_resolution')
+      || ((data?.reaction_packet && typeof data.reaction_packet === 'object') ? data.reaction_packet : null);
+    const actionCost = Number(data?.action_cost);
+    const actionsRemaining = Number(data?.actions_remaining);
+    const costSuffix = Number.isFinite(actionCost) && actionCost > 0 ? ` (AP -${actionCost})` : '';
+    const remainingSuffix = Number.isFinite(actionsRemaining)
+      ? ` (${Math.max(0, actionsRemaining)} AP left)`
+      : '';
+
+    const movementToHex = movementPacket?.to_hex || data?.to;
+    const toHex = movementToHex && typeof movementToHex === 'object'
+      ? [movementToHex.q, movementToHex.r].every((value) => Number.isFinite(Number(value)))
+        ? ` to (${Number(movementToHex.q)}, ${Number(movementToHex.r)})`
+        : ''
+      : '';
+
+    switch (normalizedType) {
+      case 'round_start':
+        return Number.isFinite(Number(data?.round)) ? `Round ${Number(data.round)} begins.` : 'A new round begins.';
+      case 'turn_start':
+        return `${actorName}'s turn begins.`;
+      case 'end_turn':
+      case 'auto_end_turn':
+        return `${actorName} ends their turn.${remainingSuffix}`;
+      case 'choose_not_to_act':
+      case 'npc_choose_not_to_act':
+        return `${actorName} chooses not to act.${remainingSuffix}`;
+      case 'stride':
+      case 'step':
+      case 'crawl':
+      case 'climb':
+      case 'swim':
+      case 'fly':
+      case 'leap':
+      case 'sneak':
+      case 'burrow':
+        return `${actorName} uses ${normalizedType.replace(/_/g, ' ')}${toHex}.${costSuffix}${remainingSuffix}`;
+      case 'strike':
+      case 'skill':
+      case 'feat':
+      case 'interact':
+      case 'talk': {
+        const targetSuffix = targetName ? ` on ${targetName}` : '';
+        const damage = Number(data?.damage ?? damagePacket?.amount);
+        const damageTarget = String(damagePacket?.target_entity_ref || targetName || '').trim();
+        const damageSuffix = Number.isFinite(damage) && damage > 0
+          ? ` ${Math.floor(damage)} damage applied${damageTarget ? ` to ${damageTarget}` : ''}.`
+          : '';
+        const reactionSuffix = normalizedType === 'strike'
+          && String(reactionPacket?.outcome || '').toLowerCase() === 'resolved'
+          && String(reactionPacket?.reaction_type || '').trim() !== ''
+          ? ` ${String(reactionPacket.reaction_type).replace(/_/g, ' ')} resolved.`
+          : '';
+        return `${actorName} uses ${normalizedType.replace(/_/g, ' ')}${targetSuffix}.${costSuffix}${remainingSuffix}${damageSuffix}${reactionSuffix}`;
+      }
+      case 'cast_spell': {
+        const spellName = String(data?.spell || '').trim();
+        const spellLabel = spellName !== '' ? spellName : 'a spell';
+        const targetLabel = targetName || String(data?.target_name || '').trim();
+        const targetSuffix = targetLabel ? ` on ${targetLabel}` : '';
+        const damage = Number(data?.damage ?? damagePacket?.amount);
+        const damageSuffix = Number.isFinite(damage) && damage > 0
+          ? ` ${Math.floor(damage)} damage applied to ${targetLabel || damagePacket?.target_entity_ref || 'target'}.`
+          : '';
+        return `${actorName} casts ${spellLabel}${targetSuffix}.${costSuffix}${remainingSuffix}${damageSuffix}`;
+      }
+      case 'grapple': {
+        const applied = String(data?.condition_applied || stateEffectPacket?.effect_name || '').trim();
+        const conditionSuffix = applied ? ` ${applied} applied.` : '';
+        return `${actorName} uses grapple${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${conditionSuffix}`;
+      }
+      case 'trip': {
+        const packets = resolutionPackets.length > 0
+          ? resolutionPackets
+          : (Array.isArray(data?.state_effect_packets) ? data.state_effect_packets : []);
+        const hasProne = packets.some((packet) => String(packet?.effect_name || '').toLowerCase() === 'prone');
+        const conditionSuffix = hasProne ? ' prone applied.' : '';
+        return `${actorName} uses trip${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${conditionSuffix}`;
+      }
+      case 'shove': {
+        const pushedFeet = Number(data?.push_ft);
+        const forcedToHex = movementPacket?.to_hex && typeof movementPacket.to_hex === 'object'
+          ? movementPacket.to_hex
+          : (data?.forced_to && typeof data.forced_to === 'object' ? data.forced_to : null);
+        const movedTo = forcedToHex && [forcedToHex.q, forcedToHex.r].every((value) => Number.isFinite(Number(value)))
+          ? ` to (${Number(forcedToHex.q)}, ${Number(forcedToHex.r)})`
+          : '';
+        const moveSuffix = Number.isFinite(pushedFeet) && pushedFeet > 0
+          ? ` pushed ${Math.floor(pushedFeet)} ft${movedTo}.`
+          : '';
+        const hazardDamage = Number(damagePacket?.amount);
+        const hazardDamageSuffix = Number.isFinite(hazardDamage) && hazardDamage > 0
+          ? ` ${Math.floor(hazardDamage)} ${String(damagePacket?.damage_type || 'damage').trim()} from hazard.`
+          : '';
+        return `${actorName} uses shove${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${moveSuffix}${hazardDamageSuffix}`;
+      }
+      case 'hazard_triggered': {
+        const hazard = (data?.hazard && typeof data.hazard === 'object') ? data.hazard : {};
+        const hazardName = String(hazard?.name || data?.name || 'Hazard').trim() || 'Hazard';
+        const effect = hazard?.effect && typeof hazard.effect === 'object' ? hazard.effect : {};
+        const effectDescription = String(effect?.description || '').trim();
+        const resolvedDamage = Number(effect?.damage_applied ?? effect?.resolved_damage ?? hazardDamagePacket?.amount);
+        const damageText = Number.isFinite(resolvedDamage) && resolvedDamage > 0
+          ? String(Math.floor(resolvedDamage))
+          : String(effect?.damage || hazardDamagePacket?.amount || '').trim();
+        const damageType = String(effect?.damage_type || hazardDamagePacket?.damage_type || '').trim();
+        const suffixParts = [];
+        if (effectDescription) {
+          suffixParts.push(effectDescription);
+        }
+        if (damageText) {
+          suffixParts.push(`${damageText}${damageType ? ` ${damageType}` : ''}`.trim());
+        }
+        const suffix = suffixParts.length > 0 ? ` ${suffixParts.join(' ')}` : '';
+        return `${hazardName} triggers on ${actorName}.${suffix}`;
+      }
+      default:
+        break;
     }
-    return null;
+
+    if (Number.isFinite(actionCost) && actionCost > 0) {
+      return `${actorName} uses ${normalizedType.replace(/_/g, ' ')}.${costSuffix}${remainingSuffix}`;
+    }
+    return '';
   }
 
   extractActorNameFromNarration(narration = '') {
@@ -3302,6 +3597,7 @@ export class ChatPanel {
   logChatTimingSummary(result, pending = null) {
     const timing = result?.data?.timing || null;
     const debugTrace = result?.data?.debug_trace || null;
+    const invocationTiming = result?.data?.invocation_timing || null;
     const elapsedMs = pending
       ? Math.round(((typeof performance !== 'undefined' && typeof performance.now === 'function')
         ? performance.now()
@@ -3323,6 +3619,7 @@ export class ChatPanel {
       gmMs: timing?.gm_ms ?? gmStage?.duration_ms ?? null,
       cacheHit,
       stageCount: timing?.stage_count ?? (Array.isArray(debugTrace?.stages) ? debugTrace.stages.length : 0),
+      invocationTiming,
     });
   }
 
@@ -3622,7 +3919,7 @@ export class ChatPanel {
       .sort((left, right) => right.length - left.length);
   }
 
-  prefetchSessionViews(views = ['party', 'gm-private', 'system-log']) {
+  prefetchSessionViews(views = ['party', 'gm-private']) {
     views.forEach((view) => {
       if (!view || view === this.activeSessionView || view === 'room') {
         return;
@@ -4004,6 +4301,9 @@ export class ChatPanel {
           if (!this.shouldRenderEncounterEventForRoom(gameEvent, activeRoomId)) {
             continue;
           }
+          if (!this.isCurrentTurnStartEvent(gameEvent, activeCharacterName)) {
+            continue;
+          }
 
           const chatLine = this.buildEncounterEventChatLine(gameEvent);
           if (!chatLine || normalizeName(chatLine.actorName) !== normalizeName(activeCharacterName)) {
@@ -4301,7 +4601,8 @@ export class ChatPanel {
     const { force = false } = options;
     const context = this.getChatContext();
     const cacheKey = this.buildSessionViewCacheKey(view, context);
-    const shouldCache = view !== 'system-log';
+    const shouldCache = true;
+    const cacheTtlMs = view === 'system-log' ? 3000 : this.chatCacheTtlMs;
     if (!cacheKey) {
       return null;
     }
@@ -4317,7 +4618,7 @@ export class ChatPanel {
     }
 
     if (!force && shouldCache) {
-      const cached = this.getCachedChatPayload(this.sessionViewCache, cacheKey);
+      const cached = this.getCachedChatPayload(this.sessionViewCache, cacheKey, cacheTtlMs);
       if (cached) {
         return cached;
       }

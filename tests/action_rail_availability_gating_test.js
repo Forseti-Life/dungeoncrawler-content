@@ -27,26 +27,26 @@ const actionRailPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/
 console.log('\n=== Action rail availability gating ===');
 
 assert(
-  actionRailPanelSource.includes("const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('spell'));")
-    && actionRailPanelSource.includes('disabled: this.isActionRailExecutionDisabled(actionCost, context, disabled || !spellActionAvailable),'),
+  actionRailPanelSource.includes("const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'cast_spell');")
+    && actionRailPanelSource.includes('disabled: this.isActionRailExecutionDisabled(actionCost, context, !spellActionAvailable),'),
   'spells are disabled in encounter mode when cast_spell is unavailable in the server action contract'
 );
 
 assert(
-  actionRailPanelSource.includes("const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('consumable'));")
+  actionRailPanelSource.includes("const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'consume_item');")
     && actionRailPanelSource.includes('disabled: this.isActionRailExecutionDisabled(actionCost, context, !consumeActionAvailable),'),
   'consumables are disabled in encounter mode when consume_item is unavailable in the server action contract'
 );
 
 assert(
-  actionRailPanelSource.includes("const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('skill'));")
-    && actionRailPanelSource.includes('disabled: this.isActionRailExecutionDisabled(1, context, !skillActionAvailable),'),
+  actionRailPanelSource.includes("const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'skill');")
+    && actionRailPanelSource.includes('disabled: this.isActionRailExecutionDisabled(skill.actionCost, context, !skillActionAvailable),'),
   'skills are disabled in encounter mode when skill is unavailable in the server action contract'
 );
 
 assert(
-  actionRailPanelSource.includes("const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('feat'));")
-    && actionRailPanelSource.includes('disabled: this.isActionRailExecutionDisabled(entry.dataset.actionCost, context, !featActionAvailable),'),
+  actionRailPanelSource.includes("const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'feat');")
+    && actionRailPanelSource.includes('disabled: this.isActionRailExecutionDisabled(dataset.actionCost, context, !featActionAvailable),'),
   'feats are disabled in encounter mode when feat is unavailable in the server action contract'
 );
 

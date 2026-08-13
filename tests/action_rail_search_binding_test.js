@@ -191,8 +191,11 @@ assert(
 assert(
   statusPanelSource.includes("this.bus.on('game:backend-request-start', (d) => this.showBackendWait(d))")
     && statusPanelSource.includes("this.bus.on('game:backend-request-end',   (d) => this.hideBackendWait(d))")
-    && statusPanelSource.includes('Still waiting; the backend may be busy.'),
-  'v2 status panel shows active and slow backend wait cues'
+    && statusPanelSource.includes('Still waiting; the backend may be busy.')
+    && statusPanelSource.includes("this.container?.querySelector?.(`.map-initiative-status [data-status=\"${statusKey}\"]`)")
+    && statusPanelSource.includes('this._dockBackendWaitIntoInitiativeStatus();')
+    && statusPanelSource.includes("const statusHost = this.container?.querySelector('.map-initiative-status') || null;"),
+  'v2 status panel shows backend wait cues and docks the wait banner under the initiative status block'
 );
 assert(
   actionRailPanelSource.includes("this.bus.emit('game:backend-request-start'")

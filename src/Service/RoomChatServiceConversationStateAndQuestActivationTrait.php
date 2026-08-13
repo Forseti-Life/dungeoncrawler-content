@@ -60,7 +60,15 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       $class = trim((string) ($basic_info['class'] ?? $row->class ?? ''));
       $appearance = trim((string) ($basic_info['appearance'] ?? $profile['appearance'] ?? $sheet['appearance'] ?? $sheet['description'] ?? $character_data['appearance'] ?? ''));
       $personality = trim((string) ($basic_info['personality'] ?? $profile['personality_traits'] ?? $profile['personality'] ?? $character_data['personality'] ?? ''));
+      $resolved_entity_ref = trim((string) ($row->instance_id ?? ''));
       $attitude = trim((string) ($profile['attitude'] ?? $character_data['attitude'] ?? ''));
+      if ($type === 'npc' && $resolved_entity_ref !== '') {
+        $attitude = $this->resolveActorDispositionAttitude($campaign_id, $resolved_entity_ref, [
+          'profile' => $profile,
+          'character_data' => $character_data,
+          'attitude' => $character_data['attitude'] ?? ($profile['attitude'] ?? NULL),
+        ]);
+      }
       $motivations = trim((string) ($profile['motivations'] ?? $character_data['motivations'] ?? ''));
 
       $parts = [];
@@ -111,7 +119,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
         continue;
       }
 
-      $candidate = $this->resolveDirectlyAddressedNpc($room_npcs, (string) ($entry['message'] ?? ''));
+      $candidate = $this->resolveDirectlyAddressedNpc($room_npcs, (string) ($entry['message'] ?? ''), FALSE);
       if ($candidate === NULL) {
         continue;
       }
@@ -119,7 +127,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       for ($j = $i + 1; $j < count($recent); $j++) {
         $follow_up = $recent[$j] ?? [];
         if (($follow_up['type'] ?? '') === 'player') {
-          $follow_up_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, (string) ($follow_up['message'] ?? ''));
+          $follow_up_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, (string) ($follow_up['message'] ?? ''), FALSE);
           $follow_up_intent = $this->classifyRoomTurnIntent(
             (string) ($follow_up['message'] ?? ''),
             $room_npcs,
@@ -162,7 +170,9 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
    */
 
   protected function resolveExplicitRoomConversationNpc(array $room_meta, array $room_npcs): ?array {
-    $state = is_array($room_meta['conversation_state'] ?? NULL) ? $room_meta['conversation_state'] : [];
+    $state = is_array($room_meta['conversation_state'] ?? NULL)
+      ? $room_meta['conversation_state']
+      : (is_array($room_meta['state']['conversation_state'] ?? NULL) ? $room_meta['state']['conversation_state'] : []);
     $entity_ref = trim((string) ($state['entity_ref'] ?? ''));
     if ($entity_ref !== '') {
       foreach ($room_npcs as $npc) {
@@ -197,12 +207,15 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     $tracked_ref = trim((string) ($conversation_npc['entity_ref'] ?? ''));
     if ($tracked_ref === '') {
       unset($dungeon_data['rooms'][$room_index]['conversation_state']);
+      if (isset($dungeon_data['rooms'][$room_index]['state']) && is_array($dungeon_data['rooms'][$room_index]['state'])) {
+        unset($dungeon_data['rooms'][$room_index]['state']['conversation_state']);
+      }
       unset($dungeon_data['rooms'][$room_index]['conversation_queue']);
       return;
     }
 
     $tracked_name = trim((string) ($conversation_npc['profile']['display_name'] ?? $conversation_npc['entity']['name'] ?? $tracked_ref));
-    $dungeon_data['rooms'][$room_index]['conversation_state'] = [
+    $conversation_state = [
       'entity_ref' => $tracked_ref,
       'speaker_name' => $tracked_name,
       'intent' => $turn_intent,
@@ -210,6 +223,11 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       'character_id' => $character_id,
       'updated_at' => date('c'),
     ];
+    $dungeon_data['rooms'][$room_index]['conversation_state'] = $conversation_state;
+    if (!isset($dungeon_data['rooms'][$room_index]['state']) || !is_array($dungeon_data['rooms'][$room_index]['state'])) {
+      $dungeon_data['rooms'][$room_index]['state'] = [];
+    }
+    $dungeon_data['rooms'][$room_index]['state']['conversation_state'] = $conversation_state;
     unset($dungeon_data['rooms'][$room_index]['conversation_queue']);
   }
 
@@ -325,7 +343,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     }
 
     return match ($intent) {
-      'direct_npc_dialogue', 'direct_npc_transaction' => (($this->resolveDirectlyAddressedNpc($room_npcs, $message)['entity_ref'] ?? '') === (string) ($current_npc['entity_ref'] ?? '')),
+      'direct_npc_dialogue', 'direct_npc_transaction' => (($this->resolveDirectlyAddressedNpc($room_npcs, $message, FALSE)['entity_ref'] ?? '') === (string) ($current_npc['entity_ref'] ?? '')),
       'quest_query' => $this->npcSupportsQuestOrLeadDialogue($current_npc),
       'merchant_inquiry' => $this->npcSupportsMerchantDialogue($current_npc),
       default => FALSE,
@@ -575,6 +593,28 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
   }
 
   /**
+   * Normalize gathered NPC profile attitude through disposition authority.
+   */
+  protected function enrichGatheredNpcProfileWithDisposition(
+    int $campaign_id,
+    string $entity_ref,
+    array $entity,
+    array $profile
+  ): array {
+    if ($campaign_id <= 0 || $entity_ref === '') {
+      return $profile;
+    }
+
+    $resolved_attitude = $this->resolveActorDispositionAttitude($campaign_id, $entity_ref, [
+      'entity' => $entity,
+      'profile' => $profile,
+      'attitude' => $profile['attitude'] ?? NULL,
+    ]);
+    $profile['attitude'] = $resolved_attitude;
+    return $profile;
+  }
+
+  /**
    * Feed room chat activity to all NPC AI sessions for passive awareness.
    *
    * Even when NPCs don't interject, they observe what's happening. This
@@ -601,6 +641,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
     array|string|null $skip_refs = NULL,
     ?string $room_observation = NULL
   ): void {
+    $stage_started_at = hrtime(true);
     $observation = $room_observation ?: "Overheard in the room — Player: {$player_message} | GM reply: {$gm_narrative}";
     $skip_lookup = [];
     if (is_string($skip_refs) && $skip_refs !== '') {
@@ -614,6 +655,7 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
       }
     }
 
+    $written_count = 0;
     foreach ($room_npcs as $npc) {
       if (isset($skip_lookup[$npc['entity_ref']])) {
         continue;
@@ -627,7 +669,14 @@ trait RoomChatServiceConversationStateAndQuestActivationTrait {
         'user',
         "[Room observation] {$observation}"
       );
+      $written_count++;
     }
+    $this->recordDebugStage('npc.feed_room_sessions', $stage_started_at, [
+      'room_npc_count' => count($room_npcs),
+      'skip_count' => count($skip_lookup),
+      'written_count' => $written_count,
+      'observation_length' => strlen($observation),
+    ]);
   }
 
   /**

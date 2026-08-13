@@ -53,6 +53,8 @@ export class PortraitPanel {
     this._unsubs.push(
       () => window.removeEventListener('dungeoncrawler:game-shell-tab-changed', tabHandler),
       this.bus.on('room:changed', (d) => this.handleRoomPortraitsUpdate(d)),
+      this.bus.on('room:occupants-membership-changed', (d) => this.handleRoomPortraitsUpdate(d)),
+      // Legacy compatibility event during bus migration.
       this.bus.on('room:occupants-changed', (d) => this.handleRoomPortraitsUpdate(d)),
     );
   }

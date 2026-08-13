@@ -5,10 +5,10 @@ namespace Drupal\dungeoncrawler_content\Access;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Routing\Access\AccessInterface;
 use Drupal\Core\Session\AccountInterface;
-use Drupal\Core\Database\Connection;
+use Drupal\dungeoncrawler_content\Service\CampaignAuthorizationService;
 
 /**
- * Checks access for campaign operations based on ownership.
+ * Checks access for campaign operations using campaign-scoped membership.
  *
  * ## Schema Conformance (DCC-0257)
  *
@@ -19,8 +19,10 @@ use Drupal\Core\Database\Connection;
  * - **dc_campaigns**: Campaign headers and lifecycle state
  *
  * ### Hot Column Usage
- * This access check queries the `uid` hot column for O(1) indexed access:
- * - **uid**: Campaign owner user ID (indexed for ownership queries)
+ * This access check defers to CampaignAuthorizationService, which uses:
+ * - **dc_campaign_members(campaign_id, uid)** when available
+ * - **dc_campaigns.uid** owner fallback during migration
+ * - **dc_campaign_characters.uid** compatibility fallback during migration
  *
  * ### JSON Column Structure
  * The `campaign_data` JSON column contains the full campaign state payload
@@ -33,20 +35,20 @@ use Drupal\Core\Database\Connection;
 class CampaignAccessCheck implements AccessInterface {
 
   /**
-   * The database connection.
+   * Campaign authorization policy service.
    *
-   * @var \Drupal\Core\Database\Connection
+   * @var \Drupal\dungeoncrawler_content\Service\CampaignAuthorizationService
    */
-  protected Connection $database;
+  protected CampaignAuthorizationService $campaignAuthorizationService;
 
   /**
    * Constructs a CampaignAccessCheck object.
    *
-   * @param \Drupal\Core\Database\Connection $database
-   *   The database connection.
+   * @param \Drupal\dungeoncrawler_content\Service\CampaignAuthorizationService $campaign_authorization_service
+   *   Campaign authorization policy service.
    */
-  public function __construct(Connection $database) {
-    $this->database = $database;
+  public function __construct(CampaignAuthorizationService $campaign_authorization_service) {
+    $this->campaignAuthorizationService = $campaign_authorization_service;
   }
 
   /**
@@ -76,20 +78,7 @@ class CampaignAccessCheck implements AccessInterface {
       return AccessResult::forbidden()->cachePerPermissions();
     }
 
-    // Load campaign and check ownership.
-    $query = $this->database->select('dc_campaigns', 'c')
-      ->fields('c', ['uid'])
-      ->condition('c.id', $campaign_id)
-      ->execute();
-    
-    $campaign = $query->fetchAssoc();
-    
-    if (!$campaign) {
-      return AccessResult::forbidden()->cachePerPermissions();
-    }
-
-    // Check if user owns the campaign.
-    if ((int) $campaign['uid'] === (int) $account->id()) {
+    if ($this->campaignAuthorizationService->canAccessCampaign((int) $campaign_id, (int) $account->id())) {
       return AccessResult::allowed()
         ->cachePerPermissions()
         ->cachePerUser()

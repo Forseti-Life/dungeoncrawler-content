@@ -34,6 +34,10 @@ export function formatActionRailCost(cost) {
 }
 
 export function getActionRailRemainingActions(context) {
+  const serverRemaining = Number(context?.phaseSnapshot?.turn?.actions_remaining);
+  if (Number.isFinite(serverRemaining)) {
+    return Math.max(0, serverRemaining);
+  }
   const remaining = Number(context?.actions?.actionsRemaining);
   return Number.isFinite(remaining) ? Math.max(0, remaining) : null;
 }

@@ -27,7 +27,11 @@ const controllerSource = fs.readFileSync(
   'utf8'
 );
 const roomChatSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
+  path.resolve(__dirname, '../src/Service/RoomChatServiceChannelAndSessionTrait.php'),
+  'utf8'
+);
+const roomChatAccessGuardSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/RoomChat/RoomChatAccessGuard.php'),
   'utf8'
 );
 
@@ -46,12 +50,18 @@ assert(
   'session write bypasses now fail with an explicit rejection message'
 );
 assert(
+  controllerSource.includes('buildSystemLogDedupeKey(')
+    && controllerSource.includes("$source_id = (int) ($message['source_message_id'] ?? 0);")
+    && controllerSource.includes("return 'source:' . $source_id;"),
+  'system-log collection dedupes feed-copy rows by canonical source_message_id'
+);
+assert(
   roomChatSource.includes('public function hasCharacterAccess(int $campaign_id, int $character_id): bool'),
   'RoomChatService exposes a reusable character-ownership helper'
 );
 assert(
-  roomChatSource.includes("->condition('id', $character_id)")
-    && roomChatSource.includes("->condition('character_id', $character_id)"),
+  roomChatAccessGuardSource.includes("->condition('id', $character_id)")
+    && roomChatAccessGuardSource.includes("->condition('character_id', $character_id)"),
   'character ownership matches both campaign-character row ids and canonical character ids'
 );
 

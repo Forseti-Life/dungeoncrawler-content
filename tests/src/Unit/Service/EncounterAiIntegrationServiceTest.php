@@ -88,6 +88,11 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertContains('end_turn', $context['actions_available_to_me_this_turn']['available_actions']);
     $this->assertSame('encounter', $context['actions_available_to_me_this_turn']['action_contract']['phase']);
     $this->assertNotSame('', (string) ($context['action_contract_hash'] ?? ''));
+    $this->assertSame([], $context['resolved_actor_context']);
+    $this->assertNull($context['disposition_summary']);
+    $this->assertNull($context['aggression_summary']);
+    $this->assertNull($context['stance_summary']);
+    $this->assertSame([], $context['relationship_attitudes']);
   }
 
   /**
@@ -118,6 +123,11 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
       'action_contract_hash',
       'action_option_families',
       'actions_available_to_me_this_turn',
+      'resolved_actor_context',
+      'disposition_summary',
+      'aggression_summary',
+      'stance_summary',
+      'relationship_attitudes',
       'context_built_at',
     ], array_keys($context));
     $this->assertSame(

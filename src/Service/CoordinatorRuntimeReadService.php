@@ -53,20 +53,54 @@ class CoordinatorRuntimeReadService {
    * @return array{dungeon_data: array<string,mixed>, game_state: array<string,mixed>}|null
    *   Runtime read context, or NULL when no authoritative dungeon payload exists.
    */
-  public function resolveActionAvailabilityContext(int $campaign_id, ?string $actor_id = NULL): ?array {
+  public function resolveActionAvailabilityContext(
+    int $campaign_id,
+    ?string $actor_id = NULL,
+    array $diagnostic_context = [],
+    bool $sync_active_room_players = TRUE
+  ): ?array {
+    $overall_started_at = hrtime(true);
+
+    $stage_started_at = hrtime(true);
     $requested_room_id = $this->resolveActorRoomIdFromRuntimeStore($campaign_id, $actor_id);
+    $resolve_actor_room_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
+
+    $diagnostic_context = $diagnostic_context + ['source' => 'action_availability_context'];
     $dungeon_data = $this->loadDungeonData(
       $campaign_id,
       $actor_id,
       TRUE,
       1,
-      $requested_room_id
+      $requested_room_id,
+      $sync_active_room_players,
+      $diagnostic_context
     );
     if (!is_array($dungeon_data)) {
+      $this->logger->debug('Action availability context resolve failed: campaign=@campaign_id actor=@actor_id trace=@trace_id total_ms=@total resolve_actor_room_ms=@resolve_actor_room_ms requested_room_id=@requested_room_id', [
+        '@campaign_id' => $campaign_id,
+        '@actor_id' => trim((string) ($actor_id ?? '')),
+        '@trace_id' => trim((string) ($diagnostic_context['trace_id'] ?? '')),
+        '@total' => round((hrtime(true) - $overall_started_at) / 1000000, 2),
+        '@resolve_actor_room_ms' => $resolve_actor_room_ms,
+        '@requested_room_id' => $requested_room_id ?? '',
+      ]);
       return NULL;
     }
 
+    $stage_started_at = hrtime(true);
     $game_state = $this->ensureGameState($dungeon_data);
+    $ensure_game_state_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
+    $this->logger->debug('Action availability context resolve timing: campaign=@campaign_id actor=@actor_id trace=@trace_id total_ms=@total resolve_actor_room_ms=@resolve_actor_room_ms ensure_game_state_ms=@ensure_game_state_ms requested_room_id=@requested_room_id room_count=@room_count entity_count=@entity_count', [
+      '@campaign_id' => $campaign_id,
+      '@actor_id' => trim((string) ($actor_id ?? '')),
+      '@trace_id' => trim((string) ($diagnostic_context['trace_id'] ?? '')),
+      '@total' => round((hrtime(true) - $overall_started_at) / 1000000, 2),
+      '@resolve_actor_room_ms' => $resolve_actor_room_ms,
+      '@ensure_game_state_ms' => $ensure_game_state_ms,
+      '@requested_room_id' => $requested_room_id ?? '',
+      '@room_count' => is_array($dungeon_data['rooms'] ?? NULL) ? count($dungeon_data['rooms']) : 0,
+      '@entity_count' => is_array($dungeon_data['entities'] ?? NULL) ? count($dungeon_data['entities']) : 0,
+    ]);
     return [
       'dungeon_data' => $dungeon_data,
       'game_state' => $game_state,
@@ -196,19 +230,28 @@ class CoordinatorRuntimeReadService {
     bool $rebuild_runtime_graph = TRUE,
     int $room_scope_depth = -1,
     ?string $requested_room_id = NULL,
-    bool $sync_active_room_players = TRUE
+    bool $sync_active_room_players = TRUE,
+    array $diagnostic_context = []
   ): ?array {
+    $overall_started_at = hrtime(true);
     try {
+      $stage_started_at = hrtime(true);
       $runtime_character_id = NULL;
       if (is_string($preferred_actor_id) && trim($preferred_actor_id) !== '') {
         $runtime_character_id = $this->runtimeBootstrap->resolveRuntimeCharacterIdForActor($campaign_id, trim($preferred_actor_id));
       }
+      $resolve_runtime_character_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
+
+      $stage_started_at = hrtime(true);
       $row = $this->runtimeBootstrap->loadAuthoritativeDungeonRowForRuntimeRead($campaign_id, $runtime_character_id);
+      $load_authoritative_row_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
 
       if (empty($row['dungeon_data'])) {
         return NULL;
       }
+      $stage_started_at = hrtime(true);
       $decoded = json_decode((string) $row['dungeon_data'], TRUE) ?: NULL;
+      $decode_row_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
       if (!is_array($decoded)) {
         return NULL;
       }
@@ -218,7 +261,9 @@ class CoordinatorRuntimeReadService {
         $decoded['dungeon_id'] = trim((string) ($row['dungeon_id'] ?? ''));
       }
 
+      $stage_started_at = hrtime(true);
       $runtime_game_state = $this->campaignRuntimeStateStore->loadGameState($campaign_id);
+      $load_runtime_state_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
       if (is_array($runtime_game_state)) {
         $decoded['game_state'] = $runtime_game_state;
         $authoritative_active_room_id = trim((string) (
@@ -233,8 +278,10 @@ class CoordinatorRuntimeReadService {
       }
 
       $resolved_dungeon_id = trim((string) ($decoded['dungeon_id'] ?? $row['dungeon_id'] ?? ''));
+      $build_runtime_graph_ms = 0.0;
       if ($rebuild_runtime_graph && $resolved_dungeon_id !== '') {
         $resolved_requested_room_id = trim((string) ($requested_room_id ?? ''));
+        $stage_started_at = hrtime(true);
         $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
           $campaign_id,
           $resolved_dungeon_id,
@@ -246,14 +293,20 @@ class CoordinatorRuntimeReadService {
             'requested_room_id' => $resolved_requested_room_id,
           ]
         );
+        $build_runtime_graph_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
       }
 
       if (empty($decoded['active_room_id'])) {
         $this->resolveStartupRoomId($decoded);
       }
 
+      $stage_started_at = hrtime(true);
       $runtime_entities = $this->actorRuntimeStateStore->loadActorEntities($campaign_id);
+      $load_runtime_entities_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
+      $runtime_entities_before_scope_count = is_array($runtime_entities) ? count($runtime_entities) : 0;
+      $scope_runtime_entities_ms = 0.0;
       if ($room_scope_depth >= 0 && $runtime_entities !== []) {
+        $stage_started_at = hrtime(true);
         $scoped_room_ids = [];
         foreach ($decoded['rooms'] ?? [] as $room) {
           if (!is_array($room)) {
@@ -281,16 +334,49 @@ class CoordinatorRuntimeReadService {
           $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
           return $entity_room_id !== '' && isset($scoped_room_ids[$entity_room_id]);
         }));
+        $scope_runtime_entities_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
       }
       if ($runtime_entities !== []) {
         $decoded['entities'] = $runtime_entities;
       }
       $decoded['__campaign_dungeon_row_id'] = (int) ($row['id'] ?? 0);
-      $should_sync_active_room_players = $sync_active_room_players
-        || $this->requiresActiveRoomPlayerSync($decoded, $preferred_actor_id);
-      return $should_sync_active_room_players
-        ? $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id)
-        : $decoded;
+      $bypass_active_room_sync = !empty($diagnostic_context['bypass_active_room_sync']);
+      $should_sync_active_room_players = $bypass_active_room_sync
+        ? FALSE
+        : ($sync_active_room_players || $this->requiresActiveRoomPlayerSync($decoded, $preferred_actor_id));
+      $sync_active_room_players_ms = 0.0;
+      if ($should_sync_active_room_players) {
+        $stage_started_at = hrtime(true);
+        $decoded = $this->campaignCharacterRuntimeSync->syncActiveRoomPlayerEntities($decoded, $campaign_id, $preferred_actor_id, $diagnostic_context);
+        $sync_active_room_players_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
+      }
+
+      if (!empty($diagnostic_context)) {
+        $this->logger->debug('Action availability context load timing: campaign=@campaign_id actor=@actor_id trace=@trace_id total_ms=@total resolve_runtime_character_ms=@resolve_runtime_character_ms row_load_ms=@row_load_ms row_decode_ms=@row_decode_ms runtime_state_ms=@runtime_state_ms runtime_graph_ms=@runtime_graph_ms runtime_entities_load_ms=@runtime_entities_load_ms runtime_entities_scope_ms=@runtime_entities_scope_ms runtime_entities_before_scope=@runtime_entities_before_scope runtime_entities_after_scope=@runtime_entities_after_scope sync_players_ms=@sync_players_ms sync_players_bypassed=@sync_players_bypassed membership_projection_mode=@membership_projection_mode requested_room_id=@requested_room_id active_room_id=@active_room_id room_scope_depth=@room_scope_depth payload_bytes=@payload_bytes', [
+          '@campaign_id' => $campaign_id,
+          '@actor_id' => trim((string) ($preferred_actor_id ?? '')),
+          '@trace_id' => trim((string) ($diagnostic_context['trace_id'] ?? '')),
+          '@total' => round((hrtime(true) - $overall_started_at) / 1000000, 2),
+          '@resolve_runtime_character_ms' => $resolve_runtime_character_ms,
+          '@row_load_ms' => $load_authoritative_row_ms,
+          '@row_decode_ms' => $decode_row_ms,
+          '@runtime_state_ms' => $load_runtime_state_ms,
+          '@runtime_graph_ms' => $build_runtime_graph_ms,
+          '@runtime_entities_load_ms' => $load_runtime_entities_ms,
+          '@runtime_entities_scope_ms' => $scope_runtime_entities_ms,
+          '@runtime_entities_before_scope' => $runtime_entities_before_scope_count,
+          '@runtime_entities_after_scope' => is_array($runtime_entities) ? count($runtime_entities) : 0,
+          '@sync_players_ms' => $sync_active_room_players_ms,
+          '@requested_room_id' => trim((string) ($requested_room_id ?? '')),
+          '@active_room_id' => trim((string) ($decoded['active_room_id'] ?? '')),
+          '@room_scope_depth' => $room_scope_depth,
+          '@payload_bytes' => strlen((string) ($row['dungeon_data'] ?? '')),
+          '@sync_players_bypassed' => $bypass_active_room_sync ? 'yes' : 'no',
+          '@membership_projection_mode' => !empty($diagnostic_context['membership_projection_mode']) ? 'yes' : 'no',
+        ]);
+      }
+
+      return $decoded;
     }
     catch (\Throwable $e) {
       $this->logger->error('Failed to load coordinator runtime read context for campaign @id: @error', [

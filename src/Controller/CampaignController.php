@@ -260,7 +260,10 @@ class CampaignController extends ControllerBase {
   }
 
   /**
-   * Tavern entrance flow: choose a character and launch this campaign.
+   * Campaign launch flow: choose a character and launch this campaign.
+   *
+   * Route name/path keeps tavernentrance for compatibility, but the flow is
+   * theme-driven and no longer tavern-specific.
    */
   public function tavernEntrance(int $campaign_id) {
     $campaign = $this->database->select('dc_campaigns', 'c')
@@ -435,6 +438,9 @@ class CampaignController extends ControllerBase {
         'query' => ['campaign_id' => $campaign_id],
       ])->toString(),
       '#back_url' => Url::fromRoute('dungeoncrawler_content.campaigns')->toString(),
+      '#launch_url' => Url::fromRoute('dungeoncrawler_content.campaign_tavernentrance', [
+        'campaign_id' => $campaign_id,
+      ])->toString(),
       '#attached' => [
         'library' => ['dungeoncrawler_content/character-sheet'],
       ],
@@ -517,6 +523,9 @@ class CampaignController extends ControllerBase {
       ],
       '#dungeons' => $dungeon_cards,
       '#back_url' => Url::fromRoute('dungeoncrawler_content.campaigns')->toString(),
+      '#launch_url' => Url::fromRoute('dungeoncrawler_content.campaign_tavernentrance', [
+        'campaign_id' => $campaign_id,
+      ])->toString(),
       '#tavern_url' => Url::fromRoute('dungeoncrawler_content.campaign_tavernentrance', [
         'campaign_id' => $campaign_id,
       ])->toString(),

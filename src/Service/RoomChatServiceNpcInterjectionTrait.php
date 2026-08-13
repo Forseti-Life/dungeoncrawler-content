@@ -568,6 +568,17 @@ trait RoomChatServiceNpcInterjectionTrait {
       return FALSE;
     }
 
+    $profile = is_array($npc['profile'] ?? NULL) ? $npc['profile'] : [];
+    $resolved_attitude = $this->resolveActorDispositionAttitude(
+      $campaign_id,
+      (string) ($npc['entity_ref'] ?? ''),
+      [
+        'profile' => $profile,
+        'entity' => is_array($npc['entity'] ?? NULL) ? $npc['entity'] : [],
+        'attitude' => $profile['attitude'] ?? NULL,
+      ]
+    );
+
     $cache_key = 'dungeoncrawler_content:npc_turn:' . sha1(json_encode([
       'campaign_id' => $campaign_id,
       'room_id' => $room_id,
@@ -575,7 +586,7 @@ trait RoomChatServiceNpcInterjectionTrait {
       'player' => $player_message,
       'gm' => $gm_narrative,
       'transcript' => $this->buildRoomConversationTranscript($dungeon_data['rooms'][$room_index]['chat'] ?? [], 4),
-      'attitude' => $npc['profile']['attitude'] ?? '',
+      'attitude' => $resolved_attitude,
     ]));
     $cache_started_at = hrtime(true);
     $cache = \Drupal::cache('default')->get($cache_key);
@@ -586,9 +597,8 @@ trait RoomChatServiceNpcInterjectionTrait {
       return (bool) $cache->data['speak'];
     }
 
-    $profile = $npc['profile'] ?? [];
     $desc = (string) ($profile['display_name'] ?? $npc['entity_ref']);
-    $desc .= " — Attitude: " . ($profile['attitude'] ?? 'indifferent');
+    $desc .= " — Attitude: " . $resolved_attitude;
     if (!empty($profile['personality_traits'])) {
       $desc .= ", Personality: {$profile['personality_traits']}";
     }
@@ -684,18 +694,37 @@ PROMPT;
     ?string $encounter_prefix = NULL,
     ?string $consumption_key_override = NULL
   ): array {
+    $interjection_stage_started_at = hrtime(true);
     $normalized_consumption_key = trim((string) ($consumption_key_override ?? ''));
     if ($normalized_consumption_key !== '' && $this->hasConsumedNpcResponse($dungeon_data, $room_index, $normalized_consumption_key)) {
+      $this->recordDebugStage('npc.interjection_skipped_consumed', $interjection_stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'mode' => 'consumption_key_override',
+      ]);
       return [];
     }
 
+    $stage_started_at = hrtime(true);
     $dialogue_payload = $this->generateNpcRoomDialogue(
       $campaign_id, $room_id, $room_index, $dungeon_data,
       $speaker_ref, $speaker_name, $player_message, $gm_narrative
     );
+    $this->recordDebugStage('npc.interjection_generate_dialogue', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+    ]);
 
     if (empty($dialogue_payload['text'])) {
+      $stage_started_at = hrtime(true);
       $this->feedRoomChatToNpcSessions($campaign_id, $room_npcs, $player_message, $gm_narrative);
+      $this->recordDebugStage('npc.interjection_feed_sessions_empty_dialogue', $stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'room_npc_count' => count($room_npcs),
+      ]);
+      $this->recordDebugStage('npc.interjection_total', $interjection_stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'spoke' => FALSE,
+        'reason' => 'empty_dialogue',
+      ]);
       return [];
     }
 
@@ -703,28 +732,51 @@ PROMPT;
     if ($normalized_consumption_key !== '') {
       $this->markConsumedNpcResponse($dungeon_data, $room_index, $normalized_consumption_key);
     }
-    elseif (!$this->consumeNpcResponseOnce(
-      $dungeon_data,
-      $room_index,
-      $room_id,
-      $speaker_ref,
-      $player_message,
-      $npc_dialogue
-    )) {
-      return [];
+    else {
+      $stage_started_at = hrtime(true);
+      $consumed = $this->consumeNpcResponseOnce(
+        $dungeon_data,
+        $room_index,
+        $room_id,
+        $speaker_ref,
+        $player_message,
+        $npc_dialogue
+      );
+      $this->recordDebugStage('npc.interjection_consume_guard', $stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'consumed' => $consumed,
+      ]);
+      if (!$consumed) {
+        $this->recordDebugStage('npc.interjection_total', $interjection_stage_started_at, [
+          'npc_entity' => $speaker_ref,
+          'spoke' => FALSE,
+          'reason' => 'duplicate_consumption_guard',
+        ]);
+        return [];
+      }
     }
 
     // Build the NPC chat message.
     if ($encounter_prefix === NULL) {
+      $stage_started_at = hrtime(true);
       $encounter_prefix = $this->encounterTranscriptPrefixService->buildForSpeaker(
         $dungeon_data,
         $speaker_name,
         fn(string $turn_entity_id, array $entity_dungeon_data): ?array => $this->roomLocator->findEncounterTurnEntity($turn_entity_id, $entity_dungeon_data)
       );
+      $this->recordDebugStage('npc.interjection_build_encounter_prefix', $stage_started_at, [
+        'npc_entity' => $speaker_ref,
+      ]);
     }
+    $stage_started_at = hrtime(true);
     $npc_message = $this->buildCharacterDialogueChatMessage($dialogue_payload, NULL, $encounter_prefix);
+    $this->recordDebugStage('npc.interjection_build_chat_message', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+      'message_length' => strlen((string) ($npc_message['message'] ?? '')),
+    ]);
 
     // Persist the NPC interjection to dungeon_data chat.
+    $stage_started_at = hrtime(true);
     $dungeon_data['rooms'][$room_index]['chat'][] = $npc_message;
     $npc_message['sequence_index'] = count($dungeon_data['rooms'][$room_index]['chat']);
     $dungeon_data['rooms'][$room_index]['chat'][array_key_last($dungeon_data['rooms'][$room_index]['chat'])] = $npc_message;
@@ -737,44 +789,141 @@ PROMPT;
         $chat_count - self::MAX_MESSAGES_PER_ROOM
       );
     }
+    $this->recordDebugStage('npc.interjection_update_chat_buffer', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+      'chat_count' => $chat_count,
+    ]);
 
+    $stage_started_at = hrtime(true);
     $this->persistDungeonChatState($campaign_id, $dungeon_id, $dungeon_data);
+    $this->recordDebugStage('npc.interjection_persist_dungeon_chat_state', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+    ]);
 
     // Record the interjection in the NPC's own AI session.
+    $stage_started_at = hrtime(true);
     $session_key = $this->sessionManager->npcSessionKey($campaign_id, $speaker_ref);
+    $this->recordDebugStage('npc.interjection_resolve_session_key', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+    ]);
+    $stage_started_at = hrtime(true);
     $context_for_npc = $this->buildRoomObservationFromChat(array_slice($dungeon_data['rooms'][$room_index]['chat'] ?? [], 0, -1));
+    $this->recordDebugStage('npc.interjection_build_room_observation', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+      'observation_length' => strlen($context_for_npc),
+    ]);
+    $stage_started_at = hrtime(true);
     $this->sessionManager->appendMessage($session_key, $campaign_id, 'user', $context_for_npc);
+    $this->recordDebugStage('npc.interjection_append_session_user', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+    ]);
+    $stage_started_at = hrtime(true);
     $this->sessionManager->appendMessage($session_key, $campaign_id, 'assistant', $npc_dialogue);
+    $this->recordDebugStage('npc.interjection_append_session_assistant', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+      'dialogue_length' => strlen($npc_dialogue),
+    ]);
 
-    // Record inner monologue for the speaking NPC.
-    $this->psychologyService->recordInnerMonologue(
-      $campaign_id,
-      $speaker_ref,
-      'conversation',
-      "I spoke up in the room chat: \"{$npc_dialogue}\"",
-      ['trigger' => 'room_interjection', 'player_said' => substr($player_message, 0, 200)]
-    );
+    // Apply deterministic disposition mutation for the speaking NPC.
+    $stage_started_at = hrtime(true);
+    $event_description = "I spoke up in the room chat: \"{$npc_dialogue}\"";
+    if (\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+      $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+      if ($service instanceof ActorDispositionService) {
+        $service->applyDispositionEvent(
+          $campaign_id,
+          (string) $speaker_ref,
+          'conversation',
+          $event_description,
+          [
+            'relationship_type' => 'conversation',
+            'relationship_status' => 'known',
+            'idempotency_key' => sha1(json_encode([
+              'room_interjection' => TRUE,
+              'campaign_id' => $campaign_id,
+              'room_id' => (string) $room_id,
+              'speaker_ref' => (string) $speaker_ref,
+              'player_message' => $player_message,
+              'npc_dialogue' => $npc_dialogue,
+              'trace_id' => (string) ($this->activeDebugTrace['trace_id'] ?? ''),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+            'trigger' => 'room_interjection',
+            'player_said' => substr($player_message, 0, 200),
+            'trace_id' => (string) ($this->activeDebugTrace['trace_id'] ?? ''),
+          ]
+        );
+      }
+      else {
+        $this->psychologyService->recordInnerMonologue(
+          $campaign_id,
+          $speaker_ref,
+          'conversation',
+          $event_description,
+          [
+            'trigger' => 'room_interjection',
+            'player_said' => substr($player_message, 0, 200),
+            'trace_id' => (string) ($this->activeDebugTrace['trace_id'] ?? ''),
+          ]
+        );
+      }
+    }
+    else {
+      $this->psychologyService->recordInnerMonologue(
+        $campaign_id,
+        $speaker_ref,
+        'conversation',
+        $event_description,
+        [
+          'trigger' => 'room_interjection',
+          'player_said' => substr($player_message, 0, 200),
+          'trace_id' => (string) ($this->activeDebugTrace['trace_id'] ?? ''),
+        ]
+      );
+    }
+    $this->recordDebugStage('npc.interjection_record_monologue', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+    ]);
 
     if ($feed_room_sessions) {
+      $stage_started_at = hrtime(true);
+      $room_observation = $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? []);
+      $this->recordDebugStage('npc.interjection_build_room_observation_feed', $stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'observation_length' => strlen($room_observation),
+      ]);
+
+      $stage_started_at = hrtime(true);
       $this->feedRoomChatToNpcSessions(
         $campaign_id,
         $room_npcs,
         $player_message,
         $gm_narrative,
         [$speaker_ref],
-        $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
+        $room_observation
       );
+      $this->recordDebugStage('npc.interjection_feed_room_sessions', $stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'room_npc_count' => count($room_npcs),
+      ]);
     }
 
     // Bridge into hierarchical session system.
+    $stage_started_at = hrtime(true);
     $this->bridgeNpcInterjectionToSessionSystem(
       $campaign_id, $dungeon_id, $room_id, $speaker_name, $npc_dialogue, $speaker_ref
     );
+    $this->recordDebugStage('npc.interjection_bridge_session_system', $stage_started_at, [
+      'npc_entity' => $speaker_ref,
+    ]);
 
     $this->logger->info('NPC interjection by @npc in room @room: @msg', [
       '@npc' => $speaker_name,
       '@room' => $room_id,
       '@msg' => substr($npc_dialogue, 0, 100),
+    ]);
+    $this->recordDebugStage('npc.interjection_total', $interjection_stage_started_at, [
+      'npc_entity' => $speaker_ref,
+      'spoke' => TRUE,
     ]);
 
     return [$npc_message];
@@ -784,7 +933,7 @@ PROMPT;
    * Resolve a directly addressed NPC from player text without relying on the LLM.
    */
 
-  protected function resolveDirectlyAddressedNpc(array $room_npcs, string $player_message): ?array {
+  protected function resolveDirectlyAddressedNpc(array $room_npcs, string $player_message, bool $allow_unclear_fallback = TRUE): ?array {
     $message = $this->normalizeNpcNameForMatch($player_message);
     if ($message === '') {
       return NULL;
@@ -812,7 +961,7 @@ PROMPT;
     }
 
     if ($matches === []) {
-      return $this->selectHighestCharismaNpc($room_npcs);
+      return $allow_unclear_fallback ? $this->selectHighestCharismaNpc($room_npcs) : NULL;
     }
 
     return $this->selectHighestScoredNpc($matches, $room_npcs);
@@ -892,6 +1041,7 @@ PROMPT;
    */
 
   protected function buildNpcInterjectionCandidates(
+    int $campaign_id,
     array $room_npcs,
     string $player_message,
     string $gm_narrative,
@@ -908,7 +1058,7 @@ PROMPT;
 
     $scored = [];
     foreach ($room_npcs as $npc) {
-      $score = $this->scoreNpcInterjectionCandidate($npc, $combined_text, $player_message, $gm_narrative);
+      $score = $this->scoreNpcInterjectionCandidate($npc, $campaign_id, $combined_text, $player_message, $gm_narrative);
       if ($score < 40) {
         continue;
       }
@@ -932,14 +1082,23 @@ PROMPT;
 
   protected function scoreNpcInterjectionCandidate(
     array $npc,
+    int $campaign_id,
     string $combined_text,
     string $player_message,
     string $gm_narrative
   ): int {
-    $profile = $npc['profile'] ?? [];
+    $profile = is_array($npc['profile'] ?? NULL) ? $npc['profile'] : [];
     $display_name = (string) ($profile['display_name'] ?? '');
     $role = strtolower((string) ($profile['role'] ?? ''));
-    $attitude = strtolower((string) ($profile['attitude'] ?? 'indifferent'));
+    $attitude = $this->resolveActorDispositionAttitude(
+      $campaign_id,
+      (string) ($npc['entity_ref'] ?? ''),
+      [
+        'profile' => $profile,
+        'entity' => is_array($npc['entity'] ?? NULL) ? $npc['entity'] : [],
+        'attitude' => $profile['attitude'] ?? NULL,
+      ]
+    );
     $motivations = strtolower((string) ($profile['motivations'] ?? ''));
     $normalized_player_message = $this->normalizeNpcNameForMatch($player_message);
 
@@ -1283,6 +1442,7 @@ PROMPT;
     if ($intent === 'combat_engagement') {
       $hostiles = $this->findRoomHostileEntities($room_id, $dungeon_data, $player_message);
       if ($hostiles !== []) {
+        $source_entity_ref = $this->resolvePlayerEntityRefForRoomAction($room_id, $dungeon_data, $character_id);
         $hostile_ids = [];
         $hostile_names = [];
         foreach ($hostiles as $hostile) {
@@ -1309,6 +1469,7 @@ PROMPT;
               'combat' => [
                 'reason' => 'The player commits to immediate violence against the hostile creatures in the room.',
                 'enemy_entity_ids' => array_values(array_unique($hostile_ids)),
+                'source_entity_ref' => $source_entity_ref,
               ],
               'result_description' => 'Combat begins immediately from the player declaration.',
             ],
@@ -1614,6 +1775,28 @@ PROMPT;
       fn(string $message): ?string => $this->extractNavigationDestination($message),
       fn(string $haystack, array $needles): bool => $this->textContainsAny($haystack, $needles)
     );
+  }
+
+  /**
+   * Resolve player entity_ref in-room for deterministic combat initiation payloads.
+   */
+  protected function resolvePlayerEntityRefForRoomAction(string $room_id, array $dungeon_data, ?int $character_id): string {
+    if ($character_id === NULL) {
+      return '';
+    }
+    foreach (($dungeon_data['entities'] ?? []) as $entity) {
+      if (($entity['placement']['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      if ((int) ($entity['character_id'] ?? 0) !== $character_id) {
+        continue;
+      }
+      $entity_ref = trim((string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? ''));
+      if ($entity_ref !== '') {
+        return $entity_ref;
+      }
+    }
+    return '';
   }
 
   /**

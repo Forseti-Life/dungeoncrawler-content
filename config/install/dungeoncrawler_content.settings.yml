@@ -28,6 +28,12 @@ ai_gm_trigger_entity_defeated: true
 ai_gm_trigger_phase_transition: true
 chat_timing_debug_enabled: true
 chat_timing_debug_include_prompts: true
+action_availability_bypass_active_room_sync: false
+action_availability_membership_projection_enabled: false
+action_availability_turn_cache_enabled: false
+room_entry_warmup_split_enabled: false
+latency_toggle_canary_campaign_ids: ''
+latency_toggle_auto_enroll_new_campaigns: true
 items_per_page: 12
 show_game_stats: true
 generated_image_provider: gemini

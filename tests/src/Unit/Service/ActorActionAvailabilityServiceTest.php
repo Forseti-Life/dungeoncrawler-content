@@ -39,6 +39,9 @@ class ActorActionAvailabilityServiceTest extends UnitTestCase {
                 ['id' => 'magic_missile', 'name' => 'Magic Missile', 'action_cost' => 2],
               ],
             ],
+            'skills' => [
+              'medicine' => ['modifier' => 7, 'proficiency' => 'trained'],
+            ],
             'feats' => [
               ['id' => 'power_attack', 'name' => 'Power Attack'],
             ],
@@ -64,15 +67,17 @@ class ActorActionAvailabilityServiceTest extends UnitTestCase {
     $availability = $service->resolveEncounterAvailability($game_state, $dungeon_data, 'pc-1');
 
     $this->assertContains('cast_spell', $availability['available_actions']);
-    $this->assertContains('use_feat', $availability['available_actions']);
-    $this->assertContains('use_consumable', $availability['available_actions']);
+    $this->assertContains('skill', $availability['available_actions']);
+    $this->assertContains('feat', $availability['available_actions']);
+    $this->assertContains('consume_item', $availability['available_actions']);
     $this->assertContains('activate_item', $availability['available_actions']);
     $this->assertContains('trigger_hazard', $availability['available_actions']);
 
     $families = $availability['action_contract']['action_option_families'] ?? [];
     $this->assertSame(1, $families['cast_spell']['option_count'] ?? NULL);
-    $this->assertSame(1, $families['use_feat']['option_count'] ?? NULL);
-    $this->assertSame(1, $families['use_consumable']['option_count'] ?? NULL);
+    $this->assertSame(1, $families['skill']['option_count'] ?? NULL);
+    $this->assertSame(1, $families['feat']['option_count'] ?? NULL);
+    $this->assertSame(1, $families['consume_item']['option_count'] ?? NULL);
     $this->assertSame(1, $families['activate_item']['option_count'] ?? NULL);
     $this->assertSame(1, $families['trigger_hazard']['option_count'] ?? NULL);
   }
@@ -99,6 +104,7 @@ class ActorActionAvailabilityServiceTest extends UnitTestCase {
           'entity_instance_id' => 'pc-other',
           'state' => [
             'spells' => ['prepared' => [['id' => 'shield']]],
+            'skills' => ['arcana' => ['modifier' => 5, 'proficiency' => 'trained']],
             'feats' => [['id' => 'intimidating-glare']],
             'inventory' => ['items' => [['item_id' => 'elixir-of-life', 'item_type' => 'consumable']]],
           ],
@@ -117,14 +123,16 @@ class ActorActionAvailabilityServiceTest extends UnitTestCase {
     $availability = $service->resolveEncounterAvailability($game_state, $dungeon_data, 'pc-other');
 
     $this->assertNotContains('cast_spell', $availability['available_actions']);
-    $this->assertNotContains('use_feat', $availability['available_actions']);
-    $this->assertNotContains('use_consumable', $availability['available_actions']);
+    $this->assertNotContains('skill', $availability['available_actions']);
+    $this->assertNotContains('feat', $availability['available_actions']);
+    $this->assertNotContains('consume_item', $availability['available_actions']);
     $this->assertNotContains('trigger_hazard', $availability['available_actions']);
 
     $families = $availability['action_contract']['action_option_families'] ?? [];
     $this->assertFalse((bool) ($families['cast_spell']['is_action_currently_legal'] ?? TRUE));
-    $this->assertFalse((bool) ($families['use_feat']['is_action_currently_legal'] ?? TRUE));
-    $this->assertFalse((bool) ($families['use_consumable']['is_action_currently_legal'] ?? TRUE));
+    $this->assertFalse((bool) ($families['skill']['is_action_currently_legal'] ?? TRUE));
+    $this->assertFalse((bool) ($families['feat']['is_action_currently_legal'] ?? TRUE));
+    $this->assertFalse((bool) ($families['consume_item']['is_action_currently_legal'] ?? TRUE));
     $this->assertFalse((bool) ($families['trigger_hazard']['is_action_currently_legal'] ?? TRUE));
   }
 
@@ -242,6 +250,42 @@ class ActorActionAvailabilityServiceTest extends UnitTestCase {
   /**
    * @covers ::resolveEncounterAvailability
    */
+  public function testResolveEncounterAvailabilitySupportsRankedSpellListShape(): void {
+    $service = new ActorActionAvailabilityService();
+
+    $game_state = [
+      'encounter_id' => 105,
+      'turn' => [
+        'entity' => 'pc-12',
+        'actions_remaining' => 3,
+        'reaction_available' => FALSE,
+      ],
+    ];
+    $dungeon_data = [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-12',
+          'state' => [
+            'spells' => [
+              'cantrips' => ['shield'],
+              'first_level' => ['magic-missile'],
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $availability = $service->resolveEncounterAvailability($game_state, $dungeon_data, 'pc-12');
+    $families = $availability['action_contract']['action_option_families'] ?? [];
+    $spell_options = $families['cast_spell']['options'] ?? [];
+
+    $this->assertSame(2, $families['cast_spell']['option_count'] ?? NULL);
+    $this->assertSame(['magic-missile', 'shield'], array_column($spell_options, 'id'));
+  }
+
+  /**
+   * @covers ::resolveEncounterAvailability
+   */
   public function testResolveEncounterAvailabilityPreservesKeyedHazardIds(): void {
     $service = new ActorActionAvailabilityService();
 
@@ -307,6 +351,72 @@ class ActorActionAvailabilityServiceTest extends UnitTestCase {
     $this->assertArrayNotHasKey('unknown_family_action', $families);
     $this->assertSame(['acid-splash', 'ray-of-frost'], array_column($families['cast_spell']['options'] ?? [], 'id'));
     $this->assertSame(2, $families['cast_spell']['option_count'] ?? NULL);
+  }
+
+  /**
+   * @covers ::resolveEncounterAvailability
+   */
+  public function testResolveEncounterAvailabilityInfersHostileSpellTargetingWhenCreatureTargeted(): void {
+    $service = new ActorActionAvailabilityService();
+
+    $availability = $service->resolveEncounterAvailability([
+      'encounter_id' => 501,
+      'turn' => [
+        'entity' => 'pc-1',
+        'actions_remaining' => 3,
+        'reaction_available' => FALSE,
+      ],
+    ], [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'state' => [
+            'spells' => [
+              'prepared' => [
+                ['id' => 'ray-of-frost', 'name' => 'Ray of Frost', 'target' => '1 creature'],
+              ],
+            ],
+          ],
+        ],
+      ],
+    ], 'pc-1');
+
+    $families = $availability['action_contract']['action_option_families'] ?? [];
+    $spells = $families['cast_spell']['options'] ?? [];
+    $this->assertSame('hostile_entity', $spells[0]['targeting'] ?? NULL);
+  }
+
+  /**
+   * @covers ::resolveEncounterAvailability
+   */
+  public function testResolveEncounterAvailabilityInfersSelfSpellTargeting(): void {
+    $service = new ActorActionAvailabilityService();
+
+    $availability = $service->resolveEncounterAvailability([
+      'encounter_id' => 502,
+      'turn' => [
+        'entity' => 'pc-1',
+        'actions_remaining' => 3,
+        'reaction_available' => FALSE,
+      ],
+    ], [
+      'entities' => [
+        [
+          'entity_instance_id' => 'pc-1',
+          'state' => [
+            'spells' => [
+              'prepared' => [
+                ['id' => 'shield', 'name' => 'Shield', 'target' => 'Self'],
+              ],
+            ],
+          ],
+        ],
+      ],
+    ], 'pc-1');
+
+    $families = $availability['action_contract']['action_option_families'] ?? [];
+    $spells = $families['cast_spell']['options'] ?? [];
+    $this->assertSame('self', $spells[0]['targeting'] ?? NULL);
   }
 
 }

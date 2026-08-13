@@ -30,11 +30,11 @@ const encounterPhaseSource = fs.readFileSync(path.resolve(__dirname, '../src/Ser
 console.log('\n=== Action rail Consumable bindings ===');
 
 assert(
-  actionRailPanelSource.includes("execute: 'consumable'")
+  actionRailPanelSource.includes("execute: 'consume_item'")
     && actionRailPanelSource.includes("const actionType = String(button.dataset.actionRailExecute || '').trim();")
     && actionRailPanelSource.includes('if (isActionRailSelectableAction(actionType)) {')
     && actionRailPanelSource.includes("this.bus.emit('user:action-selected', { actionKey: actionType, button });")
-    && actionRailContractSource.includes("'consumable',"),
+    && actionRailContractSource.includes("'consume_item',"),
   'action rail emits consumable entries through the canonical action-selected bus contract'
 );
 
@@ -44,7 +44,6 @@ assert(
     && encounterSystemSource.includes('const handlerName = ACTION_SELECTION_HANDLERS[key] ||')
     && encounterSystemSource.includes('this[handlerName](d?.button);')
     && encounterSystemSource.includes('async executeDirectConsumable(button) {')
-    && encounterSystemSource.includes('extractConsumableItems(')
     && encounterSystemSource.includes("_sendCoordinatorActionWithResync(coordinator, 'consume_item', context.actorRef, {")
     && encounterSystemSource.includes('action: \'consume\''),
   'encounter system handles consumable selections and dispatches canonical consume_item intents'
@@ -58,7 +57,7 @@ assert(
 
 assert(
   encounterPhaseSource.includes("'consume_item',")
-    && encounterPhaseSource.includes("case 'consume_item':")
+    && encounterPhaseSource.includes("$this->getActionCost('consume_item', $params);")
     && encounterPhaseSource.includes("'consume_item requires params.character_id and params.item.'")
     && encounterPhaseSource.includes("GameEventLogger::buildEvent('consume_item', 'encounter', $actor_id, ["),
   'server encounter phase accepts consume_item intents and returns authoritative consume events'

@@ -22,7 +22,8 @@ class GmActorChatTransportService {
     string $speaker,
     string $message,
     int $character_id,
-    bool $suppress_gm = FALSE
+    bool $suppress_gm = FALSE,
+    array $response_options = []
   ): array {
     $defer_npc_interjections = FALSE;
 
@@ -39,9 +40,12 @@ class GmActorChatTransportService {
       NULL,
       [
         '_validated_encounter_room_chat' => TRUE,
+      ],
+      [
+        'response_mode' => (string) ($response_options['response_mode'] ?? 'actor_scoped'),
+        'include_legacy_overlay' => !empty($response_options['include_legacy_overlay']),
       ]
     );
   }
 
 }
-

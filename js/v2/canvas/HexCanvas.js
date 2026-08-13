@@ -84,12 +84,15 @@ export class HexCanvas {
     this._lastRoomTransitionId = '';
     this._wheelHandler = null;
     this._leaveHandler = null;
+    this._contextMenuHandler = null;
+    this._panEnabled = true;
 
     // World-space hover inspector UI
     this._hoverHexOutline = null;
     this._hoverHexTooltip = null;
     this._hoverHexTooltipBg = null;
     this._hoverHexTooltipText = null;
+    this._movementBandOverlay = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -106,6 +109,10 @@ export class HexCanvas {
     this._initPixiApp();
     this._buildSceneLayers();
     this._setupPanZoom();
+    this._contextMenuHandler = (event) => {
+      event.preventDefault();
+    };
+    this.app?.view?.addEventListener('contextmenu', this._contextMenuHandler);
     this.generateHexGrid();
     this.drawCompassRose();
 
@@ -140,6 +147,9 @@ export class HexCanvas {
         this.setWorldPosition(centerX, centerY);
         this.bus.emit('canvas:zoom-changed', { scale: 1 });
       }),
+      this.bus.on('room:changed', () => {
+        this.clearMovementBandOverlay();
+      }),
     );
   }
 
@@ -153,6 +163,9 @@ export class HexCanvas {
       }
       if (this._leaveHandler) {
         this.app.view.removeEventListener('mouseleave', this._leaveHandler);
+      }
+      if (this._contextMenuHandler) {
+        this.app.view.removeEventListener('contextmenu', this._contextMenuHandler);
       }
       this.app.destroy(true, { children: true, texture: true, baseTexture: true });
       this.app = null;
@@ -183,6 +196,30 @@ export class HexCanvas {
     for (const layer of this._worldLayers()) {
       layer.scale.set(scale);
     }
+  }
+
+  setPanEnabled(enabled) {
+    this._panEnabled = enabled !== false;
+  }
+
+  globalToWorldPoint(globalX, globalY) {
+    if (!this.hexContainer || !window.PIXI || !Number.isFinite(Number(globalX)) || !Number.isFinite(Number(globalY))) {
+      return null;
+    }
+    const point = new PIXI.Point(Number(globalX), Number(globalY));
+    const local = this.hexContainer.toLocal(point);
+    return {
+      x: Number(local?.x || 0),
+      y: Number(local?.y || 0),
+    };
+  }
+
+  globalToAxial(globalX, globalY) {
+    const worldPoint = this.globalToWorldPoint(globalX, globalY);
+    if (!worldPoint) {
+      return null;
+    }
+    return this.pixelToAxial(worldPoint.x, worldPoint.y);
   }
 
   /**
@@ -289,6 +326,49 @@ export class HexCanvas {
     hex.lineStyle(lineWidth, lineColor, 1);
     this._drawHexShape(hex, this.config.hexSize);
     hex.endFill();
+  }
+
+  clearMovementBandOverlay() {
+    if (this._movementBandOverlay?.parent) {
+      this._movementBandOverlay.parent.removeChild(this._movementBandOverlay);
+    }
+    this._movementBandOverlay?.destroy?.({ children: true });
+    this._movementBandOverlay = null;
+  }
+
+  renderMovementBandOverlay(bands = {}) {
+    this.clearMovementBandOverlay();
+    if (!this.uiContainer || !window.PIXI) {
+      return;
+    }
+
+    const overlay = new PIXI.Graphics();
+    overlay.name = 'movementBandOverlay';
+    overlay.eventMode = 'none';
+    overlay.zIndex = 405;
+    [
+      { key: 'step', fill: 0x38bdf8, line: 0xe0f2fe, alpha: 0.42 },
+      { key: 'stride1', fill: 0x22c55e, line: 0xbbf7d0, alpha: 0.34 },
+      { key: 'stride2', fill: 0xf59e0b, line: 0xfef3c7, alpha: 0.30 },
+      { key: 'stride3', fill: 0xef4444, line: 0xfee2e2, alpha: 0.28 },
+    ].forEach(({ key, fill, line, alpha }) => {
+      const hexes = Array.isArray(bands?.[key]) ? bands[key] : [];
+      hexes.forEach((hex) => {
+        const q = Number(hex?.q);
+        const r = Number(hex?.r);
+        if (!Number.isFinite(q) || !Number.isFinite(r)) {
+          return;
+        }
+        const pos = this.axialToPixel(q, r, this.config.hexSize);
+        overlay.beginFill(fill, alpha);
+        overlay.lineStyle(2, line, Math.min(1, alpha + 0.2));
+        overlay.drawPolygon(this._createHexPolygonPoints(pos.x, pos.y, this.config.hexSize * 0.92));
+        overlay.endFill();
+      });
+    });
+
+    this.uiContainer.addChild(overlay);
+    this._movementBandOverlay = overlay;
   }
 
   // ---------------------------------------------------------------------------
@@ -530,13 +610,16 @@ export class HexCanvas {
     const cfg = this.config;
 
     this.app.stage.on('pointerdown', (e) => {
+      if (!this._panEnabled || (e?.target && e.target !== this.app.stage)) {
+        return;
+      }
       isDragging = true;
       dragStart = { x: e.data.global.x, y: e.data.global.y };
     });
     this.app.stage.on('pointerup', () => { isDragging = false; });
     this.app.stage.on('pointerupoutside', () => { isDragging = false; });
     this.app.stage.on('pointermove', (e) => {
-      if (!isDragging) return;
+      if (!isDragging || !this._panEnabled) return;
       const dx = e.data.global.x - dragStart.x;
       const dy = e.data.global.y - dragStart.y;
       this.setWorldPosition(this.hexContainer.x + dx, this.hexContainer.y + dy);
@@ -597,9 +680,18 @@ export class HexCanvas {
       this._hideHexHoverInfo();
       this.bus.emit('canvas:hex-out', { q, r });
     });
-    hex.on('pointerdown', (event) =>
-      this.bus.emit('canvas:hex-clicked', { q, r, button: event.data?.button ?? 0 })
-    );
+    hex.on('pointerdown', (event) => {
+      const originalEvent = event?.data?.originalEvent || null;
+      const clientX = Number(originalEvent?.clientX);
+      const clientY = Number(originalEvent?.clientY);
+      this.bus.emit('canvas:hex-clicked', {
+        q,
+        r,
+        button: event.data?.button ?? 0,
+        clientX: Number.isFinite(clientX) ? clientX : null,
+        clientY: Number.isFinite(clientY) ? clientY : null,
+      });
+    });
 
     this.hexContainer.addChild(hex);
     this._renderHexAttributeIndicators(pos, size, roomHex);
@@ -771,7 +863,7 @@ export class HexCanvas {
   _showHexHoverInfo(q, r, roomHex = null) {
     this._ensureHexHoverUI();
 
-    if (!this._hoverHexOutline || !this._hoverHexTooltip || !this._hoverHexTooltipBg || !this._hoverHexTooltipText) {
+    if (!this._hoverHexOutline) {
       return;
     }
 
@@ -793,45 +885,9 @@ export class HexCanvas {
     outline.y = pos.y;
     outline.visible = true;
 
-    const fallbackHexId = this.currentRoomId ? `${this.currentRoomId}:${qNum}:${rNum}` : `${qNum}:${rNum}`;
-    const hexId = String(roomHex?.hex_id || fallbackHexId);
-    const terrainType = String(roomHex?.terrain_type || 'unknown');
-    const lighting = String(roomHex?.lighting || 'unknown');
-    const elevation = Number.isFinite(Number(roomHex?.elevation_ft)) ? Number(roomHex.elevation_ft) : 0;
-
-    const flags = [
-      roomHex?.is_entry === true ? 'entry' : null,
-      roomHex?.is_visible === true ? 'visible' : null,
-      roomHex?.is_discovered === true ? 'discovered' : null,
-    ].filter(Boolean).join(', ');
-
-    const objectCount = Array.isArray(roomHex?.objects) ? roomHex.objects.length : 0;
-
-    const text = this._hoverHexTooltipText;
-    text.text = [
-      `hex: ${hexId}`,
-      `q=${qNum} r=${rNum}${flags ? ` (${flags})` : ''}`,
-      `terrain=${terrainType} | light=${lighting} | elev_ft=${elevation}`,
-      `objects=${objectCount}`,
-    ].join('\n');
-    text.x = 10;
-    text.y = 8;
-
-    const bg = this._hoverHexTooltipBg;
-    const paddingX = 12;
-    const paddingY = 10;
-    const width = Math.max(140, text.width + paddingX * 2);
-    const height = Math.max(44, text.height + paddingY * 2);
-    bg.clear();
-    bg.beginFill(0x0b1020, 0.86);
-    bg.lineStyle(1, 0xffffff, 0.18);
-    bg.drawRoundedRect(0, 0, width, height, 8);
-    bg.endFill();
-
-    const tooltip = this._hoverHexTooltip;
-    tooltip.x = pos.x + hexSize * 0.65;
-    tooltip.y = pos.y - hexSize * 0.75;
-    tooltip.visible = true;
+    if (this._hoverHexTooltip) {
+      this._hoverHexTooltip.visible = false;
+    }
   }
 
   _hideHexHoverInfo() {
@@ -857,6 +913,18 @@ export class HexCanvas {
       i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
     }
     g.closePath();
+  }
+
+  _createHexPolygonPoints(centerX, centerY, size) {
+    const points = [];
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (Math.PI / 3) * i;
+      points.push(
+        centerX + size * Math.cos(angle),
+        centerY + size * Math.sin(angle),
+      );
+    }
+    return points;
   }
 
   // ---------------------------------------------------------------------------

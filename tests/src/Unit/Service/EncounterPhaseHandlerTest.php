@@ -204,6 +204,36 @@ class EncounterPhaseHandlerTest extends UnitTestCase {
   }
 
   /**
+   * Cast Spell remains legal in room-scene encounter mode when contract allows it.
+   *
+   * @covers ::validateIntent
+   */
+  public function testValidateIntentAllowsRoomSceneCastSpellWhenAvailable(): void {
+    $handler = $this->buildHandler();
+    $validation = $handler->validateIntent([
+      'type' => 'cast_spell',
+      'actor' => 'char-001',
+      'params' => ['option_id' => 'magic-missile'],
+    ], [
+      'encounter_id' => NULL,
+      'phase' => 'encounter',
+      'round' => 1,
+      'encounter_context' => ['room_id' => 'room-a'],
+      'turn' => [
+        'entity' => 'char-001',
+        'index' => 0,
+        'actions_remaining' => 2,
+      ],
+      'initiative_order' => [
+        ['entity_id' => 'char-001', 'team' => 'player', 'name' => 'Tikask'],
+        ['entity_id' => 'npc-1', 'team' => 'npc', 'name' => 'Eldric'],
+      ],
+    ], []);
+
+    $this->assertTrue($validation['valid']);
+  }
+
+  /**
    * Rest action catalog remains aligned between legal intents and rest checks.
    *
    * @covers ::getLegalIntents

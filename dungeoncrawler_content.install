@@ -87,6 +87,9 @@
  * - 10177: Add and backfill H3 endpoint authority columns for actors/connectors
  * - 10179: Repair connector-linked sparse res14 room coverage and enforce endpoint H3 parity
  * - 10180: Add campaign H3 projection status/readiness ledger tables
+ * - 10187: Add campaign membership ledger and owner/player membership backfill
+ * - 10188: Add canonical persistence tables for disposition/aggression/relationship/stance
+ * - 10189: Add canonical actor-scoped effect-instance lifecycle storage
  *
  * @see dungeoncrawler_content_schema()
  */
@@ -1509,6 +1512,81 @@ function dungeoncrawler_content_schema() {
     'indexes' => [
       'uid' => ['uid'],
       'status' => ['status'],
+    ],
+  ];
+
+  $schema['dc_campaign_members'] = [
+    'description' => 'Campaign-scoped human membership and role assignments.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'campaign_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Campaign ID.',
+      ],
+      'uid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Drupal user ID.',
+      ],
+      'role' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'player',
+        'description' => 'Campaign role: owner_gm, gm, player.',
+      ],
+      'status' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'active',
+        'description' => 'Membership status: invited, active, revoked.',
+      ],
+      'default_character_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'default' => NULL,
+        'description' => 'Default playable campaign character principal ID.',
+      ],
+      'invited_by_uid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'default' => NULL,
+        'description' => 'Inviter user ID for invite flows.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Created timestamp.',
+      ],
+      'changed' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Updated timestamp.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_uid' => ['campaign_id', 'uid'],
+    ],
+    'indexes' => [
+      'campaign_id' => ['campaign_id'],
+      'uid' => ['uid'],
+      'role_status' => ['role', 'status'],
     ],
   ];
 
@@ -4491,6 +4569,50 @@ function dungeoncrawler_content_schema() {
     ],
   ];
 
+  $schema['dc_effect_instances'] = [
+    'description' => 'Canonical actor-scoped condition/effect lifecycle instances.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'effect_instance_id' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => ''],
+      'scope_key' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''],
+      'definition_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => ''],
+      'character_id' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => ''],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'instance_id' => ['type' => 'varchar', 'length' => 128, 'not null' => FALSE],
+      'source_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'system'],
+      'source_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'source_scope' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'actor'],
+      'target_scope_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'actor'],
+      'target_scope_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'target_subscope' => ['type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => ''],
+      'phase_scope' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'persistent-sheet'],
+      'stacking_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'untyped'],
+      'value_payload_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'application_policy_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'expiration_policy_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'trigger_policy_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'metadata_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'is_active' => ['type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'activated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'expires' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'expired' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'effect_instance_id' => ['effect_instance_id'],
+      'scope_key' => ['scope_key'],
+    ],
+    'indexes' => [
+      'actor_scope' => ['character_id', 'campaign_id', 'instance_id'],
+      'definition_active' => ['definition_id', 'is_active'],
+      'trigger_active' => ['is_active', 'updated'],
+      'source_lookup' => ['source_type', 'source_id'],
+      'target_lookup' => ['target_scope_type', 'target_scope_id'],
+    ],
+  ];
+
   $schema['dc_room_turn_logs'] = [
     'description' => 'Structured troubleshooting log for room conversation turn order and speaker sequencing.',
     'fields' => [
@@ -4513,6 +4635,170 @@ function dungeoncrawler_content_schema() {
       'campaign_room_created' => ['campaign_id', 'room_id', 'created'],
       'turn_key_sequence' => ['turn_key', 'sequence_index'],
       'event_type_created' => ['event_type', 'created'],
+    ],
+  ];
+
+  $schema['dc_aggression_events'] = [
+    'description' => 'Canonical aggression/combat-entry event history.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'event_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'combat_entry_decision'],
+      'room_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'status' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'unknown'],
+      'reason' => ['type' => 'text', 'size' => 'medium', 'not null' => FALSE],
+      'aggression_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'enemy_count' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+      'encounter_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'campaign_created' => ['campaign_id', 'created'],
+      'campaign_room_created' => ['campaign_id', 'room_id', 'created'],
+      'status_created' => ['status', 'created'],
+    ],
+  ];
+
+  $schema['dc_aggression_state'] = [
+    'description' => 'Canonical latest aggression/combat-entry snapshot by campaign room.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'room_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'status' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'unknown'],
+      'aggression_summary_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'combat_entry_summary_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_room' => ['campaign_id', 'room_id'],
+    ],
+    'indexes' => [
+      'campaign_updated' => ['campaign_id', 'updated'],
+      'status_updated' => ['status', 'updated'],
+    ],
+  ];
+
+  $schema['dc_disposition_events'] = [
+    'description' => 'Canonical disposition event history by actor entity_ref.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'entity_ref' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'event_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'disposition_changed'],
+      'attitude' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'indifferent'],
+      'summary_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'context_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'campaign_entity_created' => ['campaign_id', 'entity_ref', 'created'],
+      'event_type_created' => ['event_type', 'created'],
+    ],
+  ];
+
+  $schema['dc_disposition_state'] = [
+    'description' => 'Canonical latest disposition snapshot by actor entity_ref.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'entity_ref' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'summary_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'meta_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_entity' => ['campaign_id', 'entity_ref'],
+    ],
+    'indexes' => [
+      'campaign_updated' => ['campaign_id', 'updated'],
+    ],
+  ];
+
+  $schema['dc_relationship_attitude_events'] = [
+    'description' => 'Canonical relationship attitude event history by source/target edge.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'source_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => ''],
+      'source_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'target_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => ''],
+      'target_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'event_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'relationship_attitude_changed'],
+      'attitude' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'indifferent'],
+      'context_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'campaign_edge_created' => ['campaign_id', 'source_id', 'target_id', 'created'],
+      'event_type_created' => ['event_type', 'created'],
+    ],
+  ];
+
+  $schema['dc_relationship_attitude_state'] = [
+    'description' => 'Canonical latest relationship attitude snapshot by edge.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'source_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => ''],
+      'source_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'target_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => ''],
+      'target_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'edge_key' => ['type' => 'varchar', 'length' => 512, 'not null' => TRUE, 'default' => ''],
+      'attitude' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE, 'default' => 'indifferent'],
+      'meta_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_edge' => ['campaign_id', 'edge_key'],
+    ],
+    'indexes' => [
+      'campaign_updated' => ['campaign_id', 'updated'],
+      'campaign_source_target' => ['campaign_id', 'source_id', 'target_id'],
+    ],
+  ];
+
+  $schema['dc_stance_events'] = [
+    'description' => 'Canonical stance transition event history by actor entity_ref.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'entity_ref' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'event_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE, 'default' => 'stance_transition'],
+      'stance_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'summary_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'context_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'created' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'campaign_entity_created' => ['campaign_id', 'entity_ref', 'created'],
+      'event_type_created' => ['event_type', 'created'],
+    ],
+  ];
+
+  $schema['dc_stance_state'] = [
+    'description' => 'Canonical latest stance snapshot by actor entity_ref.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'campaign_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'entity_ref' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'summary_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'meta_json' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'updated' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'campaign_entity' => ['campaign_id', 'entity_ref'],
+    ],
+    'indexes' => [
+      'campaign_updated' => ['campaign_id', 'updated'],
     ],
   ];
 
@@ -25067,6 +25353,38 @@ function dungeoncrawler_content_normalize_sparse_hex_metadata(array $metadata, ?
 
   $normalized['elevation_ft'] = $elevation_ft;
   $normalized['ceiling_height_ft'] = $ceiling_height_ft;
+  $normalized['normalization'] = trim((string) ($normalized['normalization'] ?? '')) !== ''
+    ? (string) $normalized['normalization']
+    : 'global_non_overlapping_axial';
+  $normalized['placement_model'] = trim((string) ($normalized['placement_model'] ?? '')) !== ''
+    ? (string) $normalized['placement_model']
+    : 'canonical_sparse_h3';
+  $normalized['placement_min_gap_hexes'] = max(1, (int) ($normalized['placement_min_gap_hexes'] ?? 1));
+  $normalized['placement_min_anchor_distance_hexes'] = max(200, (int) ($normalized['placement_min_anchor_distance_hexes'] ?? 200));
+  $normalized['global_offset_q'] = isset($normalized['global_offset_q']) && is_numeric($normalized['global_offset_q'])
+    ? (int) $normalized['global_offset_q']
+    : 0;
+  $normalized['global_offset_r'] = isset($normalized['global_offset_r']) && is_numeric($normalized['global_offset_r'])
+    ? (int) $normalized['global_offset_r']
+    : 0;
+
+  $entry_q = 0;
+  $entry_r = 0;
+  $entry_points = is_array($room_layout_data['entry_points'] ?? NULL) ? $room_layout_data['entry_points'] : [];
+  if (is_array($entry_points[0] ?? NULL) && is_numeric($entry_points[0]['q'] ?? NULL) && is_numeric($entry_points[0]['r'] ?? NULL)) {
+    $entry_q = (int) $entry_points[0]['q'];
+    $entry_r = (int) $entry_points[0]['r'];
+  }
+  elseif (is_array($layout_hex) && is_numeric($layout_hex['q'] ?? NULL) && is_numeric($layout_hex['r'] ?? NULL)) {
+    $entry_q = (int) $layout_hex['q'];
+    $entry_r = (int) $layout_hex['r'];
+  }
+  $normalized['room_entrance_global_q'] = isset($normalized['room_entrance_global_q']) && is_numeric($normalized['room_entrance_global_q'])
+    ? (int) $normalized['room_entrance_global_q']
+    : $entry_q;
+  $normalized['room_entrance_global_r'] = isset($normalized['room_entrance_global_r']) && is_numeric($normalized['room_entrance_global_r'])
+    ? (int) $normalized['room_entrance_global_r']
+    : $entry_r;
   return $normalized;
 }
 
@@ -28213,4 +28531,871 @@ function dungeoncrawler_content_extract_layout_exit_hex_for_target(array $layout
   }
 
   return NULL;
+}
+
+/**
+ * Normalize sparse H3 metadata fields for canonical template rows.
+ */
+function dungeoncrawler_content_update_10181() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $now = \Drupal::time()->getRequestTime();
+  $messages = [];
+
+  foreach (['dungeoncrawler_content_rooms', 'dungeoncrawler_content_h3_room_anchors', 'dungeoncrawler_content_h3_room_cells'] as $required_table) {
+    if (!$schema_handler->tableExists($required_table)) {
+      throw new \RuntimeException(sprintf('Sparse metadata normalization requires table %s.', $required_table));
+    }
+  }
+
+  $room_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id', 'layout_data'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  $layout_by_room = [];
+  foreach ($room_rows as $room_row) {
+    if (!is_array($room_row)) {
+      continue;
+    }
+    $room_id = trim((string) ($room_row['room_id'] ?? ''));
+    if ($room_id === '') {
+      continue;
+    }
+    $layout_data = json_decode((string) ($room_row['layout_data'] ?? ''), TRUE);
+    $layout_by_room[$room_id] = is_array($layout_data) ? $layout_data : [];
+  }
+
+  $patched_anchors = 0;
+  $anchor_rows = $database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+    ->fields('a', ['id', 'room_id', 'h3_resolution', 'metadata', 'reference_q', 'reference_r'])
+    ->condition('dungeon_id', 'tpl\\_%', 'LIKE')
+    ->condition('h3_resolution', 14)
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  foreach ($anchor_rows as $anchor_row) {
+    if (!is_array($anchor_row)) {
+      continue;
+    }
+    $row_id = (int) ($anchor_row['id'] ?? 0);
+    if ($row_id <= 0) {
+      continue;
+    }
+    $room_id = trim((string) ($anchor_row['room_id'] ?? ''));
+    $layout_data = is_array($layout_by_room[$room_id] ?? NULL) ? $layout_by_room[$room_id] : [];
+    $reference_q = is_numeric($anchor_row['reference_q'] ?? NULL) ? (int) $anchor_row['reference_q'] : 0;
+    $reference_r = is_numeric($anchor_row['reference_r'] ?? NULL) ? (int) $anchor_row['reference_r'] : 0;
+    $layout_hex = dungeoncrawler_content_find_layout_hex_by_coordinates($layout_data, $reference_q, $reference_r);
+    $metadata_raw = trim((string) ($anchor_row['metadata'] ?? ''));
+    $metadata = $metadata_raw !== '' ? json_decode($metadata_raw, TRUE) : [];
+    $normalized = dungeoncrawler_content_normalize_sparse_hex_metadata(is_array($metadata) ? $metadata : [], $layout_data, $layout_hex);
+    $database->update('dungeoncrawler_content_h3_room_anchors')
+      ->fields([
+        'metadata' => json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => $now,
+      ])
+      ->condition('id', $row_id)
+      ->execute();
+    $patched_anchors++;
+  }
+
+  $patched_cells = 0;
+  $cell_rows = $database->select('dungeoncrawler_content_h3_room_cells', 'c')
+    ->fields('c', ['id', 'room_id', 'h3_resolution', 'metadata', 'source_q', 'source_r'])
+    ->condition('dungeon_id', 'tpl\\_%', 'LIKE')
+    ->condition('h3_resolution', 14)
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  foreach ($cell_rows as $cell_row) {
+    if (!is_array($cell_row)) {
+      continue;
+    }
+    $row_id = (int) ($cell_row['id'] ?? 0);
+    if ($row_id <= 0) {
+      continue;
+    }
+    $room_id = trim((string) ($cell_row['room_id'] ?? ''));
+    $layout_data = is_array($layout_by_room[$room_id] ?? NULL) ? $layout_by_room[$room_id] : [];
+    $source_q = is_numeric($cell_row['source_q'] ?? NULL) ? (int) $cell_row['source_q'] : 0;
+    $source_r = is_numeric($cell_row['source_r'] ?? NULL) ? (int) $cell_row['source_r'] : 0;
+    $layout_hex = dungeoncrawler_content_find_layout_hex_by_coordinates($layout_data, $source_q, $source_r);
+    $metadata_raw = trim((string) ($cell_row['metadata'] ?? ''));
+    $metadata = $metadata_raw !== '' ? json_decode($metadata_raw, TRUE) : [];
+    $normalized = dungeoncrawler_content_normalize_sparse_hex_metadata(is_array($metadata) ? $metadata : [], $layout_data, $layout_hex);
+    $database->update('dungeoncrawler_content_h3_room_cells')
+      ->fields([
+        'metadata' => json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => $now,
+      ])
+      ->condition('id', $row_id)
+      ->execute();
+    $patched_cells++;
+  }
+
+  $messages[] = sprintf(
+    'Normalized sparse metadata for %d anchor rows and %d cell rows at canonical res14.',
+    $patched_anchors,
+    $patched_cells
+  );
+
+  return t('@messages', ['@messages' => implode(' ', $messages)]);
+}
+
+/**
+ * Ensure undead starter connector authority exists in canonical library.
+ */
+function dungeoncrawler_content_update_10182() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $now = \Drupal::time()->getRequestTime();
+
+  if (!$schema_handler->tableExists('dungeoncrawler_content_connections')) {
+    throw new \RuntimeException('Starter connector authority repair requires dungeoncrawler_content_connections table.');
+  }
+  if (!$schema_handler->tableExists('dungeoncrawler_content_rooms')) {
+    throw new \RuntimeException('Starter connector authority repair requires dungeoncrawler_content_rooms table.');
+  }
+
+  $required_connector_fields = [
+    'connection_id',
+    'dungeon_id',
+    'from_room_id',
+    'to_room_id',
+    'from_hex_q',
+    'from_hex_r',
+    'to_hex_q',
+    'to_hex_r',
+    'from_h3_index_res14',
+    'to_h3_index_res14',
+    'direction',
+    'kind',
+    'default_state',
+    'travel_cost',
+    'is_discovered_default',
+    'created',
+    'updated',
+  ];
+  foreach ($required_connector_fields as $required_connector_field) {
+    if (!$schema_handler->fieldExists('dungeoncrawler_content_connections', $required_connector_field)) {
+      throw new \RuntimeException(sprintf(
+        'Starter connector authority repair requires dungeoncrawler_content_connections.%s.',
+        $required_connector_field
+      ));
+    }
+  }
+
+  $room_rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id', 'layout_data'])
+    ->condition('room_id', ['tpl_room_crypt_anteroom', 'tpl_room_absalom_streets'], 'IN')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+  $layout_by_room = [];
+  foreach ($room_rows as $room_row) {
+    if (!is_array($room_row)) {
+      continue;
+    }
+    $room_id = trim((string) ($room_row['room_id'] ?? ''));
+    if ($room_id === '') {
+      continue;
+    }
+    $layout_data = json_decode((string) ($room_row['layout_data'] ?? ''), TRUE);
+    $layout_by_room[$room_id] = is_array($layout_data) ? $layout_data : [];
+  }
+
+  $crypt_layout = is_array($layout_by_room['tpl_room_crypt_anteroom'] ?? NULL) ? $layout_by_room['tpl_room_crypt_anteroom'] : [];
+  $streets_layout = is_array($layout_by_room['tpl_room_absalom_streets'] ?? NULL) ? $layout_by_room['tpl_room_absalom_streets'] : [];
+
+  $crypt_hex = dungeoncrawler_content_find_layout_hex_by_coordinates($crypt_layout, -4, 0);
+  $streets_hex = dungeoncrawler_content_find_layout_hex_by_coordinates($streets_layout, -3, 0);
+  if (!is_array($crypt_hex) || !is_array($streets_hex)) {
+    throw new \RuntimeException('Starter connector authority repair requires canonical hexes at crypt(-4,0) and streets(-3,0).');
+  }
+
+  $crypt_h3 = strtolower(trim((string) ($crypt_hex['h3_index_res14'] ?? $crypt_hex['h3_index'] ?? '')));
+  $streets_h3 = strtolower(trim((string) ($streets_hex['h3_index_res14'] ?? $streets_hex['h3_index'] ?? '')));
+  if ($crypt_h3 === '' || $streets_h3 === '') {
+    throw new \RuntimeException('Starter connector authority repair requires canonical h3_index_res14/h3_index on connector endpoint hexes.');
+  }
+
+  $connector_fields = [
+    'dungeon_id' => 'tpl_dungeon_absalom_city',
+    'from_room_id' => 'undead_crypt_entry_hall',
+    'to_room_id' => 'tpl_room_absalom_streets',
+    'from_hex_q' => -4,
+    'from_hex_r' => 0,
+    'to_hex_q' => -3,
+    'to_hex_r' => 0,
+    'from_h3_index_res14' => $crypt_h3,
+    'to_h3_index_res14' => $streets_h3,
+    'direction' => 'bidirectional',
+    'kind' => 'hallway',
+    'default_state' => 'open',
+    'trap_data' => NULL,
+    'lock_data' => NULL,
+    'requirements_data' => NULL,
+    'description' => 'Undead starter connector authority (crypt entry hall to Absalom streets).',
+    'travel_cost' => 0,
+    'is_discovered_default' => 1,
+    'updated' => $now,
+  ];
+  $connection_id = 'tpl_dungeon_absalom_city::undead_crypt_entry_hall::tpl_room_absalom_streets::hallway';
+
+  $updated_rows = $database->update('dungeoncrawler_content_connections')
+    ->fields($connector_fields)
+    ->condition('connection_id', $connection_id)
+    ->execute();
+  if ((int) $updated_rows === 0) {
+    $database->insert('dungeoncrawler_content_connections')
+      ->fields($connector_fields + [
+        'connection_id' => $connection_id,
+        'created' => $now,
+      ])
+      ->execute();
+  }
+
+  return t('Ensured undead starter connector authority row @connection_id.', ['@connection_id' => $connection_id]);
+}
+
+/**
+ * Refresh Torment and Legacy canonical templates after strict validation hardening.
+ */
+function dungeoncrawler_content_update_10183() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $now = \Drupal::time()->getRequestTime();
+
+  if (!$schema->tableExists('dungeoncrawler_content_storylines') || !$schema->fieldExists('dungeoncrawler_content_storylines', 'template_data')) {
+    throw new \RuntimeException('Torment and Legacy contract repair requires dungeoncrawler_content_storylines.template_data.');
+  }
+  if (!$schema->tableExists('dungeoncrawler_content_quest_templates') || !$schema->fieldExists('dungeoncrawler_content_quest_templates', 'objectives_schema')) {
+    throw new \RuntimeException('Torment and Legacy contract repair requires dungeoncrawler_content_quest_templates.objectives_schema.');
+  }
+
+  $storyline_row = $database->select('dungeoncrawler_content_storylines', 's')
+    ->fields('s', ['template_data'])
+    ->condition('template_id', 'torment-and-legacy')
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($storyline_row)) {
+    throw new \RuntimeException("Torment and Legacy contract repair requires canonical storyline template 'torment-and-legacy'.");
+  }
+
+  $template_data = json_decode((string) ($storyline_row['template_data'] ?? ''), TRUE);
+  if (!is_array($template_data)) {
+    throw new \RuntimeException("Torment and Legacy contract repair failed: storyline template_data for 'torment-and-legacy' is not valid JSON object.");
+  }
+
+  $contacts = array_values(array_filter(is_array($template_data['contacts'] ?? NULL) ? $template_data['contacts'] : [], 'is_array'));
+  $patched_contact = FALSE;
+  foreach ($contacts as &$contact) {
+    if ((string) ($contact['contact_id'] ?? '') !== 'tal-mission-handler-contact') {
+      continue;
+    }
+    $contact['relationship_state'] = is_array($contact['relationship_state'] ?? NULL) ? $contact['relationship_state'] : [];
+    $contact['relationship_state']['runtime_materialization'] = [
+      'required_before_activation' => TRUE,
+      'registry_entity_type' => 'campaign_npc',
+      'canonical_actor_id' => 'tal-mission-handler',
+      'canonical_location_id' => 'tal-briefing-room',
+    ];
+    $patched_contact = TRUE;
+    break;
+  }
+  unset($contact);
+  if (!$patched_contact) {
+    throw new \RuntimeException("Torment and Legacy contract repair failed: missing contact_id 'tal-mission-handler-contact'.");
+  }
+
+  $template_data['contacts'] = $contacts;
+  $database->update('dungeoncrawler_content_storylines')
+    ->fields([
+      'template_data' => json_encode($template_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated' => $now,
+    ])
+    ->condition('template_id', 'torment-and-legacy')
+    ->execute();
+
+  $quest_row = $database->select('dungeoncrawler_content_quest_templates', 'q')
+    ->fields('q', ['objectives_schema'])
+    ->condition('template_id', 'tal-accept-the-mission')
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($quest_row)) {
+    throw new \RuntimeException("Torment and Legacy contract repair requires canonical quest template 'tal-accept-the-mission'.");
+  }
+
+  $objectives_schema = json_decode((string) ($quest_row['objectives_schema'] ?? ''), TRUE);
+  if (!is_array($objectives_schema)) {
+    throw new \RuntimeException("Torment and Legacy contract repair failed: objectives_schema for 'tal-accept-the-mission' is not valid JSON array.");
+  }
+
+  $patched_objective = FALSE;
+  foreach ($objectives_schema as &$phase) {
+    if (!is_array($phase)) {
+      continue;
+    }
+    $objectives = array_values(array_filter(is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [], 'is_array'));
+    foreach ($objectives as &$objective) {
+      if ((string) ($objective['objective_id'] ?? '') !== 'accept_demo_briefing') {
+        continue;
+      }
+      $objective['target_label'] = 'Venture-Captain Celia Arvanxi';
+      $objective['target_aliases'] = ['Briefing officer', 'Mission giver', 'Handler'];
+      $patched_objective = TRUE;
+      break;
+    }
+    unset($objective);
+    $phase['objectives'] = $objectives;
+    if ($patched_objective) {
+      break;
+    }
+  }
+  unset($phase);
+  if (!$patched_objective) {
+    throw new \RuntimeException("Torment and Legacy contract repair failed: missing objective_id 'accept_demo_briefing'.");
+  }
+
+  $quest_update_fields = [
+    'objectives_schema' => json_encode($objectives_schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+    'updated' => $now,
+  ];
+  if ($schema->fieldExists('dungeoncrawler_content_quest_templates', 'storyline_template_id')) {
+    $quest_update_fields['storyline_template_id'] = 'torment-and-legacy';
+  }
+  $database->update('dungeoncrawler_content_quest_templates')
+    ->fields($quest_update_fields)
+    ->condition('template_id', 'tal-accept-the-mission')
+    ->execute();
+
+  return t('Applied Torment and Legacy strict-contract repairs to storyline contact runtime materialization and quest objective guidance fields.');
+}
+
+/**
+ * Sync Threshold of Knowledge quest objective contracts into canonical storage.
+ */
+function dungeoncrawler_content_update_10184() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $now = \Drupal::time()->getRequestTime();
+
+  if (!$schema->tableExists('dungeoncrawler_content_quest_templates') || !$schema->fieldExists('dungeoncrawler_content_quest_templates', 'objectives_schema')) {
+    throw new \RuntimeException('Threshold of Knowledge contract sync requires dungeoncrawler_content_quest_templates.objectives_schema.');
+  }
+
+  $template_file = DRUPAL_ROOT . '/../web/modules/custom/dungeoncrawler_content/config/examples/templates/dungeoncrawler_content_quest_templates/threshold_of_knowledge_quest_templates.json';
+  if (!is_file($template_file)) {
+    throw new \RuntimeException('Threshold of Knowledge contract sync requires threshold_of_knowledge_quest_templates.json template source file.');
+  }
+
+  $decoded = json_decode((string) file_get_contents($template_file), TRUE);
+  $rows = array_values(array_filter(is_array($decoded['rows'] ?? NULL) ? $decoded['rows'] : [], 'is_array'));
+  if ($rows === []) {
+    throw new \RuntimeException('Threshold of Knowledge contract sync failed: template source rows are empty.');
+  }
+
+  $target_ids = [
+    'tok-find-the-missing-teacher',
+    'tok-gather-campus-clues',
+    'tok-follow-city-leads',
+    'tok-resolve-the-threat',
+  ];
+  $rows_by_template_id = [];
+  foreach ($rows as $row) {
+    $template_id = trim((string) ($row['template_id'] ?? ''));
+    if ($template_id === '' || !in_array($template_id, $target_ids, TRUE)) {
+      continue;
+    }
+    $rows_by_template_id[$template_id] = $row;
+  }
+  foreach ($target_ids as $required_id) {
+    if (!isset($rows_by_template_id[$required_id])) {
+      throw new \RuntimeException(sprintf(
+        "Threshold of Knowledge contract sync failed: template source missing '%s'.",
+        $required_id
+      ));
+    }
+  }
+
+  $updated_count = 0;
+  foreach ($target_ids as $template_id) {
+    $row = $rows_by_template_id[$template_id];
+    $objectives_schema = is_array($row['objectives_schema'] ?? NULL) ? $row['objectives_schema'] : [];
+    if ($objectives_schema === []) {
+      throw new \RuntimeException(sprintf(
+        "Threshold of Knowledge contract sync failed: '%s' has empty objectives_schema in source template.",
+        $template_id
+      ));
+    }
+
+    $affected = (int) $database->update('dungeoncrawler_content_quest_templates')
+      ->fields([
+        'objectives_schema' => json_encode($objectives_schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => $now,
+      ])
+      ->condition('template_id', $template_id)
+      ->execute();
+    if ($affected === 0) {
+      throw new \RuntimeException(sprintf(
+        "Threshold of Knowledge contract sync failed: canonical quest template row '%s' not found.",
+        $template_id
+      ));
+    }
+    $updated_count++;
+
+    if (
+      $schema->tableExists('dc_canonical_quests')
+      && $schema->fieldExists('dc_canonical_quests', 'objectives_schema')
+      && $schema->fieldExists('dc_canonical_quests', 'updated_at')
+    ) {
+      $canonical_fields = [
+        'objectives_schema' => json_encode($objectives_schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated_at' => $now,
+      ];
+      if ($schema->fieldExists('dc_canonical_quests', 'contract_hash')) {
+        $canonical_fields['contract_hash'] = hash('sha256', json_encode([
+          'template_id' => $template_id,
+          'objectives_schema' => $objectives_schema,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+      }
+      $database->update('dc_canonical_quests')
+        ->fields($canonical_fields)
+        ->condition('template_id', $template_id)
+        ->execute();
+    }
+  }
+
+  return t(
+    'Synchronized Threshold of Knowledge objective contracts for @count canonical quest templates.',
+    ['@count' => $updated_count]
+  );
+}
+
+/**
+ * Backfill legacy "location" alias required by explore objective schema checks.
+ */
+function dungeoncrawler_content_update_10185() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $now = \Drupal::time()->getRequestTime();
+
+  if (!$schema->tableExists('dungeoncrawler_content_quest_templates') || !$schema->fieldExists('dungeoncrawler_content_quest_templates', 'objectives_schema')) {
+    throw new \RuntimeException('Threshold location alias backfill requires dungeoncrawler_content_quest_templates.objectives_schema.');
+  }
+
+  $row = $database->select('dungeoncrawler_content_quest_templates', 'q')
+    ->fields('q', ['objectives_schema'])
+    ->condition('template_id', 'tok-follow-city-leads')
+    ->range(0, 1)
+    ->execute()
+    ->fetchAssoc();
+  if (!is_array($row)) {
+    throw new \RuntimeException("Threshold location alias backfill failed: missing 'tok-follow-city-leads' quest template.");
+  }
+
+  $objectives_schema = json_decode((string) ($row['objectives_schema'] ?? ''), TRUE);
+  if (!is_array($objectives_schema)) {
+    throw new \RuntimeException("Threshold location alias backfill failed: objectives_schema for 'tok-follow-city-leads' is invalid JSON.");
+  }
+
+  $patched = FALSE;
+  foreach ($objectives_schema as &$phase) {
+    if (!is_array($phase)) {
+      continue;
+    }
+    $objectives = array_values(array_filter(is_array($phase['objectives'] ?? NULL) ? $phase['objectives'] : [], 'is_array'));
+    foreach ($objectives as &$objective) {
+      if ((string) ($objective['objective_id'] ?? '') !== 'trace_nantambu_leads') {
+        continue;
+      }
+      $location_id = trim((string) ($objective['location_id'] ?? ''));
+      if ($location_id === '') {
+        throw new \RuntimeException("Threshold location alias backfill failed: objective 'trace_nantambu_leads' missing location_id.");
+      }
+      $objective['location'] = $location_id;
+      $patched = TRUE;
+      break;
+    }
+    unset($objective);
+    $phase['objectives'] = $objectives;
+    if ($patched) {
+      break;
+    }
+  }
+  unset($phase);
+
+  if (!$patched) {
+    throw new \RuntimeException("Threshold location alias backfill failed: objective 'trace_nantambu_leads' not found.");
+  }
+
+  $database->update('dungeoncrawler_content_quest_templates')
+    ->fields([
+      'objectives_schema' => json_encode($objectives_schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated' => $now,
+    ])
+    ->condition('template_id', 'tok-follow-city-leads')
+    ->execute();
+
+  if (
+    $schema->tableExists('dc_canonical_quests')
+    && $schema->fieldExists('dc_canonical_quests', 'objectives_schema')
+    && $schema->fieldExists('dc_canonical_quests', 'updated_at')
+  ) {
+    $canonical_fields = [
+      'objectives_schema' => json_encode($objectives_schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+      'updated_at' => $now,
+    ];
+    if ($schema->fieldExists('dc_canonical_quests', 'contract_hash')) {
+      $canonical_fields['contract_hash'] = hash('sha256', json_encode([
+        'template_id' => 'tok-follow-city-leads',
+        'objectives_schema' => $objectives_schema,
+      ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+    $database->update('dc_canonical_quests')
+      ->fields($canonical_fields)
+      ->condition('template_id', 'tok-follow-city-leads')
+      ->execute();
+  }
+
+  return t('Backfilled explore objective location alias for tok-follow-city-leads.');
+}
+
+/**
+ * Sync Little Trouble quest objective contracts into canonical storage.
+ */
+function dungeoncrawler_content_update_10186() {
+  $database = \Drupal::database();
+  $schema = $database->schema();
+  $now = \Drupal::time()->getRequestTime();
+
+  if (!$schema->tableExists('dungeoncrawler_content_quest_templates') || !$schema->fieldExists('dungeoncrawler_content_quest_templates', 'objectives_schema')) {
+    throw new \RuntimeException('Little Trouble contract sync requires dungeoncrawler_content_quest_templates.objectives_schema.');
+  }
+
+  $template_file = DRUPAL_ROOT . '/../web/modules/custom/dungeoncrawler_content/config/examples/templates/dungeoncrawler_content_quest_templates/little_trouble_quest_templates.json';
+  if (!is_file($template_file)) {
+    throw new \RuntimeException('Little Trouble contract sync requires little_trouble_quest_templates.json template source file.');
+  }
+
+  $decoded = json_decode((string) file_get_contents($template_file), TRUE);
+  $rows = array_values(array_filter(is_array($decoded['rows'] ?? NULL) ? $decoded['rows'] : [], 'is_array'));
+  if ($rows === []) {
+    throw new \RuntimeException('Little Trouble contract sync failed: template source rows are empty.');
+  }
+
+  $target_ids = [
+    'ltba-accept-the-task',
+    'ltba-enter-the-vault',
+    'ltba-retrieve-hedge-trimmer',
+    'ltba-clear-the-tomb',
+  ];
+
+  $rows_by_template_id = [];
+  foreach ($rows as $row) {
+    $template_id = trim((string) ($row['template_id'] ?? ''));
+    if ($template_id === '' || !in_array($template_id, $target_ids, TRUE)) {
+      continue;
+    }
+    $rows_by_template_id[$template_id] = $row;
+  }
+  foreach ($target_ids as $required_id) {
+    if (!isset($rows_by_template_id[$required_id])) {
+      throw new \RuntimeException(sprintf(
+        "Little Trouble contract sync failed: template source missing '%s'.",
+        $required_id
+      ));
+    }
+  }
+
+  $updated_count = 0;
+  foreach ($target_ids as $template_id) {
+    $row = $rows_by_template_id[$template_id];
+    $objectives_schema = is_array($row['objectives_schema'] ?? NULL) ? $row['objectives_schema'] : [];
+    if ($objectives_schema === []) {
+      throw new \RuntimeException(sprintf(
+        "Little Trouble contract sync failed: '%s' has empty objectives_schema in source template.",
+        $template_id
+      ));
+    }
+
+    $affected = (int) $database->update('dungeoncrawler_content_quest_templates')
+      ->fields([
+        'objectives_schema' => json_encode($objectives_schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => $now,
+      ])
+      ->condition('template_id', $template_id)
+      ->execute();
+    if ($affected === 0) {
+      throw new \RuntimeException(sprintf(
+        "Little Trouble contract sync failed: canonical quest template row '%s' not found.",
+        $template_id
+      ));
+    }
+    $updated_count++;
+
+    if (
+      $schema->tableExists('dc_canonical_quests')
+      && $schema->fieldExists('dc_canonical_quests', 'objectives_schema')
+      && $schema->fieldExists('dc_canonical_quests', 'updated_at')
+    ) {
+      $canonical_fields = [
+        'objectives_schema' => json_encode($objectives_schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated_at' => $now,
+      ];
+      if ($schema->fieldExists('dc_canonical_quests', 'contract_hash')) {
+        $canonical_fields['contract_hash'] = hash('sha256', json_encode([
+          'template_id' => $template_id,
+          'objectives_schema' => $objectives_schema,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+      }
+      $database->update('dc_canonical_quests')
+        ->fields($canonical_fields)
+        ->condition('template_id', $template_id)
+        ->execute();
+    }
+  }
+
+  return t(
+    'Synchronized Little Trouble objective contracts for @count canonical quest templates.',
+    ['@count' => $updated_count]
+  );
+}
+
+/**
+ * Add campaign membership ledger and backfill owner/player memberships.
+ */
+function dungeoncrawler_content_update_10187() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $now = \Drupal::time()->getRequestTime();
+
+  if (!$schema_handler->tableExists('dc_campaign_members')) {
+    $schema_handler->createTable('dc_campaign_members', $schema['dc_campaign_members']);
+  }
+
+  if (!$schema_handler->tableExists('dc_campaigns')) {
+    throw new \RuntimeException('Campaign membership backfill requires dc_campaigns.');
+  }
+
+  $campaign_rows = $database->select('dc_campaigns', 'c')
+    ->fields('c', ['id', 'uid'])
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+  if ($campaign_rows === []) {
+    return t('Added dc_campaign_members table; no campaigns found to backfill.');
+  }
+
+  $owner_by_campaign = [];
+  foreach ($campaign_rows as $campaign_row) {
+    if (!is_array($campaign_row)) {
+      continue;
+    }
+    $campaign_id = isset($campaign_row['id']) ? (int) $campaign_row['id'] : 0;
+    $owner_uid = isset($campaign_row['uid']) ? (int) $campaign_row['uid'] : 0;
+    if ($campaign_id <= 0 || $owner_uid <= 0) {
+      continue;
+    }
+    $owner_by_campaign[$campaign_id] = $owner_uid;
+  }
+
+  $seeded_owner_rows = 0;
+  $seeded_player_rows = 0;
+  $updated_owner_rows = 0;
+
+  foreach ($owner_by_campaign as $campaign_id => $owner_uid) {
+    $existing = $database->select('dc_campaign_members', 'm')
+      ->fields('m', ['id'])
+      ->condition('campaign_id', (int) $campaign_id)
+      ->condition('uid', (int) $owner_uid)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    if ($existing) {
+      $database->update('dc_campaign_members')
+        ->fields([
+          'role' => 'owner_gm',
+          'status' => 'active',
+          'changed' => $now,
+        ])
+        ->condition('campaign_id', (int) $campaign_id)
+        ->condition('uid', (int) $owner_uid)
+        ->execute();
+      $updated_owner_rows++;
+      continue;
+    }
+
+    $database->insert('dc_campaign_members')
+      ->fields([
+        'campaign_id' => (int) $campaign_id,
+        'uid' => (int) $owner_uid,
+        'role' => 'owner_gm',
+        'status' => 'active',
+        'created' => $now,
+        'changed' => $now,
+      ])
+      ->execute();
+    $seeded_owner_rows++;
+  }
+
+  if ($schema_handler->tableExists('dc_campaign_characters')) {
+    $character_rows = $database->select('dc_campaign_characters', 'cc')
+      ->fields('cc', ['campaign_id', 'uid', 'id', 'is_active', 'lifecycle_state', 'type'])
+      ->condition('uid', 0, '>')
+      ->orderBy('campaign_id', 'ASC')
+      ->orderBy('uid', 'ASC')
+      ->orderBy('id', 'DESC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $participant_index = [];
+    foreach ($character_rows as $character_row) {
+      if (!is_array($character_row)) {
+        continue;
+      }
+      $campaign_id = isset($character_row['campaign_id']) ? (int) $character_row['campaign_id'] : 0;
+      $uid = isset($character_row['uid']) ? (int) $character_row['uid'] : 0;
+      if ($campaign_id <= 0 || $uid <= 0) {
+        continue;
+      }
+      $key = $campaign_id . ':' . $uid;
+      if (!isset($participant_index[$key])) {
+        $participant_index[$key] = [
+          'campaign_id' => $campaign_id,
+          'uid' => $uid,
+          'status' => 'active',
+          'default_character_id' => NULL,
+        ];
+      }
+
+      $is_active = isset($character_row['is_active']) && (int) $character_row['is_active'] === 1;
+      $is_pc = strtolower(trim((string) ($character_row['type'] ?? 'pc'))) === 'pc';
+      $lifecycle_state = strtolower(trim((string) ($character_row['lifecycle_state'] ?? '')));
+      if (
+        $participant_index[$key]['status'] !== 'active'
+        && ($is_active || $lifecycle_state === 'active')
+      ) {
+        $participant_index[$key]['status'] = 'active';
+      }
+      elseif (
+        $participant_index[$key]['status'] === 'active'
+        && !$is_active
+        && in_array($lifecycle_state, ['invited_pending_character', 'invited', 'pending'], TRUE)
+      ) {
+        $participant_index[$key]['status'] = 'invited';
+      }
+
+      if (
+        $participant_index[$key]['default_character_id'] === NULL
+        && $is_pc
+        && $is_active
+        && isset($character_row['id'])
+        && (int) $character_row['id'] > 0
+      ) {
+        $participant_index[$key]['default_character_id'] = (int) $character_row['id'];
+      }
+    }
+
+    foreach ($participant_index as $participant) {
+      $campaign_id = (int) $participant['campaign_id'];
+      $uid = (int) $participant['uid'];
+      $owner_uid = (int) ($owner_by_campaign[$campaign_id] ?? 0);
+      if ($campaign_id <= 0 || $uid <= 0 || $uid === $owner_uid) {
+        continue;
+      }
+
+      $existing = $database->select('dc_campaign_members', 'm')
+        ->fields('m', ['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('uid', $uid)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($existing) {
+        continue;
+      }
+
+      $database->insert('dc_campaign_members')
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'uid' => $uid,
+          'role' => 'player',
+          'status' => $participant['status'],
+          'default_character_id' => $participant['default_character_id'],
+          'invited_by_uid' => $owner_uid > 0 ? $owner_uid : NULL,
+          'created' => $now,
+          'changed' => $now,
+        ])
+        ->execute();
+      $seeded_player_rows++;
+    }
+  }
+
+  return t(
+    'Added campaign membership ledger and backfilled @owners owner rows (@owners_updated owner rows normalized) plus @players player rows.',
+    [
+      '@owners' => (string) $seeded_owner_rows,
+      '@owners_updated' => (string) $updated_owner_rows,
+      '@players' => (string) $seeded_player_rows,
+    ]
+  );
+}
+
+/**
+ * Add canonical persistence tables for disposition/aggression/relationship/stance.
+ */
+function dungeoncrawler_content_update_10188() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+
+  $target_tables = [
+    'dc_aggression_events',
+    'dc_aggression_state',
+    'dc_disposition_events',
+    'dc_disposition_state',
+    'dc_relationship_attitude_events',
+    'dc_relationship_attitude_state',
+    'dc_stance_events',
+    'dc_stance_state',
+  ];
+
+  $created_tables = 0;
+  foreach ($target_tables as $table_name) {
+    if ($schema_handler->tableExists($table_name)) {
+      continue;
+    }
+
+    /**
+     * Add canonical actor-scoped effect-instance lifecycle table.
+     */
+    function dungeoncrawler_content_update_10189() {
+      $database = \Drupal::database();
+      $schema_handler = $database->schema();
+      $schema = dungeoncrawler_content_schema();
+
+      if ($schema_handler->tableExists('dc_effect_instances')) {
+        return t('dc_effect_instances already exists.');
+      }
+
+      if (!isset($schema['dc_effect_instances']) || !is_array($schema['dc_effect_instances'])) {
+        throw new \RuntimeException('Schema definition missing for dc_effect_instances.');
+      }
+
+      $schema_handler->createTable('dc_effect_instances', $schema['dc_effect_instances']);
+      return t('Created dc_effect_instances.');
+    }
+    if (!isset($schema[$table_name]) || !is_array($schema[$table_name])) {
+      throw new \RuntimeException(sprintf('Canonical persistence migration failed: schema definition missing for %s.', $table_name));
+    }
+    $schema_handler->createTable($table_name, $schema[$table_name]);
+    $created_tables++;
+  }
+
+  return t(
+    'Canonical persistence table migration complete. Created @count missing table(s).',
+    ['@count' => (string) $created_tables]
+  );
 }

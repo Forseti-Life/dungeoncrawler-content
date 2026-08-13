@@ -224,7 +224,14 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
     $current_actor_tactical_intent = is_array($context['current_actor_tactical_intent'] ?? NULL)
       ? $context['current_actor_tactical_intent']
       : [];
+    $resolved_actor_context = is_array($context['resolved_actor_context'] ?? NULL)
+      ? $context['resolved_actor_context']
+      : [];
+    $resolved_actor_context = $this->summarizeResolvedActorContextForPrompt($resolved_actor_context);
+    $current_actor_profile = $this->normalizeProfileFromResolvedContext($current_actor_profile, $resolved_actor_context);
     $action_contract_hash = trim((string) ($context['action_contract_hash'] ?? ''));
+    $participants = $this->summarizeParticipantsForPrompt($participants);
+    $actions_available_to_me_this_turn = $this->summarizeAvailabilityEnvelopeForPrompt($actions_available_to_me_this_turn);
 
     return json_encode([
       'task' => 'Choose a single legal tactical action for the active NPC combatant.',
@@ -246,6 +253,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
         'current_actor_profile' => $current_actor_profile,
         'current_actor_tactical_intent' => $current_actor_tactical_intent,
         'npc_psychology' => $npc_psychology !== '' ? $npc_psychology : NULL,
+        'resolved_actor_context' => $resolved_actor_context,
         'visible_references' => $visible_references,
         'line_of_sight' => $line_of_sight,
         'conversation_options' => $conversation_options,
@@ -289,6 +297,24 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
   }
 
   /**
+   * Canonicalize profile attitude from resolved disposition context when present.
+   *
+   * @param array<string, mixed> $current_actor_profile
+   * @param array<string, mixed> $resolved_actor_context
+   *
+   * @return array<string, mixed>
+   */
+  private function normalizeProfileFromResolvedContext(array $current_actor_profile, array $resolved_actor_context): array {
+    $disposition = is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : [];
+    $attitude = strtolower(trim((string) ($disposition['attitude'] ?? '')));
+    if ($attitude !== '') {
+      $current_actor_profile['attitude'] = $attitude;
+      $current_actor_profile['attitude_source'] = 'resolved_actor_context';
+    }
+    return $current_actor_profile;
+  }
+
+  /**
    * Build prompt for narration output.
    *
    * @param array<string, mixed> $context
@@ -321,7 +347,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    * Build system prompt for recommendation requests.
    */
   private function buildRecommendationSystemPrompt(): string {
-    return 'You are a tactical combat assistant. Use current_actor_profile, current_actor_tactical_intent, npc_psychology, and action availability contract fields to choose one legal action. Return strict JSON only (no markdown) and include every required field exactly, including contract_version matching action_contract_hash and decision_basis booleans used_profile/used_psychology/used_availability.';
+    return 'You are a tactical combat assistant. Use resolved_actor_context as the canonical disposition/aggression/stance/relationship source, then current_actor_profile, current_actor_tactical_intent, npc_psychology, and action availability contract fields to choose one legal action. Return strict JSON only (no markdown) and include every required field exactly, including contract_version matching action_contract_hash and decision_basis booleans used_profile/used_psychology/used_availability.';
   }
 
   /**
@@ -438,7 +464,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    */
   private function getMaxAttempts(): int {
     $config = $this->configFactory->get('dungeoncrawler_content.settings');
-    $configured = (int) ($config->get('encounter_ai_retry_attempts') ?? 2);
+    $configured = (int) ($config->get('encounter_ai_retry_attempts') ?? 1);
     return max(1, min(3, $configured));
   }
 
@@ -447,8 +473,8 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    */
   private function getRecommendationMaxTokens(): int {
     $config = $this->configFactory->get('dungeoncrawler_content.settings');
-    $configured = (int) ($config->get('encounter_ai_recommendation_max_tokens') ?? 800);
-    return max(200, min(2000, $configured));
+    $configured = (int) ($config->get('encounter_ai_recommendation_max_tokens') ?? 350);
+    return max(120, min(1200, $configured));
   }
 
   /**
@@ -456,8 +482,100 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    */
   private function getNarrationMaxTokens(): int {
     $config = $this->configFactory->get('dungeoncrawler_content.settings');
-    $configured = (int) ($config->get('encounter_ai_narration_max_tokens') ?? 500);
+    $configured = (int) ($config->get('encounter_ai_narration_max_tokens') ?? 220);
     return max(120, min(1200, $configured));
+  }
+
+  /**
+   * Keep recommendation prompts compact by stripping heavy participant internals.
+   *
+   * @param array<int,array<string,mixed>> $participants
+   *   Encounter participants.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Slim participant summaries.
+   */
+  private function summarizeParticipantsForPrompt(array $participants): array {
+    $summaries = [];
+    foreach ($participants as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $summaries[] = [
+        'entity_ref' => (string) ($participant['entity_ref'] ?? ''),
+        'name' => (string) ($participant['name'] ?? ''),
+        'team' => (string) ($participant['team'] ?? ''),
+        'is_defeated' => !empty($participant['is_defeated']),
+        'hp' => isset($participant['hp']) && is_numeric($participant['hp']) ? (int) $participant['hp'] : NULL,
+        'max_hp' => isset($participant['max_hp']) && is_numeric($participant['max_hp']) ? (int) $participant['max_hp'] : NULL,
+      ];
+    }
+    return $summaries;
+  }
+
+  /**
+   * Trim action availability payload to only policy-critical keys.
+   *
+   * @param array<string,mixed> $availability
+   *   Full availability envelope.
+   *
+   * @return array<string,mixed>
+   *   Compact availability envelope.
+   */
+  private function summarizeAvailabilityEnvelopeForPrompt(array $availability): array {
+    return [
+      'actions_remaining' => isset($availability['actions_remaining']) && is_numeric($availability['actions_remaining'])
+        ? (int) $availability['actions_remaining']
+        : NULL,
+      'reaction_available' => !empty($availability['reaction_available']),
+      'available_actions' => is_array($availability['available_actions'] ?? NULL)
+        ? array_values($availability['available_actions'])
+        : [],
+      'action_contract' => is_array($availability['action_contract'] ?? NULL)
+        ? $availability['action_contract']
+        : NULL,
+      'action_option_families' => is_array($availability['action_option_families'] ?? NULL)
+        ? $availability['action_option_families']
+        : [],
+    ];
+  }
+
+  /**
+   * Keep resolved actor context compact for lower-latency prompt evaluation.
+   *
+   * @param array<string,mixed> $resolved_actor_context
+   *   Full actor context payload.
+   *
+   * @return array<string,mixed>
+   *   Slimmed payload retaining tactical signal.
+   */
+  private function summarizeResolvedActorContextForPrompt(array $resolved_actor_context): array {
+    $resolved_map = is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
+      ? $resolved_actor_context['resolved_disposition_by_target']
+      : [];
+    $slim_map = [];
+    foreach ($resolved_map as $target_ref => $dto) {
+      if (!is_array($dto)) {
+        continue;
+      }
+      $slim_map[(string) $target_ref] = [
+        'effective_disposition_score' => isset($dto['effective_disposition_score']) && is_numeric($dto['effective_disposition_score'])
+          ? (int) $dto['effective_disposition_score']
+          : 0,
+        'effective_disposition_label' => (string) ($dto['effective_disposition_label'] ?? ''),
+        'policy_hostile' => !empty($dto['policy_flags']['hostile']),
+      ];
+    }
+
+    return [
+      'disposition' => is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : [],
+      'aggression' => is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : [],
+      'stance' => is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : [],
+      'resolved_disposition_by_target' => $slim_map,
+      'relationship_attitudes' => is_array($resolved_actor_context['relationship_attitudes'] ?? NULL)
+        ? $resolved_actor_context['relationship_attitudes']
+        : [],
+    ];
   }
 
   /**

@@ -109,8 +109,14 @@ class GameCoordinatorController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    *   Full game state payload.
    */
-  public function getState(int $campaign_id): JsonResponse {
-    $result = $this->gameCoordinator->getMaterializedFullState($campaign_id);
+  public function getState(Request $request, int $campaign_id): JsonResponse {
+    $actor_id = trim((string) $request->query->get('actor', ''));
+    $character_id = (int) $request->query->get('character_id', 0);
+    $result = $this->gameCoordinator->getMaterializedFullState(
+      $campaign_id,
+      $actor_id !== '' ? $actor_id : NULL,
+      $character_id > 0 ? $character_id : NULL
+    );
 
     $status = ($result['success'] ?? FALSE) ? 200 : 404;
     return new JsonResponse($result, $status);

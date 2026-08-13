@@ -25,12 +25,16 @@
         {{ 'Merchant'|t }}
       </button>
       <button id="game-tab-party" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-party" data-game-tab="party" tabindex="0">
-        {{ 'Party'|t }}
+        {{ 'Actor Roster'|t }}
+      </button>
+      <button id="game-tab-settings" class="game-shell__tab" type="button" role="tab" aria-selected="false" aria-controls="game-panel-settings" data-game-tab="settings" tabindex="0">
+        {{ 'Settings'|t }}
       </button>
       <div class="game-shell__tab-actions" role="presentation">
         <button id="fullscreen-toggle" class="btn btn-primary btn--gameplay-fullscreen" type="button" data-status="fullscreen" title="{{ 'Enter fullscreen'|t }}" aria-pressed="false">
           <span class="btn--gameplay-fullscreen__label" data-fullscreen-label>{{ 'Enter Fullscreen'|t }}</span>
         </button>
+        <span id="ui-build-version-badge" class="game-shell__build-version-badge" title="{{ 'UI build version'|t }}">UI v20260810-rm-ui-14</span>
       </div>
     </div>
 
@@ -54,29 +58,17 @@
             <span id="action-rail-actor-name" class="party-rail__card-name" data-action-rail="actor-name">{{ 'No actor selected'|t }}</span>
           </div>
           <p class="action-rail__status" id="action-rail-status" data-action-rail="status">{{ 'Select your character to unlock direct actions.'|t }}</p>
-          <div class="action-rail__automation">
-            <button type="button" class="btn btn-action action-rail__automation-toggle" id="action-rail-automate-toggle" aria-pressed="false">
-              {{ 'Automate'|t }}
-            </button>
-            <p class="action-rail__automation-meta" id="action-rail-automation-meta">{{ 'Let your character act through the algorithmic player-policy harness.'|t }}</p>
-          </div>
         </div>
 
         <div class="action-rail__clocks" aria-label="{{ 'Time references'|t }}">
-          <div class="action-rail__clock-card">
-            <p class="action-rail__clock-label">{{ 'Real world'|t }}</p>
-            <p class="action-rail__clock-value" id="action-rail-real-clock">{{ 'Loading…'|t }}</p>
-            <p class="action-rail__clock-meta" id="action-rail-real-clock-meta">{{ 'Local device time'|t }}</p>
-          </div>
-          <div class="action-rail__clock-card">
-            <p class="action-rail__clock-label">{{ 'Campaign'|t }}</p>
-            <p class="action-rail__clock-value" id="action-rail-campaign-clock">{{ 'Unavailable'|t }}</p>
-            <p class="action-rail__clock-meta" id="action-rail-campaign-clock-meta">{{ 'Advances when actions consume time'|t }}</p>
+          <div class="action-rail__clock-card action-rail__clock-card--stacked">
+            <p class="action-rail__clock-line" id="action-rail-real-clock">{{ 'Realworld Time: Loading…'|t }}</p>
+            <p class="action-rail__clock-line" id="action-rail-campaign-clock">{{ 'Campaign Time: Unavailable'|t }}</p>
           </div>
         </div>
 
         <div class="action-rail__categories" id="action-rail-categories" data-action-rail="categories">
-          <button type="button" class="action-rail__category" data-action-rail-category="navigate">{{ 'Navigate'|t }}</button>
+          <button type="button" class="action-rail__category" data-action-rail-category="navigate">{{ 'Movement'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="search">{{ 'Search'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="rest">{{ 'Rest'|t }}</button>
           <button type="button" class="action-rail__category" data-action-rail-category="spells">{{ 'Spells'|t }}</button>
@@ -107,27 +99,11 @@
     <div id="hexmap-canvas-container" class="hexmap-canvas-wrapper" data-hexmap-canvas>
       <!-- PixiJS canvas will be inserted here -->
 
-      {# V2 Status Panel — server unavailability + zoom + hex info #}
-      <div data-status="unavail-banner" class="server-unavail-banner" hidden>
-        <span>{{ 'Server unavailable — reconnecting…'|t }}</span>
-      </div>
       <div class="hexmap-hud-overlays">
         <span data-status="zoom" class="hexmap-hud__zoom" hidden></span>
         <span data-status="hex-info" class="hexmap-hud__hex-info" hidden></span>
+        <div id="map-target-pick-prompt" class="hexmap-hud__target-pick" hidden>{{ 'Pick target'|t }}</div>
 
-        <div class="hexmap-legend" data-status="hex-legend">
-          <div class="hexmap-legend__title">{{ 'Hex Legend'|t }}</div>
-          <div class="hexmap-legend__items">
-            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--entry">▲</span> {{ 'Entry (is_entry)'|t }}</div>
-            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--not-visible">○</span> {{ 'Not visible (is_visible=false)'|t }}</div>
-            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--undiscovered">?</span> {{ 'Undiscovered (is_discovered=false)'|t }}</div>
-            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--objects">3</span> {{ 'Objects count (objects.length)'|t }}</div>
-            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--elevation">+5</span> {{ 'Elevation (elevation_ft)'|t }}</div>
-            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--lighting">D</span> {{ 'Lighting (lighting=dark/dim)'|t }}</div>
-            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--terrain">T</span> {{ 'Terrain style (terrain_type)'|t }}</div>
-            <div class="hexmap-legend__item"><span class="legend-swatch legend-swatch--coords">q,r</span> {{ 'Coordinates (toggle)'|t }}</div>
-          </div>
-        </div>
       </div>
 
       {# Game Coordinator — Algorithmic GM Narration Overlay #}
@@ -139,6 +115,55 @@
       {# Game Coordinator — Phase Indicator Badge #}
       <div id="game-phase-indicator" class="phase-indicator phase-exploration" style="display:none;">
         {{ 'Exploration'|t }}
+      </div>
+
+      <div id="map-initiative-tracker" class="map-initiative-tracker" data-combat="map-tracker-wrap">
+        <div class="tracker-header tracker-header--map">
+          <div class="tracker-header__title-wrap">
+            <h4>{{ 'Initiative Order'|t }}</h4>
+            <span class="round-display" id="map-round-display" data-combat="map-round-display">{{ 'Round 0'|t }}</span>
+          </div>
+          <div class="map-initiative-summary">
+            <div class="map-initiative-summary__row">
+              <span class="map-initiative-summary__label">{{ 'State'|t }}</span>
+              <span class="map-initiative-summary__value" id="map-encounter-state" data-combat="map-encounter-state">{{ 'No active combat'|t }}</span>
+            </div>
+            <div class="map-initiative-summary__row">
+              <span class="map-initiative-summary__label">{{ 'Turn'|t }}</span>
+              <span class="map-initiative-summary__value" id="map-turn-counter" data-combat="map-turn-counter">{{ 'Turn -'|t }}</span>
+            </div>
+            <div class="map-initiative-summary__row">
+              <span class="map-initiative-summary__label">{{ 'Current'|t }}</span>
+              <span class="map-initiative-summary__value" id="map-current-turn-name" data-combat="map-current-turn-name">{{ 'Unavailable'|t }}</span>
+            </div>
+            <div class="map-initiative-summary__row">
+              <span class="map-initiative-summary__label">{{ 'Next'|t }}</span>
+              <span class="map-initiative-summary__value" id="map-next-turn-name" data-combat="map-next-turn-name">{{ 'Unavailable'|t }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="map-initiative-status">
+          <div data-status="unavail-banner" class="server-unavail-banner" hidden>
+            <span>{{ 'Server unavailable — reconnecting…'|t }}</span>
+          </div>
+          <div data-status="backend-wait" class="backend-wait-banner" role="status" aria-live="polite" hidden>
+            <span class="backend-wait-banner__spinner" aria-hidden="true"></span>
+            <span data-backend-wait-label>{{ 'Waiting for backend response...'|t }}</span>
+          </div>
+        </div>
+        <div class="initiative-list" id="map-initiative-list" data-combat="map-initiative-list">
+          <div class="initiative-item rail-card">
+            <div class="rail-card__header">
+              <span class="rail-card__name">{{ 'No active encounter'|t }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="map-initiative-chat">
+          <div class="map-initiative-chat__header" id="map-action-log-heading">{{ 'Action log'|t }}</div>
+          <div class="hexmap-chat__log map-initiative-chat__log" id="map-initiative-chat-log" data-chat="map-initiative-log" aria-live="polite">
+            <div class="chat-line chat-line--system">{{ 'Narrative and action updates appear here.'|t }}</div>
+          </div>
+        </div>
       </div>
 
       <div id="turn-hud" class="turn-hud dc-is-hidden" data-panel="combat">
@@ -156,7 +181,7 @@
         </div>
 
         <div id="turn-action-chips" class="turn-hud__actions">
-          <span class="chip chip-ghost">{{ 'Navigate'|t }}</span>
+          <span class="chip chip-ghost">{{ 'Movement'|t }}</span>
           <span class="chip chip-ghost">{{ 'Strike'|t }}</span>
           <span class="chip chip-ghost">{{ 'Cast / Skill'|t }}</span>
           <span class="chip chip-end">{{ 'End Turn'|t }}</span>
@@ -322,6 +347,19 @@
       <div class="game-shell__character-panel">
         <div id="party-actor-select-wrap" class="character-sheet__actor-switch">
           <label for="party-actor-select" class="character-sheet__bio-label">{{ 'Actor'|t }}</label>
+          <div id="party-actor-filters" class="character-sheet__actor-filters" role="group" aria-label="{{ 'Actor faction filters'|t }}">
+            <button type="button" class="character-sheet__actor-filter is-active" data-actor-filter="party" data-actor-filter-label="{{ 'Party'|t }}">{{ 'Party'|t }}</button>
+            <button type="button" class="character-sheet__actor-filter" data-actor-filter="allied" data-actor-filter-label="{{ 'Allies'|t }}">{{ 'Allies'|t }}</button>
+            <button type="button" class="character-sheet__actor-filter" data-actor-filter="hostile" data-actor-filter-label="{{ 'Hostiles'|t }}">{{ 'Hostiles'|t }}</button>
+            <button type="button" class="character-sheet__actor-filter" data-actor-filter-label="{{ 'Neutral'|t }}" data-actor-filter="neutral">{{ 'Neutral'|t }}</button>
+            <button type="button" class="character-sheet__actor-filter" data-actor-filter-label="{{ 'Hazards'|t }}" data-actor-filter="hazard">{{ 'Hazards'|t }}</button>
+            <button type="button" class="character-sheet__actor-filter" data-actor-filter-label="{{ 'All'|t }}" data-actor-filter="all">{{ 'All'|t }}</button>
+          </div>
+          <label for="party-actor-sort" class="character-sheet__bio-label">{{ 'Sort'|t }}</label>
+          <select id="party-actor-sort" class="character-sheet__actor-sort">
+            <option value="alpha">{{ 'Alphabetical'|t }}</option>
+            <option value="initiative">{{ 'Initiative'|t }}</option>
+          </select>
           <select id="party-actor-select" class="character-sheet__actor-select">
             <option value="">{{ 'No characters available'|t }}</option>
           </select>
@@ -331,6 +369,7 @@
   {# Sidebar Tab Bar #}
   <div class="sidebar-tabs" id="sidebar-tabs">
     <button class="sidebar-tab sidebar-tab--active" data-sidebar-tab="character">{{ 'Character'|t }}</button>
+    <button class="sidebar-tab" data-sidebar-tab="relationships">{{ 'Relationships'|t }}</button>
     <button class="sidebar-tab" data-sidebar-tab="spells-feats">{{ 'Spells & Feats'|t }}</button>
     <button class="sidebar-tab" data-sidebar-tab="inventory">{{ 'Inventory'|t }}</button>
     <button class="sidebar-tab" data-sidebar-tab="quests">{{ 'Quests'|t }}</button>
@@ -522,6 +561,38 @@
   </div>
   </div>{# /.sidebar-panel-character #}
 
+  {# === Relationships Tab Panel === #}
+  <div class="sidebar-panel" id="sidebar-panel-relationships" style="display:none;">
+    <div class="character-sheet">
+      <div class="character-sheet__section">
+        <div class="section-header section-header--static">
+          <h4>{{ 'Actor Disposition Matrix'|t }}</h4>
+        </div>
+        <div class="section-body section-body--static">
+          <p class="muted small">{{ 'Rows show source actor disposition toward column actors.'|t }}</p>
+          <div id="actor-relationships-matrix" class="relationships-matrix-wrap">
+            <div class="relationships-matrix-scroll">
+              <table class="relationships-matrix-table">
+                <thead>
+                  <tr>
+                    <th scope="col" class="relationships-matrix__corner">{{ 'Actor →'|t }}</th>
+                    <th scope="col" class="relationships-matrix__col">{{ 'Status'|t }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row" class="relationships-matrix__row">{{ 'System'|t }}</th>
+                    <td class="relationships-matrix__cell">{{ 'Select a campaign room to load actor relationships.'|t }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>{# /.sidebar-panel-relationships #}
+
   {# === Spells & Feats Tab Panel === #}
   <div class="sidebar-panel" id="sidebar-panel-spells-feats" style="display:none;">
     <div class="spells-feats-panel">
@@ -645,6 +716,32 @@
 
         </div>{# /.game-layout__sidebar #}
       </div>
+    </div>
+
+  <div class="game-shell__panel" id="game-panel-settings" role="tabpanel" aria-labelledby="game-tab-settings" hidden>
+    <div class="game-shell__view-panel">
+      <section class="campaign-settings-panel" data-panel="campaign-settings">
+        <div class="campaign-settings-panel__header">
+          <div>
+            <p class="eyebrow">{{ 'Campaign Settings'|t }}</p>
+            <h3 id="campaign-settings-title">{{ 'Campaign settings'|t }}</h3>
+            <p id="campaign-settings-status" class="campaign-settings-panel__status">{{ 'Loading campaign settings...'|t }}</p>
+          </div>
+        </div>
+        <div class="campaign-settings-panel__mode">
+          <span class="campaign-settings-panel__label">{{ 'Mode'|t }}</span>
+          <div class="campaign-settings-panel__mode-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="campaign-mode-player" data-campaign-mode="player">{{ 'Player mode'|t }}</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="campaign-mode-gm" data-campaign-mode="gm">{{ 'Game Master mode'|t }}</button>
+          </div>
+        </div>
+        <div class="campaign-settings-panel__members">
+          <h4>{{ 'Campaign members'|t }}</h4>
+          <div class="campaign-settings-panel__member-list" id="campaign-member-list">
+            <p class="muted">{{ 'No member data loaded yet.'|t }}</p>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
       </div>

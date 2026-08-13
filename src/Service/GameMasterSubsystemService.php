@@ -2,6 +2,11 @@
 
 namespace Drupal\dungeoncrawler_content\Service;
 
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\ActorResponseProjector;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\ActorTurnContextLoader;
+use Drupal\dungeoncrawler_content\Service\GmSubsystem\LegacyRoomChatCompatibilityAdapter;
+use Drupal\dungeoncrawler_content\Service\RuntimeBootstrapService;
+
 /**
  * GM subsystem facade for player room-chat orchestration.
  *
@@ -23,13 +28,28 @@ class GameMasterSubsystemService {
 
   protected GameCoordinatorService $coordinator;
   protected GmActorHarnessService $gmActorHarness;
+  protected ActorTurnContextLoader $actorTurnContextLoader;
+  protected ActorResponseProjector $actorResponseProjector;
+  protected LegacyRoomChatCompatibilityAdapter $legacyCompatibilityAdapter;
+  protected ?RuntimeBootstrapService $runtimeBootstrap;
 
   /**
    * Constructor.
    */
-  public function __construct(GameCoordinatorService $coordinator, GmActorHarnessService $gm_actor_harness) {
+  public function __construct(
+    GameCoordinatorService $coordinator,
+    GmActorHarnessService $gm_actor_harness,
+    ?ActorTurnContextLoader $actor_turn_context_loader = NULL,
+    ?ActorResponseProjector $actor_response_projector = NULL,
+    ?LegacyRoomChatCompatibilityAdapter $legacy_compatibility_adapter = NULL,
+    ?RuntimeBootstrapService $runtime_bootstrap = NULL
+  ) {
     $this->coordinator = $coordinator;
     $this->gmActorHarness = $gm_actor_harness;
+    $this->actorTurnContextLoader = $actor_turn_context_loader ?? new ActorTurnContextLoader();
+    $this->actorResponseProjector = $actor_response_projector ?? new ActorResponseProjector();
+    $this->legacyCompatibilityAdapter = $legacy_compatibility_adapter ?? new LegacyRoomChatCompatibilityAdapter();
+    $this->runtimeBootstrap = $runtime_bootstrap;
   }
 
   /**
@@ -42,34 +62,53 @@ class GameMasterSubsystemService {
     string $message,
     bool $defer_npc_interjections = FALSE,
     bool $suppress_gm = FALSE,
-    string $speaker = ''
+    string $speaker = '',
+    array $options = []
   ): array {
+    $overall_started_at = hrtime(true);
+    $timings = [];
     if ($character_id === NULL || $character_id <= 0) {
       throw new \InvalidArgumentException('character_id is required for player room chat.', 400);
     }
 
+    if ($this->runtimeBootstrap !== NULL) {
+      $stage_started_at = hrtime(true);
+      $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $character_id);
+      $timings['ensure_runtime_ready_ms'] = $this->elapsedMs($stage_started_at);
+    }
+
+    $stage_started_at = hrtime(true);
     $actor_id = $this->coordinator->resolveActorIdForCharacterId($campaign_id, $character_id);
+    $timings['resolve_actor_id_ms'] = $this->elapsedMs($stage_started_at);
     if (!$actor_id) {
       throw new \InvalidArgumentException('Unable to resolve encounter actor for character.', 409);
     }
 
+    $stage_started_at = hrtime(true);
     $active_room_id = $this->coordinator->getActiveRoomId($campaign_id, $actor_id);
+    $timings['resolve_active_room_ms'] = $this->elapsedMs($stage_started_at);
     if ($active_room_id !== NULL && $active_room_id !== '' && $active_room_id !== $requested_room_id) {
       throw new \InvalidArgumentException('Cannot post room chat: requested room does not match active room.', 409);
     }
 
+    $stage_started_at = hrtime(true);
     $route = $this->buildPlayerRoomChatRouteEnvelope(
       $campaign_id,
       $requested_room_id,
       $actor_id,
       $character_id,
       $message,
+      $defer_npc_interjections,
       $suppress_gm,
-      $speaker
+      $speaker,
+      $options
     );
+    $timings['build_route_envelope_ms'] = $this->elapsedMs($stage_started_at);
 
     if (!empty($route['deterministic'])) {
+      $stage_started_at = hrtime(true);
       $action_response = $this->coordinator->processAction($campaign_id, $route['intent']);
+      $timings['deterministic_process_action_ms'] = $this->elapsedMs($stage_started_at);
       if (empty($action_response['success'])) {
         $error = trim((string) (
           $action_response['error']
@@ -89,18 +128,33 @@ class GameMasterSubsystemService {
         $talk_result['message'] = $talk_result['chat_message'];
         unset($talk_result['chat_message']);
       }
+      $stage_started_at = hrtime(true);
       $talk_result['gm_subsystem'] = $this->buildResponseEnvelope($route, $active_room_id ?: $requested_room_id);
-
-      return $talk_result;
+      $timings['build_response_envelope_ms'] = $this->elapsedMs($stage_started_at);
+      $stage_started_at = hrtime(true);
+      $projected = $this->applyActorResponseProjection(
+        $talk_result,
+        $campaign_id,
+        $actor_id,
+        $character_id,
+        (string) ($talk_result['message']['speaker'] ?? $speaker),
+        $route,
+        $options
+      );
+      $timings['apply_actor_response_projection_ms'] = $this->elapsedMs($stage_started_at);
+      return $this->appendInvocationTiming($projected, 'gm_subsystem', $timings, $overall_started_at);
     }
 
     $room_id = $active_room_id ?: $requested_room_id;
     $requested_speaker = trim($speaker);
+    $stage_started_at = hrtime(true);
     $speaker = trim((string) $this->coordinator->resolveActorDisplayName($campaign_id, $actor_id));
+    $timings['resolve_actor_display_name_ms'] = $this->elapsedMs($stage_started_at);
     if ($speaker === '') {
       $speaker = $requested_speaker !== '' ? $requested_speaker : 'Player';
     }
     $route['intent']['params']['speaker'] = $speaker;
+    $stage_started_at = hrtime(true);
     $chat_result = $this->gmActorHarness->handlePlayerRoomChat(
       $campaign_id,
       $room_id,
@@ -109,11 +163,173 @@ class GameMasterSubsystemService {
       $message,
       $suppress_gm,
       $speaker,
-      $route
+      $route,
+      $options
     );
+    $timings['gm_actor_harness_ms'] = $this->elapsedMs($stage_started_at);
+    $stage_started_at = hrtime(true);
     $chat_result['gm_subsystem'] = $this->buildResponseEnvelope($route, $room_id);
+    $timings['build_response_envelope_ms'] = $this->elapsedMs($stage_started_at);
 
-    return $chat_result;
+    return $this->appendInvocationTiming($chat_result, 'gm_subsystem', $timings, $overall_started_at);
+  }
+
+  /**
+   * Apply actor-scoped response projection and transition-mode overlays.
+   */
+  protected function applyActorResponseProjection(
+    array $result,
+    int $campaign_id,
+    string $actor_id,
+    ?int $character_id,
+    string $speaker,
+    array $route,
+    array $options
+  ): array {
+    $overall_started_at = hrtime(true);
+    $timings = [];
+    $stage_started_at = hrtime(true);
+    $state = $this->coordinator->getRuntimeReadState($campaign_id, $actor_id);
+    $timings['load_runtime_state_ms'] = $this->elapsedMs($stage_started_at);
+    $stage_started_at = hrtime(true);
+    $action_availability = $this->coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
+    $timings['load_action_availability_ms'] = $this->elapsedMs($stage_started_at);
+    $stage_started_at = hrtime(true);
+    $actor_turn_context = $this->actorTurnContextLoader->load(
+      $state,
+      $action_availability,
+      $actor_id,
+      $character_id,
+      $speaker
+    );
+    $timings['build_actor_turn_context_ms'] = $this->elapsedMs($stage_started_at);
+    $stage_started_at = hrtime(true);
+    $actor_response = $this->actorResponseProjector->project($result, $actor_turn_context);
+    $timings['project_actor_response_ms'] = $this->elapsedMs($stage_started_at);
+    $result['actor_response'] = $actor_response;
+
+    $response_mode = $this->resolveResponseMode($route, $options);
+    $include_legacy_overlay = $this->shouldIncludeLegacyOverlay($response_mode, $options);
+    if ($include_legacy_overlay) {
+      $stage_started_at = hrtime(true);
+      $result['compatibility_overlay'] = $this->legacyCompatibilityAdapter->buildOverlay($result);
+      $timings['build_legacy_overlay_ms'] = $this->elapsedMs($stage_started_at);
+    }
+    $result['response_mode'] = $response_mode;
+
+    if ($response_mode !== 'actor_scoped') {
+      if (!array_key_exists('runtime_snapshot', $result)) {
+        $result['runtime_snapshot'] = is_array($actor_response['runtime_snapshot'] ?? NULL)
+          ? $actor_response['runtime_snapshot']
+          : [];
+      }
+      if (!array_key_exists('available_actions', $result)) {
+        $result['available_actions'] = is_array($actor_response['available_actions'] ?? NULL)
+          ? $actor_response['available_actions']
+          : [];
+      }
+      if (!array_key_exists('action_contract', $result)) {
+        $result['action_contract'] = is_array($actor_response['action_contract'] ?? NULL)
+          ? $actor_response['action_contract']
+          : NULL;
+      }
+      if (!array_key_exists('action_option_families', $result)) {
+        $result['action_option_families'] = is_array($actor_response['action_option_families'] ?? NULL)
+          ? $actor_response['action_option_families']
+          : [];
+      }
+      if (!array_key_exists('aggression_summary', $result)) {
+        $result['aggression_summary'] = is_array($actor_response['aggression_summary'] ?? NULL)
+          ? $actor_response['aggression_summary']
+          : NULL;
+      }
+      if (!array_key_exists('combat_entry_summary', $result)) {
+        $result['combat_entry_summary'] = is_array($actor_response['combat_entry_summary'] ?? NULL)
+          ? $actor_response['combat_entry_summary']
+          : NULL;
+      }
+      foreach (['aggression_state', 'disposition_state', 'resolved_disposition_by_target', 'relationship_attitudes', 'stance_state'] as $state_slice_key) {
+        if (!array_key_exists($state_slice_key, $result)) {
+          $result[$state_slice_key] = is_array($actor_response[$state_slice_key] ?? NULL)
+            ? $actor_response[$state_slice_key]
+            : NULL;
+        }
+      }
+      if (!array_key_exists('resolved_actor_context', $result)) {
+        $result['resolved_actor_context'] = is_array($actor_response['resolved_actor_context'] ?? NULL)
+          ? $actor_response['resolved_actor_context']
+          : NULL;
+      }
+      if ($response_mode === 'dual_transition') {
+        unset($result['dungeon_data'], $result['debug_trace']);
+      }
+      return $this->appendInvocationTiming($result, 'gm_subsystem_projection', $timings, $overall_started_at);
+    }
+
+    $actor_scoped = $actor_response;
+    if ($include_legacy_overlay) {
+      $actor_scoped = $actor_scoped + $result['compatibility_overlay'];
+    }
+    if (isset($result['gm_subsystem']) && is_array($result['gm_subsystem']) && !isset($actor_scoped['gm_subsystem'])) {
+      $actor_scoped['gm_subsystem'] = $result['gm_subsystem'];
+    }
+    return $this->appendInvocationTiming($actor_scoped, 'gm_subsystem_projection', $timings, $overall_started_at);
+  }
+
+  /**
+   * Convert an hrtime timestamp to elapsed milliseconds.
+   */
+  protected function elapsedMs(int $started_at): float {
+    return round((hrtime(true) - $started_at) / 1000000, 2);
+  }
+
+  /**
+   * Attach invocation timing data to one response payload.
+   *
+   * @param array<string,mixed> $payload
+   * @param array<string,float> $stages
+   *
+   * @return array<string,mixed>
+   */
+  protected function appendInvocationTiming(array $payload, string $scope, array $stages, int $overall_started_at): array {
+    $timing = is_array($payload['invocation_timing'] ?? NULL) ? $payload['invocation_timing'] : [];
+    $timing[$scope] = [
+      'total_ms' => $this->elapsedMs($overall_started_at),
+      'stages_ms' => $stages,
+    ];
+    $payload['invocation_timing'] = $timing;
+    return $payload;
+  }
+
+  /**
+   * Resolve room-chat response mode for deterministic and chat routes.
+   */
+  protected function resolveResponseMode(array $route, array $options): string {
+    $intent_params = is_array($route['intent']['params'] ?? NULL)
+      ? $route['intent']['params']
+      : [];
+    $candidate = trim((string) (
+      $options['response_mode']
+      ?? $route['response_mode']
+      ?? $intent_params['response_mode']
+      ?? ''
+    ));
+    $candidate = strtolower($candidate);
+    if ($candidate === '') {
+      return 'actor_scoped';
+    }
+    if (!in_array($candidate, ['legacy', 'dual_transition', 'actor_scoped'], TRUE)) {
+      throw new \InvalidArgumentException(sprintf('Invalid room chat response mode "%s".', $candidate), 400);
+    }
+
+    return $candidate;
+  }
+
+  /**
+   * Decide whether explicit compatibility overlay data is required.
+   */
+  protected function shouldIncludeLegacyOverlay(string $response_mode, array $options): bool {
+    return $response_mode === 'legacy';
   }
 
   /**
@@ -147,8 +363,10 @@ class GameMasterSubsystemService {
     string $actor_id,
     ?int $character_id,
     string $message,
+    bool $defer_npc_interjections,
     bool $suppress_gm,
-    string $speaker
+    string $speaker,
+    array $options = []
   ): array {
     $deterministic_route = $this->buildDeterministicTurnControlRoute($campaign_id, $actor_id, $character_id, $message);
     if ($deterministic_route !== NULL) {
@@ -182,10 +400,13 @@ class GameMasterSubsystemService {
           'speaker' => $speaker,
           'message' => $message,
           'character_id' => $character_id,
-          'defer_npc_interjections' => FALSE,
+          'defer_npc_interjections' => $defer_npc_interjections,
           'suppress_gm' => $suppress_gm,
+          'response_mode' => (string) ($options['response_mode'] ?? 'actor_scoped'),
+          'include_legacy_overlay' => !empty($options['include_legacy_overlay']),
         ],
-      ]
+      ],
+      $options
     );
   }
 
@@ -248,7 +469,8 @@ class GameMasterSubsystemService {
     string $requested_room_id,
     string $actor_id,
     ?int $character_id,
-    array $intent
+    array $intent,
+    array $options = []
   ): array {
     return [
       'workflow' => $workflow,
@@ -260,6 +482,8 @@ class GameMasterSubsystemService {
       'actor_id' => $actor_id,
       'character_id' => $character_id,
       'intent' => $intent,
+      'response_mode' => (string) ($options['response_mode'] ?? 'actor_scoped'),
+      'include_legacy_overlay' => !empty($options['include_legacy_overlay']),
     ];
   }
 

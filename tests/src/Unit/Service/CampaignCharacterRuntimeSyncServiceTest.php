@@ -36,7 +36,15 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
         'hp_current' => 18,
         'hp_max' => 18,
         'armor_class' => 10,
-        'character_data' => json_encode(['name' => 'Brakouk']),
+        'character_data' => json_encode([
+          'name' => 'Brakouk',
+          'skills' => ['medicine' => ['modifier' => 7, 'proficiency' => 'trained']],
+          'spells' => ['prepared' => [['id' => 'magic_missile', 'name' => 'Magic Missile']]],
+          'feats' => [['id' => 'power_attack', 'name' => 'Power Attack']],
+          'inventory' => ['items' => [['item_id' => 'healing-potion', 'item_type' => 'consumable']]],
+          'resources' => ['spellSlots' => ['1' => ['current' => 2, 'max' => 2]]],
+          'actions' => ['availableActions' => ['feat' => [['id' => 'power_attack', 'name' => 'Power Attack']]]],
+        ]),
         'position_q' => -4,
         'position_r' => -3,
         'last_room_id' => 'room-bazaar',
@@ -64,8 +72,31 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
       }
       throw new \RuntimeException(sprintf('Unexpected select %s %s', $table, $alias));
     });
+    $database->method('update')->with('dc_campaign_characters')->willReturn(new class() {
+      public function fields(array $fields): self {
+        return $this;
+      }
+      public function condition(string $field, mixed $value, ?string $operator = NULL): self {
+        return $this;
+      }
+      public function execute(): int {
+        return 1;
+      }
+    });
 
-    $service = new CampaignCharacterRuntimeSyncService($database, $follower_subsystem);
+    $service = new class($database, $follower_subsystem) extends CampaignCharacterRuntimeSyncService {
+      protected function loadCanonicalPlayerCharacterState(array $record, int $campaign_id): array {
+        return [
+          'name' => 'Brakouk',
+          'skills' => ['medicine' => ['modifier' => 7, 'proficiency' => 'trained']],
+          'spells' => ['prepared' => [['id' => 'magic_missile', 'name' => 'Magic Missile']]],
+          'feats' => [['id' => 'power_attack', 'name' => 'Power Attack']],
+          'inventory' => ['items' => [['item_id' => 'healing-potion', 'item_type' => 'consumable']]],
+          'resources' => ['spellSlots' => ['1' => ['current' => 2, 'max' => 2]]],
+          'actions' => ['availableActions' => ['feat' => [['id' => 'power_attack', 'name' => 'Power Attack']]]],
+        ];
+      }
+    };
 
     $payload = [
       'active_room_id' => 'room-bazaar',
@@ -111,6 +142,116 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
     $this->assertSame(218, $result['entities'][1]['state']['metadata']['campaign_character_id']);
     $this->assertSame('pc-63-205', $result['entities'][1]['state']['metadata']['runtime_entity_id']);
     $this->assertSame('Brakouk', $result['entities'][1]['state']['metadata']['display_name']);
+    $this->assertSame(['medicine' => ['modifier' => 7, 'proficiency' => 'trained']], $result['entities'][1]['state']['skills']);
+    $this->assertSame(['prepared' => [['id' => 'magic_missile', 'name' => 'Magic Missile']]], $result['entities'][1]['state']['spells']);
+    $this->assertSame([['id' => 'power_attack', 'name' => 'Power Attack']], $result['entities'][1]['state']['feats']);
+    $this->assertSame(['items' => [['item_id' => 'healing-potion', 'item_type' => 'consumable']]], $result['entities'][1]['state']['inventory']);
+    $this->assertSame(['spellSlots' => ['1' => ['current' => 2, 'max' => 2]]], $result['entities'][1]['state']['resources']);
+    $this->assertSame(['availableActions' => ['feat' => [['id' => 'power_attack', 'name' => 'Power Attack']]]], $result['entities'][1]['state']['actions']);
+  }
+
+  /**
+   * @covers ::syncActiveRoomPlayerEntities
+   */
+  public function testSyncActiveRoomPlayerEntitiesDedupesRuntimeRowsBySourceCharacterIdentity(): void {
+    $database = $this->createMock(Connection::class);
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
+
+    $player_statement = $this->createMock(StatementInterface::class);
+    $player_statement->method('fetchAll')->with(\PDO::FETCH_ASSOC)->willReturn([
+      [
+        'id' => 992,
+        'character_id' => 4488,
+        'source_character_id' => 4488,
+        'instance_id' => 'pc-758-992',
+        'name' => 'Burasco',
+        'hp_current' => 24,
+        'hp_max' => 24,
+        'armor_class' => 16,
+        'character_data' => json_encode(['name' => 'Burasco']),
+        'position_q' => 0,
+        'position_r' => 0,
+        'position_h3' => '842a10000000010',
+        'last_room_id' => 'undead_crypt_entry',
+        'location_ref' => 'undead_crypt_entry',
+        'updated' => 1778962951,
+      ],
+      [
+        'id' => 811,
+        'character_id' => 4488,
+        'source_character_id' => 4488,
+        'instance_id' => 'pc-758-811',
+        'name' => 'Burasco',
+        'hp_current' => 24,
+        'hp_max' => 24,
+        'armor_class' => 16,
+        'character_data' => json_encode(['name' => 'Burasco']),
+        'position_q' => 1,
+        'position_r' => 0,
+        'position_h3' => '842a10000000011',
+        'last_room_id' => 'undead_crypt_entry',
+        'location_ref' => 'undead_crypt_entry',
+        'updated' => 1778962900,
+      ],
+    ]);
+    $npc_statement = $this->createMock(StatementInterface::class);
+    $npc_statement->method('fetchAll')->with(\PDO::FETCH_ASSOC)->willReturn([]);
+    $room_statement = $this->createMock(StatementInterface::class);
+    $room_statement->method('fetchField')->willReturn(FALSE);
+
+    $player_select = $this->createSelectMock($player_statement);
+    $npc_select = $this->createSelectMock($npc_statement);
+    $room_select = $this->createSelectMock($room_statement);
+    $character_select_calls = 0;
+    $database->method('select')->willReturnCallback(function (string $table, string $alias) use ($player_select, $npc_select, $room_select, &$character_select_calls) {
+      if ($table === 'dc_campaign_characters' && $alias === 'cc') {
+        $character_select_calls++;
+        return $character_select_calls === 1 ? $player_select : $npc_select;
+      }
+      if ($table === 'dc_campaign_rooms' && $alias === 'r') {
+        return $room_select;
+      }
+      throw new \RuntimeException(sprintf('Unexpected select %s %s', $table, $alias));
+    });
+    $database->method('update')->with('dc_campaign_characters')->willReturn(new class() {
+      public function fields(array $fields): self {
+        return $this;
+      }
+      public function condition(string $field, mixed $value, ?string $operator = NULL): self {
+        return $this;
+      }
+      public function execute(): int {
+        return 1;
+      }
+    });
+
+    $service = new class($database, $follower_subsystem) extends CampaignCharacterRuntimeSyncService {
+      protected function loadCanonicalPlayerCharacterState(array $record, int $campaign_id): array {
+        return ['name' => 'Burasco'];
+      }
+    };
+    $payload = [
+      'active_room_id' => 'undead_crypt_entry',
+      'rooms' => [
+        'undead_crypt_entry' => [
+          'hexes' => [
+            ['q' => 0, 'r' => 0, 'h3_index_res14' => '842a10000000010'],
+            ['q' => 1, 'r' => 0, 'h3_index_res14' => '842a10000000011'],
+          ],
+        ],
+      ],
+      'entities' => [],
+    ];
+
+    $result = $service->syncActiveRoomPlayerEntities($payload, 758, 'pc-758-992');
+
+    $players = array_values(array_filter($result['entities'], static function (array $entity): bool {
+      return ($entity['entity_type'] ?? '') === 'player_character';
+    }));
+    $this->assertCount(1, $players);
+    $this->assertSame('pc-758-992', $players[0]['instance_id']);
+    $this->assertSame(992, $players[0]['state']['metadata']['campaign_character_id']);
   }
 
   /**
@@ -212,6 +353,191 @@ class CampaignCharacterRuntimeSyncServiceTest extends UnitTestCase {
     $this->assertSame(259, $result['entities'][0]['state']['metadata']['character_id']);
     $this->assertSame(259, $result['entities'][0]['state']['metadata']['campaign_character_id']);
     $this->assertSame('npc_scholar_npc', $result['entities'][0]['state']['metadata']['runtime_entity_id']);
+  }
+
+  /**
+   * @covers ::syncActiveRoomNpcEntities
+   */
+  public function testSyncActiveRoomNpcEntitiesKeepsMatchedNpcOnItsCurrentHexWhenValid(): void {
+    $database = $this->createMock(Connection::class);
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
+    $service = new class($database, $follower_subsystem) extends CampaignCharacterRuntimeSyncService {
+      public function syncNpcEntities(array $payload, int $campaign_id, string $active_room_id): array {
+        return $this->syncActiveRoomNpcEntities($payload, $campaign_id, $active_room_id);
+      }
+    };
+
+    $npc_statement = $this->createMock(StatementInterface::class);
+    $npc_statement->method('fetchAll')->with(\PDO::FETCH_ASSOC)->willReturn([
+      [
+        'id' => 640,
+        'instance_id' => 'npc_skeleton_guard_alpha',
+        'name' => 'Skeleton Guard Alpha',
+        'state_data' => json_encode([
+          'content_id' => 'skeleton_guard_alpha',
+          'role' => 'guard',
+          'team' => 'hostile',
+        ]),
+        'position_q' => 1,
+        'position_r' => 0,
+        'location_ref' => 'undead_crypt_entry',
+      ],
+    ]);
+    $room_statement = $this->createMock(StatementInterface::class);
+    $room_statement->method('fetchField')->willReturn('undead_crypt_entry');
+    $npc_select = $this->createSelectMock($npc_statement);
+    $room_select = $this->createSelectMock($room_statement);
+    $database->method('select')->willReturnCallback(function (string $table, string $alias) use ($npc_select, $room_select) {
+      if ($table === 'dc_campaign_characters' && $alias === 'cc') {
+        return $npc_select;
+      }
+      if ($table === 'dc_campaign_rooms' && $alias === 'r') {
+        return $room_select;
+      }
+      throw new \RuntimeException(sprintf('Unexpected select %s %s', $table, $alias));
+    });
+    $database->method('update')->with('dc_campaign_characters')->willReturn(new class() {
+      public function fields(array $fields): self {
+        return $this;
+      }
+      public function condition(string $field, mixed $value, ?string $operator = NULL): self {
+        return $this;
+      }
+      public function execute(): int {
+        return 1;
+      }
+    });
+
+    $payload = [
+      'active_room_id' => 'undead_crypt_entry',
+      'rooms' => [
+        'undead_crypt_entry' => [
+          'hexes' => [
+            ['q' => 1, 'r' => 0, 'h3_index_res14' => '842a10000000012'],
+            ['q' => 2, 'r' => 0, 'h3_index_res14' => '842a10000000013'],
+          ],
+        ],
+      ],
+      'entities' => [
+        [
+          'entity_type' => 'npc',
+          'instance_id' => 'npc_skeleton_guard_alpha',
+          'entity_instance_id' => 'npc_skeleton_guard_alpha',
+          'entity_ref' => [
+            'content_type' => 'npc',
+            'content_id' => 'skeleton_guard_alpha',
+          ],
+          'placement' => [
+            'room_id' => 'undead_crypt_entry',
+            'hex' => ['q' => 1, 'r' => 0],
+          ],
+          'state' => [
+            'metadata' => [
+              'display_name' => 'Skeleton Guard Alpha',
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $result = $service->syncNpcEntities($payload, 758, 'undead_crypt_entry');
+    $this->assertSame(1, (int) ($result['entities'][0]['placement']['hex']['q'] ?? 0));
+    $this->assertSame(0, (int) ($result['entities'][0]['placement']['hex']['r'] ?? 0));
+  }
+
+  /**
+   * @covers ::syncActiveRoomNpcEntities
+   */
+  public function testSyncActiveRoomNpcEntitiesReanchorsUndeadCryptSkeletonsToCanonicalPositions(): void {
+    $database = $this->createMock(Connection::class);
+    $follower_subsystem = $this->createMock(FollowerSubsystemService::class);
+    $follower_subsystem->method('resolveRuntimeFollowerProfiles')->willReturn([]);
+    $service = new class($database, $follower_subsystem) extends CampaignCharacterRuntimeSyncService {
+      public function syncNpcEntities(array $payload, int $campaign_id, string $active_room_id): array {
+        return $this->syncActiveRoomNpcEntities($payload, $campaign_id, $active_room_id);
+      }
+    };
+
+    $npc_statement = $this->createMock(StatementInterface::class);
+    $npc_statement->method('fetchAll')->with(\PDO::FETCH_ASSOC)->willReturn([
+      [
+        'id' => 641,
+        'instance_id' => 'npc_skeleton_guard_alpha',
+        'name' => 'Skeleton Guard Alpha',
+        'state_data' => json_encode([
+          'content_id' => 'skeleton_guard_alpha',
+          'role' => 'guard',
+          'team' => 'hostile',
+        ]),
+        'position_q' => 0,
+        'position_r' => 0,
+        'location_ref' => 'undead_crypt_entry_hall',
+      ],
+    ]);
+    $room_statement = $this->createMock(StatementInterface::class);
+    $room_statement->method('fetchField')->willReturn('undead_crypt_entry_hall');
+    $npc_select = $this->createSelectMock($npc_statement);
+    $room_select = $this->createSelectMock($room_statement);
+    $database->method('select')->willReturnCallback(function (string $table, string $alias) use ($npc_select, $room_select) {
+      if ($table === 'dc_campaign_characters' && $alias === 'cc') {
+        return $npc_select;
+      }
+      if ($table === 'dc_campaign_rooms' && $alias === 'r') {
+        return $room_select;
+      }
+      throw new \RuntimeException(sprintf('Unexpected select %s %s', $table, $alias));
+    });
+    $database->method('update')->with('dc_campaign_characters')->willReturn(new class() {
+      public function fields(array $fields): self {
+        return $this;
+      }
+      public function condition(string $field, mixed $value, ?string $operator = NULL): self {
+        return $this;
+      }
+      public function execute(): int {
+        return 1;
+      }
+    });
+
+    $payload = [
+      'active_room_id' => 'undead_crypt_entry_hall',
+      'rooms' => [
+        'undead_crypt_entry_hall' => [
+          'room_id' => 'undead_crypt_entry_hall',
+          'source_room_id' => 'tpl_room_crypt_anteroom',
+          'room_type' => 'starter_undead_crypt',
+          'hexes' => [
+            ['q' => 0, 'r' => 0, 'h3_index_res14' => '842a10000000020'],
+            ['q' => 3, 'r' => 2, 'h3_index_res14' => '842a10000000021'],
+          ],
+        ],
+      ],
+      'entities' => [
+        [
+          'entity_type' => 'npc',
+          'instance_id' => 'npc_skeleton_guard_alpha',
+          'entity_instance_id' => 'npc_skeleton_guard_alpha',
+          'entity_ref' => [
+            'content_type' => 'npc',
+            'content_id' => 'skeleton_guard_alpha',
+          ],
+          'placement' => [
+            'room_id' => 'undead_crypt_entry_hall',
+            'hex' => ['q' => 0, 'r' => 0],
+          ],
+          'state' => [
+            'metadata' => [
+              'display_name' => 'Skeleton Guard Alpha',
+            ],
+          ],
+        ],
+      ],
+    ];
+
+    $result = $service->syncNpcEntities($payload, 758, 'undead_crypt_entry_hall');
+    $this->assertSame(3, (int) ($result['entities'][0]['placement']['hex']['q'] ?? 0));
+    $this->assertSame(2, (int) ($result['entities'][0]['placement']['hex']['r'] ?? 0));
   }
 
   /**

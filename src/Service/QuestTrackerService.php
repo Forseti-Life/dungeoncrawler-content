@@ -2660,6 +2660,7 @@ class QuestTrackerService {
     if ($required_quantity <= 0) {
       return;
     }
+    $transfer_correlation_id = uniqid('quest_turn_in_', TRUE);
 
     $rows = $this->database->select('dc_campaign_item_instances', 'i')
       ->fields('i', ['item_instance_id', 'item_id', 'quantity', 'state_data'])
@@ -2727,6 +2728,15 @@ class QuestTrackerService {
     }
 
     if ($candidates === []) {
+      $this->recordQuestTurnInTransferAudit($campaign_id, $transfer_correlation_id, 'no_candidates', [
+        'quest_source' => $quest_source,
+        'quest_id' => $quest_id,
+        'objective_id' => $objective_id,
+        'required_quantity' => $required_quantity,
+        'source_character_id' => $character_id,
+        'target_character_id' => $target_character_id,
+        'canonical_item_id' => $canonical_item_id,
+      ]);
       return;
     }
 
@@ -2740,6 +2750,17 @@ class QuestTrackerService {
     $available_quantity = array_reduce($candidates, static function (int $carry, array $candidate): int {
       return $carry + max(0, (int) ($candidate['quantity'] ?? 0));
     }, 0);
+    $this->recordQuestTurnInTransferAudit($campaign_id, $transfer_correlation_id, 'start', [
+      'quest_source' => $quest_source,
+      'quest_id' => $quest_id,
+      'objective_id' => $objective_id,
+      'required_quantity' => $required_quantity,
+      'available_quantity' => $available_quantity,
+      'source_character_id' => $character_id,
+      'target_character_id' => $target_character_id,
+      'canonical_item_id' => $canonical_item_id,
+      'candidate_count' => count($candidates),
+    ]);
     $remaining = max($required_quantity, $available_quantity);
     foreach ($candidates as $candidate) {
       if ($remaining <= 0) {
@@ -2783,16 +2804,78 @@ class QuestTrackerService {
         $transfer_quantity,
         $campaign_id
       );
+      $this->recordQuestTurnInTransferAudit($campaign_id, $transfer_correlation_id, 'item_transferred', [
+        'quest_source' => $quest_source,
+        'quest_id' => $quest_id,
+        'objective_id' => $objective_id,
+        'source_character_id' => $character_id,
+        'target_character_id' => $target_character_id,
+        'item_instance_id' => $candidate['item_instance_id'],
+        'item_id' => $item_id,
+        'transfer_quantity' => $transfer_quantity,
+        'remaining_after' => max(0, $remaining - $transfer_quantity),
+      ]);
       $remaining -= $transfer_quantity;
     }
 
     if ($remaining > 0) {
+      $this->recordQuestTurnInTransferAudit($campaign_id, $transfer_correlation_id, 'incomplete', [
+        'quest_source' => $quest_source,
+        'quest_id' => $quest_id,
+        'objective_id' => $objective_id,
+        'required_quantity' => $required_quantity,
+        'available_quantity' => $available_quantity,
+        'remaining_quantity' => $remaining,
+        'source_character_id' => $character_id,
+        'target_character_id' => $target_character_id,
+      ]);
       throw new \RuntimeException(sprintf(
         'Quest hand-in transfer incomplete for objective "%s": missing %d collectible item(s).',
         $objective_id,
         $remaining
       ));
     }
+    $this->recordQuestTurnInTransferAudit($campaign_id, $transfer_correlation_id, 'complete', [
+      'quest_source' => $quest_source,
+      'quest_id' => $quest_id,
+      'objective_id' => $objective_id,
+      'required_quantity' => $required_quantity,
+      'available_quantity' => $available_quantity,
+      'source_character_id' => $character_id,
+      'target_character_id' => $target_character_id,
+    ]);
+  }
+
+  /**
+   * Persist quest turn-in transfer audit rows for campaign-level RCA correlation.
+   */
+  protected function recordQuestTurnInTransferAudit(
+    int $campaign_id,
+    string $transfer_correlation_id,
+    string $event,
+    array $context
+  ): void {
+    $context_payload = [
+      'event' => $event,
+      'transfer_correlation_id' => $transfer_correlation_id,
+      'timestamp' => date('c'),
+    ] + $context;
+    $context_json = json_encode($context_payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($context_json)) {
+      throw new \RuntimeException('Failed to encode quest turn-in transfer audit context JSON.');
+    }
+
+    $this->database->insert('dc_campaign_log')
+      ->fields([
+        'campaign_id' => $campaign_id,
+        'log_type' => 'quest_turn_in_transfer',
+        'message' => 'quest_turn_in_transfer:' . $event,
+        'context' => $context_json,
+        'encounter_instance_id' => NULL,
+        'room_id' => NULL,
+        'created' => time(),
+      ])
+      ->execute();
   }
 
   /**

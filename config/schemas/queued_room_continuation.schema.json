@@ -24,6 +24,8 @@
     "gm_response": { "type": ["object", "null"] },
     "state_diff": { "type": ["object", "null"] },
     "canonical_actions": { "type": ["object", "null"] },
+    "aggression_summary": { "type": ["object", "null"] },
+    "combat_entry_summary": { "type": ["object", "null"] },
     "navigation": { "type": ["object", "null"] },
     "turn_harness": { "type": ["object", "null"] },
     "turn_log_key": { "type": ["string", "null"], "maxLength": 255 },

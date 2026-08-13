@@ -29,16 +29,29 @@ console.log('\n=== CharacterPanel unified actor selector contract ===');
 
 assert(
   templateSource.includes('id="game-tab-party"')
+    && templateSource.includes("{{ 'Actor Roster'|t }}")
     && !templateSource.includes('id="game-tab-character"')
     && templateSource.includes('id="game-panel-party"')
     && templateSource.includes('id="party-actor-select"'),
-  'Game shell exposes one Party tab with a unified actor selector (Character tab removed)'
+  'Game shell exposes one Actor Roster tab with a unified actor selector (Character tab removed)'
 );
 
 assert(
   panelSource.includes('partyActorSelectWrap:    id(\'party-actor-select-wrap\')')
+    && panelSource.includes('partyActorFilters:       id(\'party-actor-filters\')')
+    && panelSource.includes('partyActorSort:          id(\'party-actor-sort\')')
     && panelSource.includes('partyActorSelect:        id(\'party-actor-select\')'),
   'CharacterPanel binds Party selector DOM elements'
+);
+
+assert(
+  templateSource.includes('id="party-actor-filters"')
+    && templateSource.includes('id="party-actor-sort"')
+    && templateSource.includes('value="initiative"')
+    && templateSource.includes('data-actor-filter="party"')
+    && templateSource.includes('data-actor-filter="hostile"')
+    && templateSource.includes('data-actor-filter="all"'),
+  'Party tab exposes side/faction filter controls and sort controls for actor roster'
 );
 
 assert(
@@ -51,8 +64,20 @@ assert(
 assert(
   panelSource.includes('this.focusActorFromSelector(partyActorSelect.value, { activateCharacterTab: false });')
     && panelSource.includes("if (selectedActorKind === 'primary' || normalizedRef === '__primary__') {")
+    && panelSource.includes('this.showActorCharacterFromEntity(entity);')
     && panelSource.includes('this.showFollowerCharacterFromEntity(entity);'),
-  'Unified selector routes primary option to the main sheet and follower options to follower rendering'
+  'Unified selector routes primary option to main sheet, runtime actors to actor rendering, and follower options to follower rendering'
+);
+
+assert(
+  panelSource.includes('normalizeActorFilter(rawFilter = \'\') {')
+    && panelSource.includes('normalizeActorSortMode(rawMode = \'\') {')
+    && panelSource.includes('resolveActorSideForEntity(entity = null) {')
+    && panelSource.includes('syncActorFilterButtons(optionSet = []) {')
+    && panelSource.includes('syncActorSortControl() {')
+    && panelSource.includes('sortActorOptions(optionSet = []) {')
+    && panelSource.includes("if (sortMode === 'initiative') {"),
+  'CharacterPanel classifies active-room actors by side and supports initiative sorting on the roster'
 );
 
 assert(

@@ -2122,7 +2122,7 @@ class StorylineManagerService {
     $connector_definition = $this->resolveConnectorDefinitionService();
     $has_active_room_bridge = FALSE;
     foreach ($room_ids as $storyline_room_id) {
-      $canonical_connectors = $connector_definition->loadCanonicalConnectorsForRoom($storyline_room_id);
+      $canonical_connectors = $connector_definition->loadCanonicalConnectorsForRoom($storyline_room_id, $runtime_dungeon_id);
       foreach ($canonical_connectors as $connector_row) {
         if (!is_array($connector_row)) {
           continue;
@@ -2164,7 +2164,7 @@ class StorylineManagerService {
 
     $bridged_connection_count = 0;
     foreach ($room_ids as $storyline_room_id) {
-      $canonical_connectors = $connector_definition->loadCanonicalConnectorsForRoom($storyline_room_id);
+      $canonical_connectors = $connector_definition->loadCanonicalConnectorsForRoom($storyline_room_id, $runtime_dungeon_id);
       foreach ($canonical_connectors as $connector_row) {
         if (!is_array($connector_row)) {
           continue;

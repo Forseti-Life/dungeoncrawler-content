@@ -32,6 +32,11 @@ class RoomChatWriteEndpointOrchestrator {
     $character_id = isset($payload['character_id']) ? (int) $payload['character_id'] : NULL;
     $channel = (string) ($payload['channel'] ?? 'room');
     $client_request_id = (string) ($payload['client_request_id'] ?? '');
+    $response_mode = strtolower(trim((string) ($payload['response_mode'] ?? 'actor_scoped')));
+    if (!in_array($response_mode, ['legacy', 'dual_transition', 'actor_scoped'], TRUE)) {
+      throw new \InvalidArgumentException(sprintf('Invalid response mode "%s".', $response_mode), 400);
+    }
+    $include_legacy_overlay = !empty($payload['include_legacy_overlay']);
     $is_player_turn = $type === 'player';
 
     // Room transcript lines are encounter-governed: clients cannot inject NPC/system
@@ -70,6 +75,8 @@ class RoomChatWriteEndpointOrchestrator {
       'stream' => $stream,
       'suppress_gm' => $suppress_gm,
       'continue_gm' => $continue_gm,
+      'response_mode' => $response_mode,
+      'include_legacy_overlay' => $include_legacy_overlay,
     ];
   }
 
@@ -84,7 +91,8 @@ class RoomChatWriteEndpointOrchestrator {
     string $speaker,
     string $message,
     bool $defer_npc_interjections = FALSE,
-    bool $suppress_gm = FALSE
+    bool $suppress_gm = FALSE,
+    array $options = []
   ): array {
     return $this->gmSubsystem->handlePlayerRoomChat(
       $campaign_id,
@@ -93,7 +101,8 @@ class RoomChatWriteEndpointOrchestrator {
       $message,
       $defer_npc_interjections,
       $suppress_gm,
-      $speaker
+      $speaker,
+      $options
     );
   }
 
@@ -120,7 +129,8 @@ class RoomChatWriteEndpointOrchestrator {
     string $type,
     ?int $character_id,
     string $channel,
-    bool $suppress_gm
+    bool $suppress_gm,
+    array $options = []
   ): array {
     if ($this->isPlayerRoomChat($type, $channel)) {
       return $this->postPlayerRoomChatViaEncounterTalk(
@@ -130,7 +140,8 @@ class RoomChatWriteEndpointOrchestrator {
         $speaker,
         $message,
         FALSE,
-        $suppress_gm
+        $suppress_gm,
+        $options
       );
     }
 
@@ -143,7 +154,13 @@ class RoomChatWriteEndpointOrchestrator {
       $character_id,
       $channel,
       FALSE,
-      $suppress_gm
+      $suppress_gm,
+      NULL,
+      [],
+      [
+        'response_mode' => (string) ($options['response_mode'] ?? 'actor_scoped'),
+        'include_legacy_overlay' => !empty($options['include_legacy_overlay']),
+      ]
     );
   }
 

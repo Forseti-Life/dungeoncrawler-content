@@ -67,14 +67,20 @@ class CombatEncounterApiController extends ControllerBase {
     $room_id = (string) $request->query->get('roomId', '');
 
     if ($campaign_id <= 0) {
+      $idle_presentation = $this->buildIdleEncounterPresentation($campaign_id, $room_id);
       return new JsonResponse([
         'success' => TRUE,
-        'data' => ['encounter_id' => NULL, 'status' => 'idle'],
+        'data' => [
+          'encounter_id' => NULL,
+          'status' => 'idle',
+          'encounter_presentation' => $idle_presentation,
+        ],
       ]);
     }
 
     $active_encounter_ids = $this->loadActiveEncounterIdsForContext($campaign_id, $room_id);
     if ($active_encounter_ids === []) {
+      $idle_presentation = $this->buildIdleEncounterPresentation($campaign_id, $room_id);
       return new JsonResponse([
         'success' => TRUE,
         'data' => [
@@ -82,6 +88,7 @@ class CombatEncounterApiController extends ControllerBase {
           'status' => 'idle',
           'campaign_id' => $campaign_id,
           'room_id' => $room_id,
+          'encounter_presentation' => $idle_presentation,
         ],
       ]);
     }
@@ -90,9 +97,14 @@ class CombatEncounterApiController extends ControllerBase {
 
     $encounter = $this->normalizeEncounterForResponse($this->loadEncounter((int) $encounter_id));
     if (!$encounter) {
+      $idle_presentation = $this->buildIdleEncounterPresentation($campaign_id, $room_id);
       return new JsonResponse([
         'success' => TRUE,
-        'data' => ['encounter_id' => NULL, 'status' => 'idle'],
+        'data' => [
+          'encounter_id' => NULL,
+          'status' => 'idle',
+          'encounter_presentation' => $idle_presentation,
+        ],
       ]);
     }
 
@@ -205,6 +217,12 @@ class CombatEncounterApiController extends ControllerBase {
 
     $current_participant = $normalized_participants[$turn_index] ?? NULL;
     $latest_ai_turn_plan = $encounter_id > 0 ? $this->loadLatestAiTurnPlan($encounter_id) : NULL;
+    $encounter_presentation = $this->buildEncounterPresentation(
+      $encounter,
+      $initiative_order,
+      $normalized_participants,
+      $turn_index
+    );
 
     return [
       'encounter_id' => $encounter_id,
@@ -219,6 +237,96 @@ class CombatEncounterApiController extends ControllerBase {
       'participants' => $normalized_participants,
       'current_participant' => $current_participant,
       'latest_ai_turn_plan' => $latest_ai_turn_plan,
+      'encounter_presentation' => $encounter_presentation,
+    ];
+  }
+
+  /**
+   * Build a compact map-tab encounter presentation payload.
+   */
+  protected function buildEncounterPresentation(
+    array $encounter,
+    array $initiative_order,
+    array $participants,
+    int $turn_index
+  ): array {
+    $initiative_cards = [];
+    $participant_by_entity_id = [];
+    foreach ($participants as $participant) {
+      $entity_id = trim((string) ($participant['entity_id'] ?? ''));
+      if ($entity_id !== '') {
+        $participant_by_entity_id[$entity_id] = $participant;
+      }
+    }
+
+    foreach ($initiative_order as $index => $entry) {
+      $entity_id = trim((string) ($entry['entity_id'] ?? ''));
+      $participant = $entity_id !== '' ? ($participant_by_entity_id[$entity_id] ?? NULL) : NULL;
+      $team = strtolower(trim((string) ($participant['team'] ?? 'neutral')));
+      if (!in_array($team, ['player', 'enemy', 'ally', 'neutral'], TRUE)) {
+        $team = 'neutral';
+      }
+
+      $current_hp = is_numeric($participant['hp'] ?? NULL) ? (int) $participant['hp'] : NULL;
+      $max_hp = is_numeric($participant['max_hp'] ?? NULL) ? (int) $participant['max_hp'] : NULL;
+      $initiative_cards[] = [
+        'entity_id' => $entity_id,
+        'name' => (string) ($entry['name'] ?? $participant['name'] ?? $entity_id),
+        'team' => $team,
+        'initiative' => is_numeric($entry['initiative'] ?? NULL) ? (int) $entry['initiative'] : NULL,
+        'is_current' => $index === $turn_index,
+        'is_defeated' => (bool) ($entry['is_defeated'] ?? ($participant['is_defeated'] ?? FALSE)),
+        'hp' => [
+          'current' => $current_hp,
+          'max' => $max_hp,
+          'visibility' => $team === 'player' ? 'full' : 'status_only',
+        ],
+        'actions_remaining' => is_numeric($participant['actions_remaining'] ?? NULL) ? (int) $participant['actions_remaining'] : NULL,
+        'reaction_available' => array_key_exists('reaction_available', $participant)
+          ? (bool) $participant['reaction_available']
+          : NULL,
+        'conditions' => [],
+      ];
+    }
+
+    $status = trim((string) ($encounter['status'] ?? 'idle'));
+    if ($status === '') {
+      $status = 'idle';
+    }
+    $current_entity_id = isset($initiative_cards[$turn_index]['entity_id'])
+      ? (string) $initiative_cards[$turn_index]['entity_id']
+      : '';
+
+    return [
+      'schema_version' => 'encounter-map-v1',
+      'encounter_id' => (int) ($encounter['id'] ?? $encounter['encounter_id'] ?? 0),
+      'status' => $status,
+      'mode' => 'combat',
+      'title' => (string) ($encounter['title'] ?? 'Combat Encounter'),
+      'room_id' => (string) ($encounter['room_id'] ?? ''),
+      'current_round' => (int) ($encounter['current_round'] ?? 0),
+      'turn_index' => $turn_index,
+      'current_entity_id' => $current_entity_id,
+      'initiative_order' => $initiative_cards,
+    ];
+  }
+
+  /**
+   * Build a normalized idle encounter presentation payload.
+   */
+  protected function buildIdleEncounterPresentation(int $campaign_id, string $room_id): array {
+    return [
+      'schema_version' => 'encounter-map-v1',
+      'encounter_id' => NULL,
+      'status' => 'idle',
+      'mode' => 'combat',
+      'title' => 'No active combat',
+      'room_id' => $room_id,
+      'current_round' => 0,
+      'turn_index' => 0,
+      'current_entity_id' => '',
+      'initiative_order' => [],
+      'campaign_id' => $campaign_id > 0 ? $campaign_id : NULL,
     ];
   }
 

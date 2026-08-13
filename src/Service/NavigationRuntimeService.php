@@ -107,7 +107,7 @@ class NavigationRuntimeService {
         continue;
       }
 
-      foreach ($this->resolveConnectorDefinitionService()->loadCanonicalConnectorsForRoom($room_id) as $connector_row) {
+      foreach ($this->resolveConnectorDefinitionService()->loadCanonicalConnectorsForRoom($room_id, $dungeon_id) as $connector_row) {
         if (!is_array($connector_row)) {
           continue;
         }

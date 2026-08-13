@@ -653,6 +653,7 @@ class ChatSessionController extends ControllerBase {
    */
   protected function collectSystemLogMessages(int $session_id, int $limit, int $before_id = 0): array {
     $messages = [];
+    $seen = [];
     $cursor = $before_id;
     $batch_size = min(200, max(50, $limit * 3));
     $guard = 0;
@@ -667,6 +668,11 @@ class ChatSessionController extends ControllerBase {
         if (!$this->isSystemLogMessage($message)) {
           continue;
         }
+        $dedupe_key = $this->buildSystemLogDedupeKey($message);
+        if (isset($seen[$dedupe_key])) {
+          continue;
+        }
+        $seen[$dedupe_key] = TRUE;
         $messages[] = $message;
         if (count($messages) >= $limit) {
           break;
@@ -684,6 +690,23 @@ class ChatSessionController extends ControllerBase {
     }
 
     return array_slice($messages, 0, $limit);
+  }
+
+  /**
+   * Build a stable dedupe key for system-log views.
+   */
+  protected function buildSystemLogDedupeKey(array $message): string {
+    $source_id = (int) ($message['source_message_id'] ?? 0);
+    if ($source_id > 0) {
+      return 'source:' . $source_id;
+    }
+
+    $id = (int) ($message['id'] ?? 0);
+    $speaker = strtolower(trim((string) ($message['speaker'] ?? '')));
+    $message_type = strtolower(trim((string) ($message['message_type'] ?? '')));
+    $body = trim((string) ($message['message'] ?? ''));
+
+    return 'self:' . $id . ':' . sha1($speaker . '|' . $message_type . '|' . $body);
   }
 
   /**

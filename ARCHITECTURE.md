@@ -23,6 +23,12 @@ The DungeonCrawler Content module implements a multi-layered architecture for pr
 └────────────────────────────────────┘
 ```
 
+## Social / Institutional Disposition Architecture
+
+The numeric actor disposition subsystem is resolver-centric. Institutional effects are part of that subsystem, but the target architecture for actor-held institution sentiment plus institution-level matrix authority is documented separately in:
+
+- `INSTITUTIONAL_DISPOSITION_TARGET_ARCHITECTURE_AND_IMPLEMENTATION_PLAN.md`
+
 ## Content Generation Subsystem (Authoritative)
 
 Yes — the architecture includes a content generation system, and this section is the authoritative subsystem contract for it.

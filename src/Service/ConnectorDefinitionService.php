@@ -146,9 +146,13 @@ class ConnectorDefinitionService {
    *
    * @return array<int, array<string, mixed>>
    */
-  public function loadCanonicalConnectorsForRoom(string $room_id): array {
+  public function loadCanonicalConnectorsForRoom(string $room_id, string $dungeon_id = ''): array {
     $query = $this->database->select('dungeoncrawler_content_connections', 'c')
       ->fields('c');
+    $normalized_dungeon_id = trim($dungeon_id);
+    if ($normalized_dungeon_id !== '') {
+      $query->condition('dungeon_id', $normalized_dungeon_id);
+    }
     $or = $query->orConditionGroup()
       ->condition('from_room_id', $room_id)
       ->condition('to_room_id', $room_id);

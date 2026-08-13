@@ -16,7 +16,7 @@ use Psr\Log\LoggerInterface;
 class GameEventLoggerTest extends UnitTestCase {
 
   /**
-   * Ensures next ID uses max existing ID and normalizes malformed payload data.
+   * Ensures next ID uses max existing ID and normalizes scalar actor/target IDs.
    */
   public function testLogEventsUsesMaxIdAndNormalizesData(): void {
     $logger = $this->buildLogger();
@@ -34,7 +34,7 @@ class GameEventLoggerTest extends UnitTestCase {
         'phase' => 'encounter',
         'actor' => 123,
         'target' => 456,
-        'data' => 'not-an-array',
+        'data' => ['result' => 'ok'],
       ],
     ]);
 
@@ -42,8 +42,29 @@ class GameEventLoggerTest extends UnitTestCase {
     $this->assertSame(11, $logged[0]['id']);
     $this->assertSame('123', $logged[0]['actor']);
     $this->assertSame('456', $logged[0]['target']);
-    $this->assertSame([], $logged[0]['data']);
+    $this->assertSame(['result' => 'ok'], $logged[0]['data']);
     $this->assertSame(11, $dungeon_data['game_state']['event_log_cursor']);
+  }
+
+  /**
+   * Ensures malformed event payloads fail loudly instead of being normalized.
+   */
+  public function testLogEventsRejectsMalformedEventContracts(): void {
+    $logger = $this->buildLogger();
+    $dungeon_data = [
+      'event_log' => [],
+      'game_state' => [],
+    ];
+
+    $this->expectException(\InvalidArgumentException::class);
+    $this->expectExceptionMessage('Game event contract violation');
+    $logger->logEvents($dungeon_data, [
+      [
+        'type' => 'turn_start',
+        'phase' => 'encounter',
+        'data' => 'not-an-array',
+      ],
+    ]);
   }
 
   /**
@@ -78,4 +99,3 @@ class GameEventLoggerTest extends UnitTestCase {
   }
 
 }
-

@@ -22,39 +22,57 @@ const ACTION_RAIL_DIRECT_ROUTE_BUILDERS = Object.freeze({
 
 const ACTION_RAIL_SELECTABLE_ACTIONS = new Set([
   'attack',
-  'spell',
+  'cast_spell',
+  'stride',
+  'step',
   'interact',
+  'talk',
   'search',
   'skill',
   'feat',
-  'consumable',
+  'consume_item',
+  'demoralize',
+  'raise_shield',
+  'delay',
+  'feint',
+  'point_out',
+  'command_animal',
+  'aid_setup',
+  'administer_first_aid',
+  'treat_poison',
+  'battle_medicine',
   'treat_wounds',
   'refocus',
   'repair',
   'daily_preparations',
+  // Backward-compatible aliases while older markup drains.
+  'spell',
+  'consumable',
 ]);
-
-const ACTION_RAIL_EXECUTE_TO_SERVER_ACTION = Object.freeze({
-  search: 'search',
-  spell: 'cast_spell',
-  consumable: 'consume_item',
-  skill: 'skill',
-  feat: 'feat',
-  choose_not_to_act: 'choose_not_to_act',
-  end_turn: 'end_turn',
-  treat_wounds: 'treat_wounds',
-  refocus: 'refocus',
-  repair: 'repair',
-  daily_preparations: 'daily_preparations',
-});
 
 export const ACTION_SELECTION_HANDLERS = Object.freeze({
   attack: 'executeDirectAttack',
-  spell: 'executeDirectSpell',
+  cast_spell: 'executeDirectSpell',
+  stride: 'executeDirectStride',
+  step: 'executeDirectStep',
   interact: 'executeDirectInteract',
+  talk: 'executeDirectTalk',
   search: 'executeDirectSearch',
   skill: 'executeDirectSkill',
   feat: 'executeDirectFeat',
+  consume_item: 'executeDirectConsumable',
+  demoralize: 'executeDirectDemoralize',
+  raise_shield: 'executeDirectRaiseShield',
+  delay: 'executeDirectDelay',
+  feint: 'executeDirectFeint',
+  point_out: 'executeDirectPointOut',
+  command_animal: 'executeDirectCommandAnimal',
+  aid_setup: 'executeDirectAidSetup',
+  administer_first_aid: 'executeDirectAdministerFirstAid',
+  treat_poison: 'executeDirectTreatPoison',
+  battle_medicine: 'executeDirectBattleMedicine',
+  // Backward-compatible aliases while older markup drains.
+  spell: 'executeDirectSpell',
   consumable: 'executeDirectConsumable',
 });
 
@@ -87,8 +105,7 @@ export function isActionRailSelectableAction(actionType) {
 }
 
 export function getServerActionIdForExecute(actionType) {
-  const normalizedActionType = normalizeKey(actionType);
-  return ACTION_RAIL_EXECUTE_TO_SERVER_ACTION[normalizedActionType] || normalizedActionType;
+  return normalizeKey(actionType);
 }
 
 export function isRestActivityActionKey(actionKey) {

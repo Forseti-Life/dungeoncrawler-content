@@ -24,11 +24,13 @@ class CharacterStateService {
   protected NumberGenerationService $numberGeneration;
   protected ImpactContractService $impactContractService;
   protected ActiveEffectStoreService $activeEffectStore;
+  protected ?EffectInstanceService $effectInstanceService;
+  protected ?EffectProjectionService $effectProjectionService;
 
   /**
    * Constructor.
    */
-  public function __construct(Connection $database, AccountProxyInterface $current_user, FeatEffectManager $feat_effect_manager, GeneratedImageRepository $image_repository, NumberGenerationService $number_generation, ImpactContractService $impact_contract_service, ActiveEffectStoreService $active_effect_store) {
+  public function __construct(Connection $database, AccountProxyInterface $current_user, FeatEffectManager $feat_effect_manager, GeneratedImageRepository $image_repository, NumberGenerationService $number_generation, ImpactContractService $impact_contract_service, ActiveEffectStoreService $active_effect_store, ?EffectInstanceService $effect_instance_service = NULL, ?EffectProjectionService $effect_projection_service = NULL) {
     $this->database = $database;
     $this->currentUser = $current_user;
     $this->featEffectManager = $feat_effect_manager;
@@ -36,6 +38,8 @@ class CharacterStateService {
     $this->numberGeneration = $number_generation;
     $this->impactContractService = $impact_contract_service;
     $this->activeEffectStore = $active_effect_store;
+    $this->effectInstanceService = $effect_instance_service;
+    $this->effectProjectionService = $effect_projection_service;
   }
 
   /**
@@ -226,6 +230,9 @@ class CharacterStateService {
       $state['portrait'] = $portrait_url;
     }
 
+    $state = $this->applyDispositionAttitudeToDescriptors($state);
+    $state = $this->applyStanceSummaryProjection($state);
+
     $state = $this->resolveEffectiveState($state);
 
     return $state;
@@ -271,6 +278,71 @@ class CharacterStateService {
       'motivations' => $motivations,
       'role' => $role,
     ];
+  }
+
+  /**
+   * Apply canonical disposition attitude to descriptor surfaces when available.
+   */
+  protected function applyDispositionAttitudeToDescriptors(array $state): array {
+    $descriptors = is_array($state['descriptors'] ?? NULL) ? $state['descriptors'] : [];
+    if ($descriptors === []) {
+      return $state;
+    }
+
+    $campaign_id = (int) ($state['campaignId'] ?? 0);
+    $entity_ref = trim((string) ($state['instanceId'] ?? $state['characterId'] ?? ''));
+    if ($campaign_id <= 0 || $entity_ref === '' || !\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+      return $state;
+    }
+
+    $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+    if (!$service instanceof ActorDispositionService) {
+      return $state;
+    }
+
+    $summary = $service->getDispositionSummary($campaign_id, $entity_ref);
+    $attitude = strtolower(trim((string) ($summary['current_attitude'] ?? '')));
+    if ($attitude === '') {
+      return $state;
+    }
+
+    $descriptors['attitude'] = $attitude;
+    $descriptor_summary = trim((string) ($descriptors['summary'] ?? ''));
+    if ($descriptor_summary !== '') {
+      if (preg_match('/(?:^|\. )Attitude:\s*[^.]+(?:\.|$)/', $descriptor_summary)) {
+        $descriptor_summary = preg_replace('/Attitude:\s*[^.]+/', 'Attitude: ' . $attitude, $descriptor_summary) ?? $descriptor_summary;
+      }
+      else {
+        $descriptor_summary = rtrim($descriptor_summary, '.');
+        $descriptor_summary .= '. Attitude: ' . $attitude;
+      }
+      $descriptors['summary'] = substr($descriptor_summary, 0, 420);
+    }
+
+    $state['descriptors'] = $descriptors;
+    return $state;
+  }
+
+  /**
+   * Project canonical stance summary for sheet/runtime consumers when available.
+   */
+  protected function applyStanceSummaryProjection(array $state): array {
+    $campaign_id = (int) ($state['campaignId'] ?? 0);
+    $entity_ref = trim((string) ($state['instanceId'] ?? $state['characterId'] ?? ''));
+    if ($campaign_id <= 0 || $entity_ref === '' || !\Drupal::hasService('dungeoncrawler_content.actor_context_projection_service')) {
+      return $state;
+    }
+
+    $service = \Drupal::service('dungeoncrawler_content.actor_context_projection_service');
+    if (!$service instanceof ActorContextProjectionService) {
+      return $state;
+    }
+
+    $summary = $service->buildStanceSummary($state, $campaign_id, $entity_ref);
+    if (is_array($summary) && $summary !== []) {
+      $state['stance_summary'] = $summary;
+    }
+    return $state;
   }
 
   /**
@@ -429,6 +501,33 @@ class CharacterStateService {
     if (empty($condition['appliedAt'])) {
       $condition['appliedAt'] = date('c');
     }
+
+    $definition_id = $this->resolveConditionDefinitionId($condition);
+    if ($definition_id !== '' && $this->effectInstanceService instanceof EffectInstanceService && $this->effectInstanceService->hasDefinition($definition_id)) {
+      if ($this->effectInstanceService->hasStorage() && $this->effectInstanceService->isInstanceManagedDefinition($definition_id)) {
+        $effect_instance = $this->effectInstanceService->upsertPersistentActorEffectInstance(
+          (string) ($state['characterId'] ?? $character_id),
+          isset($state['campaignId']) && $state['campaignId'] !== '' ? (int) $state['campaignId'] : $campaign_id,
+          isset($state['instanceId']) && $state['instanceId'] !== '' ? (string) $state['instanceId'] : $instance_id,
+          $definition_id,
+          [
+            'type' => 'condition',
+            'id' => (string) ($condition['id'] ?? $definition_id),
+            'scope' => 'actor',
+          ],
+          [
+            'label' => (string) ($condition['name'] ?? $condition['condition_type'] ?? $definition_id),
+          ]
+        );
+        $tooltip = $this->resolveConditionTooltipFromEffectDefinition($definition_id, $effect_instance, $condition);
+      }
+      else {
+        $tooltip = $this->resolveConditionTooltipFromEffectDefinition($definition_id, [], $condition);
+      }
+      if (isset($tooltip) && is_array($tooltip) && $tooltip !== []) {
+        $condition['tooltip'] = $tooltip;
+      }
+    }
     
     // Add condition to state
     $state['conditions'][] = $condition;
@@ -454,6 +553,16 @@ class CharacterStateService {
    */
   public function removeCondition(string $character_id, string $condition_id, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
     $state = $this->getState($character_id, $campaign_id, $instance_id);
+    $removed_condition = NULL;
+    foreach (is_array($state['conditions'] ?? NULL) ? $state['conditions'] : [] as $candidate) {
+      if (!is_array($candidate)) {
+        continue;
+      }
+      if ((string) ($candidate['id'] ?? '') === $condition_id) {
+        $removed_condition = $candidate;
+        break;
+      }
+    }
     
     // Filter out the condition with matching ID
     $state['conditions'] = array_values(array_filter(
@@ -462,6 +571,16 @@ class CharacterStateService {
         return $condition['id'] !== $condition_id;
       }
     ));
+
+    $definition_id = is_array($removed_condition) ? $this->resolveConditionDefinitionId($removed_condition) : '';
+    if ($definition_id !== '' && $this->effectInstanceService instanceof EffectInstanceService) {
+      $this->effectInstanceService->expirePersistentActorEffectDefinition(
+        (string) ($state['characterId'] ?? $character_id),
+        isset($state['campaignId']) && $state['campaignId'] !== '' ? (int) $state['campaignId'] : $campaign_id,
+        isset($state['instanceId']) && $state['instanceId'] !== '' ? (string) $state['instanceId'] : $instance_id,
+        $definition_id
+      );
+    }
     
     // Save updated state
     $this->saveState($character_id, $state, $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id));
@@ -527,11 +646,108 @@ class CharacterStateService {
         'remaining' => $state['resources']['spellSlots'][$slot_key]['current'],
       ];
     }
+
+    $this->applyPersistentSpellState($state, $spell_id);
     
     // Save updated state
     $this->saveState($character_id, $state, $this->loadCampaignCharacter($campaign_id, $instance_id, (int) $character_id));
     
     return $result;
+  }
+
+  /**
+   * Apply persistent state changes for spells with ongoing sheet effects.
+   */
+  private function applyPersistentSpellState(array &$state, string $spell_id): void {
+    if (!$this->isMageArmorSpell($spell_id)) {
+      return;
+    }
+
+    $mage_armor_effect_instance = $this->upsertPersistentMageArmorEffectInstance($state);
+    $mage_armor_tooltip = $this->resolveConditionTooltipFromEffectDefinition('mage_armor', $mage_armor_effect_instance);
+
+    if (!isset($state['conditions']) || !is_array($state['conditions'])) {
+      $state['conditions'] = [];
+    }
+
+    foreach ($state['conditions'] as &$condition) {
+      if (!is_array($condition)) {
+        continue;
+      }
+      $raw_code = (string) ($condition['condition_type'] ?? $condition['id'] ?? $condition['name'] ?? '');
+      $code = strtolower(str_replace([' ', '-'], '_', trim($raw_code)));
+      if ($code !== 'mage_armor') {
+        continue;
+      }
+      $condition['condition_type'] = 'mage_armor';
+      $condition['name'] = 'Mage Armor';
+      $condition['value'] = 1;
+      $condition['source'] = 'spell';
+      $condition['spell_id'] = 'mage-armor';
+      $condition['duration'] = 'until_next_daily_preparations';
+      $condition['appliedAt'] = $condition['appliedAt'] ?? date('c');
+      if (is_array($mage_armor_tooltip) && $mage_armor_tooltip !== []) {
+        $condition['tooltip'] = $mage_armor_tooltip;
+      }
+      return;
+    }
+    unset($condition);
+
+    $state['conditions'][] = [
+      'id' => 'mage_armor',
+      'condition_type' => 'mage_armor',
+      'name' => 'Mage Armor',
+      'value' => 1,
+      'source' => 'spell',
+      'spell_id' => 'mage-armor',
+      'duration' => 'until_next_daily_preparations',
+      'appliedAt' => date('c'),
+      'tooltip' => is_array($mage_armor_tooltip) ? $mage_armor_tooltip : NULL,
+    ];
+  }
+
+  /**
+   * Upserts Mage Armor as canonical persistent effect-instance state.
+   */
+  private function upsertPersistentMageArmorEffectInstance(array $state): array {
+    if (!$this->effectInstanceService instanceof EffectInstanceService || !$this->effectInstanceService->hasStorage()) {
+      return [];
+    }
+
+    $character_id = trim((string) ($state['characterId'] ?? ''));
+    if ($character_id === '') {
+      return [];
+    }
+
+    $campaign_id = isset($state['campaignId']) && $state['campaignId'] !== ''
+      ? (int) $state['campaignId']
+      : NULL;
+    $instance_id = isset($state['instanceId']) && $state['instanceId'] !== ''
+      ? (string) $state['instanceId']
+      : NULL;
+
+    return $this->effectInstanceService->upsertPersistentActorEffectInstance(
+      $character_id,
+      $campaign_id,
+      $instance_id,
+      'mage_armor',
+      [
+        'type' => 'spell',
+        'id' => 'mage-armor',
+        'scope' => 'actor',
+      ],
+      [
+        'label' => 'Mage Armor',
+      ],
+    );
+  }
+
+  /**
+   * Determine whether a spell identifier represents Mage Armor.
+   */
+  private function isMageArmorSpell(string $spell_id): bool {
+    $normalized = strtolower(str_replace([' ', '_'], '-', trim($spell_id)));
+    return $normalized === 'mage-armor';
   }
 
   /**
@@ -1746,6 +1962,16 @@ class CharacterStateService {
     $feat_effects = $this->buildFeatEffectState($state);
     $equipment_effects = $this->extractEquipmentEffects(is_array($state['inventory'] ?? NULL) ? $state['inventory'] : []);
     $condition_effects = $this->extractPersistentConditionEffects(is_array($state['conditions'] ?? NULL) ? $state['conditions'] : []);
+    $effect_projection = $this->projectPersistentActorEffects($state);
+    $effect_instances = is_array($effect_projection['instances'] ?? NULL) ? $effect_projection['instances'] : [];
+    $effect_instance_adjustments = is_array($effect_projection['adjustments'] ?? NULL)
+      ? $effect_projection['adjustments']
+      : ['armor_class' => 0, 'speed' => 0];
+    $condition_tooltips = is_array($effect_projection['condition_tooltips'] ?? NULL)
+      ? $effect_projection['condition_tooltips']
+      : [];
+    $condition_effects['supported_adjustments']['armor_class'] += (int) ($effect_instance_adjustments['armor_class'] ?? 0);
+    $condition_effects['supported_adjustments']['speed'] += (int) ($effect_instance_adjustments['speed'] ?? 0);
     $active_effect_store_enabled = $this->activeEffectStore->hasStorage();
     $persisted_active_effects = $this->activeEffectStore->listActiveEffects(
       (string) ($state['characterId'] ?? ''),
@@ -1770,6 +1996,8 @@ class CharacterStateService {
         'feats' => $feat_effects,
         'equipment' => $equipment_effects,
         'conditions' => $condition_effects,
+        'condition_tooltips' => $condition_tooltips,
+        'effect_instances' => $effect_instances,
         'active_effects' => $persisted_active_effects,
         'active_effect_store' => $persisted_impact_status,
       ],
@@ -1963,6 +2191,60 @@ class CharacterStateService {
       'active' => $normalized_conditions,
       'supported_adjustments' => $supported_adjustments,
       'unsupported' => $unsupported,
+    ];
+  }
+
+  /**
+   * Resolves a condition tooltip model from canonical effect definitions.
+   */
+  private function resolveConditionTooltipFromEffectDefinition(string $code, array $instance = [], array $condition = []): ?array {
+    if (!$this->effectInstanceService instanceof EffectInstanceService) {
+      return NULL;
+    }
+
+    if ($instance !== []) {
+      $tooltip = $this->effectInstanceService->buildTooltipModelForInstance($instance);
+      if (is_array($tooltip) && $tooltip !== []) {
+        return $tooltip;
+      }
+    }
+
+    $value = (int) ($condition['value'] ?? $condition['amount'] ?? $condition['penalty'] ?? 0);
+    return $this->effectInstanceService->buildTooltipModelForDefinition($code, ['value' => $value]);
+  }
+
+  /**
+   * Resolves canonical definition id from a condition payload.
+   */
+  private function resolveConditionDefinitionId(array $condition): string {
+    $raw_code = (string) ($condition['condition_type'] ?? $condition['id'] ?? $condition['name'] ?? '');
+    return strtolower(str_replace([' ', '-'], '_', trim($raw_code)));
+  }
+
+  /**
+   * Projects actor-scoped effect-instance slices for sheet calculations.
+   */
+  private function projectPersistentActorEffects(array $state): array {
+    $character_id = trim((string) ($state['characterId'] ?? ''));
+    $campaign_id = isset($state['campaignId']) && $state['campaignId'] !== ''
+      ? (int) $state['campaignId']
+      : NULL;
+    $instance_id = isset($state['instanceId']) && $state['instanceId'] !== ''
+      ? (string) $state['instanceId']
+      : NULL;
+    if ($this->effectProjectionService instanceof EffectProjectionService) {
+      return $this->effectProjectionService->projectPersistentActorEffects(
+        $character_id,
+        $campaign_id,
+        $instance_id,
+        is_array($state['conditions'] ?? NULL) ? $state['conditions'] : []
+      );
+    }
+
+    return [
+      'instances' => [],
+      'adjustments' => ['armor_class' => 0, 'speed' => 0],
+      'condition_tooltips' => [],
     ];
   }
 

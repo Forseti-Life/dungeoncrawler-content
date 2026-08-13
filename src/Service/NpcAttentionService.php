@@ -324,10 +324,12 @@ class NpcAttentionService {
     }
 
     $topic_relevance = $this->scoreTopicRelevance($npc_profile, $player_message);
+    $resolved_attitude = $this->resolveNpcAttitudeForScoring($npc_profile, $game_state);
     $personality_alignment = $this->scorePersonalityAlignment(
       $npc_profile,
       $conversation_state,
-      $player_speaker_id
+      $player_speaker_id,
+      $resolved_attitude
     );
     $recent_interaction = $this->scoreRecentInteraction($npc_profile, $conversation_state);
     $base_charisma = min(100, (int) ($this->defensivelyExtractCharismaScore($npc_profile) ?? 10));
@@ -414,9 +416,16 @@ class NpcAttentionService {
   protected function scorePersonalityAlignment(
     array $npc_profile,
     array $conversation_state,
-    string $player_speaker_id = ''
+    string $player_speaker_id = '',
+    ?string $resolved_attitude = NULL
   ): int {
-    $npc_attitude = strtolower(trim((string) ($npc_profile['attitude'] ?? 'neutral')));
+    $npc_attitude = $this->normalizeAttentionAttitude((string) ($resolved_attitude ?? ''));
+    if ($npc_attitude === '') {
+      $npc_attitude = $this->normalizeAttentionAttitude((string) ($npc_profile['attitude'] ?? 'neutral'));
+    }
+    if ($npc_attitude === '') {
+      $npc_attitude = 'neutral';
+    }
     $player_speaker_id = trim($player_speaker_id);
 
     // Base attitude modifier
@@ -449,6 +458,42 @@ class NpcAttentionService {
     }
 
     return max(-50, min(50, $score));
+  }
+
+  /**
+   * Resolve NPC attitude for attention scoring from canonical disposition first.
+   */
+  protected function resolveNpcAttitudeForScoring(array $npc_profile, array $game_state): string {
+    $fallback = $this->normalizeAttentionAttitude((string) ($npc_profile['attitude'] ?? 'neutral'));
+    $entity_ref = trim((string) ($npc_profile['entity_ref'] ?? ''));
+    $campaign_id = (int) ($game_state['campaign_id'] ?? 0);
+    if ($campaign_id <= 0 || $entity_ref === '' || !\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+      return $fallback !== '' ? $fallback : 'neutral';
+    }
+
+    $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+    if (!$service instanceof ActorDispositionService) {
+      return $fallback !== '' ? $fallback : 'neutral';
+    }
+
+    $live_entity = is_array($npc_profile['entity'] ?? NULL) ? $npc_profile['entity'] : [];
+    $summary = $service->getDispositionSummary($campaign_id, $entity_ref, $live_entity);
+    $resolved = $this->normalizeAttentionAttitude((string) ($summary['current_attitude'] ?? ''));
+    if ($resolved !== '') {
+      return $resolved;
+    }
+
+    return $fallback !== '' ? $fallback : 'neutral';
+  }
+
+  /**
+   * Normalize attitude values used by attention scoring.
+   */
+  protected function normalizeAttentionAttitude(string $value): string {
+    $normalized = strtolower(trim($value));
+    return in_array($normalized, ['friendly', 'helpful', 'neutral', 'suspicious', 'hostile'], TRUE)
+      ? $normalized
+      : '';
   }
 
   /**

@@ -1,445 +1,698 @@
 {
-  "records": [
-    {
-      "content_type": "spell",
-      "content_id": "energy_absorption",
-      "name": "Energy Absorption",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "abjuration", "wizard"],
-      "schema_data": {
-        "id": "energy_absorption",
-        "name": "Energy Absorption",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "abjuration",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "abjuration"],
-        "cast": "[reaction]",
-        "cast_actions": "reaction",
-        "components": [],
-        "range": "none",
-        "area": "none",
-        "targets": "self",
-        "duration": "triggering effect",
-        "save": "none",
-        "save_type": "none",
-        "trigger": "A spell would deal damage to you.",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "You absorb hostile magical energy. Reduce damage from the triggering spell by 3 times the spell's rank.",
-        "description_snippet": "You absorb hostile magical energy, reducing damage from the triggering spell by 3 times the spell's rank.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "none", "type": "none", "persistent": false}],
-        "damage_type": "none",
-        "effects": [],
-        "conditions_caused": [],
-        "focus_class": "wizard",
-        "focus_domain": "abjuration",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 65189,
-        "source_line_end": 65194,
-        "raw_text_block": "ENERGY ABSORPTION\nUNCOMMON\nABJURATION\nFOCUS 1\nWIZARD\nCast [reaction] verbal; Trigger An effect would deal acid, cold, electricity, or fire damage to you.\nYou gain resistance 15 to acid, cold, electricity, or fire damage from the triggering effect (one type of your choice). The resistance applies only to the triggering effect's initial damage.\nHeightened (+1) The resistance increases by 5."
-      }
-    },
-    {
-      "content_type": "spell",
-      "content_id": "augment_summoning",
-      "name": "Augment Summoning",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "conjuration", "wizard"],
-      "schema_data": {
-        "id": "augment_summoning",
-        "name": "Augment Summoning",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "conjuration",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "conjuration"],
-        "cast": "[free-action]",
-        "cast_actions": "free_action",
-        "components": [],
-        "range": "none",
-        "area": "none",
-        "targets": "1 summoned creature you control",
-        "duration": "1 minute",
-        "save": "none",
-        "save_type": "none",
-        "trigger": "none",
-        "requirements": "You have a summoned creature.",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "You bolster a summoned ally. The target summoned creature gains a +1 status bonus to attack rolls and saves for 1 minute.",
-        "description_snippet": "You bolster a summoned ally, granting a +1 status bonus to attack rolls and saves for 1 minute.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "none", "type": "none", "persistent": false}],
-        "damage_type": "none",
-        "effects": [],
-        "conditions_caused": [],
-        "focus_class": "wizard",
-        "focus_domain": "conjuration",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 65103,
-        "source_line_end": 65108,
-        "raw_text_block": "AUGMENT SUMMONING\nUNCOMMON\nCONJURATION\nFOCUS 1\nWIZARD\nCast [free-action]; Requirements You have a summoned creature.\nTargets 1 summoned creature you control\nDuration 1 minute\nYou augment the abilities of a summoned creature. The target gains a +1 status bonus to all checks (this also applies to the creature's DCs, including its AC) for the duration of its summoning, up to 1 minute."
-      }
-    },
-    {
-      "content_type": "spell",
-      "content_id": "dimensional_steps",
-      "name": "Dimensional Steps",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "conjuration", "teleportation", "wizard"],
-      "schema_data": {
-        "id": "dimensional_steps",
-        "name": "Dimensional Steps",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "conjuration",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "conjuration", "teleportation"],
-        "cast": "[one-action]",
-        "cast_actions": "1_action",
-        "components": [],
-        "range": "self",
-        "area": "none",
-        "targets": "self",
-        "duration": "instantaneous",
-        "save": "none",
-        "save_type": "none",
-        "trigger": "none",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "You flicker through space. Teleport up to 20 feet to a space you can see.",
-        "description_snippet": "You flicker through space, teleporting up to 20 feet to a space you can see.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "none", "type": "none", "persistent": false}],
-        "damage_type": "none",
-        "effects": [],
-        "conditions_caused": [],
-        "focus_class": "wizard",
-        "focus_domain": "conjuration",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 64979,
-        "source_line_end": 64983,
-        "raw_text_block": "DIMENSIONAL STEPS\nUNCOMMON\nCONJURATION\nTELEPORTATION\nWIZARD\nCast [one-action] somatic\nRange self\nYou flicker through space. Teleport up to 20 feet to a space you can see."
-      }
-    },
-    {
-      "content_type": "spell",
-      "content_id": "scholastic_dissertation",
-      "name": "Scholastic Dissertation",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "divination", "wizard"],
-      "schema_data": {
-        "id": "scholastic_dissertation",
-        "name": "Scholastic Dissertation",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "divination",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "divination"],
-        "cast": "[one-action]",
-        "cast_actions": "1_action",
-        "components": [],
-        "range": "self",
-        "area": "none",
-        "targets": "self",
-        "duration": "1 minute",
-        "save": "none",
-        "save_type": "none",
-        "trigger": "none",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "You focus your scholarship into a burst of magical clarity, drawing on disciplined study to improve your next Recall Knowledge or spell-identification effort during the duration.",
-        "description_snippet": "You focus your scholarship into magical clarity, improving your next Recall Knowledge or spell-identification effort.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "none", "type": "none", "persistent": false}],
-        "damage_type": "none",
-        "effects": [],
-        "conditions_caused": [],
-        "focus_class": "wizard",
-        "focus_domain": "divination",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 143,
-        "source_line_end": 184,
-        "raw_text_block": "SCHOLASTIC DISSERTATION\nUNCOMMON\nDIVINATION\nFOCUS 1\nWIZARD\nCast [one-action]\nRange self; Targets self\nDuration 1 minute\nYou focus your scholarship into a burst of magical clarity, drawing on disciplined study to improve your next Recall Knowledge or spell-identification effort during the duration."
-      }
-    },
-    {
-      "content_type": "spell",
-      "content_id": "charming_words",
-      "name": "Charming Words",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "enchantment", "mental", "wizard"],
-      "schema_data": {
-        "id": "charming_words",
-        "name": "Charming Words",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "enchantment",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "enchantment", "mental"],
-        "cast": "[one-action]",
-        "cast_actions": "1_action",
-        "components": [],
-        "range": "30 feet",
-        "area": "none",
-        "targets": "1 creature",
-        "duration": "1 round",
-        "save": "Will",
-        "save_type": "will",
-        "trigger": "none",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "You lace your speech with beguiling magic. On a failed Will save, the target becomes temporarily helpful toward you for 1 round.",
-        "description_snippet": "You lace your speech with beguiling magic; on a failed Will save, the target becomes temporarily helpful toward you.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "none", "type": "none", "persistent": false}],
-        "damage_type": "none",
-        "effects": [],
-        "conditions_caused": [],
-        "focus_class": "wizard",
-        "focus_domain": "enchantment",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 64963,
-        "source_line_end": 64973,
-        "raw_text_block": "CHARMING WORDS\nUNCOMMON\nAUDITORY\nENCHANTMENT\nINCAPACITATION\nLINGUISTIC\nMENTAL\nWIZARD\nCast [one-action] verbal\nRange 30 feet; Targets 1 creature\nSaving Throw Will; Duration until the start of your next turn\nYou whisper enchanting words to deflect your foe's ire. The target must attempt a Will save.\nCritical Success The target is unaffected.\nSuccess The target takes a -1 circumstance penalty to attack rolls and damage rolls against you.\nFailure The target can't use hostile actions against you.\nCritical Failure The target is stunned 1 and can't use hostile actions against you."
-      }
-    },
-    {
-      "content_type": "spell",
-      "content_id": "dread_aura",
-      "name": "Dread Aura",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "enchantment", "fear", "wizard"],
-      "schema_data": {
-        "id": "dread_aura",
-        "name": "Dread Aura",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "enchantment",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "enchantment", "fear"],
-        "cast": "[one-action]",
-        "cast_actions": "1_action",
-        "components": [],
-        "range": "self",
-        "area": "10-foot emanation",
-        "targets": "creatures in the aura",
-        "duration": "sustained up to 1 minute",
-        "save": "Will",
-        "save_type": "will",
-        "trigger": "none",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "A fearful magical aura surrounds you. Creatures in the aura become frightened 1 on a failed Will save.",
-        "description_snippet": "A fearful magical aura surrounds you, frightening nearby creatures on a failed Will save.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "none", "type": "none", "persistent": false}],
-        "damage_type": "none",
-        "effects": [],
-        "conditions_caused": ["frightened"],
-        "focus_class": "wizard",
-        "focus_domain": "enchantment",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 65125,
-        "source_line_end": 65129,
-        "raw_text_block": "DREAD AURA\nUNCOMMON\nAURA\nFOCUS 1\nENCHANTMENT\nEMOTION\nFEAR\nMENTAL\nWIZARD\nCast [one-action] verbal\nArea 30-foot-radius emanation\nDuration sustained up to 1 minute\nYou emit an aura of terror. Foes in the area are frightened 1 and unable to reduce the condition."
-      }
-    },
-    {
-      "content_type": "spell",
-      "content_id": "force_bolt",
-      "name": "Force Bolt",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "evocation", "force", "wizard"],
-      "schema_data": {
-        "id": "force_bolt",
-        "name": "Force Bolt",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "evocation",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "evocation", "force"],
-        "cast": "[one-action]",
-        "cast_actions": "1_action",
-        "components": [],
-        "range": "30 feet",
-        "area": "none",
-        "targets": "1 creature",
-        "duration": "instantaneous",
-        "save": "none",
-        "save_type": "none",
-        "trigger": "none",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "You hurl a compact bolt of force. The target takes 1d4 force damage plus your spellcasting ability modifier.",
-        "description_snippet": "You hurl a compact bolt of force, dealing 1d4 force damage plus your spellcasting ability modifier.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "1d4+mod", "type": "force", "persistent": false}],
-        "damage_type": "force",
-        "effects": [],
-        "conditions_caused": [],
-        "focus_class": "wizard",
-        "focus_domain": "evocation",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 65226,
-        "source_line_end": 65230,
-        "raw_text_block": "FORCE BOLT\nUNCOMMON\nEVOCATION\nFORCE\nWIZARD\nCast [one-action] somatic\nRange 30 feet; Targets 1 creature\nYou fire an unerring dart of force from your fingertips. It automatically hits and deals 1d4+1 force damage to the target.\nHeightened (+2) The damage increases by 1d4+1."
-      }
-    },
-    {
-      "content_type": "spell",
-      "content_id": "warped_terrain",
-      "name": "Warped Terrain",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "illusion", "wizard"],
-      "schema_data": {
-        "id": "warped_terrain",
-        "name": "Warped Terrain",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "illusion",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "illusion"],
-        "cast": "[one-action]",
-        "cast_actions": "1_action",
-        "components": [],
-        "range": "30 feet",
-        "area": "1 square",
-        "targets": "1 5-foot square",
-        "duration": "1 minute",
-        "save": "none",
-        "save_type": "none",
-        "trigger": "none",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "You twist perception around a small area, making a 5-foot square appear treacherous and count as difficult terrain for creatures that believe the illusion.",
-        "description_snippet": "You twist perception around a small area, making a 5-foot square appear treacherous and act as difficult terrain.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "none", "type": "none", "persistent": false}],
-        "damage_type": "none",
-        "effects": [],
-        "conditions_caused": [],
-        "focus_class": "wizard",
-        "focus_domain": "illusion",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 65345,
-        "source_line_end": 65379,
-        "raw_text_block": "WARPED TERRAIN\nUNCOMMON\nILLUSION\nVISUAL\nFOCUS 1\nWIZARD\nCast [one-action] to [three-actions] somatic, verbal\nRange 60 feet; Area 5-foot burst or more\nDuration 1 minute\nYou create illusory hazards that cover all surfaces in the area (typically the ground). Any creature moving through the illusion treats the squares as difficult terrain. A creature can attempt to disbelieve the effect as normal after using a Seek action or otherwise spending actions interacting with the illusion. If it successfully disbelieves, it ignores the effect for the remaining duration. For each additional action you use casting the spell, the burst's radius increases by 5 feet, to a maximum of 10 extra feet for 3 actions.\nHeightened (4th) You can make the illusion appear in the air rather than on a surface, causing it to function as difficult terrain for flying creatures."
-      }
-    },
-    {
-      "content_type": "spell",
-      "content_id": "call_of_the_grave",
-      "name": "Call of the Grave",
-      "level": 1,
-      "rarity": "uncommon",
-      "tags": ["arcane", "necromancy", "negative", "wizard"],
-      "schema_data": {
-        "id": "call_of_the_grave",
-        "name": "Call of the Grave",
-        "rank": 1,
-        "is_cantrip": false,
-        "spell_type": "focus",
-        "school": "necromancy",
-        "rarity": "uncommon",
-        "traditions": ["arcane"],
-        "traits": ["wizard", "necromancy", "negative"],
-        "cast": "[two-actions]",
-        "cast_actions": "2_actions",
-        "components": [],
-        "range": "30 feet",
-        "area": "none",
-        "targets": "1 living creature",
-        "duration": "instantaneous",
-        "save": "Fortitude",
-        "save_type": "fortitude",
-        "trigger": "none",
-        "requirements": "none",
-        "cost": "none",
-        "primary_check": "none",
-        "secondary_casters": "none",
-        "description": "You beckon with the chill of the grave. On a failed Fortitude save, the target becomes sickened 1.",
-        "description_snippet": "You beckon with the chill of the grave; on a failed Fortitude save, the target becomes sickened 1.",
-        "heightened": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "heightened_scaling": [{"label": "none", "type": "none", "text": "No explicit heightened entry."}],
-        "damage": [{"formula": "none", "type": "none", "persistent": false}],
-        "damage_type": "none",
-        "effects": [],
-        "conditions_caused": ["sickened"],
-        "focus_class": "wizard",
-        "focus_domain": "necromancy",
-        "source_book": "core_rulebook_4th_printing",
-        "source_display": "Core Rulebook",
-        "source_file": "wizard_school_focus_spells_intermediary.json",
-        "source_line_start": 65057,
-        "source_line_end": 65063,
-        "raw_text_block": "CALL OF THE GRAVE\nUNCOMMON\nFOCUS 1\nATTACK\nNECROMANCY\nAUDITORY\nMENTAL\nWIZARD\nCast [two-actions] somatic, verbal\nRange 30 feet; Targets 1 living creature\nYou fire a ray of sickening energy. Make a spell attack roll.\nCritical Success The target becomes sickened 2 and slowed 1 as long as it's sickened.\nSuccess The target becomes sickened 1.\nFailure The target is unaffected."
-      }
-    }
-  ]
+    "records": [
+        {
+            "content_type": "spell",
+            "content_id": "energy_absorption",
+            "name": "Energy Absorption",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "abjuration",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "energy_absorption",
+                "name": "Energy Absorption",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "abjuration",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "abjuration"
+                ],
+                "cast": "[reaction]",
+                "cast_actions": "reaction",
+                "components": [],
+                "range": "none",
+                "area": "none",
+                "targets": "self",
+                "duration": "triggering effect",
+                "save": "none",
+                "save_type": "none",
+                "trigger": "A spell would deal damage to you.",
+                "requirements": "none",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "You absorb hostile magical energy. Reduce damage from the triggering spell by 3 times the spell's rank.",
+                "description_snippet": "You absorb hostile magical energy, reducing damage from the triggering spell by 3 times the spell's rank.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "none",
+                        "type": "none",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "none",
+                "effects": [],
+                "conditions_caused": [
+                    "none"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "abjuration",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 65189,
+                "source_line_end": 65194,
+                "raw_text_block": "ENERGY ABSORPTION\nUNCOMMON\nABJURATION\nFOCUS 1\nWIZARD\nCast [reaction] verbal; Trigger An effect would deal acid, cold, electricity, or fire damage to you.\nYou gain resistance 15 to acid, cold, electricity, or fire damage from the triggering effect (one type of your choice). The resistance applies only to the triggering effect's initial damage.\nHeightened (+1) The resistance increases by 5."
+            }
+        },
+        {
+            "content_type": "spell",
+            "content_id": "augment_summoning",
+            "name": "Augment Summoning",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "conjuration",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "augment_summoning",
+                "name": "Augment Summoning",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "conjuration",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "conjuration"
+                ],
+                "cast": "[free-action]",
+                "cast_actions": "free_action",
+                "components": [],
+                "range": "none",
+                "area": "none",
+                "targets": "1 summoned creature you control",
+                "duration": "1 minute",
+                "save": "none",
+                "save_type": "none",
+                "trigger": "none",
+                "requirements": "You have a summoned creature.",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "You bolster a summoned ally. The target summoned creature gains a +1 status bonus to attack rolls and saves for 1 minute.",
+                "description_snippet": "You bolster a summoned ally, granting a +1 status bonus to attack rolls and saves for 1 minute.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "none",
+                        "type": "none",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "none",
+                "effects": [],
+                "conditions_caused": [
+                    "none"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "conjuration",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 65103,
+                "source_line_end": 65108,
+                "raw_text_block": "AUGMENT SUMMONING\nUNCOMMON\nCONJURATION\nFOCUS 1\nWIZARD\nCast [free-action]; Requirements You have a summoned creature.\nTargets 1 summoned creature you control\nDuration 1 minute\nYou augment the abilities of a summoned creature. The target gains a +1 status bonus to all checks (this also applies to the creature's DCs, including its AC) for the duration of its summoning, up to 1 minute."
+            }
+        },
+        {
+            "content_type": "spell",
+            "content_id": "dimensional_steps",
+            "name": "Dimensional Steps",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "conjuration",
+                "teleportation",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "dimensional_steps",
+                "name": "Dimensional Steps",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "conjuration",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "conjuration",
+                    "teleportation"
+                ],
+                "cast": "[one-action]",
+                "cast_actions": "1_action",
+                "components": [],
+                "range": "self",
+                "area": "none",
+                "targets": "self",
+                "duration": "instantaneous",
+                "save": "none",
+                "save_type": "none",
+                "trigger": "none",
+                "requirements": "none",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "You flicker through space. Teleport up to 20 feet to a space you can see.",
+                "description_snippet": "You flicker through space, teleporting up to 20 feet to a space you can see.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "none",
+                        "type": "none",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "none",
+                "effects": [],
+                "conditions_caused": [
+                    "none"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "conjuration",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 64979,
+                "source_line_end": 64983,
+                "raw_text_block": "DIMENSIONAL STEPS\nUNCOMMON\nCONJURATION\nTELEPORTATION\nWIZARD\nCast [one-action] somatic\nRange self\nYou flicker through space. Teleport up to 20 feet to a space you can see."
+            }
+        },
+        {
+            "content_type": "spell",
+            "content_id": "scholastic_dissertation",
+            "name": "Scholastic Dissertation",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "divination",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "scholastic_dissertation",
+                "name": "Scholastic Dissertation",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "divination",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "divination"
+                ],
+                "cast": "[one-action]",
+                "cast_actions": "1_action",
+                "components": [],
+                "range": "self",
+                "area": "none",
+                "targets": "self",
+                "duration": "1 minute",
+                "save": "none",
+                "save_type": "none",
+                "trigger": "none",
+                "requirements": "none",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "You focus your scholarship into a burst of magical clarity, drawing on disciplined study to improve your next Recall Knowledge or spell-identification effort during the duration.",
+                "description_snippet": "You focus your scholarship into magical clarity, improving your next Recall Knowledge or spell-identification effort.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "none",
+                        "type": "none",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "none",
+                "effects": [],
+                "conditions_caused": [
+                    "none"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "divination",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 143,
+                "source_line_end": 184,
+                "raw_text_block": "SCHOLASTIC DISSERTATION\nUNCOMMON\nDIVINATION\nFOCUS 1\nWIZARD\nCast [one-action]\nRange self; Targets self\nDuration 1 minute\nYou focus your scholarship into a burst of magical clarity, drawing on disciplined study to improve your next Recall Knowledge or spell-identification effort during the duration."
+            }
+        },
+        {
+            "content_type": "spell",
+            "content_id": "charming_words",
+            "name": "Charming Words",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "enchantment",
+                "mental",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "charming_words",
+                "name": "Charming Words",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "enchantment",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "enchantment",
+                    "mental"
+                ],
+                "cast": "[one-action]",
+                "cast_actions": "1_action",
+                "components": [],
+                "range": "30 feet",
+                "area": "none",
+                "targets": "1 creature",
+                "duration": "1 round",
+                "save": "Will",
+                "save_type": "will",
+                "trigger": "none",
+                "requirements": "none",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "You lace your speech with beguiling magic. On a failed Will save, the target becomes temporarily helpful toward you for 1 round.",
+                "description_snippet": "You lace your speech with beguiling magic; on a failed Will save, the target becomes temporarily helpful toward you.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "none",
+                        "type": "none",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "none",
+                "effects": [],
+                "conditions_caused": [
+                    "none"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "enchantment",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 64963,
+                "source_line_end": 64973,
+                "raw_text_block": "CHARMING WORDS\nUNCOMMON\nAUDITORY\nENCHANTMENT\nINCAPACITATION\nLINGUISTIC\nMENTAL\nWIZARD\nCast [one-action] verbal\nRange 30 feet; Targets 1 creature\nSaving Throw Will; Duration until the start of your next turn\nYou whisper enchanting words to deflect your foe's ire. The target must attempt a Will save.\nCritical Success The target is unaffected.\nSuccess The target takes a -1 circumstance penalty to attack rolls and damage rolls against you.\nFailure The target can't use hostile actions against you.\nCritical Failure The target is stunned 1 and can't use hostile actions against you."
+            }
+        },
+        {
+            "content_type": "spell",
+            "content_id": "dread_aura",
+            "name": "Dread Aura",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "enchantment",
+                "fear",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "dread_aura",
+                "name": "Dread Aura",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "enchantment",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "enchantment",
+                    "fear"
+                ],
+                "cast": "[one-action]",
+                "cast_actions": "1_action",
+                "components": [],
+                "range": "self",
+                "area": "10-foot emanation",
+                "targets": "creatures in the aura",
+                "duration": "sustained up to 1 minute",
+                "save": "Will",
+                "save_type": "will",
+                "trigger": "none",
+                "requirements": "none",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "A fearful magical aura surrounds you. Creatures in the aura become frightened 1 on a failed Will save.",
+                "description_snippet": "A fearful magical aura surrounds you, frightening nearby creatures on a failed Will save.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "none",
+                        "type": "none",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "none",
+                "effects": [],
+                "conditions_caused": [
+                    "frightened"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "enchantment",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 65125,
+                "source_line_end": 65129,
+                "raw_text_block": "DREAD AURA\nUNCOMMON\nAURA\nFOCUS 1\nENCHANTMENT\nEMOTION\nFEAR\nMENTAL\nWIZARD\nCast [one-action] verbal\nArea 30-foot-radius emanation\nDuration sustained up to 1 minute\nYou emit an aura of terror. Foes in the area are frightened 1 and unable to reduce the condition."
+            }
+        },
+        {
+            "content_type": "spell",
+            "content_id": "force_bolt",
+            "name": "Force Bolt",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "evocation",
+                "force",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "force_bolt",
+                "name": "Force Bolt",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "evocation",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "evocation",
+                    "force"
+                ],
+                "cast": "[one-action]",
+                "cast_actions": "1_action",
+                "components": [],
+                "range": "30 feet",
+                "area": "none",
+                "targets": "1 creature",
+                "duration": "instantaneous",
+                "save": "none",
+                "save_type": "none",
+                "trigger": "none",
+                "requirements": "none",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "You hurl a compact bolt of force. The target takes 1d4 force damage plus your spellcasting ability modifier.",
+                "description_snippet": "You hurl a compact bolt of force, dealing 1d4 force damage plus your spellcasting ability modifier.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "1d4+mod",
+                        "type": "force",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "force",
+                "effects": [],
+                "conditions_caused": [
+                    "none"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "evocation",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 65226,
+                "source_line_end": 65230,
+                "raw_text_block": "FORCE BOLT\nUNCOMMON\nEVOCATION\nFORCE\nWIZARD\nCast [one-action] somatic\nRange 30 feet; Targets 1 creature\nYou fire an unerring dart of force from your fingertips. It automatically hits and deals 1d4+1 force damage to the target.\nHeightened (+2) The damage increases by 1d4+1."
+            }
+        },
+        {
+            "content_type": "spell",
+            "content_id": "warped_terrain",
+            "name": "Warped Terrain",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "illusion",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "warped_terrain",
+                "name": "Warped Terrain",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "illusion",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "illusion"
+                ],
+                "cast": "[one-action]",
+                "cast_actions": "1_action",
+                "components": [],
+                "range": "30 feet",
+                "area": "1 square",
+                "targets": "1 5-foot square",
+                "duration": "1 minute",
+                "save": "none",
+                "save_type": "none",
+                "trigger": "none",
+                "requirements": "none",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "You twist perception around a small area, making a 5-foot square appear treacherous and count as difficult terrain for creatures that believe the illusion.",
+                "description_snippet": "You twist perception around a small area, making a 5-foot square appear treacherous and act as difficult terrain.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "none",
+                        "type": "none",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "none",
+                "effects": [],
+                "conditions_caused": [
+                    "none"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "illusion",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 65345,
+                "source_line_end": 65379,
+                "raw_text_block": "WARPED TERRAIN\nUNCOMMON\nILLUSION\nVISUAL\nFOCUS 1\nWIZARD\nCast [one-action] to [three-actions] somatic, verbal\nRange 60 feet; Area 5-foot burst or more\nDuration 1 minute\nYou create illusory hazards that cover all surfaces in the area (typically the ground). Any creature moving through the illusion treats the squares as difficult terrain. A creature can attempt to disbelieve the effect as normal after using a Seek action or otherwise spending actions interacting with the illusion. If it successfully disbelieves, it ignores the effect for the remaining duration. For each additional action you use casting the spell, the burst's radius increases by 5 feet, to a maximum of 10 extra feet for 3 actions.\nHeightened (4th) You can make the illusion appear in the air rather than on a surface, causing it to function as difficult terrain for flying creatures."
+            }
+        },
+        {
+            "content_type": "spell",
+            "content_id": "call_of_the_grave",
+            "name": "Call of the Grave",
+            "level": 1,
+            "rarity": "uncommon",
+            "tags": [
+                "arcane",
+                "necromancy",
+                "negative",
+                "wizard"
+            ],
+            "schema_data": {
+                "id": "call_of_the_grave",
+                "name": "Call of the Grave",
+                "rank": 1,
+                "is_cantrip": false,
+                "spell_type": "focus",
+                "school": "necromancy",
+                "rarity": "uncommon",
+                "traditions": [
+                    "arcane"
+                ],
+                "traits": [
+                    "wizard",
+                    "necromancy",
+                    "negative"
+                ],
+                "cast": "[two-actions]",
+                "cast_actions": "2_actions",
+                "components": [],
+                "range": "30 feet",
+                "area": "none",
+                "targets": "1 living creature",
+                "duration": "instantaneous",
+                "save": "Fortitude",
+                "save_type": "fortitude",
+                "trigger": "none",
+                "requirements": "none",
+                "cost": "none",
+                "primary_check": "none",
+                "secondary_casters": "none",
+                "description": "You beckon with the chill of the grave. On a failed Fortitude save, the target becomes sickened 1.",
+                "description_snippet": "You beckon with the chill of the grave; on a failed Fortitude save, the target becomes sickened 1.",
+                "heightened": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "heightened_scaling": [
+                    {
+                        "label": "none",
+                        "type": "none",
+                        "text": "No explicit heightened entry."
+                    }
+                ],
+                "damage": [
+                    {
+                        "formula": "none",
+                        "type": "none",
+                        "persistent": false
+                    }
+                ],
+                "damage_type": "none",
+                "effects": [],
+                "conditions_caused": [
+                    "sickened"
+                ],
+                "focus_class": "wizard",
+                "focus_domain": "necromancy",
+                "source_file": "wizard_school_focus_spells_intermediary.json",
+                "source_line_start": 65057,
+                "source_line_end": 65063,
+                "raw_text_block": "CALL OF THE GRAVE\nUNCOMMON\nFOCUS 1\nATTACK\nNECROMANCY\nAUDITORY\nMENTAL\nWIZARD\nCast [two-actions] somatic, verbal\nRange 30 feet; Targets 1 living creature\nYou fire a ray of sickening energy. Make a spell attack roll.\nCritical Success The target becomes sickened 2 and slowed 1 as long as it's sickened.\nSuccess The target becomes sickened 1.\nFailure The target is unaffected."
+            }
+        }
+    ]
 }

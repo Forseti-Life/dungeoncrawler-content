@@ -10,15 +10,18 @@ class EncounterActorContextBuilder {
   protected NpcPsychologyService $psychologyService;
   protected ActorActionAvailabilityService $actionAvailability;
   protected ActorDecisionContractService $decisionContractService;
+  protected ?ActorContextProjectionService $actorContextProjectionService;
 
   public function __construct(
     NpcPsychologyService $psychology_service,
     ActorActionAvailabilityService $action_availability,
-    ?ActorDecisionContractService $decision_contract_service = NULL
+    ?ActorDecisionContractService $decision_contract_service = NULL,
+    ?ActorContextProjectionService $actor_context_projection_service = NULL
   ) {
     $this->psychologyService = $psychology_service;
     $this->actionAvailability = $action_availability;
     $this->decisionContractService = $decision_contract_service ?? new ActorDecisionContractService();
+    $this->actorContextProjectionService = $actor_context_projection_service;
   }
 
   /**
@@ -80,6 +83,7 @@ class EncounterActorContextBuilder {
     $action_contract_hash = $this->decisionContractService->buildActionContractHash($action_contract, $allowed_actions);
     $psychology_context = $this->buildUnifiedPsychologyContext($entity_id, $game_state);
     $resolved_entity_ref = (string) ($psychology_context['entity_ref'] ?? $entity_id);
+    $resolved_actor_context = $this->buildResolvedActorProjection($entity_id, $resolved_entity_ref, $game_state);
 
     return [
       'encounter_id' => $game_state['encounter_id'] ?? NULL,
@@ -109,7 +113,63 @@ class EncounterActorContextBuilder {
       'actions_available_to_me_this_turn' => $actions_available_to_me_this_turn,
       'npc_psychology' => $psychology_context['combat_psychology_context'],
       'current_actor_tactical_intent' => $current_actor_tactical_intent,
+      'resolved_actor_context' => $resolved_actor_context,
+      'disposition_summary' => is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : NULL,
+      'aggression_summary' => is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : NULL,
+      'stance_summary' => is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : NULL,
+      'resolved_disposition_by_target' => is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
+        ? $resolved_actor_context['resolved_disposition_by_target']
+        : [],
+      'relationship_attitudes' => is_array($resolved_actor_context['relationship_attitudes'] ?? NULL)
+        ? $resolved_actor_context['relationship_attitudes']
+        : [],
     ];
+  }
+
+  /**
+   * Build resolved actor-context projection when projection service is available.
+   */
+  protected function buildResolvedActorProjection(string $entity_id, string $entity_ref, array $game_state): array {
+    if (!$this->actorContextProjectionService) {
+      return [];
+    }
+
+    $campaign_id = (int) ($game_state['campaign_id'] ?? 0);
+    if ($campaign_id <= 0) {
+      return [];
+    }
+
+    $live_entity = $this->resolveLiveCombatantSnapshot($entity_id, $game_state);
+    $character_data = [];
+    if (is_array($live_entity['state']['character_data'] ?? NULL)) {
+      $character_data = $live_entity['state']['character_data'];
+    }
+    elseif (is_array($live_entity['character_data'] ?? NULL)) {
+      $character_data = $live_entity['character_data'];
+    }
+    $target_entity_refs = [];
+    foreach ((array) ($game_state['initiative_order'] ?? []) as $participant) {
+      if (!is_array($participant) || !empty($participant['is_defeated'])) {
+        continue;
+      }
+      $candidate = trim((string) (
+        $participant['entity_ref']
+        ?? $participant['entity_id']
+        ?? ''
+      ));
+      if ($candidate === '') {
+        continue;
+      }
+      $target_entity_refs[] = $candidate;
+    }
+    return $this->actorContextProjectionService->buildResolvedActorContext(
+      $campaign_id,
+      $entity_ref !== '' ? $entity_ref : $entity_id,
+      $live_entity,
+      $character_data,
+      [],
+      $target_entity_refs
+    );
   }
 
   /**
@@ -171,7 +231,23 @@ class EncounterActorContextBuilder {
     $campaign_id = (int) ($game_state['campaign_id'] ?? 0);
     $entity_ref = $this->resolveCombatantEntityRef($entity_id, $game_state);
     $live_entity = $this->resolveLiveCombatantSnapshot($entity_id, $game_state);
-    return $this->psychologyService->buildUnifiedActorContext($campaign_id, $entity_ref, $live_entity);
+    $context = $this->psychologyService->buildUnifiedActorContext($campaign_id, $entity_ref, $live_entity);
+    if ($campaign_id <= 0 || !$this->actorContextProjectionService || $entity_ref === '') {
+      return $context;
+    }
+
+    $disposition = $this->actorContextProjectionService->buildDispositionSummary($campaign_id, $entity_ref, $live_entity);
+    $attitude = DispositionAuthorityContract::normalizeAttitudeLabel((string) ($disposition['attitude'] ?? ''));
+    if ($attitude === '') {
+      return $context;
+    }
+
+    $decision_profile = is_array($context['decision_profile'] ?? NULL) ? $context['decision_profile'] : [];
+    $decision_profile['attitude'] = $attitude;
+    $decision_profile['attitude_source'] = 'actor_disposition_projection';
+    $context['decision_profile'] = $decision_profile;
+
+    return $context;
   }
 
   /**

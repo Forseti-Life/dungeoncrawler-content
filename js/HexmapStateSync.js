@@ -129,17 +129,35 @@ export class HexmapStateSync {
   apply(serverState = {}) {
     if (!serverState || typeof serverState !== 'object') return;
     const hm = this._hexmap;
-    const isActiveEncounter = Boolean(serverState.encounter_id) && String(serverState.status || '') === 'active';
+    const presentation = serverState?.encounter_presentation && typeof serverState.encounter_presentation === 'object'
+      ? serverState.encounter_presentation
+      : null;
+    const encounterId = Number(
+      presentation?.encounter_id
+      ?? serverState.encounter_id
+      ?? 0
+    ) || null;
+    const status = String(
+      presentation?.status
+      ?? serverState.status
+      ?? ''
+    ).trim().toLowerCase();
+    const isActiveEncounter = Boolean(encounterId) && status === 'active';
 
     if (typeof hm.cacheEncounterServerState === 'function') {
       hm.cacheEncounterServerState(isActiveEncounter ? serverState : null);
     }
 
     if (isActiveEncounter) {
-      hm.stateManager?.set('encounterId', serverState.encounter_id);
+      hm.stateManager?.set('encounterId', encounterId);
     } else {
       hm.stateManager?.set('encounterId', null);
       hm.stateManager?.set('serverCombatMode', false);
+      if (typeof hm.turnManagementSystem?.endCombat === 'function'
+          && typeof hm.turnManagementSystem?.isCombatActive === 'function'
+          && hm.turnManagementSystem.isCombatActive()) {
+        hm.turnManagementSystem.endCombat();
+      }
     }
 
     if (serverState.map_id) {

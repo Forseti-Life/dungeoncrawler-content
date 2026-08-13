@@ -3,6 +3,7 @@
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\ActiveEffectStoreService;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
@@ -19,6 +20,61 @@ use Drupal\Tests\UnitTestCase;
  * @group leveling
  */
 class CharacterStateServiceTest extends UnitTestCase {
+
+  /**
+   * Verifies spellcasting can persist Mage Armor as a canonical condition.
+   */
+  public function testCastSpellPersistsMageArmorCondition(): void {
+    $database = $this->createMock(Connection::class);
+    $statement = $this->createMock(StatementInterface::class);
+    $statement->method('fetchAssoc')->willReturn(FALSE);
+    $identity_group = new class() {
+      public function condition(...$args): self {
+        return $this;
+      }
+    };
+    $select = $this->createMock(\Drupal\Core\Database\Query\SelectInterface::class);
+    $select->method('fields')->willReturnSelf();
+    $select->method('condition')->willReturnSelf();
+    $select->method('orConditionGroup')->willReturn($identity_group);
+    $select->method('orderBy')->willReturnSelf();
+    $select->method('range')->willReturnSelf();
+    $select->method('execute')->willReturn($statement);
+    $database->method('select')->with('dc_campaign_characters', 'cc')->willReturn($select);
+    $service = new class(
+      $database,
+      $this->createMock(AccountProxyInterface::class),
+      $this->createMock(FeatEffectManager::class),
+      $this->createMock(GeneratedImageRepository::class),
+      $this->createMock(NumberGenerationService::class),
+      $this->createMock(ImpactContractService::class),
+      $this->createMock(ActiveEffectStoreService::class),
+    ) extends CharacterStateService {
+      public array $savedState = [];
+
+      public function getState(string $character_id, ?int $campaign_id = NULL, ?string $instance_id = NULL): array {
+        return [
+          'resources' => [
+            'spellSlots' => [
+              '1' => ['current' => 2, 'max' => 2],
+            ],
+          ],
+          'conditions' => [],
+        ];
+      }
+
+      protected function saveState(string $character_id, array $state, ?array $campaign_row = NULL): void {
+        $this->savedState = $state;
+      }
+    };
+
+    $result = $service->castSpell('4754', 'mage-armor', 1, FALSE, NULL, NULL);
+
+    $this->assertSame(1, $result['remaining']);
+    $this->assertSame('mage_armor', $service->savedState['conditions'][0]['condition_type'] ?? NULL);
+    $this->assertSame('Mage Armor', $service->savedState['conditions'][0]['name'] ?? NULL);
+    $this->assertSame(1, $service->savedState['conditions'][0]['value'] ?? NULL);
+  }
 
   /**
    * Verifies canonical progression metadata is preserved in getState().

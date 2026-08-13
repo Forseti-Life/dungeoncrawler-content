@@ -1,8 +1,8 @@
 # Deterministic GM Orchestration Architecture
 
 **Module**: dungeoncrawler_content  
-**Last updated**: 2026-06-19  
-**Status**: Proposed architecture with explicit GM subsystem facade in place; normalized player room-chat routing envelope is now implemented, while broader deterministic broker migration remains in progress
+**Last updated**: 2026-07-29  
+**Status**: Proposed architecture with GM subsystem scaffolding in place; actor-scoped response lane is now defined as target state while broader deterministic broker migration remains in progress
 
 ---
 
@@ -27,6 +27,11 @@ The governing rule is:
 
 > **The GM should narrate from authoritative state and execution receipts, not act as
 > the primary source of backend tool calls.**
+
+An additional governing rule now applies to the outward room-chat response:
+
+> **One actor turn should return one actor-scoped response projection, not a full
+> campaign dungeon payload.**
 
 This design keeps the GM as a narrative and adjudication layer while moving backend
 lookups, validation, argument resolution, and state mutations into typed PHP services.
@@ -148,6 +153,8 @@ Today, the implemented scaffold is narrower than the full target design:
 ```text
 Player room message
   -> RoomChatService [stable entrypoint]
+    -> ActorTurnContextLoader [future]
+      -> actor-scoped room/runtime context
     -> DeterministicTurnRouter [future]
       -> route category selected
       -> if deterministic:
@@ -157,12 +164,15 @@ Player room message
              -> Executor
              -> ToolExecutionReceiptBuilder [future]
            -> NarrationReceiptFormatter [future] or GM narration pass
+           -> ActorResponseProjector [future]
       -> if ambiguous / unsupported:
            GM fallback path
              -> parse fallback result
              -> convert to broker receipt
              -> validate / execute
              -> narrate from receipt
+             -> ActorResponseProjector [future]
+    -> LegacyRoomChatCompatibilityAdapter [future, opt-in only]
 ```
 
 ### Target service roles
@@ -170,14 +180,135 @@ Player room message
 | Service | Responsibility |
 |---|---|
 | `RoomChatService` | stable public entrypoint, response shaping, migration host |
+| `ActorTurnContextLoader` | future owner of actor-scoped room/runtime read context for one turn |
 | `DeterministicTurnRouter` | future classifier that chooses deterministic path vs fallback |
 | `GmOrchestrationBrokerService` | current broker scaffold; future owner of resolve -> validate -> execute -> receipt |
+| `ActorResponseProjector` | future owner of compact outward actor response projection from authoritative turn receipts |
+| `LegacyRoomChatCompatibilityAdapter` | future explicit heavy/full-state adapter for callers that still require legacy response breadth |
 | `ToolCatalog` | future typed registry surface above canonical action metadata |
 | `ToolArgumentResolver` | future resolver for natural language to authoritative ids |
 | `ToolExecutionReceiptBuilder` | future standardized execution/narration handoff builder |
 | `NarrationReceiptFormatter` | future deterministic narration or compact narration hints |
 
 These are conceptual targets; naming may change at implementation time.
+
+## Actor-Scoped Response Lane
+
+### Why a separate response lane is required
+
+The current runtime already does a meaningful amount of actor scoping inside prompt
+assembly:
+
+- compact session context,
+- room scene parts,
+- room NPC roster/profile summaries,
+- room actor grounding,
+- room questbook context,
+- recent room transcript,
+- character ability/resource context,
+- room inventory,
+- legal action availability.
+
+But the outward room-chat response still carries the full `dungeon_data` transport
+surface. That means the system currently **thinks actor-scoped** but **returns
+campaign-scoped**.
+
+The target design fixes that mismatch by defining a dedicated response lane that is
+projected from authoritative turn results rather than copied from compatibility
+hydration payloads.
+
+### Target response-lane services
+
+| Service seam | Responsibility | Must not own |
+|---|---|---|
+| `ActorTurnContextLoader` | load actor-scoped runtime state for one turn | persistence, full-state transport |
+| `PromptContextAssembler` | build compact prompt context for one actor turn | outward client response shaping |
+| `CanonicalExecutionPipeline` | mutate authoritative state and emit receipts | payload compatibility transport |
+| `ActorResponseProjector` | project compact actor-scoped room-chat response from receipts + runtime snapshot | prompt assembly, persistence |
+| `LegacyRoomChatCompatibilityAdapter` | explicitly synthesize old/broad response shape when required | default actor turn response |
+
+### Target stable contracts
+
+#### `ActorTurnContext`
+
+```php
+[
+  'actor' => [
+    'actor_id' => '...',
+    'character_id' => 123,
+    'display_name' => '...',
+    'entity' => [...],
+  ],
+  'runtime_snapshot' => [
+    'game_state' => [...],
+    'active_room' => [...],
+    'visible_entities' => [...],
+    'visible_npcs' => [...],
+    'connected_rooms' => [...],
+    'hostile_targets' => [...],
+    'social_progression' => [...],
+  ],
+  'recent_transcript' => [...],
+  'quest_context' => [...],
+  'legal_actions' => [
+    'available_actions' => [...],
+    'action_contract' => [...],
+  ],
+]
+```
+
+#### `AuthoritativeTurnResult`
+
+```php
+[
+  'receipts' => [...],
+  'player_message' => [...],
+  'gm_response' => [...] | NULL,
+  'npc_interjections' => [...],
+  'turn_harness' => [...] | NULL,
+  'turn_logs' => [...],
+  'quest_updates' => [...],
+  'navigation' => [...] | NULL,
+  'timing' => [...],
+]
+```
+
+#### `ActorChatResponse`
+
+```php
+[
+  'schema_version' => 'room-chat-actor-response-v1',
+  'message' => [...],
+  'gm_response' => [...] | NULL,
+  'npc_interjections' => [...],
+  'turn_harness' => [...] | NULL,
+  'turn_logs' => [...],
+  'quest_updates' => [...],
+  'navigation' => [...] | NULL,
+  'runtime_snapshot' => [...],
+  'available_actions' => [...],
+  'action_contract' => [...],
+  'action_option_families' => [...],
+  'timing' => [...],
+  'gm_actor_runtime' => [...],
+  'gm_actor_harness' => [...],
+]
+```
+
+### Default exclusion rules
+
+The normal actor chat response should exclude:
+
+- full `dungeon_data`,
+- unrelated rooms and non-visible entities,
+- full campaign or dungeon transcript history,
+- broad bootstrap payloads,
+- full `debug_trace` unless explicitly enabled for diagnostics,
+- duplicated copies of state that already exist inside `runtime_snapshot`.
+
+If one of those surfaces is still needed, the caller must declare that need
+explicitly and route through a heavy compatibility lane. The actor-turn response is
+not the place to carry those surfaces by default.
 
 ---
 
@@ -244,6 +375,11 @@ It should be decomposed into explicit subsystems while preserving the existing r
    - `canonical_actions`
    - navigation metadata
    - suppression/interjection flags
+5. **Actor response projection payload**:
+   - actor-scoped runtime snapshot
+   - immediate legal actions
+   - turn outputs and room-local follow-up context
+   - no full `dungeon_data`
 
 ### Extraction order for `generateGmReply()`
 
@@ -252,8 +388,10 @@ It should be decomposed into explicit subsystems while preserving the existing r
 3. Wrap existing fallback call into `GmGenerationPolicy` (no behavior change).
 4. Move canonical execution + mutation into `CanonicalExecutionPipeline`.
 5. Move navigation + transition writes into `NavigationTransitionPipeline`.
-6. Move message shaping/persistence into `TranscriptProjector` + `PersistenceCoordinator`.
-7. Keep `generateGmReply()` as a thin facade composing the subsystems until callers can be migrated.
+6. Extract `ActorTurnContextLoader` so response shaping stops depending on broad compatibility payload hydration.
+7. Move message shaping/persistence into `TranscriptProjector` + `PersistenceCoordinator`.
+8. Add `ActorResponseProjector` and cut the default room-chat POST contract over to actor-scoped projection.
+9. Keep `generateGmReply()` as a thin facade composing the subsystems until callers can be migrated.
 
 ### Proposed subsystem interfaces (contract-first)
 
@@ -399,6 +537,16 @@ interface PersistenceCoordinatorInterface {
   - `src/Service/GmSubsystem/NavigationTransitionPipeline.php`
   - `src/Service/GmSubsystem/TranscriptProjector.php`
 - Move state mutation, navigation transition, and transcript projection out of `generateGmReply()` in sequence.
+
+**Slice D: actor-scoped response cutover**
+
+- Add:
+  - `src/Service/GmSubsystem/ActorTurnContextLoader.php`
+  - `src/Service/GmSubsystem/ActorResponseProjector.php`
+  - `src/Service/GmSubsystem/LegacyRoomChatCompatibilityAdapter.php`
+- Move default room-chat POST projection to the new actor-scoped response contract.
+- Keep heavy/full-state payload support only through the explicit compatibility adapter or separate heavy read endpoint.
+- Add contract coverage that fails when synchronous actor responses reintroduce `dungeon_data` or unrelated global payload surfaces.
 
 ---
 

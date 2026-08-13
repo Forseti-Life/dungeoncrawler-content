@@ -30,23 +30,23 @@ import { HexCanvas } from './canvas/HexCanvas.js';
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20260619-v2-search-reward-refresh-1';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20260811-v2-targeting-debug-3';
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20260728-v2-nav-transition-receipt-4';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
-import { CombatPanel } from './panels/CombatPanel.js';
-import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260721-v2-nav-authority-2';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260722-v2-startup-state-1';
+import { CombatPanel } from './panels/CombatPanel.js?v=20260811-v2-turn-sync-ui-11';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260811-v2-target-pick-hardening-15';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260812-v2-map-status-centralization-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
 import { InventoryPanel } from './panels/InventoryPanel.js';
-import { CharacterPanel } from './panels/CharacterPanel.js?v=20260629-v2-party-only-tab-1';
+import { CharacterPanel } from './panels/CharacterPanel.js?v=20260731-v2-relationships-ui-11';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
-import { StatusPanel } from './panels/StatusPanel.js';
+import { StatusPanel } from './panels/StatusPanel.js?v=20260812-v2-map-status-centralization-1';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
 import { SpriteService } from '../SpriteService.js';
-import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260728-v2-state-version-sync-1';
+import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260811-v2-target-pick-hardening-15';
 import {
   EntityManager,
   PositionComponent,
@@ -73,6 +73,7 @@ const DEFAULT_CANVAS_CONFIG = {
   backgroundColor: 0x1a1a2e,
   serverStateSyncIntervalMs: 3000,
 };
+const HEXMAP_UI_BUILD_VERSION = '20260810-rm-ui-14';
 
 export class GameShell {
   /**
@@ -80,6 +81,9 @@ export class GameShell {
    * @param {object} rawSettings    - drupalSettings.dungeoncrawlerContent subset
    */
   constructor(container, rawSettings = {}) {
+    console.info('[GameShell] module loaded', {
+      version: '20260805-v2-action-rail-runtime-contract-fix-1',
+    });
     this.container = container;
 
     /** Parsed launch context from Drupal settings */
@@ -92,8 +96,12 @@ export class GameShell {
     this.launchCharacter = rawSettings.hexmapLaunchCharacter || {};
     /** Quest summary payload for initial QuestPanel render */
     this.questSummary = rawSettings.hexmapQuestSummary || {};
+    /** Server-side bootstrap timing breakdown for current page load */
+    this.bootstrapPerf = rawSettings.hexmapBootstrapPerf || {};
 
     this.currentUserId = Number(rawSettings.userId || rawSettings.user?.uid || 0);
+    this.campaignAccess = this._normalizeCampaignAccess(rawSettings.campaignAccess || {});
+    this.activeCampaignMode = this.campaignAccess.current_mode || this.campaignAccess.default_mode || 'player';
     this.activeRoomId = null;
     this._syncActiveRoomAuthorityFromRuntimePayload();
     this.characterData = this.launchCharacter;
@@ -155,6 +163,12 @@ export class GameShell {
     this._roomEntryAcknowledgementInflightKey = '';
     /** @type {string} currently active tab id */
     this.activeGameShellTab = 'map';
+    /** @type {boolean} settings panel hydration guard */
+    this._campaignSettingsLoaded = false;
+    /** @type {boolean} settings panel fetch lock */
+    this._campaignSettingsLoading = false;
+    /** @type {object|null} last settings payload */
+    this._campaignSettingsPayload = null;
     /** @type {Set<string>} dedupe set for missing navigation capability contract warnings */
     this._missingNavigationExitsWarnings = new Set();
     /** @type {{ sourceRef: Array|null, sourceLength: number, normalized: Array, byRoom: Map<string, Array> }} */
@@ -168,6 +182,14 @@ export class GameShell {
     this._roomTransitionSequence = 0;
     /** @type {string} last processed external room transition id */
     this._lastExternalRoomTransitionId = '';
+    /** @type {HTMLDivElement|null} map right-click context menu */
+    this._hexContextMenuEl = null;
+    /** @type {Function|null} global context menu dismiss handler */
+    this._hexContextMenuDismissHandler = null;
+    /** @type {{ actionKey:string, button:HTMLButtonElement, promptLabel:string, allowedKinds:string[], sourceSurface:string }|null} */
+    this._targetPickSession = null;
+    /** @type {HTMLElement|null} */
+    this._targetPickPromptEl = null;
   }
 
   /**
@@ -329,6 +351,7 @@ export class GameShell {
     this._initCanvas();
     this._initSystems();
     this._initPanels();
+    this._applyCampaignModeGates();
     this._bindMapControls();
     this._bindInteractionEvents();
     this.setupFullscreenToggle();
@@ -418,6 +441,9 @@ export class GameShell {
 
     const hexmapShim = this._buildHexmapShim();
     this.gameCoordinator = new GameCoordinator(campaignId, hexmapShim);
+    if (this.bootstrapPerf && typeof console !== 'undefined' && typeof console.info === 'function') {
+      console.info('[GameShell] hexmap bootstrap timings (ms)', this.bootstrapPerf);
+    }
     this.gameCoordinator.init()
       .then(async () => {
         const authoritativeRoomId = String(this.gameCoordinator?.phaseManager?.activeRoomId || '').trim();
@@ -645,10 +671,37 @@ export class GameShell {
       ? occupants
       : this.getVisualOccupants().filter((entry) => String(entry?.room_id || '') === normalizedRoomId && this.isVisualOccupantVisible(entry));
     this._currentOccupants = resolvedOccupants;
+    const resolvedActorRoster = this.getActiveRoomActorRoster(normalizedRoomId);
+    this.bus.emit('room:occupants-membership-changed', {
+      roomId: normalizedRoomId,
+      roomName: resolvedRoomName,
+      occupants: resolvedOccupants,
+      transition,
+      _source: 'shell',
+    });
+    // Compatibility event retained during staged bus-migration.
     this.bus.emit('room:occupants-changed', {
       roomId: normalizedRoomId,
       roomName: resolvedRoomName,
       occupants: resolvedOccupants,
+      transition,
+      _source: 'shell',
+    });
+    this.bus.emit('room:actor-roster-changed', {
+      roomId: normalizedRoomId,
+      roomName: resolvedRoomName,
+      actorRoster: {
+        schema_version: String(this.mapVisualState?.actor_roster?.schema_version || 'actor-roster-v1'),
+        room_id: normalizedRoomId,
+        default_filter: String(this.mapVisualState?.actor_roster?.default_filter || 'party'),
+        available_filters: Array.isArray(this.mapVisualState?.actor_roster?.available_filters)
+          ? this.mapVisualState.actor_roster.available_filters
+          : ['all', 'party', 'allied', 'hostile', 'neutral', 'hazard'],
+        sort_modes: Array.isArray(this.mapVisualState?.actor_roster?.sort_modes)
+          ? this.mapVisualState.actor_roster.sort_modes
+          : ['alpha', 'initiative'],
+        entries: resolvedActorRoster,
+      },
       transition,
       _source: 'shell',
     });
@@ -749,6 +802,7 @@ export class GameShell {
 
     // ChatPanel requests room chat history refresh
     this.bus.on('user:chat-history-requested', () => this._loadChatHistory());
+    this.bus.on('user:target-pick-requested', (data) => this._beginTargetPickSession(data || {}));
 
     // Shell-owned room-view refresh entrypoint. Legacy reload event is bridged here.
     this.bus.on('room:view-refresh-intent', (opts) => this._handleRoomViewRefreshIntent(opts, 'room:view-refresh-intent'));
@@ -774,6 +828,9 @@ export class GameShell {
 
     this.bus.on('entity:deselected', () => {
       this._setStateValue('selectedEntity', null);
+      if (this._targetPickSession && this._targetPickSession.sourceSurface !== 'map-click') {
+        this._clearTargetPickSession('selection-cleared');
+      }
     });
 
     // CharacterPanel requests inventory refresh from API
@@ -801,6 +858,9 @@ export class GameShell {
 
     // Compatibility bridge for any non-shell room:changed producer.
     this.bus.on('room:changed', ({ roomId, roomName, room, occupants, _source, transition } = {}) => {
+      if (this._targetPickSession) {
+        this._clearTargetPickSession('room-changed');
+      }
       if (_source === 'shell' || !roomId) {
         return;
       }
@@ -824,15 +884,48 @@ export class GameShell {
       });
     });
 
-    this.bus.on('combat:state-changed', ({ state } = {}) => {
+    this.bus.on('combat:state-changed', ({ state, statusRaw } = {}) => {
+      const raw = String(statusRaw || '').trim().toLowerCase();
       const normalized = String(state || '').trim().toLowerCase();
-      const active = normalized === 'active' || normalized === 'in_progress';
+      const active = ['active', 'in_progress', 'rolling_initiative'].includes(normalized)
+        || ['active', 'setup', 'rolling_initiative', 'paused'].includes(raw);
       this._setStateValue('combatActive', active);
       if (!active) {
+        if (this._targetPickSession) {
+          this._clearTargetPickSession('combat-inactive');
+        }
         this._setStateValue('encounterId', null);
         this._setStateValue('latestEncounterState', null);
         this._setStateValue('serverCombatMode', false);
       }
+    });
+
+    this.bus.on('combat:turn-changed', ({ entity } = {}) => {
+      if (!this._targetPickSession) {
+        return;
+      }
+      const turnActorRef = this.getEntityInstanceRef(entity);
+      const sessionActorRef = String(this._targetPickSession?.actorRef || '').trim();
+      if (turnActorRef && sessionActorRef && turnActorRef === sessionActorRef) {
+        return;
+      }
+      this._clearTargetPickSession('turn-changed');
+    });
+
+    this.bus.on('game:state-refreshed', ({ phaseSnapshot } = {}) => {
+      if (!this._targetPickSession) {
+        return;
+      }
+      const sessionActorRef = String(this._targetPickSession?.actorRef || '').trim();
+      const snapshotActorRef = String(
+        phaseSnapshot?.actionContract?.actor_id
+        || phaseSnapshot?.turn?.entity
+        || ''
+      ).trim();
+      if (!snapshotActorRef || (sessionActorRef && sessionActorRef === snapshotActorRef)) {
+        return;
+      }
+      this._clearTargetPickSession('state-refreshed');
     });
 
     // Load chat history and room view on startup
@@ -862,6 +955,287 @@ export class GameShell {
         ? this.panels.character.buildQuestRefreshContext('game-shell-party-tab-open')
         : {};
       void this.refreshQuestJournalFromApi(questRefreshContext);
+    }
+    if (tabId === 'settings') {
+      if (!this._campaignSettingsLoaded) {
+        void this._loadCampaignSettings();
+      } else if (this._campaignSettingsPayload) {
+        this._renderCampaignSettings(this._campaignSettingsPayload);
+      }
+    }
+  }
+
+  /**
+   * Load campaign settings payload for the settings tab.
+   */
+  async _loadCampaignSettings(force = false) {
+    const campaignId = Number(this.launchContext?.campaign_id || 0);
+    const statusEl = document.getElementById('campaign-settings-status');
+    if (!campaignId) {
+      if (statusEl) statusEl.textContent = 'Campaign settings are unavailable outside campaign mode.';
+      return;
+    }
+    if (!force && this._campaignSettingsLoaded && this._campaignSettingsPayload) {
+      this._renderCampaignSettings(this._campaignSettingsPayload);
+      return;
+    }
+    if (this._campaignSettingsLoading) {
+      return;
+    }
+
+    this._campaignSettingsLoading = true;
+    if (statusEl) statusEl.textContent = 'Loading campaign settings...';
+    try {
+      const response = await fetch(`/api/campaign/${campaignId}/settings`, {
+        method: 'GET',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        const error = String(payload?.error || `HTTP ${response.status}`).trim();
+        if (statusEl) statusEl.textContent = `Unable to load settings: ${error}`;
+        return;
+      }
+      this._campaignSettingsPayload = payload;
+      this._campaignSettingsLoaded = true;
+      this._renderCampaignSettings(payload);
+    } catch (error) {
+      if (statusEl) statusEl.textContent = `Unable to load settings: ${error?.message || 'network error'}`;
+    } finally {
+      this._campaignSettingsLoading = false;
+    }
+  }
+
+  /**
+   * Render settings payload into the settings tab.
+   */
+  _renderCampaignSettings(payload) {
+    const statusEl = document.getElementById('campaign-settings-status');
+    const titleEl = document.getElementById('campaign-settings-title');
+    const memberListEl = document.getElementById('campaign-member-list');
+    const playerBtn = document.getElementById('campaign-mode-player');
+    const gmBtn = document.getElementById('campaign-mode-gm');
+    if (!memberListEl || !playerBtn || !gmBtn) {
+      return;
+    }
+
+    const campaignName = String(payload?.settings?.campaign_name || '').trim();
+    if (titleEl && campaignName) {
+      titleEl.textContent = `${campaignName} settings`;
+    }
+
+    const canManage = payload?.capabilities?.can_manage === true;
+    const canUseGmMode = payload?.capabilities?.can_use_gm_mode === true;
+    const canUsePlayerMode = payload?.capabilities?.can_use_player_mode !== false;
+    const mode = String(payload?.settings?.mode || 'player').trim().toLowerCase() === 'gm' ? 'gm' : 'player';
+    playerBtn.classList.toggle('btn-primary', mode === 'player');
+    playerBtn.classList.toggle('btn-secondary', mode !== 'player');
+    gmBtn.classList.toggle('btn-primary', mode === 'gm');
+    gmBtn.classList.toggle('btn-secondary', mode !== 'gm');
+    gmBtn.disabled = !canUseGmMode;
+    playerBtn.disabled = !canUsePlayerMode;
+
+    playerBtn.onclick = () => this._setCampaignMode('player');
+    gmBtn.onclick = () => this._setCampaignMode('gm');
+
+    this.campaignAccess = this._normalizeCampaignAccess({
+      ...(payload?.campaign_access || {}),
+      campaign_id: Number(payload?.campaign_id || this.campaignAccess?.campaign_id || 0),
+      current_mode: mode,
+      can_use_player_mode: canUsePlayerMode,
+      can_use_gm_mode: canUseGmMode,
+    });
+    this.activeCampaignMode = mode;
+    this._applyCampaignModeGates();
+
+    const members = Array.isArray(payload?.members) ? payload.members : [];
+    memberListEl.innerHTML = '';
+    if (!members.length) {
+      memberListEl.innerHTML = '<p class="muted">No campaign members found.</p>';
+    } else {
+      members.forEach((member) => {
+        const uid = Number(member?.uid || 0);
+        if (!uid) return;
+        const role = String(member?.role || 'player').trim().toLowerCase();
+        const status = String(member?.status || 'active').trim().toLowerCase();
+        const name = String(member?.display_name || `User ${uid}`).trim();
+        const email = String(member?.email || '').trim();
+        const row = document.createElement('div');
+        row.className = 'campaign-settings-panel__member-row';
+
+        const identity = document.createElement('div');
+        const identityName = document.createElement('strong');
+        identityName.textContent = name;
+        const identityMeta = document.createElement('p');
+        identityMeta.className = 'campaign-settings-panel__member-meta';
+        identityMeta.textContent = email || `UID ${uid}`;
+        identity.appendChild(identityName);
+        identity.appendChild(identityMeta);
+
+        const roleBadge = document.createElement('span');
+        roleBadge.className = 'pill pill-muted';
+        roleBadge.textContent = role === 'owner_gm' ? 'owner_gm' : role;
+
+        const roleControl = document.createElement('select');
+        roleControl.className = 'merchant-trade-panel__select';
+        roleControl.innerHTML = `
+          <option value="player"${role === 'player' ? ' selected' : ''}>player</option>
+          <option value="gm"${role === 'gm' ? ' selected' : ''}>gm</option>
+        `;
+        roleControl.disabled = !canManage || role === 'owner_gm' || status === 'revoked';
+        roleControl.onchange = () => this._updateCampaignMemberRole(uid, roleControl.value);
+
+        row.appendChild(identity);
+        row.appendChild(roleBadge);
+        row.appendChild(roleControl);
+        memberListEl.appendChild(row);
+      });
+    }
+
+    if (statusEl) {
+      statusEl.textContent = canManage
+        ? 'You can manage campaign members and GM mode.'
+        : 'You can switch your own mode; member management is GM-only.';
+    }
+  }
+
+  /**
+   * Persist user mode preference in campaign settings.
+   */
+  async _setCampaignMode(mode) {
+    const normalizedMode = String(mode || '').trim().toLowerCase();
+    if (!['player', 'gm'].includes(normalizedMode)) {
+      return;
+    }
+    const campaignId = Number(this.launchContext?.campaign_id || 0);
+    if (!campaignId) {
+      return;
+    }
+    const statusEl = document.getElementById('campaign-settings-status');
+    if (statusEl) statusEl.textContent = 'Saving mode preference...';
+
+    try {
+      const response = await fetch(`/api/campaign/${campaignId}/settings/mode`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ mode: normalizedMode }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        const error = String(payload?.error || `HTTP ${response.status}`).trim();
+        if (statusEl) statusEl.textContent = `Unable to save mode: ${error}`;
+        return;
+      }
+      this.activeCampaignMode = normalizedMode;
+      this.campaignAccess = this._normalizeCampaignAccess({
+        ...this.campaignAccess,
+        current_mode: normalizedMode,
+      });
+      this._applyCampaignModeGates();
+      await this._loadCampaignSettings(true);
+    } catch (error) {
+      if (statusEl) statusEl.textContent = `Unable to save mode: ${error?.message || 'network error'}`;
+    }
+  }
+
+  _normalizeCampaignAccess(input = {}) {
+    const access = input && typeof input === 'object' ? input : {};
+    const canUseGmMode = access.can_use_gm_mode === true;
+    const canUsePlayerMode = access.can_use_player_mode !== false;
+    const defaultMode = String(access.default_mode || (canUseGmMode ? 'gm' : 'player')).trim().toLowerCase() === 'gm'
+      ? 'gm'
+      : 'player';
+    let currentMode = String(access.current_mode || defaultMode).trim().toLowerCase() === 'gm'
+      ? 'gm'
+      : 'player';
+    if (currentMode === 'gm' && !canUseGmMode) {
+      currentMode = 'player';
+    }
+    if (currentMode === 'player' && !canUsePlayerMode && canUseGmMode) {
+      currentMode = 'gm';
+    }
+    return {
+      campaign_id: Number(access.campaign_id || this.launchContext?.campaign_id || 0) || 0,
+      membership_role: String(access.membership_role || '').trim().toLowerCase() || 'player',
+      membership_status: String(access.membership_status || '').trim().toLowerCase() || 'active',
+      can_use_player_mode: canUsePlayerMode,
+      can_use_gm_mode: canUseGmMode,
+      default_mode: defaultMode,
+      current_mode: currentMode,
+      playable_principals: Array.isArray(access.playable_principals) ? access.playable_principals : [],
+      gm_principals: Array.isArray(access.gm_principals) ? access.gm_principals : [],
+    };
+  }
+
+  _applyCampaignModeGates() {
+    const mode = String(this.activeCampaignMode || this.campaignAccess?.current_mode || 'player').trim().toLowerCase() === 'gm'
+      ? 'gm'
+      : 'player';
+    const canUseGmMode = this.campaignAccess?.can_use_gm_mode === true;
+    const effectiveMode = (mode === 'gm' && canUseGmMode) ? 'gm' : 'player';
+    this.activeCampaignMode = effectiveMode;
+    this.campaignAccess = this._normalizeCampaignAccess({
+      ...this.campaignAccess,
+      current_mode: effectiveMode,
+    });
+
+    const shell = this.container?.closest?.('[data-game-shell]')
+      || this.container?.querySelector?.('[data-game-shell]')
+      || null;
+    if (shell) {
+      shell.dataset.campaignMode = effectiveMode;
+      shell.dataset.canUseGmMode = canUseGmMode ? '1' : '0';
+    }
+
+    const gmSessionTab = this.container?.querySelector?.('.session-view-tab[data-view="gm-private"]') || null;
+    const gmViewEnabled = canUseGmMode && effectiveMode === 'gm';
+    if (gmSessionTab) {
+      gmSessionTab.hidden = !gmViewEnabled;
+      gmSessionTab.setAttribute('aria-hidden', gmViewEnabled ? 'false' : 'true');
+      gmSessionTab.tabIndex = gmViewEnabled ? 0 : -1;
+    }
+    if (!gmViewEnabled && this.panels?.chat?.activeSessionView === 'gm-private') {
+      this.panels.chat.switchSessionView('room');
+    }
+  }
+
+  /**
+   * Persist campaign member role assignment.
+   */
+  async _updateCampaignMemberRole(memberUid, role) {
+    const campaignId = Number(this.launchContext?.campaign_id || 0);
+    const uid = Number(memberUid || 0);
+    const normalizedRole = String(role || '').trim().toLowerCase();
+    if (!campaignId || !uid || !['player', 'gm'].includes(normalizedRole)) {
+      return;
+    }
+    const statusEl = document.getElementById('campaign-settings-status');
+    if (statusEl) statusEl.textContent = 'Saving member role...';
+
+    try {
+      const response = await fetch(`/api/campaign/${campaignId}/settings/members/${uid}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ role: normalizedRole, status: 'active' }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        const error = String(payload?.error || `HTTP ${response.status}`).trim();
+        if (statusEl) statusEl.textContent = `Unable to update member: ${error}`;
+        return;
+      }
+      await this._loadCampaignSettings(true);
+    } catch (error) {
+      if (statusEl) statusEl.textContent = `Unable to update member: ${error?.message || 'network error'}`;
     }
   }
 
@@ -921,77 +1295,102 @@ export class GameShell {
       console.warn('[GameShell] _loadChatHistory: missing campaignId or roomId', { campaignId, roomId });
       return;
     }
+    const mapId = String(
+      this.hexmap?.dungeonData?.map_id
+      || this.hexmap?.launchContext?.map_id
+      || this.launchContext?.map_id
+      || this.stateManager?.get?.('mapId')
+      || ''
+    ).trim();
+    const requestKey = `${campaignId}:${requestRoomId}:${charId || 0}:${mapId || ''}`;
+    if (!(this._chatHistoryInflight instanceof Map)) {
+      this._chatHistoryInflight = new Map();
+    }
+    if (!(this._chatHistoryLastLoadedAt instanceof Map)) {
+      this._chatHistoryLastLoadedAt = new Map();
+    }
+    if (this._chatHistoryInflight.has(requestKey)) {
+      return this._chatHistoryInflight.get(requestKey);
+    }
+    const loadedAt = Number(this._chatHistoryLastLoadedAt.get(requestKey) || 0);
+    if (loadedAt > 0 && (Date.now() - loadedAt) < 1200) {
+      return;
+    }
+
     const requestToken = ++this._chatHistoryRequestToken;
     console.log('[GameShell] _loadChatHistory', { campaignId, roomId, requestToken });
 
-    try {
-      let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`;
-      const mapId = String(
-        this.hexmap?.dungeonData?.map_id
-        || this.hexmap?.launchContext?.map_id
-        || this.launchContext?.map_id
-        || this.stateManager?.get?.('mapId')
-        || ''
-      ).trim();
-      const params = new URLSearchParams();
-      if (charId) params.set('character_id', String(charId));
-      if (mapId) params.set('map_id', mapId);
-      if (params.toString()) url += `?${params.toString()}`;
-      const resp = await fetch(url, {
-        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        credentials: 'same-origin',
-      });
-      if (requestToken !== this._chatHistoryRequestToken) {
-        return;
-      }
-      if (!resp.ok) {
-        const responseText = await resp.text().catch(() => '');
-        console.error('[GameShell] _loadChatHistory failed', {
-          campaignId,
-          roomId,
+    const request = (async () => {
+      try {
+        let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`;
+        const params = new URLSearchParams();
+        if (charId) params.set('character_id', String(charId));
+        if (mapId) params.set('map_id', mapId);
+        if (params.toString()) url += `?${params.toString()}`;
+        const resp = await fetch(url, {
+          headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          credentials: 'same-origin',
+        });
+        if (requestToken !== this._chatHistoryRequestToken) {
+          return;
+        }
+        if (!resp.ok) {
+          const responseText = await resp.text().catch(() => '');
+          console.error('[GameShell] _loadChatHistory failed', {
+            campaignId,
+            roomId,
+            characterId: charId,
+            status: resp.status,
+            body: responseText,
+          });
+          return;
+        }
+        const result = await resp.json().catch(() => ({}));
+        if (requestToken !== this._chatHistoryRequestToken) {
+          return;
+        }
+        if (!result?.success || !Array.isArray(result.data?.messages)) {
+          console.warn('[GameShell] _loadChatHistory: unexpected response', { ok: resp.ok, success: result?.success, messageCount: result?.data?.messages?.length });
+          return;
+        }
+
+        const payloadRoomId = String(result?.data?.roomId || result?.data?.room_id || requestRoomId).trim();
+        const activeRoomId = String(this.activeRoomId || '').trim();
+        if (payloadRoomId && activeRoomId && payloadRoomId !== activeRoomId) {
+          console.info('[GameShell] _loadChatHistory: stale response dropped', {
+            requestedRoomId: requestRoomId,
+            payloadRoomId,
+            activeRoomId,
+          });
+          return;
+        }
+
+        this._chatHistoryLoaded = true;
+        this._chatHistoryLastLoadedAt.set(requestKey, Date.now());
+        console.log('[GameShell] _loadChatHistory: loaded', { lineCount: result.data.messages.length });
+        this.bus.emit('chat:history-loaded', {
+          ...result,
+          roomId: payloadRoomId || requestRoomId,
+          campaignId: Number(campaignId) || null,
+          requestToken,
+        });
+        this.queueRoomEntryAcknowledgement({
+          campaignId: Number(campaignId) || null,
+          roomId: payloadRoomId || requestRoomId,
           characterId: charId,
-          status: resp.status,
-          body: responseText,
+          mapId,
         });
-        return;
+      } catch (_) {
+        // Chat history is best-effort; no user-facing error
+      } finally {
+        if (this._chatHistoryInflight.get(requestKey) === request) {
+          this._chatHistoryInflight.delete(requestKey);
+        }
       }
-      const result = await resp.json().catch(() => ({}));
-      if (requestToken !== this._chatHistoryRequestToken) {
-        return;
-      }
-      if (!result?.success || !Array.isArray(result.data?.messages)) {
-        console.warn('[GameShell] _loadChatHistory: unexpected response', { ok: resp.ok, success: result?.success, messageCount: result?.data?.messages?.length });
-        return;
-      }
+    })();
 
-      const payloadRoomId = String(result?.data?.roomId || result?.data?.room_id || requestRoomId).trim();
-      const activeRoomId = String(this.activeRoomId || '').trim();
-      if (payloadRoomId && activeRoomId && payloadRoomId !== activeRoomId) {
-        console.info('[GameShell] _loadChatHistory: stale response dropped', {
-          requestedRoomId: requestRoomId,
-          payloadRoomId,
-          activeRoomId,
-        });
-        return;
-      }
-
-      this._chatHistoryLoaded = true;
-      console.log('[GameShell] _loadChatHistory: loaded', { lineCount: result.data.messages.length });
-      this.bus.emit('chat:history-loaded', {
-        ...result,
-        roomId: payloadRoomId || requestRoomId,
-        campaignId: Number(campaignId) || null,
-        requestToken,
-      });
-      this.queueRoomEntryAcknowledgement({
-        campaignId: Number(campaignId) || null,
-        roomId: payloadRoomId || requestRoomId,
-        characterId: charId,
-        mapId,
-      });
-    } catch (_) {
-      // Chat history is best-effort; no user-facing error
-    }
+    this._chatHistoryInflight.set(requestKey, request);
+    await request;
   }
 
   queueRoomEntryAcknowledgement({ campaignId = null, roomId = '', characterId = null, mapId = '' } = {}) {
@@ -1406,7 +1805,7 @@ export class GameShell {
 
   /**
    * Fetch merchant context metadata for all merchant occupants in the room and
-   * re-emit room:occupants-changed with normalized merchant presentation fields.
+   * emit decoration + merchant-specific refresh events.
    * @private
    */
   async _loadMerchantStock() {
@@ -1484,11 +1883,6 @@ export class GameShell {
       activeTab: this.activeGameShellTab,
       stockedMerchantCount: updatedOccupants.filter((o) => o?.presentation?.stock).length,
     });
-    this.bus.emit('room:occupants-changed', {
-      roomId,
-      roomName: room?.name ?? roomId,
-      occupants: updatedOccupants,
-    });
     this.bus.emit('room:occupants-decoration-changed', {
       roomId,
       roomName: room?.name ?? roomId,
@@ -1498,6 +1892,7 @@ export class GameShell {
       roomId,
       roomName: room?.name ?? roomId,
       merchantCount: updatedOccupants.filter((entry) => entry?.presentation?.is_merchant).length,
+      occupants: updatedOccupants,
     });
   }
 
@@ -1554,7 +1949,16 @@ export class GameShell {
       bus.emit('combat:round-changed', { roundNumber });
     });
     this.turnManagementSystem.onCombatStateChange?.((state) => {
-      bus.emit('combat:state-changed', { state });
+      bus.emit('combat:state-changed', {
+        state,
+        statusRaw: this.turnManagementSystem.getEncounterStatus?.() || null,
+        roundNumber: this.turnManagementSystem.currentRound || 0,
+        turnIndex: this.turnManagementSystem.currentTurnIndex,
+        totalTurns: Array.isArray(this.turnManagementSystem.initiativeOrder) ? this.turnManagementSystem.initiativeOrder.length : 0,
+      });
+    });
+    this.turnManagementSystem.onOrderChange?.((order = []) => {
+      bus.emit('combat:order-changed', { order });
     });
     this.entityManager.addSystem(this.turnManagementSystem);
   }
@@ -1688,7 +2092,31 @@ export class GameShell {
       };
     }
 
-    const tokens = new HexTokenRenderer(hexCanvas, this.bus);
+    const tokens = new HexTokenRenderer(hexCanvas, this.bus, {
+      canDragEntity: (entity) => this.canDragEntityOnMap(entity),
+      onDragStart: (entity) => {
+        this.selectEntity(entity, { suppressCoordinatorResync: true });
+        this.showMovementHighlightBandsForEntity(entity);
+      },
+      onDragEnd: () => this.clearMovementHighlightBands(),
+      onTokenSelected: (entity) => {
+        if (this._targetPickSession) {
+          const pos = entity?.getComponent?.('PositionComponent') || null;
+          const q = Number(pos?.q);
+          const r = Number(pos?.r);
+          if (Number.isFinite(q) && Number.isFinite(r)) {
+            const consumed = this._handleTargetPickHexClick(Number(q), Number(r), [entity]);
+            if (consumed) {
+              return;
+            }
+          }
+        }
+        this.selectEntity(entity, {
+          suppressCoordinatorResync: Boolean(this._targetPickSession),
+        });
+      },
+      onDropEntity: (payload) => this.handleMapActorDrop(payload),
+    });
     tokens.init();
 
     const fog = new HexFogOfWar(hexCanvas, this.bus);
@@ -1734,6 +2162,17 @@ export class GameShell {
     bindClick('reset-view', () => {
       this.bus?.emit('canvas:reset-view');
     });
+
+    const onKeydown = (event) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      if (this._targetPickSession) {
+        this._clearTargetPickSession('escape');
+      }
+    };
+    window.addEventListener('keydown', onKeydown);
+    this._domUnsubs.push(() => window.removeEventListener('keydown', onKeydown));
   }
 
   _bindInteractionEvents() {
@@ -1750,22 +2189,35 @@ export class GameShell {
         this._setStateValue('hoveredHex', null);
       }),
 
-      this.bus.on('hex:clicked', ({ q, r, button = 0, entities = [] } = {}) => {
+      this.bus.on('hex:clicked', ({ q, r, button = 0, clientX = null, clientY = null, entities = [] } = {}) => {
         if (!Number.isFinite(Number(q)) || !Number.isFinite(Number(r))) {
           return;
         }
 
+        if (this._targetPickSession && Number(button) !== 2) {
+          const consumed = this._handleTargetPickHexClick(Number(q), Number(r), entities);
+          if (consumed) {
+            return;
+          }
+        }
+
+        const hexEntities = Array.isArray(entities) && entities.length ? entities : this.getEntitiesAtHex(q, r);
         if (Number(button) === 2) {
-          this.deselectEntity();
+          this.setSelectedHex(q, r, { emitDetails: false });
+          this._showHexContextMenuForHex(Number(q), Number(r), {
+            clientX: Number(clientX),
+            clientY: Number(clientY),
+            hasOccupants: hexEntities.length > 0,
+          });
           return;
         }
+        this._hideHexContextMenu();
 
         this.setSelectedHex(q, r, { emitDetails: false });
         if (this.tryTransitionAtHex(q, r)) {
           return;
         }
 
-        const hexEntities = Array.isArray(entities) && entities.length ? entities : this.getEntitiesAtHex(q, r);
         if (hexEntities.length === 1) {
           this.selectEntity(hexEntities[0]);
         } else if (hexEntities.length > 1) {
@@ -1791,6 +2243,546 @@ export class GameShell {
         this.bus.emit('hex:details', this.getHexDetail(q, r));
       }),
     );
+  }
+
+  activateGameShellTab(tabId = '') {
+    const requestedTab = String(tabId || '').trim();
+    if (!requestedTab) {
+      return;
+    }
+    const shell = this.container?.closest?.('[data-game-shell]')
+      || this.container?.querySelector?.('[data-game-shell]')
+      || (typeof document !== 'undefined' ? document.querySelector('[data-game-shell]') : null)
+      || null;
+    if (!(shell instanceof HTMLElement)) {
+      return;
+    }
+    shell.dispatchEvent(new CustomEvent('dungeoncrawler:activate-tab', {
+      detail: { tabId: requestedTab },
+    }));
+  }
+
+  _cloneActionButtonForTargetPick(button) {
+    const clone = document.createElement('button');
+    clone.type = 'button';
+    const source = button instanceof HTMLButtonElement ? button : null;
+    if (source?.dataset) {
+      Object.entries(source.dataset).forEach(([key, value]) => {
+        clone.dataset[key] = String(value ?? '');
+      });
+    }
+    clone.dataset.actionRailExecute = String(source?.dataset?.actionRailExecute || '').trim();
+    clone.dataset.actionLabel = String(source?.dataset?.actionLabel || source?.textContent || source?.dataset?.actionRailExecute || 'action').trim();
+    return clone;
+  }
+
+  _normalizeTargetPickKindsForAction(actionKey = '', button = null) {
+    const key = String(actionKey || '').trim().toLowerCase();
+    const targeting = String(button?.dataset?.targeting || '').trim().toLowerCase();
+    if (targeting === 'hex' || targeting === 'area_origin' || targeting === 'connected_room' || targeting === 'room_hazard' || targeting === 'room' || targeting === 'self_or_target') {
+      return [targeting];
+    }
+    if (['skill', 'feat', 'consume_item', 'consumable'].includes(key) && targeting) {
+      return [targeting];
+    }
+    if (key === 'attack' || key === 'demoralize') {
+      return ['hostile_entity'];
+    }
+    if (key === 'feint' || key === 'point_out') {
+      return ['hostile_entity'];
+    }
+    if (key === 'talk') {
+      return ['entity_or_room'];
+    }
+    if (key === 'interact') {
+      return ['entity_or_object'];
+    }
+    if (key === 'command_animal') {
+      return ['ally'];
+    }
+    if ([
+      'aid_setup',
+      'administer_first_aid',
+      'battle_medicine',
+      'treat_poison',
+      'treat_wounds',
+    ].includes(key)) {
+      return ['ally_or_self'];
+    }
+    if (key === 'stride' || key === 'step') {
+      return ['hex'];
+    }
+    if (key === 'cast_spell' || key === 'spell') {
+      if (targeting) {
+        return [targeting];
+      }
+      return ['contextual'];
+    }
+    return ['contextual'];
+  }
+
+  _setTargetPickOverlay(active = false, promptLabel = 'Pick target') {
+    if (!(this._targetPickPromptEl instanceof HTMLElement)) {
+      this._targetPickPromptEl = document.getElementById('map-target-pick-prompt');
+    }
+    const container = this.container?.closest?.('#hexmap-container')
+      || (typeof document !== 'undefined' ? document.getElementById('hexmap-container') : null)
+      || this.container
+      || null;
+    if (container instanceof HTMLElement) {
+      container.classList.toggle('dc-target-pick-active', Boolean(active));
+    }
+    if (this._targetPickPromptEl instanceof HTMLElement) {
+      this._targetPickPromptEl.hidden = !active;
+      this._targetPickPromptEl.textContent = active ? String(promptLabel || 'Pick target').trim() : '';
+    }
+    const instruction = document.getElementById('action-instruction');
+    if (instruction instanceof HTMLElement && active) {
+      instruction.hidden = false;
+      instruction.textContent = String(promptLabel || 'Pick target').trim();
+    }
+  }
+
+  _clearTargetPickSession(reason = 'cleared') {
+    if (!this._targetPickSession) {
+      this._setTargetPickOverlay(false);
+      return;
+    }
+    console.info('[GameShell] target pick session cleared', { reason, actionKey: this._targetPickSession.actionKey });
+    this._targetPickSession = null;
+    this._setTargetPickOverlay(false);
+  }
+
+  _beginTargetPickSession({ actionKey = '', button = null, promptLabel = '' } = {}) {
+    const normalizedAction = String(actionKey || '').trim().toLowerCase();
+    if (!normalizedAction) {
+      return;
+    }
+    const executionButton = this._cloneActionButtonForTargetPick(button);
+    const allowedKinds = this._normalizeTargetPickKindsForAction(normalizedAction, executionButton);
+    const targetActorRef = this._resolveTargetPickActorRef(executionButton);
+    const minTargets = Number.isFinite(Number(executionButton?.dataset?.minTargets))
+      ? Math.max(1, Math.trunc(Number(executionButton.dataset.minTargets)))
+      : 1;
+    const maxTargets = Number.isFinite(Number(executionButton?.dataset?.maxTargets))
+      ? Math.max(minTargets, Math.trunc(Number(executionButton.dataset.maxTargets)))
+      : minTargets;
+    const selectionMode = String(executionButton?.dataset?.selectionMode || (maxTargets > 1 ? 'multi' : 'single')).trim().toLowerCase();
+    const completionPolicy = String(
+      executionButton?.dataset?.completionPolicy
+      || (selectionMode === 'multi' ? 'max_targets' : 'auto')
+    ).trim().toLowerCase();
+    const allowDuplicateTargets = executionButton?.dataset?.allowDuplicateTargets === '1';
+    const rangeFt = Number(executionButton?.dataset?.rangeFt || 0);
+    const maxRangeFt = Number.isFinite(rangeFt) && rangeFt > 0 ? Math.max(0, Math.trunc(rangeFt)) : null;
+    const resolvedPrompt = String(promptLabel || '').trim() || 'Pick target';
+    this._targetPickSession = {
+      actionKey: normalizedAction,
+      button: executionButton,
+      promptLabel: resolvedPrompt,
+      allowedKinds,
+      actorRef: targetActorRef,
+      minTargets,
+      maxTargets,
+      selectionMode,
+      completionPolicy,
+      allowDuplicateTargets,
+      maxRangeFt,
+      selectedTargets: [],
+      sourceSurface: 'action-rail',
+    };
+    this.activateGameShellTab('map');
+    const prompt = maxTargets > 1 ? `${resolvedPrompt} (0/${maxTargets})` : resolvedPrompt;
+    this._setTargetPickOverlay(true, prompt);
+    console.info('[GameShell] target pick session started', {
+      actionKey: normalizedAction,
+      promptLabel: resolvedPrompt,
+      allowedKinds,
+      actorRef: targetActorRef,
+      minTargets,
+      maxTargets,
+      selectionMode,
+      completionPolicy,
+      maxRangeFt,
+    });
+  }
+
+  _resolveTargetPickActorRef(button = null) {
+    const explicitActorRef = String(button?.dataset?.actorRef || '').trim();
+    if (explicitActorRef) {
+      return explicitActorRef;
+    }
+
+    const snapshot = this.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+    const encounterActorRef = String(
+      snapshot?.actionContract?.actor_id
+      || snapshot?.turn?.entity
+      || ''
+    ).trim();
+    if (encounterActorRef) {
+      return encounterActorRef;
+    }
+
+    const selectedEntity = this._getStateValue('selectedEntity') || null;
+    const selectedRef = this.getEntityInstanceRef(selectedEntity);
+    if (selectedRef) {
+      return selectedRef;
+    }
+
+    return this.getEntityInstanceRef(this.findLaunchPlayerEntity?.() || null);
+  }
+
+  _resolveEntityByInstanceRef(actorRef = '') {
+    const targetRef = String(actorRef || '').trim();
+    if (!targetRef || !this.entityManager?.getEntitiesWith) {
+      return null;
+    }
+    const entities = this.entityManager.getEntitiesWith('PositionComponent');
+    return entities.find((entity) => this.getEntityInstanceRef(entity) === targetRef) || null;
+  }
+
+  _isHostileEntityTarget(entity, actorEntity) {
+    if (!entity || !actorEntity || entity.id === actorEntity.id) {
+      return false;
+    }
+    const actorCombat = actorEntity.getComponent?.('CombatComponent') || null;
+    const targetCombat = entity.getComponent?.('CombatComponent') || null;
+    if (!actorCombat || !targetCombat) {
+      return false;
+    }
+    if (typeof actorCombat.isHostileTo === 'function') {
+      return actorCombat.isHostileTo(targetCombat);
+    }
+    const actorTeam = String(actorCombat.team || '').trim().toLowerCase();
+    const targetTeam = String(targetCombat.team || '').trim().toLowerCase();
+    return Boolean(actorTeam && targetTeam && actorTeam !== targetTeam);
+  }
+
+  _isAllyEntityTarget(entity, actorEntity) {
+    if (!entity || !actorEntity || entity.id === actorEntity.id) {
+      return false;
+    }
+    const actorCombat = actorEntity.getComponent?.('CombatComponent') || null;
+    const targetCombat = entity.getComponent?.('CombatComponent') || null;
+    if (!actorCombat || !targetCombat) {
+      return false;
+    }
+    const actorTeam = String(actorCombat.team || '').trim().toLowerCase();
+    const targetTeam = String(targetCombat.team || '').trim().toLowerCase();
+    return Boolean(actorTeam && targetTeam && actorTeam === targetTeam);
+  }
+
+  _resolvePrimaryHexEntity(q, r, provided = []) {
+    const entities = Array.isArray(provided) && provided.length
+      ? provided
+      : this.getEntitiesAtHex(q, r);
+    if (!entities.length) {
+      return null;
+    }
+    const selectedId = this._getStateValue('selectedEntity')?.id || null;
+    if (selectedId) {
+      const match = entities.find((entity) => entity?.id === selectedId);
+      if (match) {
+        return match;
+      }
+    }
+    return entities[0] || null;
+  }
+
+  _handleTargetPickHexClick(q, r, providedEntities = []) {
+    const session = this._targetPickSession;
+    if (!session) {
+      return false;
+    }
+    const actor = this._resolveEntityByInstanceRef(session.actorRef) || this.findLaunchPlayerEntity?.() || null;
+    const targetEntity = this._resolvePrimaryHexEntity(q, r, providedEntities);
+    const kinds = Array.isArray(session.allowedKinds) ? session.allowedKinds : [];
+    const button = session.button;
+    console.info('[GameShell] target pick click received', {
+      actionKey: session.actionKey,
+      actorRef: session.actorRef,
+      q: Number(q),
+      r: Number(r),
+      selectedCount: Array.isArray(session.selectedTargets) ? session.selectedTargets.length : 0,
+      minTargets: session.minTargets,
+      maxTargets: session.maxTargets,
+      completionPolicy: session.completionPolicy,
+      selectionMode: session.selectionMode,
+      allowDuplicateTargets: session.allowDuplicateTargets,
+      targetEntityRef: this.getEntityInstanceRef(targetEntity),
+      targetEntityId: String(targetEntity?.id || ''),
+      targetEntityName: _getEntityDisplayName(targetEntity),
+    });
+
+    const chooseEntityTarget = (entity, kind = 'entity') => {
+      if (!entity) {
+        return false;
+      }
+      const targetRef = String(entity?.dcEntityRef || entity?.dcEntityInstanceId || entity?.instanceId || '').trim();
+      const targetName = _getEntityDisplayName(entity);
+      button.dataset.targetId = String(entity.id || '');
+      button.dataset.targetEntityId = String(entity.id || '');
+      button.dataset.targetName = targetName;
+      if (targetRef) {
+        button.dataset.targetRef = targetRef;
+      }
+      this.selectEntity(entity, { suppressCoordinatorResync: true });
+      return {
+        target_kind: kind,
+        target_ref: targetRef || null,
+        target_entity_id: String(entity.id || '').trim() || null,
+        target_hex: { q: Number(q), r: Number(r) },
+        target_label: targetName || null,
+      };
+    };
+
+    const chooseHexTarget = (kind = 'hex') => {
+      button.dataset.targetQ = String(q);
+      button.dataset.targetR = String(r);
+      return {
+        target_kind: kind,
+        target_ref: null,
+        target_entity_id: null,
+        target_hex: { q: Number(q), r: Number(r) },
+        target_label: `Hex (${q}, ${r})`,
+      };
+    };
+
+    const chooseSelfTarget = () => {
+      if (!actor) {
+        return false;
+      }
+      const actorRef = this.getEntityInstanceRef(actor);
+      const actorLabel = _getEntityDisplayName(actor);
+      if (actorRef) {
+        button.dataset.targetRef = actorRef;
+      }
+      button.dataset.targetEntityId = String(actor?.id || '');
+      button.dataset.targetId = String(actor?.id || '');
+      button.dataset.targetName = actorLabel;
+      this.selectEntity(actor, { suppressCoordinatorResync: true });
+      return {
+        target_kind: 'self',
+        target_ref: actorRef || null,
+        target_entity_id: String(actor?.id || '').trim() || null,
+        target_hex: { q: Number(q), r: Number(r) },
+        target_label: actorLabel || 'self',
+      };
+    };
+
+    let selection = null;
+    if (kinds.includes('hostile_entity')) {
+      selection = this._isHostileEntityTarget(targetEntity, actor) ? chooseEntityTarget(targetEntity, 'hostile_entity') : null;
+    } else if (kinds.includes('ally') || kinds.includes('ally_or_self')) {
+      selection = this._isAllyEntityTarget(targetEntity, actor) ? chooseEntityTarget(targetEntity, 'ally') : null;
+      if (!selection && kinds.includes('ally_or_self')) {
+        selection = chooseSelfTarget();
+      }
+    } else if (kinds.includes('self_or_target')) {
+      const actorRef = this.getEntityInstanceRef(actor);
+      const targetRef = this.getEntityInstanceRef(targetEntity);
+      if (targetEntity && actor && actorRef && targetRef && actorRef === targetRef) {
+        selection = chooseSelfTarget();
+      } else {
+        selection = chooseEntityTarget(targetEntity, 'self_or_target');
+      }
+    } else if (kinds.includes('entity_or_object') || kinds.includes('entity_or_room') || kinds.includes('contextual')) {
+      selection = chooseEntityTarget(targetEntity);
+      if (!selection) {
+        selection = chooseHexTarget();
+      }
+    } else if (kinds.includes('hex')) {
+      selection = chooseHexTarget('hex');
+    } else if (kinds.includes('area_origin')) {
+      button.dataset.areaOriginQ = String(q);
+      button.dataset.areaOriginR = String(r);
+      button.dataset.targetQ = String(q);
+      button.dataset.targetR = String(r);
+      selection = {
+        target_kind: 'area_origin',
+        target_ref: null,
+        target_entity_id: null,
+        target_hex: { q: Number(q), r: Number(r) },
+        target_label: `Area origin (${q}, ${r})`,
+      };
+    } else if (kinds.includes('connected_room')) {
+      const capability = this.resolveNavigationCapabilityAtHex?.(q, r) || null;
+      if (capability?.available && capability?.target_room_id) {
+        button.dataset.targetRoomId = String(capability.target_room_id);
+        button.dataset.targetRoomName = String(capability.target_room_name || capability.target_room_id);
+        button.dataset.targetRef = String(capability.target_room_id);
+        selection = {
+          target_kind: 'connected_room',
+          target_ref: String(capability.target_room_id),
+          target_entity_id: null,
+          target_room_id: String(capability.target_room_id),
+          target_hex: { q: Number(q), r: Number(r) },
+          target_label: String(capability.target_room_name || capability.target_room_id),
+        };
+      }
+    } else if (kinds.includes('room_hazard') || kinds.includes('room')) {
+      button.dataset.targetRoomId = String(this.resolveActiveRoomId() || '');
+      selection = chooseEntityTarget(targetEntity, kinds.includes('room_hazard') ? 'room_hazard' : 'room')
+        || {
+          ...chooseHexTarget(kinds.includes('room_hazard') ? 'room_hazard' : 'room'),
+          target_room_id: String(this.resolveActiveRoomId() || ''),
+        };
+    } else {
+      selection = chooseEntityTarget(targetEntity);
+    }
+
+    if (!selection || !this._appendTargetPickSelection(session, selection)) {
+      console.warn('[GameShell] target pick selection rejected', {
+        actionKey: session.actionKey,
+        q: Number(q),
+        r: Number(r),
+        selection,
+        selectedTargets: session.selectedTargets,
+      });
+      this._setTargetPickOverlay(true, `${session.promptLabel} (invalid target)`);
+      return true;
+    }
+
+    const selectedCount = Array.isArray(session.selectedTargets) ? session.selectedTargets.length : 0;
+    const maxTargets = Number.isFinite(Number(session.maxTargets)) ? Number(session.maxTargets) : 1;
+    const minTargets = Number.isFinite(Number(session.minTargets)) ? Number(session.minTargets) : 1;
+    const completionPolicy = String(session.completionPolicy || '').trim().toLowerCase();
+    const shouldComplete = selectedCount >= minTargets
+      && (
+        session.selectionMode !== 'multi'
+        || completionPolicy === 'min_targets'
+        || selectedCount >= maxTargets
+      );
+    if (!shouldComplete) {
+      console.info('[GameShell] target pick awaiting additional selections', {
+        actionKey: session.actionKey,
+        selectedCount,
+        minTargets,
+        maxTargets,
+        completionPolicy,
+        selectedTargets: session.selectedTargets,
+      });
+      this._setTargetPickOverlay(true, `${session.promptLabel} (${selectedCount}/${maxTargets})`);
+      return true;
+    }
+
+    this._applyLegacySelectionDataset(button, session.selectedTargets[0] || null);
+    button.dataset.targetsJson = JSON.stringify(session.selectedTargets || []);
+    button.dataset.targetQ = button.dataset.targetQ || String(q);
+    button.dataset.targetR = button.dataset.targetR || String(r);
+    this.setSelectedHex(q, r, { emitDetails: false });
+    const actionKey = String(session.actionKey || '').trim();
+    console.info('[GameShell] target pick finalizing action dispatch', {
+      actionKey,
+      actorRef: session.actorRef,
+      minTargets,
+      maxTargets,
+      completionPolicy,
+      targets: session.selectedTargets,
+      datasetTargetRef: String(button?.dataset?.targetRef || ''),
+      datasetTargetsJson: String(button?.dataset?.targetsJson || ''),
+    });
+    this._clearTargetPickSession('picked');
+    this.bus.emit('user:action-selected', { actionKey, button });
+    return true;
+  }
+
+  _appendTargetPickSelection(session, selection) {
+    if (!session || !selection || typeof selection !== 'object') {
+      return false;
+    }
+    if (!Array.isArray(session.selectedTargets)) {
+      session.selectedTargets = [];
+    }
+    const key = [
+      String(selection.target_kind || '').trim(),
+      String(selection.target_ref || '').trim(),
+      String(selection.target_entity_id || '').trim(),
+      Number.isFinite(Number(selection?.target_hex?.q)) ? Number(selection.target_hex.q) : '',
+      Number.isFinite(Number(selection?.target_hex?.r)) ? Number(selection.target_hex.r) : '',
+      String(selection.target_room_id || '').trim(),
+    ].join(':');
+    const existingKeys = new Set((session.selectedTargets || []).map((entry) => [
+      String(entry?.target_kind || '').trim(),
+      String(entry?.target_ref || '').trim(),
+      String(entry?.target_entity_id || '').trim(),
+      Number.isFinite(Number(entry?.target_hex?.q)) ? Number(entry.target_hex.q) : '',
+      Number.isFinite(Number(entry?.target_hex?.r)) ? Number(entry.target_hex.r) : '',
+      String(entry?.target_room_id || '').trim(),
+    ].join(':')));
+    if (!session.allowDuplicateTargets && existingKeys.has(key)) {
+      console.warn('[GameShell] target pick duplicate blocked', {
+        actionKey: session.actionKey,
+        key,
+        selection,
+        allowDuplicateTargets: session.allowDuplicateTargets,
+      });
+      return false;
+    }
+    const maxTargets = Number.isFinite(Number(session.maxTargets)) ? Number(session.maxTargets) : 1;
+    if (session.selectedTargets.length >= maxTargets) {
+      console.warn('[GameShell] target pick max target count reached', {
+        actionKey: session.actionKey,
+        selectedCount: session.selectedTargets.length,
+        maxTargets,
+      });
+      return false;
+    }
+    if (Number.isFinite(Number(session.maxRangeFt)) && Number(session.maxRangeFt) > 0) {
+      const actor = this._resolveEntityByInstanceRef(session.actorRef) || this.findLaunchPlayerEntity?.() || null;
+      const actorPos = actor?.getComponent?.('PositionComponent') || null;
+      const targetQ = Number(selection?.target_hex?.q);
+      const targetR = Number(selection?.target_hex?.r);
+      const distanceHexes = actorPos && Number.isFinite(targetQ) && Number.isFinite(targetR) && this.movementSystem?.hexDistance
+        ? this.movementSystem.hexDistance(Number(actorPos.q), Number(actorPos.r), targetQ, targetR)
+        : null;
+      const hexCost = Number(actor?.getComponent?.('MovementComponent')?.hexMovementCost || 5);
+      const distanceFt = Number.isFinite(Number(distanceHexes))
+        ? Number(distanceHexes) * (Number.isFinite(hexCost) && hexCost > 0 ? hexCost : 5)
+        : null;
+      if (Number.isFinite(Number(distanceFt)) && Number(distanceFt) > Number(session.maxRangeFt)) {
+        console.warn('[GameShell] target pick range blocked', {
+          actionKey: session.actionKey,
+          actorRef: session.actorRef,
+          maxRangeFt: session.maxRangeFt,
+          distanceFt,
+          selection,
+        });
+        return false;
+      }
+    }
+    session.selectedTargets.push(selection);
+    console.info('[GameShell] target pick selection appended', {
+      actionKey: session.actionKey,
+      selectedCount: session.selectedTargets.length,
+      maxTargets: session.maxTargets,
+      selection,
+      selectedTargets: session.selectedTargets,
+    });
+    return true;
+  }
+
+  _applyLegacySelectionDataset(button, selection) {
+    if (!button?.dataset || !selection || typeof selection !== 'object') {
+      return;
+    }
+    if (selection.target_ref) {
+      button.dataset.targetRef = String(selection.target_ref);
+    }
+    if (selection.target_entity_id) {
+      button.dataset.targetEntityId = String(selection.target_entity_id);
+      button.dataset.targetId = String(selection.target_entity_id);
+    }
+    if (selection.target_label) {
+      button.dataset.targetName = String(selection.target_label);
+    }
+    if (selection.target_room_id) {
+      button.dataset.targetRoomId = String(selection.target_room_id);
+    }
+    if (selection?.target_hex && Number.isFinite(Number(selection.target_hex.q)) && Number.isFinite(Number(selection.target_hex.r))) {
+      button.dataset.targetQ = String(selection.target_hex.q);
+      button.dataset.targetR = String(selection.target_hex.r);
+    }
   }
 
   /**
@@ -1873,9 +2865,12 @@ export class GameShell {
       get combatSystem()   { return shell.combatSystem; },
       get turnManagementSystem() { return shell.turnManagementSystem; },
       get gameCoordinator() { return shell.gameCoordinator; },
+      get bus() { return shell.bus; },
       // Occupant queries
       hasVisualOccupants:  () => shell.hasVisualOccupants(),
       getVisualOccupants:  () => shell.getVisualOccupants(),
+      getVisualActorRoster: () => shell.getVisualActorRoster(),
+      getActiveRoomActorRoster: (roomId = null) => shell.getActiveRoomActorRoster(roomId),
       getVisualRooms:      () => shell.getVisualRooms(),
       getPresentationObjectDefinitions: () => shell.getPresentationObjectDefinitions(),
       getVisualConnections: () => shell.getVisualConnections(),
@@ -1884,6 +2879,7 @@ export class GameShell {
       getConnectionHex:    (connection, side) => shell.getConnectionHex(connection, side),
       getActiveRoomData:   () => shell.getActiveRoomData(),
       getActiveRoomHex:    (q, r) => shell.getActiveRoomHex(q, r),
+      getEntitiesAtHex:    (q, r) => shell.getEntitiesAtHex(q, r),
       buildActiveRoomOccupantSummary: () => shell.buildActiveRoomOccupantSummary(),
       isVisualOccupantVisible: (occupant) => shell.isVisualOccupantVisible(occupant),
       getObjectDefinition: (contentId) => shell.getObjectDefinition(contentId),
@@ -1988,7 +2984,7 @@ export class GameShell {
     this.panels.inventory.init(this.dungeonData, stateManager);
     this.panels.character.init(this.dungeonData, stateManager);
     // Panels with no-arg init
-    this.panels.combat.init();
+    this.panels.combat.init(this.dungeonData, stateManager);
     this.panels.quest.init();
     this.panels.roomView.init(this.dungeonData, stateManager);
     this.panels.status.init();
@@ -2001,6 +2997,7 @@ export class GameShell {
    * Called from Drupal.behaviors.hexMapV2.detach.
    */
   destroy() {
+    this._clearTargetPickSession('destroy');
     if (this._tabChangedHandler) {
       window.removeEventListener('dungeoncrawler:game-shell-tab-changed', this._tabChangedHandler);
       this._tabChangedHandler = null;
@@ -2019,6 +3016,11 @@ export class GameShell {
     this.gameCoordinator?.destroy?.();
     this.gameCoordinator = null;
     this.bus?.destroy?.();
+    this._hideHexContextMenu();
+    if (typeof this._hexContextMenuDismissHandler === 'function') {
+      document.removeEventListener('pointerdown', this._hexContextMenuDismissHandler, true);
+      this._hexContextMenuDismissHandler = null;
+    }
 
     this._currentOccupants = [];
     this._merchantRequestTokens.clear();
@@ -2027,6 +3029,184 @@ export class GameShell {
     this.systems = {};
     this.panels = {};
     this.bus = null;
+  }
+
+  _ensureHexContextMenu() {
+    if (this._hexContextMenuEl && this._hexContextMenuEl.isConnected) {
+      return this._hexContextMenuEl;
+    }
+    const menu = document.createElement('div');
+    menu.className = 'hexmap-context-menu';
+    menu.hidden = true;
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Hex actions');
+    this.container.appendChild(menu);
+    this._hexContextMenuEl = menu;
+
+    if (typeof this._hexContextMenuDismissHandler !== 'function') {
+      this._hexContextMenuDismissHandler = (event) => {
+        const root = this._hexContextMenuEl;
+        if (!root || root.hidden) {
+          return;
+        }
+        if (event?.target instanceof Node && root.contains(event.target)) {
+          return;
+        }
+        this._hideHexContextMenu();
+      };
+      document.addEventListener('pointerdown', this._hexContextMenuDismissHandler, true);
+    }
+
+    return menu;
+  }
+
+  _hideHexContextMenu() {
+    if (!this._hexContextMenuEl) {
+      return;
+    }
+    this._hexContextMenuEl.hidden = true;
+    this._hexContextMenuEl.innerHTML = '';
+  }
+
+  _resolveHexMovementOption(actionType, q, r) {
+    const normalizedAction = String(actionType || '').trim().toLowerCase();
+    const snapshot = this.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+    const liveEncounterActive = Number(snapshot?.encounterId || 0) > 0;
+    const availableActions = Array.isArray(snapshot?.availableActions) ? snapshot.availableActions : [];
+    const actionAvailable = availableActions.includes(normalizedAction);
+    const selectedActor = this._getStateValue('selectedEntity') || null;
+    const actor = this.canDragEntityOnMap(selectedActor)
+      ? selectedActor
+      : (this.findLaunchPlayerEntity?.() || null);
+    const actorPos = actor?.getComponent?.('PositionComponent') || null;
+    const movement = actor?.getComponent?.('MovementComponent') || null;
+    const movementSystem = this.movementSystem || null;
+
+    if (!actionAvailable) {
+      return { available: false, reason: `${normalizedAction} is not available this turn.`, path: null, pathHexes: null, pathFeet: null };
+    }
+    if (!actor || !actorPos || !movement || !movementSystem) {
+      return { available: false, reason: 'Movement context is unavailable.', path: null, pathHexes: null, pathFeet: null };
+    }
+
+    const occupants = this.getEntitiesAtHex(q, r);
+    if (Array.isArray(occupants) && occupants.length > 0) {
+      return { available: false, reason: 'Destination hex is occupied.', path: null, pathHexes: null, pathFeet: null };
+    }
+
+    const movementRemaining = Number(movement?.movementRemaining);
+    const movementSpeed = Number(movement?.movementSpeed ?? movement?.movementRemaining);
+    const hexCost = Number(movement?.hexMovementCost || 5);
+    const movementBudgetFeet = liveEncounterActive ? movementRemaining : movementSpeed;
+    const maxHexes = Number.isFinite(movementBudgetFeet) && Number.isFinite(hexCost) && hexCost > 0
+      ? Math.floor(Math.max(0, movementBudgetFeet) / hexCost)
+      : 0;
+
+    const path = movementSystem.findPath(
+      Number(actorPos.q),
+      Number(actorPos.r),
+      Number(q),
+      Number(r),
+      Math.max(0, maxHexes),
+    );
+    const pathHexes = Array.isArray(path) ? Math.max(0, path.length - 1) : null;
+    const pathFeet = pathHexes !== null && Number.isFinite(hexCost) ? pathHexes * hexCost : null;
+
+    if (!path || pathHexes === null) {
+      return { available: false, reason: 'No reachable path within current movement range.', path, pathHexes, pathFeet };
+    }
+    if (normalizedAction === 'step' && pathHexes !== 1) {
+      return { available: false, reason: 'Step requires a destination exactly 1 hex away.', path, pathHexes, pathFeet };
+    }
+    if (pathHexes < 1) {
+      return { available: false, reason: 'Destination is your current hex.', path, pathHexes, pathFeet };
+    }
+
+    return { available: true, reason: '', path, pathHexes, pathFeet };
+  }
+
+  async _executeHexMovementAction(actionType, q, r) {
+    const encounterSystem = this.systems?.encounter || null;
+    if (this.isLiveCombatEncounterActive()) {
+      if (!encounterSystem || typeof encounterSystem.executeDirectMovementAction !== 'function') {
+        return;
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.targetQ = String(q);
+      button.dataset.targetR = String(r);
+      button.dataset.actionLabel = actionType === 'step' ? 'Step' : 'Stride';
+      this._hideHexContextMenu();
+      await encounterSystem.executeDirectMovementAction(actionType, button);
+      return;
+    }
+
+    const selectedActor = this._getStateValue('selectedEntity') || null;
+    const actor = this.canDragEntityOnMap(selectedActor)
+      ? selectedActor
+      : (this.findLaunchPlayerEntity?.() || null);
+    this._hideHexContextMenu();
+    if (!this.canDragEntityOnMap(actor)) {
+      return;
+    }
+    const roomId = String(this.resolveActiveRoomId() || '').trim();
+    await this.moveEntityWithinRoom(actor, roomId, Number(q), Number(r));
+  }
+
+  _showHexContextMenuForHex(q, r, options = {}) {
+    const hasOccupants = Boolean(options?.hasOccupants);
+    if (hasOccupants) {
+      this._hideHexContextMenu();
+      return;
+    }
+
+    const menu = this._ensureHexContextMenu();
+    const stride = this._resolveHexMovementOption('stride', q, r);
+    const step = this._resolveHexMovementOption('step', q, r);
+    const canShowMovement = stride.available || step.available || !!stride.reason || !!step.reason;
+    if (!canShowMovement) {
+      this._hideHexContextMenu();
+      return;
+    }
+
+    const renderButton = (label, actionType, state) => {
+      const disabledAttr = state.available ? '' : ' disabled aria-disabled="true"';
+      const meta = state.pathHexes !== null
+        ? `<span class="hexmap-context-menu__item-meta">${state.pathHexes} hex${state.pathHexes === 1 ? '' : 'es'}${state.pathFeet !== null ? ` (${state.pathFeet} ft)` : ''}</span>`
+        : '';
+      return `
+        <button type="button" class="hexmap-context-menu__item" data-hex-action="${actionType}"${disabledAttr}>
+          <span class="hexmap-context-menu__item-label">${label}</span>
+          ${meta}
+          ${state.available ? '' : `<span class="hexmap-context-menu__item-reason">${state.reason || 'Unavailable'}</span>`}
+        </button>
+      `;
+    };
+
+    menu.innerHTML = `
+      <div class="hexmap-context-menu__title">Hex ${q}, ${r}</div>
+      ${renderButton('Move here (Stride)', 'stride', stride)}
+      ${renderButton('Move carefully (Step)', 'step', step)}
+    `;
+    menu.hidden = false;
+
+    const rect = this.container.getBoundingClientRect();
+    const clientX = Number(options?.clientX);
+    const clientY = Number(options?.clientY);
+    const menuX = Number.isFinite(clientX) ? clientX - rect.left : 24;
+    const menuY = Number.isFinite(clientY) ? clientY - rect.top : 24;
+    menu.style.left = `${Math.max(8, menuX)}px`;
+    menu.style.top = `${Math.max(8, menuY)}px`;
+
+    menu.querySelectorAll('[data-hex-action]').forEach((node) => {
+      node.addEventListener('click', async (event) => {
+        const action = String(event.currentTarget?.getAttribute('data-hex-action') || '').trim();
+        if (!action) {
+          return;
+        }
+        await this._executeHexMovementAction(action, q, r);
+      });
+    });
   }
 
   updateFullscreenViewportMetrics(container = null) {
@@ -2080,6 +3260,18 @@ export class GameShell {
     const btn = document.getElementById('fullscreen-toggle');
     if (!btn || btn.dataset.bound === 'true') {
       return;
+    }
+    const tabActions = btn.closest('.game-shell__tab-actions');
+    let buildBadge = document.getElementById('ui-build-version-badge');
+    if (!buildBadge && tabActions) {
+      buildBadge = document.createElement('span');
+      buildBadge.id = 'ui-build-version-badge';
+      buildBadge.className = 'game-shell__build-version-badge';
+      tabActions.appendChild(buildBadge);
+    }
+    if (buildBadge) {
+      buildBadge.textContent = `UI v${HEXMAP_UI_BUILD_VERSION}`;
+      buildBadge.setAttribute('title', 'UI build version');
     }
 
     const updateFullscreenButton = (button, isFullscreen) => {
@@ -2290,7 +3482,7 @@ export class GameShell {
     void this.syncCoordinatorStateFromServer(this.resolveActiveRoomId?.() || this.activeRoomId || '');
   }
 
-  async syncCoordinatorStateFromServer(expectedRoomId = '') {
+  async syncCoordinatorStateFromServer(expectedRoomId = '', runtimeContext = {}) {
     // Keep client coordinator aligned with authoritative server state after any
     // bundle swap to avoid local drift in phase/version snapshots.
     if (!this.gameCoordinator?.api?.getState || !this.gameCoordinator?.applyAuthoritativeUpdate) {
@@ -2298,7 +3490,37 @@ export class GameShell {
     }
 
     try {
-      const state = await this.gameCoordinator.api.getState();
+      const fallbackRuntimeContext = this.resolveLaunchCharacterRuntimeContext?.() || {};
+      const actorRef = String(
+        runtimeContext?.actor
+        || fallbackRuntimeContext?.instanceId
+        || ''
+      ).trim();
+      const characterId = Number(
+        runtimeContext?.characterId
+        || fallbackRuntimeContext?.characterId
+        || 0
+      ) || null;
+      const syncKey = [
+        String(expectedRoomId || this.resolveActiveRoomId?.() || this.activeRoomId || '').trim(),
+        actorRef,
+        String(characterId || ''),
+      ].join('|');
+      if (this._coordinatorStateSyncInFlightKey === syncKey) {
+        return false;
+      }
+      this._coordinatorStateSyncInFlightKey = syncKey;
+
+      const state = await this.gameCoordinator.api.getState({
+        actor: actorRef || undefined,
+        characterId: characterId || undefined,
+      });
+      const responseActorRef = String(
+        state?.action_contract?.actor_id
+        ?? state?.game_state?.turn?.entity
+        ?? state?.game_state?.encounter_presentation?.current_entity_id
+        ?? ''
+      ).trim();
       const canonicalExpectedRoomId = String(
         expectedRoomId
         || this.resolveActiveRoomId?.()
@@ -2318,11 +3540,20 @@ export class GameShell {
           });
           return false;
         }
+        if (actorRef && responseActorRef && responseActorRef !== actorRef) {
+          console.warn('[GameShell] Skipping stale coordinator resync snapshot after actor context changed', {
+            requestedActorRef: actorRef,
+            responseActorRef,
+          });
+          return false;
+        }
         this.gameCoordinator.applyAuthoritativeUpdate(state);
         return true;
       }
     } catch (error) {
       console.warn('[GameShell] Failed to resync coordinator state after runtime bundle apply', error);
+    } finally {
+      this._coordinatorStateSyncInFlightKey = null;
     }
     return false;
   }
@@ -2377,6 +3608,18 @@ export class GameShell {
   // --- ported from hexmap.js ---
   getVisualOccupants() {
     return _getVisualOccupants(this.mapVisualState);
+  }
+
+  getVisualActorRoster() {
+    return _getVisualActorRoster(this.mapVisualState);
+  }
+
+  getActiveRoomActorRoster(roomId = null) {
+    const normalizedRoomId = String(roomId || this.resolveActiveRoomId() || '').trim();
+    if (!normalizedRoomId) {
+      return [];
+    }
+    return this.getVisualActorRoster().filter((entry) => String(entry?.room_id || '').trim() === normalizedRoomId);
   }
 
   // --- ported from hexmap.js ---
@@ -2748,10 +3991,14 @@ export class GameShell {
     const selectedCharacterId = Number(selectedEntity?.dcCharacterId || selectedEntity?.dcStatePayload?.metadata?.character_id || 0);
     const launchCharacterId = this.resolveLaunchCharacterStateId();
     const selectedInstanceId = selectedEntity?.dcEntityRef || selectedEntity?.dcEntityInstanceId || null;
+    const selectedIsLaunchActor = launchCharacterId > 0 && selectedCharacterId === launchCharacterId;
+    const selectedIsControlledFollower = selectedEntity ? this.isControlledFollowerEntity(selectedEntity) : false;
     return {
       campaignId: this.resolveCampaignId(),
-      characterId: selectedCharacterId || launchCharacterId || null,
-      instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId
+      characterId: (selectedIsLaunchActor || selectedIsControlledFollower)
+        ? (selectedCharacterId || launchCharacterId || null)
+        : (launchCharacterId || null),
+      instanceId: (selectedIsLaunchActor || selectedIsControlledFollower)
         ? selectedInstanceId
         : (this.launchCharacter?.instanceId || this.launchCharacter?.instance_id || null),
       roomId: this.resolveActiveRoomId(),
@@ -2780,7 +4027,7 @@ export class GameShell {
   }
 
   // --- ported from hexmap.js ---
-  selectEntity(entityOrId) {
+  selectEntity(entityOrId, options = {}) {
     if (!entityOrId) {
       this.deselectEntity();
       return;
@@ -2793,9 +4040,563 @@ export class GameShell {
       return;
     }
 
+    const suppressCoordinatorResync = options?.suppressCoordinatorResync === true;
+    const selectedEntity = this._getStateValue('selectedEntity');
+    if (selectedEntity?.id === entity?.id && suppressCoordinatorResync) {
+      return;
+    }
+
     this._setStateValue('selectedEntity', entity);
     this.syncLaunchCharacterRuntimeFromEntity(entity);
     this.bus?.emit('entity:selected', { entity });
+    if (!suppressCoordinatorResync && this.canResyncCoordinatorForSelectedEntity(entity)) {
+      void this.syncCoordinatorStateFromServer(this.resolveActiveRoomId() || '', {
+        actor: this.getEntityInstanceRef(entity),
+        characterId: this.getEntityCharacterId(entity) || null,
+      });
+    }
+  }
+
+  getEntityInstanceRef(entity) {
+    return String(
+      entity?.dcEntityRef
+      || entity?.dcEntityInstanceId
+      || entity?.instanceId
+      || entity?.id
+      || ''
+    ).trim();
+  }
+
+  getEntityCharacterId(entity) {
+    return Number(
+      entity?.dcCharacterId
+      || entity?.dcStatePayload?.metadata?.character_id
+      || entity?.dcStatePayload?.state?.metadata?.character_id
+      || 0
+    ) || 0;
+  }
+
+  getEntityMetadata(entity) {
+    return entity?.dcStatePayload?.metadata
+      || entity?.dcStatePayload?.state?.metadata
+      || entity?.dcEntityPayload?.state?.metadata
+      || entity?.dcEntityPayload?.metadata
+      || {};
+  }
+
+  isFollowerLikeEntity(entity) {
+    const metadata = this.getEntityMetadata(entity);
+    const followerKind = String(metadata?.follower_kind || metadata?.bond_contract?.follower_kind || '').trim().toLowerCase();
+    const roleKind = String(
+      metadata?.role
+      || metadata?.bond_contract?.role
+      || entity?.dcStatePayload?.role
+      || entity?.dcStatePayload?.state?.role
+      || ''
+    ).trim().toLowerCase();
+    const entityRef = this.getEntityInstanceRef(entity).toLowerCase();
+    return followerKind === 'familiar'
+      || followerKind === 'companion'
+      || followerKind === 'follower'
+      || roleKind.includes('familiar')
+      || roleKind.includes('companion')
+      || roleKind.includes('follower')
+      || entityRef.startsWith('familiar-')
+      || entityRef.startsWith('companion-')
+      || entityRef.startsWith('follower-');
+  }
+
+  isControlledFollowerEntity(entity) {
+    if (!this.isFollowerLikeEntity(entity)) {
+      return false;
+    }
+
+    const metadata = this.getEntityMetadata(entity);
+    const launchCharacterId = this.resolveLaunchCharacterStateId();
+    const ownerSourceCharacterId = Number(metadata?.owner_source_character_id || metadata?.bond_contract?.owner_source_character_id || 0) || 0;
+    const ownerCharacterId = Number(metadata?.owner_character_id || metadata?.bond_contract?.owner_character_id || 0) || 0;
+    return launchCharacterId > 0 && (ownerSourceCharacterId === launchCharacterId || ownerCharacterId === launchCharacterId);
+  }
+
+  isActorEntity(entity) {
+    const entityType = String(entity?.dcEntityType || entity?.dcStatePayload?.entity_type || entity?.getComponent?.('IdentityComponent')?.entityType || '').trim().toLowerCase();
+    return ['player_character', 'pc', 'npc', 'creature', 'character'].includes(entityType);
+  }
+
+  isLiveCombatEncounterActive() {
+    const snapshot = this.gameCoordinator?.phaseManager?.getSnapshot?.() || null;
+    const encounterId = Number(
+      snapshot?.encounterId
+      || this.gameCoordinator?.phaseManager?.encounterId
+      || this._getStateValue('encounterId')
+      || 0
+    ) || 0;
+    const phase = String(snapshot?.phase || '').trim().toLowerCase();
+    const encounterState = this.getEncounterServerState?.() || {};
+    const presentationStatus = String(
+      encounterState?.encounter_presentation?.status
+      ?? encounterState?.status
+      ?? this.turnManagementSystem?.getEncounterStatus?.()
+      ?? ''
+    ).trim().toLowerCase();
+
+    if (phase && phase !== 'encounter') {
+      return false;
+    }
+    if (presentationStatus && !['active', 'in_progress', 'setup', 'rolling_initiative', 'paused'].includes(presentationStatus)) {
+      return false;
+    }
+    return encounterId > 0;
+  }
+
+  isCombatDragActorTurn(entity) {
+    if (!this.isLiveCombatEncounterActive() || !entity) {
+      return true;
+    }
+    const turnActorRef = String(this.gameCoordinator?.phaseManager?.turn?.entity || '').trim();
+    const entityRef = this.getEntityInstanceRef(entity);
+    return turnActorRef !== '' && entityRef !== '' && turnActorRef === entityRef;
+  }
+
+  canDragEntityOnMap(entity) {
+    if (!entity) {
+      return false;
+    }
+
+    const followerLike = this.isFollowerLikeEntity(entity);
+    if (!this.isActorEntity(entity) && !followerLike) {
+      return false;
+    }
+
+    const entityRoomId = String(entity?.dcStatePayload?.placement?.room_id || entity?.dcStatePayload?.state?.placement?.room_id || this.resolveActiveRoomId() || '').trim();
+    if (entityRoomId !== String(this.resolveActiveRoomId() || '').trim()) {
+      return false;
+    }
+
+    const canUseGmMode = this.campaignAccess?.can_use_gm_mode === true;
+    const isGmMode = String(this.activeCampaignMode || this.campaignAccess?.current_mode || 'player').trim().toLowerCase() === 'gm';
+    if (canUseGmMode && isGmMode) {
+      return this.isCombatDragActorTurn(entity);
+    }
+
+    const launchCharacterId = this.resolveLaunchCharacterStateId();
+    const canDragAsPlayer = (
+      launchCharacterId > 0 && this.getEntityCharacterId(entity) === launchCharacterId
+    ) || this.isControlledFollowerEntity(entity);
+    if (!canDragAsPlayer) {
+      return false;
+    }
+
+    return this.isCombatDragActorTurn(entity);
+  }
+
+  canResyncCoordinatorForSelectedEntity(entity) {
+    if (!entity) {
+      return false;
+    }
+    const launchCharacterId = this.resolveLaunchCharacterStateId();
+    const matchesLaunchCharacter = launchCharacterId > 0 && this.getEntityCharacterId(entity) === launchCharacterId;
+    return matchesLaunchCharacter || this.isControlledFollowerEntity(entity);
+  }
+
+  resolveMapDragDropValidation(entity, targetQ, targetR) {
+    const q = Number(targetQ);
+    const r = Number(targetR);
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      return { valid: false, reason: 'Drop target is not a valid hex.' };
+    }
+
+    const roomHex = this.getActiveRoomHex(q, r);
+    if (!roomHex) {
+      return { valid: false, reason: 'Drag movement must stay within the active room.' };
+    }
+
+    const obstacleProfile = this.getObstacleMobilityAtHex(q, r);
+    if (obstacleProfile && obstacleProfile.passable === false) {
+      return { valid: false, reason: 'Destination hex is blocked.' };
+    }
+
+    const entityId = entity?.id ?? null;
+    const occupants = this.getEntitiesAtHex(q, r).filter((candidate) => candidate && candidate.id !== entityId);
+    if (occupants.length > 0) {
+      return { valid: false, reason: 'Destination hex is occupied.' };
+    }
+
+    return { valid: true, reason: '' };
+  }
+
+  applyLocalEntityPlacement(entity, roomId, q, r) {
+    if (!entity) {
+      return;
+    }
+
+    const position = entity.getComponent?.('PositionComponent') || null;
+    if (position?.setHex) {
+      position.setHex(Number(q), Number(r));
+    } else if (position) {
+      position.q = Number(q);
+      position.r = Number(r);
+    }
+
+    if (entity?.placement && typeof entity.placement === 'object') {
+      entity.placement.roomId = roomId;
+      entity.placement.q = Number(q);
+      entity.placement.r = Number(r);
+    }
+
+    const payloadCandidates = [
+      entity?.dcStatePayload,
+      entity?.dcEntityPayload,
+    ];
+    payloadCandidates.forEach((payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+      if (!payload.placement || typeof payload.placement !== 'object') {
+        payload.placement = {};
+      }
+      payload.placement.room_id = roomId;
+      payload.placement.hex = { q: Number(q), r: Number(r) };
+      if (payload.state && typeof payload.state === 'object') {
+        if (!payload.state.placement || typeof payload.state.placement !== 'object') {
+          payload.state.placement = {};
+        }
+        payload.state.placement.room_id = roomId;
+        payload.state.placement.hex = { q: Number(q), r: Number(r) };
+      }
+    });
+
+    this.bus?.emit('entity:moved', { entity });
+    this.setSelectedHex(Number(q), Number(r), { emitDetails: false });
+    if (this.getEntityCharacterId(entity) === this.resolveLaunchCharacterStateId()) {
+      this.updateLaunchLocationContext(roomId, Number(q), Number(r));
+    }
+  }
+
+  buildCombatDragMovementPlan(entity, targetQ, targetR) {
+    const position = entity?.getComponent?.('PositionComponent') || null;
+    const movement = entity?.getComponent?.('MovementComponent') || null;
+    if (!position || !movement || !this.movementSystem?.findPath) {
+      return { valid: false, reason: 'Combat movement context is unavailable.' };
+    }
+    if (!this.isCombatDragActorTurn(entity)) {
+      return { valid: false, reason: 'Only the active turn actor can drag-move during combat.' };
+    }
+
+    const actionsRemaining = Number(this.gameCoordinator?.phaseManager?.turn?.actions_remaining ?? movement?.actionsRemaining ?? 0);
+    const movementSpeed = Number(movement?.movementSpeed ?? movement?.movementRemaining);
+    const hexCost = 5;
+    if (!Number.isFinite(actionsRemaining) || actionsRemaining <= 0) {
+      return { valid: false, reason: 'No movement actions remain.' };
+    }
+    if (!Number.isFinite(movementSpeed) || movementSpeed <= 0) {
+      return { valid: false, reason: 'Actor has no movement speed.' };
+    }
+
+    const maxHexes = Math.floor((movementSpeed * actionsRemaining) / hexCost);
+    const path = this.movementSystem.findPath(
+      Number(position.q),
+      Number(position.r),
+      Number(targetQ),
+      Number(targetR),
+      Math.max(0, maxHexes),
+    );
+    const pathHexes = Array.isArray(path) ? Math.max(0, path.length - 1) : null;
+    if (pathHexes === null) {
+      return { valid: false, reason: 'No reachable combat path to that hex.' };
+    }
+    if (pathHexes < 1) {
+      return { valid: true, noop: true };
+    }
+    if (pathHexes === 1) {
+      return {
+        valid: true,
+        actionType: 'step',
+        actionCost: 1,
+        distanceFt: hexCost,
+      };
+    }
+
+    const distanceFt = pathHexes * hexCost;
+    const actionCost = Math.ceil(distanceFt / movementSpeed);
+    if (actionCost > actionsRemaining) {
+      return {
+        valid: false,
+        reason: `Movement requires ${actionCost} actions but only ${actionsRemaining} remain.`,
+      };
+    }
+
+    return {
+      valid: true,
+      actionType: 'stride',
+      actionCost,
+      distanceFt,
+    };
+  }
+
+  buildMovementHighlightBands(entity) {
+    const position = entity?.getComponent?.('PositionComponent') || null;
+    const movement = entity?.getComponent?.('MovementComponent') || null;
+    const activeRoom = this.getActiveRoomData();
+    if (!position || !movement || !this.movementSystem || !Array.isArray(activeRoom?.hexes)) {
+      return null;
+    }
+
+    const movementSpeed = Number(movement?.movementSpeed ?? movement?.movementRemaining);
+    const hexCost = 5;
+    const combatActionsRemaining = Number(this.gameCoordinator?.phaseManager?.turn?.actions_remaining ?? 0) || 0;
+    const maxActions = this.isLiveCombatEncounterActive()
+      ? Math.max(0, Math.min(3, combatActionsRemaining))
+      : 3;
+    const maxHexes = Number.isFinite(movementSpeed) && movementSpeed > 0
+      ? Math.floor((movementSpeed * maxActions) / hexCost)
+      : 0;
+    if (maxHexes <= 0) {
+      return null;
+    }
+
+    const bands = { step: [], stride1: [], stride2: [], stride3: [] };
+    const maxStrideOneHexes = Math.max(1, Math.floor(movementSpeed / hexCost));
+
+    activeRoom.hexes.forEach((hex) => {
+      const q = Number(hex?.q);
+      const r = Number(hex?.r);
+      if (!Number.isFinite(q) || !Number.isFinite(r)) {
+        return;
+      }
+      if (q === Number(position.q) && r === Number(position.r)) {
+        return;
+      }
+
+      const validation = this.resolveMapDragDropValidation(entity, q, r);
+      if (!validation.valid) {
+        return;
+      }
+
+      const path = this.movementSystem.findPath(
+        Number(position.q),
+        Number(position.r),
+        q,
+        r,
+        Math.max(0, maxHexes),
+      );
+      const pathHexes = Array.isArray(path) ? Math.max(0, path.length - 1) : null;
+      if (pathHexes === null || pathHexes < 1) {
+        return;
+      }
+
+      if (pathHexes === 1) {
+        bands.step.push({ q, r });
+        return;
+      }
+
+      const actionBand = Math.ceil(pathHexes / maxStrideOneHexes);
+      if (actionBand === 1) {
+        bands.stride1.push({ q, r });
+      } else if (actionBand === 2) {
+        bands.stride2.push({ q, r });
+      } else if (actionBand === 3) {
+        bands.stride3.push({ q, r });
+      }
+    });
+
+    return bands;
+  }
+
+  showMovementHighlightBandsForEntity(entity) {
+    const bands = this.buildMovementHighlightBands(entity);
+    this._setStateValue('movementRange', bands);
+    this.canvas?.app?.renderMovementBandOverlay?.(bands || {});
+  }
+
+  clearMovementHighlightBands() {
+    this._setStateValue('movementRange', null);
+    this.canvas?.app?.clearMovementBandOverlay?.();
+  }
+
+  async moveEntityWithinRoom(entity, roomId, q, r) {
+    const campaignId = this.resolveCampaignId();
+    const instanceId = this.getEntityInstanceRef(entity);
+    if (!campaignId || !roomId || !instanceId) {
+      return false;
+    }
+    const fromHex = entity?.placement?.hex && typeof entity.placement.hex === 'object'
+      ? {
+          q: Number(entity.placement.hex.q),
+          r: Number(entity.placement.hex.r),
+        }
+      : null;
+
+    try {
+      const response = await fetch(`/api/campaign/${campaignId}/entity/${encodeURIComponent(instanceId)}/move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          locationType: 'room',
+          locationRef: roomId,
+          stateData: {
+            placement: {
+              room_id: roomId,
+              hex: {
+                q: Number(q),
+                r: Number(r),
+              },
+            },
+          },
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        console.warn('[GameShell] room move rejected', { status: response.status, payload });
+        return false;
+      }
+      this.applyLocalEntityPlacement(entity, roomId, q, r);
+      const launchActor = this.findLaunchPlayerEntity?.() || null;
+      const fallbackActorRef = this.getEntityInstanceRef(launchActor);
+      const fallbackCharacterId = this.getEntityCharacterId(launchActor) || this.resolveLaunchCharacterStateId() || null;
+      const canResyncAsEntity = this.canResyncCoordinatorForSelectedEntity(entity);
+      await this.syncCoordinatorStateFromServer(roomId, {
+        actor: canResyncAsEntity ? instanceId : fallbackActorRef,
+        characterId: canResyncAsEntity ? (this.getEntityCharacterId(entity) || null) : fallbackCharacterId,
+      });
+      const actorLabel = _getEntityDisplayName(entity);
+      const movementPacket = {
+        contract_version: 'combat.movement_packet.v1',
+        kind: 'movement_resolution',
+        actor_entity_ref: String(instanceId),
+        movement_mode: 'room_move',
+        from_hex: fromHex,
+        to_hex: { q: Number(q), r: Number(r) },
+        distance_ft: 0,
+        action_cost: 0,
+        metadata: {
+          room_id: String(roomId),
+          source: 'in_room_move',
+        },
+      };
+      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof window.CustomEvent === 'function') {
+        window.dispatchEvent(new window.CustomEvent('dungeoncrawler:game-events', {
+          detail: {
+            events: [{
+              type: 'stride',
+              actor: String(instanceId),
+              target: null,
+              narration: '',
+              data: {
+                actor_name: actorLabel,
+                from: fromHex,
+                to: { q: Number(q), r: Number(r) },
+                movement_packet: movementPacket,
+                is_forced: false,
+                action_cost: 0,
+              },
+            }],
+          },
+        }));
+      }
+      const hazardEvents = Array.isArray(payload?.data?.hazardEvents) ? payload.data.hazardEvents : [];
+      if (
+        hazardEvents.length > 0 &&
+        typeof window !== 'undefined' &&
+        typeof window.dispatchEvent === 'function' &&
+        typeof window.CustomEvent === 'function'
+      ) {
+        window.dispatchEvent(new window.CustomEvent('dungeoncrawler:game-events', {
+          detail: {
+            events: hazardEvents.map((hazardEvent = {}) => ({
+              type: 'hazard_triggered',
+              source: 'room-move',
+              timestamp: new Date().toISOString(),
+              actor_id: actorId,
+              actor_name: actorLabel,
+              room_id: String(hazardEvent?.room_id || roomId),
+              q: Number(q),
+              r: Number(r),
+              data: {
+                actor_name: actorLabel,
+                room_id: String(hazardEvent?.room_id || roomId),
+                q: Number(q),
+                r: Number(r),
+                hazard: hazardEvent,
+              },
+              hazard: hazardEvent,
+            })),
+          },
+        }));
+      }
+      hazardEvents.forEach((hazardEvent = {}) => {
+        const hazardName = String(hazardEvent?.name || 'Hazard').trim() || 'Hazard';
+        const effect = hazardEvent?.effect && typeof hazardEvent.effect === 'object' ? hazardEvent.effect : {};
+        const effectDescription = String(effect?.description || '').trim();
+        const resolvedDamage = Number(effect?.damage_applied ?? effect?.resolved_damage);
+        const damageText = Number.isFinite(resolvedDamage) && resolvedDamage > 0
+          ? String(Math.floor(resolvedDamage))
+          : String(effect?.damage || '').trim();
+        const damageType = String(effect?.damage_type || '').trim();
+        const effectSuffixParts = [];
+        if (effectDescription) {
+          effectSuffixParts.push(effectDescription);
+        }
+        if (damageText) {
+          effectSuffixParts.push(`${damageText}${damageType ? ` ${damageType}` : ''}`.trim());
+        }
+        const effectSuffix = effectSuffixParts.length > 0 ? ` ${effectSuffixParts.join(' ')}` : '';
+        this.bus?.emit('chat:system-message', {
+          text: `${hazardName} triggers as ${actorLabel} moves to (${Number(q)}, ${Number(r)}).${effectSuffix}`,
+          speaker: 'System',
+          kind: 'system',
+          view: 'room',
+          channel: 'room',
+          source: 'hazard-system',
+          authority: 'authoritative',
+          messageClass: 'authoritative_transcript',
+        });
+      });
+      return true;
+    } catch (error) {
+      console.warn('[GameShell] room move failed', error);
+      return false;
+    }
+  }
+
+  async handleMapActorDrop({ entity = null, sourceQ = 0, sourceR = 0, targetQ = 0, targetR = 0 } = {}) {
+    if (!this.canDragEntityOnMap(entity)) {
+      return false;
+    }
+
+    const validation = this.resolveMapDragDropValidation(entity, targetQ, targetR);
+    if (!validation.valid) {
+      return false;
+    }
+
+    if (Number(sourceQ) === Number(targetQ) && Number(sourceR) === Number(targetR)) {
+      return true;
+    }
+
+    if (this.isLiveCombatEncounterActive()) {
+      const combatPlan = this.buildCombatDragMovementPlan(entity, targetQ, targetR);
+      if (!combatPlan.valid) {
+        return false;
+      }
+      if (combatPlan.noop) {
+        return true;
+      }
+      const result = await this.performCombatAction({
+        actionType: combatPlan.actionType || 'stride',
+        actorId: entity?.id,
+        characterId: this.getEntityCharacterId(entity) || null,
+        targetHex: { q: Number(targetQ), r: Number(targetR) },
+        actionCost: combatPlan.actionCost,
+        distanceFt: combatPlan.distanceFt,
+      });
+      return Boolean(result?.success);
+    }
+
+    return this.moveEntityWithinRoom(entity, String(this.resolveActiveRoomId() || ''), Number(targetQ), Number(targetR));
   }
 
   // --- ported from hexmap.js ---
@@ -2848,12 +4649,16 @@ export class GameShell {
       r: Number(r),
       roomId: this.resolveActiveRoomId(),
       roomName: inRoom ? (activeRoom?.name || this.resolveActiveRoomId()) : `${activeRoom?.name || this.resolveActiveRoomId()} (outside footprint)`,
+      isEntry: Boolean(activeRoomHex?.is_entry),
+      isVisible: inRoom ? activeRoomHex?.is_visible !== false : false,
+      isDiscovered: inRoom ? activeRoomHex?.is_discovered !== false : false,
       terrain: terrainLabel,
       lighting: typeof activeRoom?.lighting === 'string' ? activeRoom.lighting : 'unknown',
       elevationFt: inRoom && Number.isFinite(Number(activeRoomHex?.elevation_ft)) ? Number(activeRoomHex.elevation_ft) : null,
       passability: this.describePassability(obstacleProfile, inRoom),
       entities: this.describeEntitiesAtHex(q, r),
       objects: this.describeObjectsAtHex(activeRoomHex, q, r),
+      objectCount: Array.isArray(activeRoomHex?.objects) ? activeRoomHex.objects.length : 0,
       connection: this.describeConnectionAtHex(q, r),
     };
   }
@@ -2917,14 +4722,17 @@ export class GameShell {
       : Number(this.mapVisualState.occupants.party?.[0]?.placement?.r || 0);
     this.mapVisualState.occupants.party = this.mapVisualState.occupants.party.map((occupant, index) => {
       const offset = partyOffsets[index] || partyOffsets[index % partyOffsets.length];
+      const existingQ = Number(occupant?.placement?.q);
+      const existingR = Number(occupant?.placement?.r);
+      const hasExistingPlacement = Number.isFinite(existingQ) && Number.isFinite(existingR);
       return {
         ...occupant,
         room_id: normalizedRoomId,
         visible: occupant?.state?.hidden === true ? false : true,
         placement: {
           ...(occupant?.placement || {}),
-          q: anchorQ + offset.q,
-          r: anchorR + offset.r,
+          q: hasExistingPlacement ? existingQ : (anchorQ + offset.q),
+          r: hasExistingPlacement ? existingR : (anchorR + offset.r),
         },
       };
     });
@@ -3037,7 +4845,11 @@ export class GameShell {
 
   // --- adapted from hexmap.js ---
   async performCombatAction(options = {}) {
-    const encounterId = Number(this._getStateValue('encounterId') || 0) || null;
+    const encounterId = Number(
+      this.gameCoordinator?.phaseManager?.encounterId
+      || this._getStateValue('encounterId')
+      || 0
+    ) || null;
     const actionType = String(options?.actionType || '').trim();
     if (!actionType) {
       console.error('[GameShell] performCombatAction missing actionType', { options });
@@ -3058,12 +4870,7 @@ export class GameShell {
     }
 
     const actorEntity = this.entityManager?.getEntity?.(options.actorId) || null;
-    const actorRef = String(
-      actorEntity?.dcEntityRef
-      || actorEntity?.instanceId
-      || options.actorId
-      || '',
-    ).trim();
+    const actorRef = this.getEntityInstanceRef(actorEntity) || String(options.actorId || '').trim();
     if (!actorRef) {
       return null;
     }
@@ -3074,11 +4881,14 @@ export class GameShell {
       console.error('[GameShell] performCombatAction unavailable: coordinator not initialized', { actionType, campaignId });
       return null;
     }
+    const runtimeCharacterId = Number(options?.characterId || this.resolveLaunchCharacterRuntimeContext?.().characterId || 0) || null;
 
     const params = {
       action_cost: Number(options?.actionCost || 0) || 0,
+      distance_ft: Number.isFinite(Number(options?.distanceFt)) ? Number(options.distanceFt) : null,
       character_id: Number(options?.characterId || 0) || null,
       target_hex: options?.targetHex ?? null,
+      to_hex: options?.targetHex ?? null,
       destination_hex: options?.destinationHex ?? null,
       interaction_type: options?.interactionType ?? null,
       message: options?.message ?? null,
@@ -3104,16 +4914,67 @@ export class GameShell {
       ).trim() || null;
     }
 
+    const refreshAuthoritativeState = async () => {
+      if (!coordinator?.api?.getState || !coordinator?.applyAuthoritativeUpdate) {
+        return false;
+      }
+      try {
+        const state = await coordinator.api.getState({
+          actor: actorRef || null,
+          characterId: runtimeCharacterId,
+        });
+        if (state?.success) {
+          coordinator.applyAuthoritativeUpdate(state);
+          return true;
+        }
+      } catch (refreshErr) {
+        console.warn('[GameShell] performCombatAction authoritative refresh failed', refreshErr);
+      }
+      return false;
+    };
+
+    const sendWithCurrentStateVersion = () => coordinator.api.sendAction(actionType, actorRef, params, {
+      target: targetRef || undefined,
+      stateVersion: coordinator.phaseManager?.stateVersion,
+    });
+
     let data = null;
     try {
-      data = await coordinator.api.sendAction(actionType, actorRef, params, {
-        target: targetRef || undefined,
-        stateVersion: coordinator.phaseManager?.stateVersion,
-      });
+      data = await sendWithCurrentStateVersion();
     } catch (err) {
-      console.error('[GameShell] performCombatAction coordinator call failed', err);
-      this.notifyServerUnavailable();
-      return null;
+      const payload = err?.payload && typeof err.payload === 'object' ? err.payload : null;
+      const errorText = String(payload?.error || err?.message || '').trim();
+      if (payload && /State version mismatch/i.test(errorText)) {
+        coordinator.applyAuthoritativeUpdate?.(payload);
+        try {
+          data = await sendWithCurrentStateVersion();
+        } catch (retryErr) {
+          const retryPayload = retryErr?.payload && typeof retryErr.payload === 'object' ? retryErr.payload : null;
+          if (retryPayload) {
+            await refreshAuthoritativeState();
+            console.warn('[GameShell] performCombatAction rejected after resync', {
+              actionType,
+              error: retryPayload?.error,
+              result: retryPayload?.result,
+            });
+            return null;
+          }
+          console.error('[GameShell] performCombatAction coordinator retry failed', retryErr);
+          return null;
+        }
+      } else if (payload) {
+        await refreshAuthoritativeState();
+        console.warn('[GameShell] performCombatAction rejected', {
+          actionType,
+          error: payload?.error,
+          result: payload?.result,
+        });
+        return null;
+      } else {
+        console.error('[GameShell] performCombatAction coordinator call failed', err);
+        this.notifyServerUnavailable();
+        return null;
+      }
     }
 
     if (!data?.success) {
@@ -3122,6 +4983,19 @@ export class GameShell {
     }
 
     coordinator.applyAuthoritativeUpdate?.(data);
+    if (
+      actorEntity
+      && ['step', 'stride'].includes(actionType)
+      && Number.isFinite(Number(options?.targetHex?.q))
+      && Number.isFinite(Number(options?.targetHex?.r))
+    ) {
+      this.applyLocalEntityPlacement(
+        actorEntity,
+        String(this.resolveActiveRoomId() || ''),
+        Number(options.targetHex.q),
+        Number(options.targetHex.r),
+      );
+    }
     const questUpdates = Array.isArray(data?.quest_updates) ? data.quest_updates : [];
     if (questUpdates.length > 0) {
       await this.applyQuestUpdates(questUpdates);
@@ -3315,6 +5189,7 @@ export class GameShell {
 
   // --- ported from hexmap.js ---
   reset() {
+    this._targetPickSession = null;
     this.state = {
       selectedEntity: null,
       selectedHex: null,
@@ -3362,6 +5237,14 @@ function _getVisualOccupants(mapVisualState = {}) {
   ];
 }
 
+function _getVisualActorRoster(mapVisualState = {}) {
+  const roster = mapVisualState?.actor_roster;
+  const entries = Array.isArray(roster?.entries) ? roster.entries : [];
+  return entries
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry) => ({ ...entry }));
+}
+
 function _getEntityDisplayName(entity = null) {
   if (!entity || typeof entity !== 'object') {
     return 'Unknown';
@@ -3400,12 +5283,14 @@ function _isVisualOccupantVisible(occupant, activeRoomId = '') {
   }
 
   if (occupant.visible === false) {
-    // Visual payload visibility is authored against the initial active room.
-    // Keep active-room occupants visible after in-session room transitions.
-    return inActiveRoom ? !(hidden && !detected) : false;
+    return false;
   }
 
-  return !(hidden && !detected);
+  if (hidden && !detected) {
+    return false;
+  }
+
+  return true;
 }
 
 function _parseVisualHexId(hexId) {
@@ -3981,6 +5866,7 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
   const blueprints = [];
   const seen = new Set();
   const projectedEntitySignatures = new Set();
+  const logicalActorSignatures = new Set();
   const launchCharacterId = Number(
     launchCharacter?.id
     || launchCharacter?.character_id
@@ -4038,6 +5924,7 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
       || (entityCharacterId && launchCharacterId && entityCharacterId === launchCharacterId ? 'player' : ''),
     );
     const hidden = visual?.visible === false || entity?.state?.hidden === true;
+    const logicalActorKey = _buildLogicalActorIdentityKey(rawType, metadata, instanceId, roomId);
 
     const blueprint = {
       key: _buildRenderableEntityKey(instanceId, contentId, q, r),
@@ -4082,8 +5969,11 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
       source: entity,
     };
 
-    if (!hidden && !seen.has(blueprint.key)) {
+    if (!hidden && !seen.has(blueprint.key) && (!logicalActorKey || !logicalActorSignatures.has(logicalActorKey))) {
       seen.add(blueprint.key);
+      if (logicalActorKey) {
+        logicalActorSignatures.add(logicalActorKey);
+      }
       if (contentId) {
         projectedEntitySignatures.add(_buildRenderableProjectionKey(contentId, roomId, q, r));
       }
@@ -4204,8 +6094,10 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
         || Boolean(occupantLabel && normalizedLaunchCharacterName && occupantLabel.toLowerCase() === normalizedLaunchCharacterName)
       );
       const instanceId = occupantId || `visual-occupant:${roomId}:${q}:${r}:${contentId || entityType || occupantIndex}`;
+      const occupantMetadata = _isPlainObject(occupant?.state?.metadata) ? occupant.state.metadata : {};
       const key = _buildRenderableEntityKey(instanceId, roomId, q, r);
-      if (seen.has(key)) {
+      const logicalActorKey = _buildLogicalActorIdentityKey(occupantType, occupantMetadata, instanceId, roomId, Boolean(isPartyOccupant));
+      if (seen.has(key) || (logicalActorKey && logicalActorSignatures.has(logicalActorKey))) {
         return;
       }
 
@@ -4258,6 +6150,9 @@ function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', l
       };
 
       seen.add(key);
+      if (logicalActorKey) {
+        logicalActorSignatures.add(logicalActorKey);
+      }
       if (projectionKey) {
         projectedEntitySignatures.add(projectionKey);
       }
@@ -4380,4 +6275,51 @@ function _buildRenderableProjectionKey(contentId = '', roomId = '', q = 0, r = 0
     return '';
   }
   return `${stableRoomId}:${stableContentId}:${Number(q)}:${Number(r)}`;
+}
+
+function _buildLogicalActorIdentityKey(rawType = '', metadata = {}, instanceId = '', roomId = '', isPartyMember = false) {
+  const stableRoomId = String(roomId || '').trim();
+  if (!stableRoomId || !_isPlainObject(metadata)) {
+    return '';
+  }
+
+  const entityType = String(rawType || '').trim().toLowerCase();
+  const team = _normalizeRenderableEntityTeam(metadata?.team || '');
+  const followerKind = String(metadata?.follower_kind || metadata?.bond_contract?.follower_kind || '').trim().toLowerCase();
+  const sourceCharacterId = Number(metadata?.source_character_id || 0) || 0;
+  const campaignCharacterId = Number(metadata?.campaign_character_id || 0) || 0;
+  const characterId = Number(metadata?.character_id || 0) || 0;
+  const ownerSourceCharacterId = Number(metadata?.owner_source_character_id || metadata?.bond_contract?.owner_source_character_id || 0) || 0;
+  const ownerCharacterId = Number(metadata?.owner_character_id || metadata?.bond_contract?.owner_character_id || 0) || 0;
+  const followerSourceCharacterId = Number(metadata?.follower_source_character_id || 0) || 0;
+  const runtimeEntityId = String(metadata?.runtime_entity_id || instanceId || '').trim();
+  const isPlayerLike = Boolean(isPartyMember)
+    || entityType === 'player_character'
+    || entityType === 'player'
+    || entityType === 'pc'
+    || team === 'player';
+
+  if (followerKind && followerSourceCharacterId > 0) {
+    return `${stableRoomId}:follower-source:${followerSourceCharacterId}:${followerKind}`;
+  }
+  if (followerKind && ownerSourceCharacterId > 0) {
+    return `${stableRoomId}:follower-owner-source:${ownerSourceCharacterId}:${followerKind}`;
+  }
+  if (followerKind && ownerCharacterId > 0) {
+    return `${stableRoomId}:follower-owner:${ownerCharacterId}:${followerKind}`;
+  }
+  if (isPlayerLike && sourceCharacterId > 0) {
+    return `${stableRoomId}:player-source:${sourceCharacterId}`;
+  }
+  if (campaignCharacterId > 0) {
+    return `${stableRoomId}:campaign-character:${campaignCharacterId}`;
+  }
+  if (isPlayerLike && characterId > 0) {
+    return `${stableRoomId}:player-character:${characterId}`;
+  }
+  if (runtimeEntityId) {
+    return `${stableRoomId}:runtime:${runtimeEntityId}`;
+  }
+
+  return '';
 }

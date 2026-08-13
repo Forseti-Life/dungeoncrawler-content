@@ -20,6 +20,8 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       'gm_response',
       'state_diff',
       'canonical_actions',
+      'aggression_summary',
+      'combat_entry_summary',
       'navigation',
       'turn_harness',
       'timing',
@@ -97,7 +99,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     }
 
     $profile = $this->psychologyService->loadProfile($campaign_id, $entity_ref) ?? [];
-    $attitude = strtolower((string) ($profile['attitude'] ?? 'indifferent'));
+    $attitude = $this->resolveActorDispositionAttitude($campaign_id, $entity_ref, $profile, []);
     $role = strtolower((string) ($profile['role'] ?? ''));
     $descriptor = strtolower(trim(implode(' ', array_filter([
       $display_name,
@@ -243,7 +245,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
     string $display_name,
     string $player_message
   ): string {
-    $attitude = $this->psychologyService->getAttitude($campaign_id, $entity_ref) ?? 'indifferent';
+    $attitude = $this->resolveActorDispositionAttitude($campaign_id, $entity_ref);
     $player_message = trim($player_message);
 
     return match ($attitude) {
@@ -2326,7 +2328,14 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       $room_id,
       $dungeon_data,
       fn(string $ref): ?array => $this->psychologyService->loadProfile($campaign_id, $ref),
-      fn(array &$result, array &$seen_refs, array &$seen_names, string $ref, array $entity, array $profile) => $this->registerGatheredRoomNpc($result, $seen_refs, $seen_names, $ref, $entity, $profile),
+      fn(array &$result, array &$seen_refs, array &$seen_names, string $ref, array $entity, array $profile) => $this->registerGatheredRoomNpc(
+        $result,
+        $seen_refs,
+        $seen_names,
+        $ref,
+        $entity,
+        $this->enrichGatheredNpcProfileWithDisposition($campaign_id, $ref, $entity, $profile)
+      ),
       fn(): array => $this->loadRoomCampaignNpcRows($campaign_id, $room_id, $dungeon_data),
       fn(object $row, array $seen_refs): array => $this->resolveCampaignCharacterNpcProfile($campaign_id, $row, $seen_refs),
       fn(string $message, array $context = []) => $this->logger->info($message, $context)

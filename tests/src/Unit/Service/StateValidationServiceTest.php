@@ -7,6 +7,8 @@ use Drupal\Core\Database\Query\SelectInterface;
 use Drupal\Core\Database\Schema;
 use Drupal\Core\Database\StatementInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\dungeoncrawler_content\Service\CanonicalActionRegistryService;
+use Drupal\dungeoncrawler_content\Service\SpellFeatActionDataValidatorService;
 use Drupal\dungeoncrawler_content\Service\StateValidationService;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
@@ -82,6 +84,59 @@ class StateValidationServiceTest extends UnitTestCase {
       'last_room_id is required for location_type values outside global/roster.',
       implode('; ', $result['items'][0]['errors'] ?? [])
     );
+  }
+
+  /**
+   * Verifies spell object validation delegates to the rules validator service.
+   */
+  public function testValidateSpellDefinitionDelegatesToRulesValidator(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+    $rules_validator = $this->createMock(SpellFeatActionDataValidatorService::class);
+    $rules_validator->expects($this->once())
+      ->method('validateSpellDefinition')
+      ->with(['id' => 'test_spell'])
+      ->willReturn(['valid' => TRUE, 'errors' => []]);
+
+    $service = new StateValidationService($logger_factory, NULL, NULL, $rules_validator);
+    $result = $service->validateSpellDefinition(['id' => 'test_spell']);
+
+    $this->assertTrue($result['valid']);
+    $this->assertSame([], $result['errors']);
+  }
+
+  /**
+   * Verifies canonical action contract report validates registry definitions.
+   */
+  public function testValidateCanonicalActionRegistryContractsBuildsValidationReport(): void {
+    $logger = $this->createMock(LoggerInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $rules_validator = $this->createMock(SpellFeatActionDataValidatorService::class);
+    $rules_validator->method('validateActionDefinition')
+      ->willReturn(['valid' => TRUE, 'errors' => []]);
+
+    $action_registry = $this->createMock(CanonicalActionRegistryService::class);
+    $action_registry->method('getCanonicalActions')
+      ->willReturn([
+        'cast_spell' => [
+          'label' => 'Cast spell',
+          'validator' => 'GameplayActionProcessor::validateCharacterActionResources',
+          'executor' => 'GameplayActionProcessor::applyCharacterStateChanges',
+          'scope' => 'character',
+          'status' => 'active',
+        ],
+      ]);
+
+    $service = new StateValidationService($logger_factory, NULL, NULL, $rules_validator, $action_registry);
+    $result = $service->validateCanonicalActionRegistryContracts();
+
+    $this->assertTrue($result['valid']);
+    $this->assertSame(1, $result['summary']['total_items']);
+    $this->assertSame(0, $result['summary']['invalid_items']);
+    $this->assertSame('cast_spell', $result['items'][0]['content_id'] ?? NULL);
   }
 
   /**

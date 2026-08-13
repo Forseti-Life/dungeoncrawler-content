@@ -18,7 +18,7 @@
  *   if (this.gameCoordinator.handleHexClick(q, r)) return;
  */
 
-import { GameCoordinatorApi } from './GameCoordinatorApi.js?v=20260601-search-framework-2';
+import { GameCoordinatorApi } from './GameCoordinatorApi.js?v=20260804-v2-action-bar-rca-logs-2';
 import { PhaseManager } from './PhaseManager.js';
 import { NarrationOverlay } from './NarrationOverlay.js';
 import { ExplorationPhaseHandler } from './phases/ExplorationPhaseHandler.js';
@@ -30,6 +30,9 @@ export class GameCoordinator {
    * @param {object} hexmap - Reference to Drupal.behaviors.hexMap
    */
   constructor(campaignId, hexmap) {
+    console.info('[GameCoordinator] module loaded', {
+      version: '20260804-v2-action-bar-rca-logs-3',
+    });
     this.campaignId = campaignId;
     this.hexmap = hexmap;
 
@@ -112,15 +115,50 @@ export class GameCoordinator {
     this._armNarrationAudioUnlock();
 
     const bootstrapState = this._getBootstrapState();
+    const bootstrapAvailableActions = Array.isArray(this.hexmap?.dungeonData?.available_actions)
+      ? this.hexmap.dungeonData.available_actions
+      : [];
+    const bootstrapActionContract = this.hexmap?.dungeonData?.action_contract || null;
     if (bootstrapState) {
-      this.phaseManager.applyServerState(bootstrapState, this.phaseManager.availableActions || [], this.phaseManager.actionContract || null);
+      this.phaseManager.applyServerState(
+        bootstrapState,
+        bootstrapAvailableActions.length > 0 ? bootstrapAvailableActions : (this.phaseManager.availableActions || []),
+        bootstrapActionContract || this.phaseManager.actionContract || null
+      );
       this.eventCursor = bootstrapState.event_log_cursor || 0;
-      console.log('[GameCoordinator] Initial state bootstrapped from page payload:', this.phaseManager.currentPhase, 'v' + this.phaseManager.stateVersion);
-    } else {
+      console.info('[GameCoordinator] bootstrap payload applied', {
+        phase: this.phaseManager.currentPhase,
+        stateVersion: this.phaseManager.stateVersion,
+        bootstrapAvailableActionCount: bootstrapAvailableActions.length,
+        bootstrapAvailableActions,
+        bootstrapContractActionCount: Array.isArray(bootstrapActionContract?.actions) ? bootstrapActionContract.actions.length : 0,
+        bootstrapFamilyKeys: bootstrapActionContract?.action_option_families ? Object.keys(bootstrapActionContract.action_option_families) : [],
+      });
+    }
+
+    const shouldFetchInitialState = !bootstrapState
+      || bootstrapAvailableActions.length === 0
+      || !bootstrapActionContract;
+
+    if (shouldFetchInitialState) {
       // Load initial state from server only when bootstrap state is absent.
       try {
-        const state = await this.api.getState();
+        const runtimeContext = this.hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
+        const state = await this.api.getState({
+          actor: runtimeContext.instanceId || null,
+          characterId: Number(runtimeContext.characterId || 0) || null,
+        });
         if (state?.success) {
+          console.info('[GameCoordinator] initial /state response', {
+            actor: runtimeContext.instanceId || null,
+            characterId: Number(runtimeContext.characterId || 0) || null,
+            availableActionCount: Array.isArray(state.available_actions) ? state.available_actions.length : 0,
+            availableActions: Array.isArray(state.available_actions) ? state.available_actions : [],
+            actionContractCount: Array.isArray(state.action_contract?.actions) ? state.action_contract.actions.length : 0,
+            familySummary: state.action_contract?.action_option_families
+              ? Object.entries(state.action_contract.action_option_families).map(([key, family]) => `${key}:${Number(family?.option_count ?? (Array.isArray(family?.options) ? family.options.length : 0))}`)
+              : [],
+          });
           this.phaseManager.applyServerState(this._buildStatePayloadFromResponse(state), state.available_actions, state.action_contract || null);
           this.eventCursor = state.game_state?.event_log_cursor || 0;
           if (state.events?.length) {
@@ -421,24 +459,41 @@ export class GameCoordinator {
       return;
     }
 
-    const encounterId = Number(serverState.encounter_id || 0) || null;
-    const status = typeof serverState.status === 'string' ? serverState.status : '';
+    const presentation = serverState?.encounter_presentation && typeof serverState.encounter_presentation === 'object'
+      ? serverState.encounter_presentation
+      : null;
+    const encounterId = Number(
+      presentation?.encounter_id
+      ?? serverState.encounter_id
+      ?? 0
+    ) || null;
+    const status = String(
+      presentation?.status
+      ?? serverState.status
+      ?? ''
+    ).trim().toLowerCase();
     const isActiveEncounter = encounterId !== null && status === 'active';
 
     if (isActiveEncounter) {
-      const currentRound = Number(serverState.current_round);
+      const currentRound = Number(
+        presentation?.current_round
+        ?? serverState.current_round
+      );
       const projectedTurn = this._buildProjectedEncounterTurn(serverState);
       const availableActions = Array.isArray(serverState.available_actions)
         ? serverState.available_actions
         : this.phaseManager.availableActions;
       const actionContract = serverState.action_contract || this.phaseManager.actionContract || null;
+      const initiativeOrder = Array.isArray(presentation?.initiative_order)
+        ? presentation.initiative_order
+        : (Array.isArray(serverState.initiative_order) ? serverState.initiative_order : []);
       this.phaseManager.applyServerState({
         phase: 'encounter',
         state_version: Number(serverState.version) || this.phaseManager.stateVersion || 0,
         round: Number.isFinite(currentRound) && currentRound > 0 ? currentRound : 1,
         turn: projectedTurn,
         encounter_id: encounterId,
-        initiative_order: Array.isArray(serverState.initiative_order) ? serverState.initiative_order : [],
+        initiative_order: initiativeOrder,
         event_log_cursor: this.eventCursor || 0,
       }, availableActions, actionContract);
       return;
@@ -483,12 +538,20 @@ export class GameCoordinator {
    * @private
    */
   _buildProjectedEncounterTurn(serverState) {
-    const turnIndex = Number(serverState.turn_index);
+    const presentation = serverState?.encounter_presentation && typeof serverState.encounter_presentation === 'object'
+      ? serverState.encounter_presentation
+      : null;
+    const turnIndex = Number(
+      presentation?.turn_index
+      ?? serverState.turn_index
+    );
     const currentParticipant = serverState.current_participant
       || (Array.isArray(serverState.participants) && Number.isFinite(turnIndex) ? serverState.participants[turnIndex] : null)
       || null;
     const currentEntity = currentParticipant?.entity_id
+      || (Array.isArray(presentation?.initiative_order) && Number.isFinite(turnIndex) ? presentation.initiative_order[turnIndex]?.entity_id : null)
       || (Array.isArray(serverState.initiative_order) && Number.isFinite(turnIndex) ? serverState.initiative_order[turnIndex]?.entity_id : null)
+      || String(presentation?.current_entity_id || '').trim()
       || null;
 
     if (!currentEntity) {
@@ -634,8 +697,17 @@ export class GameCoordinator {
         text = event.narration;
       }
 
-      if (text && this.narrationOverlay) {
-        this.narrationOverlay.show(text, { style });
+      if (text) {
+        this.hexmap?.bus?.emit?.('chat:system-message', {
+          speaker: 'Narrator',
+          kind: 'gm',
+          text,
+          view: 'room',
+          channel: 'room',
+          source: 'encounter-narration',
+          authority: 'authoritative',
+          messageClass: 'authoritative_transcript',
+        });
       }
 
       const audioUrl = event.data?.narration_audio_url || null;
@@ -743,6 +815,37 @@ export class GameCoordinator {
       })
     );
 
+    this._unsubscribers.push(
+      this.phaseManager.on('actionsUpdate', (availableActions) => {
+        console.info('[GameCoordinator] phaseManager actionsUpdate', {
+          count: Array.isArray(availableActions) ? availableActions.length : 0,
+          availableActions: Array.isArray(availableActions) ? availableActions : [],
+          contractActorId: this.phaseManager.actionContract?.actor_id || null,
+        });
+        this.hexmap?.bus?.emit?.('game:state-refreshed', {
+          availableActions: Array.isArray(availableActions) ? availableActions : [],
+          actionContract: this.phaseManager.actionContract || null,
+          phaseSnapshot: this.phaseManager.getSnapshot(),
+        });
+      })
+    );
+
+    this._unsubscribers.push(
+      this.phaseManager.on('stateUpdate', (snapshot) => {
+        console.info('[GameCoordinator] phaseManager stateUpdate', {
+          phase: snapshot?.phase || null,
+          actorId: snapshot?.actionContract?.actor_id || snapshot?.turn?.entity || null,
+          availableActionCount: Array.isArray(snapshot?.availableActions) ? snapshot.availableActions.length : 0,
+          contractActionCount: Array.isArray(snapshot?.actionContract?.actions) ? snapshot.actionContract.actions.length : 0,
+        });
+        this.hexmap?.bus?.emit?.('game:state-refreshed', {
+          availableActions: Array.isArray(snapshot?.availableActions) ? snapshot.availableActions : [],
+          actionContract: snapshot?.actionContract || null,
+          phaseSnapshot: snapshot || null,
+        });
+      })
+    );
+
     // Encounter start → sync with TurnManagementSystem.
     this._unsubscribers.push(
       this.phaseManager.on('encounterStart', (data) => {
@@ -781,7 +884,7 @@ export class GameCoordinator {
         for (const entity of entities) {
           const ref = entity.dcEntityRef || entity.dcEntityInstanceId;
           if (ref === data.entity) {
-            this.hexmap.selectEntity?.(entity);
+            this.hexmap.selectEntity?.(entity, { suppressCoordinatorResync: true });
             break;
           }
         }

@@ -13,15 +13,18 @@ class CanonicalProjectionService {
   protected CombatEncounterStore $encounterStore;
   protected CharacterStateService $characterStateService;
   protected LoggerInterface $logger;
+  protected ?EffectLifecycleService $effectLifecycleService;
 
   public function __construct(
     CombatEncounterStore $encounter_store,
     CharacterStateService $character_state_service,
-    LoggerChannelFactoryInterface $logger_factory
+    LoggerChannelFactoryInterface $logger_factory,
+    ?EffectLifecycleService $effect_lifecycle_service = NULL
   ) {
     $this->encounterStore = $encounter_store;
     $this->characterStateService = $character_state_service;
     $this->logger = $logger_factory->get('dungeoncrawler');
+    $this->effectLifecycleService = $effect_lifecycle_service;
   }
 
   public function findEncounterParticipantByEntityId(array $encounter, string $entity_id): ?array {
@@ -620,9 +623,19 @@ class CanonicalProjectionService {
   }
 
   public function applyCanonicalDailyPreparationConditionRecovery(array &$character_state): void {
+    $expired_condition_codes = $this->expireActorEffectInstancesOnDailyPreparations($character_state);
     $conditions = $character_state['conditions'] ?? [];
     foreach ($conditions as $index => $condition) {
       if (is_array($condition)) {
+        $code = $this->normalizeConditionCode($condition);
+        if ($code !== '' && in_array($code, $expired_condition_codes, TRUE)) {
+          unset($conditions[$index]);
+          continue;
+        }
+        if ($this->expiresOnNextDailyPreparations($condition)) {
+          unset($conditions[$index]);
+          continue;
+        }
         $name = strtolower((string) ($condition['name'] ?? ''));
         if ($name === 'doomed') {
           $value = max(0, (int) ($condition['value'] ?? 1) - 1);
@@ -727,12 +740,24 @@ class CanonicalProjectionService {
   }
 
   public function applyDailyPreparationConditionRecovery(array &$entity): array {
+    $expired_condition_codes = $this->expireActorEffectInstancesOnDailyPreparations($entity['state'] ?? []);
     $changes = [];
     if (!isset($entity['state']['conditions']) || !is_array($entity['state']['conditions'])) {
       return $changes;
     }
     foreach ($entity['state']['conditions'] as $key => $condition) {
       if (is_array($condition)) {
+        $code = $this->normalizeConditionCode($condition);
+        if ($code !== '' && in_array($code, $expired_condition_codes, TRUE)) {
+          unset($entity['state']['conditions'][$key]);
+          $changes[] = sprintf('expired %s', str_replace('_', ' ', $code));
+          continue;
+        }
+        if ($this->expiresOnNextDailyPreparations($condition)) {
+          unset($entity['state']['conditions'][$key]);
+          $changes[] = sprintf('expired %s', strtolower((string) ($condition['name'] ?? $condition['condition_type'] ?? $condition['id'] ?? 'condition')));
+          continue;
+        }
         $name = strtolower((string) ($condition['name'] ?? ''));
         if ($name === 'doomed') {
           $value = max(0, (int) ($condition['value'] ?? 1) - 1);
@@ -757,6 +782,54 @@ class CanonicalProjectionService {
     }
     $entity['state']['conditions'] = array_values($entity['state']['conditions']);
     return $changes;
+  }
+
+  /**
+   * Expires actor effect instances on daily preparations and returns condition codes.
+   *
+   * @return array<int,string>
+   */
+  protected function expireActorEffectInstancesOnDailyPreparations(array $state): array {
+    if (!$this->effectLifecycleService instanceof EffectLifecycleService) {
+      return [];
+    }
+
+    $character_id = trim((string) ($state['characterId'] ?? $state['character_id'] ?? ''));
+    if ($character_id === '') {
+      return [];
+    }
+
+    $campaign_id = isset($state['campaignId']) && $state['campaignId'] !== ''
+      ? (int) $state['campaignId']
+      : (isset($state['campaign_id']) && $state['campaign_id'] !== '' ? (int) $state['campaign_id'] : NULL);
+    $instance_id = isset($state['instanceId']) && $state['instanceId'] !== ''
+      ? (string) $state['instanceId']
+      : (isset($state['instance_id']) && $state['instance_id'] !== '' ? (string) $state['instance_id'] : NULL);
+
+    $result = $this->effectLifecycleService->expireActorEffectsForTrigger(
+      $character_id,
+      $campaign_id,
+      $instance_id,
+      EffectDefinitionRegistryService::TRIGGER_NEXT_DAILY_PREPARATIONS
+    );
+
+    return array_values(array_filter(array_map(
+      static fn ($code): string => strtolower(trim((string) $code)),
+      is_array($result['expired_condition_codes'] ?? NULL) ? $result['expired_condition_codes'] : []
+    )));
+  }
+
+  protected function expiresOnNextDailyPreparations(array $condition): bool {
+    $duration = strtolower(trim((string) ($condition['duration'] ?? '')));
+    return $duration === 'until_next_daily_preparations' || $duration === 'next_daily_preparations';
+  }
+
+  /**
+   * Normalizes condition row shape to canonical condition code.
+   */
+  protected function normalizeConditionCode(array $condition): string {
+    $raw_code = (string) ($condition['condition_type'] ?? $condition['id'] ?? $condition['name'] ?? '');
+    return strtolower(str_replace([' ', '-'], '_', trim($raw_code)));
   }
 
 }

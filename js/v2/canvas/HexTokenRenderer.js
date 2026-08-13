@@ -51,9 +51,10 @@ export class HexTokenRenderer {
    * @param {HexCanvas} hexCanvas
    * @param {import('../GameEventBus').GameEventBus} bus
    */
-  constructor(hexCanvas, bus) {
+  constructor(hexCanvas, bus, options = {}) {
     this.hexCanvas = hexCanvas;
     this.bus = bus;
+    this.options = options && typeof options === 'object' ? options : {};
 
     /** @type {Map<string|number, PIXI.Container>} entityId → token container */
     this._tokens = new Map();
@@ -69,6 +70,8 @@ export class HexTokenRenderer {
     this._spreadClearTimer = null;
     /** @type {string} Last processed room transition id */
     this._lastRoomTransitionId = '';
+    /** @type {object|null} Active drag state */
+    this._dragState = null;
 
     this._unsubs = [];
   }
@@ -115,9 +118,17 @@ export class HexTokenRenderer {
         this._clearAll();
       })
     );
+
+    this.hexCanvas?.app?.stage?.on('pointermove', this._handleStagePointerMove, this);
+    this.hexCanvas?.app?.stage?.on('pointerup', this._handleStagePointerUp, this);
+    this.hexCanvas?.app?.stage?.on('pointerupoutside', this._handleStagePointerUp, this);
   }
 
   destroy() {
+    this.hexCanvas?.app?.stage?.off('pointermove', this._handleStagePointerMove, this);
+    this.hexCanvas?.app?.stage?.off('pointerup', this._handleStagePointerUp, this);
+    this.hexCanvas?.app?.stage?.off('pointerupoutside', this._handleStagePointerUp, this);
+    this._cancelDrag();
     this._clearAll();
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
@@ -193,6 +204,10 @@ export class HexTokenRenderer {
     container._entityId = entity.id;
     container._entityType = identity?.entityType ?? 'unknown';
     container.dcEntity = entity;
+    container.eventMode = 'static';
+    container.interactive = true;
+    container.buttonMode = true;
+    container.cursor = 'pointer';
 
     // Attempt sprite; fall back to circle
     const spriteKey = render.spriteKey;
@@ -255,7 +270,130 @@ export class HexTokenRenderer {
     ring.visible = false;
     container.addChild(ring);
 
+    container.on('pointerdown', (event) => this._handleTokenPointerDown(container, entity, event));
+
     return container;
+  }
+
+  _handleTokenPointerDown(token, entity, event) {
+    if (Number(event?.data?.button ?? 0) !== 0) {
+      return;
+    }
+
+    event?.stopPropagation?.();
+    const global = event?.data?.global || null;
+    this._dragState = {
+      token,
+      entity,
+      pointerId: event?.data?.pointerId ?? null,
+      originX: Number(token.x || 0),
+      originY: Number(token.y || 0),
+      originQ: Number(entity?.getComponent?.('PositionComponent')?.q || 0),
+      originR: Number(entity?.getComponent?.('PositionComponent')?.r || 0),
+      startGlobalX: Number(global?.x || 0),
+      startGlobalY: Number(global?.y || 0),
+      started: false,
+      canDrag: this.options?.canDragEntity ? this.options.canDragEntity(entity) === true : false,
+    };
+  }
+
+  _handleStagePointerMove(event) {
+    const drag = this._dragState;
+    if (!drag) {
+      return;
+    }
+    if (drag.pointerId !== null && event?.data?.pointerId !== drag.pointerId) {
+      return;
+    }
+
+    const global = event?.data?.global || null;
+    const globalX = Number(global?.x || 0);
+    const globalY = Number(global?.y || 0);
+    if (!drag.started) {
+      const deltaX = globalX - drag.startGlobalX;
+      const deltaY = globalY - drag.startGlobalY;
+      if (Math.hypot(deltaX, deltaY) < 8) {
+        return;
+      }
+      if (!drag.canDrag) {
+        return;
+      }
+      drag.started = true;
+      drag.token.alpha = 0.88;
+      drag.token.zIndex = 9999;
+      drag.token.parent?.sortChildren?.();
+      this.hexCanvas?.setPanEnabled(false);
+      this._clearCrowdedHexHoverState();
+      this.options?.onDragStart?.(drag.entity);
+    }
+
+    const worldPoint = this.hexCanvas?.globalToWorldPoint(globalX, globalY);
+    if (!worldPoint) {
+      return;
+    }
+    drag.token.x = worldPoint.x;
+    drag.token.y = worldPoint.y;
+  }
+
+  async _handleStagePointerUp(event) {
+    const drag = this._dragState;
+    if (!drag) {
+      return;
+    }
+    if (drag.pointerId !== null && event?.data?.pointerId !== drag.pointerId) {
+      return;
+    }
+
+    this._dragState = null;
+    this.hexCanvas?.setPanEnabled(true);
+
+    if (!drag.started) {
+      drag.token.x = drag.originX;
+      drag.token.y = drag.originY;
+      drag.token.alpha = 1;
+      drag.token.zIndex = getZIndex(drag.token._entityType, drag.originQ, drag.originR);
+      drag.token.parent?.sortChildren?.();
+      this.options?.onTokenSelected?.(drag.entity);
+      this.options?.onDragEnd?.(drag.entity, false);
+      return;
+    }
+
+    const global = event?.data?.global || null;
+    const droppedHex = this.hexCanvas?.globalToAxial(global?.x, global?.y);
+    let success = false;
+    if (droppedHex && Number.isFinite(Number(droppedHex.q)) && Number.isFinite(Number(droppedHex.r))) {
+      success = await Promise.resolve(this.options?.onDropEntity?.({
+        entity: drag.entity,
+        sourceQ: drag.originQ,
+        sourceR: drag.originR,
+        targetQ: Number(droppedHex.q),
+        targetR: Number(droppedHex.r),
+      })) === true;
+    }
+
+    drag.token.alpha = 1;
+    if (!success) {
+      drag.token.x = drag.originX;
+      drag.token.y = drag.originY;
+    }
+    drag.token.zIndex = getZIndex(drag.token._entityType, drag.originQ, drag.originR);
+    drag.token.parent?.sortChildren?.();
+    this.options?.onDragEnd?.(drag.entity, success);
+  }
+
+  _cancelDrag() {
+    const drag = this._dragState;
+    this._dragState = null;
+    this.hexCanvas?.setPanEnabled(true);
+    if (!drag?.token) {
+      return;
+    }
+    drag.token.x = drag.originX;
+    drag.token.y = drag.originY;
+    drag.token.alpha = 1;
+    drag.token.zIndex = getZIndex(drag.token._entityType, drag.originQ, drag.originR);
+    drag.token.parent?.sortChildren?.();
+    this.options?.onDragEnd?.(drag.entity, false);
   }
 
   _setFacingIndicator(container, render, hexSize) {

@@ -58,7 +58,7 @@ assert(
 
 assert(
   encounterPhaseSource.includes("'feat',")
-    && encounterPhaseSource.includes("case 'feat':")
+    && encounterPhaseSource.includes('protected function routeFeatIntentExecution(')
     && encounterPhaseSource.includes("'summary' => sprintf('%s uses %s.', $actor_name, $feat_name)")
     && encounterPhaseSource.includes("'feat_id' => $feat_id"),
   'server encounter phase accepts feat intents and returns authoritative feat summaries/events'

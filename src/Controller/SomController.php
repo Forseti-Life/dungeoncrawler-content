@@ -3,9 +3,11 @@
 namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\dungeoncrawler_content\Service\ActorContextProjectionService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
 use Drupal\dungeoncrawler_content\Service\FollowerSubsystemService;
 use Drupal\dungeoncrawler_content\Service\NumberGenerationService;
+use Drupal\dungeoncrawler_content\Service\StanceRuntimeService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -21,8 +23,9 @@ use Symfony\Component\HttpFoundation\Request;
  *  - SOM subtype selection: Hybrid Study / Eidolon type
  *
  * All mutation endpoints require _character_access: TRUE + CSRF header.
- * All state (spellstrike_charged, eidolon_dismissed, arcane_cascade_active)
- * is server-computed and stored in character_data JSON blob under 'som_state'.
+ * SOM state (for example spellstrike_charged and eidolon_dismissed) is
+ * server-computed and stored in character_data JSON under 'som_state', while
+ * Arcane Cascade stance activity is runtime-authoritative in stance_state.
  * The Eidolon is permanently bound to its owning character_id.
  */
 class SomController extends ControllerBase {
@@ -33,11 +36,21 @@ class SomController extends ControllerBase {
   protected CharacterManager $characterManager;
   protected FollowerSubsystemService $followerSubsystem;
   protected NumberGenerationService $numberGeneration;
+  protected StanceRuntimeService $stanceRuntimeService;
+  protected ActorContextProjectionService $actorContextProjectionService;
 
-  public function __construct(CharacterManager $character_manager, FollowerSubsystemService $follower_subsystem, NumberGenerationService $number_generation) {
+  public function __construct(
+    CharacterManager $character_manager,
+    FollowerSubsystemService $follower_subsystem,
+    NumberGenerationService $number_generation,
+    StanceRuntimeService $stance_runtime_service,
+    ActorContextProjectionService $actor_context_projection_service
+  ) {
     $this->characterManager = $character_manager;
     $this->followerSubsystem = $follower_subsystem;
     $this->numberGeneration = $number_generation;
+    $this->stanceRuntimeService = $stance_runtime_service;
+    $this->actorContextProjectionService = $actor_context_projection_service;
   }
 
   /**
@@ -47,7 +60,9 @@ class SomController extends ControllerBase {
     return new static(
       $container->get('dungeoncrawler_content.character_manager'),
       $container->get('dungeoncrawler_content.follower_subsystem'),
-      $container->get('dungeoncrawler_content.number_generation')
+      $container->get('dungeoncrawler_content.number_generation'),
+      $container->get('dungeoncrawler_content.stance_runtime_service'),
+      $container->get('dungeoncrawler_content.actor_context_projection_service')
     );
   }
 
@@ -272,7 +287,9 @@ class SomController extends ControllerBase {
     if ($result instanceof JsonResponse) {
       return $result;
     }
-    [, $data] = $result;
+    [$record, $data] = $result;
+    $campaign_id = (int) ($record->campaign_id ?? 0);
+    $entity_ref = trim((string) ($record->instance_id ?? $character_id));
 
     $class = $data['class_data']['class'] ?? $data['class'] ?? '';
     if ($class !== 'magus') {
@@ -285,12 +302,19 @@ class SomController extends ControllerBase {
       return $this->jsonError('action must be "enter" or "exit".');
     }
 
-    $data['som_state']['arcane_cascade_active'] = ($action === 'enter');
+    if ($action === 'enter') {
+      $data = $this->stanceRuntimeService->enterStance($data, 'arcane_cascade', 1, [], $campaign_id, $entity_ref);
+    }
+    else {
+      $data = $this->stanceRuntimeService->exitStance($data, 'arcane_cascade', [], $campaign_id, $entity_ref);
+    }
     $this->saveData($character_id, $data);
+    $stance_summary = $this->actorContextProjectionService->buildStanceSummary($data, $campaign_id, $entity_ref);
 
     return $this->jsonOk([
       'character_id'           => $character_id,
-      'arcane_cascade_active'  => $data['som_state']['arcane_cascade_active'],
+      'arcane_cascade_active'  => !empty($stance_summary['arcane_cascade_active']),
+      'stance_summary'         => $stance_summary,
     ]);
   }
 

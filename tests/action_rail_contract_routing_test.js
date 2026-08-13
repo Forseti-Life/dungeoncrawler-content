@@ -56,12 +56,12 @@ assert(
 );
 
 assert(
-  actionRailPanelSource.includes("getServerActionIdForExecute('search')")
-    && actionRailPanelSource.includes("getServerActionIdForExecute('spell')")
-    && actionRailPanelSource.includes("getServerActionIdForExecute('consumable')")
-    && actionRailPanelSource.includes("getServerActionIdForExecute('skill')")
-    && actionRailPanelSource.includes("getServerActionIdForExecute('feat')"),
-  'ActionRailPanel server availability gating uses shared execute->server-action mapping'
+  actionRailPanelSource.includes("this.isServerActionAvailable(context, 'search')")
+    && actionRailPanelSource.includes("this.isServerActionAvailable(context, 'cast_spell')")
+    && actionRailPanelSource.includes("this.isServerActionAvailable(context, 'consume_item')")
+    && actionRailPanelSource.includes("this.isServerActionAvailable(context, 'skill')")
+    && actionRailPanelSource.includes("this.isServerActionAvailable(context, 'feat')"),
+  'ActionRailPanel server availability gating uses canonical server action IDs'
 );
 
 console.log('\n==========================================');

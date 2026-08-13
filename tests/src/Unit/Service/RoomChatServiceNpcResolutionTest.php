@@ -407,8 +407,50 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
 
     $this->assertSame('tavern_keeper', $plan['directly_addressed_npc']['entity_ref']);
     $this->assertFalse($plan['gm_addressed']);
-    $this->assertCount(1, $plan['ordered_npcs']);
-    $this->assertSame('tavern_keeper', $plan['ordered_npcs'][0]['entity_ref']);
+    $this->assertContains('tavern_keeper', array_map(static fn(array $npc): string => (string) ($npc['entity_ref'] ?? ''), $plan['ordered_npcs']));
+    $this->assertSame(['tavern_keeper'], $plan['speaking_npc_refs']);
+  }
+
+  /**
+   * @covers ::buildNpcTurnPlan
+   */
+  public function testBuildNpcTurnPlanCapsEngagedRespondersToOne(): void {
+    $roomNpcs = [
+      [
+        'entity_ref' => 'tavern_keeper',
+        'profile' => [
+          'display_name' => 'Eldric',
+          'attitude' => 'friendly',
+        ],
+      ],
+      [
+        'entity_ref' => 'scholar_npc',
+        'profile' => [
+          'display_name' => 'Marta the Scholar',
+          'attitude' => 'friendly',
+        ],
+      ],
+      [
+        'entity_ref' => 'gribbles_rindsworth',
+        'profile' => [
+          'display_name' => 'Gribbles Rindsworth',
+          'attitude' => 'friendly',
+        ],
+      ],
+    ];
+
+    $plan = $this->roomChatService->publicBuildNpcTurnPlan(
+      $roomNpcs,
+      'Eldric, give me one clear answer.',
+      'The room goes silent while others wait.',
+      [],
+      'tavern-room',
+      'engaged-cap-seed'
+    );
+
+    $this->assertSame('tavern_keeper', $plan['directly_addressed_npc']['entity_ref']);
+    $this->assertCount(1, $plan['speaking_npc_refs']);
+    $this->assertSame(['tavern_keeper'], $plan['speaking_npc_refs']);
   }
 
   /**
@@ -496,6 +538,13 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $roomNpcs = [
       [
         'entity_ref' => 'eldric',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 10,
+            ],
+          ],
+        ],
         'profile' => [
           'display_name' => 'Eldric',
           'role' => 'merchant',
@@ -503,6 +552,13 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       ],
       [
         'entity_ref' => 'marta_the_scholar',
+        'entity' => [
+          'state' => [
+            'abilities' => [
+              'charisma' => 18,
+            ],
+          ],
+        ],
         'profile' => [
           'display_name' => 'Marta the Scholar',
         ],
@@ -536,6 +592,46 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertSame('eldric', $plan['directly_addressed_npc']['entity_ref']);
     $this->assertSame('eldric', $plan['active_conversation_npc']['entity_ref']);
     $this->assertNotEmpty($plan['speaking_npc_refs']);
+  }
+
+  /**
+   * @covers ::resolveDirectlyAddressedNpc
+   */
+  public function testResolveDirectlyAddressedNpcCanDisableUnclearFallback(): void {
+    $resolved = $this->roomChatService->publicResolveDirectlyAddressedNpc(
+      [
+        [
+          'entity_ref' => 'quiet_guard',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 10,
+              ],
+            ],
+          ],
+          'profile' => [
+            'display_name' => 'Quiet Guard',
+          ],
+        ],
+        [
+          'entity_ref' => 'tavern_keeper',
+          'entity' => [
+            'state' => [
+              'abilities' => [
+                'charisma' => 16,
+              ],
+            ],
+          ],
+          'profile' => [
+            'display_name' => 'Eldric',
+          ],
+        ],
+      ],
+      'Can someone answer me?',
+      FALSE
+    );
+
+    $this->assertNull($resolved);
   }
 
   /**
@@ -3297,8 +3393,8 @@ class TestableRoomChatService extends RoomChatService {
     return $this->resolveCampaignCharacterNpcProfile($campaign_id, $row, $seen_refs);
   }
 
-  public function publicResolveDirectlyAddressedNpc(array $room_npcs, string $player_message): ?array {
-    return $this->resolveDirectlyAddressedNpc($room_npcs, $player_message);
+  public function publicResolveDirectlyAddressedNpc(array $room_npcs, string $player_message, bool $allow_unclear_fallback = TRUE): ?array {
+    return $this->resolveDirectlyAddressedNpc($room_npcs, $player_message, $allow_unclear_fallback);
   }
 
   public function publicResolveSelectedRoomNpcs(array $room_npcs, string $response_text): array {

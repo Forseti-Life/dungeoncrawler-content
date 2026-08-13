@@ -4,6 +4,8 @@ namespace Drupal\dungeoncrawler_content\Service;
 
 use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Extension\ModuleExtensionList;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -38,6 +40,10 @@ class CampaignInitializationService {
   private const STARTER_CITY_DUNGEON_NAME = 'Absalom';
   private const STARTER_CITY_DUNGEON_DESCRIPTION = 'City hub containing The Gilded Tankard and nearby starter routes.';
   private const STARTER_CITY_STREETS_ROOM_ID = 'tpl_room_absalom_streets';
+  private const STARTER_DEFAULT_SOURCE_ROOM_ID = 'tavern_entrance';
+  private const STARTER_DEFAULT_RUNTIME_ROOM_ID = 'tavern_entrance';
+  private const STARTER_UNDEAD_SOURCE_ROOM_ID = 'tpl_room_crypt_anteroom';
+  private const STARTER_UNDEAD_RUNTIME_ROOM_ID = 'undead_crypt_entry_hall';
   private const STARTER_CANONICAL_CONNECTOR_DUNGEON_ID = 'tpl_dungeon_absalom_city';
   private const STARTER_LIBRARY_CONNECTOR_DUNGEON_ID = 'asset-library-starter-room';
   private const H3_ACTIVE_RESOLUTION = 14;
@@ -63,6 +69,7 @@ class CampaignInitializationService {
   protected ?StarterProjectionArtifactRegistryService $starterProjectionArtifactRegistry;
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected CampaignClockService $campaignClockService;
+  protected ConfigFactoryInterface $configFactory;
 
   public function __construct(
     Connection $database,
@@ -82,7 +89,8 @@ class CampaignInitializationService {
     ?ExitConnectorAuthorityService $connector_definition_service = NULL,
     ?NavigationRuntimeService $navigation_runtime = NULL,
     ?H3ProjectionQueueService $h3_projection_queue = NULL,
-    ?StarterProjectionArtifactRegistryService $starter_projection_artifact_registry = NULL
+    ?StarterProjectionArtifactRegistryService $starter_projection_artifact_registry = NULL,
+    ?ConfigFactoryInterface $config_factory = NULL
   ) {
     $this->database = $database;
     $this->uuid = $uuid;
@@ -91,6 +99,7 @@ class CampaignInitializationService {
     $this->moduleList = $module_list;
     $this->questGenerator = $quest_generator;
     $this->campaignNameGenerator = $campaign_name_generator;
+    $this->configFactory = $config_factory ?? Drupal::configFactory();
     $this->campaignClockService = $campaign_clock_service;
     $this->chatSessionManager = $chat_session_manager;
     $this->npcSheetGenerationService = $npc_sheet_generation_service;
@@ -128,14 +137,20 @@ class CampaignInitializationService {
     $now = $this->time->getRequestTime();
     $campaign_name = $this->resolveCampaignName($name, $theme, $uid, $now);
     $operation_uuid = $this->uuid->generate();
+    $campaign_id = 0;
+    $phase = 'bootstrap_start';
 
     $transaction = $this->database->startTransaction('campaign_init');
     try {
       // 1. Create campaign record
+      $phase = 'create_campaign_record';
       $campaign_id = $this->createCampaign($uid, $campaign_name, $theme, $difficulty, $now);
       if (!$campaign_id) {
         return 0;
       }
+      $phase = 'resolve_campaign_profile';
+      $campaign_profile = $this->resolveCampaignProfile($theme);
+      $phase = 'claim_initialization_step';
       $this->claimInitializationStep(
         $campaign_id,
         $operation_uuid,
@@ -143,10 +158,14 @@ class CampaignInitializationService {
         $now
       );
 
-      $starter_room = $this->loadStarterRoomSeed();
+      $phase = 'resolve_starter_blueprint';
+      $starter_blueprint = $this->resolveStarterBlueprint($campaign_profile, $theme);
+      $this->assertStarterBlueprintContract($starter_blueprint);
+      $phase = 'load_starter_room_seed';
+      $starter_room = $this->loadStarterRoomSeed($starter_blueprint);
       if ($starter_room === NULL) {
         $transaction->rollBack();
-        $this->logger->error('Failed to load explicit starter tavern asset for campaign {campaign_id}', [
+        $this->logger->error('Failed to load explicit starter room asset for campaign {campaign_id}', [
           'campaign_id' => $campaign_id,
         ]);
         return 0;
@@ -155,7 +174,8 @@ class CampaignInitializationService {
       $starter_runtime_room_id = $starter_room_ids['runtime_room_id'];
 
       // 2. Create default starter dungeon
-      $dungeon_id = $this->createStarterDungeon($campaign_id, $theme, $now, $starter_room);
+      $phase = 'create_starter_dungeon';
+      $dungeon_id = $this->createStarterDungeon($campaign_id, $theme, $now, $starter_room, $starter_blueprint);
       if (!$dungeon_id) {
         $transaction->rollBack();
         $this->logger->error('Failed to create starter dungeon for campaign {campaign_id}', [
@@ -163,29 +183,40 @@ class CampaignInitializationService {
         ]);
         return 0;
       }
-      $this->seedStarterConnectorAuthority($campaign_id, $dungeon_id, $starter_runtime_room_id);
-      $starter_frontier_room_ids = array_values(array_unique([
-        $starter_runtime_room_id,
-        self::STARTER_CITY_STREETS_ROOM_ID,
-      ]));
+      $connected_room_source_id = trim((string) ($starter_blueprint['connected_room_source_id'] ?? ''));
+      if ($connected_room_source_id !== '') {
+        $phase = 'seed_starter_connector_authority';
+        $this->seedStarterConnectorAuthority($campaign_id, $dungeon_id, $starter_runtime_room_id);
+      }
+      $starter_frontier_room_ids = [$starter_runtime_room_id];
+      if ($connected_room_source_id !== '') {
+        $starter_frontier_room_ids[] = $connected_room_source_id;
+      }
+      $starter_frontier_room_ids = array_values(array_unique(array_filter(array_map(
+        static fn(string $room_id): string => trim($room_id),
+        $starter_frontier_room_ids
+      ))));
       sort($starter_frontier_room_ids);
-      $starter_profile_id = 'starter-frontier-default-v1';
+      $starter_profile_id = trim((string) ($starter_blueprint['starter_profile_id'] ?? ''));
 
-      // 3. Load Tavern Entrance room and content
-      if (!$this->loadTavernEntranceRoom($campaign_id, $now, $starter_room)) {
+      // 3. Load starter room and content.
+      $phase = 'load_starter_room_into_campaign';
+      if (!$this->loadStarterRoomIntoCampaign($campaign_id, $now, $starter_room, $starter_blueprint)) {
         $transaction->rollBack();
-        $this->logger->error('Failed to load tavern entrance for campaign {campaign_id}', [
+        $this->logger->error('Failed to load starter room into campaign {campaign_id}', [
           'campaign_id' => $campaign_id,
         ]);
         return 0;
       }
 
-      $this->seedStarterQuests($campaign_id, $difficulty, $now, $starter_runtime_room_id);
+      $phase = 'seed_starter_quests';
+      $this->seedStarterQuests($campaign_id, $difficulty, $now, $starter_runtime_room_id, $starter_blueprint);
 
       // 5. Bootstrap hierarchical chat sessions for the campaign.
-      //    Include the starter dungeon and tavern room so they get
+      //    Include the starter dungeon and starter room so they get
       //    dedicated sessions from the very start.
 
+      $phase = 'bootstrap_chat_sessions';
       $this->bootstrapChatSessions(
         $campaign_id,
         $campaign_name,
@@ -203,6 +234,7 @@ class CampaignInitializationService {
         $now
       );
       if ($this->roomViewImageService) {
+        $phase = 'warm_starter_room_view_image_cache';
         $this->roomViewImageService->warmRoomViewImageCache($starter_room, [
           'campaign_id' => $campaign_id,
           'dungeon_id' => $dungeon_id,
@@ -212,11 +244,14 @@ class CampaignInitializationService {
       if (!$this->h3ProjectionQueue) {
         throw new \RuntimeException('Campaign initialization contract violation: H3 projection provisioning service is required for starter readiness.');
       }
+      $phase = 'provision_h3_launch_slice';
       $starter_provisioning_result = $this->h3ProjectionQueue->provisionLaunchSliceNow(
         $campaign_id,
         $dungeon_id,
         $starter_frontier_room_ids
       );
+      $phase = 'persist_campaign_active_state';
+      $this->persistCampaignActiveState($campaign_id, $dungeon_id, $starter_runtime_room_id, $now);
       $canonical_graph_version = trim((string) ($starter_provisioning_result['canonical_graph_version'] ?? ''));
       $campaign_graph_version = trim((string) ($starter_provisioning_result['campaign_graph_version'] ?? ''));
       if ($canonical_graph_version === '' || $campaign_graph_version === '') {
@@ -225,6 +260,7 @@ class CampaignInitializationService {
       if (!$this->starterProjectionArtifactRegistry) {
         throw new \RuntimeException('Campaign initialization contract violation: starter artifact registry service is required.');
       }
+      $phase = 'upsert_starter_artifact_manifest';
       $starter_manifest = $this->starterProjectionArtifactRegistry->upsertStarterArtifactManifest(
         $starter_profile_id,
         $canonical_graph_version,
@@ -241,6 +277,7 @@ class CampaignInitializationService {
       if ($starter_source_contract_hash === '' || $starter_artifact_version === '') {
         throw new \RuntimeException('Campaign initialization contract violation: starter artifact manifest is missing required version/hash metadata.');
       }
+      $phase = 'complete_initialization_step';
       $this->completeInitializationStep(
         $campaign_id,
         self::INIT_STEP_BOOTSTRAP,
@@ -251,6 +288,7 @@ class CampaignInitializationService {
           'starter_room_id' => $starter_runtime_room_id,
         ]
       );
+      $phase = 'persist_campaign_ready_phase';
       $this->persistCampaignInitPhase($campaign_id, self::INIT_PHASE_STRUCTURAL_READY, [
         'owner' => 'CampaignInitializationService',
         'ready_at' => gmdate('c', $now),
@@ -278,11 +316,27 @@ class CampaignInitializationService {
 
       return $campaign_id;
     }
-    catch (\Exception $e) {
+    catch (\Throwable $e) {
       if (isset($transaction)) {
         $transaction->rollBack();
       }
-      $this->logger->error('Campaign initialization failed: {error}', ['error' => $e->getMessage()]);
+      $this->logger->error('Campaign initialization failed (operation={operation_uuid}, phase={phase}, campaign_id={campaign_id}, uid={uid}, theme={theme}, difficulty={difficulty}, exception={exception_class}): {error}', [
+        'operation_uuid' => $operation_uuid,
+        'phase' => $phase,
+        'campaign_id' => $campaign_id,
+        'uid' => $uid,
+        'theme' => $theme,
+        'difficulty' => $difficulty,
+        'exception_class' => $e::class,
+        'error' => $e->getMessage(),
+      ]);
+      $trace = $e->getTraceAsString();
+      if ($trace !== '') {
+        $this->logger->error('Campaign initialization failure trace (operation={operation_uuid}): {trace}', [
+          'operation_uuid' => $operation_uuid,
+          'trace' => substr($trace, 0, 4000),
+        ]);
+      }
       return 0;
     }
   }
@@ -408,6 +462,8 @@ class CampaignInitializationService {
     string $difficulty,
     int $now
   ): int {
+    $profile = $this->resolveCampaignProfile($theme);
+    $default_active_room_id = trim((string) ($profile['launch_policy']['default_active_room_id'] ?? ''));
     $payload = [
       'state' => [
         'schema_version' => '1.0.0',
@@ -416,7 +472,21 @@ class CampaignInitializationService {
         'progress' => [],
         'created_at' => gmdate('c', $now),
         'updated_at' => gmdate('c', $now),
+        'active' => [
+          'dungeon_id' => '',
+          'room_id' => $default_active_room_id,
+          'character_id' => 0,
+        ],
         CampaignClockService::STATE_KEY => $this->campaignClockService->createClockFromTimestamp($now),
+      ],
+      'profile' => $profile,
+      'children' => [
+        'dungeon_ids' => [],
+        'actor_ids' => [],
+      ],
+      'authority' => [
+        'graph_source' => 'campaign_tables',
+        'delivery_snapshot_policy' => 'projection_only',
       ],
       'state_meta' => [
         'version' => 1,
@@ -431,11 +501,11 @@ class CampaignInitializationService {
           'operation' => self::INIT_STEP_BOOTSTRAP,
         ],
       ],
-      ];
+    ];
 
     $this->campaignClockService->syncLegacyGameTime($payload['state']);
 
-    return (int) $this->database->insert('dc_campaigns')
+    $campaign_id = (int) $this->database->insert('dc_campaigns')
       ->fields([
         'uuid' => $this->uuid->generate(),
         'uid' => $uid,
@@ -448,6 +518,244 @@ class CampaignInitializationService {
         'changed' => $now,
       ])
       ->execute();
+    $this->enrollCampaignInLatencyCanaryIfEnabled($campaign_id);
+    return $campaign_id;
+  }
+
+  /**
+   * Auto-enroll newly created campaigns in latency canary cohort when enabled.
+   */
+  private function enrollCampaignInLatencyCanaryIfEnabled(int $campaign_id): void {
+    if ($campaign_id <= 0 || !$this->shouldAutoEnrollNewCampaignForLatencyCanary()) {
+      return;
+    }
+    $config = $this->configFactory->getEditable('dungeoncrawler_content.settings');
+    $raw = (string) $config->get('latency_toggle_canary_campaign_ids');
+    $campaign_ids = [];
+    foreach (preg_split('/[\s,]+/', $raw, -1, \PREG_SPLIT_NO_EMPTY) ?: [] as $candidate) {
+      $id = (int) $candidate;
+      if ($id > 0) {
+        $campaign_ids[$id] = TRUE;
+      }
+    }
+    if (isset($campaign_ids[$campaign_id])) {
+      return;
+    }
+    $campaign_ids[$campaign_id] = TRUE;
+    $ids = array_keys($campaign_ids);
+    sort($ids);
+    $config->set('latency_toggle_canary_campaign_ids', implode(',', $ids))->save();
+    $this->logger->notice('Latency canary auto-enrolled newly created campaign {campaign_id}.', [
+      'campaign_id' => $campaign_id,
+    ]);
+  }
+
+  /**
+   * Returns whether newly created campaigns should auto-join latency canary.
+   */
+  private function shouldAutoEnrollNewCampaignForLatencyCanary(): bool {
+    $raw = strtolower(trim((string) getenv('DC_LATENCY_AUTO_ENROLL_NEW_CAMPAIGNS')));
+    if (in_array($raw, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+    if (in_array($raw, ['0', 'false', 'no', 'off'], TRUE)) {
+      return FALSE;
+    }
+    return (bool) $this->configFactory
+      ->get('dungeoncrawler_content.settings')
+      ->get('latency_toggle_auto_enroll_new_campaigns');
+  }
+
+  /**
+   * Resolve campaign-owned content/starter profile contract for a theme.
+   *
+   * @return array<string, mixed>
+   *   Campaign profile payload.
+   */
+  private function resolveCampaignProfile(string $theme): array {
+    $normalized_theme = strtolower(trim($theme));
+    if ($normalized_theme === '') {
+      $normalized_theme = 'classic_dungeon';
+    }
+
+    if ($normalized_theme === 'undead_crypt') {
+      return [
+        'content_profile_id' => 'starter-undead-crypt-v1',
+        'starter_profile_id' => 'starter-undead-crypt-room-40x40-v1',
+        'starter_source_room_id' => self::STARTER_UNDEAD_SOURCE_ROOM_ID,
+        'starter_runtime_room_id' => self::STARTER_UNDEAD_RUNTIME_ROOM_ID,
+        'starter_source_dungeon_id' => 'tpl_dungeon_undead_crypt_intro',
+        'starter_dungeon_name' => 'Undead Crypt',
+        'starter_dungeon_description' => 'A cold crypt starter space for movement and combat iteration.',
+        'connected_room_source_id' => self::STARTER_CITY_STREETS_ROOM_ID,
+        'starter_room_tags_default' => ['undead', 'crypt', 'stone', 'starting_area', 'combat_testbed'],
+        'starter_location_tags' => ['crypt', 'starting_area'],
+        'narrative_hub_policy' => [
+          'primary_room_id' => self::STARTER_UNDEAD_RUNTIME_ROOM_ID,
+          'primary_contact_actor_id' => NULL,
+          'quest_completion_room_id' => self::STARTER_UNDEAD_RUNTIME_ROOM_ID,
+          'fallback_mode' => 'campaign_profile',
+        ],
+        'launch_policy' => [
+          'default_active_dungeon_id' => 'campaign_starter_dungeon_primary',
+          'default_active_room_id' => self::STARTER_UNDEAD_RUNTIME_ROOM_ID,
+          'runtime_fallback_mode' => 'campaign_profile_only',
+        ],
+      ];
+    }
+
+    return [
+      'content_profile_id' => 'starter-city-tavern-v1',
+      'starter_profile_id' => 'starter-tavern-room-v1',
+      'starter_source_room_id' => self::STARTER_DEFAULT_SOURCE_ROOM_ID,
+      'starter_runtime_room_id' => self::STARTER_DEFAULT_RUNTIME_ROOM_ID,
+      'starter_source_dungeon_id' => self::STARTER_LIBRARY_CONNECTOR_DUNGEON_ID,
+      'starter_dungeon_name' => self::STARTER_CITY_DUNGEON_NAME,
+      'starter_dungeon_description' => self::STARTER_CITY_DUNGEON_DESCRIPTION,
+      'connected_room_source_id' => self::STARTER_CITY_STREETS_ROOM_ID,
+      'starter_room_tags_default' => ['indoor', 'tavern', 'safe', 'starting_area'],
+      'starter_location_tags' => ['tavern', 'starting_area'],
+      'narrative_hub_policy' => [
+        'primary_room_id' => self::STARTER_DEFAULT_RUNTIME_ROOM_ID,
+        'primary_contact_actor_id' => 'npc_tavern_keeper',
+        'quest_completion_room_id' => self::STARTER_DEFAULT_RUNTIME_ROOM_ID,
+        'fallback_mode' => 'campaign_profile',
+      ],
+      'launch_policy' => [
+        'default_active_dungeon_id' => 'campaign_starter_dungeon_primary',
+        'default_active_room_id' => self::STARTER_DEFAULT_RUNTIME_ROOM_ID,
+        'runtime_fallback_mode' => 'campaign_profile_only',
+      ],
+    ];
+  }
+
+  /**
+   * Resolve starter blueprint used by initialization orchestration.
+   *
+   * @param array<string, mixed> $campaign_profile
+   *   Campaign profile payload.
+   *
+   * @return array<string, mixed>
+   *   Starter blueprint payload.
+   */
+  private function resolveStarterBlueprint(array $campaign_profile, string $theme): array {
+    return [
+      'theme' => strtolower(trim($theme)),
+      'content_profile_id' => (string) ($campaign_profile['content_profile_id'] ?? ''),
+      'starter_profile_id' => (string) ($campaign_profile['starter_profile_id'] ?? ''),
+      'source_room_id' => (string) ($campaign_profile['starter_source_room_id'] ?? ''),
+      'runtime_room_id' => (string) ($campaign_profile['starter_runtime_room_id'] ?? ''),
+      'source_dungeon_id' => (string) ($campaign_profile['starter_source_dungeon_id'] ?? ''),
+      'connected_room_source_id' => (string) ($campaign_profile['connected_room_source_id'] ?? ''),
+      'dungeon_name' => (string) ($campaign_profile['starter_dungeon_name'] ?? ''),
+      'dungeon_description' => (string) ($campaign_profile['starter_dungeon_description'] ?? ''),
+      'room_tags_default' => is_array($campaign_profile['starter_room_tags_default'] ?? NULL) ? $campaign_profile['starter_room_tags_default'] : [],
+      'location_tags' => is_array($campaign_profile['starter_location_tags'] ?? NULL) ? $campaign_profile['starter_location_tags'] : [],
+    ];
+  }
+
+  /**
+   * Enforce strict starter blueprint requirements (no implicit defaults).
+   */
+  private function assertStarterBlueprintContract(array $starter_blueprint): void {
+    $required_fields = [
+      'theme',
+      'content_profile_id',
+      'starter_profile_id',
+      'source_room_id',
+      'runtime_room_id',
+      'source_dungeon_id',
+      'dungeon_name',
+      'dungeon_description',
+    ];
+    foreach ($required_fields as $field) {
+      $value = trim((string) ($starter_blueprint[$field] ?? ''));
+      if ($value === '') {
+        throw new \RuntimeException(sprintf(
+          'Starter blueprint contract violation: required field "%s" is missing or empty.',
+          $field
+        ));
+      }
+    }
+
+    $room_tags = is_array($starter_blueprint['room_tags_default'] ?? NULL) ? $starter_blueprint['room_tags_default'] : [];
+    if ($room_tags === []) {
+      throw new \RuntimeException('Starter blueprint contract violation: room_tags_default must be a non-empty array.');
+    }
+
+    if (
+      strtolower((string) $starter_blueprint['theme']) === 'undead_crypt'
+      && trim((string) ($starter_blueprint['connected_room_source_id'] ?? '')) === ''
+    ) {
+      throw new \RuntimeException('Starter blueprint contract violation: connected_room_source_id is required for undead_crypt starter graph readiness.');
+    }
+  }
+
+  /**
+   * Persist campaign-level active pointers after starter bootstrap.
+   */
+  private function persistCampaignActiveState(
+    int $campaign_id,
+    string $dungeon_id,
+    string $starter_room_id,
+    int $timestamp
+  ): void {
+    $campaign = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['campaign_data'])
+      ->condition('id', $campaign_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($campaign)) {
+      throw new \RuntimeException(sprintf(
+        'Campaign initialization contract violation: campaign %d missing during active-state persistence.',
+        $campaign_id
+      ));
+    }
+
+    $campaign_data = json_decode((string) ($campaign['campaign_data'] ?? '{}'), TRUE);
+    if (!is_array($campaign_data)) {
+      throw new \RuntimeException(sprintf(
+        'Campaign initialization contract violation: campaign %d campaign_data is invalid JSON during active-state persistence.',
+        $campaign_id
+      ));
+    }
+
+    $campaign_data['state'] = is_array($campaign_data['state'] ?? NULL) ? $campaign_data['state'] : [];
+    $campaign_data['state']['active'] = [
+      'dungeon_id' => trim($dungeon_id),
+      'room_id' => trim($starter_room_id),
+      'character_id' => 0,
+    ];
+    $campaign_data['state']['updated_at'] = gmdate('c', $timestamp);
+    $campaign_data['children'] = is_array($campaign_data['children'] ?? NULL) ? $campaign_data['children'] : [];
+    $campaign_data['children']['dungeon_ids'] = array_values(array_unique(array_filter(array_map(
+      static fn($id): string => trim((string) $id),
+      array_merge((array) ($campaign_data['children']['dungeon_ids'] ?? []), [trim($dungeon_id)])
+    ))));
+
+    $encoded = json_encode($campaign_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded)) {
+      throw new \RuntimeException(sprintf(
+        'Campaign initialization contract violation: failed to encode campaign_data for campaign %d active-state persistence.',
+        $campaign_id
+      ));
+    }
+
+    $updated = (int) $this->database->update('dc_campaigns')
+      ->fields([
+        'campaign_data' => $encoded,
+        'changed' => $timestamp,
+      ])
+      ->condition('id', $campaign_id)
+      ->execute();
+    if ($updated !== 1) {
+      throw new \RuntimeException(sprintf(
+        'Campaign initialization contract violation: active-state persistence affected %d rows for campaign %d.',
+        $updated,
+        $campaign_id
+      ));
+    }
   }
 
   /**
@@ -539,13 +847,14 @@ class CampaignInitializationService {
     int $campaign_id,
     string $theme,
     int $now,
-    array $starter_room
+    array $starter_room,
+    array $starter_blueprint = []
   ): string|FALSE {
     $runtime_room_id = trim((string) ($starter_room['runtime_room_id'] ?? ''));
     $layout_data = is_array($starter_room['layout_data'] ?? NULL) ? $starter_room['layout_data'] : [];
 
     if ($runtime_room_id === '' || empty($layout_data['hexes']) || empty($starter_room['contents_data']['npcs'])) {
-      $this->logger->error('Starter tavern asset is incomplete; refusing to synthesize a dungeon from partial data.');
+      $this->logger->error('Starter room asset is incomplete; refusing to synthesize a dungeon from partial data.');
       return FALSE;
     }
 
@@ -553,8 +862,8 @@ class CampaignInitializationService {
     $level_id = $this->uuid->generate();
     $room_name = (string) ($starter_room['name'] ?? 'The Gilded Tankard');
     $room_description = (string) ($starter_room['description'] ?? 'Starter tavern asset.');
-    $dungeon_name = self::STARTER_CITY_DUNGEON_NAME;
-    $dungeon_description = self::STARTER_CITY_DUNGEON_DESCRIPTION;
+    $dungeon_name = trim((string) ($starter_blueprint['dungeon_name'] ?? '')) ?: self::STARTER_CITY_DUNGEON_NAME;
+    $dungeon_description = trim((string) ($starter_blueprint['dungeon_description'] ?? '')) ?: self::STARTER_CITY_DUNGEON_DESCRIPTION;
     $dungeon_theme = $theme !== '' ? $theme : 'starter_asset';
     $room_payload = [
       'room_id' => $runtime_room_id,
@@ -568,30 +877,48 @@ class CampaignInitializationService {
       'terrain' => is_array($layout_data['terrain'] ?? NULL) ? $layout_data['terrain'] : [],
       'lighting' => is_array($layout_data['lighting'] ?? NULL) ? $layout_data['lighting'] : [],
     ];
-    $starter_streets_room = $this->loadStarterCityStreetsRoomSeed();
-    if (!is_array($starter_streets_room)) {
-      $this->logger->error('Starter city streets asset is missing; refusing to synthesize starter dungeon.');
-      return FALSE;
-    }
-    $streets_layout_data = is_array($starter_streets_room['layout_data'] ?? NULL) ? $starter_streets_room['layout_data'] : [];
-    if (empty($streets_layout_data['hexes'])) {
-      throw new \RuntimeException('Starter city streets asset is incomplete; hexes are required.');
-    }
-    $streets_payload = [
-      'room_id' => (string) ($starter_streets_room['room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
-      'source_room_id' => (string) ($starter_streets_room['source_room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
-      'name' => (string) ($starter_streets_room['name'] ?? 'Absalom Streets'),
-      'description' => (string) ($starter_streets_room['description'] ?? ''),
-      'hexes' => is_array($streets_layout_data['hexes'] ?? NULL) ? $streets_layout_data['hexes'] : [],
-      'entry_points' => is_array($streets_layout_data['entry_points'] ?? NULL) ? $streets_layout_data['entry_points'] : [],
-      'exit_points' => is_array($streets_layout_data['exit_points'] ?? NULL) ? $streets_layout_data['exit_points'] : [],
-      'exits' => is_array($streets_layout_data['exits'] ?? NULL) ? $streets_layout_data['exits'] : [],
-      'terrain' => is_array($streets_layout_data['terrain'] ?? NULL) ? $streets_layout_data['terrain'] : [],
-      'lighting' => is_array($streets_layout_data['lighting'] ?? NULL) ? $streets_layout_data['lighting'] : [],
-      'room_type' => (string) ($streets_layout_data['room_type'] ?? 'city_street'),
-    ];
     $room_payload = $this->requireStarterRoomHexH3Indexes($dungeon_id, $room_payload);
-    $streets_payload = $this->requireStarterRoomHexH3Indexes($dungeon_id, $streets_payload);
+    $connected_room_payload = NULL;
+    $connected_room_id = trim((string) ($starter_blueprint['connected_room_source_id'] ?? ''));
+    if ($connected_room_id !== '') {
+      $starter_connected_room = $this->loadStarterConnectedRoomSeed($connected_room_id);
+      if (!is_array($starter_connected_room)) {
+        $this->logger->error('Configured connected starter room asset {room_id} is missing; refusing starter dungeon synthesis.', [
+          'room_id' => $connected_room_id,
+        ]);
+        return FALSE;
+      }
+      $connected_layout_data = is_array($starter_connected_room['layout_data'] ?? NULL) ? $starter_connected_room['layout_data'] : [];
+      if (empty($connected_layout_data['hexes'])) {
+        throw new \RuntimeException(sprintf(
+          'Connected starter room asset %s is incomplete; hexes are required.',
+          $connected_room_id
+        ));
+      }
+      $connected_room_payload = [
+        'room_id' => (string) ($starter_connected_room['room_id'] ?? $connected_room_id),
+        'source_room_id' => (string) ($starter_connected_room['source_room_id'] ?? $connected_room_id),
+        'name' => (string) ($starter_connected_room['name'] ?? $connected_room_id),
+        'description' => (string) ($starter_connected_room['description'] ?? ''),
+        'hexes' => is_array($connected_layout_data['hexes'] ?? NULL) ? $connected_layout_data['hexes'] : [],
+        'entry_points' => is_array($connected_layout_data['entry_points'] ?? NULL) ? $connected_layout_data['entry_points'] : [],
+        'exit_points' => is_array($connected_layout_data['exit_points'] ?? NULL) ? $connected_layout_data['exit_points'] : [],
+        'exits' => is_array($connected_layout_data['exits'] ?? NULL) ? $connected_layout_data['exits'] : [],
+        'terrain' => is_array($connected_layout_data['terrain'] ?? NULL) ? $connected_layout_data['terrain'] : [],
+        'lighting' => is_array($connected_layout_data['lighting'] ?? NULL) ? $connected_layout_data['lighting'] : [],
+        'room_type' => (string) ($connected_layout_data['room_type'] ?? 'connected_room'),
+      ];
+      $connected_room_payload = $this->requireStarterRoomHexH3Indexes($dungeon_id, $connected_room_payload);
+    }
+    $region_room_ids = [$runtime_room_id];
+    $connections = [];
+    if (is_array($connected_room_payload)) {
+      $connected_runtime_room_id = trim((string) ($connected_room_payload['room_id'] ?? ''));
+      if ($connected_runtime_room_id !== '') {
+        $region_room_ids[] = $connected_runtime_room_id;
+      }
+      $connections = $this->buildStarterCanonicalConnections($runtime_room_id, $connected_runtime_room_id);
+    }
 
     $dungeon_data = [
       'schema_version' => '1.0.0',
@@ -611,13 +938,13 @@ class CampaignInitializationService {
         'name' => $dungeon_name,
         'hex_size_ft' => 5,
         'orientation' => 'flat-top',
-        'connections' => $this->buildStarterCanonicalConnections($runtime_room_id),
+        'connections' => $connections,
         'regions' => [
           [
-            'region_id' => 'starter-tavern-region',
+            'region_id' => 'starter-region',
             'name' => $dungeon_name,
             'description' => $dungeon_description,
-            'room_ids' => [$runtime_room_id, (string) $streets_payload['room_id']],
+            'room_ids' => $region_room_ids,
             'ambient_hazard_level' => 0,
           ],
         ],
@@ -625,12 +952,12 @@ class CampaignInitializationService {
           'created_at' => gmdate('c', $now),
           'generated_by' => 'asset-library',
           'is_finalized' => TRUE,
-          'total_rooms' => 2,
+          'total_rooms' => count($region_room_ids),
           'explored_rooms' => 0,
           'exploration_percentage' => 0,
         ],
       ],
-      'rooms' => [$room_payload, $streets_payload],
+      'rooms' => array_values(array_filter([$room_payload, $connected_room_payload], 'is_array')),
     ];
 
     $this->database->insert('dc_campaign_dungeons')
@@ -641,7 +968,7 @@ class CampaignInitializationService {
         'description' => $dungeon_description,
         'theme' => $dungeon_theme,
         'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        'source_dungeon_id' => 'asset-library-starter-room',
+        'source_dungeon_id' => trim((string) ($starter_blueprint['source_dungeon_id'] ?? '')),
         'created' => $now,
         'updated' => $now,
       ])
@@ -657,19 +984,23 @@ class CampaignInitializationService {
    * @return array<int, array<string, mixed>>
    *   Canonical starter connections for payload mirroring.
    */
-  private function buildStarterCanonicalConnections(string $starter_room_id): array {
+  private function buildStarterCanonicalConnections(string $starter_room_id, string $connected_room_id = self::STARTER_CITY_STREETS_ROOM_ID): array {
     $starter_room_id = trim($starter_room_id);
+    $connected_room_id = trim($connected_room_id);
     if ($starter_room_id === '') {
       throw new \RuntimeException('Starter dungeon contract violation: starter room id is required for canonical starter connections.');
     }
+    if ($connected_room_id === '') {
+      throw new \RuntimeException('Starter dungeon contract violation: connected room id is required for canonical starter connections.');
+    }
 
-    $canonical_match = $this->resolveCanonicalStarterConnector($starter_room_id, self::STARTER_CITY_STREETS_ROOM_ID);
+    $canonical_match = $this->resolveCanonicalStarterConnector($starter_room_id, $connected_room_id);
     return [[
       'connection_id' => (string) ($canonical_match['connection_id'] ?? ''),
       'from_room' => (string) ($canonical_match['from_room_id'] ?? $starter_room_id),
       'from_room_id' => (string) ($canonical_match['from_room_id'] ?? $starter_room_id),
-      'to_room' => (string) ($canonical_match['to_room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
-      'to_room_id' => (string) ($canonical_match['to_room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
+      'to_room' => (string) ($canonical_match['to_room_id'] ?? $connected_room_id),
+      'to_room_id' => (string) ($canonical_match['to_room_id'] ?? $connected_room_id),
       'type' => (string) ($canonical_match['kind'] ?? 'hallway'),
       'kind' => (string) ($canonical_match['kind'] ?? 'hallway'),
       'state' => (string) ($canonical_match['state'] ?? $canonical_match['default_state'] ?? 'open'),
@@ -677,7 +1008,7 @@ class CampaignInitializationService {
       'is_discovered' => !empty($canonical_match['is_discovered_default']) || !empty($canonical_match['is_discovered']),
       'is_passable' => strtolower((string) ($canonical_match['state'] ?? $canonical_match['default_state'] ?? 'open')) === 'open',
       'destination_type' => 'room',
-      'destination_id' => (string) ($canonical_match['to_room_id'] ?? self::STARTER_CITY_STREETS_ROOM_ID),
+      'destination_id' => (string) ($canonical_match['to_room_id'] ?? $connected_room_id),
       'from_hex' => is_array($canonical_match['from_hex'] ?? NULL) ? $canonical_match['from_hex'] : NULL,
       'to_hex' => is_array($canonical_match['to_hex'] ?? NULL) ? $canonical_match['to_hex'] : NULL,
     ]];
@@ -787,10 +1118,18 @@ class CampaignInitializationService {
         'from_hex' => is_array($canonical_match['from_hex'] ?? NULL) ? $canonical_match['from_hex'] : NULL,
         'to_hex' => is_array($canonical_match['to_hex'] ?? NULL) ? $canonical_match['to_hex'] : NULL,
       ];
+      if (!is_array($connector_payload['from_hex']) || !is_array($connector_payload['to_hex'])) {
+        throw new \RuntimeException(sprintf(
+          'Starter connector authority contract violation: endpoint hexes unresolved for %s -> %s in campaign %d dungeon %s.',
+          $from_room_id,
+          $to_room_id,
+          $campaign_id,
+          $runtime_dungeon_id
+        ));
+      }
 
       $starter_library_connector_payload = $connector_payload;
       unset($starter_library_connector_payload['connection_id']);
-
       $this->connectorDefinitionService->saveCanonicalConnector($starter_library_connector_payload + [
         'dungeon_id' => self::STARTER_LIBRARY_CONNECTOR_DUNGEON_ID,
       ]);
@@ -853,9 +1192,9 @@ class CampaignInitializationService {
 
     $rooms_after = count((array) ($dungeon_data['rooms'] ?? []));
     $connections_after = $this->countPayloadConnectionRows($dungeon_data);
-    if ($rooms_after <= $rooms_before || $connections_after <= $connections_before) {
+    if ($rooms_after < $rooms_before || $connections_after < $connections_before) {
       throw new \RuntimeException(sprintf(
-        'Template room+connector instantiation contract violation: expansion produced no graph growth for campaign %d dungeon %s (rooms %d→%d, connections %d→%d).',
+        'Template room+connector instantiation contract violation: expansion regressed graph state for campaign %d dungeon %s (rooms %d→%d, connections %d→%d).',
         $campaign_id,
         $runtime_dungeon_id,
         $rooms_before,
@@ -863,6 +1202,17 @@ class CampaignInitializationService {
         $connections_before,
         $connections_after
       ));
+    }
+    if ($rooms_after === $rooms_before && $connections_after === $connections_before) {
+      $this->logger->notice(
+        'Starter neighborhood expansion was already satisfied for campaign {campaign_id} dungeon {dungeon_id} (rooms={rooms}, connections={connections}).',
+        [
+          'campaign_id' => $campaign_id,
+          'dungeon_id' => $runtime_dungeon_id,
+          'rooms' => $rooms_after,
+          'connections' => $connections_after,
+        ]
+      );
     }
 
     $this->trimStarterBootstrapSnapshot($dungeon_data, $starter_room_id);
@@ -1248,6 +1598,19 @@ class CampaignInitializationService {
   }
 
   /**
+   * Canonical contract for required undead-crypt starter NPC anchors.
+   *
+   * @return array<string, array{q:int,r:int}>
+   *   Required npc content_id => anchor position.
+   */
+  private function undeadCryptStarterNpcContracts(): array {
+    return [
+      'skeleton_guard_alpha' => ['q' => 3, 'r' => 2],
+      'skeleton_guard_beta' => ['q' => 2, 'r' => 3],
+    ];
+  }
+
+  /**
    * Resolve the entry coordinate for a starter room.
    *
    * @return array{q:int, r:int}
@@ -1309,12 +1672,23 @@ class CampaignInitializationService {
    * @return array|null
    *   Starter room data, or NULL if unavailable.
    */
-  private function loadStarterRoomSeed(): ?array {
+  private function loadStarterRoomSeed(array $starter_blueprint = []): ?array {
+    $source_room_id = trim((string) ($starter_blueprint['source_room_id'] ?? ''));
+    if ($source_room_id === '') {
+      $this->logger->error('Starter room asset contract violation: starter_blueprint.source_room_id is required.');
+      return NULL;
+    }
+    $runtime_room_id = trim((string) ($starter_blueprint['runtime_room_id'] ?? ''));
+    $default_room_tags = is_array($starter_blueprint['room_tags_default'] ?? NULL) ? $starter_blueprint['room_tags_default'] : [];
     $query = $this->database->select('dungeoncrawler_content_rooms', 'r')
       ->fields('r', ['room_id', 'name', 'description', 'environment_tags', 'layout_data', 'contents_data', 'source_room_id']);
     $or = $query->orConditionGroup()
-      ->condition('room_id', 'tavern_entrance')
-      ->condition('source_room_id', 'tavern_entrance');
+      ->condition('room_id', $source_room_id)
+      ->condition('source_room_id', $source_room_id);
+    if ($runtime_room_id !== '') {
+      $or->condition('room_id', $runtime_room_id)
+        ->condition('source_room_id', $runtime_room_id);
+    }
 
     $record = $query
       ->condition($or)
@@ -1324,40 +1698,195 @@ class CampaignInitializationService {
       ->fetchAssoc();
 
     if (!is_array($record)) {
-      $this->logger->error('Starter tavern asset not found in dungeoncrawler_content_rooms; packaged JSON fallbacks are disabled.');
+      $this->logger->error('Starter room asset {room_id} not found in dungeoncrawler_content_rooms; packaged JSON fallbacks are disabled.', [
+        'room_id' => $source_room_id,
+      ]);
       return NULL;
     }
 
     $room_id = trim((string) ($record['source_room_id'] ?? ''));
-    $runtime_room_id = trim((string) ($record['room_id'] ?? ''));
+    $resolved_runtime_room_id = $runtime_room_id !== '' ? $runtime_room_id : trim((string) ($record['room_id'] ?? ''));
     if ($room_id === '') {
-      $room_id = $runtime_room_id;
+      $room_id = trim((string) ($record['room_id'] ?? ''));
     }
-    if ($room_id === '' || $runtime_room_id === '') {
-      $this->logger->error('Starter tavern asset record is missing canonical room identifiers.');
+    if ($room_id === '' || $resolved_runtime_room_id === '') {
+      $this->logger->error('Starter room asset record is missing canonical room identifiers.');
       return NULL;
     }
+    $layout_data = $this->decodeJsonArray($record['layout_data'] ?? NULL);
     $contents_data = $this->decodeJsonArray($record['contents_data'] ?? NULL);
+    if ($this->isUndeadCryptStarterBlueprint($starter_blueprint) && !$this->starterRoomSeedHasRequiredBootstrapShape($layout_data, $contents_data)) {
+      throw new \RuntimeException(sprintf(
+        'Undead crypt starter room asset %s is structurally incomplete for campaign bootstrap.',
+        $room_id
+      ));
+    }
+    if ($this->isUndeadCryptStarterBlueprint($starter_blueprint)) {
+      $this->assertUndeadCryptStarterSeedContract(
+        $room_id,
+        $resolved_runtime_room_id,
+        $layout_data,
+        $contents_data
+      );
+    }
     $this->assertRoomQuestTemplateReferencesExist($room_id, $contents_data);
 
     return [
       'room_id' => $room_id,
-      'runtime_room_id' => $runtime_room_id,
+      'runtime_room_id' => $resolved_runtime_room_id,
       'name' => (string) ($record['name'] ?? 'The Gilded Tankard'),
       'description' => (string) ($record['description'] ?? ''),
-      'environment_tags' => $this->decodeJsonArray($record['environment_tags'] ?? NULL),
-      'layout_data' => $this->decodeJsonArray($record['layout_data'] ?? NULL),
+      'environment_tags' => $this->decodeJsonArray($record['environment_tags'] ?? NULL) ?: $default_room_tags,
+      'layout_data' => $layout_data,
       'contents_data' => $contents_data,
+      'starter_default_source_room_id' => $source_room_id,
     ];
+  }
+
+  /**
+   * Determine if the starter blueprint targets undead-crypt bootstrap.
+   */
+  private function isUndeadCryptStarterBlueprint(array $starter_blueprint): bool {
+    $theme = strtolower(trim((string) ($starter_blueprint['theme'] ?? '')));
+    $source_room_id = trim((string) ($starter_blueprint['source_room_id'] ?? ''));
+    $runtime_room_id = trim((string) ($starter_blueprint['runtime_room_id'] ?? ''));
+
+    return $theme === 'undead_crypt'
+      || $source_room_id === self::STARTER_UNDEAD_SOURCE_ROOM_ID
+      || $runtime_room_id === self::STARTER_UNDEAD_RUNTIME_ROOM_ID;
+  }
+
+  /**
+   * Validate starter room seed includes bootstrap-required layout/content.
+   */
+  private function starterRoomSeedHasRequiredBootstrapShape(array $layout_data, array $contents_data): bool {
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    $npcs = is_array($contents_data['npcs'] ?? NULL) ? $contents_data['npcs'] : [];
+
+    return $hexes !== [] && $npcs !== [];
+  }
+
+  /**
+   * Validate undead-crypt starter seed contract for canonical bootstrap.
+   */
+  private function assertUndeadCryptStarterSeedContract(
+    string $source_room_id,
+    string $runtime_room_id,
+    array $layout_data,
+    array $contents_data
+  ): void {
+    if ($source_room_id !== self::STARTER_UNDEAD_SOURCE_ROOM_ID) {
+      throw new \RuntimeException(sprintf(
+        'Undead crypt starter contract violation: source_room_id must be %s, got %s.',
+        self::STARTER_UNDEAD_SOURCE_ROOM_ID,
+        $source_room_id
+      ));
+    }
+    if ($runtime_room_id !== self::STARTER_UNDEAD_RUNTIME_ROOM_ID) {
+      throw new \RuntimeException(sprintf(
+        'Undead crypt starter contract violation: runtime_room_id must be %s, got %s.',
+        self::STARTER_UNDEAD_RUNTIME_ROOM_ID,
+        $runtime_room_id
+      ));
+    }
+
+    if ((int) ($layout_data['width'] ?? 0) !== 8 || (int) ($layout_data['height'] ?? 0) !== 8) {
+      throw new \RuntimeException('Undead crypt starter contract violation: layout dimensions must be 8x8 (40x40 feet).');
+    }
+
+    $entry_points = is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [];
+    $has_west_entry = FALSE;
+    foreach ($entry_points as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      if (
+        (int) ($entry['q'] ?? 999) === -4
+        && (int) ($entry['r'] ?? 999) === 0
+        && strtolower(trim((string) ($entry['side'] ?? ''))) === 'west'
+      ) {
+        $has_west_entry = TRUE;
+        break;
+      }
+    }
+    if (!$has_west_entry) {
+      throw new \RuntimeException('Undead crypt starter contract violation: west entry point (-4,0) is required.');
+    }
+
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    if (count($hexes) < 64) {
+      throw new \RuntimeException(sprintf(
+        'Undead crypt starter contract violation: expected at least 64 room hexes, got %d.',
+        count($hexes)
+      ));
+    }
+
+    $npcs = is_array($contents_data['npcs'] ?? NULL) ? $contents_data['npcs'] : [];
+    $required_npcs = $this->undeadCryptStarterNpcContracts();
+    foreach ($required_npcs as $content_id => $position) {
+      $matched = NULL;
+      foreach ($npcs as $npc) {
+        if (!is_array($npc)) {
+          continue;
+        }
+        if (trim((string) ($npc['content_id'] ?? '')) === $content_id) {
+          $matched = $npc;
+          break;
+        }
+      }
+      if (!is_array($matched)) {
+        throw new \RuntimeException(sprintf(
+          'Undead crypt starter contract violation: required NPC %s is missing from contents_data.npcs.',
+          $content_id
+        ));
+      }
+      if (
+        (int) ($matched['position']['q'] ?? 999) !== (int) $position['q']
+        || (int) ($matched['position']['r'] ?? 999) !== (int) $position['r']
+      ) {
+        throw new \RuntimeException(sprintf(
+          'Undead crypt starter contract violation: NPC %s must spawn at (%d,%d).',
+          $content_id,
+          (int) $position['q'],
+          (int) $position['r']
+        ));
+      }
+      if (!$this->isStarterNpcHostileAttitude((string) ($matched['attitude'] ?? ''))) {
+        throw new \RuntimeException(sprintf(
+          'Undead crypt starter contract violation: NPC %s must be hostile.',
+          $content_id
+        ));
+      }
+    }
   }
 
   /**
    * Load canonical Absalom Streets room seed for starter dungeon linkage.
    */
   private function loadStarterCityStreetsRoomSeed(): ?array {
+    return $this->loadStarterConnectedRoomSeed(self::STARTER_CITY_STREETS_ROOM_ID);
+  }
+
+  /**
+   * Resolve whether starter NPC attitude satisfies hostile contract gate.
+   */
+  private function isStarterNpcHostileAttitude(string $attitude): bool {
+    $score = DispositionAuthorityContract::attitudeToScore($attitude);
+    return $score !== NULL && DispositionAuthorityContract::isHostileScore($score);
+  }
+
+  /**
+   * Load one connected room seed by room identifier.
+   */
+  private function loadStarterConnectedRoomSeed(string $room_id): ?array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return NULL;
+    }
+
     $record = $this->database->select('dungeoncrawler_content_rooms', 'r')
       ->fields('r', ['room_id', 'source_room_id', 'name', 'description', 'layout_data'])
-      ->condition('room_id', self::STARTER_CITY_STREETS_ROOM_ID)
+      ->condition('room_id', $room_id)
       ->range(0, 1)
       ->execute()
       ->fetchAssoc();
@@ -1377,7 +1906,7 @@ class CampaignInitializationService {
     return [
       'room_id' => $room_id,
       'source_room_id' => $source_room_id,
-      'name' => (string) ($record['name'] ?? 'Absalom Streets'),
+      'name' => (string) ($record['name'] ?? $room_id),
       'description' => (string) ($record['description'] ?? ''),
       'layout_data' => $this->decodeJsonArray($record['layout_data'] ?? NULL),
     ];
@@ -1454,6 +1983,26 @@ class CampaignInitializationService {
       static fn(string $template_id): bool => !isset($existing_map[$template_id])
     ));
     if ($missing_ids !== []) {
+      foreach ($missing_ids as $missing_id) {
+        $this->ensureCanonicalQuestTemplateExists($missing_id);
+      }
+      $existing_ids = $this->database->select('dc_canonical_quests', 'q')
+        ->fields('q', ['template_id'])
+        ->condition('template_id', $missing_ids, 'IN')
+        ->execute()
+        ->fetchCol();
+      foreach ((array) $existing_ids as $existing_id) {
+        $normalized = trim((string) $existing_id);
+        if ($normalized !== '') {
+          $existing_map[$normalized] = TRUE;
+        }
+      }
+      $missing_ids = array_values(array_filter(
+        $requested_ids,
+        static fn(string $template_id): bool => !isset($existing_map[$template_id])
+      ));
+    }
+    if ($missing_ids !== []) {
       sort($missing_ids);
       throw new QuestTemplateReferenceIntegrityException(sprintf(
         'Starter room %s references missing canonical quest template ids: %s.',
@@ -1461,6 +2010,35 @@ class CampaignInitializationService {
         implode(', ', $missing_ids)
       ));
     }
+  }
+
+  /**
+   * Ensure one canonical quest template row exists for initialization integrity.
+   */
+  private function ensureCanonicalQuestTemplateExists(string $template_id): void {
+    $normalized = trim($template_id);
+    if ($normalized === '') {
+      return;
+    }
+    $existing_id = $this->database->select('dc_canonical_quests', 'q')
+      ->fields('q', ['id'])
+      ->condition('template_id', $normalized)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+    if ($existing_id) {
+      return;
+    }
+
+    $canonical = $this->loadCanonicalQuestTemplateDefinition($normalized);
+    if ($canonical === NULL) {
+      return;
+    }
+    $canonical['template_id'] = $normalized;
+    $canonical['created_at'] = $canonical['updated_at'] ?? $this->time->getRequestTime();
+    $this->database->insert('dc_canonical_quests')
+      ->fields($canonical)
+      ->execute();
   }
 
   /**
@@ -1488,7 +2066,7 @@ class CampaignInitializationService {
   }
 
   /**
-   * Load Tavern Entrance room and content into campaign.
+   * Load starter room and content into campaign.
    *
    * @param int $campaign_id
    *   Campaign ID.
@@ -1498,7 +2076,7 @@ class CampaignInitializationService {
    * @return bool
    *   TRUE on success.
    */
-  private function loadTavernEntranceRoom(int $campaign_id, int $now, array $starter_room): bool {
+  private function loadStarterRoomIntoCampaign(int $campaign_id, int $now, array $starter_room, array $starter_blueprint = []): bool {
     $room_ids = $this->resolveStarterRoomIdentifiers($starter_room);
     $source_room_id = $room_ids['source_room_id'];
     $runtime_room_id = $room_ids['runtime_room_id'];
@@ -1516,6 +2094,17 @@ class CampaignInitializationService {
     $runtime_layout_exits = is_array($runtime_room_payload['exits'] ?? NULL) ? $runtime_room_payload['exits'] : [];
     $runtime_layout_terrain = is_array($runtime_room_payload['terrain'] ?? NULL) ? $runtime_room_payload['terrain'] : [];
     $runtime_layout_lighting = is_array($runtime_room_payload['lighting'] ?? NULL) ? $runtime_room_payload['lighting'] : [];
+    $runtime_hex_h3_by_qr = [];
+    foreach ($runtime_layout_hexes as $hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        continue;
+      }
+      $h3_index = strtolower(trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? '')));
+      if ($h3_index === '') {
+        continue;
+      }
+      $runtime_hex_h3_by_qr[((int) $hex['q']) . ':' . ((int) $hex['r'])] = $h3_index;
+    }
 
     $layout_data = [
       'hexes' => $runtime_layout_hexes,
@@ -1543,7 +2132,9 @@ class CampaignInitializationService {
       $room_description,
       $layout_data,
       $contents_data,
-      is_array($starter_room['environment_tags'] ?? NULL) ? $starter_room['environment_tags'] : ['indoor', 'tavern', 'safe', 'starting_area'],
+      is_array($starter_room['environment_tags'] ?? NULL)
+        ? $starter_room['environment_tags']
+        : (is_array($starter_blueprint['room_tags_default'] ?? NULL) ? $starter_blueprint['room_tags_default'] : ['starting_area']),
       $source_room_id
     );
 
@@ -1564,7 +2155,7 @@ class CampaignInitializationService {
       ->execute();
 
     // Create content objects
-    foreach ($contents_data['items'] as $item) {
+    foreach ((array) ($contents_data['items'] ?? []) as $item) {
       $item_type = strtolower(trim((string) ($item['type'] ?? '')));
       $quest_association = trim((string) ($item['quest_association'] ?? ''));
       $item_tags = array_values(array_unique(array_filter(array_map(
@@ -1572,7 +2163,7 @@ class CampaignInitializationService {
         (array) ($item['tags'] ?? [])
       ))));
       if ($item_tags === []) {
-        $item_tags = ['collectible', 'tavern'];
+        $item_tags = ['collectible'];
       }
 
       if ($item_type === 'collectible_item' && $quest_association === '') {
@@ -1635,7 +2226,7 @@ class CampaignInitializationService {
 
     // Create NPCs from room-management canonical content IDs.
     $seen_content_ids = [];
-    foreach ($contents_data['npcs'] as $npc) {
+    foreach ((array) ($contents_data['npcs'] ?? []) as $npc) {
       $content_id = $this->canonicalizeRoomNpcContentId((string) ($npc['content_id'] ?? ''));
       if ($content_id === '') {
         throw new \RuntimeException(sprintf(
@@ -1664,6 +2255,13 @@ class CampaignInitializationService {
       $npc_role = (string) ($npc['role'] ?? 'npc');
       $npc_class = (string) ($npc['class'] ?? 'npc');
       $npc_ancestry = (string) ($npc['ancestry'] ?? 'humanoid');
+      $npc_position_q = is_numeric($npc['position']['q'] ?? NULL) ? (int) $npc['position']['q'] : 0;
+      $npc_position_r = is_numeric($npc['position']['r'] ?? NULL) ? (int) $npc['position']['r'] : 0;
+      $npc_position_key = $npc_position_q . ':' . $npc_position_r;
+      $npc_position_h3 = strtolower(trim((string) ($npc['position']['h3_index_res14'] ?? $npc['position']['h3_index'] ?? '')));
+      if ($npc_position_h3 === '' && isset($runtime_hex_h3_by_qr[$npc_position_key])) {
+        $npc_position_h3 = $runtime_hex_h3_by_qr[$npc_position_key];
+      }
       $npc_seed_payload = [
         'content_id' => $content_id,
         'role' => $npc_role,
@@ -1716,9 +2314,9 @@ class CampaignInitializationService {
           'hp_max' => $npc_hp_max,
           'armor_class' => $npc_ac,
           'experience_points' => 0,
-          'position_q' => $npc['position']['q'],
-          'position_r' => $npc['position']['r'],
-          'position_h3' => strtolower(trim((string) ($npc['position']['h3_index_res14'] ?? $npc['position']['h3_index'] ?? ''))),
+          'position_q' => $npc_position_q,
+          'position_r' => $npc_position_r,
+          'position_h3' => $npc_position_h3,
           'last_room_id' => $runtime_room_id,
           'instance_id' => $instance_id,
           'type' => 'npc',
@@ -1808,6 +2406,13 @@ class CampaignInitializationService {
     $this->loadConnectedRoomsForActiveStarterRoom($campaign_id, $runtime_room_id, $now);
 
     return TRUE;
+  }
+
+  /**
+   * Backward-compatible alias while callers migrate to generic starter naming.
+   */
+  private function loadTavernEntranceRoom(int $campaign_id, int $now, array $starter_room): bool {
+    return $this->loadStarterRoomIntoCampaign($campaign_id, $now, $starter_room);
   }
 
   /**
@@ -2025,9 +2630,9 @@ class CampaignInitializationService {
    *   Normalized starter room identifiers.
    */
   private function resolveStarterRoomIdentifiers(array $starter_room): array {
-    $source_room_id = trim((string) ($starter_room['room_id'] ?? 'tavern_entrance'));
+    $source_room_id = trim((string) ($starter_room['room_id'] ?? self::STARTER_DEFAULT_SOURCE_ROOM_ID));
     if ($source_room_id === '') {
-      $source_room_id = 'tavern_entrance';
+      $source_room_id = self::STARTER_DEFAULT_SOURCE_ROOM_ID;
     }
     $runtime_room_id = trim((string) ($starter_room['runtime_room_id'] ?? $source_room_id));
     if ($runtime_room_id === '') {
@@ -2248,9 +2853,17 @@ class CampaignInitializationService {
   /**
    * Seed starter quest templates and create initial campaign quests.
    */
-  private function seedStarterQuests(int $campaign_id, string $difficulty, int $now, string $starter_runtime_room_id): void {
+  private function seedStarterQuests(int $campaign_id, string $difficulty, int $now, string $starter_runtime_room_id, array $starter_blueprint = []): void {
     if (!$this->database->schema()->tableExists('dc_canonical_quests')
       || !$this->database->schema()->tableExists('dc_campaign_quests')) {
+      return;
+    }
+
+    $starter_theme = strtolower(trim((string) ($starter_blueprint['theme'] ?? '')));
+    $location_tags = is_array($starter_blueprint['location_tags'] ?? NULL) ? $starter_blueprint['location_tags'] : ['starting_area'];
+
+    // Phase-1 scope: only tavern-aligned starts auto-seed storyline lead quests.
+    if ($starter_theme === 'undead_crypt') {
       return;
     }
 
@@ -2277,7 +2890,7 @@ class CampaignInitializationService {
         'party_level' => 1,
         'difficulty' => $quest_difficulty,
         'location' => trim($starter_runtime_room_id) !== '' ? trim($starter_runtime_room_id) : 'tavern_entrance',
-        'location_tags' => ['tavern', 'starting_area'],
+        'location_tags' => $location_tags,
       ], $overrides);
 
       $quest_data = $this->questGenerator->generateQuestFromTemplate(

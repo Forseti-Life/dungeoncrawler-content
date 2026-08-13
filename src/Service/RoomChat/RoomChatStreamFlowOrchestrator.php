@@ -38,20 +38,28 @@ class RoomChatStreamFlowOrchestrator {
     ?int $character_id,
     string $channel,
     string $client_request_id,
+    array $options,
     callable $emit_progress_update,
     callable $emit_streamed_turn_result
   ): void {
+    $overall_started_at = hrtime(true);
+    $timings = [];
+    $stage_started_at = hrtime(true);
     $encounter_progress_ctx = $this->encounterProgressService->buildEncounterProgressSnapshot($campaign_id);
+    $timings['build_encounter_progress_snapshot_ms'] = $this->elapsedMs($stage_started_at);
+    $stage_started_at = hrtime(true);
     $emit_progress_update($emit, $client_request_id, 'room_request_started', [
       'campaign_id' => $campaign_id,
       'room_id' => $room_id,
       'channel' => $channel,
     ] + $encounter_progress_ctx);
+    $timings['emit_room_request_started_ms'] = $this->elapsedMs($stage_started_at);
 
     $posted_message = NULL;
     $player_message_for_followup = $message;
 
     if ($this->writeEndpointOrchestrator->isPlayerRoomChat($type, $channel)) {
+      $stage_started_at = hrtime(true);
       $result = $this->writeEndpointOrchestrator->postPlayerRoomChatViaEncounterTalk(
         $campaign_id,
         $room_id,
@@ -59,21 +67,26 @@ class RoomChatStreamFlowOrchestrator {
         $speaker,
         $message,
         TRUE,
-        FALSE
+        FALSE,
+        $options
       );
+      $timings['post_player_room_chat_via_encounter_talk_ms'] = $this->elapsedMs($stage_started_at);
       $posted_message = is_array($result['message'] ?? NULL) ? $result['message'] : NULL;
       if (is_array($posted_message) && isset($posted_message['message']) && is_string($posted_message['message'])) {
         $player_message_for_followup = $posted_message['message'];
       }
     }
     else {
+      $stage_started_at = hrtime(true);
       $this->emitPlayerAck($emit, [
         'speaker' => $speaker,
         'message' => $message,
         'type' => $type,
         'channel' => $channel,
       ], $client_request_id);
+      $timings['emit_player_ack_ms'] = $this->elapsedMs($stage_started_at);
 
+      $stage_started_at = hrtime(true);
       $result = $this->chatService->postMessage(
         $campaign_id,
         $room_id,
@@ -88,19 +101,28 @@ class RoomChatStreamFlowOrchestrator {
           'campaign_id' => $campaign_id,
           'room_id' => $room_id,
           'channel' => $channel,
-        ] + $encounter_progress_ctx, $emit_progress_update)
+        ] + $encounter_progress_ctx, $emit_progress_update),
+        [],
+        [
+          'response_mode' => (string) ($options['response_mode'] ?? 'actor_scoped'),
+          'include_legacy_overlay' => !empty($options['include_legacy_overlay']),
+        ]
       );
+      $timings['post_message_ms'] = $this->elapsedMs($stage_started_at);
     }
 
     if ($posted_message !== NULL) {
+      $stage_started_at = hrtime(true);
       $this->emitPlayerAck($emit, [
         'speaker' => (string) ($posted_message['speaker'] ?? $speaker),
         'message' => (string) ($posted_message['message'] ?? $message),
         'type' => (string) ($posted_message['type'] ?? $type),
         'channel' => (string) ($posted_message['channel'] ?? $channel),
       ], $client_request_id);
+      $timings['emit_posted_message_ack_ms'] = $this->elapsedMs($stage_started_at);
     }
 
+    $result = $this->appendInvocationTiming($result, 'room_chat_stream_flow', $timings, $overall_started_at);
     $emit_streamed_turn_result(
       $emit,
       $result,
@@ -126,11 +148,18 @@ class RoomChatStreamFlowOrchestrator {
     callable $emit_progress_update,
     callable $emit_streamed_turn_result
   ): void {
+    $overall_started_at = hrtime(true);
+    $timings = [];
+    $stage_started_at = hrtime(true);
     $encounter_progress_ctx = $this->encounterProgressService->buildEncounterProgressSnapshot($campaign_id);
+    $timings['build_encounter_progress_snapshot_ms'] = $this->elapsedMs($stage_started_at);
+    $stage_started_at = hrtime(true);
     $emit_progress_update($emit, $client_request_id, 'queued_continuation_started', [
       'channel' => $channel,
     ] + $encounter_progress_ctx);
+    $timings['emit_queued_continuation_started_ms'] = $this->elapsedMs($stage_started_at);
 
+    $stage_started_at = hrtime(true);
     $result = $this->chatService->continueQueuedRoomConversation(
       $campaign_id,
       $room_id,
@@ -143,7 +172,9 @@ class RoomChatStreamFlowOrchestrator {
         'channel' => $channel,
       ] + $encounter_progress_ctx, $emit_progress_update)
     );
+    $timings['continue_queued_room_conversation_ms'] = $this->elapsedMs($stage_started_at);
 
+    $result = $this->appendInvocationTiming($result, 'room_chat_stream_flow', $timings, $overall_started_at);
     $emit_streamed_turn_result(
       $emit,
       $result,
@@ -187,6 +218,31 @@ class RoomChatStreamFlowOrchestrator {
       $context = $base_context + $progress_context;
       $emit_progress_update($emit, $client_request_id, (string) ($progress['stage'] ?? ''), $context);
     };
+  }
+
+  /**
+   * Convert an hrtime timestamp to elapsed milliseconds.
+   */
+  protected function elapsedMs(int $started_at): float {
+    return round((hrtime(true) - $started_at) / 1000000, 2);
+  }
+
+  /**
+   * Attach invocation timing data to one response payload.
+   *
+   * @param array<string,mixed> $payload
+   * @param array<string,float> $stages
+   *
+   * @return array<string,mixed>
+   */
+  protected function appendInvocationTiming(array $payload, string $scope, array $stages, int $overall_started_at): array {
+    $timing = is_array($payload['invocation_timing'] ?? NULL) ? $payload['invocation_timing'] : [];
+    $timing[$scope] = [
+      'total_ms' => $this->elapsedMs($overall_started_at),
+      'stages_ms' => $stages,
+    ];
+    $payload['invocation_timing'] = $timing;
+    return $payload;
   }
 
 }

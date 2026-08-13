@@ -126,6 +126,7 @@ class HexMapControllerTest extends BrowserTestBase {
     $this->assertSame('test-schema-v1', $dungeon_data['schema_version']);
     $this->assertArrayHasKey('fog_mode', $settings['dungeoncrawlerContent']['map_visual_state']['visibility']);
     $this->assertArrayHasKey('legend', $settings['dungeoncrawlerContent']['map_visual_state']['presentation']);
+    $this->assertArrayHasKey('actor_roster', $settings['dungeoncrawlerContent']['map_visual_state']);
   }
 
   /**
@@ -202,6 +203,7 @@ class HexMapControllerTest extends BrowserTestBase {
     $this->assertSame('visual-room', $payload['map_visual_state']['map_meta']['active_room_id']);
     $this->assertArrayHasKey('fog_mode', $payload['map_visual_state']['visibility']);
     $this->assertArrayHasKey('legend', $payload['map_visual_state']['presentation']);
+    $this->assertArrayHasKey('actor_roster', $payload['map_visual_state']);
   }
 
   /**

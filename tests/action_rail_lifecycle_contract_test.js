@@ -48,7 +48,9 @@ assert(
 assert(
   actionRailPanelSource.includes('resolveActionRailCategory(category = \'\') {')
     && actionRailPanelSource.includes('return resolveContractActionRailCategory(category, \'navigate\');')
-    && actionRailPanelSource.includes('setActiveActionRailCategory(category, { refresh = true, focus = false } = {}) {')
+    && actionRailPanelSource.includes('setActiveActionRailCategory(category, { refresh = true, focus = false, userInitiated = false } = {}) {')
+    && actionRailPanelSource.includes('resolveDefaultActionRailCategory(context) {')
+    && actionRailPanelSource.includes('if (!this.actionRailCategoryPinnedByUser) {')
     && actionRailPanelSource.includes('this.activeActionRailCategory = resolvedCategory;'),
   'ActionRailPanel uses canonical category setter/resolver methods for tab-state transitions'
 );

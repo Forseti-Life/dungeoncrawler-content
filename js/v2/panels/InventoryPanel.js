@@ -311,7 +311,17 @@ export class InventoryPanel {
   renderInventoryPanel(context) {
     console.log('[InventoryPanel] renderInventoryPanel', { itemCount: context?.inventory?.items?.length ?? context?.items?.length ?? 0, hasEquipment: !!context?.equipment });
     const inventory = normalizeInventoryState(context?.inventory || {}, context?.currency || {});
-    const items = collectInventoryItems(inventory, context?.equipment || []);
+    const hasInventoryItems = (
+      (Array.isArray(inventory?.carried) && inventory.carried.length > 0)
+      || (Array.isArray(inventory?.equipped) && inventory.equipped.length > 0)
+      || (Array.isArray(inventory?.stashed) && inventory.stashed.length > 0)
+      || (Array.isArray(inventory?.worn?.weapons) && inventory.worn.weapons.length > 0)
+      || (Array.isArray(inventory?.worn?.accessories) && inventory.worn.accessories.length > 0)
+      || Boolean(inventory?.worn?.armor)
+      || Boolean(inventory?.worn?.shield)
+    );
+    const equipmentFallback = hasInventoryItems ? [] : (context?.equipment || []);
+    const items = collectInventoryItems(inventory, equipmentFallback);
     const summaryHtml = formatInventoryItemList(items);
     const feedback = context?.inventoryActionFeedback || null;
     const panelHtml = renderInventoryPanelList(items, inventory, feedback);

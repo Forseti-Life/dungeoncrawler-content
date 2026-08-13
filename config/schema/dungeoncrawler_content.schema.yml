@@ -116,3 +116,21 @@ dungeoncrawler_content.settings:
     chat_timing_debug_include_prompts:
       type: boolean
       label: 'Expose full room chat prompt bodies in debug trace'
+    action_availability_bypass_active_room_sync:
+      type: boolean
+      label: 'Bypass active-room sync on action-availability reads'
+    action_availability_membership_projection_enabled:
+      type: boolean
+      label: 'Use institution-membership projection on action-availability reads'
+    action_availability_turn_cache_enabled:
+      type: boolean
+      label: 'Enable turn-scoped action-availability cache'
+    room_entry_warmup_split_enabled:
+      type: boolean
+      label: 'Defer room-entry warmup work from visible entry path'
+    latency_toggle_canary_campaign_ids:
+      type: string
+      label: 'Latency rollout canary campaign IDs'
+    latency_toggle_auto_enroll_new_campaigns:
+      type: boolean
+      label: 'Auto-enroll newly created campaigns in latency canary cohort'

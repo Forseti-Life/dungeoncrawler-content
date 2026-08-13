@@ -8,6 +8,8 @@ use Drupal\Core\Database\Connection;
  * Synchronizes actor-to-institution memberships for campaign runtime subjects.
  */
 class InstitutionMembershipService {
+  protected const DEFAULT_ANCESTRY_LABEL = 'Unknown Ancestry';
+  protected const DEFAULT_PROFESSION_LABEL = 'Unknown Profession';
 
   /**
    * Generic NPC class labels that should not seed profession institutions.
@@ -97,20 +99,13 @@ class InstitutionMembershipService {
   public function buildCharacterInstitutionInputs(array $character_data, string $seed_source = 'character_creation'): array {
     $inputs = [];
 
-    $ancestry_input = $this->buildAncestryInstitutionInput($character_data, $seed_source);
-    if ($ancestry_input !== NULL) {
-      $inputs[] = $ancestry_input;
-    }
-
-    $class = $this->extractNonEmptyString($character_data, ['class']);
-    if ($class !== '') {
-      $inputs[] = $this->buildSeededInstitutionInput(
-        'profession',
-        $this->humanizeValue($class),
-        $seed_source,
-        'class'
-      );
-    }
+    $inputs[] = $this->buildAncestryInstitutionInput($character_data, $seed_source);
+    $inputs[] = $this->buildSeededInstitutionInput(
+      'profession',
+      $this->resolveCharacterProfessionValue($character_data),
+      $seed_source,
+      $this->extractNonEmptyString($character_data, ['class']) !== '' ? 'class' : 'profession_default'
+    );
 
     foreach ($this->buildExplicitStructuredAffiliationInputs($character_data, $seed_source) as $input) {
       $inputs[] = $input;
@@ -127,20 +122,14 @@ class InstitutionMembershipService {
   public function buildNpcInstitutionInputs(array $npc_data, string $seed_source = 'npc_creation'): array {
     $inputs = [];
 
-    $ancestry_input = $this->buildAncestryInstitutionInput($npc_data, $seed_source);
-    if ($ancestry_input !== NULL) {
-      $inputs[] = $ancestry_input;
-    }
-
+    $inputs[] = $this->buildAncestryInstitutionInput($npc_data, $seed_source);
     $profession = $this->resolveNpcProfessionValue($npc_data);
-    if ($profession !== '') {
-      $inputs[] = $this->buildSeededInstitutionInput(
-        'profession',
-        $this->humanizeValue($profession),
-        $seed_source,
-        $this->extractNonEmptyString($npc_data, ['occupation']) !== '' ? 'occupation' : 'class'
-      );
-    }
+    $inputs[] = $this->buildSeededInstitutionInput(
+      'profession',
+      $this->humanizeValue($profession),
+      $seed_source,
+      $this->extractNonEmptyString($npc_data, ['occupation']) !== '' ? 'occupation' : (($this->extractNonEmptyString($npc_data, ['class']) !== '') ? 'class' : 'profession_default')
+    );
 
     foreach ($this->buildExplicitStructuredAffiliationInputs($npc_data, $seed_source) as $input) {
       $inputs[] = $input;
@@ -467,6 +456,61 @@ class InstitutionMembershipService {
   }
 
   /**
+   * Lists actor-held institution memberships.
+   *
+   * @return array<int, array<string, mixed>>
+   *   Membership rows normalized for runtime/query consumers.
+   */
+  public function listActorInstitutionMemberships(
+    int $campaign_id,
+    string $source_type,
+    string $source_id,
+    ?string $sentiment_domain = NULL
+  ): array {
+    if ($campaign_id <= 0) {
+      throw new \InvalidArgumentException('Campaign id must be greater than zero.');
+    }
+    $source_type = trim($source_type);
+    $source_id = trim($source_id);
+    if ($source_type === '' || $source_id === '') {
+      throw new \InvalidArgumentException('Actor source type and source id are required.');
+    }
+
+    $sentiment_domain = $sentiment_domain !== NULL ? trim($sentiment_domain) : NULL;
+    $edges = $this->loadExistingInstitutionMembershipEdges($campaign_id, $source_type, $source_id);
+    $memberships = [];
+    foreach ($edges as $edge) {
+      $state = is_array($edge['relationship_state_decoded'] ?? NULL)
+        ? $edge['relationship_state_decoded']
+        : [];
+      $edge_domain = trim((string) ($state['sentiment_domain'] ?? ''));
+      if ($sentiment_domain !== NULL && $sentiment_domain !== '' && $edge_domain !== $sentiment_domain) {
+        continue;
+      }
+      if (!$this->isActiveMembershipEdge($edge)) {
+        continue;
+      }
+
+      $memberships[] = [
+        'relationship_id' => trim((string) ($edge['relationship_id'] ?? '')),
+        'target_id' => trim((string) ($edge['target_id'] ?? '')),
+        'target_display_name' => trim((string) ($state['target_display_name'] ?? '')),
+        'sentiment_domain' => $edge_domain,
+        'membership_domain' => trim((string) ($state['membership_domain'] ?? '')),
+        'membership_mutability' => trim((string) ($state['membership_mutability'] ?? '')),
+        'membership_status' => trim((string) ($state['membership_status'] ?? 'active')),
+      ];
+    }
+
+    usort($memberships, static function (array $a, array $b): int {
+      return [$a['sentiment_domain'], $a['target_display_name'], $a['target_id']]
+        <=> [$b['sentiment_domain'], $b['target_display_name'], $b['target_id']];
+    });
+
+    return $memberships;
+  }
+
+  /**
    * Validates and deduplicates desired membership sync inputs before writes.
    *
    * @param array<int, mixed> $institution_inputs
@@ -665,10 +709,10 @@ class InstitutionMembershipService {
 
         $relationship_id = $this->composeRelationshipId($source_type, $source_id, 'institution_sentiment', 'institution', $target_id);
         $is_known = isset($known_subject_ids[$target_id]);
-        $score = $is_known ? 100 : 0;
+        $score = 0;
         $knowledge_state = $is_known ? 'known' : 'unknown';
         $profile_key = $is_known
-          ? 'membership-self-default'
+          ? 'known-neutral-default'
           : 'unknown-neutral-default';
 
         $desired_edges[$relationship_id] = [
@@ -926,7 +970,7 @@ class InstitutionMembershipService {
       && ($state['seed_source'] ?? '') === 'actor_creation'
       && ($state['mutation_state'] ?? 'seeded') === 'seeded'
       && empty($state['touched_at'])
-      && in_array(($state['seed_profile_key'] ?? ''), ['membership-self-default', 'unknown-neutral-default'], TRUE);
+      && in_array(($state['seed_profile_key'] ?? ''), ['membership-self-default', 'known-neutral-default', 'unknown-neutral-default'], TRUE);
   }
 
   /**
@@ -1115,15 +1159,24 @@ class InstitutionMembershipService {
   /**
    * Builds an ancestry institution input from actor payload fields.
    */
-  protected function buildAncestryInstitutionInput(array $actor_data, string $seed_source): ?array {
+  protected function buildAncestryInstitutionInput(array $actor_data, string $seed_source): array {
     $ancestry = $this->extractNonEmptyString($actor_data, ['ancestry', 'species']);
     if ($ancestry === '') {
-      return NULL;
+      return $this->buildSeededInstitutionInput(
+        'ancestry',
+        self::DEFAULT_ANCESTRY_LABEL,
+        $seed_source,
+        'ancestry_default'
+      );
     }
+    $canonical_ancestry = CharacterManager::resolveAncestryCanonicalName($ancestry);
+    $display_name = $canonical_ancestry !== ''
+      ? $canonical_ancestry
+      : $this->humanizeValue($ancestry);
 
     return $this->buildSeededInstitutionInput(
       'ancestry',
-      CharacterManager::resolveAncestryCanonicalName($ancestry),
+      $display_name,
       $seed_source,
       'ancestry'
     );
@@ -1156,11 +1209,25 @@ class InstitutionMembershipService {
 
     $class = $this->extractNonEmptyString($npc_data, ['class']);
     if ($class === '') {
-      return '';
+      return self::DEFAULT_PROFESSION_LABEL;
     }
 
     $normalized_class = strtolower(trim(str_replace('-', ' ', $class)));
-    return in_array($normalized_class, self::GENERIC_NPC_CLASS_VALUES, TRUE) ? '' : $class;
+    return in_array($normalized_class, self::GENERIC_NPC_CLASS_VALUES, TRUE)
+      ? self::DEFAULT_PROFESSION_LABEL
+      : $class;
+  }
+
+  /**
+   * Resolves deterministic profession seed for a campaign character payload.
+   */
+  protected function resolveCharacterProfessionValue(array $character_data): string {
+    $class = $this->extractNonEmptyString($character_data, ['class']);
+    if ($class !== '') {
+      return $this->humanizeValue($class);
+    }
+
+    return self::DEFAULT_PROFESSION_LABEL;
   }
 
   /**

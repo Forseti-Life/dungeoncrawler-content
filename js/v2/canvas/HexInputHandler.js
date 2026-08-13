@@ -28,13 +28,15 @@ export class HexInputHandler {
       this.bus.on('canvas:hex-out', ({ q, r } = {}) => {
         this.bus.emit('hex:out', { q, r });
       }),
-      this.bus.on('canvas:hex-clicked', ({ q, r, button = 0 } = {}) => {
+      this.bus.on('canvas:hex-clicked', ({ q, r, button = 0, clientX = null, clientY = null } = {}) => {
         const entities = this._getEntitiesAtHex(q, r);
         const top = this._pickTopEntity(entities);
         this.bus.emit('hex:clicked', {
           q,
           r,
           button,
+          clientX,
+          clientY,
           entities: top ? [top] : [],
         });
       }),

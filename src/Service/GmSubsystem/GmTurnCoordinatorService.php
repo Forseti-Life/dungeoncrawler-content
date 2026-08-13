@@ -66,6 +66,7 @@ class GmTurnCoordinatorService {
     $effective_direct_npc = $directly_addressed_npc;
     $continued_conversation = FALSE;
     $implicit_single_npc_question = FALSE;
+    $charisma_fallback_npc = FALSE;
     if ($effective_direct_npc === NULL && $active_conversation_npc !== NULL) {
       $normalized_player_message = $callbacks->normalizeNpcNameForMatch($latest_player_message);
       if ($callbacks->shouldContinueActiveRoomConversation($latest_player_message, $normalized_player_message, $active_conversation_npc)) {
@@ -80,6 +81,10 @@ class GmTurnCoordinatorService {
         $implicit_single_npc_question = TRUE;
       }
     }
+    if ($effective_direct_npc === NULL) {
+      $effective_direct_npc = $this->selectHighestCharismaNpc($room_npcs);
+      $charisma_fallback_npc = $effective_direct_npc !== NULL;
+    }
     $turn_intent = $callbacks->classifyRoomTurnIntent($latest_player_message, $room_npcs, $effective_direct_npc, $active_conversation_npc);
     $route_decision = $this->turnIntentRouter->routeFromIntent($turn_intent, $is_room_entry);
     $callbacks->recordDebugStage('gm.intent_classification', $stage_started_at, [
@@ -92,6 +97,7 @@ class GmTurnCoordinatorService {
       'active_conversation_npc' => $active_conversation_npc['entity_ref'] ?? NULL,
       'continued_conversation' => $continued_conversation,
       'implicit_single_npc_question' => $implicit_single_npc_question,
+      'charisma_fallback_npc' => $charisma_fallback_npc,
     ]);
 
     $stage_started_at = hrtime(true);
@@ -146,6 +152,41 @@ class GmTurnCoordinatorService {
     }
 
     return preg_match('/^(who|what|when|where|why|how|can|could|would|will|do|does|did|is|are|am|should|tell)\b/i', $trimmed) === 1;
+  }
+
+  /**
+   * Resolve one NPC by highest Charisma, randomizing ties among leaders.
+   */
+  protected function selectHighestCharismaNpc(array $npcs): ?array {
+    if ($npcs === []) {
+      return NULL;
+    }
+
+    $top_score = NULL;
+    $leaders = [];
+    foreach ($npcs as $npc) {
+      if (!is_array($npc)) {
+        continue;
+      }
+      $charisma = \Drupal\dungeoncrawler_content\Service\NpcAbilityScoreResolver::resolveCharismaScore($npc);
+      if ($top_score === NULL || $charisma > $top_score) {
+        $top_score = $charisma;
+        $leaders = [$npc];
+        continue;
+      }
+      if ($charisma === $top_score) {
+        $leaders[] = $npc;
+      }
+    }
+
+    if ($leaders === []) {
+      return NULL;
+    }
+    if (count($leaders) === 1) {
+      return $leaders[0];
+    }
+
+    return $leaders[random_int(0, count($leaders) - 1)];
   }
 
   /**

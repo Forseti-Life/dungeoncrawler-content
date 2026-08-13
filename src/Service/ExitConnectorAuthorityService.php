@@ -46,8 +46,8 @@ class ExitConnectorAuthorityService {
    * @return array<int, array<string, mixed>>
    *   Canonical connector rows.
    */
-  public function loadCanonicalConnectorsForRoom(string $room_id): array {
-    return $this->connectorDefinitionService->loadCanonicalConnectorsForRoom($room_id);
+  public function loadCanonicalConnectorsForRoom(string $room_id, string $dungeon_id = ''): array {
+    return $this->connectorDefinitionService->loadCanonicalConnectorsForRoom($room_id, $dungeon_id);
   }
 
 }

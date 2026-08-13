@@ -244,6 +244,14 @@ class MapVisualStateProjector {
       $launch_character,
       $object_definitions
     );
+    $occupants = $this->dedupeOccupantsByLogicalIdentity($occupants);
+    $actor_roster = $this->buildActorRoster(
+      $dungeon_payload,
+      $occupants,
+      $active_room_id,
+      $launch_context,
+      $launch_character
+    );
 
     return [
       'schema_version' => self::SCHEMA_VERSION,
@@ -267,6 +275,7 @@ class MapVisualStateProjector {
         'room_states' => $visibility_room_states,
       ],
       'occupants' => $occupants,
+      'actor_roster' => $actor_roster,
       'presentation' => [
         'object_definitions' => $object_definitions,
         'layer_order' => self::LAYER_ORDER,
@@ -1340,11 +1349,7 @@ class MapVisualStateProjector {
           'layer' => (string) ($definition['visual']['layer'] ?? $this->resolveVisualLayer((string) ($entity['entity_type'] ?? 'unknown'))),
           'badge' => isset($metadata['team']) ? (string) $metadata['team'] : NULL,
         ],
-        'state' => [
-          'active' => (bool) ($entity['state']['active'] ?? TRUE),
-          'hidden' => (bool) ($entity['state']['hidden'] ?? FALSE),
-          'disabled' => (bool) ($entity['state']['disabled'] ?? FALSE),
-        ],
+        'state' => $this->buildVisualOccupantStateProjection($entity_state, $metadata),
       ];
 
       $team = strtolower(trim((string) ($metadata['team'] ?? '')));
@@ -1363,6 +1368,422 @@ class MapVisualStateProjector {
     return [
       'party' => $party,
       'entities' => $entities,
+    ];
+  }
+
+  /**
+   * Project occupant state payload for map/roster consumers.
+   *
+   * Preserves canonical actor data slices (abilities, class/ancestry, inventory,
+   * spellcasting, etc.) so roster-selected actor sheets don't drop to defaults.
+   */
+  protected function buildVisualOccupantStateProjection(array $entity_state, array $metadata): array {
+    $projected = $entity_state;
+    $projected['active'] = (bool) ($entity_state['active'] ?? TRUE);
+    $projected['hidden'] = (bool) ($entity_state['hidden'] ?? FALSE);
+    $projected['disabled'] = (bool) ($entity_state['disabled'] ?? FALSE);
+    if (!is_array($projected['metadata'] ?? NULL)) {
+      $projected['metadata'] = $metadata;
+    }
+    return $projected;
+  }
+
+  /**
+   * Remove duplicate logical actors from projected occupants.
+   */
+  protected function dedupeOccupantsByLogicalIdentity(array $occupants): array {
+    $deduped = [
+      'party' => [],
+      'entities' => [],
+    ];
+    $seen = [];
+
+    foreach (['party', 'entities'] as $bucket) {
+      foreach ((is_array($occupants[$bucket] ?? NULL) ? $occupants[$bucket] : []) as $occupant) {
+        if (!is_array($occupant)) {
+          continue;
+        }
+
+        $logical_identity = $this->buildLogicalActorIdentity(
+          (string) ($occupant['occupant_type'] ?? ''),
+          is_array($occupant['state']['metadata'] ?? NULL) ? $occupant['state']['metadata'] : [],
+          (string) ($occupant['occupant_id'] ?? ''),
+          (string) ($occupant['content_id'] ?? ''),
+          (string) ($occupant['room_id'] ?? ''),
+          !empty($occupant['is_party'])
+        );
+        if ($logical_identity !== '' && isset($seen[$logical_identity])) {
+          continue;
+        }
+        if ($logical_identity !== '') {
+          $seen[$logical_identity] = TRUE;
+        }
+        $deduped[$bucket][] = $occupant;
+      }
+    }
+
+    return $deduped;
+  }
+
+  /**
+   * Build canonical actor-roster projection for active-room review surfaces.
+   */
+  protected function buildActorRoster(array $dungeon_payload, array $occupants, string $active_room_id, array $launch_context, array $launch_character): array {
+    $entries = [];
+    $party_ids = [];
+    $party = is_array($occupants['party'] ?? NULL) ? $occupants['party'] : [];
+    foreach ($party as $occupant) {
+      if (!is_array($occupant)) {
+        continue;
+      }
+      $occupant_id = trim((string) ($occupant['occupant_id'] ?? ''));
+      if ($occupant_id !== '') {
+        $party_ids[$occupant_id] = TRUE;
+      }
+    }
+
+    $launch_instance_id = trim((string) ($launch_character['instance_id'] ?? $launch_character['instanceId'] ?? ''));
+    $launch_character_id = (int) ($launch_character['id'] ?? $launch_character['character_id'] ?? 0);
+    $campaign_id = (int) ($launch_context['campaign_id'] ?? 0);
+    $entities = is_array($dungeon_payload['entities'] ?? NULL) ? $dungeon_payload['entities'] : [];
+
+    foreach ($entities as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+
+      $placement = is_array($entity['placement'] ?? NULL) ? $entity['placement'] : [];
+      $room_id = trim((string) ($placement['room_id'] ?? ''));
+      $runtime_instance_id = trim((string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? ''));
+      if ($room_id === '' || $runtime_instance_id === '') {
+        continue;
+      }
+
+      $state = is_array($entity['state'] ?? NULL) ? $entity['state'] : [];
+      if (!empty($state['hidden'])) {
+        continue;
+      }
+      $metadata = is_array($state['metadata'] ?? NULL) ? $state['metadata'] : [];
+      $entity_type = strtolower(trim((string) ($entity['entity_type'] ?? 'unknown')));
+      $team = $this->normalizeActorTeam((string) ($metadata['team'] ?? ''));
+      $character_id = (int) ($metadata['character_id'] ?? $entity['character_id'] ?? 0);
+      $campaign_character_id = (int) ($metadata['campaign_character_id'] ?? 0);
+      $side = $this->resolveActorSide(
+        $entity_type,
+        $team,
+        $metadata,
+        isset($party_ids[$runtime_instance_id]),
+        $runtime_instance_id,
+        $launch_instance_id,
+        $character_id,
+        $launch_character_id
+      );
+      $actor_kind = $this->resolveActorKind($entity_type, $metadata, $side);
+      $display_name = trim((string) ($metadata['display_name'] ?? $metadata['name'] ?? $runtime_instance_id));
+      $content_id = trim((string) ($entity['entity_ref']['content_id'] ?? ''));
+      $actor_id = $this->resolveActorId($campaign_character_id, $character_id, $runtime_instance_id, $content_id);
+      $faction_id = trim((string) ($metadata['faction_id'] ?? $metadata['faction'] ?? ''));
+      $initiative = isset($metadata['initiative']) && is_numeric($metadata['initiative'])
+        ? (int) $metadata['initiative']
+        : NULL;
+
+      $entries[] = [
+        'actor_id' => $actor_id,
+        'entity_ref' => $runtime_instance_id,
+        'runtime_instance_id' => $runtime_instance_id,
+        'room_id' => $room_id,
+        'actor_kind' => $actor_kind,
+        'side' => $side,
+        'team' => $team,
+        'faction_id' => $faction_id !== '' ? $faction_id : NULL,
+        'controllability' => $this->resolveActorControllability($side),
+        'display_name' => $display_name !== '' ? $display_name : $actor_id,
+        'sheet_ref' => $this->buildActorSheetRef($actor_id, $character_id, $metadata, $campaign_id),
+        'presentation' => [
+          'portrait_url' => isset($metadata['portrait_url']) ? (string) $metadata['portrait_url'] : NULL,
+          'badge' => $team !== 'neutral' ? $team : NULL,
+          'sprite_id' => $content_id !== '' ? $content_id : NULL,
+        ],
+        'combat' => [
+          'initiative' => $initiative,
+          'is_current' => !empty($metadata['is_current_turn']),
+          'is_defeated' => !empty($metadata['is_defeated']) || !empty($state['disabled']),
+          'is_participant' => $initiative !== NULL,
+        ],
+      ];
+    }
+
+    $entries = $this->dedupeActorRosterEntries($entries, $entities, $party_ids);
+
+    usort($entries, static function (array $a, array $b): int {
+      $room_a = (string) ($a['room_id'] ?? '');
+      $room_b = (string) ($b['room_id'] ?? '');
+      if ($room_a !== $room_b) {
+        return $room_a <=> $room_b;
+      }
+      return strcasecmp((string) ($a['display_name'] ?? ''), (string) ($b['display_name'] ?? ''));
+    });
+
+    return [
+      'schema_version' => 'actor-roster-v1',
+      'room_id' => $active_room_id,
+      'default_filter' => 'party',
+      'available_filters' => ['all', 'party', 'allied', 'hostile', 'neutral', 'hazard'],
+      'sort_modes' => ['alpha', 'initiative'],
+      'entries' => $entries,
+    ];
+  }
+
+  /**
+   * Remove duplicate logical actors from the canonical room roster.
+   *
+   * @param array<int, array<string, mixed>> $entries
+   * @param array<int, array<string, mixed>> $entities
+   * @param array<string, bool> $party_ids
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  protected function dedupeActorRosterEntries(array $entries, array $entities, array $party_ids): array {
+    $deduped = [];
+    $seen = [];
+
+    foreach ($entries as $index => $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+
+      $entity = is_array($entities[$index] ?? NULL) ? $entities[$index] : [];
+      $metadata = is_array($entity['state']['metadata'] ?? NULL) ? $entity['state']['metadata'] : [];
+      $runtime_instance_id = trim((string) ($entry['runtime_instance_id'] ?? ''));
+      $logical_identity = $this->buildLogicalActorIdentity(
+        (string) ($entity['entity_type'] ?? ''),
+        $metadata,
+        $runtime_instance_id,
+        (string) ($entity['entity_ref']['content_id'] ?? ''),
+        (string) ($entry['room_id'] ?? ''),
+        $runtime_instance_id !== '' && isset($party_ids[$runtime_instance_id])
+      );
+      if ($logical_identity !== '' && isset($seen[$logical_identity])) {
+        continue;
+      }
+      if ($logical_identity !== '') {
+        $seen[$logical_identity] = TRUE;
+      }
+      $deduped[] = $entry;
+    }
+
+    return $deduped;
+  }
+
+  /**
+   * Build one stable room-scoped logical identity for actors that must be unique.
+   */
+  protected function buildLogicalActorIdentity(string $entity_type, array $metadata, string $runtime_instance_id, string $content_id, string $room_id, bool $is_party_member = FALSE): string {
+    $normalized_room_id = trim($room_id);
+    if ($normalized_room_id === '') {
+      return '';
+    }
+
+    $entity_type = strtolower(trim($entity_type));
+    $team = $this->normalizeActorTeam((string) ($metadata['team'] ?? ''));
+    $source_character_id = (int) ($metadata['source_character_id'] ?? 0);
+    $campaign_character_id = (int) ($metadata['campaign_character_id'] ?? 0);
+    $character_id = (int) ($metadata['character_id'] ?? 0);
+    $owner_source_character_id = (int) ($metadata['owner_source_character_id'] ?? $metadata['bond_contract']['owner_source_character_id'] ?? 0);
+    $owner_character_id = (int) ($metadata['owner_character_id'] ?? $metadata['bond_contract']['owner_character_id'] ?? 0);
+    $follower_source_character_id = (int) ($metadata['follower_source_character_id'] ?? 0);
+    $follower_kind = $this->resolveFollowerKindFromMetadata($metadata);
+    $runtime_entity_id = trim((string) ($metadata['runtime_entity_id'] ?? $runtime_instance_id));
+    $is_player_like = $is_party_member
+      || in_array($entity_type, ['player_character', 'pc', 'player'], TRUE)
+      || $team === 'player';
+
+    if ($follower_kind !== '' && $follower_source_character_id > 0) {
+      return sprintf('%s:follower-source:%d:%s', $normalized_room_id, $follower_source_character_id, $follower_kind);
+    }
+    if ($follower_kind !== '' && $owner_source_character_id > 0) {
+      return sprintf('%s:follower-owner-source:%d:%s', $normalized_room_id, $owner_source_character_id, $follower_kind);
+    }
+    if ($follower_kind !== '' && $owner_character_id > 0) {
+      return sprintf('%s:follower-owner:%d:%s', $normalized_room_id, $owner_character_id, $follower_kind);
+    }
+    if ($is_player_like && $source_character_id > 0) {
+      return sprintf('%s:player-source:%d', $normalized_room_id, $source_character_id);
+    }
+    if ($campaign_character_id > 0) {
+      return sprintf('%s:campaign-character:%d', $normalized_room_id, $campaign_character_id);
+    }
+    if ($is_player_like && $character_id > 0) {
+      return sprintf('%s:player-character:%d', $normalized_room_id, $character_id);
+    }
+    if ($runtime_entity_id !== '') {
+      return sprintf('%s:runtime:%s', $normalized_room_id, $runtime_entity_id);
+    }
+    if ($content_id !== '' && $follower_kind !== '') {
+      return sprintf('%s:follower-content:%s:%s', $normalized_room_id, trim($content_id), $follower_kind);
+    }
+
+    return '';
+  }
+
+  protected function normalizeActorTeam(string $team): string {
+    $normalized = strtolower(trim($team));
+    if ($normalized === 'party' || $normalized === 'player') {
+      return 'player';
+    }
+    if ($normalized === 'ally' || $normalized === 'allied') {
+      return 'ally';
+    }
+    if ($normalized === 'enemy' || $normalized === 'hostile') {
+      return 'enemy';
+    }
+    return 'neutral';
+  }
+
+  protected function resolveActorSide(string $entity_type, string $team, array $metadata, bool $is_party_member, string $runtime_instance_id, string $launch_instance_id, int $character_id, int $launch_character_id): string {
+    if (in_array($entity_type, ['hazard', 'trap', 'obstacle'], TRUE)) {
+      return 'hazard';
+    }
+
+    $owner_character_id = (int) ($metadata['owner_character_id'] ?? $metadata['bond_contract']['owner_character_id'] ?? 0);
+    $is_launch_actor = $launch_instance_id !== '' && $runtime_instance_id === $launch_instance_id;
+    $is_launch_actor = $is_launch_actor || ($launch_character_id > 0 && $character_id > 0 && $character_id === $launch_character_id);
+    if ($is_launch_actor) {
+      return 'party';
+    }
+    if ($owner_character_id > 0 && $launch_character_id > 0 && $owner_character_id === $launch_character_id) {
+      return 'party';
+    }
+    if ($team === 'player') {
+      return 'party';
+    }
+    if ($team === 'ally') {
+      return 'allied';
+    }
+    if ($team === 'enemy') {
+      return 'hostile';
+    }
+    if ($is_party_member) {
+      return 'party';
+    }
+    return 'neutral';
+  }
+
+  protected function resolveActorKind(string $entity_type, array $metadata, string $side): string {
+    $follower_kind = $this->resolveFollowerKindFromMetadata($metadata);
+    if ($follower_kind !== '') {
+      return 'follower';
+    }
+    if ($side === 'hazard') {
+      return 'hazard';
+    }
+    if ($entity_type === 'player_character' || $entity_type === 'pc' || $entity_type === 'player') {
+      return 'pc';
+    }
+    if ($entity_type === 'npc' && !empty($metadata['occupation']) && str_contains(strtolower((string) $metadata['occupation']), 'merchant')) {
+      return 'merchant';
+    }
+    if ($entity_type === 'npc' && $side === 'hostile') {
+      return 'creature';
+    }
+    if ($entity_type === 'npc') {
+      return 'npc';
+    }
+    if ($entity_type !== '') {
+      return $entity_type;
+    }
+    return 'npc';
+  }
+
+  protected function resolveFollowerKindFromMetadata(array $metadata): string {
+    $kind = strtolower(trim((string) ($metadata['follower_kind'] ?? $metadata['bond_contract']['follower_kind'] ?? '')));
+    if ($kind !== '') {
+      return $kind;
+    }
+    $role = strtolower(trim((string) ($metadata['role'] ?? '')));
+    if (str_contains($role, 'familiar')) {
+      return 'familiar';
+    }
+    if (str_contains($role, 'companion')) {
+      return 'animal_companion';
+    }
+    if (str_contains($role, 'follower')) {
+      return 'follower';
+    }
+    return '';
+  }
+
+  protected function resolveActorId(int $campaign_character_id, int $character_id, string $runtime_instance_id, string $content_id): string {
+    if ($campaign_character_id > 0) {
+      return 'campaign-character:' . $campaign_character_id;
+    }
+    if ($character_id > 0) {
+      return 'character:' . $character_id;
+    }
+    if ($runtime_instance_id !== '') {
+      return 'runtime:' . $runtime_instance_id;
+    }
+    if ($content_id !== '') {
+      return 'content:' . $content_id;
+    }
+    return 'actor:unknown';
+  }
+
+  protected function resolveActorControllability(string $side): string {
+    if ($side === 'party') {
+      return 'player';
+    }
+    if ($side === 'allied' || $side === 'neutral') {
+      return 'gm';
+    }
+    return 'system';
+  }
+
+  /**
+   * Build a normalized sheet_ref contract for roster entries.
+   *
+   * @return array<string, mixed>
+   */
+  protected function buildActorSheetRef(string $actor_id, int $character_id, array $metadata, int $campaign_id): array {
+    $query = [];
+    if ($campaign_id > 0) {
+      $query['campaign_id'] = $campaign_id;
+    }
+
+    $owner_character_id = (int) ($metadata['owner_character_id'] ?? $metadata['bond_contract']['owner_character_id'] ?? 0);
+    $follower_kind = $this->resolveFollowerKindFromMetadata($metadata);
+    if ($owner_character_id > 0 && $follower_kind !== '') {
+      return [
+        'sheet_type' => 'follower',
+        'sheet_id' => 'follower:' . $owner_character_id . ':' . $follower_kind,
+        'route_name' => 'dungeoncrawler_content.character_follower_view',
+        'route_params' => [
+          'character_id' => $owner_character_id,
+          'follower_kind' => $follower_kind,
+        ],
+        'query' => $query,
+      ];
+    }
+
+    $resolvedCharacterId = $character_id > 0
+      ? $character_id
+      : (int) ($metadata['campaign_character_id'] ?? 0);
+    if ($resolvedCharacterId > 0) {
+      return [
+        'sheet_type' => 'character',
+        'sheet_id' => 'character:' . $resolvedCharacterId,
+        'route_name' => 'dungeoncrawler_content.character_view',
+        'route_params' => ['character_id' => $resolvedCharacterId],
+        'query' => $query,
+      ];
+    }
+
+    return [
+      'sheet_type' => 'actor',
+      'sheet_id' => $actor_id,
+      'route_name' => 'dungeoncrawler_content.actor_view',
+      'route_params' => ['actor_id' => $actor_id],
+      'query' => $query,
     ];
   }
 

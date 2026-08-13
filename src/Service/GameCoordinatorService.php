@@ -76,6 +76,7 @@ class GameCoordinatorService {
     'system',
   ];
   protected const NAVIGATION_TIMING_SLOW_THRESHOLD_MS = 250;
+  protected const ACTION_AVAILABILITY_CACHE_KEY_VERSION = 'v1';
 
   /**
    * Default game state structure for new sessions.
@@ -176,6 +177,7 @@ class GameCoordinatorService {
    * File URL generator for narrator audio playback URLs.
    */
   protected ?FileUrlGeneratorInterface $fileUrlGenerator;
+  protected array $actionAvailabilityTurnCache = [];
 
   /**
    * Constructs a GameCoordinatorService.
@@ -562,8 +564,32 @@ class GameCoordinatorService {
    * This path preserves legacy behavior by allowing initial room-entry
    * bootstrap and cursor/materialization persistence during the read request.
    */
-  public function getMaterializedFullState(int $campaign_id): array {
-    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+  public function getMaterializedFullState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array {
+    $actor_id = trim((string) $actor_id);
+    $character_id = (int) ($character_id ?? 0);
+    if ($character_id > 0) {
+      $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $character_id);
+    }
+    elseif ($actor_id !== '') {
+      $resolved_runtime_character_id = $this->runtimeBootstrap->resolveRuntimeCharacterIdForActor($campaign_id, $actor_id);
+      if ($resolved_runtime_character_id !== NULL) {
+        $this->runtimeBootstrap->ensureRuntimeReady($campaign_id, $resolved_runtime_character_id);
+      }
+      else {
+        $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+      }
+    }
+    else {
+      $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+    }
+
+    if ($actor_id === '' && $character_id > 0) {
+      $resolved_actor_id = $this->resolveActorIdForCharacterId($campaign_id, $character_id);
+      if (is_string($resolved_actor_id) && trim($resolved_actor_id) !== '') {
+        $actor_id = trim($resolved_actor_id);
+      }
+    }
+
     $context = $this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);
     if ($context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
@@ -571,7 +597,13 @@ class GameCoordinatorService {
 
     $dungeon_data = $context['dungeon_data'];
     $game_state = $context['game_state'];
-    return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, TRUE);
+    if ($actor_id === '') {
+      $turn_actor_id = trim((string) ($game_state['turn']['entity'] ?? ''));
+      if ($turn_actor_id !== '') {
+        $actor_id = $turn_actor_id;
+      }
+    }
+    return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, TRUE, $actor_id !== '' ? $actor_id : NULL);
   }
 
   /**
@@ -607,21 +639,136 @@ class GameCoordinatorService {
    * This is the coordinator-facing query surface that GM/NPC/UI tooling can use
    * to ask for one actor's current authoritative action availability.
    *
-   * @return array{available_actions: string[], action_contract: ?array<string,mixed>}
+   * @param array<string,mixed> $diagnostic_context
+   *   Optional correlation context for timing diagnostics (e.g. trace_id).
+   *
+   * @return array{available_actions: string[], action_contract: ?array<string,mixed>, institution_membership_projection?: array<string,mixed>, diagnostics?: array<string,mixed>}
    *   Shared actor-scoped availability payload.
    */
-  public function getActionAvailabilityForActor(int $campaign_id, ?string $actor_id = NULL): array {
-    $context = $this->resolveActionAvailabilityContext($campaign_id, $actor_id);
+  public function getActionAvailabilityForActor(int $campaign_id, ?string $actor_id = NULL, array $diagnostic_context = []): array {
+    $overall_started_at = hrtime(true);
+    $bypass_active_room_sync = $this->shouldBypassActionAvailabilityActiveRoomSync($campaign_id);
+    $membership_projection_mode = $this->shouldEnableActionAvailabilityMembershipProjection($campaign_id);
+    $turn_cache_enabled = $this->shouldEnableActionAvailabilityTurnCache($campaign_id);
+    $diagnostic_context = $diagnostic_context + [
+      'bypass_active_room_sync' => $bypass_active_room_sync,
+      'membership_projection_mode' => $membership_projection_mode,
+    ];
+
+    $stage_started_at = hrtime(true);
+    $context = $this->resolveActionAvailabilityContext(
+      $campaign_id,
+      $actor_id,
+      $diagnostic_context,
+      !$bypass_active_room_sync
+    );
+    $resolve_context_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
     if ($context === NULL || $context['handler'] === NULL) {
+      $this->logger->debug(
+        'Action availability timing: campaign=@campaign_id actor=@actor_id trace=@trace_id total_ms=@total resolve_context_ms=@resolve available_actions=@available contract_actions=@contract action_options=@options family_counts=@families status=@status',
+        [
+          '@campaign_id' => $campaign_id,
+          '@actor_id' => trim((string) ($actor_id ?? '')),
+          '@trace_id' => trim((string) ($diagnostic_context['trace_id'] ?? '')),
+          '@total' => round((hrtime(true) - $overall_started_at) / 1000000, 2),
+          '@resolve' => $resolve_context_ms,
+          '@available' => 0,
+          '@contract' => 0,
+          '@options' => 0,
+          '@families' => '',
+          '@status' => 'empty_context',
+        ]
+      );
       return $this->emptyActionAvailabilityPayload();
     }
 
     /** @var \Drupal\dungeoncrawler_content\Service\PhaseHandlerInterface $handler */
     $handler = $context['handler'];
-    return [
-      'available_actions' => $handler->getAvailableActions($context['game_state'], $context['dungeon_data'], $actor_id),
-      'action_contract' => $this->buildActionContract($handler, $context['game_state'], $context['dungeon_data'], $actor_id),
+    $turn_signature = $this->buildActionAvailabilityTurnSignature($campaign_id, $actor_id, $context);
+    $turn_cache_key = $this->buildActionAvailabilityTurnCacheKey($campaign_id, $actor_id, $turn_signature);
+    if ($turn_cache_enabled && isset($this->actionAvailabilityTurnCache[$turn_cache_key])) {
+      $cached_payload = $this->actionAvailabilityTurnCache[$turn_cache_key];
+      if (is_array($cached_payload['diagnostics'] ?? NULL)) {
+        $cached_payload['diagnostics']['cache_mode'] = 'turn';
+        $cached_payload['diagnostics']['cache_hit'] = TRUE;
+        $cached_payload['diagnostics']['turn_signature'] = $turn_signature;
+      }
+      return $cached_payload;
+    }
+
+    $stage_started_at = hrtime(true);
+    $available_actions = $handler->getAvailableActions($context['game_state'], $context['dungeon_data'], $actor_id);
+    $available_actions_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
+
+    $stage_started_at = hrtime(true);
+    $action_contract = $this->buildActionContract($handler, $context['game_state'], $context['dungeon_data'], $actor_id);
+    $action_contract_ms = round((hrtime(true) - $stage_started_at) / 1000000, 2);
+
+    $normalized_action_contract = is_array($action_contract) ? $action_contract : NULL;
+    $family_summary = [];
+    $total_action_options = 0;
+    $action_families = is_array($normalized_action_contract['action_option_families'] ?? NULL)
+      ? $normalized_action_contract['action_option_families']
+      : [];
+    foreach ($action_families as $family_action => $family_payload) {
+      if (!is_array($family_payload)) {
+        continue;
+      }
+      $family_option_count = (int) ($family_payload['option_count'] ?? 0);
+      $total_action_options += $family_option_count;
+      $family_summary[] = sprintf('%s:%d', $family_action, $family_option_count);
+    }
+    sort($family_summary);
+
+    $institution_membership_projection = $membership_projection_mode
+      ? $this->buildInstitutionMembershipProjection($campaign_id, $actor_id, $context['dungeon_data'])
+      : [];
+
+    $this->logger->debug(
+      'Action availability timing: campaign=@campaign_id actor=@actor_id trace=@trace_id total_ms=@total resolve_context_ms=@resolve available_actions_ms=@available_ms action_contract_ms=@contract_ms available_actions=@available contract_actions=@contract action_options=@options family_counts=@families status=@status',
+      [
+        '@campaign_id' => $campaign_id,
+        '@actor_id' => trim((string) ($actor_id ?? '')),
+        '@trace_id' => trim((string) ($diagnostic_context['trace_id'] ?? '')),
+        '@total' => round((hrtime(true) - $overall_started_at) / 1000000, 2),
+        '@resolve' => $resolve_context_ms,
+        '@available_ms' => $available_actions_ms,
+        '@contract_ms' => $action_contract_ms,
+        '@available' => count($available_actions),
+        '@contract' => is_array($normalized_action_contract['actions'] ?? NULL) ? count($normalized_action_contract['actions']) : 0,
+        '@options' => $total_action_options,
+        '@families' => implode(',', $family_summary),
+        '@status' => 'ok',
+      ]
+    );
+
+    $payload = [
+      'available_actions' => $available_actions,
+      'action_contract' => $normalized_action_contract,
+      'institution_membership_projection' => $institution_membership_projection !== [] ? $institution_membership_projection : NULL,
+      'diagnostics' => [
+        'resolve_context_ms' => $resolve_context_ms,
+        'available_actions_ms' => $available_actions_ms,
+        'action_contract_ms' => $action_contract_ms,
+        'total_ms' => round((hrtime(true) - $overall_started_at) / 1000000, 2),
+        'available_action_count' => count($available_actions),
+        'action_contract_count' => is_array($normalized_action_contract['actions'] ?? NULL) ? count($normalized_action_contract['actions']) : 0,
+        'action_option_count' => $total_action_options,
+        'bypass_active_room_sync' => $bypass_active_room_sync,
+        'membership_projection_mode' => $membership_projection_mode,
+        'membership_projection_freshness' => (string) ($institution_membership_projection['freshness'] ?? 'disabled'),
+        'membership_projection_refresh_enqueued' => !empty($institution_membership_projection['refresh_enqueued']),
+        'cache_mode' => $turn_cache_enabled ? 'turn' : 'disabled',
+        'cache_hit' => FALSE,
+        'turn_signature' => $turn_signature,
+      ],
     ];
+
+    if ($turn_cache_enabled) {
+      $this->actionAvailabilityTurnCache[$turn_cache_key] = $payload;
+    }
+
+    return $payload;
   }
 
   /**
@@ -632,7 +779,18 @@ class GameCoordinatorService {
    */
   public function getRuntimeReadState(int $campaign_id, ?string $actor_id = NULL): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $context = $this->resolveActionAvailabilityContext($campaign_id, $actor_id);
+    $bypass_active_room_sync = $this->shouldBypassActionAvailabilityActiveRoomSync($campaign_id);
+    $diagnostic_context = [
+      'bypass_active_room_sync' => $bypass_active_room_sync,
+      'membership_projection_mode' => $this->shouldEnableActionAvailabilityMembershipProjection($campaign_id),
+      'trace_id' => 'runtime_read_state',
+    ];
+    $context = $this->resolveActionAvailabilityContext(
+      $campaign_id,
+      $actor_id,
+      $diagnostic_context,
+      !$bypass_active_room_sync
+    );
     if ($context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
@@ -2390,6 +2548,10 @@ class GameCoordinatorService {
    * Builds a client-safe game state payload (strips internal data).
    */
   protected function buildClientGameState(array $game_state): array {
+    $encounter_presentation = is_array($game_state['encounter_presentation'] ?? NULL)
+      ? $game_state['encounter_presentation']
+      : $this->buildEncounterPresentationFromGameState($game_state);
+
     return [
       'phase' => $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE,
       'session_id' => $game_state['session_id'] ?? NULL,
@@ -2402,9 +2564,69 @@ class GameCoordinatorService {
       'campaign_clock' => $game_state['campaign_clock'] ?? NULL,
       'game_time' => $game_state['game_time'] ?? NULL,
       'timed_activities' => $game_state['timed_activities'] ?? [],
+      'encounter_presentation' => $encounter_presentation,
       'state_version' => $game_state['state_version'] ?? 1,
       'event_log_cursor' => $game_state['event_log_cursor'] ?? 0,
       'last_encounter' => $game_state['last_encounter'] ?? NULL,
+    ];
+  }
+
+  /**
+   * Build compact encounter presentation from runtime game_state.
+   */
+  protected function buildEncounterPresentationFromGameState(array $game_state): array {
+    $status = trim((string) ($game_state['encounter_status'] ?? ''));
+    if ($status === '') {
+      $status = !empty($game_state['encounter_id']) ? 'active' : 'idle';
+    }
+    $turn_index = is_numeric($game_state['turn']['index'] ?? NULL)
+      ? (int) $game_state['turn']['index']
+      : (is_numeric($game_state['turn_index'] ?? NULL) ? (int) $game_state['turn_index'] : 0);
+    $initiative_rows = array_values(is_array($game_state['initiative_order'] ?? NULL) ? $game_state['initiative_order'] : []);
+    $initiative_cards = [];
+    foreach ($initiative_rows as $index => $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $team = strtolower(trim((string) ($entry['team'] ?? 'neutral')));
+      if (!in_array($team, ['player', 'enemy', 'ally', 'neutral'], TRUE)) {
+        $team = 'neutral';
+      }
+      $entry_entity_id = trim((string) ($entry['entity_id'] ?? $entry['entity'] ?? ''));
+      $initiative_cards[] = [
+        'entity_id' => $entry_entity_id,
+        'name' => (string) ($entry['name'] ?? $entry_entity_id),
+        'team' => $team,
+        'initiative' => is_numeric($entry['initiative'] ?? NULL) ? (int) $entry['initiative'] : NULL,
+        'is_current' => $index === $turn_index,
+        'is_defeated' => (bool) ($entry['is_defeated'] ?? FALSE),
+        'hp' => [
+          'current' => is_numeric($entry['hp'] ?? NULL) ? (int) $entry['hp'] : NULL,
+          'max' => is_numeric($entry['max_hp'] ?? NULL) ? (int) $entry['max_hp'] : NULL,
+          'visibility' => $team === 'player' ? 'full' : 'status_only',
+        ],
+        'actions_remaining' => is_numeric($entry['actions_remaining'] ?? NULL) ? (int) $entry['actions_remaining'] : NULL,
+        'reaction_available' => array_key_exists('reaction_available', $entry) ? (bool) $entry['reaction_available'] : NULL,
+        'conditions' => [],
+      ];
+    }
+
+    $current_entity_id = trim((string) (
+      $game_state['turn']['entity']
+      ?? ($initiative_cards[$turn_index]['entity_id'] ?? '')
+    ));
+
+    return [
+      'schema_version' => 'encounter-map-v1',
+      'encounter_id' => is_numeric($game_state['encounter_id'] ?? NULL) ? (int) $game_state['encounter_id'] : NULL,
+      'status' => $status,
+      'mode' => 'combat',
+      'title' => !empty($game_state['encounter_id']) ? 'Combat Encounter' : 'No active combat',
+      'room_id' => (string) ($game_state['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? '')),
+      'current_round' => is_numeric($game_state['round'] ?? NULL) ? (int) $game_state['round'] : 0,
+      'turn_index' => $turn_index,
+      'current_entity_id' => $current_entity_id,
+      'initiative_order' => $initiative_cards,
     ];
   }
 
@@ -2438,9 +2660,11 @@ class GameCoordinatorService {
     int $campaign_id,
     array &$dungeon_data,
     array &$game_state,
-    bool $materialize_initial_room_entry
+    bool $materialize_initial_room_entry,
+    ?string $actor_id = NULL
   ): array {
     $initial_events = [];
+    $warmup_state_changed = FALSE;
     if ($materialize_initial_room_entry) {
       $had_game_state = isset($dungeon_data['game_state']) && is_array($dungeon_data['game_state']);
       $bootstrap_events = $this->bootstrapInitialRoomEntry($campaign_id, $dungeon_data, $game_state);
@@ -2451,6 +2675,9 @@ class GameCoordinatorService {
         ));
       }
       $this->synchronizeActiveRoomAuthority($game_state, $dungeon_data);
+      if ($this->shouldSplitRoomEntryWarmup($campaign_id)) {
+        $warmup_state_changed = $this->enqueueRoomEntryWarmupTasks($campaign_id, $dungeon_data, $game_state);
+      }
       $initial_events = $bootstrap_events !== []
         ? $bootstrap_events
         : $this->collectUnseenInitialEvents($dungeon_data, $game_state, FALSE);
@@ -2463,7 +2690,7 @@ class GameCoordinatorService {
           TRUE
         ));
       }
-      elseif (!$had_game_state) {
+      elseif (!$had_game_state || $warmup_state_changed) {
         $this->persistMutationEnvelope($this->buildMutationEnvelopeFromPayload(
           $campaign_id,
           $game_state,
@@ -2479,14 +2706,14 @@ class GameCoordinatorService {
 
     $phase = $game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE;
     $handler = $this->getPhaseHandler($phase);
-    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data);
+    $action_contract = $this->buildActionContract($handler, $game_state, $dungeon_data, $actor_id);
 
     return [
       'success' => TRUE,
       'game_state' => $this->buildClientGameState($game_state),
       'phase' => $phase,
       'available_actions' => $handler
-        ? $handler->getAvailableActions($game_state, $dungeon_data)
+        ? $handler->getAvailableActions($game_state, $dungeon_data, $actor_id)
         : [],
       'action_contract' => $action_contract,
       'legal_intents' => $handler ? $handler->getLegalIntents() : [],
@@ -2496,7 +2723,133 @@ class GameCoordinatorService {
       'round' => $game_state['round'] ?? NULL,
       'turn' => $game_state['turn'] ?? NULL,
       'events' => $initial_events,
+      'room_entry_warmup' => is_array($game_state['room_entry_warmup'] ?? NULL)
+        ? $game_state['room_entry_warmup']
+        : NULL,
     ];
+  }
+
+  /**
+   * Determine whether startup room-entry warmup should be deferred.
+   */
+  protected function shouldSplitRoomEntryWarmup(int $campaign_id): bool {
+    $raw = strtolower(trim((string) getenv('DC_ROOM_ENTRY_WARMUP_SPLIT_ENABLED')));
+    if (in_array($raw, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+    if (in_array($raw, ['0', 'false', 'no', 'off'], TRUE)) {
+      return FALSE;
+    }
+
+    $config_raw = (string) \Drupal::config('dungeoncrawler_content.settings')->get('room_entry_warmup_split_enabled');
+    $config_value = strtolower(trim($config_raw));
+    if (in_array($config_value, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+
+    return $this->isLatencyToggleCanaryCampaign($campaign_id);
+  }
+
+  /**
+   * Queue active-room warmup tasks for non-blocking post-entry convergence.
+   */
+  protected function enqueueRoomEntryWarmupTasks(int $campaign_id, array $dungeon_data, array &$game_state): bool {
+    if ($campaign_id <= 0) {
+      return FALSE;
+    }
+    $room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    $npc_actor_refs = [];
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+      if ($entity_room_id !== $room_id) {
+        continue;
+      }
+      if (strtolower(trim((string) ($entity['entity_type'] ?? ''))) !== 'npc') {
+        continue;
+      }
+      $entity_ref = trim((string) (
+        $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? ''
+      ));
+      if ($entity_ref !== '') {
+        $npc_actor_refs[$entity_ref] = TRUE;
+      }
+    }
+    if ($npc_actor_refs === []) {
+      return FALSE;
+    }
+
+    $queue = is_array($game_state['room_entry_warmup_queue'] ?? NULL)
+      ? array_values($game_state['room_entry_warmup_queue'])
+      : [];
+    $existing = [];
+    foreach ($queue as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $task_id = trim((string) ($entry['task_id'] ?? ''));
+      if ($task_id !== '') {
+        $existing[$task_id] = TRUE;
+      }
+    }
+
+    $task_types = [
+      'ensure_room_npc_psychology_profiles',
+      'refresh_room_actor_projection',
+      'refresh_institution_membership_projection',
+      'prebuild_actor_action_availability_for_room',
+    ];
+    $changed = FALSE;
+    $created_at = date('c');
+    foreach ($task_types as $task_type) {
+      $task_id = sprintf('warmup:%d:%s:%s', $campaign_id, $room_id, $task_type);
+      if (isset($existing[$task_id])) {
+        continue;
+      }
+      $changed = TRUE;
+      $existing[$task_id] = TRUE;
+      $queue[] = [
+        'task_id' => $task_id,
+        'task_type' => $task_type,
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'status' => 'pending',
+        'created_at' => $created_at,
+        'source' => 'initial_room_entry',
+        'actor_refs' => array_keys($npc_actor_refs),
+      ];
+    }
+
+    if (!$changed) {
+      return FALSE;
+    }
+
+    $game_state['room_entry_warmup_queue'] = $queue;
+    $game_state['room_entry_warmup'] = [
+      'mode' => 'deferred',
+      'room_id' => $room_id,
+      'queue_depth' => count($queue),
+      'queued_at' => $created_at,
+    ];
+    $this->logger->notice(
+      'Initial room-entry warmup queued: campaign=@campaign_id room=@room_id tasks=@task_count queue_depth=@queue_depth',
+      [
+        '@campaign_id' => $campaign_id,
+        '@room_id' => $room_id,
+        '@task_count' => count($task_types),
+        '@queue_depth' => count($queue),
+      ]
+    );
+    return TRUE;
   }
 
   /**
@@ -2506,8 +2859,18 @@ class GameCoordinatorService {
    *   Context payload with dungeon_data, game_state, and phase handler; NULL
    *   when dungeon data is unavailable.
    */
-  protected function resolveActionAvailabilityContext(int $campaign_id, ?string $actor_id = NULL): ?array {
-    $context = $this->coordinatorRuntimeReadService->resolveActionAvailabilityContext($campaign_id, $actor_id);
+  protected function resolveActionAvailabilityContext(
+    int $campaign_id,
+    ?string $actor_id = NULL,
+    array $diagnostic_context = [],
+    bool $sync_active_room_players = TRUE
+  ): ?array {
+    $context = $this->coordinatorRuntimeReadService->resolveActionAvailabilityContext(
+      $campaign_id,
+      $actor_id,
+      $diagnostic_context,
+      $sync_active_room_players
+    );
     if ($context === NULL) {
       return NULL;
     }
@@ -2542,6 +2905,147 @@ class GameCoordinatorService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Determine whether action-availability reads should bypass active-room sync.
+   */
+  protected function shouldBypassActionAvailabilityActiveRoomSync(int $campaign_id): bool {
+    $raw = strtolower(trim((string) getenv('DC_ACTION_AVAILABILITY_BYPASS_ACTIVE_ROOM_SYNC')));
+    if (in_array($raw, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+    if (in_array($raw, ['0', 'false', 'no', 'off'], TRUE)) {
+      return FALSE;
+    }
+
+    $config_raw = (string) \Drupal::config('dungeoncrawler_content.settings')->get('action_availability_bypass_active_room_sync');
+    $config_value = strtolower(trim($config_raw));
+    if (in_array($config_value, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+
+    return $this->isLatencyToggleCanaryCampaign($campaign_id);
+  }
+
+  /**
+   * Determine whether action-availability should consume membership projections.
+   */
+  protected function shouldEnableActionAvailabilityMembershipProjection(int $campaign_id): bool {
+    $raw = strtolower(trim((string) getenv('DC_ACTION_AVAILABILITY_MEMBERSHIP_PROJECTION')));
+    if (in_array($raw, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+    if (in_array($raw, ['0', 'false', 'no', 'off'], TRUE)) {
+      return FALSE;
+    }
+
+    $config_raw = (string) \Drupal::config('dungeoncrawler_content.settings')->get('action_availability_membership_projection_enabled');
+    $config_value = strtolower(trim($config_raw));
+    if (in_array($config_value, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+
+    return $this->isLatencyToggleCanaryCampaign($campaign_id);
+  }
+
+  /**
+   * Build read-lane institution membership projection for one actor.
+   *
+   * @return array<string,mixed>
+   *   Projection payload; empty array when unavailable.
+   */
+  protected function buildInstitutionMembershipProjection(int $campaign_id, ?string $actor_id, array $dungeon_data): array {
+    $actor_id = trim((string) $actor_id);
+    if ($campaign_id <= 0 || $actor_id === '' || !\Drupal::hasService('dungeoncrawler_content.institution_membership_projection')) {
+      return [];
+    }
+
+    /** @var \Drupal\dungeoncrawler_content\Service\InstitutionMembershipProjectionService $projection_service */
+    $projection_service = \Drupal::service('dungeoncrawler_content.institution_membership_projection');
+    return $projection_service->buildActorProjection(
+      $campaign_id,
+      $actor_id,
+      $dungeon_data,
+      TRUE
+    );
+  }
+
+  /**
+   * Determine whether turn-scoped action-availability cache is enabled.
+   */
+  protected function shouldEnableActionAvailabilityTurnCache(int $campaign_id): bool {
+    $raw = strtolower(trim((string) getenv('DC_ACTION_AVAILABILITY_TURN_CACHE_ENABLED')));
+    if (in_array($raw, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+    if (in_array($raw, ['0', 'false', 'no', 'off'], TRUE)) {
+      return FALSE;
+    }
+
+    $config_raw = (string) \Drupal::config('dungeoncrawler_content.settings')->get('action_availability_turn_cache_enabled');
+    $config_value = strtolower(trim($config_raw));
+    if (in_array($config_value, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+
+    return $this->isLatencyToggleCanaryCampaign($campaign_id);
+  }
+
+  /**
+   * Determines whether this campaign is in the latency canary cohort.
+   */
+  protected function isLatencyToggleCanaryCampaign(int $campaign_id): bool {
+    if ($campaign_id <= 0) {
+      return FALSE;
+    }
+    $raw = (string) \Drupal::config('dungeoncrawler_content.settings')->get('latency_toggle_canary_campaign_ids');
+    if ($raw === '') {
+      return FALSE;
+    }
+    foreach (preg_split('/[\s,]+/', $raw, -1, \PREG_SPLIT_NO_EMPTY) ?: [] as $candidate) {
+      if ((int) $candidate === $campaign_id) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Build deterministic turn signature for action-availability cache entries.
+   */
+  protected function buildActionAvailabilityTurnSignature(int $campaign_id, ?string $actor_id, array $context): string {
+    $game_state = is_array($context['game_state'] ?? NULL) ? $context['game_state'] : [];
+    $dungeon_data = is_array($context['dungeon_data'] ?? NULL) ? $context['dungeon_data'] : [];
+    $active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? ''));
+    $phase = trim((string) ($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE));
+    $round = (int) ($game_state['round'] ?? 0);
+    $turn = (int) ($game_state['turn'] ?? 0);
+    $state_version = (int) ($game_state['state_version'] ?? 1);
+    $resolved_actor_id = trim((string) ($actor_id ?? ''));
+
+    return implode(':', [
+      self::ACTION_AVAILABILITY_CACHE_KEY_VERSION,
+      $campaign_id,
+      $phase,
+      $round,
+      $turn,
+      $state_version,
+      $active_room_id,
+      $resolved_actor_id,
+    ]);
+  }
+
+  /**
+   * Build deterministic in-request cache key for one actor turn snapshot.
+   */
+  protected function buildActionAvailabilityTurnCacheKey(int $campaign_id, ?string $actor_id, string $turn_signature): string {
+    return implode('|', [
+      self::ACTION_AVAILABILITY_CACHE_KEY_VERSION,
+      (string) $campaign_id,
+      trim((string) ($actor_id ?? '')),
+      $turn_signature,
+    ]);
   }
 
   /**

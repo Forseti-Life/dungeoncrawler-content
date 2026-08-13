@@ -614,6 +614,15 @@ class CampaignCharacterRuntimeResolverService {
 
     $fields = $source_row;
     unset($fields['id'], $fields['campaign_id'], $fields['created'], $fields['changed'], $fields['updated']);
+    // Followers cloned into another campaign must not carry over stale room/hex
+    // placement from the source campaign. They will be placed adjacent to owner.
+    if ($target_campaign_id > 0) {
+      $fields['position_q'] = 0;
+      $fields['position_r'] = 0;
+      $fields['position_h3'] = '';
+      $fields['last_room_id'] = '';
+      $fields['location_ref'] = '';
+    }
     if ($owner_character_id > 0) {
       $fields['source_character_id'] = $owner_character_id;
     }
@@ -852,7 +861,7 @@ class CampaignCharacterRuntimeResolverService {
       $room_id = $this->resolveStarterRoomIdForCampaign($campaign_id);
     }
     if ($room_id === '') {
-      $room_id = 'tavern_entrance';
+      $room_id = $this->resolveCampaignProfileDefaultRoomId($campaign_id);
     }
 
     $location_type = $room_id !== ''
@@ -861,9 +870,27 @@ class CampaignCharacterRuntimeResolverService {
     $location_ref = $room_id !== ''
       ? $room_id
       : trim((string) ($existing_row['location_ref'] ?? $selected_character->location_ref ?? ''));
+
+    // New runtime rows without explicit launch coordinates should anchor to the
+    // canonical room entry point instead of inheriting arbitrary source-row hexes.
+    if (
+      $room_id !== ''
+      && $is_new_runtime_row
+      && !$start_q_explicit
+      && !$start_r_explicit
+    ) {
+      $entry_placement = $this->resolveRoomEntryPlacementFromSparseStorage($room_id);
+      if (is_array($entry_placement)) {
+        $position_q = (int) $entry_placement['q'];
+        $position_r = (int) $entry_placement['r'];
+        $position_h3 = (string) $entry_placement['h3_index_res14'];
+      }
+    }
+
     if ($position_h3 === '' && $room_id !== '') {
       $position_h3 = $this->lookupRoomHexH3IndexRes14($room_id, $position_q, $position_r);
     }
+
     if ($position_h3 === '' && $room_id !== '') {
       $fallback = $this->resolveDefaultRoomPlacementFromSparseStorage($room_id, $position_q, $position_r);
       if (is_array($fallback)) {
@@ -890,6 +917,42 @@ class CampaignCharacterRuntimeResolverService {
       'location_type' => $location_type,
       'location_ref' => $location_ref,
     ];
+  }
+
+  /**
+   * Resolve campaign profile/default active room without content hard-codes.
+   */
+  protected function resolveCampaignProfileDefaultRoomId(int $campaign_id): string {
+    if ($campaign_id <= 0) {
+      return '';
+    }
+
+    $campaign = $this->database->select('dc_campaigns', 'c')
+      ->fields('c', ['campaign_data'])
+      ->condition('id', $campaign_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($campaign)) {
+      return '';
+    }
+
+    $campaign_data = json_decode((string) ($campaign['campaign_data'] ?? '{}'), TRUE);
+    if (!is_array($campaign_data)) {
+      return '';
+    }
+
+    foreach ([
+      trim((string) ($campaign_data['state']['active']['room_id'] ?? '')),
+      trim((string) ($campaign_data['profile']['launch_policy']['default_active_room_id'] ?? '')),
+      trim((string) ($campaign_data['profile']['narrative_hub_policy']['primary_room_id'] ?? '')),
+    ] as $candidate) {
+      if ($candidate !== '') {
+        return $candidate;
+      }
+    }
+
+    return '';
   }
 
   /**
@@ -1327,7 +1390,7 @@ class CampaignCharacterRuntimeResolverService {
       ->condition('room_id', $room_id)
       ->condition('source_q', $q)
       ->condition('source_r', $r)
-      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->condition('cell_role', ['room_hex', 'entry_gateway', 'exit_gateway'], 'IN')
       ->orderBy('h3_resolution', 'DESC')
       ->orderBy('id', 'ASC')
       ->range(0, 1)
@@ -1351,10 +1414,10 @@ class CampaignCharacterRuntimeResolverService {
     }
 
     $rows = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
-      ->fields('c', ['source_q', 'source_r', 'h3_index'])
+      ->fields('c', ['source_q', 'source_r', 'h3_index', 'cell_role'])
       ->condition('room_id', $room_id)
       ->condition('h3_resolution', 14)
-      ->condition('cell_role', ['room_hex', 'exit_gateway'], 'IN')
+      ->condition('cell_role', ['entry_gateway', 'room_hex', 'exit_gateway'], 'IN')
       ->orderBy('id', 'ASC')
       ->execute()
       ->fetchAll();
@@ -1375,6 +1438,9 @@ class CampaignCharacterRuntimeResolverService {
     }
 
     foreach ($rows as $row) {
+      if (strtolower(trim((string) ($row->cell_role ?? ''))) !== 'entry_gateway') {
+        continue;
+      }
       $h3_index = strtolower(trim((string) ($row->h3_index ?? '')));
       if (!$this->isCanonicalH3IndexValue($h3_index)) {
         continue;
@@ -1384,6 +1450,72 @@ class CampaignCharacterRuntimeResolverService {
         'r' => (int) ($row->source_r ?? 0),
         'h3_index_res14' => $h3_index,
       ];
+    }
+
+    foreach ($rows as $row) {
+      $h3_index = strtolower(trim((string) ($row->h3_index ?? '')));
+      if (!$this->isCanonicalH3IndexValue($h3_index)) {
+        continue;
+      }
+      return [
+        'q' => (int) ($row->source_q ?? 0),
+        'r' => (int) ($row->source_r ?? 0),
+        'h3_index_res14' => $h3_index,
+      ];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Resolve room entry placement using canonical room-anchor or entry gateway rows.
+   *
+   * @return array{q:int,r:int,h3_index_res14:string}|null
+   *   Canonical entry placement, or NULL when unresolved.
+   */
+  protected function resolveRoomEntryPlacementFromSparseStorage(string $room_id): ?array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return NULL;
+    }
+
+    $anchor_row = $this->database->select('dungeoncrawler_content_h3_room_anchors', 'a')
+      ->fields('a', ['reference_q', 'reference_r', 'h3_index'])
+      ->condition('room_id', $room_id)
+      ->condition('h3_resolution', 14)
+      ->orderBy('id', 'ASC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($anchor_row)) {
+      $anchor_h3 = strtolower(trim((string) ($anchor_row['h3_index'] ?? '')));
+      if ($this->isCanonicalH3IndexValue($anchor_h3)) {
+        return [
+          'q' => (int) ($anchor_row['reference_q'] ?? 0),
+          'r' => (int) ($anchor_row['reference_r'] ?? 0),
+          'h3_index_res14' => $anchor_h3,
+        ];
+      }
+    }
+
+    $entry_row = $this->database->select('dungeoncrawler_content_h3_room_cells', 'c')
+      ->fields('c', ['source_q', 'source_r', 'h3_index'])
+      ->condition('room_id', $room_id)
+      ->condition('h3_resolution', 14)
+      ->condition('cell_role', 'entry_gateway')
+      ->orderBy('id', 'ASC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (is_array($entry_row)) {
+      $entry_h3 = strtolower(trim((string) ($entry_row['h3_index'] ?? '')));
+      if ($this->isCanonicalH3IndexValue($entry_h3)) {
+        return [
+          'q' => (int) ($entry_row['source_q'] ?? 0),
+          'r' => (int) ($entry_row['source_r'] ?? 0),
+          'h3_index_res14' => $entry_h3,
+        ];
+      }
     }
 
     return NULL;

@@ -106,6 +106,26 @@ export class MerchantPanel {
         this._cachedOccupants = [];
         this._buildMerchantEntriesFromOccupants(d?.roomId, []);
       }),
+      this.bus.on('room:occupants-membership-changed', (d) => {
+        const transitionId = String(d?.transition?.id || '').trim();
+        if (transitionId && transitionId === this._lastOccupantsChangedTransitionId) {
+          return;
+        }
+        if (transitionId) {
+          this._lastOccupantsChangedTransitionId = transitionId;
+        }
+        this._cachedOccupants = d?.occupants ?? [];
+        const entries = this._buildMerchantEntriesFromOccupants(d?.roomId, this._cachedOccupants);
+        this.logMerchantPanelTrace('occupants-membership-changed', {
+          entryCount: entries.length,
+          activeTab: this.activeGameShellTab,
+          roomId: d?.roomId ?? null,
+        });
+        if (entries.length > 0) {
+          this.loadMerchantPanel();
+        }
+      }),
+      // Legacy compatibility event during bus migration.
       this.bus.on('room:occupants-changed', (d) => {
         const transitionId = String(d?.transition?.id || '').trim();
         if (transitionId && transitionId === this._lastOccupantsChangedTransitionId) {
@@ -120,6 +140,22 @@ export class MerchantPanel {
           entryCount: entries.length,
           activeTab: this.activeGameShellTab,
           roomId: d?.roomId ?? null,
+        });
+        if (entries.length > 0) {
+          this.loadMerchantPanel();
+        }
+      }),
+      this.bus.on('merchant:stock-loaded', (d) => {
+        if (!Array.isArray(d?.occupants)) {
+          return;
+        }
+        this._cachedOccupants = d.occupants;
+        const entries = this._buildMerchantEntriesFromOccupants(d?.roomId, this._cachedOccupants);
+        this.logMerchantPanelTrace('merchant-stock-loaded', {
+          entryCount: entries.length,
+          activeTab: this.activeGameShellTab,
+          roomId: d?.roomId ?? null,
+          merchantCount: Number(d?.merchantCount || 0),
         });
         if (entries.length > 0) {
           this.loadMerchantPanel();
@@ -423,7 +459,7 @@ export class MerchantPanel {
       || Boolean(entity?.state?.merchant_enabled || entity?.state?.merchant?.enabled || entity?.state?.merchant_stock);
   }
 
-  // Bus-driven entry: called with the occupants array from room:occupants-changed
+  // Bus-driven entry from room membership / merchant enrichment event payloads.
   _buildMerchantEntriesFromOccupants(roomId, occupants = []) {
     const resolvedRoomId = roomId ?? null;
     const merchantOccupants = occupants.filter((occupant) => {

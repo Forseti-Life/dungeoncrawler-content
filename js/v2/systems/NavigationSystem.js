@@ -360,11 +360,6 @@ export class NavigationSystem {
       } else {
         if (Array.isArray(fallbackNavigationCapabilities)) {
           hexmap.dungeonData.navigation_capabilities = fallbackNavigationCapabilities;
-          this.bus.emit('navigation:capabilities-updated', {
-            roomId: nextRoomId || null,
-            capabilityCount: fallbackNavigationCapabilities.length,
-            source: 'transition-result-fallback',
-          });
         }
 
         if (nextRoomId && typeof hexmap.setActiveRoom === 'function') {
@@ -381,6 +376,13 @@ export class NavigationSystem {
             this._persistPartyLocationAfterTransition(hexmap, nextRoomId, entryHex);
             hexmap.updateLaunchLocationContext?.(nextRoomId, Number(entryHex.q), Number(entryHex.r));
           }
+        }
+        if (Array.isArray(fallbackNavigationCapabilities)) {
+          this.bus.emit('navigation:capabilities-updated', {
+            roomId: nextRoomId || null,
+            capabilityCount: fallbackNavigationCapabilities.length,
+            source: 'transition-result-fallback',
+          });
         }
         this._refreshActionRail();
       }
@@ -541,11 +543,6 @@ export class NavigationSystem {
 
     // Keep active-room navigation strictly sourced from server navigation service.
     hexmap.dungeonData.navigation_capabilities = navigationCapabilities;
-    this.bus.emit('navigation:capabilities-updated', {
-      roomId: String(targetRoomId || '').trim(),
-      capabilityCount: Array.isArray(navigationCapabilities) ? navigationCapabilities.length : 0,
-      source: 'navigation-receipt',
-    });
 
     // 4. Move the full party formation to the destination entry hex.
     const selectedEntity = hexmap.stateManager?.get('selectedEntity');
@@ -674,6 +671,11 @@ export class NavigationSystem {
 
     // 6. Switch to the new room (triggers full re-render, chat reload, banner).
     hexmap.setActiveRoom(targetRoomId);
+    this.bus.emit('navigation:capabilities-updated', {
+      roomId: String(targetRoomId || '').trim(),
+      capabilityCount: Array.isArray(navigationCapabilities) ? navigationCapabilities.length : 0,
+      source: 'navigation-receipt',
+    });
     hexmap.updateLaunchLocationContext?.(targetRoomId, Number(entryHex.q), Number(entryHex.r));
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
       window.dispatchEvent(new CustomEvent('dungeoncrawler:game-shell-tab-changed', {

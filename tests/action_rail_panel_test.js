@@ -32,9 +32,9 @@ assert(
   panelSource.includes("import { buildActionRailContext } from '../services/action-rail-context-service.js';")
     && panelSource.includes('getActionRailContext() {')
     && panelSource.includes('return buildActionRailContext(this.stateManager);')
-    && contextServiceSource.includes('const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};')
+    && contextServiceSource.includes('const phaseSnapshot = selectRailPhaseSnapshot(hexmap);')
     && contextServiceSource.includes('availableActions: Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [],')
-    && contextServiceSource.includes('actionContract: phaseSnapshot?.actionContract || null,'),
+    && contextServiceSource.includes('actionContract,'),
   'ActionRailPanel delegates coordinator-driven context assembly to shared context service'
 );
 
@@ -46,11 +46,27 @@ assert(
 );
 
 assert(
-  panelSource.includes("const searchAvailable = this.isServerActionAvailable(context, getServerActionIdForExecute('search'));")
-    && panelSource.includes("const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('spell'));")
-    && panelSource.includes("const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('consumable'));")
-    && panelSource.includes("const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('skill'));")
-    && panelSource.includes("const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('feat'));"),
+  panelSource.includes('shouldEnforceEncounterBudgets(context) {')
+    && panelSource.includes('return Number(context?.encounterId || 0) > 0;')
+    && panelSource.includes('if (!context?.encounterActive || !this.shouldEnforceEncounterBudgets(context)) {'),
+  'ActionRailPanel only enforces action-point disablement during live combat encounters'
+);
+
+assert(
+  panelSource.includes('isEncounterActionContractPending(context) {')
+    && panelSource.includes("chip: 'Syncing…'")
+    && panelSource.includes('Waiting for encounter action hydration…')
+    && panelSource.includes('if (options === null) {')
+    && panelSource.includes("return this.buildPendingActionOptionsPanel('Spell actions');"),
+  'ActionRailPanel presents a visible hydration-wait state and clears it when options become available'
+);
+
+assert(
+  panelSource.includes("const searchAvailable = this.isServerActionAvailable(context, 'search');")
+    && panelSource.includes("const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'cast_spell');")
+    && panelSource.includes("const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'consume_item');")
+    && panelSource.includes("const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'skill');")
+    && panelSource.includes("const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'feat');"),
   'category panels gate execution using shared execute-key to server-action mapping'
 );
 

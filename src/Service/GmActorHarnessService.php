@@ -28,8 +28,10 @@ class GmActorHarnessService {
     string $message,
     bool $suppress_gm = FALSE,
     string $speaker = '',
-    array $route = []
+    array $route = [],
+    array $options = []
   ): array {
+    $overall_started_at = hrtime(true);
     $result = $this->runtime->handlePlayerRoomChat(
       $campaign_id,
       $room_id,
@@ -38,12 +40,21 @@ class GmActorHarnessService {
       $message,
       $suppress_gm,
       $speaker,
-      $route
+      $route,
+      $options
     );
     $result['gm_actor_harness'] = [
       'contract_version' => self::HARNESS_CONTRACT_VERSION,
       'runtime_contract_version' => 'gm-actor-runtime-v1',
     ];
+    $timing = is_array($result['invocation_timing'] ?? NULL) ? $result['invocation_timing'] : [];
+    $timing['gm_actor_harness'] = [
+      'total_ms' => round((hrtime(true) - $overall_started_at) / 1000000, 2),
+      'stages_ms' => [
+        'runtime_handle_player_room_chat_ms' => round((hrtime(true) - $overall_started_at) / 1000000, 2),
+      ],
+    ];
+    $result['invocation_timing'] = $timing;
 
     return $result;
   }
@@ -93,7 +104,8 @@ class GmActorHarnessService {
         (string) $payload['message'],
         !empty($payload['suppress_gm']),
         (string) ($payload['speaker'] ?? ''),
-        is_array($payload['route'] ?? NULL) ? $payload['route'] : []
+        is_array($payload['route'] ?? NULL) ? $payload['route'] : [],
+        is_array($payload['options'] ?? NULL) ? $payload['options'] : []
       );
     }
 

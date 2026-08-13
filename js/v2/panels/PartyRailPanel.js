@@ -41,6 +41,8 @@ export class PartyRailPanel {
   _subscribe() {
     this._unsubs.push(
       this.bus.on('game:init', ({ occupants } = {}) => this.renderPartyRail()),
+      this.bus.on('room:occupants-membership-changed', (payload = {}) => this.handleRoomOccupantsChanged(payload)),
+      // Legacy compatibility event during bus migration.
       this.bus.on('room:occupants-changed', (payload = {}) => this.handleRoomOccupantsChanged(payload)),
     );
   }

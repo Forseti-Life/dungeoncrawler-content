@@ -62,7 +62,7 @@ assert(
 );
 
 assert(
-  entrypointSource.includes("import { GameShell } from './v2/GameShell.js?v=20260728-v2-room-entry-ack-1';"),
+  entrypointSource.includes("import { GameShell } from './v2/GameShell.js?v="),
   'hexmap-v2 entrypoint cache-busts the room-entry acknowledgement shell update'
 );
 

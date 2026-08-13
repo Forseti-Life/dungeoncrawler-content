@@ -158,11 +158,18 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
    * Shared encounter action executor.
    */
   protected EncounterActionExecutor $encounterActionExecutor;
+  protected ActionResolverRegistry $actionResolverRegistry;
 
   /**
    * Shared encounter intent router.
    */
   protected EncounterIntentRouter $encounterIntentRouter;
+  protected ?StanceRuntimeService $stanceRuntimeService;
+  protected CombatResolutionContractService $combatResolutionContractService;
+  protected UnifiedStateEffectEngine $unifiedStateEffectEngine;
+  protected UnifiedReactionEngine $unifiedReactionEngine;
+  protected UnifiedDamageEngine $unifiedDamageEngine;
+  protected ActionTargetingService $actionTargetingService;
 
   /**
    * Canonical client-facing encounter action definitions.
@@ -318,7 +325,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?EncounterActionExecutor $encounter_action_executor = NULL,
     ?EncounterIntentRouter $encounter_intent_router = NULL,
     ?RuntimeGraphAssemblerService $runtime_graph_assembler = NULL,
-    ?H3ProjectionQueueService $h3_projection_queue = NULL
+    ?H3ProjectionQueueService $h3_projection_queue = NULL,
+    ?StanceRuntimeService $stance_runtime_service = NULL,
+    ?ActionResolverRegistry $action_resolver_registry = NULL,
+    ?UnifiedStateEffectEngine $unified_state_effect_engine = NULL,
+    ?UnifiedReactionEngine $unified_reaction_engine = NULL,
+    ?UnifiedDamageEngine $unified_damage_engine = NULL,
+    ?ActionTargetingService $action_targeting_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -372,10 +385,77 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       $this->numberGenerationService,
       $this->combatCalculator,
       $this->canonicalProjectionService,
+      new CombatResolutionContractService(),
       $logger_factory,
       $this->movementResolver
     );
+    $this->actionResolverRegistry = $action_resolver_registry ?? new ActionResolverRegistry();
+    $this->actionResolverRegistry->register('strike', function (
+      int $encounter_id,
+      string $actor_id,
+      string $target_id,
+      array $params,
+      array &$game_state,
+      array $dungeon_data,
+      ?int $campaign_id
+    ): array {
+      return $this->encounterActionExecutor->processStrike(
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        function (string $aid, array $action_params, array $dungeon, ?int $cid): array {
+          return $this->resolveStrikeWeapon($aid, $action_params, $dungeon, $cid);
+        }
+      );
+    });
+    $this->actionResolverRegistry->register('cast_spell', function (
+      int $encounter_id,
+      string $actor_id,
+      ?string $target_id,
+      array $params,
+      array &$game_state,
+      array &$dungeon_data,
+      int $campaign_id
+    ): array {
+      return $this->encounterActionExecutor->processCastSpell(
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $params,
+        $game_state,
+        $dungeon_data,
+        $campaign_id,
+        fn(array $prepared, string $name, string $id): bool => $this->preparedSpellListContainsSpell($prepared, $name, $id),
+        function (array &$canonical_state, bool $is_focus_spell, int $slot_level, int $remaining): void {
+          $this->applyCanonicalStateAfterSpellConsume($canonical_state, $is_focus_spell, $slot_level, $remaining);
+        },
+        function (?int $eid, string $aid, int $cid, array &$dungeon, ?array $canonical_state): void {
+          $this->syncCanonicalSpellcastingProjectionForActor($eid, $aid, $cid, $dungeon, $canonical_state);
+        },
+        fn(string $message, bool $is_focus_spell, int $slot_level): string => $this->normalizeSpellResourceErrorMessage($message, $is_focus_spell, $slot_level)
+      );
+    });
     $this->encounterIntentRouter = $encounter_intent_router ?? new EncounterIntentRouter();
+    $this->stanceRuntimeService = $stance_runtime_service ?? (\Drupal::hasService('dungeoncrawler_content.stance_runtime_service')
+      ? \Drupal::service('dungeoncrawler_content.stance_runtime_service')
+      : NULL);
+    $this->combatResolutionContractService = new CombatResolutionContractService();
+    $this->unifiedStateEffectEngine = $unified_state_effect_engine ?? new UnifiedStateEffectEngine(
+      $this->combatResolutionContractService
+    );
+    $this->unifiedReactionEngine = $unified_reaction_engine ?? new UnifiedReactionEngine(
+      $this->combatResolutionContractService
+    );
+    $this->unifiedDamageEngine = $unified_damage_engine ?? new UnifiedDamageEngine(
+      $this->encounterStore,
+      $this->numberGenerationService,
+      $this->combatResolutionContractService
+    );
+    $this->actionTargetingService = $action_targeting_service ?? new ActionTargetingService();
   }
 
   /**
@@ -611,16 +691,6 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       ? (int) $canonical_turn['actions_remaining']
       : (int) ($game_state['turn']['actions_remaining'] ?? 0);
     if ($this->isRoomSceneMode($game_state)) {
-      $room_scene_actions = array_merge(
-        ['talk', 'search', 'interact', 'delay', 'end_turn', 'choose_not_to_act'],
-        $this->getRestActionTypes()
-      );
-      if (!in_array($type, $room_scene_actions, TRUE)) {
-        return [
-          'valid' => FALSE,
-          'reason' => "Action '$type' is not legal during room-scene encounter.",
-        ];
-      }
       if (
         $current_entity === '' ||
         empty($game_state['round']) ||
@@ -1179,8 +1249,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
   protected function processIntentCore(array $intent, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $type = $intent['type'] ?? '';
     $actor_id = $intent['actor'] ?? NULL;
-    $target_id = $intent['target'] ?? NULL;
+    $target_id = is_scalar($intent['target'] ?? NULL) ? trim((string) $intent['target']) : NULL;
+    $target_id = $target_id !== '' ? $target_id : NULL;
     $params = $intent['params'] ?? [];
+    $normalized_target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);
+    if ($normalized_target_refs !== []) {
+      $params['selected_targets'] = $normalized_target_refs;
+      $target_id = $normalized_target_refs[0] ?? $target_id;
+    }
     $encounter_id = isset($game_state['encounter_id']) && is_numeric($game_state['encounter_id'])
       ? (int) $game_state['encounter_id']
       : NULL;
@@ -1319,8 +1395,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         function (?string $aid, array $action_params, array &$state, array &$dungeon): array {
           return $this->routeSkillIntentExecution($aid, $action_params, $state, $dungeon);
         },
-        function (?string $aid, array $action_params, array &$state, array &$dungeon): array {
-          return $this->routeFeatIntentExecution($aid, $action_params, $state, $dungeon);
+        function (?string $aid, array $action_params, array &$state, array &$dungeon) use ($campaign_id): array {
+          return $this->routeFeatIntentExecution($aid, $action_params, $state, $dungeon, $campaign_id);
         }
       );
       if (!empty($skill_feat_route['handled'])) {
@@ -1443,10 +1519,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         $params,
         $game_state,
         function (?string $aid, ?string $tid, array $action_params, array &$state): array {
-          return $this->routeAidSetupIntentExecution($aid, $tid, $action_params, $state);
+          return $this->routeAidSetupIntentExecution($aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, ?string $tid, array $action_params, array &$state): array {
-          return $this->routeAidIntentExecution($aid, $tid, $action_params, $state);
+          return $this->routeAidIntentExecution($aid, $tid, $action_params, $state, $cid);
         }
       );
       if (!empty($aid_route['handled'])) {
@@ -1581,10 +1657,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         $game_state,
         $campaign_id,
         function (?int $eid, ?string $aid, array $action_params, array &$state): array {
-          return $this->routeFeintIntentExecution($eid, $aid, $action_params, $state);
+          return $this->routeFeintIntentExecution($eid, $aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, array $action_params, array &$state): array {
-          return $this->routeCreateDiversionIntentExecution($aid, $action_params, $state);
+          return $this->routeCreateDiversionIntentExecution($eid, $aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, ?string $tid, array $action_params, array &$state, int $cid): array {
           return $this->routeRequestIntentExecution($aid, $tid, $action_params, $state, $cid);
@@ -1593,10 +1669,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
           return $this->routeDemoralizeIntentExecution($eid, $aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, array $action_params, array &$state): array {
-          return $this->routeCommandAnimalIntentExecution($aid, $action_params, $state);
+          return $this->routeCommandAnimalIntentExecution($aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, array $action_params, array &$state): array {
-          return $this->routePerformIntentExecution($aid, $action_params, $state);
+          return $this->routePerformIntentExecution($aid, $tid, $action_params, $state, $cid);
         }
       );
       if (!empty($social_skill_route['handled'])) {
@@ -1628,7 +1704,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
           return $this->routeSearchIntentExecution($aid, $action_params, $state, $dungeon, $cid);
         },
         function (?string $aid, ?string $tid, array $action_params, array &$state): array {
-          return $this->routeSenseMotiveIntentExecution($aid, $tid, $action_params, $state);
+          return $this->routeSenseMotiveIntentExecution($aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, array &$state): array {
           return $this->routeTakeCoverIntentExecution($aid, $state);
@@ -1675,8 +1751,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         function (?int $eid, ?string $aid, array $action_params, array &$state): array {
           return $this->routeLongJumpIntentExecution($eid, $aid, $action_params, $state);
         },
-        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
-          return $this->routeShoveIntentExecution($eid, $aid, $tid, $action_params, $state);
+        function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state) use (&$dungeon_data, $campaign_id): array {
+          return $this->routeShoveIntentExecution($eid, $aid, $tid, $action_params, $state, $dungeon_data, $campaign_id);
         }
       );
       if (!empty($athletics_route['handled'])) {
@@ -1724,13 +1800,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         $params,
         $game_state,
         function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
-          return $this->routeAdministerFirstAidIntentExecution($eid, $aid, $tid, $action_params, $state);
+          return $this->routeAdministerFirstAidIntentExecution($eid, $aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, ?string $tid, array $action_params, array &$state): array {
-          return $this->routeTreatPoisonIntentExecution($aid, $tid, $action_params, $state);
+          return $this->routeTreatPoisonIntentExecution($aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, ?string $tid, array $action_params, array &$state): array {
-          return $this->routeBattleMedicineIntentExecution($aid, $tid, $action_params, $state);
+          return $this->routeBattleMedicineIntentExecution($aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, ?string $tid, array $action_params, array &$state): array {
           return $this->routeRecallKnowledgeIntentExecution($aid, $tid, $action_params, $state);
@@ -1902,7 +1978,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
           return $this->routeAvertGazeIntentExecution($eid, $aid, $action_params, $state);
         },
         function (?int $eid, ?string $aid, ?string $tid, array $action_params, array &$state): array {
-          return $this->routePointOutIntentExecution($eid, $aid, $tid, $action_params, $state);
+          return $this->routePointOutIntentExecution($eid, $aid, $tid, $action_params, $state, $cid);
         },
         function (?string $aid, array $action_params, array &$state): array {
           return $this->routeMinorColorShiftIntentExecution($aid, $action_params, $state);
@@ -2019,6 +2095,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     if ($type === 'choose_not_to_act') {
       $params['reason'] = trim((string) ($params['reason'] ?? 'chooses not to act'));
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      $type,
+      (string) $actor_id,
+      NULL,
+      $params
+    );
 
     $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
     $result = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
@@ -2033,9 +2115,20 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       : sprintf('%s ends their turn.', $actor_name);
     $resolved_narration = (is_string($narration) && trim($narration) !== '') ? $narration : $fallback_narration;
     $resolved_narration = $this->prefixEncounterChatLine($turn_ctx, $resolved_narration);
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'actions_remaining_before_end' => $result['actions_remaining_before_end'] ?? NULL,
+        'actor_alive' => $result['actor_alive'] ?? NULL,
+        'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
+      ]
+    );
 
     $events = [
       GameEventLogger::buildEvent($type, 'encounter', $actor_id, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
         'room_id' => $resolved_room_id,
         'actor_name' => $actor_name,
@@ -2068,7 +2161,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => $events,
       'narration' => $narration,
@@ -2087,6 +2183,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     array &$dungeon_data,
     int $campaign_id
   ): array {
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'delay',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
     $delay_remaining = $game_state['turn']['actions_remaining'] ?? 0;
     $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
     $result = [
@@ -2096,8 +2198,19 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
     $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'delayed' => TRUE,
+        'remaining_actions' => $delay_remaining,
+        'delay_until_actor_id' => $params['delay_until_actor_id'] ?? NULL,
+      ]
+    );
     $events = [
       GameEventLogger::buildEvent('delay', 'encounter', $actor_id, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'remaining_actions' => $delay_remaining,
         'round' => $game_state['round'] ?? NULL,
       ], $this->prefixEncounterChatLine($turn_ctx, sprintf('%s delays until the end of the round.', $actor_name))),
@@ -2143,7 +2256,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => $events,
       'narration' => NULL,
@@ -2174,12 +2290,33 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $reenter_actions = $game_state['turn']['delayed_actions_remaining'] ?? 0;
     $game_state['turn']['delayed'] = FALSE;
     $game_state['turn']['actions_remaining'] = $reenter_actions;
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'delay_reenter',
+      (string) $actor_id,
+      NULL,
+      []
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'reentered' => TRUE,
+        'actions_restored' => $reenter_actions,
+      ]
+    );
 
     return [
-      'result' => ['reentered' => TRUE, 'actions_restored' => $reenter_actions],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'reentered' => TRUE,
+        'actions_restored' => $reenter_actions,
+      ],
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('delay_reenter', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'actions_restored' => $reenter_actions,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -2230,11 +2367,34 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'map_at_ready' => $game_state['turn']['attacks_this_turn'] ?? 0,
     ];
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'ready',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'readied' => TRUE,
+        'action' => $ready_action,
+        'trigger' => $ready_trigger,
+      ]
+    );
 
     return [
-      'result' => ['readied' => TRUE, 'action' => $ready_action, 'trigger' => $ready_trigger],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'readied' => TRUE,
+        'action' => $ready_action,
+        'trigger' => $ready_trigger,
+      ],
       'events' => [
         GameEventLogger::buildEvent('ready', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'action' => $ready_action,
           'trigger' => $ready_trigger,
           'round' => $game_state['round'] ?? NULL,
@@ -2271,12 +2431,40 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     if ($ready_data && ($ready_data['action'] ?? '') === 'strike') {
       $game_state['turn']['attacks_this_turn'] = (int) ($ready_data['map_at_ready'] ?? 0);
     }
+    $reaction_type = (string) ($params['reaction_type'] ?? 'generic');
+    $reaction_packet = $this->unifiedReactionEngine->buildReactionResolutionPacket(
+      (string) $actor_id,
+      is_string($target_id) && trim($target_id) !== '' ? (string) $target_id : (string) $actor_id,
+      $reaction_type,
+      'resolved',
+      ['source' => 'routeReactionIntentExecution']
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'reaction',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [$reaction_packet],
+      ['reaction_used' => TRUE, 'reaction_type' => $reaction_type]
+    );
 
     return [
-      'result' => ['reaction_used' => TRUE, 'reaction_type' => $params['reaction_type'] ?? 'generic'],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'reaction_packet' => $reaction_packet,
+        'reaction_used' => TRUE,
+        'reaction_type' => $reaction_type,
+      ],
       'events' => [
         GameEventLogger::buildEvent('reaction', 'encounter', $actor_id, [
-          'reaction_type' => $params['reaction_type'] ?? 'generic',
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'reaction_packet' => $reaction_packet,
+          'reaction_type' => $reaction_type,
           'round' => $game_state['round'] ?? NULL,
         ], NULL, $target_id),
       ],
@@ -2290,7 +2478,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
     if (!isset($game_state['turn']['aid_prepared'])) {
       $game_state['turn']['aid_prepared'] = [];
@@ -2298,13 +2487,56 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $aid_skill = $params['skill'] ?? 'generic';
     $game_state['turn']['aid_prepared'][$actor_id][$target_id] = $aid_skill;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && !empty($target_id)) {
+      $actor_disposition->applyDispositionEvent(
+        $campaign_id,
+        (string) $actor_id,
+        'aid_setup_prepared',
+        sprintf('Encounter aid setup for %s using %s', (string) $target_id, (string) $aid_skill),
+        [
+          'target_entity_ref' => (string) $target_id,
+          'relationship_type' => 'combat',
+          'relationship_status' => 'known',
+          'skill' => (string) $aid_skill,
+          'idempotency_key' => sha1(json_encode([
+            'encounter_aid_setup' => TRUE,
+            'campaign_id' => $campaign_id,
+            'source' => (string) $actor_id,
+            'target' => (string) $target_id,
+            'skill' => (string) $aid_skill,
+            'round' => (int) ($game_state['round'] ?? 0),
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+        ]
+      );
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'aid_setup',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['aid_prepared' => TRUE, 'target' => $target_id, 'skill' => $aid_skill]
+    );
 
     return [
-      'result' => ['aid_prepared' => TRUE, 'target' => $target_id, 'skill' => $aid_skill],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'aid_prepared' => TRUE,
+        'target' => $target_id,
+        'skill' => $aid_skill,
+      ],
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('aid_setup', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'target' => $target_id,
+          'skill' => $aid_skill,
           'round' => $game_state['round'] ?? NULL,
         ], NULL, $target_id),
       ],
@@ -2318,16 +2550,80 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
     $result = $this->processAid($actor_id, $target_id, $params, $game_state);
     $mutations = $result['mutations'] ?? [];
+    $degree = strtolower(trim((string) ($result['degree'] ?? '')));
+    $actor_disposition = $this->resolveActorDispositionService();
+    if (
+      $actor_disposition instanceof ActorDispositionService
+      && $campaign_id > 0
+      && !empty($actor_id)
+      && !empty($target_id)
+      && empty($result['error'])
+    ) {
+      $event_type = match ($degree) {
+        'critical_success' => 'aid_critical_success',
+        'success' => 'aid_success',
+        'failure' => 'aid_failure',
+        'critical_failure' => 'aid_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter aid for %s (%s)', (string) $target_id, (string) $degree),
+          [
+            'target_entity_ref' => (string) $target_id,
+            'relationship_type' => 'combat',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'aid_bonus' => (int) ($result['aid_bonus'] ?? 0),
+            'idempotency_key' => sha1(json_encode([
+              'encounter_aid' => TRUE,
+              'event_type' => $event_type,
+              'campaign_id' => $campaign_id,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_id,
+              'degree' => $degree,
+              'aid_bonus' => (int) ($result['aid_bonus'] ?? 0),
+              'd20' => (int) ($result['d20'] ?? 0),
+              'total' => (int) ($result['total'] ?? 0),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'aid',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'degree' => $result['degree'] ?? NULL,
+        'aid_bonus' => $result['aid_bonus'] ?? 0,
+        'error' => $result['error'] ?? NULL,
+      ]
+    );
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => [
         GameEventLogger::buildEvent('aid', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'target' => $target_id,
           'degree' => $result['degree'] ?? NULL,
           'aid_bonus' => $result['aid_bonus'] ?? 0,
@@ -2358,11 +2654,32 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       $entity_ref['hero_points'] = $hero_points;
       $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_ref)]);
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'hero_point_reroll',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'original_roll' => $original_roll,
+        'new_roll' => $reroll['new_roll'] ?? NULL,
+        'hero_points_spent' => 1,
+      ]
+    );
 
     return [
-      'result' => $reroll + ['hero_points_spent' => 1],
+      'result' => $reroll + [
+        'hero_points_spent' => 1,
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ],
       'events' => [
         GameEventLogger::buildEvent('hero_point_reroll', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'original_roll' => $original_roll,
           'new_roll' => $reroll['new_roll'],
           'round' => $game_state['round'] ?? NULL,
@@ -2407,10 +2724,40 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $result = $this->hpManager->heroicRecoveryAllPoints($participant_id, $encounter_id);
+    $state_effect_packets = [];
+    if (!empty($result['dying_removed'])) {
+      $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+        (string) $actor_id,
+        (string) $actor_id,
+        'condition',
+        'dying',
+        'removed',
+        0,
+        ['encounter_id' => $encounter_id, 'action' => 'heroic_recovery_all_points']
+      );
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'heroic_recovery_all_points',
+      (string) $actor_id,
+      NULL,
+      []
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      ['dying_removed' => $result['dying_removed'] ?? FALSE]
+    );
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'state_effect_packets' => $state_effect_packets,
+      ]),
       'events' => [
         GameEventLogger::buildEvent('heroic_recovery_all_points', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'state_effect_packets' => $state_effect_packets,
           'dying_removed' => $result['dying_removed'] ?? FALSE,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -2428,21 +2775,54 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
   ): array {
     $encounter = $this->encounterStore->loadEncounter($encounter_id);
     $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    $state_effect_packets = [];
     if ($participant) {
       $participant_id = (int) $participant['id'];
       foreach ($this->conditionManager->getActiveConditions($participant_id, $encounter_id) as $condition_id => $condition_row) {
         if ($condition_row['condition_type'] === 'prone') {
           $this->conditionManager->removeCondition($participant_id, $condition_id, $encounter_id);
+          $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+            (string) $actor_id,
+            (string) $actor_id,
+            'condition',
+            'prone',
+            'removed',
+            0,
+            ['encounter_id' => $encounter_id, 'action' => 'stand']
+          );
           break;
         }
       }
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'stand',
+      (string) $actor_id,
+      NULL,
+      []
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      [
+        'stood' => TRUE,
+      ]
+    );
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     return [
-      'result' => ['stood' => TRUE],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'stood' => TRUE,
+        'state_effect_packets' => $state_effect_packets,
+      ],
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('stand', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+        GameEventLogger::buildEvent('stand', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'state_effect_packets' => $state_effect_packets,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
       ],
     ];
   }
@@ -2457,16 +2837,49 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
   ): array {
     $encounter = $this->encounterStore->loadEncounter($encounter_id);
     $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
+    $state_effect_packets = [];
     if ($participant) {
       $participant_id = (int) $participant['id'];
       $this->conditionManager->applyCondition($participant_id, 'prone', 1, 'persistent', 'drop_prone', $encounter_id);
+      $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+        (string) $actor_id,
+        (string) $actor_id,
+        'condition',
+        'prone',
+        'applied',
+        1,
+        ['encounter_id' => $encounter_id, 'action' => 'drop_prone']
+      );
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'drop_prone',
+      (string) $actor_id,
+      NULL,
+      []
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      [
+        'prone' => TRUE,
+      ]
+    );
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     return [
-      'result' => ['prone' => TRUE],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'prone' => TRUE,
+        'state_effect_packets' => $state_effect_packets,
+      ],
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('drop_prone', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+        GameEventLogger::buildEvent('drop_prone', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'state_effect_packets' => $state_effect_packets,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
       ],
     ];
   }
@@ -2508,16 +2921,73 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $move_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    if (!empty($move_result['error'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => (string) $move_result['error']],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $movement_execution_request = $this->requireOptionalContractPayload(
+      $move_result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'step.movement.execution_request'
+    );
+    $movement_packet = $this->requireOptionalContractPayload(
+      $move_result['movement_packet'] ?? NULL,
+      'movement_resolution',
+      CombatResolutionContractService::MOVEMENT_PACKET_CONTRACT_VERSION,
+      'step.movement.movement_packet'
+    );
+    $movement_resolution_envelope = $this->requireOptionalContractPayload(
+      $move_result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'step.movement.resolution_envelope'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'step',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      is_array($movement_packet) ? [$movement_packet] : [],
+      [
+        'stepped' => TRUE,
+        'to_hex' => $params['to_hex'],
+      ]
+    );
     $mutations = $move_result['mutations'] ?? [];
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     $game_state['turn']['last_move_type'] = 'step';
 
     return [
-      'result' => ['stepped' => TRUE, 'to_hex' => $params['to_hex']],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'stepped' => TRUE,
+        'to_hex' => $params['to_hex'],
+        'movement_execution_request' => $movement_execution_request,
+        'movement_packet' => $movement_packet,
+        'movement_resolution_envelope' => $movement_resolution_envelope,
+      ],
       'mutations' => $mutations,
       'events' => [
         GameEventLogger::buildEvent('step', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'to' => $params['to_hex'],
+          'movement_execution_request' => $movement_execution_request,
+          'movement_packet' => $movement_packet,
+          'movement_resolution_envelope' => $movement_resolution_envelope,
           'round' => $game_state['round'] ?? NULL,
         ]),
       ],
@@ -2588,15 +3058,72 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $move_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    if (!empty($move_result['error'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => (string) $move_result['error']],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $movement_execution_request = $this->requireOptionalContractPayload(
+      $move_result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'crawl.movement.execution_request'
+    );
+    $movement_packet = $this->requireOptionalContractPayload(
+      $move_result['movement_packet'] ?? NULL,
+      'movement_resolution',
+      CombatResolutionContractService::MOVEMENT_PACKET_CONTRACT_VERSION,
+      'crawl.movement.movement_packet'
+    );
+    $movement_resolution_envelope = $this->requireOptionalContractPayload(
+      $move_result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'crawl.movement.resolution_envelope'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'crawl',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      is_array($movement_packet) ? [$movement_packet] : [],
+      [
+        'crawled' => TRUE,
+        'to_hex' => $params['to_hex'],
+      ]
+    );
     $mutations = $move_result['mutations'] ?? [];
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
 
     return [
-      'result' => ['crawled' => TRUE, 'to_hex' => $params['to_hex']],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'crawled' => TRUE,
+        'to_hex' => $params['to_hex'],
+        'movement_execution_request' => $movement_execution_request,
+        'movement_packet' => $movement_packet,
+        'movement_resolution_envelope' => $movement_resolution_envelope,
+      ],
       'mutations' => $mutations,
       'events' => [
         GameEventLogger::buildEvent('crawl', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'to' => $params['to_hex'],
+          'movement_execution_request' => $movement_execution_request,
+          'movement_packet' => $movement_packet,
+          'movement_resolution_envelope' => $movement_resolution_envelope,
           'round' => $game_state['round'] ?? NULL,
         ]),
       ],
@@ -2632,15 +3159,74 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $max_leap_ft = $leap_speed >= 30 ? 15 : 10;
 
     $move_result = $this->processStride($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    if (!empty($move_result['error'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => (string) $move_result['error']],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
+    $movement_execution_request = $this->requireOptionalContractPayload(
+      $move_result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'leap.movement.execution_request'
+    );
+    $movement_packet = $this->requireOptionalContractPayload(
+      $move_result['movement_packet'] ?? NULL,
+      'movement_resolution',
+      CombatResolutionContractService::MOVEMENT_PACKET_CONTRACT_VERSION,
+      'leap.movement.movement_packet'
+    );
+    $movement_resolution_envelope = $this->requireOptionalContractPayload(
+      $move_result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'leap.movement.resolution_envelope'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'leap',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      is_array($movement_packet) ? [$movement_packet] : [],
+      [
+        'leaped' => TRUE,
+        'to_hex' => $params['to_hex'],
+        'max_leap_ft' => $max_leap_ft,
+      ]
+    );
     $mutations = $move_result['mutations'] ?? [];
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
 
     return [
-      'result' => ['leaped' => TRUE, 'to_hex' => $params['to_hex'], 'max_leap_ft' => $max_leap_ft],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'leaped' => TRUE,
+        'to_hex' => $params['to_hex'],
+        'max_leap_ft' => $max_leap_ft,
+        'movement_execution_request' => $movement_execution_request,
+        'movement_packet' => $movement_packet,
+        'movement_resolution_envelope' => $movement_resolution_envelope,
+      ],
       'mutations' => $mutations,
       'events' => [
         GameEventLogger::buildEvent('leap', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'to' => $params['to_hex'],
+          'movement_execution_request' => $movement_execution_request,
+          'movement_packet' => $movement_packet,
+          'movement_resolution_envelope' => $movement_resolution_envelope,
           'round' => $game_state['round'] ?? NULL,
         ]),
       ],
@@ -2712,17 +3298,43 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['reaction_available'] = FALSE;
+    $reaction_packet = $this->unifiedReactionEngine->buildReactionResolutionPacket(
+      (string) $actor_id,
+      (string) $actor_id,
+      'arrest_fall',
+      $fall_damage > 0 ? 'partial' : 'resolved',
+      ['encounter_id' => $encounter_id, 'degree' => $degree]
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'arrest_fall',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = [
+      'arrest_fall' => TRUE,
+      'degree' => $degree,
+      'fall_damage' => $fall_damage,
+      'roll' => $d20,
+      'total' => $total,
+    ];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [$reaction_packet],
+      $result
+    );
     return [
-      'result' => [
-        'arrest_fall' => TRUE,
-        'degree' => $degree,
-        'fall_damage' => $fall_damage,
-        'roll' => $d20,
-        'total' => $total,
-      ],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'reaction_packet' => $reaction_packet,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('arrest_fall', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'reaction_packet' => $reaction_packet,
           'degree' => $degree,
           'fall_damage' => $fall_damage,
           'round' => $game_state['round'] ?? NULL,
@@ -2770,17 +3382,43 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['reaction_available'] = FALSE;
+    $reaction_packet = $this->unifiedReactionEngine->buildReactionResolutionPacket(
+      (string) $actor_id,
+      (string) $actor_id,
+      'grab_edge',
+      $grabbed ? 'resolved' : 'failed',
+      ['encounter_id' => $encounter_id, 'degree' => $degree]
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'grab_edge',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = [
+      'grab_edge' => TRUE,
+      'degree' => $degree,
+      'grabbed' => $grabbed,
+      'roll' => $d20,
+      'total' => $total,
+    ];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [$reaction_packet],
+      $result
+    );
     return [
-      'result' => [
-        'grab_edge' => TRUE,
-        'degree' => $degree,
-        'grabbed' => $grabbed,
-        'roll' => $d20,
-        'total' => $total,
-      ],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'reaction_packet' => $reaction_packet,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('grab_edge', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'reaction_packet' => $reaction_packet,
           'degree' => $degree,
           'grabbed' => $grabbed,
           'round' => $game_state['round'] ?? NULL,
@@ -2881,12 +3519,37 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'shield_damage' => $shield_takes,
       'shield_broken' => $shield['broken'] ?? FALSE,
     ];
+    $reaction_packet = $this->unifiedReactionEngine->buildReactionResolutionPacket(
+      (string) $actor_id,
+      is_string($target_id) && trim($target_id) !== '' ? (string) $target_id : (string) $actor_id,
+      'shield_block',
+      'resolved',
+      ['encounter_id' => $encounter_id, 'entity_damage' => $entity_takes, 'shield_damage' => $shield_takes]
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'shield_block',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [$reaction_packet],
+      $result
+    );
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'reaction_packet' => $reaction_packet,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('shield_block', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'reaction_packet' => $reaction_packet,
           'entity_damage' => $entity_takes,
           'shield_damage' => $shield_takes,
           'shield_broken' => $shield['broken'] ?? FALSE,
@@ -2968,13 +3631,70 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $trigger_type = $params['trigger_type'] ?? '';
     $disrupted = (($strike_result['degree'] ?? '') === 'critical_success' && $trigger_type === 'manipulate');
     $game_state['turn']['reaction_available'] = FALSE;
-    $result = array_merge($strike_result, ['attack_of_opportunity' => TRUE, 'disrupted' => $disrupted]);
+    $reaction_packet = $this->unifiedReactionEngine->buildReactionResolutionPacket(
+      (string) $actor_id,
+      (string) $target_id,
+      'attack_of_opportunity',
+      $disrupted ? 'disrupted' : 'resolved',
+      ['encounter_id' => $encounter_id, 'trigger_type' => $trigger_type]
+    );
+    $strike_execution_request = $this->requireOptionalContractPayload(
+      $strike_result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'attack_of_opportunity.strike.execution_request'
+    );
+    $strike_resolution_envelope = $this->requireOptionalContractPayload(
+      $strike_result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'attack_of_opportunity.strike.resolution_envelope'
+    );
+    $strike_damage_packet = $this->requireOptionalContractPayload(
+      $strike_result['damage_packet'] ?? NULL,
+      'damage_application',
+      CombatResolutionContractService::DAMAGE_PACKET_CONTRACT_VERSION,
+      'attack_of_opportunity.strike.damage_packet'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'attack_of_opportunity',
+      (string) $actor_id,
+      (string) $target_id,
+      $params
+    );
+    $resolution_packets = [$reaction_packet];
+    if (is_array($strike_damage_packet)) {
+      $resolution_packets[] = $strike_damage_packet;
+    }
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $resolution_packets,
+      [
+        'degree' => $strike_result['degree'] ?? NULL,
+        'damage' => $strike_result['damage'] ?? NULL,
+        'disrupted' => $disrupted,
+      ]
+    );
+    $result = array_merge($strike_result, [
+      'execution_request' => $execution_request,
+      'resolution_envelope' => $resolution_envelope,
+      'reaction_packet' => $reaction_packet,
+      'strike_execution_request' => $strike_execution_request,
+      'strike_resolution_envelope' => $strike_resolution_envelope,
+      'attack_of_opportunity' => TRUE,
+      'disrupted' => $disrupted,
+    ]);
 
     return [
       'result' => $result,
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('attack_of_opportunity', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'reaction_packet' => $reaction_packet,
+          'strike_execution_request' => $strike_execution_request,
+          'strike_resolution_envelope' => $strike_resolution_envelope,
           'target' => $target_id,
           'degree' => $strike_result['degree'] ?? NULL,
           'damage' => $strike_result['damage'] ?? NULL,
@@ -3001,6 +3721,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
 
     $balanced = in_array($degree, ['success', 'critical_success'], TRUE);
+    $state_effect_packets = [];
     if ($degree === 'critical_failure' || $degree === 'failure') {
       $this->conditionManager->applyCondition(
         (int) $actor_id,
@@ -3010,15 +3731,43 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         'balance_fail',
         (int) $encounter_id
       );
+      $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+        (string) $actor_id,
+        (string) $actor_id,
+        'condition',
+        'flat_footed',
+        'applied',
+        0,
+        ['encounter_id' => $encounter_id, 'action' => 'balance', 'degree' => $degree]
+      );
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'balance',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
     $result = ['balanced' => $balanced, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      $result
+    );
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'state_effect_packets' => $state_effect_packets,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('balance', 'encounter', $actor_id, $result),
+        GameEventLogger::buildEvent('balance', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'state_effect_packets' => $state_effect_packets,
+        ])),
       ],
     ];
   }
@@ -3040,12 +3789,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $passed_through = in_array($degree, ['success', 'critical_success'], TRUE);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'tumble_through',
+      (string) $actor_id,
+      $target_ref !== '' ? (string) $target_ref : NULL,
+      $params
+    );
     $result = ['passed_through' => $passed_through, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('tumble_through', 'encounter', $actor_id, $result, NULL, $target_ref),
+        GameEventLogger::buildEvent('tumble_through', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ]), NULL, $target_ref),
       ],
     ];
   }
@@ -3070,12 +3836,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'maneuver_in_flight',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
     $result = ['maneuvered' => $maneuvered, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('maneuver_in_flight', 'encounter', $actor_id, $result),
+        GameEventLogger::buildEvent('maneuver_in_flight', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ])),
       ],
     ];
   }
@@ -3086,10 +3869,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
   protected function routeFeintIntentExecution(
     ?int $encounter_id,
     ?string $actor_id,
+    ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
-    $target_ref = $params['target_id'] ?? '';
+    $target_ref = $params['target_id'] ?? $target_id ?? '';
     $dc = (int) ($params['dc'] ?? 15);
     $deception = (int) ($params['deception_bonus'] ?? $params['skill_bonus'] ?? 0);
     $d20 = $this->numberGenerationService->rollPathfinderDie(20);
@@ -3097,22 +3882,94 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $degree = $this->combatCalculator->calculateDegreeOfSuccess($total, $dc, $d20);
 
     $feinted = FALSE;
+    $state_effect_packets = [];
     if ($degree === 'critical_success') {
       $feinted = TRUE;
       $this->conditionManager->applyCondition((int) $target_ref, 'flat_footed', 0, ['remaining_attacks' => PHP_INT_MAX], 'feint_crit', (int) $encounter_id);
+      $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+        (string) $actor_id,
+        (string) $target_ref,
+        'condition',
+        'flat_footed',
+        'applied',
+        0,
+        ['encounter_id' => $encounter_id, 'action' => 'feint', 'degree' => $degree]
+      );
     }
     elseif ($degree === 'success') {
       $feinted = TRUE;
       $this->conditionManager->applyCondition((int) $target_ref, 'flat_footed', 0, ['remaining_attacks' => 1], 'feint', (int) $encounter_id);
+      $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+        (string) $actor_id,
+        (string) $target_ref,
+        'condition',
+        'flat_footed',
+        'applied',
+        0,
+        ['encounter_id' => $encounter_id, 'action' => 'feint', 'degree' => $degree]
+      );
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 2);
     $result = ['feinted' => $feinted, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'feint',
+      (string) $actor_id,
+      $target_ref !== '' ? (string) $target_ref : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      $result
+    );
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && $target_ref !== '') {
+      $event_type = match ($degree) {
+        'critical_success' => 'deception_critical_success',
+        'success' => 'deception_success',
+        'failure' => 'deception_failure',
+        'critical_failure' => 'deception_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter feint against %s (%s)', (string) $target_ref, (string) $degree),
+          [
+            'target_entity_ref' => (string) $target_ref,
+            'relationship_type' => 'combat',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_feint' => TRUE,
+              'encounter_id' => $encounter_id,
+              'event_type' => $event_type,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_ref,
+              'degree' => $degree,
+              'roll' => $total,
+              'dc' => $dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'state_effect_packets' => $state_effect_packets,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('feint', 'encounter', $actor_id, $result, NULL, $target_ref),
+        GameEventLogger::buildEvent('feint', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'state_effect_packets' => $state_effect_packets,
+        ]), NULL, $target_ref),
       ],
     ];
   }
@@ -3121,10 +3978,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
    * Router seam: execute create-diversion intent block with legacy side effects.
    */
   protected function routeCreateDiversionIntentExecution(
+    ?int $encounter_id,
     ?string $actor_id,
+    ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
+    $target_ref = $params['target_id'] ?? $target_id ?? '';
     $dc = (int) ($params['dc'] ?? 15);
     $deception = (int) ($params['deception_bonus'] ?? $params['skill_bonus'] ?? 0);
     $d20 = $this->numberGenerationService->rollPathfinderDie(20);
@@ -3137,11 +3998,62 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
     $result = ['diverted' => $diverted, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'create_diversion',
+      (string) $actor_id,
+      $target_ref !== '' ? (string) $target_ref : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id)) {
+      $event_type = match ($degree) {
+        'critical_success' => 'deception_critical_success',
+        'success' => 'deception_success',
+        'failure' => 'deception_failure',
+        'critical_failure' => 'deception_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter create diversion%s (%s)', $target_ref !== '' ? ' against ' . $target_ref : '', (string) $degree),
+          [
+            'target_entity_ref' => (string) $target_ref,
+            'relationship_type' => 'conversation',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_create_diversion' => TRUE,
+              'encounter_id' => $encounter_id,
+              'event_type' => $event_type,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_ref,
+              'degree' => $degree,
+              'roll' => $total,
+              'dc' => $dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('create_diversion', 'encounter', $actor_id, $result),
+        GameEventLogger::buildEvent('create_diversion', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ])),
       ],
     ];
   }
@@ -3178,12 +4090,62 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     if ($dc_context['attitude'] !== NULL) {
       $result['npc_attitude'] = $dc_context['attitude'];
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'request',
+      (string) $actor_id,
+      $target_ref !== '' ? (string) $target_ref : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && $target_ref !== '') {
+      $event_type = match ($degree) {
+        'critical_success' => 'diplomacy_critical_success',
+        'success' => 'diplomacy_success',
+        'failure', 'critical_failure' => 'diplomacy_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter request against %s (%s)', (string) $target_ref, (string) $degree),
+          [
+            'target_entity_ref' => (string) $target_ref,
+            'relationship_type' => 'conversation',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_request' => TRUE,
+              'event_type' => $event_type,
+              'campaign_id' => $campaign_id,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_ref,
+              'degree' => $degree,
+              'roll' => $total,
+              'dc' => $dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('request', 'encounter', $actor_id, $result, NULL, $target_ref),
+        GameEventLogger::buildEvent('request', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ]), NULL, $target_ref),
       ],
     ];
   }
@@ -3211,15 +4173,34 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $immune_key = 'demoralize_immune_' . $target_ref . '_' . $actor_id;
     $immune = !empty($game_state['encounter_state'][$immune_key]);
     $demoralized = FALSE;
+    $state_effect_packets = [];
     if (!$immune) {
       $game_state['encounter_state'][$immune_key] = TRUE;
       if ($degree === 'critical_success') {
         $demoralized = TRUE;
         $this->conditionManager->applyCondition((int) $target_ref, 'frightened', 2, [], 'demoralize_crit', (int) $encounter_id);
+        $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+          (string) $actor_id,
+          (string) $target_ref,
+          'condition',
+          'frightened',
+          'applied',
+          2,
+          ['encounter_id' => $encounter_id, 'action' => 'demoralize', 'degree' => $degree]
+        );
       }
       elseif ($degree === 'success') {
         $demoralized = TRUE;
         $this->conditionManager->applyCondition((int) $target_ref, 'frightened', 1, [], 'demoralize', (int) $encounter_id);
+        $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+          (string) $actor_id,
+          (string) $target_ref,
+          'condition',
+          'frightened',
+          'applied',
+          1,
+          ['encounter_id' => $encounter_id, 'action' => 'demoralize', 'degree' => $degree]
+        );
       }
     }
 
@@ -3236,12 +4217,64 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     if ($dc_context['attitude'] !== NULL) {
       $result['npc_attitude'] = $dc_context['attitude'];
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'demoralize',
+      (string) $actor_id,
+      $target_ref !== '' ? (string) $target_ref : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      $result
+    );
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && $target_ref !== '' && !$immune) {
+      $event_type = match ($degree) {
+        'critical_success' => 'intimidation_critical_success',
+        'success' => 'intimidation_success',
+        'failure' => 'intimidation_failure',
+        'critical_failure' => 'intimidation_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter demoralize against %s (%s)', (string) $target_ref, (string) $degree),
+          [
+            'target_entity_ref' => (string) $target_ref,
+            'relationship_type' => 'combat',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_id' => $encounter_id,
+              'event_type' => $event_type,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_ref,
+              'degree' => $degree,
+              'roll' => $total,
+              'dc' => $dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'state_effect_packets' => $state_effect_packets,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('demoralize', 'encounter', $actor_id, $result, NULL, $target_ref),
+        GameEventLogger::buildEvent('demoralize', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'state_effect_packets' => $state_effect_packets,
+        ]), NULL, $target_ref),
       ],
     ];
   }
@@ -3251,10 +4284,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
    */
   protected function routeCommandAnimalIntentExecution(
     ?string $actor_id,
+    ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
-    $target_ref = $params['target_id'] ?? $actor_id;
+    $target_ref = $params['target_id'] ?? $target_id ?? $actor_id;
     $dc = (int) ($params['dc'] ?? 15);
     if (!empty($params['is_trained_companion'])) {
       $dc -= 5;
@@ -3270,12 +4305,63 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
     $result = ['obeyed' => $obeyed, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'command_animal',
+      (string) $actor_id,
+      $target_ref !== '' ? (string) $target_ref : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && $target_ref !== '') {
+      $event_type = match ($degree) {
+        'critical_success' => 'command_animal_critical_success',
+        'success' => 'command_animal_success',
+        'failure' => 'command_animal_failure',
+        'critical_failure' => 'command_animal_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter command animal for %s (%s)', (string) $target_ref, (string) $degree),
+          [
+            'target_entity_ref' => (string) $target_ref,
+            'relationship_type' => 'companion',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_command_animal' => TRUE,
+              'event_type' => $event_type,
+              'campaign_id' => $campaign_id,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_ref,
+              'degree' => $degree,
+              'roll' => $total,
+              'dc' => $dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('command_animal', 'encounter', $actor_id, $result, NULL, $target_ref),
+        GameEventLogger::buildEvent('command_animal', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ]), NULL, $target_ref),
       ],
     ];
   }
@@ -3285,9 +4371,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
    */
   protected function routePerformIntentExecution(
     ?string $actor_id,
+    ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
+    $target_ref = $params['target_id'] ?? $target_id ?? '';
     $dc = (int) ($params['dc'] ?? 15);
     $performance = (int) ($params['performance_bonus'] ?? $params['skill_bonus'] ?? 0);
     $d20 = $this->numberGenerationService->rollPathfinderDie(20);
@@ -3297,11 +4386,62 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $entertained = in_array($degree, ['success', 'critical_success'], TRUE);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 3) - 1);
     $result = ['entertained' => $entertained, 'degree' => $degree, 'roll' => $total, 'dc' => $dc];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'perform',
+      (string) $actor_id,
+      $target_ref !== '' ? (string) $target_ref : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id)) {
+      $event_type = match ($degree) {
+        'critical_success' => 'perform_critical_success',
+        'success' => 'perform_success',
+        'failure' => 'perform_failure',
+        'critical_failure' => 'perform_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter perform%s (%s)', $target_ref !== '' ? ' for ' . $target_ref : '', (string) $degree),
+          [
+            'target_entity_ref' => (string) $target_ref,
+            'relationship_type' => 'conversation',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_perform' => TRUE,
+              'event_type' => $event_type,
+              'campaign_id' => $campaign_id,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_ref,
+              'degree' => $degree,
+              'roll' => $total,
+              'dc' => $dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('perform', 'encounter', $actor_id, $result),
+        GameEventLogger::buildEvent('perform', 'encounter', $actor_id, array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ]), NULL, $target_ref !== '' ? $target_ref : NULL),
       ],
     ];
   }
@@ -3317,12 +4457,31 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
   ): array {
     $result = $this->processEscape($encounter_id, $actor_id, $params, $game_state);
     $mutations = $result['mutations'] ?? [];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'escape',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'degree' => $result['degree'] ?? NULL,
+        'escaped' => $result['escaped'] ?? NULL,
+      ]
+    );
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     return [
-      'result' => $result,
+      'result' => array_merge((array) $result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => [
         GameEventLogger::buildEvent('escape', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $result['degree'] ?? NULL,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -3340,12 +4499,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     array &$game_state
   ): array {
     $result = $this->processSeek($encounter_id, $actor_id, $params, $game_state);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'seek',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['seek' => TRUE]
+    );
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     return [
-      'result' => $result,
+      'result' => array_merge((array) $result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('seek', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'round' => $game_state['round'] ?? NULL,
         ]),
       ],
@@ -3377,6 +4552,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $search_result = $this->explorationPhaseHandler->processSearch($actor_id, $params, $game_state, $dungeon_data, $campaign_id);
     $mechanical_result = $search_result;
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'search',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
     $mutations = $search_result['mutations'] ?? [];
     $narration = $search_result['narration'] ?? NULL;
     $resolved_room_id = trim((string) (
@@ -3391,16 +4572,31 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $events = [];
     $public_discoveries = $this->buildPublicSearchDiscoveries($search_result['discoveries'] ?? []);
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'search' => TRUE,
+        'discoveries_count' => count($public_discoveries),
+        'room_id' => $resolved_room_id !== '' ? $resolved_room_id : NULL,
+      ]
+    );
     if ($public_discoveries !== [] || (is_string($narration) && trim($narration) !== '')) {
       $events[] = GameEventLogger::buildEvent('search', 'encounter', $actor_id, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'discoveries' => $public_discoveries,
         'round' => $game_state['round'] ?? NULL,
         'room_id' => $resolved_room_id !== '' ? $resolved_room_id : NULL,
       ], $narration);
     }
 
+    $public_result = $this->buildPublicSearchResult($search_result);
     return [
-      'result' => $this->buildPublicSearchResult($search_result),
+      'result' => array_merge((array) $public_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => $events,
       'narration' => $narration,
@@ -3415,7 +4611,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
     $bonus = (int) ($params['perception_bonus'] ?? 0);
     $dc = (int) ($params['deception_dc'] ?? 15);
@@ -3431,12 +4628,64 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $game_state['sense_motive'][$actor_id][$target_id] = $game_state['round'] ?? 0;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'sense_motive',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['sense_motive' => TRUE, 'degree' => $degree]
+    );
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && !empty($target_id)) {
+      $event_type = match ($degree) {
+        'critical_success' => 'sense_motive_critical_success',
+        'success' => 'sense_motive_success',
+        'failure' => 'sense_motive_failure',
+        'critical_failure' => 'sense_motive_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter sense motive against %s (%s)', (string) $target_id, (string) $degree),
+          [
+            'target_entity_ref' => (string) $target_id,
+            'relationship_type' => 'conversation',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_sense_motive' => TRUE,
+              'event_type' => $event_type,
+              'campaign_id' => $campaign_id,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_id,
+              'degree' => $degree,
+              'roll' => $total,
+              'dc' => $dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
 
     return [
-      'result' => ['sense_motive' => TRUE, 'degree' => $degree],
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'sense_motive' => TRUE,
+        'degree' => $degree,
+      ],
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('sense_motive', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'round' => $game_state['round'] ?? NULL,
         ], NULL, $target_id),
       ],
@@ -3461,12 +4710,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $game_state['entities'][$actor_id]['cover'] = $new_cover;
     $game_state['entities'][$actor_id]['cover_active'] = TRUE;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'take_cover',
+      (string) $actor_id,
+      NULL,
+      []
+    );
+    $result = ['cover' => $new_cover, 'cover_active' => TRUE];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
 
     return [
-      'result' => ['cover' => $new_cover, 'cover_active' => TRUE],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('take_cover', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'cover' => $new_cover,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -3496,12 +4762,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       }
       unset($entity);
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'release',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = ['released' => TRUE, 'item_id' => $item_id];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
 
     return [
-      'result' => ['released' => TRUE, 'item_id' => $item_id],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('release', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'item_id' => $item_id,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -3567,8 +4850,18 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $fell = ($degree === 'critical_failure');
+    $state_effect_packets = [];
     if (!$has_climb_speed && !$fell) {
       $this->conditionManager->applyCondition((int) $participant['id'], 'flat_footed', 0, ['type' => 'encounter', 'remaining' => 1], 'climb', $encounter_id);
+      $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+        (string) $actor_id,
+        (string) $actor_id,
+        'condition',
+        'flat_footed',
+        'applied',
+        0,
+        ['encounter_id' => $encounter_id, 'action' => 'climb', 'degree' => $degree]
+      );
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
@@ -3580,12 +4873,30 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'd20' => $d20,
       'total' => $total,
     ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'climb',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      $result
+    );
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'state_effect_packets' => $state_effect_packets,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('climb', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'state_effect_packets' => $state_effect_packets,
           'degree' => $degree,
           'fell' => $fell,
           'round' => $game_state['round'] ?? NULL,
@@ -3642,12 +4953,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'd20' => $d20,
       'total' => $total,
     ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'force_open',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('force_open', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $degree,
           'opened' => $opened,
           'round' => $game_state['round'] ?? NULL,
@@ -3668,6 +4995,36 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
   ): array {
     $result = $this->processGrapple($encounter_id, $actor_id, $target_id, $params, $game_state);
     $mutations = $result['mutations'] ?? [];
+    $state_effect_packet = NULL;
+    if (is_string($result['condition_applied'] ?? NULL) && trim((string) $result['condition_applied']) !== '' && is_string($target_id) && trim($target_id) !== '') {
+      $state_effect_packet = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+        (string) $actor_id,
+        (string) $target_id,
+        'condition',
+        (string) $result['condition_applied'],
+        'applied',
+        NULL,
+        [
+          'encounter_id' => $encounter_id,
+          'action' => 'grapple',
+          'degree' => $result['degree'] ?? NULL,
+        ]
+      );
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'grapple',
+      (string) $actor_id,
+      (string) $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      array_values(array_filter([$state_effect_packet], 'is_array')),
+      [
+        'condition_applied' => $result['condition_applied'] ?? NULL,
+        'degree' => $result['degree'] ?? NULL,
+      ]
+    );
     $game_state['turn']['attacks_this_turn'] = ($game_state['turn']['attacks_this_turn'] ?? 0) + 1;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     return [
@@ -3675,6 +5032,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'mutations' => $mutations,
       'events' => [
         GameEventLogger::buildEvent('grapple', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'state_effect_packet' => $state_effect_packet,
+          'condition_applied' => $result['condition_applied'] ?? NULL,
           'degree' => $result['degree'] ?? NULL,
           'round' => $game_state['round'] ?? NULL,
         ], NULL, $target_id),
@@ -3691,11 +5052,24 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     array $params,
     array &$game_state
   ): array {
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'high_jump',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
     $prior_stride_ft = (int) ($game_state['turn']['last_stride_ft'] ?? 0);
     if ($prior_stride_ft < 10) {
+      $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+        $execution_request,
+        [],
+        ['jumped' => FALSE, 'auto_fail' => TRUE, 'reason' => 'No prior Stride of ≥10 ft']
+      );
       $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
       return [
         'result' => [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'jumped' => FALSE,
           'auto_fail' => TRUE,
           'reason' => 'No prior Stride of ≥10 ft',
@@ -3703,6 +5077,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         'mutations' => [],
         'events' => [
           GameEventLogger::buildEvent('high_jump', 'encounter', $actor_id, [
+            'execution_request' => $execution_request,
+            'resolution_envelope' => $resolution_envelope,
             'auto_fail' => TRUE,
             'round' => $game_state['round'] ?? NULL,
           ]),
@@ -3718,6 +5094,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $height_ft = 0;
     $fell_prone = FALSE;
+    $state_effect_packets = [];
     if ($degree === 'critical_success') {
       $height_ft = 8;
     }
@@ -3730,24 +5107,50 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       $participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
       if ($participant) {
         $this->conditionManager->applyCondition((int) $participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'high_jump', $encounter_id);
+        $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+          (string) $actor_id,
+          (string) $actor_id,
+          'condition',
+          'prone',
+          'applied',
+          0,
+          ['encounter_id' => $encounter_id, 'action' => 'high_jump', 'degree' => $degree, 'self_inflicted' => TRUE]
+        );
       }
     }
 
-    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-    return [
-      'result' => [
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      [
         'jumped' => !$fell_prone,
         'height_ft' => $height_ft,
         'degree' => $degree,
         'fell_prone' => $fell_prone,
+      ]
+    );
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    return [
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'jumped' => !$fell_prone,
+        'height_ft' => $height_ft,
+        'degree' => $degree,
+        'fell_prone' => $fell_prone,
+        'state_effect_packets' => $state_effect_packets,
         'd20' => $d20,
         'total' => $total,
       ],
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('high_jump', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $degree,
           'height_ft' => $height_ft,
+          'fell_prone' => $fell_prone,
+          'state_effect_packets' => $state_effect_packets,
           'round' => $game_state['round'] ?? NULL,
         ]),
       ],
@@ -3763,11 +5166,24 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     array $params,
     array &$game_state
   ): array {
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'long_jump',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
     $prior_stride_ft = (int) ($game_state['turn']['last_stride_ft'] ?? 0);
     if ($prior_stride_ft < 10) {
+      $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+        $execution_request,
+        [],
+        ['jumped' => FALSE, 'auto_fail' => TRUE, 'reason' => 'No prior Stride of ≥10 ft']
+      );
       $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
       return [
         'result' => [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'jumped' => FALSE,
           'auto_fail' => TRUE,
           'reason' => 'No prior Stride of ≥10 ft',
@@ -3775,6 +5191,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         'mutations' => [],
         'events' => [
           GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, [
+            'execution_request' => $execution_request,
+            'resolution_envelope' => $resolution_envelope,
             'auto_fail' => TRUE,
             'round' => $game_state['round'] ?? NULL,
           ]),
@@ -3788,9 +5206,16 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $entity_ref = $participant && !empty($participant['entity_ref']) ? json_decode($participant['entity_ref'], TRUE) : [];
     $speed = (int) ($entity_ref['speed'] ?? $participant['speed'] ?? 25);
     if ($target_ft > $speed) {
+      $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+        $execution_request,
+        [],
+        ['jumped' => FALSE, 'auto_fail' => TRUE, 'reason' => 'Target distance exceeds Speed']
+      );
       $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
       return [
         'result' => [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'jumped' => FALSE,
           'auto_fail' => TRUE,
           'reason' => 'Target distance exceeds Speed',
@@ -3798,6 +5223,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         'mutations' => [],
         'events' => [
           GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, [
+            'execution_request' => $execution_request,
+            'resolution_envelope' => $resolution_envelope,
             'auto_fail' => TRUE,
             'reason' => 'speed_cap',
             'round' => $game_state['round'] ?? NULL,
@@ -3814,6 +5241,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $distance_ft = 0;
     $fell_prone = FALSE;
+    $state_effect_packets = [];
     if (in_array($degree, ['critical_success', 'success'], TRUE)) {
       $distance_ft = $target_ft;
     }
@@ -3821,24 +5249,50 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       $fell_prone = TRUE;
       if ($participant) {
         $this->conditionManager->applyCondition((int) $participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'long_jump', $encounter_id);
+        $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+          (string) $actor_id,
+          (string) $actor_id,
+          'condition',
+          'prone',
+          'applied',
+          0,
+          ['encounter_id' => $encounter_id, 'action' => 'long_jump', 'degree' => $degree, 'self_inflicted' => TRUE]
+        );
       }
     }
 
-    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
-    return [
-      'result' => [
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      [
         'jumped' => !$fell_prone || $distance_ft > 0,
         'distance_ft' => $distance_ft,
         'degree' => $degree,
         'fell_prone' => $fell_prone,
+      ]
+    );
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    return [
+      'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'jumped' => !$fell_prone || $distance_ft > 0,
+        'distance_ft' => $distance_ft,
+        'degree' => $degree,
+        'fell_prone' => $fell_prone,
+        'state_effect_packets' => $state_effect_packets,
         'd20' => $d20,
         'total' => $total,
       ],
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('long_jump', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $degree,
           'distance_ft' => $distance_ft,
+          'fell_prone' => $fell_prone,
+          'state_effect_packets' => $state_effect_packets,
           'round' => $game_state['round'] ?? NULL,
         ]),
       ],
@@ -3853,7 +5307,9 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
   ): array {
     $athletics = (int) ($params['athletics_bonus'] ?? 0);
     $dc = (int) ($params['fortitude_dc'] ?? 15);
@@ -3865,6 +5321,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $push_ft = 0;
     $attacker_prone = FALSE;
+    $target_participant = NULL;
     if ($degree === 'critical_success') {
       $push_ft = 10;
     }
@@ -3882,8 +5339,159 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $forced_result = [];
+    $forced_mutations = [];
+    $hazard_events = [];
+    $hazard_damage_packet = NULL;
+    $hazard_execution_request = NULL;
+    $hazard_resolution_envelope = NULL;
+    $forced_execution_request = NULL;
+    $forced_resolution_envelope = NULL;
+    $forced_movement_packet = NULL;
+    if ($push_ft > 0 && $encounter_id && $actor_id !== NULL && $target_id !== NULL) {
+      $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
+      $actor_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, (string) $actor_id) : NULL;
+      $target_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, (string) $target_id) : NULL;
+      if ($actor_participant && $target_participant) {
+        $forced_destination = $this->resolveForcedShoveDestinationHex($actor_participant, $target_participant, (int) $push_ft, $dungeon_data);
+        if ($forced_destination !== NULL) {
+          $forced_result = $this->processStride(
+            (int) $encounter_id,
+            (string) $target_id,
+            [
+              'to_hex' => $forced_destination['to_hex'],
+              'is_forced' => TRUE,
+              'distance_ft' => (int) ($forced_destination['distance_ft'] ?? 0),
+              'action_cost' => 0,
+            ],
+            $game_state,
+            $dungeon_data,
+            $campaign_id
+          );
+          if (empty($forced_result['error'])) {
+            $forced_mutations = (array) ($forced_result['mutations'] ?? []);
+            $forced_execution_request = $this->requireOptionalContractPayload(
+              $forced_result['execution_request'] ?? NULL,
+              'combat_execution_request',
+              CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+              'shove.forced_movement.execution_request'
+            );
+            $forced_resolution_envelope = $this->requireOptionalContractPayload(
+              $forced_result['resolution_envelope'] ?? NULL,
+              'combat_resolution_envelope',
+              CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+              'shove.forced_movement.resolution_envelope'
+            );
+            $forced_movement_packet = $this->requireOptionalContractPayload(
+              $forced_result['movement_packet'] ?? NULL,
+              'movement_resolution',
+              CombatResolutionContractService::MOVEMENT_PACKET_CONTRACT_VERSION,
+              'shove.forced_movement.movement_packet'
+            );
+            $terrain_hazard = $this->resolveEncounterTerrainHazardForMovement(
+              (int) $encounter_id,
+              (string) $actor_id,
+              (string) $target_id,
+              (array) $target_participant,
+              (array) ($forced_result['to_hex'] ?? []),
+              (string) ($game_state['active_room_id'] ?? ($dungeon_data['current_room_id'] ?? '')),
+              $dungeon_data
+            );
+            $hazard_events = (array) ($terrain_hazard['events'] ?? []);
+            $hazard_damage_packet = $this->requireOptionalContractPayload(
+              $terrain_hazard['damage_packet'] ?? NULL,
+              'damage_application',
+              CombatResolutionContractService::DAMAGE_PACKET_CONTRACT_VERSION,
+              'terrain_hazard.damage_packet'
+            );
+            $hazard_execution_request = $this->requireOptionalContractPayload(
+              $terrain_hazard['execution_request'] ?? NULL,
+              'combat_execution_request',
+              CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+              'terrain_hazard.execution_request'
+            );
+            $hazard_resolution_envelope = $this->requireOptionalContractPayload(
+              $terrain_hazard['resolution_envelope'] ?? NULL,
+              'combat_resolution_envelope',
+              CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+              'terrain_hazard.resolution_envelope'
+            );
+            if (!empty($terrain_hazard['mutations']) && is_array($terrain_hazard['mutations'])) {
+              $forced_mutations = array_merge($forced_mutations, $terrain_hazard['mutations']);
+            }
+            $this->syncEncounterParticipantsToDungeonData((int) $encounter_id, $dungeon_data);
+          }
+        }
+      }
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'shove',
+      (string) $actor_id,
+      (string) $target_id,
+      $params
+    );
+    $resolution_packets = [];
+    if (is_array($forced_movement_packet)) {
+      $resolution_packets[] = $forced_movement_packet;
+    }
+    if (is_array($hazard_damage_packet)) {
+      $resolution_packets[] = $hazard_damage_packet;
+    }
+    $resolution_result = [
+      'degree' => $degree,
+      'push_ft' => $push_ft,
+      'forced_movement' => !empty($forced_result['stride']),
+      'forced_to' => $forced_result['to_hex'] ?? NULL,
+      'attacker_prone' => $attacker_prone,
+      'hazard_count' => is_array($hazard_events) ? count($hazard_events) : 0,
+    ];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $resolution_packets,
+      $resolution_result
+    );
+
+    $shove_event_payload = [
+      'execution_request' => $execution_request,
+      'resolution_envelope' => $resolution_envelope,
+      'degree' => $degree,
+      'push_ft' => $push_ft,
+      'round' => $game_state['round'] ?? NULL,
+      'forced_movement' => !empty($forced_result['stride']),
+      'forced_to' => $forced_result['to_hex'] ?? NULL,
+      'forced_execution_request' => $forced_execution_request,
+      'movement_packet' => $forced_movement_packet,
+      'forced_resolution_envelope' => $forced_resolution_envelope,
+      'hazard_execution_request' => $hazard_execution_request,
+      'hazard_resolution_envelope' => $hazard_resolution_envelope,
+      'damage_packet' => $hazard_damage_packet,
+    ];
+    if ($hazard_events !== []) {
+      $shove_event_payload['hazard_events'] = $hazard_events;
+    }
+
+    $events = [
+      GameEventLogger::buildEvent('shove', 'encounter', $actor_id, $shove_event_payload, NULL, $target_id),
+    ];
+    foreach ($hazard_events as $hazard_event) {
+      if (!is_array($hazard_event)) {
+        continue;
+      }
+      $events[] = GameEventLogger::buildEvent('hazard_triggered', 'encounter', (string) $target_id, [
+        'hazard' => $hazard_event,
+        'target' => (string) $target_id,
+        'target_name' => (string) ($target_participant['name'] ?? $target_id),
+        'execution_request' => $hazard_execution_request,
+        'resolution_envelope' => $hazard_resolution_envelope,
+        'damage_packet' => $hazard_damage_packet,
+        'round' => $game_state['round'] ?? NULL,
+      ], NULL, (string) $target_id);
+    }
+
     return [
       'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'shoved' => $push_ft > 0,
         'push_ft' => $push_ft,
         'degree' => $degree,
@@ -3891,16 +5499,197 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         'attacker_prone' => $attacker_prone,
         'd20' => $d20,
         'total' => $total,
+        'forced_to' => $forced_result['to_hex'] ?? NULL,
+        'forced_execution_request' => $forced_execution_request,
+        'movement_packet' => $forced_movement_packet,
+        'forced_resolution_envelope' => $forced_resolution_envelope,
+        'hazard_execution_request' => $hazard_execution_request,
+        'hazard_resolution_envelope' => $hazard_resolution_envelope,
+        'hazard_events' => $hazard_events,
+        'damage_packet' => $hazard_damage_packet,
       ],
-      'mutations' => [],
-      'events' => [
-        GameEventLogger::buildEvent('shove', 'encounter', $actor_id, [
-          'degree' => $degree,
-          'push_ft' => $push_ft,
-          'round' => $game_state['round'] ?? NULL,
-        ], NULL, $target_id),
-      ],
+      'mutations' => $forced_mutations,
+      'events' => $events,
     ];
+  }
+
+  /**
+   * Resolve one forced shove destination from actor and target encounter positions.
+   */
+  protected function resolveForcedShoveDestinationHex(array $actor_participant, array $target_participant, int $push_ft, array $dungeon_data): ?array {
+    $actor_hex = [
+      'q' => (int) ($actor_participant['position_q'] ?? 0),
+      'r' => (int) ($actor_participant['position_r'] ?? 0),
+    ];
+    $target_hex = [
+      'q' => (int) ($target_participant['position_q'] ?? 0),
+      'r' => (int) ($target_participant['position_r'] ?? 0),
+    ];
+    $direction_hex = [
+      'q' => (int) ($target_hex['q'] + ($target_hex['q'] - $actor_hex['q'])),
+      'r' => (int) ($target_hex['r'] + ($target_hex['r'] - $actor_hex['r'])),
+    ];
+    if ($this->movementResolver) {
+      $forced = $this->movementResolver->computeForcedMovement(
+        $target_hex,
+        $direction_hex,
+        max(0, $push_ft),
+        $dungeon_data
+      );
+      $final_hex = is_array($forced['final_hex'] ?? NULL) ? $forced['final_hex'] : NULL;
+      if ($final_hex !== NULL) {
+        return [
+          'to_hex' => [
+            'q' => (int) ($final_hex['q'] ?? $target_hex['q']),
+            'r' => (int) ($final_hex['r'] ?? $target_hex['r']),
+          ],
+          'distance_ft' => (int) ($forced['actual_feet'] ?? 0),
+        ];
+      }
+    }
+
+    return [
+      'to_hex' => $direction_hex,
+      'distance_ft' => 5,
+    ];
+  }
+
+  /**
+   * Apply movement-into-terrain consequences for encounter forced movement.
+   *
+   * @return array<string, mixed>
+   */
+  protected function resolveEncounterTerrainHazardForMovement(
+    int $encounter_id,
+    string $source_actor_id,
+    string $target_id,
+    array $target_participant,
+    array $to_hex,
+    string $room_id,
+    array $dungeon_data
+  ): array {
+    $room_id = trim((string) $room_id);
+    if ($room_id === '') {
+      return ['events' => [], 'execution_request' => NULL, 'resolution_envelope' => NULL, 'damage_packet' => NULL, 'mutations' => []];
+    }
+    $terrain = strtolower(trim((string) ($this->resolveRoomHexTerrainTypeForEncounter($dungeon_data, $room_id, $to_hex) ?? '')));
+    if (!str_contains($terrain, 'lava')) {
+      return ['events' => [], 'execution_request' => NULL, 'resolution_envelope' => NULL, 'damage_packet' => NULL, 'mutations' => []];
+    }
+
+    $target_participant_id = (int) ($target_participant['id'] ?? 0);
+    $hp_before = isset($target_participant['hp']) ? (int) $target_participant['hp'] : 0;
+    if ($target_participant_id <= 0 || $hp_before <= 0) {
+      return ['events' => [], 'execution_request' => NULL, 'resolution_envelope' => NULL, 'damage_packet' => NULL, 'mutations' => []];
+    }
+
+    $damage = 6;
+    $damage_result = $this->hpManager->applyDamage(
+      $target_participant_id,
+      $damage,
+      'fire',
+      [
+        'type' => 'terrain_hazard',
+        'terrain' => 'lava',
+        'source_actor' => $source_actor_id,
+      ],
+      $encounter_id
+    );
+    $applied = max(0, (int) ($damage_result['hp_damage'] ?? $damage_result['final_damage'] ?? 0));
+    $hp_after = max(0, (int) ($damage_result['new_hp'] ?? ($hp_before - $applied)));
+    $damage_packet = $this->unifiedDamageEngine->buildDamageApplicationPacket(
+      $source_actor_id,
+      $target_id,
+      'terrain_hazard',
+      $applied,
+      'fire',
+      ['lava'],
+      [
+        'terrain' => 'lava',
+        'encounter_id' => $encounter_id,
+        'target_hp_before' => $hp_before,
+        'target_hp_after' => $hp_after,
+      ]
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'terrain_hazard',
+      $source_actor_id,
+      $target_id,
+      [
+        'terrain' => 'lava',
+        'room_id' => $room_id,
+        'to_hex' => [
+          'q' => (int) ($to_hex['q'] ?? 0),
+          'r' => (int) ($to_hex['r'] ?? 0),
+        ],
+      ]
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [$damage_packet],
+      [
+        'terrain' => 'lava',
+        'damage' => $applied,
+        'damage_type' => 'fire',
+        'target_hp_before' => $hp_before,
+        'target_hp_after' => $hp_after,
+      ]
+    );
+
+    return [
+      'events' => [[
+        'type' => 'hazard_triggered',
+        'instance_id' => 'terrain:lava',
+        'name' => 'Lava',
+        'room_id' => $room_id,
+        'hex' => [
+          'q' => (int) ($to_hex['q'] ?? 0),
+          'r' => (int) ($to_hex['r'] ?? 0),
+        ],
+        'effect' => [
+          'description' => 'Molten terrain scorches the creature.',
+          'damage' => $damage,
+          'damage_type' => 'fire',
+          'resolved_damage' => $applied,
+          'damage_applied' => $applied,
+        ],
+      ]],
+      'execution_request' => $execution_request,
+      'resolution_envelope' => $resolution_envelope,
+      'damage_packet' => $damage_packet,
+      'mutations' => [[
+        'entity' => $target_id,
+        'field' => 'hp',
+        'from' => $hp_before,
+        'to' => $hp_after,
+      ]],
+    ];
+  }
+
+  /**
+   * Resolve one room hex terrain label from the active encounter dungeon payload.
+   */
+  protected function resolveRoomHexTerrainTypeForEncounter(array $dungeon_data, string $room_id, array $to_hex): ?string {
+    $room = $this->findRoomById($dungeon_data, $room_id);
+    if (!is_array($room)) {
+      return NULL;
+    }
+    $target_q = (int) ($to_hex['q'] ?? 0);
+    $target_r = (int) ($to_hex['r'] ?? 0);
+    foreach ((array) ($room['hexes'] ?? []) as $hex) {
+      if (!is_array($hex)) {
+        continue;
+      }
+      if ((int) ($hex['q'] ?? 0) !== $target_q || (int) ($hex['r'] ?? 0) !== $target_r) {
+        continue;
+      }
+      $terrain = trim((string) ($hex['terrain_type'] ?? $hex['terrain'] ?? $hex['tile_type'] ?? ''));
+      if ($terrain !== '') {
+        return $terrain;
+      }
+    }
+
+    return NULL;
   }
 
   /**
@@ -3976,9 +5765,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $game_state['turn']['swim_actions'][$actor_id] = ($game_state['turn']['swim_actions'][$actor_id] ?? 0) + 1;
 
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'swim',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'swam' => $feet_moved > 0,
+        'degree' => $degree,
+        'feet_moved' => $feet_moved,
+        'breath_lost' => $breath_lost,
+      ]
+    );
+
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     return [
       'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'swam' => $feet_moved > 0,
         'degree' => $degree,
         'feet_moved' => $feet_moved,
@@ -3989,8 +5797,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('swim', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $degree,
           'feet_moved' => $feet_moved,
+          'breath_lost' => $breath_lost,
           'round' => $game_state['round'] ?? NULL,
         ]),
       ],
@@ -4020,33 +5831,106 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $actor_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
 
     $damage = 0;
+    $damage_packet = NULL;
     $attacker_prone = FALSE;
+    $state_effect_packets = [];
     if ($degree === 'critical_success') {
       $damage = $this->numberGenerationService->rollPathfinderDie(6);
       if ($target_participant) {
-        $this->hpManager->applyDamage((int) $target_participant['id'], $damage, 'bludgeoning', 'trip', $encounter_id);
+        $hp_before = is_numeric($target_participant['hp'] ?? NULL) ? (int) $target_participant['hp'] : 0;
+        $damage_resolution = $this->hpManager->applyDamage((int) $target_participant['id'], $damage, 'bludgeoning', 'trip', $encounter_id);
+        $applied_damage = max(0, (int) ($damage_resolution['hp_damage'] ?? $damage_resolution['final_damage'] ?? $damage));
+        $hp_after = max(0, (int) ($damage_resolution['new_hp'] ?? ($hp_before - $applied_damage)));
+        if ($applied_damage > 0) {
+          $damage_packet = $this->unifiedDamageEngine->buildDamageApplicationPacket(
+            (string) $actor_id,
+            (string) $target_id,
+            'effect',
+            $applied_damage,
+            'bludgeoning',
+            ['trip'],
+            [
+              'encounter_id' => $encounter_id,
+              'action' => 'trip',
+              'degree' => $degree,
+              'target_hp_before' => $hp_before,
+              'target_hp_after' => $hp_after,
+            ]
+          );
+          $damage = $applied_damage;
+        }
         $this->conditionManager->applyCondition((int) $target_participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
+        $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+          (string) $actor_id,
+          (string) $target_id,
+          'condition',
+          'prone',
+          'applied',
+          0,
+          ['encounter_id' => $encounter_id, 'action' => 'trip', 'degree' => $degree]
+        );
       }
     }
     elseif ($degree === 'success') {
       if ($target_participant) {
         $this->conditionManager->applyCondition((int) $target_participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
+        $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+          (string) $actor_id,
+          (string) $target_id,
+          'condition',
+          'prone',
+          'applied',
+          0,
+          ['encounter_id' => $encounter_id, 'action' => 'trip', 'degree' => $degree]
+        );
       }
     }
     elseif ($degree === 'critical_failure') {
       if ($actor_participant) {
         $this->conditionManager->applyCondition((int) $actor_participant['id'], 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'trip', $encounter_id);
+        $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+          (string) $actor_id,
+          (string) $actor_id,
+          'condition',
+          'prone',
+          'applied',
+          0,
+          ['encounter_id' => $encounter_id, 'action' => 'trip', 'degree' => $degree, 'self_inflicted' => TRUE]
+        );
       }
       $attacker_prone = TRUE;
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'trip',
+      (string) $actor_id,
+      (string) $target_id,
+      $params
+    );
+    $resolution_packets = $state_effect_packets;
+    if (is_array($damage_packet)) {
+      $resolution_packets[] = $damage_packet;
+    }
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $resolution_packets,
+      [
+        'degree' => $degree,
+        'damage' => $damage,
+        'attacker_prone' => $attacker_prone,
+      ]
+    );
 
     $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     return [
       'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'tripped' => in_array($degree, ['critical_success', 'success'], TRUE),
         'degree' => $degree,
         'damage' => $damage,
+        'damage_packet' => $damage_packet,
+        'state_effect_packets' => $state_effect_packets,
         'attacker_prone' => $attacker_prone,
         'd20' => $d20,
         'total' => $total,
@@ -4054,8 +5938,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('trip', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $degree,
           'damage' => $damage,
+          'damage_packet' => $damage_packet,
+          'state_effect_packets' => $state_effect_packets,
           'round' => $game_state['round'] ?? NULL,
         ], NULL, $target_id),
       ],
@@ -4100,6 +5988,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $item_dropped = FALSE;
     $grip_weakened = FALSE;
     $attacker_flat_footed = FALSE;
+    $state_effect_packets = [];
 
     if ($degree === 'critical_success') {
       $item_dropped = TRUE;
@@ -4114,26 +6003,60 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     elseif ($degree === 'critical_failure') {
       if ($actor_participant) {
         $this->conditionManager->applyCondition((int) $actor_participant['id'], 'flat_footed', 0, ['type' => 'encounter', 'remaining' => 1], 'disarm', $encounter_id);
+        $state_effect_packets[] = $this->unifiedStateEffectEngine->buildStateEffectChangePacket(
+          (string) $actor_id,
+          (string) $actor_id,
+          'condition',
+          'flat_footed',
+          'applied',
+          0,
+          ['encounter_id' => $encounter_id, 'action' => 'disarm', 'degree' => $degree, 'self_inflicted' => TRUE]
+        );
       }
       $attacker_flat_footed = TRUE;
     }
+
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'disarm',
+      (string) $actor_id,
+      (string) $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $state_effect_packets,
+      [
+        'degree' => $degree,
+        'item_dropped' => $item_dropped,
+        'grip_weakened' => $grip_weakened,
+        'attacker_flat_footed' => $attacker_flat_footed,
+      ]
+    );
 
     $game_state['turn']['attacks_this_turn'] = $attacks_this_turn + 1;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     return [
       'result' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'disarmed' => $item_dropped,
         'grip_weakened' => $grip_weakened,
         'degree' => $degree,
         'attacker_flat_footed' => $attacker_flat_footed,
+        'state_effect_packets' => $state_effect_packets,
         'd20' => $d20,
         'total' => $total,
       ],
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('disarm', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $degree,
           'item_dropped' => $item_dropped,
+          'grip_weakened' => $grip_weakened,
+          'attacker_flat_footed' => $attacker_flat_footed,
+          'state_effect_packets' => $state_effect_packets,
           'round' => $game_state['round'] ?? NULL,
         ], NULL, $target_id),
       ],
@@ -4148,7 +6071,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
     $encounter = $this->encounterStore->loadEncounter($encounter_id);
     $actor_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $actor_id) : NULL;
@@ -4231,12 +6155,68 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'mode' => $mode,
       'tools_penalty' => $tools_penalty,
     ]);
+    $degree = strtolower(trim((string) ($afa_result['degree'] ?? '')));
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && !empty($target_id)) {
+      $event_type = match ($degree) {
+        'critical_success' => 'administer_first_aid_critical_success',
+        'success' => 'administer_first_aid_success',
+        'failure' => 'administer_first_aid_failure',
+        'critical_failure' => 'administer_first_aid_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter administer first aid (%s) for %s (%s)', (string) $mode, (string) $target_id, $degree),
+          [
+            'target_entity_ref' => (string) $target_id,
+            'relationship_type' => 'care',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'mode' => (string) $mode,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_administer_first_aid' => TRUE,
+              'event_type' => $event_type,
+              'campaign_id' => $campaign_id,
+              'source' => (string) $actor_id,
+              'target' => (string) $target_id,
+              'degree' => $degree,
+              'mode' => (string) $mode,
+              'd20' => $d20,
+              'total' => $total,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
 
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'administer_first_aid',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'mode' => $mode,
+        'degree' => $afa_result['degree'] ?? NULL,
+      ]
+    );
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('administer_first_aid', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'mode' => $mode,
           'degree' => $afa_result['degree'] ?? NULL,
           'round' => $game_state['round'] ?? NULL,
@@ -4252,7 +6232,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
     $med_rank = (int) ($params['medicine_proficiency_rank'] ?? 0);
     if ($med_rank < 1) {
@@ -4306,17 +6287,71 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $actor_disposition = $this->resolveActorDispositionService();
+    $effective_target = $target_id ?: $actor_id;
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && !empty($effective_target)) {
+      $event_type = match ($degree) {
+        'critical_success' => 'treat_poison_critical_success',
+        'success' => 'treat_poison_success',
+        'failure' => 'treat_poison_failure',
+        'critical_failure' => 'treat_poison_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter treat poison for %s (%s)', (string) $effective_target, (string) $degree),
+          [
+            'target_entity_ref' => (string) $effective_target,
+            'relationship_type' => 'care',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'treated' => $treated,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_treat_poison' => TRUE,
+              'event_type' => $event_type,
+              'campaign_id' => $campaign_id,
+              'source' => (string) $actor_id,
+              'target' => (string) $effective_target,
+              'degree' => $degree,
+              'd20' => $d20,
+              'total' => $total,
+              'dc' => $poison_dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'treat_poison',
+      (string) $actor_id,
+      $effective_target !== NULL ? (string) $effective_target : NULL,
+      $params
+    );
+    $result = [
+      'treated' => $treated,
+      'degree' => $degree,
+      'd20' => $d20,
+      'total' => $total,
+      'dc' => $poison_dc,
+    ];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => [
-        'treated' => $treated,
-        'degree' => $degree,
-        'd20' => $d20,
-        'total' => $total,
-        'dc' => $poison_dc,
-      ],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('treat_poison', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $degree,
           'treated' => $treated,
           'round' => $game_state['round'] ?? NULL,
@@ -4332,7 +6367,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
     $med_rank = (int) ($params['medicine_proficiency_rank'] ?? 0);
     if ($med_rank < 1) {
@@ -4402,20 +6438,76 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $game_state['battle_medicine_immune'][$immunity_key] = TRUE;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && !empty($effective_target)) {
+      $event_type = match ($degree) {
+        'critical_success' => 'battle_medicine_critical_success',
+        'success' => 'battle_medicine_success',
+        'failure' => 'battle_medicine_failure',
+        'critical_failure' => 'battle_medicine_critical_failure',
+        default => '',
+      };
+      if ($event_type !== '') {
+        $actor_disposition->applyDispositionEvent(
+          $campaign_id,
+          (string) $actor_id,
+          $event_type,
+          sprintf('Encounter battle medicine for %s (%s)', (string) $effective_target, (string) $degree),
+          [
+            'target_entity_ref' => (string) $effective_target,
+            'relationship_type' => 'care',
+            'relationship_status' => 'known',
+            'degree' => $degree,
+            'healed' => $healed,
+            'damage' => $damage,
+            'idempotency_key' => sha1(json_encode([
+              'encounter_battle_medicine' => TRUE,
+              'event_type' => $event_type,
+              'campaign_id' => $campaign_id,
+              'source' => (string) $actor_id,
+              'target' => (string) $effective_target,
+              'degree' => $degree,
+              'healed' => $healed,
+              'damage' => $damage,
+              'd20' => $d20,
+              'total' => $total,
+              'dc' => $dc,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
+    }
+    $result = [
+      'degree' => $degree,
+      'healed' => $healed,
+      'damage' => $damage,
+      'dc' => $dc,
+      'd20' => $d20,
+      'total' => $total,
+      'removes_wounded' => FALSE,
+      'mutations' => [],
+    ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'battle_medicine',
+      (string) $actor_id,
+      $effective_target !== NULL ? (string) $effective_target : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => [
-        'degree' => $degree,
-        'healed' => $healed,
-        'damage' => $damage,
-        'dc' => $dc,
-        'd20' => $d20,
-        'total' => $total,
-        'removes_wounded' => FALSE,
-        'mutations' => [],
-      ],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('battle_medicine', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'degree' => $degree,
           'healed' => $healed,
           'round' => $game_state['round'] ?? NULL,
@@ -4497,21 +6589,42 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-    return [
-      'result' => [
+    $result = [
+      'degree' => $degree,
+      'skill_used' => $skill_used,
+      'dc' => $dc,
+      'd20' => $d20,
+      'total' => $total,
+      'player_facing_message' => $player_msg,
+      'info' => $info,
+      'bonus_detail' => $bonus_detail,
+      'secret' => TRUE,
+    ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'recall_knowledge',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
         'degree' => $degree,
         'skill_used' => $skill_used,
-        'dc' => $dc,
-        'd20' => $d20,
-        'total' => $total,
-        'player_facing_message' => $player_msg,
-        'info' => $info,
-        'bonus_detail' => $bonus_detail,
         'secret' => TRUE,
-      ],
+      ]
+    );
+    return [
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('recall_knowledge', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'skill_used' => $skill_used,
           'degree' => $degree,
           'round' => $game_state['round'] ?? NULL,
@@ -4575,16 +6688,36 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-    return [
-      'result' => [
-        'hide_results' => $hide_results,
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'hide',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = [
+      'hide_results' => $hide_results,
+      'observer_count' => count($observer_ids),
+      'secret' => TRUE,
+      'chameleon_bonus_applied' => $chameleon_bonus > 0 ? $chameleon_bonus : NULL,
+    ];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
         'observer_count' => count($observer_ids),
         'secret' => TRUE,
-        'chameleon_bonus_applied' => $chameleon_bonus > 0 ? $chameleon_bonus : NULL,
-      ],
+      ]
+    );
+    return [
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('hide', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'observer_count' => count($observer_ids),
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -4629,16 +6762,33 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         $game_state['visibility'][$obs_id][$actor_id] = 'observed';
       }
       $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+        'sneak',
+        (string) $actor_id,
+        NULL,
+        $params
+      );
+      $open_result = [
+        'sneak_results' => [],
+        'became_observed' => TRUE,
+        'half_speed' => $half_speed,
+        'reason' => 'Ended in open terrain.',
+      ];
+      $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+        $execution_request,
+        [],
+        $open_result
+      );
       return [
-        'result' => [
-          'sneak_results' => [],
-          'became_observed' => TRUE,
-          'half_speed' => $half_speed,
-          'reason' => 'Ended in open terrain.',
-        ],
+        'result' => array_merge($open_result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ]),
         'mutations' => [],
         'events' => [
           GameEventLogger::buildEvent('sneak', 'encounter', $actor_id, [
+            'execution_request' => $execution_request,
+            'resolution_envelope' => $resolution_envelope,
             'became_observed' => TRUE,
             'round' => $game_state['round'] ?? NULL,
           ]),
@@ -4677,16 +6827,36 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-    return [
-      'result' => [
-        'sneak_results' => $sneak_results,
-        'half_speed' => $half_speed,
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'sneak',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = [
+      'sneak_results' => $sneak_results,
+      'half_speed' => $half_speed,
+      'secret' => TRUE,
+      'chameleon_bonus_applied' => $chameleon_bonus > 0 ? $chameleon_bonus : NULL,
+    ];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'observer_count' => count($observer_ids),
         'secret' => TRUE,
-        'chameleon_bonus_applied' => $chameleon_bonus > 0 ? $chameleon_bonus : NULL,
-      ],
+      ]
+    );
+    return [
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('sneak', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'observer_count' => count($observer_ids),
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -4732,15 +6902,36 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-    return [
-      'result' => [
-        'concealed_results' => $conceal_results,
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'conceal_object',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = [
+      'concealed_results' => $conceal_results,
+      'item_id' => $item_id,
+      'secret' => TRUE,
+    ];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
         'item_id' => $item_id,
+        'observer_count' => count($observer_ids),
         'secret' => TRUE,
-      ],
+      ]
+    );
+    return [
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('conceal_object', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'item_id' => $item_id,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -4786,15 +6977,36 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
-    return [
-      'result' => [
-        'palm_results' => $palm_results,
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'palm_object',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = [
+      'palm_results' => $palm_results,
+      'item_id' => $item_id,
+      'secret' => TRUE,
+    ];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
         'item_id' => $item_id,
+        'observer_count' => count($observer_ids),
         'secret' => TRUE,
-      ],
+      ]
+    );
+    return [
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('palm_object', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'item_id' => $item_id,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -4843,16 +7055,33 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $result = [
+      'degree' => $degree,
+      'stolen' => $stolen,
+      'observers_alerted' => array_values($observers_alerted),
+      'secret' => TRUE,
+    ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'steal',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => [
-        'degree' => $degree,
-        'stolen' => $stolen,
-        'observers_alerted' => array_values($observers_alerted),
-        'secret' => TRUE,
-      ],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('steal', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'target_id' => $target_id,
           'degree' => $degree,
           'round' => $game_state['round'] ?? NULL,
@@ -4922,17 +7151,34 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    $result = [
+      'degree' => $degree,
+      'disabled' => $disabled,
+      'triggered' => $triggered,
+      'used_tools' => $has_tools,
+      'secret' => TRUE,
+    ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'disable_device',
+      (string) $actor_id,
+      $device_id !== NULL ? (string) $device_id : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => [
-        'degree' => $degree,
-        'disabled' => $disabled,
-        'triggered' => $triggered,
-        'used_tools' => $has_tools,
-        'secret' => TRUE,
-      ],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('disable_device', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'device_id' => $device_id,
           'degree' => $degree,
           'triggered' => $triggered,
@@ -5010,18 +7256,35 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    $result = [
+      'degree' => $degree,
+      'unlocked' => $unlocked,
+      'jammed' => $jammed,
+      'lock_quality' => $lock_quality,
+      'used_tools' => $has_tools,
+      'secret' => TRUE,
+    ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'pick_lock',
+      (string) $actor_id,
+      $lock_id !== NULL ? (string) $lock_id : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => [
-        'degree' => $degree,
-        'unlocked' => $unlocked,
-        'jammed' => $jammed,
-        'lock_quality' => $lock_quality,
-        'used_tools' => $has_tools,
-        'secret' => TRUE,
-      ],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('pick_lock', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'lock_id' => $lock_id,
           'lock_quality' => $lock_quality,
           'degree' => $degree,
@@ -5083,11 +7346,33 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'disable_hazard',
+      (string) $actor_id,
+      $hazard_id !== NULL ? (string) $hazard_id : NULL,
+      $params
+    );
+    $result = array_merge($disable_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]);
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'hazard_id' => $hazard_id,
+        'degree' => $disable_result['degree'] ?? NULL,
+        'disabled' => $disable_result['disabled'] ?? FALSE,
+        'triggered' => $disable_result['triggered'] ?? FALSE,
+      ]
+    );
     return [
-      'result' => array_merge($disable_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]),
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('disable_hazard', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'hazard_id' => $hazard_id,
           'degree' => $disable_result['degree'],
           'disabled' => $disable_result['disabled'],
@@ -5150,11 +7435,33 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $action_cost = (int) ($params['action_cost'] ?? 1);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'attack_hazard',
+      (string) $actor_id,
+      (string) $hazard_id,
+      $params
+    );
+    $result = array_merge($damage_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]);
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'hazard_id' => $hazard_id,
+        'damage' => $damage_amount,
+        'triggered' => $damage_result['triggered'] ?? FALSE,
+        'disabled' => $damage_result['disabled'] ?? FALSE,
+      ]
+    );
     return [
-      'result' => array_merge($damage_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]),
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('attack_hazard', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'hazard_id' => $hazard_id,
           'damage' => $damage_amount,
           'triggered' => $damage_result['triggered'] ?? FALSE,
@@ -5213,11 +7520,32 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 2);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'counteract_hazard',
+      (string) $actor_id,
+      (string) $hazard_id,
+      $params
+    );
+    $result = array_merge($counteract_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]);
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'hazard_id' => $hazard_id,
+        'degree' => $counteract_result['degree'] ?? NULL,
+        'counteracted' => $counteract_result['counteracted'] ?? FALSE,
+      ]
+    );
     return [
-      'result' => array_merge($counteract_result, ['xp_awarded' => $xp, 'hazard_id' => $hazard_id]),
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('counteract_hazard', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'hazard_id' => $hazard_id,
           'degree' => $counteract_result['degree'],
           'counteracted' => $counteract_result['counteracted'] ?? FALSE,
@@ -5252,11 +7580,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $char_state = $params['char_state'] ?? [];
     $activate_result = $this->magicItemService->activateItem($actor_id, $item_id, $item_data, $char_state, $game_state);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($activate_result['actions_cost'] ?? 1));
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'activate_item',
+      (string) $actor_id,
+      (string) $item_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['item_instance_id' => $item_id, 'success' => $activate_result['success'] ?? FALSE]
+    );
     return [
-      'result' => $activate_result,
+      'result' => array_merge((array) $activate_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('activate_item', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'item_instance_id' => $item_id,
           'success' => $activate_result['success'],
           'round' => $game_state['round'] ?? NULL,
@@ -5288,11 +7632,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $sustain_result = $this->magicItemService->sustainActivation($actor_id, $item_id, $game_state);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'sustain_activation',
+      (string) $actor_id,
+      (string) $item_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['item_instance_id' => $item_id, 'success' => $sustain_result['success'] ?? FALSE]
+    );
     return [
-      'result' => $sustain_result,
+      'result' => array_merge((array) $sustain_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('sustain_activation', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'item_instance_id' => $item_id,
           'success' => $sustain_result['success'],
           'round' => $game_state['round'] ?? NULL,
@@ -5324,11 +7684,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $dismiss_result = $this->magicItemService->dismissActivation($actor_id, $item_id, $game_state);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'dismiss_activation',
+      (string) $actor_id,
+      (string) $item_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['item_instance_id' => $item_id, 'success' => $dismiss_result['success'] ?? TRUE]
+    );
     return [
-      'result' => $dismiss_result,
+      'result' => array_merge((array) $dismiss_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('dismiss_activation', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'item_instance_id' => $item_id,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -5376,11 +7752,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     if ($rounds_sustained >= MagicItemService::SUSTAIN_FATIGUE_ROUNDS) {
       unset($game_state['spells']['sustained'][$actor_id][$spell_id]);
       $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+        'sustain_spell',
+        (string) $actor_id,
+        (string) $spell_id,
+        $params
+      );
+      $fatigue_result = ['sustained' => FALSE, 'ended' => TRUE, 'reason' => 'exceeded_100_rounds', 'fatigue_applied' => TRUE];
+      $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+        $execution_request,
+        [],
+        $fatigue_result
+      );
       return [
-        'result' => ['sustained' => FALSE, 'ended' => TRUE, 'reason' => 'exceeded_100_rounds', 'fatigue_applied' => TRUE],
+        'result' => array_merge($fatigue_result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ]),
         'mutations' => [],
         'events' => [
           GameEventLogger::buildEvent('sustain_spell', 'encounter', $actor_id, [
+            'execution_request' => $execution_request,
+            'resolution_envelope' => $resolution_envelope,
             'spell_id' => $spell_id,
             'ended' => TRUE,
             'reason' => 'exceeded_100_rounds',
@@ -5392,11 +7785,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
 
     $game_state['spells']['sustained'][$actor_id][$spell_id]['last_sustained_round'] = $current_round;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'sustain_spell',
+      (string) $actor_id,
+      (string) $spell_id,
+      $params
+    );
+    $result = ['sustained' => TRUE, 'rounds_sustained' => $rounds_sustained + 1];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['sustained' => TRUE, 'rounds_sustained' => $rounds_sustained + 1],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('sustain_spell', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'spell_id' => $spell_id,
           'rounds_sustained' => $rounds_sustained + 1,
           'round' => $current_round,
@@ -5429,11 +7839,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     unset($game_state['spells']['sustained'][$actor_id][$spell_id]);
     unset($game_state['spells']['durations'][$actor_id][$spell_id]);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'dismiss_spell',
+      (string) $actor_id,
+      (string) $spell_id,
+      $params
+    );
+    $result = ['dismissed' => TRUE, 'spell_id' => $spell_id];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['dismissed' => TRUE, 'spell_id' => $spell_id],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('dismiss_spell', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'spell_id' => $spell_id,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -5466,11 +7893,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $char_state = $params['char_state'] ?? [];
     $scroll_result = $this->magicItemService->castFromScroll($scroll_data, $char_state, $game_state);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($scroll_result['actions_cost'] ?? 2));
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'cast_from_scroll',
+      (string) $actor_id,
+      (string) $scroll_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['scroll_instance_id' => $scroll_id, 'success' => $scroll_result['success'] ?? FALSE]
+    );
     return [
-      'result' => $scroll_result,
+      'result' => array_merge((array) $scroll_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('cast_from_scroll', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'scroll_instance_id' => $scroll_id,
           'success' => $scroll_result['success'],
           'round' => $game_state['round'] ?? NULL,
@@ -5506,11 +7949,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $char_state = $params['char_state'] ?? [];
     $staff_result = $this->magicItemService->castFromStaff($staff_id, $actor_id, $staff_data, $spell_id, $spell_level, $char_state, $game_state);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($staff_result['actions_cost'] ?? 2));
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'cast_from_staff',
+      (string) $actor_id,
+      (string) $staff_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['staff_instance_id' => $staff_id, 'spell_level' => $spell_level, 'success' => $staff_result['success'] ?? FALSE]
+    );
     return [
-      'result' => $staff_result,
+      'result' => array_merge((array) $staff_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('cast_from_staff', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'staff_instance_id' => $staff_id,
           'spell_level' => $spell_level,
           'success' => $staff_result['success'],
@@ -5545,11 +8004,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $char_state = $params['char_state'] ?? [];
     $wand_result = $this->magicItemService->castFromWand($wand_id, $wand_data, $char_state, $game_state);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($wand_result['actions_cost'] ?? 2));
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'cast_from_wand',
+      (string) $actor_id,
+      (string) $wand_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['wand_instance_id' => $wand_id, 'success' => $wand_result['success'] ?? FALSE]
+    );
     return [
-      'result' => $wand_result,
+      'result' => array_merge((array) $wand_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('cast_from_wand', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'wand_instance_id' => $wand_id,
           'success' => $wand_result['success'],
           'round' => $game_state['round'] ?? NULL,
@@ -5581,11 +8056,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $overcharge_result = $this->magicItemService->overchargeWand($wand_id, $game_state);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($overcharge_result['actions_cost'] ?? 2));
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'overcharge_wand',
+      (string) $actor_id,
+      (string) $wand_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['wand_instance_id' => $wand_id, 'success' => $overcharge_result['success'] ?? FALSE]
+    );
     return [
-      'result' => $overcharge_result,
+      'result' => array_merge((array) $overcharge_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('overcharge_wand', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'wand_instance_id' => $wand_id,
           'success' => $overcharge_result['success'],
           'round' => $game_state['round'] ?? NULL,
@@ -5618,11 +8109,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $talisman_result = $this->magicItemService->activateTalisman($host_item_id, $actor_id, $game_state);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - ($talisman_result['actions_cost'] ?? 1));
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'activate_talisman',
+      (string) $actor_id,
+      (string) $talisman_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['talisman_instance_id' => $talisman_id, 'success' => $talisman_result['success'] ?? FALSE]
+    );
     return [
-      'result' => $talisman_result,
+      'result' => array_merge((array) $talisman_result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('activate_talisman', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'talisman_instance_id' => $talisman_id,
           'success' => $talisman_result['success'],
           'round' => $game_state['round'] ?? NULL,
@@ -5680,11 +8187,54 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $movement_execution_request = $this->requireOptionalContractPayload(
+      $burrow_result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'burrow.movement.execution_request'
+    );
+    $movement_packet = $this->requireOptionalContractPayload(
+      $burrow_result['movement_packet'] ?? NULL,
+      'movement_resolution',
+      CombatResolutionContractService::MOVEMENT_PACKET_CONTRACT_VERSION,
+      'burrow.movement.movement_packet'
+    );
+    $movement_resolution_envelope = $this->requireOptionalContractPayload(
+      $burrow_result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'burrow.movement.resolution_envelope'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'burrow',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = ['burrowed' => TRUE, 'to_hex' => $params['to_hex'] ?? NULL];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      is_array($movement_packet) ? [$movement_packet] : [],
+      $result
+    );
     return [
-      'result' => ['burrowed' => TRUE, 'to_hex' => $params['to_hex'] ?? NULL],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'movement_execution_request' => $movement_execution_request,
+        'movement_packet' => $movement_packet,
+        'movement_resolution_envelope' => $movement_resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => [
-        GameEventLogger::buildEvent('burrow', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+        GameEventLogger::buildEvent('burrow', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'movement_execution_request' => $movement_execution_request,
+          'movement_packet' => $movement_packet,
+          'movement_resolution_envelope' => $movement_resolution_envelope,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
       ],
     ];
   }
@@ -5734,11 +8284,31 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       $entity_data['fly_used_this_turn'] = TRUE;
       $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
       $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+        'fly',
+        (string) $actor_id,
+        NULL,
+        $params
+      );
+      $result = ['hovered' => TRUE];
+      $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+        $execution_request,
+        [],
+        $result
+      );
       return [
-        'result' => ['hovered' => TRUE],
+        'result' => array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ]),
         'mutations' => [],
         'events' => [
-          GameEventLogger::buildEvent('fly', 'encounter', $actor_id, ['hover' => TRUE, 'round' => $game_state['round'] ?? NULL]),
+          GameEventLogger::buildEvent('fly', 'encounter', $actor_id, [
+            'execution_request' => $execution_request,
+            'resolution_envelope' => $resolution_envelope,
+            'hover' => TRUE,
+            'round' => $game_state['round'] ?? NULL,
+          ]),
         ],
       ];
     }
@@ -5754,11 +8324,55 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
     $game_state['turn']['fly_used'] = TRUE;
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $movement_execution_request = $this->requireOptionalContractPayload(
+      $fly_result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'fly.movement.execution_request'
+    );
+    $movement_packet = $this->requireOptionalContractPayload(
+      $fly_result['movement_packet'] ?? NULL,
+      'movement_resolution',
+      CombatResolutionContractService::MOVEMENT_PACKET_CONTRACT_VERSION,
+      'fly.movement.movement_packet'
+    );
+    $movement_resolution_envelope = $this->requireOptionalContractPayload(
+      $fly_result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'fly.movement.resolution_envelope'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'fly',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = ['flew' => TRUE, 'to_hex' => $params['to_hex'] ?? NULL];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      is_array($movement_packet) ? [$movement_packet] : [],
+      $result
+    );
     return [
-      'result' => ['flew' => TRUE, 'to_hex' => $params['to_hex'] ?? NULL],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'movement_execution_request' => $movement_execution_request,
+        'movement_packet' => $movement_packet,
+        'movement_resolution_envelope' => $movement_resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => [
-        GameEventLogger::buildEvent('fly', 'encounter', $actor_id, ['to' => $params['to_hex'] ?? NULL, 'round' => $game_state['round'] ?? NULL]),
+        GameEventLogger::buildEvent('fly', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'to' => $params['to_hex'] ?? NULL,
+          'movement_execution_request' => $movement_execution_request,
+          'movement_packet' => $movement_packet,
+          'movement_resolution_envelope' => $movement_resolution_envelope,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
       ],
     ];
   }
@@ -5824,11 +8438,31 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $actor_entity['mounted_on'] = $target_id;
     $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($actor_entity)]);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'mount',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $result = ['mounted' => TRUE, 'mount_id' => $target_id, 'roll' => $mount_roll, 'total' => $mount_total];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['mounted' => TRUE, 'mount_id' => $target_id, 'roll' => $mount_roll, 'total' => $mount_total],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('mount', 'encounter', $actor_id, ['mount' => $target_id, 'round' => $game_state['round'] ?? NULL], NULL, $target_id),
+        GameEventLogger::buildEvent('mount', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'mount' => $target_id,
+          'round' => $game_state['round'] ?? NULL,
+        ], NULL, $target_id),
       ],
     ];
   }
@@ -5866,11 +8500,30 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
     $this->encounterStore->updateParticipant((int) $participant['id'], $update);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'dismount',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = ['dismounted' => TRUE];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['dismounted' => TRUE],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('dismount', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+        GameEventLogger::buildEvent('dismount', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
       ],
     ];
   }
@@ -5928,11 +8581,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $entity_data['shield_raised_ac_bonus'] = (int) ($shield['ac_bonus'] ?? 0);
     $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'raise_shield',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = ['shield_raised' => TRUE, 'ac_bonus' => $entity_data['shield_raised_ac_bonus']];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['shield_raised' => TRUE, 'ac_bonus' => $entity_data['shield_raised_ac_bonus']],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('raise_shield', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'ac_bonus' => $entity_data['shield_raised_ac_bonus'],
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -5967,11 +8637,30 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $entity_data['avert_gaze_active'] = TRUE;
     $this->encounterStore->updateParticipant((int) $participant['id'], ['entity_ref' => json_encode($entity_data)]);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'avert_gaze',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = ['avert_gaze' => TRUE];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['avert_gaze' => TRUE],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
-        GameEventLogger::buildEvent('avert_gaze', 'encounter', $actor_id, ['round' => $game_state['round'] ?? NULL]),
+        GameEventLogger::buildEvent('avert_gaze', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+          'round' => $game_state['round'] ?? NULL,
+        ]),
       ],
     ];
   }
@@ -5984,7 +8673,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     ?string $target_id,
     array $params,
-    array &$game_state
+    array &$game_state,
+    int $campaign_id
   ): array {
     if (!$target_id) {
       return [
@@ -6020,11 +8710,48 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService && $campaign_id > 0 && !empty($actor_id) && !empty($target_id)) {
+      $actor_disposition->applyDispositionEvent(
+        $campaign_id,
+        (string) $actor_id,
+        'point_out_success',
+        sprintf('Encounter point out for allies against %s', (string) $target_id),
+        [
+          'target_entity_ref' => (string) $target_id,
+          'relationship_type' => 'combat',
+          'relationship_status' => 'known',
+          'idempotency_key' => sha1(json_encode([
+            'encounter_point_out' => TRUE,
+            'campaign_id' => $campaign_id,
+            'source' => (string) $actor_id,
+            'target' => (string) $target_id,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+        ]
+      );
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'point_out',
+      (string) $actor_id,
+      (string) $target_id,
+      $params
+    );
+    $result = ['pointed_out' => TRUE, 'target' => $target_id];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['pointed_out' => TRUE, 'target' => $target_id],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [],
       'events' => [
         GameEventLogger::buildEvent('point_out', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'target' => $target_id,
           'round' => $game_state['round'] ?? NULL,
         ], NULL, $target_id),
@@ -6066,11 +8793,28 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       ];
     }
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'minor_color_shift',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = ['coloration_tag' => $terrain_color, 'action_cost' => 1];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['coloration_tag' => $terrain_color, 'action_cost' => 1],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => [['type' => 'char_state', 'key' => 'coloration_tag', 'value' => $terrain_color]],
       'events' => [
         GameEventLogger::buildEvent('minor_color_shift', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'new_coloration' => $terrain_color,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -6150,11 +8894,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'effects' => $effects,
       'inventory' => $inventory,
     ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'consume_item',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['item_name' => $item_name, 'action_cost' => $action_cost]
+    );
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'events' => [
         GameEventLogger::buildEvent('consume_item', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'item_name' => $item_name,
           'effects' => $effects,
           'action_cost' => $action_cost,
@@ -6187,10 +8947,27 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     $game_state['turn']['metamagic_pending'][$actor_id] = $metamagic_id;
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'declare_metamagic',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $result = ['declared' => TRUE, 'metamagic_id' => $metamagic_id];
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      $result
+    );
     return [
-      'result' => ['declared' => TRUE, 'metamagic_id' => $metamagic_id],
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'events' => [
         GameEventLogger::buildEvent('declare_metamagic', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'metamagic_id' => $metamagic_id,
           'round' => $game_state['round'] ?? NULL,
         ]),
@@ -6217,7 +8994,20 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     if (!$encounter_id || $this->isRoomSceneMode($game_state)) {
       $result = ['interacted' => TRUE];
       $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+      $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+        'interact',
+        (string) $actor_id,
+        $target_id,
+        $params
+      );
+      $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+        $execution_request,
+        [],
+        ['interacted' => TRUE, 'mode' => 'room_scene']
+      );
       $events[] = GameEventLogger::buildEvent('interact', 'encounter', $actor_id, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'target' => $target_id,
         'round' => $game_state['round'] ?? NULL,
       ]);
@@ -6249,7 +9039,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       }
 
       return [
-        'result' => $result,
+        'result' => array_merge($result, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
+        ]),
         'mutations' => $mutations,
         'events' => $events,
       ];
@@ -6259,7 +9052,20 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     $mutations = $result['mutations'] ?? [];
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'interact',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      ['interacted' => TRUE, 'interaction' => $params['interaction_type'] ?? 'generic']
+    );
     $events[] = GameEventLogger::buildEvent('interact', 'encounter', $actor_id, [
+      'execution_request' => $execution_request,
+      'resolution_envelope' => $resolution_envelope,
       'target' => $target_id,
       'interaction' => $params['interaction_type'] ?? 'generic',
       'round' => $game_state['round'] ?? NULL,
@@ -6292,7 +9098,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => $events,
     ];
@@ -6340,9 +9149,25 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         ));
       }
     }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'talk',
+      (string) $actor_id,
+      $target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'message' => $result['message'] ?? '',
+        'gm_response_generated' => !empty($result['gm_response']),
+      ]
+    );
 
     $events = [
       GameEventLogger::buildEvent('talk', 'encounter', $actor_id, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
         'message' => $result['message'] ?? '',
         'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
         'turn_index' => $turn_ctx['turn_index_raw'] ?? ($game_state['turn']['index'] ?? NULL),
@@ -6379,7 +9204,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => $events,
       'narration' => $narration,
@@ -6418,11 +9246,31 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'skill_name' => $skill_name,
       'skill_bonus' => $skill_bonus,
     ];
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'skill',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'skill_name' => $skill_name,
+        'skill_bonus' => $skill_bonus,
+        'action_cost' => $action_cost,
+      ]
+    );
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'events' => [
         GameEventLogger::buildEvent('skill', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'skill_name' => $skill_name,
           'skill_bonus' => $skill_bonus,
           'action_cost' => $action_cost,
@@ -6439,10 +9287,11 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ?string $actor_id,
     array $params,
     array &$game_state,
-    array &$dungeon_data
+    array &$dungeon_data,
+    int $campaign_id
   ): array {
-    $feat_name = trim((string) ($params['feat_name'] ?? $params['featName'] ?? 'Feat action'));
-    $feat_id = $params['feat_id'] ?? $params['featId'] ?? NULL;
+    $feat_name = trim((string) ($params['feat_name'] ?? $params['featName'] ?? $params['option_label'] ?? 'Feat action'));
+    $feat_id = $params['feat_id'] ?? $params['featId'] ?? $params['option_id'] ?? $params['optionId'] ?? NULL;
 
     $action_cost = $this->getActionCost('feat', $params);
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
@@ -6453,18 +9302,195 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'feat_name' => $feat_name,
       'feat_id' => $feat_id,
     ];
+    $stance_transition = $this->applyFeatStanceRuntimeTransition(
+      $actor_id,
+      $feat_id,
+      $params,
+      $campaign_id,
+      $dungeon_data
+    );
+    if (is_array($stance_transition)) {
+      $result['stance_transition'] = $stance_transition;
+    }
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'feat',
+      (string) $actor_id,
+      $feat_id !== NULL ? (string) $feat_id : NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      [],
+      [
+        'feat_name' => $feat_name,
+        'feat_id' => $feat_id,
+        'action_cost' => $action_cost,
+      ]
+    );
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+      ]),
       'events' => [
         GameEventLogger::buildEvent('feat', 'encounter', $actor_id, [
+          'execution_request' => $execution_request,
+          'resolution_envelope' => $resolution_envelope,
           'feat_name' => $feat_name,
           'feat_id' => $feat_id,
           'action_cost' => $action_cost,
           'round' => $game_state['round'] ?? NULL,
+          'stance_transition' => $stance_transition,
         ]),
       ],
     ];
+  }
+
+  /**
+   * Apply stance runtime transition for feat actions when explicitly requested.
+   *
+   * @return array<string,mixed>|null
+   */
+  protected function applyFeatStanceRuntimeTransition(
+    ?string $actor_id,
+    mixed $feat_id,
+    array $params,
+    int $campaign_id,
+    array &$dungeon_data
+  ): ?array {
+    if (!$this->stanceRuntimeService || !$actor_id || $campaign_id <= 0) {
+      return NULL;
+    }
+
+    $stance_transition = is_array($params['stance_transition'] ?? NULL)
+      ? $params['stance_transition']
+      : (is_array($params['stanceTransition'] ?? NULL) ? $params['stanceTransition'] : []);
+    $legacy_stance_transition = $params['stanceTransition'] ?? NULL;
+    $legacy_stance_action = (is_scalar($legacy_stance_transition) || $legacy_stance_transition === NULL)
+      ? $legacy_stance_transition
+      : NULL;
+    $stance_action = strtolower(trim((string) (
+      $params['stance_action']
+      ?? $legacy_stance_action
+      ?? $stance_transition['action']
+      ?? ''
+    )));
+    if (!in_array($stance_action, ['enter', 'exit'], TRUE)) {
+      $stance_action = $this->inferFeatStanceAction($params, $feat_id);
+      if (!in_array($stance_action, ['enter', 'exit'], TRUE)) {
+        return NULL;
+      }
+    }
+
+    $stance_id = strtolower(trim((string) (
+      $params['stance_id']
+      ?? $params['stanceId']
+      ?? $stance_transition['stance_id']
+      ?? $stance_transition['stanceId']
+      ?? $feat_id
+      ?? $params['option_id']
+      ?? $params['optionId']
+      ?? ''
+    )));
+    if ($stance_id === '') {
+      return NULL;
+    }
+
+    $actor_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
+    if ($actor_index === NULL || !is_array($dungeon_data['entities'][$actor_index] ?? NULL)) {
+      return NULL;
+    }
+
+    $actor_entity = $dungeon_data['entities'][$actor_index];
+    $character_state = $this->loadCanonicalCharacterState($actor_entity, $campaign_id);
+    if (!is_array($character_state)) {
+      return NULL;
+    }
+
+    $identity = $this->resolveCanonicalCharacterIdentity($actor_entity);
+    $entity_ref = trim((string) ($identity['instance_id'] ?? $actor_id));
+    $source = [
+      'source_type' => 'feat_action',
+      'source_id' => (string) ($feat_id ?? $stance_id),
+    ];
+
+    if ($stance_action === 'enter') {
+      $character_state = $this->stanceRuntimeService->enterStance($character_state, $stance_id, 1, $source, $campaign_id, $entity_ref);
+    }
+    else {
+      $character_state = $this->stanceRuntimeService->exitStance($character_state, $stance_id, $source, $campaign_id, $entity_ref);
+    }
+
+    $this->persistCanonicalCharacterState($actor_entity, $campaign_id, $character_state);
+    $dungeon_data['entities'][$actor_index]['state']['stance_state'] = $character_state['stance_state'] ?? [];
+    $dungeon_data['entities'][$actor_index]['state']['som_state'] = $character_state['som_state'] ?? ($dungeon_data['entities'][$actor_index]['state']['som_state'] ?? []);
+
+    return [
+      'stance_action' => $stance_action,
+      'stance_id' => $stance_id,
+      'stance_state' => is_array($character_state['stance_state'] ?? NULL) ? $character_state['stance_state'] : [],
+      'arcane_cascade_active' => $this->stanceRuntimeService->isStanceActive($character_state, 'arcane_cascade'),
+    ];
+  }
+
+  /**
+   * Infer stance transition action for stance-tagged feat executions.
+   */
+  protected function inferFeatStanceAction(array $params, mixed $feat_id): string {
+    $candidate = strtolower(trim((string) ($params['feat_name'] ?? $params['featName'] ?? $params['option_label'] ?? $feat_id ?? '')));
+    if ($candidate === '') {
+      return '';
+    }
+    if (str_contains($candidate, 'dismiss') || str_contains($candidate, 'exit stance') || str_contains($candidate, 'leave stance')) {
+      return 'exit';
+    }
+    if (str_contains($candidate, 'stance') || str_contains($candidate, 'arcane_cascade')) {
+      return 'enter';
+    }
+    return '';
+  }
+
+  /**
+   * Validate optional contract payload and fail loudly on mixed-shape values.
+   *
+   * @return array<string, mixed>|null
+   */
+  protected function requireOptionalContractPayload(
+    mixed $payload,
+    string $expected_kind,
+    string $expected_contract_version,
+    string $field_name
+  ): ?array {
+    if ($payload === NULL) {
+      return NULL;
+    }
+    if (!is_array($payload)) {
+      throw new \InvalidArgumentException(sprintf(
+        'Invalid %s payload: expected object, got %s.',
+        $field_name,
+        get_debug_type($payload)
+      ));
+    }
+    $kind = (string) ($payload['kind'] ?? '');
+    if ($kind !== $expected_kind) {
+      throw new \InvalidArgumentException(sprintf(
+        'Invalid %s payload kind: expected %s, got %s.',
+        $field_name,
+        $expected_kind,
+        $kind !== '' ? $kind : 'missing'
+      ));
+    }
+    $version = (string) ($payload['contract_version'] ?? '');
+    if ($version !== $expected_contract_version) {
+      throw new \InvalidArgumentException(sprintf(
+        'Invalid %s contract version: expected %s, got %s.',
+        $field_name,
+        $expected_contract_version,
+        $version !== '' ? $version : 'missing'
+      ));
+    }
+    return $payload;
   }
 
   /**
@@ -6480,9 +9506,25 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     int $campaign_id
   ): array {
     $result = $this->processStrike($encounter_id, (string) $actor_id, (string) $target_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $resolved_target_id = is_string($result['target_id'] ?? NULL) && trim((string) $result['target_id']) !== ''
+      ? (string) $result['target_id']
+      : $target_id;
     $mutations = $result['mutations'] ?? [];
     $narration = $result['narration'] ?? NULL;
     $events = [];
+    $reaction_packet = NULL;
+    if (!empty($params['skip_map'])) {
+      $reaction_packet = $this->unifiedReactionEngine->buildReactionResolutionPacket(
+        (string) $actor_id,
+        (string) $resolved_target_id,
+        'attack_of_opportunity',
+        'resolved',
+        [
+          'encounter_id' => $encounter_id,
+          'source' => 'strike.skip_map',
+        ]
+      );
+    }
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
     $game_state['turn']['attacks_this_turn'] = ($game_state['turn']['attacks_this_turn'] ?? 0) + 1;
@@ -6503,18 +9545,67 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       }
     }
 
+    $strike_execution_request = $this->requireOptionalContractPayload(
+      $result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'strike.execution_request'
+    );
+    $strike_resolution_envelope = $this->requireOptionalContractPayload(
+      $result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'strike.resolution_envelope'
+    );
+    $damage_packet = $this->requireOptionalContractPayload(
+      $result['damage_packet'] ?? NULL,
+      'damage_application',
+      CombatResolutionContractService::DAMAGE_PACKET_CONTRACT_VERSION,
+      'damage_packet'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'strike',
+      (string) $actor_id,
+      $resolved_target_id,
+      $params
+    );
+    $resolution_packets = [];
+    if (is_array($damage_packet)) {
+      $resolution_packets[] = $damage_packet;
+    }
+    if (is_array($reaction_packet)) {
+      $resolution_packets[] = $reaction_packet;
+    }
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      $resolution_packets,
+      [
+        'target' => $resolved_target_id,
+        'degree' => $result['degree'] ?? NULL,
+        'damage' => $result['damage'] ?? NULL,
+        'damage_type' => $result['damage_type'] ?? NULL,
+      ]
+    );
+
     $events[] = GameEventLogger::buildEvent('strike', 'encounter', $actor_id, [
-      'target' => $target_id,
+      'execution_request' => $execution_request,
+      'resolution_envelope' => $resolution_envelope,
+      'strike_execution_request' => $strike_execution_request,
+      'strike_resolution_envelope' => $strike_resolution_envelope,
+      'reaction_packet' => $reaction_packet,
+      'target' => $resolved_target_id,
       'roll' => $result['roll'] ?? NULL,
       'total' => $result['total'] ?? NULL,
       'dc' => $result['ac'] ?? NULL,
       'degree' => $result['degree'] ?? NULL,
       'damage' => $result['damage'] ?? NULL,
+      'damage_type' => $result['damage_type'] ?? NULL,
+      'damage_packet' => $damage_packet,
       'round' => $game_state['round'] ?? NULL,
-    ], $narration, $target_id);
+    ], $narration, $resolved_target_id);
 
     $attacker_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-    $target_name = $this->resolveEntityName($target_id, $game_state, $dungeon_data);
+    $target_name = $this->resolveEntityName((string) $resolved_target_id, $game_state, $dungeon_data);
     $degree_text = $result['degree'] ?? 'unknown';
     $damage_val = $result['damage'] ?? 0;
     $strike_desc = match ($degree_text) {
@@ -6532,11 +9623,18 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'content' => $strike_desc,
       'visibility' => 'public',
       'mechanical_data' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'strike_execution_request' => $strike_execution_request,
+        'strike_resolution_envelope' => $strike_resolution_envelope,
+        'reaction_packet' => $reaction_packet,
         'attack_roll' => $result['roll'] ?? NULL,
         'total' => $result['total'] ?? NULL,
         'ac' => $result['ac'] ?? NULL,
         'degree' => $degree_text,
         'damage' => $damage_val,
+        'damage_type' => $result['damage_type'] ?? NULL,
+        'damage_packet' => $damage_packet,
         'weapon' => $params['weapon'] ?? NULL,
       ],
     ]);
@@ -6553,7 +9651,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         'dc' => $result['ac'] ?? NULL,
         'degree' => $degree_text,
         'weapon' => $params['weapon'] ?? NULL,
-        'target' => $target_id,
+        'target' => $resolved_target_id,
       ],
       'visibility' => 'public',
     ]);
@@ -6565,16 +9663,24 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         'speaker_ref' => $actor_id,
         'content' => sprintf('%s takes %d damage.', $target_name, $damage_val),
         'mechanical_data' => [
-          'target' => $target_id,
+          'target' => $resolved_target_id,
           'damage' => $damage_val,
           'damage_type' => $result['damage_type'] ?? 'physical',
+          'damage_packet' => $damage_packet,
         ],
         'visibility' => 'public',
       ]);
     }
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'strike_execution_request' => $strike_execution_request,
+        'strike_resolution_envelope' => $strike_resolution_envelope,
+        'damage_packet' => $damage_packet,
+        'reaction_packet' => $reaction_packet,
+      ]),
       'mutations' => $mutations,
       'events' => $events,
       'narration' => $narration,
@@ -6593,23 +9699,87 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     int $campaign_id
   ): array {
     $result = $this->processStride($encounter_id, (string) $actor_id, $params, $game_state, $dungeon_data, $campaign_id);
+    if (!empty($result['error'])) {
+      return [
+        'abort_response' => [
+          'success' => FALSE,
+          'result' => ['error' => (string) $result['error']],
+          'mutations' => [],
+          'events' => [],
+          'phase_transition' => NULL,
+          'narration' => NULL,
+        ],
+      ];
+    }
     $mutations = $result['mutations'] ?? [];
     $events = [];
+    $action_cost = $this->getActionCost('stride', $params);
 
-    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - 1);
+    $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
     if (!empty($game_state['entities'][$actor_id]['cover_active'])) {
       $game_state['entities'][$actor_id]['cover_active'] = FALSE;
     }
-    $game_state['turn']['last_stride_ft'] = (int) ($params['distance_ft'] ?? 25);
+    $game_state['turn']['last_stride_ft'] = (int) ($result['distance_ft'] ?? $params['distance_ft'] ?? 25);
+
+    $movement_execution_request = $this->requireOptionalContractPayload(
+      $result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'stride.movement.execution_request'
+    );
+    $movement_resolution_envelope = $this->requireOptionalContractPayload(
+      $result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'stride.movement.resolution_envelope'
+    );
+    $movement_packet = $this->requireOptionalContractPayload(
+      $result['movement_packet'] ?? NULL,
+      'movement_resolution',
+      CombatResolutionContractService::MOVEMENT_PACKET_CONTRACT_VERSION,
+      'movement_packet'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'stride',
+      (string) $actor_id,
+      NULL,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      is_array($movement_packet) ? [$movement_packet] : [],
+      [
+        'from' => $result['from_hex'] ?? NULL,
+        'to' => $result['to_hex'] ?? NULL,
+        'distance_ft' => $result['distance_ft'] ?? NULL,
+        'is_forced' => !empty($result['is_forced']),
+      ]
+    );
 
     $events[] = GameEventLogger::buildEvent('stride', 'encounter', $actor_id, [
-      'from' => $params['from_hex'] ?? NULL,
-      'to' => $params['to_hex'] ?? NULL,
+      'execution_request' => $execution_request,
+      'resolution_envelope' => $resolution_envelope,
+      'movement_execution_request' => $movement_execution_request,
+      'movement_resolution_envelope' => $movement_resolution_envelope,
+      'from' => $result['from_hex'] ?? NULL,
+      'to' => $result['to_hex'] ?? NULL,
+      'distance_ft' => $result['distance_ft'] ?? NULL,
+      'is_forced' => !empty($result['is_forced']),
+      'movement_packet' => $movement_packet,
+      'movement_execution_request' => $movement_execution_request,
+      'movement_resolution_envelope' => $movement_resolution_envelope,
+      'action_cost' => $action_cost,
       'round' => $game_state['round'] ?? NULL,
     ]);
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'movement_execution_request' => $movement_execution_request,
+        'movement_packet' => $movement_packet,
+        'movement_resolution_envelope' => $movement_resolution_envelope,
+      ]),
       'mutations' => $mutations,
       'events' => $events,
       'narration' => $result['narration'] ?? NULL,
@@ -6630,9 +9800,39 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
   ): array {
     $spell_name = $params['spell_name'] ?? 'unknown';
     $action_cost = $params['action_cost'] ?? 2;
+    $target_hp_before = NULL;
+    if ($encounter_id && is_string($target_id) && trim($target_id) !== '') {
+      $enc_before = $this->encounterStore->loadEncounter((int) $encounter_id);
+      $ptcp_before = $enc_before ? $this->findEncounterParticipantByEntityId($enc_before, (string) $target_id) : NULL;
+      if (is_array($ptcp_before) && is_numeric($ptcp_before['hp'] ?? NULL)) {
+        $target_hp_before = (int) $ptcp_before['hp'];
+      }
+    }
+
     $result = $this->processCastSpell($encounter_id, (string) $actor_id, $target_id, $params, $game_state, $dungeon_data, $campaign_id);
+    $resolved_target_id = is_string($result['target_id'] ?? NULL) && trim((string) $result['target_id']) !== ''
+      ? (string) $result['target_id']
+      : $target_id;
+    $target_hp_after = NULL;
+    if ($encounter_id && is_string($resolved_target_id) && trim($resolved_target_id) !== '') {
+      $enc_after = $this->encounterStore->loadEncounter((int) $encounter_id);
+      $ptcp_after = $enc_after ? $this->findEncounterParticipantByEntityId($enc_after, (string) $resolved_target_id) : NULL;
+      if (is_array($ptcp_after) && is_numeric($ptcp_after['hp'] ?? NULL)) {
+        $target_hp_after = (int) $ptcp_after['hp'];
+      }
+    }
+
+    $resolved_damage = is_numeric($result['damage'] ?? NULL) ? (int) $result['damage'] : NULL;
+    if ($resolved_damage === NULL && is_numeric($target_hp_before) && is_numeric($target_hp_after)) {
+      $hp_delta = (int) $target_hp_before - (int) $target_hp_after;
+      if ($hp_delta > 0) {
+        $resolved_damage = $hp_delta;
+      }
+    }
     $mutations = $result['mutations'] ?? [];
     $events = [];
+    $caster_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
+    $spell_target_name = $resolved_target_id ? $this->resolveEntityName($resolved_target_id, $game_state, $dungeon_data) : NULL;
 
     $game_state['turn']['actions_remaining'] = max(0, ($game_state['turn']['actions_remaining'] ?? 0) - $action_cost);
     if (!empty($game_state['entities'][$actor_id]['cover_active'])) {
@@ -6650,15 +9850,57 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         }
       }
     }
+    $spell_execution_request = $this->requireOptionalContractPayload(
+      $result['execution_request'] ?? NULL,
+      'combat_execution_request',
+      CombatResolutionContractService::EXECUTION_REQUEST_CONTRACT_VERSION,
+      'cast_spell.execution_request'
+    );
+    $spell_resolution_envelope = $this->requireOptionalContractPayload(
+      $result['resolution_envelope'] ?? NULL,
+      'combat_resolution_envelope',
+      CombatResolutionContractService::RESOLUTION_ENVELOPE_CONTRACT_VERSION,
+      'cast_spell.resolution_envelope'
+    );
+    $damage_packet = $this->requireOptionalContractPayload(
+      $result['damage_packet'] ?? NULL,
+      'damage_application',
+      CombatResolutionContractService::DAMAGE_PACKET_CONTRACT_VERSION,
+      'cast_spell.damage_packet'
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      'cast_spell',
+      (string) $actor_id,
+      $resolved_target_id,
+      $params
+    );
+    $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
+      $execution_request,
+      is_array($damage_packet) ? [$damage_packet] : [],
+      [
+        'spell' => $spell_name,
+        'action_cost' => $action_cost,
+        'damage' => $resolved_damage,
+        'damage_type' => is_string($result['damage_type'] ?? NULL) ? (string) $result['damage_type'] : NULL,
+        'missiles_fired' => is_numeric($result['missiles_fired'] ?? NULL) ? (int) $result['missiles_fired'] : NULL,
+      ]
+    );
 
     $events[] = GameEventLogger::buildEvent('cast_spell', 'encounter', $actor_id, [
+      'execution_request' => $execution_request,
+      'resolution_envelope' => $resolution_envelope,
+      'spell_execution_request' => $spell_execution_request,
+      'spell_resolution_envelope' => $spell_resolution_envelope,
       'spell' => $spell_name,
       'action_cost' => $action_cost,
+      'damage' => $resolved_damage,
+      'damage_type' => is_string($result['damage_type'] ?? NULL) ? (string) $result['damage_type'] : NULL,
+      'damage_packet' => $damage_packet,
+      'missiles_fired' => is_numeric($result['missiles_fired'] ?? NULL) ? (int) $result['missiles_fired'] : NULL,
+      'target_name' => $spell_target_name,
       'round' => $game_state['round'] ?? NULL,
-    ], $result['narration'] ?? NULL, $target_id);
+    ], $result['narration'] ?? NULL, $resolved_target_id);
 
-    $caster_name = $this->resolveEntityName($actor_id, $game_state, $dungeon_data);
-    $spell_target_name = $target_id ? $this->resolveEntityName($target_id, $game_state, $dungeon_data) : NULL;
     $spell_desc = $spell_target_name
       ? sprintf('%s casts %s targeting %s.', $caster_name, $spell_name, $spell_target_name)
       : sprintf('%s casts %s.', $caster_name, $spell_name);
@@ -6670,15 +9912,29 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'content' => $spell_desc,
       'visibility' => 'public',
       'mechanical_data' => [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'spell_execution_request' => $spell_execution_request,
+        'spell_resolution_envelope' => $spell_resolution_envelope,
         'spell_name' => $spell_name,
         'spell_level' => $params['spell_level'] ?? NULL,
         'action_cost' => $action_cost,
-        'target' => $target_id,
+        'damage' => $resolved_damage,
+        'damage_type' => is_string($result['damage_type'] ?? NULL) ? (string) $result['damage_type'] : NULL,
+        'damage_packet' => $damage_packet,
+        'missiles_fired' => is_numeric($result['missiles_fired'] ?? NULL) ? (int) $result['missiles_fired'] : NULL,
+        'target' => $resolved_target_id,
       ],
     ]);
 
     return [
-      'result' => $result,
+      'result' => array_merge($result, [
+        'execution_request' => $execution_request,
+        'resolution_envelope' => $resolution_envelope,
+        'spell_execution_request' => $spell_execution_request,
+        'spell_resolution_envelope' => $spell_resolution_envelope,
+        'damage_packet' => $damage_packet,
+      ]),
       'mutations' => $mutations,
       'events' => $events,
       'narration' => $result['narration'] ?? NULL,
@@ -6836,7 +10092,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     ], (string) ($room['description'] ?? $room['name'] ?? ''));
     $events = array_values($events);
 
-    $combat_context = $this->buildCombatEncounterContext($target_room_id, $dungeon_data, $game_state);
+    $combat_context = $this->buildCombatEncounterContext($target_room_id, $dungeon_data, $game_state, $campaign_id);
     if (!empty($combat_context['should_trigger'])) {
       $events = array_merge($events, $this->onEnter($combat_context, $game_state, $dungeon_data, $campaign_id));
     }
@@ -8112,17 +11368,15 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
    * Processes a strike action via the existing combat system.
    */
   protected function processStrike(int $encounter_id, string $actor_id, string $target_id, array $params, array &$game_state, array $dungeon_data = [], ?int $campaign_id = NULL): array {
-    return $this->encounterActionExecutor->processStrike(
+    return $this->actionResolverRegistry->resolve(
+      'strike',
       $encounter_id,
       $actor_id,
       $target_id,
       $params,
       $game_state,
       $dungeon_data,
-      $campaign_id,
-      function (string $aid, array $action_params, array $dungeon, ?int $cid): array {
-        return $this->resolveStrikeWeapon($aid, $action_params, $dungeon, $cid);
-      }
+      $campaign_id
     );
   }
 
@@ -8226,6 +11480,15 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       return NULL;
     }
 
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService) {
+      $summary = $actor_disposition->getDispositionSummary($campaign_id, (string) $npc_target_id);
+      $normalized = $this->normalizeNpcAttitude($summary['current_attitude'] ?? NULL);
+      if ($normalized !== NULL) {
+        return $normalized;
+      }
+    }
+
     try {
       $profile = $this->psychologyService->loadProfile($campaign_id, (string) $npc_target_id);
     }
@@ -8307,7 +11570,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       $actor_id,
       $params,
       $game_state,
-      $dungeon_data
+      $dungeon_data,
+      $campaign_id
     );
   }
 
@@ -8315,22 +11579,15 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
    * Processes a spell cast during encounter.
    */
   protected function processCastSpell(int $encounter_id, string $actor_id, ?string $target_id, array $params, array &$game_state, array &$dungeon_data, int $campaign_id): array {
-    return $this->encounterActionExecutor->processCastSpell(
+    return $this->actionResolverRegistry->resolve(
+      'cast_spell',
       $encounter_id,
       $actor_id,
       $target_id,
       $params,
       $game_state,
       $dungeon_data,
-      $campaign_id,
-      fn(array $prepared, string $name, string $id): bool => $this->preparedSpellListContainsSpell($prepared, $name, $id),
-      function (array &$canonical_state, bool $is_focus_spell, int $slot_level, int $remaining): void {
-        $this->applyCanonicalStateAfterSpellConsume($canonical_state, $is_focus_spell, $slot_level, $remaining);
-      },
-      function (?int $eid, string $aid, int $cid, array &$dungeon, ?array $canonical_state): void {
-        $this->syncCanonicalSpellcastingProjectionForActor($eid, $aid, $cid, $dungeon, $canonical_state);
-      },
-      fn(string $message, bool $is_focus_spell, int $slot_level): string => $this->normalizeSpellResourceErrorMessage($message, $is_focus_spell, $slot_level)
+      $campaign_id
     );
   }
 
@@ -9017,11 +12274,30 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
    */
   protected function buildNpcTacticalIntentContract(string $entity_id, array $game_state, int $campaign_id): array {
     $npc = $this->findCombatant($entity_id, $game_state);
+    $entity_ref = $this->resolveCombatantEntityRef($entity_id, $game_state);
     $profile = $this->loadCombatantPsychologyProfile($entity_id, $game_state, $campaign_id);
     $profile_present = is_array($profile) && $profile !== [];
     $axes = $this->normalizeDecisionPersonalityAxes(is_array($profile['personality_axes'] ?? NULL) ? $profile['personality_axes'] : []);
     $goals = $this->resolveActorGoals($profile);
-    $attitude = $this->normalizeNpcAttitude((string) ($profile['attitude'] ?? 'indifferent')) ?? 'indifferent';
+    $attitude = NULL;
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService) {
+      $summary = $actor_disposition->getDispositionSummary(
+        $campaign_id,
+        $entity_ref !== '' ? $entity_ref : $entity_id,
+        is_array($npc) ? $npc : []
+      );
+      $attitude = $this->normalizeNpcAttitude((string) ($summary['current_attitude'] ?? NULL));
+    }
+    if ($attitude === NULL) {
+      foreach (['current_attitude', 'attitude', 'initial_attitude'] as $attitude_key) {
+        $attitude = $this->normalizeNpcAttitude((string) ($profile[$attitude_key] ?? NULL));
+        if ($attitude !== NULL) {
+          break;
+        }
+      }
+      $attitude = $attitude ?? 'indifferent';
+    }
     $boldness = (int) ($axes['boldness'] ?? 5);
     $empathy = (int) ($axes['empathy'] ?? 5);
     $discipline = (int) ($axes['discipline'] ?? 5);
@@ -9322,6 +12598,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         $combatant['is_defeated'] = TRUE;
         $name = $combatant['name'] ?? $entity_id;
         $team = $combatant['team'] ?? 'unknown';
+        $this->applyForcedStanceTerminationOnDefeat($entity_id, $campaign_id, $dungeon_data, $events);
 
         // Resolve attacker name for narration.
         $attacker = $this->findCombatant($attacker_id, $game_state);
@@ -9337,6 +12614,43 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       break;
     }
     unset($combatant);
+  }
+
+  /**
+   * Force-terminate active stances for defeated actors when canonical state is available.
+   */
+  protected function applyForcedStanceTerminationOnDefeat(string $entity_id, int $campaign_id, array $dungeon_data, array &$events): void {
+    if (!$this->stanceRuntimeService || $campaign_id <= 0) {
+      return;
+    }
+    $entity_index = $this->findDungeonEntityIndexByInstanceId($dungeon_data, $entity_id);
+    if ($entity_index === NULL || !is_array($dungeon_data['entities'][$entity_index] ?? NULL)) {
+      return;
+    }
+    $entity = $dungeon_data['entities'][$entity_index];
+    $character_state = $this->loadCanonicalCharacterState($entity, $campaign_id);
+    if (!is_array($character_state)) {
+      return;
+    }
+    $active_stances = is_array($character_state['stance_state']['active_stances'] ?? NULL)
+      ? array_values($character_state['stance_state']['active_stances'])
+      : [];
+    $has_arcane = $this->stanceRuntimeService->isStanceActive($character_state, 'arcane_cascade');
+    if ($active_stances === [] && !$has_arcane) {
+      return;
+    }
+
+    $identity = $this->resolveCanonicalCharacterIdentity($entity);
+    $entity_ref = trim((string) ($identity['instance_id'] ?? $entity_id));
+    $updated_state = $this->stanceRuntimeService->clearAllStances($character_state, [
+      'source_type' => 'defeat_forced_termination',
+      'source_id' => $entity_id,
+    ], $campaign_id, $entity_ref);
+    $this->persistCanonicalCharacterState($entity, $campaign_id, $updated_state);
+    $events[] = GameEventLogger::buildEvent('stance_forced_termination', 'encounter', $entity_id, [
+      'stance_count' => count($active_stances),
+      'arcane_cascade_active' => $has_arcane,
+    ]);
   }
 
   // =========================================================================
@@ -9555,9 +12869,12 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
    * Gets the action cost for an intent type.
    */
   protected function getActionCost(string $type, array $params = []): int {
+    if ($type === 'stride') {
+      return max(1, min(3, (int) ($params['action_cost'] ?? 1)));
+    }
+
     switch ($type) {
       case 'strike':
-      case 'stride':
       case 'interact':
       case 'stand':
       case 'drop_prone':
@@ -11100,14 +14417,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
   /**
    * Builds combat encounter context if the room has untriggered hostile content.
    */
-  protected function buildCombatEncounterContext(string $room_id, array $dungeon_data, array $game_state): array {
+  protected function buildCombatEncounterContext(string $room_id, array $dungeon_data, array $game_state, int $campaign_id): array {
     foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
       if ((string) ($room['room_id'] ?? '') !== $room_id) {
         continue;
       }
       $gameplay_state = is_array($room['gameplay_state'] ?? NULL) ? $room['gameplay_state'] : [];
       $encounter_template = $gameplay_state['encounter_template'] ?? NULL;
-      if (!$encounter_template || !empty($gameplay_state['encounter_triggered'])) {
+      if (!$this->hasHostileDispositionInRoom($room_id, $dungeon_data, $campaign_id)) {
         return ['should_trigger' => FALSE];
       }
       $hostile_entities = [];
@@ -11126,7 +14443,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       }
       return [
         'should_trigger' => TRUE,
-        'reason' => $encounter_template['reason'] ?? 'Hostile creatures detected!',
+        'reason' => $encounter_template['reason'] ?? 'Hostile disposition detected between room actors.',
         'encounter_context' => [
           'template' => $encounter_template,
           'enemies' => $hostile_entities,
@@ -11136,6 +14453,191 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
     }
 
     return ['should_trigger' => FALSE];
+  }
+
+  /**
+   * Determine whether any actor in the room is hostile toward another actor.
+   */
+  protected function hasHostileDispositionInRoom(string $room_id, array $dungeon_data, int $campaign_id): bool {
+    if ($campaign_id <= 0) {
+      return FALSE;
+    }
+
+    $room_entity_refs = [];
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      $entity_ref = $this->resolveDispositionEntityRefFromRuntimeEntity($entity);
+      if ($entity_ref !== '') {
+        $room_entity_refs[] = $entity_ref;
+      }
+    }
+    $room_entity_refs = array_values(array_unique($room_entity_refs));
+    if (count($room_entity_refs) < 2) {
+      return FALSE;
+    }
+
+    $actor_disposition = $this->resolveActorDispositionService();
+    $relationship_attitude = $this->resolveRelationshipAttitudeService();
+    $disposition_resolver = $this->resolveDispositionResolverService();
+    if (
+      !$disposition_resolver instanceof DispositionResolverService
+      && !$actor_disposition instanceof ActorDispositionService
+      && !$relationship_attitude instanceof RelationshipAttitudeService
+    ) {
+      return FALSE;
+    }
+
+    foreach ($room_entity_refs as $source_ref) {
+      $targets = array_values(array_filter($room_entity_refs, static fn(string $candidate): bool => $candidate !== $source_ref));
+      if ($targets === []) {
+        continue;
+      }
+
+      if ($disposition_resolver instanceof DispositionResolverService) {
+        foreach ($targets as $target_ref) {
+          $dto = $disposition_resolver->resolveActorTargetDisposition(
+            $campaign_id,
+            $source_ref,
+            $target_ref,
+            $this->buildInstitutionAwareResolverContext($campaign_id, $source_ref, $target_ref, [
+              'room_id' => $room_id,
+            ])
+          );
+          if (!is_array($dto)) {
+            continue;
+          }
+          $hostile_flag = (bool) ($dto['policy_flags']['hostile'] ?? FALSE);
+          $effective_score = isset($dto['effective_disposition_score']) && is_numeric($dto['effective_disposition_score'])
+            ? DispositionAuthorityContract::clampScore((int) round((float) $dto['effective_disposition_score']))
+            : 0;
+          if ($hostile_flag || $this->isHostileDispositionScore($effective_score)) {
+            return TRUE;
+          }
+        }
+      }
+
+      if ($actor_disposition instanceof ActorDispositionService) {
+        $summary = $actor_disposition->getDispositionSummary($campaign_id, $source_ref);
+        $score = isset($summary['current_score']) && is_numeric($summary['current_score'])
+          ? DispositionAuthorityContract::clampScore((int) round((float) $summary['current_score']))
+          : (DispositionAuthorityContract::attitudeToScore((string) ($summary['current_attitude'] ?? '')) ?? 0);
+        if ($this->isHostileDispositionScore($score)) {
+          return TRUE;
+        }
+      }
+
+      if ($relationship_attitude instanceof RelationshipAttitudeService) {
+        foreach ($targets as $target_ref) {
+          $edge = $relationship_attitude->resolveEdgeDispositionDetails($source_ref, $target_ref, $campaign_id);
+          $edge_score = isset($edge['score']) && is_numeric($edge['score'])
+            ? DispositionAuthorityContract::clampScore((int) round((float) $edge['score']))
+            : (DispositionAuthorityContract::attitudeToScore((string) ($edge['attitude'] ?? '')) ?? 0);
+          if ($this->isHostileDispositionScore($edge_score)) {
+            return TRUE;
+          }
+        }
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Resolve canonical entity-ref for disposition/relationship lookup.
+   */
+  protected function resolveDispositionEntityRefFromRuntimeEntity(array $entity): string {
+    $candidate = trim((string) (
+      $entity['entity_instance_id']
+      ?? $entity['instance_id']
+      ?? $entity['id']
+      ?? ''
+    ));
+    if ($candidate !== '') {
+      return $candidate;
+    }
+
+    return trim((string) (
+      $entity['entity_ref']['content_id']
+      ?? $entity['state']['metadata']['content_id']
+      ?? ''
+    ));
+  }
+
+  /**
+   * Resolve actor disposition service only when available.
+   */
+  protected function resolveActorDispositionService(): ?ActorDispositionService {
+    if (!\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+    return $service instanceof ActorDispositionService ? $service : NULL;
+  }
+
+  /**
+   * Resolve relationship-attitude service only when available.
+   */
+  protected function resolveRelationshipAttitudeService(): ?RelationshipAttitudeService {
+    if (!\Drupal::hasService('dungeoncrawler_content.relationship_attitude_service')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.relationship_attitude_service');
+    return $service instanceof RelationshipAttitudeService ? $service : NULL;
+  }
+
+  /**
+   * Resolve disposition resolver service only when available.
+   */
+  protected function resolveDispositionResolverService(): ?DispositionResolverService {
+    if (!\Drupal::hasService('dungeoncrawler_content.disposition_resolver_service')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.disposition_resolver_service');
+    return $service instanceof DispositionResolverService ? $service : NULL;
+  }
+
+  /**
+   * Build resolver context with centralized institutional contribution when available.
+   *
+   * @param array<string,mixed> $context
+   *   Base resolver context.
+   *
+   * @return array<string,mixed>
+   *   Institution-aware resolver context.
+   */
+  protected function buildInstitutionAwareResolverContext(
+    int $campaign_id,
+    string $source_ref,
+    string $target_ref,
+    array $context = []
+  ): array {
+    if (
+      $campaign_id <= 0
+      || trim($source_ref) === ''
+      || trim($target_ref) === ''
+      || !\Drupal::hasService('dungeoncrawler_content.institution_disposition_score_assembler')
+    ) {
+      return $context;
+    }
+
+    $service = \Drupal::service('dungeoncrawler_content.institution_disposition_score_assembler');
+    if (!$service instanceof InstitutionDispositionScoreAssemblerService) {
+      return $context;
+    }
+
+    $institution = $service->buildActorTargetInstitutionAdjustment($campaign_id, $source_ref, $target_ref);
+    return $context + [
+      'institution_score' => (int) ($institution['score'] ?? 0),
+    ];
+  }
+
+  /**
+   * Determine whether score crosses canonical hostility threshold.
+   */
+  protected function isHostileDispositionScore(int $score): bool {
+    return DispositionAuthorityContract::isHostileScore($score);
   }
 
   /**

@@ -74,6 +74,11 @@ trait RoomChatServiceChannelAndSessionTrait {
       $seed_data = [];
       if ($live_entity) {
         $meta = $live_entity['state']['metadata'] ?? [];
+        $initial_attitude = $this->resolveActorDispositionAttitude(
+          $campaign_id,
+          (string) $npc_ref,
+          $live_entity
+        );
         $seed_data = [
           'display_name' => $meta['display_name'] ?? $target_name,
           'creature_type' => $live_entity['entity_ref']['content_id'] ?? $npc_ref,
@@ -81,7 +86,7 @@ trait RoomChatServiceChannelAndSessionTrait {
           'description' => $live_entity['description'] ?? ($meta['description'] ?? ''),
           'stats' => $meta['stats'] ?? [],
           'role' => $live_entity['role'] ?? 'neutral',
-          'initial_attitude' => $live_entity['attitude'] ?? 'indifferent',
+          'initial_attitude' => $initial_attitude,
           'location_type' => 'room',
           'location_ref' => $room_id,
           'room_id' => $room_id,
@@ -138,7 +143,7 @@ trait RoomChatServiceChannelAndSessionTrait {
     // Get NPC's current attitude for system prompt.
     $npc_attitude = 'indifferent';
     if ($npc_ref) {
-      $npc_attitude = $this->psychologyService->getAttitude($campaign_id, $npc_ref);
+      $npc_attitude = $this->resolveActorDispositionAttitude($campaign_id, $npc_ref);
     }
 
     try {
@@ -223,19 +228,62 @@ trait RoomChatServiceChannelAndSessionTrait {
     );
     $this->applyConversationQuestTouchpoint($campaign_id, $character_id, $room_id, $npc_ref, $target_name, [], $player_msg);
 
-    // Record inner monologue: NPC reacts privately to what the player said.
+    // Apply deterministic disposition mutation: NPC reacts to the player's line.
     if ($npc_ref) {
       $player_speaker = (string) ($last_channel_entry['speaker'] ?? 'the player');
-      $this->psychologyService->recordInnerMonologue(
-        $campaign_id,
-        $npc_ref,
-        'pc_action',
-        "{$player_speaker} said via {$source_ability}: \"{$player_msg}\"",
-        [
-          'actor' => $player_speaker,
-          'severity' => 'minor',
-        ]
-      );
+      $player_entity_ref = trim((string) ($last_channel_entry['entity_ref'] ?? $last_channel_entry['entity_instance_id'] ?? ''));
+      $event_description = "{$player_speaker} said via {$source_ability}: \"{$player_msg}\"";
+      if (\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+        $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+        if ($service instanceof ActorDispositionService) {
+          $service->applyDispositionEvent(
+            $campaign_id,
+            (string) $npc_ref,
+            'conversation',
+            $event_description,
+            [
+              'target_entity_ref' => $player_entity_ref,
+              'relationship_type' => 'conversation',
+              'relationship_status' => 'known',
+              'idempotency_key' => sha1(json_encode([
+                'room_channel_reply' => TRUE,
+                'campaign_id' => $campaign_id,
+                'room_id' => (string) $room_id,
+                'channel_key' => $channel_key,
+                'npc_ref' => (string) $npc_ref,
+                'player_entity_ref' => $player_entity_ref,
+                'player_speaker' => $player_speaker,
+                'player_message' => $player_msg,
+                'source_ability' => $source_ability,
+              ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+            ]
+          );
+        }
+        else {
+          $this->psychologyService->recordInnerMonologue(
+            $campaign_id,
+            $npc_ref,
+            'conversation',
+            $event_description,
+            [
+              'actor' => $player_speaker,
+              'severity' => 'minor',
+            ]
+          );
+        }
+      }
+      else {
+        $this->psychologyService->recordInnerMonologue(
+          $campaign_id,
+          $npc_ref,
+          'conversation',
+          $event_description,
+          [
+            'actor' => $player_speaker,
+            'severity' => 'minor',
+          ]
+        );
+      }
     }
 
     $this->logger->info('NPC @npc reply on channel @channel (@chars chars)', [
@@ -286,7 +334,39 @@ trait RoomChatServiceChannelAndSessionTrait {
    */
 
   public function broadcastNpcEvent(int $campaign_id, array $npc_entity_refs, string $event_type, string $event_description, array $context = []): array {
-    return $this->psychologyService->broadcastEventToNpcs($campaign_id, $npc_entity_refs, $event_type, $event_description, $context);
+    if (!\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+      return $this->psychologyService->broadcastEventToNpcs($campaign_id, $npc_entity_refs, $event_type, $event_description, $context);
+    }
+
+    $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+    if (!$service instanceof ActorDispositionService) {
+      return $this->psychologyService->broadcastEventToNpcs($campaign_id, $npc_entity_refs, $event_type, $event_description, $context);
+    }
+
+    $results = [];
+    foreach ($npc_entity_refs as $ref) {
+      $entity_ref = trim((string) $ref);
+      if ($entity_ref === '') {
+        continue;
+      }
+      $results[$entity_ref] = $service->applyDispositionEvent(
+        $campaign_id,
+        $entity_ref,
+        $event_type,
+        $event_description,
+        $context + [
+          'idempotency_key' => sha1(json_encode([
+            'room_npc_broadcast_event' => TRUE,
+            'campaign_id' => $campaign_id,
+            'entity_ref' => $entity_ref,
+            'event_type' => $event_type,
+            'event_description' => $event_description,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+        ]
+      );
+    }
+
+    return $results;
   }
 
   /**
@@ -457,9 +537,26 @@ trait RoomChatServiceChannelAndSessionTrait {
    * Persist mutable room-chat snapshot state through the shared state lane.
    */
   protected function persistRoomChatSnapshotState(int $campaign_id, string $dungeon_id, array $dungeon_data): bool {
-    // Room chat authority now lives in the normalized chat session tables.
-    // Avoid decoding/re-encoding large dungeon_data payloads on every message.
-    return TRUE;
+    $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+    if ($campaign_id <= 0 || $rooms === []) {
+      return TRUE;
+    }
+
+    try {
+      $room_runtime_state_store = \Drupal::service('dungeoncrawler_content.room_runtime_state_store');
+      if (!$room_runtime_state_store instanceof RoomRuntimeStateStore) {
+        throw new \RuntimeException('room runtime state store unavailable');
+      }
+      $room_runtime_state_store->syncFromRooms($campaign_id, $rooms);
+      return TRUE;
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Room runtime state sync failed for campaign @campaign_id: @message', [
+        '@campaign_id' => $campaign_id,
+        '@message' => $e->getMessage(),
+      ]);
+      return FALSE;
+    }
   }
 
   /**
@@ -1131,6 +1228,7 @@ trait RoomChatServiceChannelAndSessionTrait {
 
     $turn_plan = $this->buildNpcTurnPlan($room_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_log_key);
     $directly_addressed_npc = $turn_plan['directly_addressed_npc'];
+    $active_conversation_npc = $turn_plan['active_conversation_npc'];
     $gm_addressed = !empty($turn_plan['gm_addressed']);
     $stage_started_at = hrtime(true);
     $ordered_npcs = $turn_plan['ordered_npcs'];
@@ -1378,15 +1476,61 @@ trait RoomChatServiceChannelAndSessionTrait {
     );
     $harness_turn_index++;
 
+    $active_character_id = isset($active_character_data['id']) && is_numeric($active_character_data['id'])
+      ? (int) $active_character_data['id']
+      : (isset($active_character_data['character_id']) && is_numeric($active_character_data['character_id'])
+        ? (int) $active_character_data['character_id']
+        : NULL);
+    $turn_intent = $this->classifyRoomTurnIntent($player_message, $room_npcs, $directly_addressed_npc, $active_conversation_npc);
+    $effective_conversation_npc = $directly_addressed_npc;
+    if ($effective_conversation_npc === NULL && !empty($spoken_refs)) {
+      $first_spoken_ref = trim((string) $spoken_refs[0]);
+      if ($first_spoken_ref !== '') {
+        foreach ($room_npcs as $room_npc) {
+          if ((string) ($room_npc['entity_ref'] ?? '') === $first_spoken_ref) {
+            $effective_conversation_npc = $room_npc;
+            break;
+          }
+        }
+      }
+    }
+    $this->synchronizeExplicitRoomConversationState(
+      $dungeon_data,
+      $room_index,
+      $turn_intent,
+      $effective_conversation_npc,
+      $room_npcs,
+      $player_message,
+      $active_character_id
+    );
+    $conversation_state_synced = $this->persistRoomChatSnapshotState($campaign_id, (string) $dungeon_id, $dungeon_data);
+    if (!$conversation_state_synced) {
+      $this->logger->warning('Room conversation-state sync failed for campaign @campaign room @room.', [
+        '@campaign' => $campaign_id,
+        '@room' => $room_id,
+      ]);
+    }
+
     if (empty($messages)) {
+      $stage_started_at = hrtime(true);
+      $room_observation = $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? []);
+      $this->recordDebugStage('npc.finalize_room_observation', $stage_started_at, [
+        'message_count' => count($dungeon_data['rooms'][$room_index]['chat'] ?? []),
+      ]);
+
+      $stage_started_at = hrtime(true);
       $this->feedRoomChatToNpcSessions(
         $campaign_id,
         $room_npcs,
         $player_message,
         $gm_narrative,
         NULL,
-        $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
+        $room_observation
       );
+      $this->recordDebugStage('npc.finalize_feed_sessions', $stage_started_at, [
+        'mode' => 'no_messages',
+        'room_npc_count' => count($room_npcs),
+      ]);
       return $this->buildRoomTurnHarnessPayload([
         'player' => ['message' => $player_message],
         'gm' => ['narrative' => $gm_narrative],
@@ -1404,14 +1548,26 @@ trait RoomChatServiceChannelAndSessionTrait {
       ]);
     }
 
+    $stage_started_at = hrtime(true);
+    $room_observation = $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? []);
+    $this->recordDebugStage('npc.finalize_room_observation', $stage_started_at, [
+      'message_count' => count($dungeon_data['rooms'][$room_index]['chat'] ?? []),
+    ]);
+
+    $stage_started_at = hrtime(true);
     $this->feedRoomChatToNpcSessions(
       $campaign_id,
       $room_npcs,
       $player_message,
       $gm_narrative,
       $spoken_refs,
-      $this->buildRoomObservationFromChat($dungeon_data['rooms'][$room_index]['chat'] ?? [])
+      $room_observation
     );
+    $this->recordDebugStage('npc.finalize_feed_sessions', $stage_started_at, [
+      'mode' => 'with_messages',
+      'room_npc_count' => count($room_npcs),
+      'spoken_ref_count' => count($spoken_refs),
+    ]);
     return $this->buildRoomTurnHarnessPayload([
       'player' => ['message' => $player_message],
       'gm' => ['narrative' => $gm_narrative],
@@ -1447,7 +1603,7 @@ trait RoomChatServiceChannelAndSessionTrait {
     string $room_id = '',
     string $turn_seed = ''
   ): array {
-    $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $player_message);
+    $directly_addressed_npc = $this->resolveDirectlyAddressedNpc($room_npcs, $player_message, FALSE);
     $gm_addressed = $this->isExplicitRoomGmAddress($player_message);
     $conversation_state_ref = NULL;
     $active_conversation_npc = NULL;
@@ -1472,35 +1628,47 @@ trait RoomChatServiceChannelAndSessionTrait {
         $continued_conversation = TRUE;
       }
     }
-
+    if ($directly_addressed_npc === NULL) {
+      $directly_addressed_npc = $this->selectHighestCharismaNpc($room_npcs);
+    }
     $ordered_npcs = $this->buildRoomNpcInitiativeOrder($room_npcs, $dungeon_data, $room_id, $turn_seed);
+    $max_engaged_responders = 1;
+    $candidate_npcs = [];
+    $engaged_npcs = [];
     if ($gm_addressed) {
-      $speaking_npcs = [];
+      $candidate_npcs = [];
+      $engaged_npcs = [];
       $plan_source = 'gm_addressed';
     }
     else {
-      $speaking_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_seed, $conversation_state_ref);
+      $candidate_npcs = $this->filterAmbientNpcInterjectionOrder($ordered_npcs, $player_message, $gm_narrative, $dungeon_data, $room_id, $turn_seed, $conversation_state_ref);
       $plan_source = $directly_addressed_npc !== NULL
         ? ($continued_conversation ? 'active_conversation' : 'direct_plus_room')
         : 'room_wide';
+      $engaged_npcs = $candidate_npcs;
       if ($directly_addressed_npc !== NULL) {
         $direct_ref = (string) ($directly_addressed_npc['entity_ref'] ?? '');
         $has_direct = FALSE;
-        foreach ($speaking_npcs as $npc) {
+        foreach ($engaged_npcs as $npc) {
           if ((string) ($npc['entity_ref'] ?? '') === $direct_ref) {
             $has_direct = TRUE;
             break;
           }
         }
         if (!$has_direct) {
-          array_unshift($speaking_npcs, $directly_addressed_npc);
+          array_unshift($engaged_npcs, $directly_addressed_npc);
         }
       }
+      $engaged_npcs = array_slice($engaged_npcs, 0, $max_engaged_responders);
     }
 
+    $candidate_npc_refs = array_values(array_filter(array_map(
+      static fn(array $npc): string => (string) ($npc['entity_ref'] ?? ''),
+      $candidate_npcs
+    )));
     $speaking_npc_refs = array_values(array_filter(array_map(
       static fn(array $npc): string => (string) ($npc['entity_ref'] ?? ''),
-      $speaking_npcs
+      $engaged_npcs
     )));
 
     $turn_plan_meta = [
@@ -1513,8 +1681,12 @@ trait RoomChatServiceChannelAndSessionTrait {
       'gm_addressed' => $gm_addressed,
       'ordered_npc_count' => count($ordered_npcs),
       'ordered_npcs' => array_values(array_map(static fn(array $npc): string => (string) ($npc['entity_ref'] ?? ''), $ordered_npcs)),
+      'candidate_npc_count' => count($candidate_npc_refs),
+      'candidate_npc_refs' => $candidate_npc_refs,
       'speaking_npc_count' => count($speaking_npc_refs),
       'speaking_npc_refs' => $speaking_npc_refs,
+      'engaged_npc_count' => count($speaking_npc_refs),
+      'engaged_npc_refs' => $speaking_npc_refs,
       'player_message' => $this->truncateContextBlock($player_message, 140, 0.85),
       'gm_narrative' => $this->truncateContextBlock($gm_narrative, 140, 0.85),
     ];
@@ -1532,8 +1704,10 @@ trait RoomChatServiceChannelAndSessionTrait {
       'directly_addressed_npc' => $directly_addressed_npc,
       'active_conversation_npc' => $active_conversation_npc,
       'gm_addressed' => $gm_addressed,
-      'ordered_npcs' => $speaking_npcs,
+      'ordered_npcs' => $engaged_npcs,
+      'candidate_npcs' => $candidate_npcs,
       'speaking_npc_refs' => $speaking_npc_refs,
+      'engaged_npc_refs' => $speaking_npc_refs,
     ];
   }
 

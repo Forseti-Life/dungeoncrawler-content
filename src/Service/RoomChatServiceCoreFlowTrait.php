@@ -405,6 +405,9 @@ trait RoomChatServiceCoreFlowTrait {
    * @param bool $defer_npc_interjections
    *   When TRUE, skip optional room NPC interjections so they can be completed
    *   after the primary reply has been returned.
+   * @param array<string,mixed> $response_options
+   *   Optional response-mode controls (legacy|dual_transition|actor_scoped)
+   *   and explicit include_legacy_overlay compatibility toggle.
    *
    * @return array
    *   The created message with metadata.
@@ -424,7 +427,8 @@ trait RoomChatServiceCoreFlowTrait {
     bool $defer_npc_interjections = FALSE,
     bool $suppress_gm = FALSE,
     ?callable $progress_callback = NULL,
-    array $quest_touchpoint_hint = []
+    array $quest_touchpoint_hint = [],
+    array $response_options = []
   ): array {
     $request_started_at = hrtime(true);
     $this->startDebugTrace([
@@ -708,9 +712,17 @@ trait RoomChatServiceCoreFlowTrait {
         );
       }
 
-      // After GM replies on the room channel, evaluate NPC interjections.
-      // Room NPCs monitor the conversation and may chime in if motivated.
-      if ($channel === 'room' && $gm_result !== NULL && empty($gm_result['suppress_npc_interjections'])) {
+      // Evaluate room NPC interjections on player room turns, even when the
+      // deterministic lane does not emit a GM narrative payload.
+      $can_evaluate_room_interjections = (
+        $channel === 'room'
+        && $type === 'player'
+        && ($gm_result === NULL || empty($gm_result['suppress_npc_interjections']))
+      );
+      if ($can_evaluate_room_interjections) {
+        $interjection_gm_narrative = $gm_result !== NULL
+          ? (string) ($gm_response['message'] ?? '')
+          : $message;
         $stage_started_at = hrtime(true);
         if ($defer_npc_interjections) {
           $this->recordDebugStage('evaluate_npc_interjections', $stage_started_at, [
@@ -727,7 +739,7 @@ trait RoomChatServiceCoreFlowTrait {
             $dungeon_id,
             $dungeon_data,
             $message,
-            (string) ($gm_response['message'] ?? ''),
+            $interjection_gm_narrative,
             $char_data,
             $encounter_prefix
           );
@@ -741,10 +753,12 @@ trait RoomChatServiceCoreFlowTrait {
       }
     }
 
+    $transport_mode = $this->resolveRoomChatResponseTransportMode($response_options);
+
     $result = [
       'message' => $new_message,
       'totalMessages' => count($dungeon_data['rooms'][$room_index]['chat']),
-      'dungeon_data' => $dungeon_data,
+      'dungeon_data' => $transport_mode['emit_legacy_payload'] ? $dungeon_data : [],
     ];
     if ($gm_response !== NULL) {
       $result['gm_response'] = $gm_response;
@@ -827,6 +841,7 @@ trait RoomChatServiceCoreFlowTrait {
       'gm_present' => $gm_response !== NULL ? 'yes' : 'no',
       'npc_interjection_count' => count($npc_interjections),
     ]);
+    $this->applyQuestInstitutionDispositionMutationsFromQuestUpdates($campaign_id, $quest_updates);
     if ($quest_updates !== []) {
       $result['quest_updates'] = $quest_updates;
     }
@@ -844,23 +859,7 @@ trait RoomChatServiceCoreFlowTrait {
     }
     if (!empty($gm_result['canonical_actions'])) {
       $result['canonical_actions'] = $gm_result['canonical_actions'];
-
-      $combat_transition = $gm_result['canonical_actions']['combat_initiation']['transition'] ?? NULL;
-      if (is_array($combat_transition) && !empty($combat_transition['success'])) {
-        $result['combat_transition'] = $combat_transition;
-        $runtime_snapshot = is_array($gm_result['canonical_actions']['combat_initiation']['runtime_snapshot'] ?? NULL)
-          ? $gm_result['canonical_actions']['combat_initiation']['runtime_snapshot']
-          : [
-            'success' => TRUE,
-            'phase' => (string) ($combat_transition['phase'] ?? 'encounter'),
-            'game_state' => $combat_transition['game_state'] ?? NULL,
-            'state_version' => (int) ($combat_transition['state_version'] ?? 1),
-            'encounter_id' => $combat_transition['game_state']['encounter_id'] ?? NULL,
-            'round' => $combat_transition['game_state']['round'] ?? NULL,
-            'turn' => $combat_transition['game_state']['turn'] ?? NULL,
-          ];
-        $result['runtime_snapshot'] = $runtime_snapshot;
-      }
+      $this->applyCombatInitiationProjectionToRoomResult($result, $gm_result['canonical_actions']);
     }
     // Include navigation data so the client can switch to the new room.
     if ($navigation !== NULL && empty($navigation['error']) && $this->mapGenerator) {
@@ -875,10 +874,11 @@ trait RoomChatServiceCoreFlowTrait {
     if ($debug_trace !== NULL) {
       $result['timing'] = $this->buildClientTimingSummary($debug_trace);
     }
-    if ($debug_trace !== NULL && $this->shouldExposeDebugTrace()) {
+    if ($transport_mode['emit_legacy_payload'] && $debug_trace !== NULL && $this->shouldExposeDebugTrace()) {
       $result['debug_trace'] = $debug_trace;
     }
-    return $this->buildRoomChatResponsePayload($result);
+    $response_payload = $this->buildRoomChatResponsePayload($result);
+    return $this->finalizeRoomChatResponsePayload($response_payload, $response_options);
   }
 
   /**
@@ -1002,6 +1002,7 @@ trait RoomChatServiceCoreFlowTrait {
       }
       if (!empty($gm_result['canonical_actions'])) {
         $result['canonical_actions'] = $gm_result['canonical_actions'];
+        $this->applyCombatInitiationProjectionToRoomResult($result, $gm_result['canonical_actions']);
       }
       $navigation = $gm_result['navigation'] ?? NULL;
       if ($navigation !== NULL && empty($navigation['error']) && $this->mapGenerator) {
@@ -1032,6 +1033,7 @@ trait RoomChatServiceCoreFlowTrait {
       }, $quest_updates)),
       'gm_present' => $gm_response !== NULL ? 'yes' : 'no',
     ]);
+    $this->applyQuestInstitutionDispositionMutationsFromQuestUpdates($campaign_id, $quest_updates);
     if ($quest_updates !== []) {
       $result['quest_updates'] = $quest_updates;
     }
@@ -1111,11 +1113,50 @@ trait RoomChatServiceCoreFlowTrait {
         return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
       }, $quest_updates)),
     ]);
+    $this->applyQuestInstitutionDispositionMutationsFromQuestUpdates($campaign_id, $quest_updates);
     if ($quest_updates !== []) {
       $turn_result['quest_updates'] = $quest_updates;
     }
 
     return $turn_result;
+  }
+
+  /**
+   * Apply canonical combat-initiation projection data to room-chat result.
+   */
+  protected function applyCombatInitiationProjectionToRoomResult(array &$result, array $canonical_actions): void {
+    $combat_action_result = is_array($canonical_actions['combat_initiation'] ?? NULL)
+      ? $canonical_actions['combat_initiation']
+      : NULL;
+    if (!is_array($combat_action_result)) {
+      return;
+    }
+
+    if (is_array($combat_action_result['aggression_summary'] ?? NULL)) {
+      $result['aggression_summary'] = $combat_action_result['aggression_summary'];
+    }
+    if (is_array($combat_action_result['combat_entry_summary'] ?? NULL)) {
+      $result['combat_entry_summary'] = $combat_action_result['combat_entry_summary'];
+    }
+
+    $combat_transition = $combat_action_result['transition'] ?? NULL;
+    if (!is_array($combat_transition) || empty($combat_transition['success'])) {
+      return;
+    }
+
+    $result['combat_transition'] = $combat_transition;
+    $runtime_snapshot = is_array($combat_action_result['runtime_snapshot'] ?? NULL)
+      ? $combat_action_result['runtime_snapshot']
+      : [
+        'success' => TRUE,
+        'phase' => (string) ($combat_transition['phase'] ?? 'encounter'),
+        'game_state' => $combat_transition['game_state'] ?? NULL,
+        'state_version' => (int) ($combat_transition['state_version'] ?? 1),
+        'encounter_id' => $combat_transition['game_state']['encounter_id'] ?? NULL,
+        'round' => $combat_transition['game_state']['round'] ?? NULL,
+        'turn' => $combat_transition['game_state']['turn'] ?? NULL,
+      ];
+    $result['runtime_snapshot'] = $runtime_snapshot;
   }
 
   /**
@@ -1156,6 +1197,48 @@ trait RoomChatServiceCoreFlowTrait {
     }
 
     return $snapshot;
+  }
+
+  /**
+   * Apply explicit quest/storyline institution matrix mutations from quest updates.
+   *
+   * @param array<int,array<string,mixed>> $quest_updates
+   *   Quest update payloads.
+   */
+  protected function applyQuestInstitutionDispositionMutationsFromQuestUpdates(int $campaign_id, array $quest_updates): void {
+    if ($campaign_id <= 0 || $quest_updates === []) {
+      return;
+    }
+    if (!\Drupal::hasService('dungeoncrawler_content.quest_institution_disposition_mutation')) {
+      return;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.quest_institution_disposition_mutation');
+    if (!$service instanceof QuestInstitutionDispositionMutationService) {
+      return;
+    }
+
+    foreach ($quest_updates as $update) {
+      if (!is_array($update)) {
+        continue;
+      }
+      $mutations = is_array($update['institution_disposition_mutations'] ?? NULL)
+        ? $update['institution_disposition_mutations']
+        : [];
+      if ($mutations === []) {
+        continue;
+      }
+
+      $service->applyQuestInstitutionDispositionMutations(
+        $campaign_id,
+        $mutations,
+        [
+          'quest_id' => trim((string) ($update['quest_id'] ?? '')),
+          'storyline_id' => trim((string) ($update['storyline_id'] ?? '')),
+          'rationale' => 'quest_update_institution_disposition_mutation',
+          'mutated_by_uid' => is_numeric($this->currentUser->id()) ? (int) $this->currentUser->id() : 0,
+        ]
+      );
+    }
   }
 
   /**

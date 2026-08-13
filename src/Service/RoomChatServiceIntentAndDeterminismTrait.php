@@ -6,6 +6,144 @@ use Drupal\dungeoncrawler_content\Service\RoomChat\NpcPromptAssembler;
 
 trait RoomChatServiceIntentAndDeterminismTrait {
 
+  /**
+   * Resolve canonical actor disposition attitude with psychology fallback.
+   */
+  protected function resolveActorDispositionAttitude(int $campaign_id, string $entity_ref, array $live_entity = []): string {
+    $attitude = '';
+    if (\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+      $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+      if ($service instanceof ActorDispositionService) {
+        $summary = $service->getDispositionSummary($campaign_id, $entity_ref, $live_entity);
+        $attitude = strtolower(trim((string) ($summary['current_attitude'] ?? '')));
+      }
+    }
+    if ($attitude === '') {
+      $attitude = strtolower(trim((string) ($this->psychologyService->getAttitude($campaign_id, $entity_ref) ?? 'indifferent')));
+    }
+    if (!in_array($attitude, NpcPsychologyService::ATTITUDE_LADDER, TRUE)) {
+      return 'indifferent';
+    }
+    return $attitude;
+  }
+
+  /**
+   * Build a compact resolved-disposition context block for NPC chat prompting.
+   *
+   * @param array<int,array<string,mixed>> $room_entities
+   *   Room entity rows.
+   */
+  protected function buildResolvedDispositionPromptContext(int $campaign_id, string $entity_ref, string $room_id, array $room_entities = []): string {
+    if ($campaign_id <= 0 || trim($entity_ref) === '') {
+      return '';
+    }
+
+    $target_ref = '';
+    foreach ($room_entities as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $candidate_ref = trim((string) ($entity['entity_ref']['content_id'] ?? $entity['entity_ref'] ?? $entity['entity_instance_id'] ?? ''));
+      if ($candidate_ref === '' || $candidate_ref === $entity_ref) {
+        continue;
+      }
+      $team = strtolower(trim((string) ($entity['state']['metadata']['team'] ?? $entity['team'] ?? '')));
+      $type = strtolower(trim((string) ($entity['type'] ?? '')));
+      if (in_array($team, ['player', 'party'], TRUE) || in_array($type, ['player', 'character', 'pc'], TRUE)) {
+        $target_ref = $candidate_ref;
+        break;
+      }
+    }
+
+    if (\Drupal::hasService('dungeoncrawler_content.disposition_resolver_service') && $target_ref !== '') {
+      $resolver = \Drupal::service('dungeoncrawler_content.disposition_resolver_service');
+      if ($resolver instanceof DispositionResolverService) {
+        $dto = $resolver->resolveActorTargetDisposition(
+          $campaign_id,
+          $entity_ref,
+          $target_ref,
+          $this->buildInstitutionAwareResolverContext($campaign_id, $entity_ref, $target_ref, [
+            'room_id' => $room_id,
+          ])
+        );
+        $score = (int) ($dto['effective_disposition_score'] ?? 0);
+        $label = (string) ($dto['effective_disposition_label'] ?? DispositionAuthorityContract::LABEL_INDIFFERENT);
+        $confidence = (int) ($dto['score_confidence'] ?? 0);
+        $pos = is_array($dto['dominant_positive_factors'] ?? NULL) ? $dto['dominant_positive_factors'] : [];
+        $neg = is_array($dto['dominant_negative_factors'] ?? NULL) ? $dto['dominant_negative_factors'] : [];
+        $top_pos = is_array($pos[0] ?? NULL) ? sprintf('%s:%d', (string) ($pos[0]['factor'] ?? 'none'), (int) ($pos[0]['score'] ?? 0)) : 'none';
+        $top_neg = is_array($neg[0] ?? NULL) ? sprintf('%s:%d', (string) ($neg[0]['factor'] ?? 'none'), (int) ($neg[0]['score'] ?? 0)) : 'none';
+
+        return trim(implode("\n", [
+          'Resolved disposition authority (use as canonical social state):',
+          sprintf('- target_ref: %s', $target_ref),
+          sprintf('- effective_score: %d', $score),
+          sprintf('- effective_label: %s', $label),
+          sprintf('- confidence: %d', $confidence),
+          sprintf('- dominant_positive_factor: %s', $top_pos),
+          sprintf('- dominant_negative_factor: %s', $top_neg),
+        ]));
+      }
+    }
+
+    if (\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+      $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+      if ($service instanceof ActorDispositionService) {
+        $summary = $service->getDispositionSummary($campaign_id, $entity_ref, [], FALSE);
+        $score = isset($summary['current_score']) && is_numeric($summary['current_score'])
+          ? (int) $summary['current_score']
+          : (DispositionAuthorityContract::attitudeToScore((string) ($summary['current_attitude'] ?? '')) ?? 0);
+        $label = DispositionAuthorityContract::normalizeAttitudeLabel((string) ($summary['current_attitude'] ?? ''));
+        if ($label === '') {
+          $label = DispositionAuthorityContract::LABEL_INDIFFERENT;
+        }
+        return trim(implode("\n", [
+          'Resolved disposition authority (fallback actor baseline):',
+          sprintf('- effective_score: %d', $score),
+          sprintf('- effective_label: %s', $label),
+          '- confidence: 40',
+        ]));
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Build resolver context with centralized institutional contribution when available.
+   *
+   * @param array<string,mixed> $context
+   *   Base resolver context.
+   *
+   * @return array<string,mixed>
+   *   Institution-aware resolver context.
+   */
+  protected function buildInstitutionAwareResolverContext(
+    int $campaign_id,
+    string $source_ref,
+    string $target_ref,
+    array $context = []
+  ): array {
+    if (
+      $campaign_id <= 0
+      || trim($source_ref) === ''
+      || trim($target_ref) === ''
+      || !\Drupal::hasService('dungeoncrawler_content.institution_disposition_score_assembler')
+    ) {
+      return $context;
+    }
+
+    $service = \Drupal::service('dungeoncrawler_content.institution_disposition_score_assembler');
+    if (!$service instanceof InstitutionDispositionScoreAssemblerService) {
+      return $context;
+    }
+
+    $institution = $service->buildActorTargetInstitutionAdjustment($campaign_id, $source_ref, $target_ref);
+    return $context + [
+      'institution_score' => (int) ($institution['score'] ?? 0),
+    ];
+  }
+
   protected function looksLikeNavigationQuery(string $normalized_message): bool {
     if ($this->textContainsAny($normalized_message, [
       'what exits do i have',
@@ -385,6 +523,25 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       return FALSE;
     }
     if ($this->isExplicitRoomGmAddress($player_message)) {
+      return FALSE;
+    }
+    if ($this->looksLikeActiveRoomConversationPivot($normalized_message)) {
+      return FALSE;
+    }
+    if ($this->textContainsAny($normalized_message, [
+      'goodbye',
+      'bye',
+      'thats all',
+      'that is all',
+      'done talking',
+      'we are done talking',
+      'move on',
+      'lets move on',
+      'let us move on',
+      'end conversation',
+      'leave conversation',
+      'stop talking',
+    ])) {
       return FALSE;
     }
     return TRUE;
@@ -876,15 +1033,118 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     }
 
     $room_entities = [];
+    $room_entity_refs = [];
     $hostiles = [];
     foreach ($dungeon_data['entities'] ?? [] as $entity) {
       if (($entity['placement']['room_id'] ?? '') !== $room_id) {
         continue;
       }
       $room_entities[] = $entity;
+      $entity_ref = $this->resolveDispositionEntityRefFromRuntimeEntity($entity);
+      if ($entity_ref !== '') {
+        $room_entity_refs[] = $entity_ref;
+      }
       $team = strtolower((string) ($entity['state']['metadata']['team'] ?? $entity['team'] ?? ''));
       if (in_array($team, ['hostile', 'enemy', 'monsters'], TRUE)) {
         $hostiles[] = $entity;
+      }
+    }
+
+    $campaign_id = (int) ($dungeon_data['campaign_id'] ?? 0);
+    $room_entity_refs = array_values(array_unique($room_entity_refs));
+    if ($campaign_id > 0 && count($room_entity_refs) >= 2) {
+      $actor_disposition = NULL;
+      $relationship_attitude = NULL;
+      $disposition_resolver = NULL;
+      if (\Drupal::hasService('dungeoncrawler_content.actor_disposition_service')) {
+        $service = \Drupal::service('dungeoncrawler_content.actor_disposition_service');
+        if ($service instanceof ActorDispositionService) {
+          $actor_disposition = $service;
+        }
+      }
+      if (\Drupal::hasService('dungeoncrawler_content.relationship_attitude_service')) {
+        $service = \Drupal::service('dungeoncrawler_content.relationship_attitude_service');
+        if ($service instanceof RelationshipAttitudeService) {
+          $relationship_attitude = $service;
+        }
+      }
+      if (\Drupal::hasService('dungeoncrawler_content.disposition_resolver_service')) {
+        $service = \Drupal::service('dungeoncrawler_content.disposition_resolver_service');
+        if ($service instanceof DispositionResolverService) {
+          $disposition_resolver = $service;
+        }
+      }
+
+      if ($disposition_resolver instanceof DispositionResolverService || $actor_disposition instanceof ActorDispositionService || $relationship_attitude instanceof RelationshipAttitudeService) {
+        $canonical_hostiles = [];
+        foreach ($room_entities as $entity) {
+          $source_ref = $this->resolveDispositionEntityRefFromRuntimeEntity($entity);
+          if ($source_ref === '') {
+            continue;
+          }
+
+          $is_hostile = FALSE;
+          if ($disposition_resolver instanceof DispositionResolverService) {
+            $targets = array_values(array_filter($room_entity_refs, static fn(string $candidate): bool => $candidate !== $source_ref));
+            if ($targets !== []) {
+              foreach ($targets as $target_ref) {
+                $dto = $disposition_resolver->resolveActorTargetDisposition(
+                  $campaign_id,
+                  $source_ref,
+                  $target_ref,
+                  $this->buildInstitutionAwareResolverContext($campaign_id, $source_ref, $target_ref, [
+                    'room_id' => $room_id,
+                  ])
+                );
+                if (!is_array($dto)) {
+                  continue;
+                }
+                $hostile_flag = (bool) ($dto['policy_flags']['hostile'] ?? FALSE);
+                $effective_score = isset($dto['effective_disposition_score']) && is_numeric($dto['effective_disposition_score'])
+                  ? DispositionAuthorityContract::clampScore((int) round((float) $dto['effective_disposition_score']))
+                  : 0;
+                if ($hostile_flag || $this->isHostileDispositionScore($effective_score)) {
+                  $is_hostile = TRUE;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (!$is_hostile && $actor_disposition instanceof ActorDispositionService) {
+            $summary = $actor_disposition->getDispositionSummary($campaign_id, $source_ref, $entity);
+            $score = isset($summary['current_score']) && is_numeric($summary['current_score'])
+              ? DispositionAuthorityContract::clampScore((int) round((float) $summary['current_score']))
+              : (DispositionAuthorityContract::attitudeToScore((string) ($summary['current_attitude'] ?? '')) ?? 0);
+            if ($this->isHostileDispositionScore($score)) {
+              $is_hostile = TRUE;
+            }
+          }
+
+          if (!$is_hostile && $relationship_attitude instanceof RelationshipAttitudeService) {
+            $targets = array_values(array_filter($room_entity_refs, static fn(string $candidate): bool => $candidate !== $source_ref));
+            if ($targets !== []) {
+              foreach ($targets as $target_ref) {
+                $edge = $relationship_attitude->resolveEdgeDispositionDetails($source_ref, $target_ref, $campaign_id);
+                $edge_score = isset($edge['score']) && is_numeric($edge['score'])
+                  ? DispositionAuthorityContract::clampScore((int) round((float) $edge['score']))
+                  : (DispositionAuthorityContract::attitudeToScore((string) ($edge['attitude'] ?? '')) ?? 0);
+                if ($this->isHostileDispositionScore($edge_score)) {
+                  $is_hostile = TRUE;
+                  break;
+                }
+              }
+            }
+          }
+
+          if ($is_hostile) {
+            $canonical_hostiles[] = $entity;
+          }
+        }
+
+        if ($canonical_hostiles !== []) {
+          return $canonical_hostiles;
+        }
       }
     }
 
@@ -934,6 +1194,34 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     }
 
     return $hostiles;
+  }
+
+  /**
+   * Determine if a disposition score meets the canonical hostility threshold.
+   */
+  protected function isHostileDispositionScore(int $score): bool {
+    return DispositionAuthorityContract::isHostileScore($score);
+  }
+
+  /**
+   * Resolve canonical entity-ref for disposition and relationship checks.
+   */
+  protected function resolveDispositionEntityRefFromRuntimeEntity(array $entity): string {
+    $candidate = trim((string) (
+      $entity['entity_instance_id']
+      ?? $entity['instance_id']
+      ?? $entity['id']
+      ?? ''
+    ));
+    if ($candidate !== '') {
+      return $candidate;
+    }
+
+    return trim((string) (
+      $entity['entity_ref']['content_id']
+      ?? $entity['state']['metadata']['content_id']
+      ?? ''
+    ));
   }
 
   /**
@@ -1197,6 +1485,19 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       $entity_ref,
       $live_entity
     );
+    $resolved_disposition_context = $this->buildResolvedDispositionPromptContext(
+      $campaign_id,
+      $entity_ref,
+      $room_id,
+      is_array($entities) ? $entities : []
+    );
+    $narrative_scope_context = $this->buildActorNarrativeScopePromptContext($campaign_id, $entity_ref, $room_id);
+    if ($resolved_disposition_context !== '') {
+      $npc_context = trim($npc_context . "\n\n" . $resolved_disposition_context);
+    }
+    if ($narrative_scope_context !== '') {
+      $npc_context = trim($npc_context . "\n\n" . $narrative_scope_context);
+    }
     $actor_action_context = $this->buildCanonicalNpcActionAvailabilityContext(
       $dungeon_data,
       $room_id,
@@ -1242,7 +1543,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
     );
 
     // Get NPC's current attitude for system prompt.
-    $npc_attitude = $this->psychologyService->getAttitude($campaign_id, $entity_ref) ?? 'indifferent';
+    $npc_attitude = $this->resolveActorDispositionAttitude($campaign_id, $entity_ref);
 
     $system_prompt = NpcPromptAssembler::buildRoomDialogueSystemPrompt($display_name, $npc_attitude);
 
@@ -1307,6 +1608,23 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       TRUE,
       FALSE
     );
+  }
+
+  /**
+   * Build role-scoped quest/storyline context for actor dialogue prompts.
+   */
+  protected function buildActorNarrativeScopePromptContext(int $campaign_id, string $entity_ref, string $room_id = ''): string {
+    if (
+      $campaign_id <= 0
+      || trim($entity_ref) === ''
+      || !isset($this->actorNarrativeContextService)
+      || !$this->actorNarrativeContextService instanceof ActorNarrativeContextService
+    ) {
+      return '';
+    }
+
+    $context = $this->actorNarrativeContextService->buildContextEnvelope($campaign_id, $entity_ref, $room_id);
+    return trim((string) ($context['prompt_context'] ?? ''));
   }
 
   /**
@@ -1588,6 +1906,8 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       'canonical_actions',
       'combat_transition',
       'runtime_snapshot',
+      'aggression_summary',
+      'combat_entry_summary',
       'navigation',
       'timing',
       'debug_trace',
@@ -1615,6 +1935,44 @@ trait RoomChatServiceIntentAndDeterminismTrait {
 
     if (array_key_exists('client_request_id', $payload)) {
       $result['client_request_id'] = $payload['client_request_id'] !== NULL ? (string) $payload['client_request_id'] : NULL;
+    }
+
+    return $result;
+  }
+
+  /**
+   * Resolve normalized response transport mode and compatibility flags.
+   *
+   * @return array{response_mode:string,include_legacy_overlay:bool,emit_legacy_payload:bool}
+   *   Normalized response mode controls for transport payload shaping.
+   */
+  protected function resolveRoomChatResponseTransportMode(array $response_options = []): array {
+    $candidate = strtolower(trim((string) ($response_options['response_mode'] ?? '')));
+    if ($candidate === '') {
+      $candidate = 'actor_scoped';
+    }
+    if (!in_array($candidate, ['legacy', 'dual_transition', 'actor_scoped'], TRUE)) {
+      throw new \InvalidArgumentException(sprintf('Invalid room chat response mode "%s".', $candidate), 400);
+    }
+    $response_mode = $candidate;
+    $include_legacy_overlay = !empty($response_options['include_legacy_overlay']);
+
+    return [
+      'response_mode' => $response_mode,
+      'include_legacy_overlay' => $include_legacy_overlay,
+      'emit_legacy_payload' => $response_mode === 'legacy',
+    ];
+  }
+
+  /**
+   * Apply response-mode trimming for room-chat payload transport.
+   */
+  protected function finalizeRoomChatResponsePayload(array $result, array $response_options = []): array {
+    $transport_mode = $this->resolveRoomChatResponseTransportMode($response_options);
+    $result['response_mode'] = $transport_mode['response_mode'];
+
+    if (!$transport_mode['emit_legacy_payload']) {
+      unset($result['dungeon_data'], $result['debug_trace']);
     }
 
     if (!$this->stateValidationService) {

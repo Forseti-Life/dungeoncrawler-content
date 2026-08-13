@@ -77,6 +77,7 @@ ${extractNamedFunctionSource(source, '_normalizeRenderableEntityType')}
 ${extractNamedFunctionSource(source, '_normalizeRenderableEntityTeam')}
 ${extractNamedFunctionSource(source, '_buildRenderableEntityKey')}
 ${extractNamedFunctionSource(source, '_buildRenderableProjectionKey')}
+${extractNamedFunctionSource(source, '_buildLogicalActorIdentityKey')}
 return {
   _buildRenderableEntityBlueprints,
 };
@@ -391,6 +392,94 @@ console.log('\n=== Hexmap V2 map artifact bootstrap ===');
 
   const blueprints = _buildRenderableEntityBlueprints(dungeonData, 'room_a', { character_id: 0 }, mapVisualState);
   assert(blueprints.length === 1, 'does not hide an entity from another room that shares the same content id');
+}
+
+{
+  const dungeonData = {
+    entities: [
+      {
+        entity_type: 'player_character',
+        instance_id: 'pc-816-992',
+        entity_ref: { content_id: 'pc-816-992', content_type: 'player_character' },
+        placement: { room_id: 'room_dupes', hex: { q: 0, r: 0 } },
+        state: {
+          metadata: {
+            display_name: 'Burasco',
+            team: 'player',
+            character_id: 992,
+            campaign_character_id: 992,
+            source_character_id: 4773,
+            runtime_entity_id: 'pc-816-992',
+          },
+        },
+      },
+      {
+        entity_type: 'player_character',
+        instance_id: 'pc-816-811',
+        entity_ref: { content_id: 'pc-816-811', content_type: 'player_character' },
+        placement: { room_id: 'room_dupes', hex: { q: 1, r: 0 } },
+        state: {
+          metadata: {
+            display_name: 'Burasco',
+            team: 'player',
+            character_id: 811,
+            campaign_character_id: 811,
+            source_character_id: 4773,
+            runtime_entity_id: 'pc-816-811',
+          },
+        },
+      },
+      {
+        entity_type: 'npc',
+        instance_id: 'familiar-4773',
+        entity_ref: { content_id: 'familiar_weasel', content_type: 'npc' },
+        placement: { room_id: 'room_dupes', hex: { q: 2, r: 0 } },
+        state: {
+          metadata: {
+            display_name: 'Mimi',
+            team: 'ally',
+            character_id: 931,
+            campaign_character_id: 931,
+            runtime_entity_id: 'familiar-4773',
+            follower_kind: 'familiar',
+            owner_character_id: 992,
+            owner_source_character_id: 4773,
+            follower_source_character_id: 3239,
+          },
+        },
+      },
+      {
+        entity_type: 'npc',
+        instance_id: 'familiar-4773-dup',
+        entity_ref: { content_id: 'familiar_weasel', content_type: 'npc' },
+        placement: { room_id: 'room_dupes', hex: { q: 3, r: 0 } },
+        state: {
+          metadata: {
+            display_name: 'Mimi',
+            team: 'ally',
+            character_id: 944,
+            campaign_character_id: 944,
+            runtime_entity_id: 'familiar-4773-dup',
+            follower_kind: 'familiar',
+            owner_character_id: 992,
+            owner_source_character_id: 4773,
+            follower_source_character_id: 3239,
+          },
+        },
+      },
+    ],
+  };
+
+  const blueprints = _buildRenderableEntityBlueprints(
+    dungeonData,
+    'room_dupes',
+    { id: 4773, character_id: 4773, name: 'Burasco' },
+    { topology: { rooms: { room_dupes: { hexes: [] } } }, occupants: { entities: [] } },
+  );
+
+  assert(blueprints.length === 2, 'dedupes duplicate logical actors from payload entities before map render');
+  assert(blueprints[0]?.instanceId === 'pc-816-992', 'keeps the first logical PC instance when duplicates share one source character');
+  assert(blueprints[1]?.instanceId === 'familiar-4773', 'keeps the first logical follower instance when duplicates share one follower identity');
 }
 
 console.log(`\nPassed: ${passed}`);

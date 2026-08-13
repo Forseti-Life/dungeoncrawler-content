@@ -19,8 +19,9 @@ export class StatusPanel {
   }
 
   init() {
+    this._ensureInitiativeStatusHost();
     // Elements matching v2 template data-status attributes
-    const s = (k) => this.container?.querySelector(`[data-status="${k}"]`) || null;
+    const s = (k) => this._resolveStatusElement(k);
     // Elements matching original hexmap.js IDs (graceful degradation if absent)
     const id = (k) => (typeof document !== 'undefined' ? document.getElementById(k) : null);
     this._el = {
@@ -28,10 +29,13 @@ export class StatusPanel {
       backendWait:    s('backend-wait'),
       zoom:          s('zoom'),
       hexInfo:       s('hex-info'),
+      hexLegend:     s('hex-legend'),
       fullscreen:    s('fullscreen'),
       zoomLevel:     id('zoom-level') || s('zoom'),
     };
+    this._el.unavailBanner = this._el.unavailBanner || this._ensureUnavailableBannerElement();
     this._el.backendWait = this._el.backendWait || this._ensureBackendWaitElement();
+    this._dockBackendWaitIntoInitiativeStatus();
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[StatusPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._bindDom();
@@ -39,6 +43,7 @@ export class StatusPanel {
     if (this._el.unavailBanner) this._el.unavailBanner.hidden = true;
     if (this._el.backendWait)    this._el.backendWait.hidden = true;
     if (this._el.hexInfo)       this._el.hexInfo.hidden = true;
+    if (this._el.hexLegend)     this._el.hexLegend.hidden = true;
   }
 
   destroy() {
@@ -83,6 +88,7 @@ export class StatusPanel {
   }
 
   _ensureBackendWaitElement() {
+    const statusHost = this._ensureInitiativeStatusHost();
     const anchor = this._el.unavailBanner || this.container?.querySelector('[data-status="unavail-banner"]') || null;
     if (!this.container && !anchor?.parentNode) {
       return null;
@@ -95,12 +101,95 @@ export class StatusPanel {
     element.setAttribute('aria-live', 'polite');
     element.hidden = true;
     element.innerHTML = '<span class="backend-wait-banner__spinner" aria-hidden="true"></span><span data-backend-wait-label>Waiting for backend response...</span>';
-    if (anchor?.parentNode) {
+    if (statusHost) {
+      statusHost.appendChild(element);
+    } else if (anchor?.parentNode) {
       anchor.parentNode.insertBefore(element, anchor.nextSibling);
     } else {
       this.container.prepend(element);
     }
     return element;
+  }
+
+  _ensureUnavailableBannerElement() {
+    const statusHost = this._ensureInitiativeStatusHost();
+    const existing = statusHost?.querySelector?.('[data-status="unavail-banner"]')
+      || this.container?.querySelector?.('[data-status="unavail-banner"]')
+      || null;
+    if (existing) {
+      return existing;
+    }
+    if (!(statusHost instanceof HTMLElement)) {
+      return null;
+    }
+
+    const element = document.createElement('div');
+    element.dataset.status = 'unavail-banner';
+    element.className = 'server-unavail-banner';
+    element.hidden = true;
+    const text = document.createElement('span');
+    text.textContent = 'Server unavailable — reconnecting…';
+    element.appendChild(text);
+    statusHost.prepend(element);
+    return element;
+  }
+
+  _resolveStatusElement(key = '') {
+    const statusKey = String(key || '').trim();
+    if (!statusKey) {
+      return null;
+    }
+    const preferred = this.container?.querySelector?.(`.map-initiative-status [data-status="${statusKey}"]`) || null;
+    if (preferred) {
+      return preferred;
+    }
+    return this.container?.querySelector?.(`[data-status="${statusKey}"]`) || null;
+  }
+
+  _dockBackendWaitIntoInitiativeStatus() {
+    const element = this._el.backendWait;
+    const statusHost = this._ensureInitiativeStatusHost();
+    if (!(element instanceof HTMLElement) || !(statusHost instanceof HTMLElement)) {
+      return;
+    }
+    if (statusHost.contains(element)) {
+      return;
+    }
+    statusHost.appendChild(element);
+  }
+
+  _resolveMapInitiativeTracker() {
+    return this.container?.querySelector?.('#map-initiative-tracker')
+      || document.getElementById('map-initiative-tracker')
+      || this.container?.querySelector?.('#initiative-tracker')
+      || document.getElementById('initiative-tracker')
+      || this.container?.querySelector?.('.initiative-tracker')
+      || document.querySelector('.initiative-tracker')
+      || null;
+  }
+
+  _ensureInitiativeStatusHost() {
+    const existing = this.container?.querySelector?.('.map-initiative-status')
+      || document.querySelector('.map-initiative-status')
+      || null;
+    if (existing) {
+      return existing;
+    }
+
+    const tracker = this._resolveMapInitiativeTracker();
+    if (!(tracker instanceof HTMLElement)) {
+      return null;
+    }
+
+    const host = document.createElement('div');
+    host.className = 'map-initiative-status';
+    const list = tracker.querySelector('.initiative-list');
+    if (list?.parentNode === tracker) {
+      tracker.insertBefore(host, list);
+    } else {
+      tracker.appendChild(host);
+    }
+    return host;
   }
 
   showBackendWait(data = {}) {
@@ -131,6 +220,14 @@ export class StatusPanel {
     if (!element) {
       return;
     }
+    this._dockBackendWaitIntoInitiativeStatus();
+    element.style.position = 'static';
+    element.style.top = 'auto';
+    element.style.left = 'auto';
+    element.style.transform = 'none';
+    element.style.maxWidth = '100%';
+    element.style.width = '100%';
+    element.style.zIndex = 'auto';
 
     if (this._backendWaitTimer) {
       window.clearTimeout(this._backendWaitTimer);
@@ -220,13 +317,16 @@ export class StatusPanel {
         this._el[key].textContent = value;
       }
     });
+    this._renderHexInfoDetails(details);
   }
 
   updateHoveredHex(q, r) {
     if (this._el.hoveredHex) {
       this._el.hoveredHex.textContent = q !== null ? `(${q}, ${r})` : 'None';
     }
-    this._syncHexInfoElement(q, r);
+    if (q === null || r === null) {
+      this._syncHexInfoElement(null);
+    }
   }
 
   updateHoveredObject(label) {
@@ -317,15 +417,51 @@ export class StatusPanel {
   }
 
   // Emit hex-info in simple mode when hex-info element exists but not hoveredHex
-  _syncHexInfoElement(q, r) {
+  _syncHexInfoElement(content = null) {
     const { hexInfo } = this._el;
     if (!hexInfo) return;
-    if (q === null) {
+    if (!content) {
       hexInfo.hidden = true;
       hexInfo.textContent = '';
     } else {
       hexInfo.hidden = false;
-      hexInfo.textContent = `(${q}, ${r})`;
+      hexInfo.textContent = content;
     }
+  }
+
+  _renderHexInfoDetails(details) {
+    if (!details || typeof details !== 'object') {
+      this._syncHexInfoElement(null);
+      return;
+    }
+
+    const coords = Number.isFinite(Number(details.q)) && Number.isFinite(Number(details.r))
+      ? `Hex (${details.q}, ${details.r})`
+      : 'Hex';
+    const roomLabel = details.roomName || details.roomId || 'Unknown room';
+    const roomId = details.roomId || 'unknown_room';
+    const entryLabel = details.isEntry ? 'Entry' : 'Not entry';
+    const visibleLabel = details.isVisible ? 'Visible' : 'Not visible';
+    const discoveredLabel = details.isDiscovered ? 'Discovered' : 'Undiscovered';
+    const objectCount = Number.isFinite(Number(details.objectCount)) ? Number(details.objectCount) : 0;
+    const elevationLabel = details.elevationFt === null || details.elevationFt === undefined ? 'NA' : `${details.elevationFt} ft`;
+    const objectsLabel = Array.isArray(details.objects)
+      ? (details.objects.length ? details.objects.join(', ') : 'None')
+      : (details.objects || 'None');
+    const entitiesLabel = Array.isArray(details.entities)
+      ? (details.entities.length ? details.entities.join(', ') : 'None')
+      : (details.entities || 'None');
+    const content = [
+      `${coords} • ${entryLabel} • ${visibleLabel} • ${discoveredLabel}`,
+      `Room: ${roomLabel}`,
+      `Room ID: ${roomId}`,
+      `Terrain: ${details.terrain || 'unknown'} • Lighting: ${details.lighting || 'unknown'}`,
+      `Elevation: ${elevationLabel} • Passability: ${details.passability || 'unknown'}`,
+      `Objects (${objectCount}): ${objectsLabel}`,
+      `Entities: ${entitiesLabel}`,
+      `Connection: ${details.connection || 'none'}`,
+    ].join('\n');
+
+    this._syncHexInfoElement(content);
   }
 }

@@ -985,13 +985,28 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
       return;
     }
 
+    $bridge_stage_started_at = hrtime(true);
     try {
+      $stage_started_at = hrtime(true);
       $dungeon_snapshot = $this->loadLatestDungeonSnapshot($campaign_id, $room_id);
+      $this->recordDebugStage('npc.bridge_load_latest_dungeon_snapshot', $stage_started_at, [
+        'npc_entity' => $speaker_ref,
+      ]);
+      $stage_started_at = hrtime(true);
       $room_session = $this->ensureCanonicalRoomSession($campaign_id, $dungeon_id, $room_id, $dungeon_snapshot['dungeon_data'] ?? []);
+      $this->recordDebugStage('npc.bridge_ensure_canonical_room_session', $stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'room_session_id' => $room_session['id'] ?? NULL,
+      ]);
       if ($room_session === []) {
+        $this->recordDebugStage('npc.bridge_total', $bridge_stage_started_at, [
+          'npc_entity' => $speaker_ref,
+          'room_session_resolved' => FALSE,
+        ]);
         return;
       }
 
+      $stage_started_at = hrtime(true);
       $this->chatSessionManager->postMessage(
         (int) $room_session['id'],
         $campaign_id,
@@ -1002,10 +1017,22 @@ trait RoomChatServiceQuestUpdateAndDiagnosticsTrait {
         'dialogue',
         'public'
       );
+      $this->recordDebugStage('npc.bridge_post_message', $stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'room_session_id' => (int) ($room_session['id'] ?? 0),
+      ]);
+      $this->recordDebugStage('npc.bridge_total', $bridge_stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'room_session_resolved' => TRUE,
+      ]);
     }
     catch (\Throwable $e) {
       $this->logger->warning('Failed to bridge NPC interjection to session system: @err', [
         '@err' => $e->getMessage(),
+      ]);
+      $this->recordDebugStage('npc.bridge_total', $bridge_stage_started_at, [
+        'npc_entity' => $speaker_ref,
+        'error' => $e->getMessage(),
       ]);
     }
   }

@@ -6,6 +6,10 @@
 #
 # @see https://www.drupal.org/docs/drupal-apis/services-and-dependency-injection
 services:
+  logger.channel.dungeoncrawler:
+    parent: logger.channel_base
+    arguments: ['dungeoncrawler']
+
   # Content Management Services
   dungeoncrawler_content.game_manager:
     class: Drupal\dungeoncrawler_content\Service\GameContentManager
@@ -36,7 +40,7 @@ services:
 
   dungeoncrawler_content.character_state:
     class: Drupal\dungeoncrawler_content\Service\CharacterStateService
-    arguments: ['@database', '@current_user', '@dungeoncrawler_content.feat_effect_manager', '@dungeoncrawler_content.generated_image_repository', '@dungeoncrawler_content.number_generation', '@dungeoncrawler_content.impact_contract', '@dungeoncrawler_content.active_effect_store']
+    arguments: ['@database', '@current_user', '@dungeoncrawler_content.feat_effect_manager', '@dungeoncrawler_content.generated_image_repository', '@dungeoncrawler_content.number_generation', '@dungeoncrawler_content.impact_contract', '@dungeoncrawler_content.active_effect_store', '@dungeoncrawler_content.effect_instance', '@dungeoncrawler_content.effect_projection']
 
   dungeoncrawler_content.character_state_service:
     alias: dungeoncrawler_content.character_state
@@ -47,6 +51,25 @@ services:
   dungeoncrawler_content.active_effect_store:
     class: Drupal\dungeoncrawler_content\Service\ActiveEffectStoreService
     arguments: ['@database']
+
+  dungeoncrawler_content.effect_definition_registry:
+    class: Drupal\dungeoncrawler_content\Service\EffectDefinitionRegistryService
+
+  dungeoncrawler_content.effect_instance:
+    class: Drupal\dungeoncrawler_content\Service\EffectInstanceService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.effect_definition_registry'
+
+  dungeoncrawler_content.effect_lifecycle:
+    class: Drupal\dungeoncrawler_content\Service\EffectLifecycleService
+    arguments:
+      - '@dungeoncrawler_content.effect_instance'
+
+  dungeoncrawler_content.effect_projection:
+    class: Drupal\dungeoncrawler_content\Service\EffectProjectionService
+    arguments:
+      - '@dungeoncrawler_content.effect_instance'
 
   dungeoncrawler_content.multiclass_archetype_service:
     class: Drupal\dungeoncrawler_content\Service\MulticlassArchetypeService
@@ -78,6 +101,23 @@ services:
       - '@dungeoncrawler_content.campaign_subject_registry'
       - '@dungeoncrawler_content.institution_normalization'
       - '@dungeoncrawler_content.relationship_manager'
+
+  dungeoncrawler_content.institution_membership_projection:
+    class: Drupal\dungeoncrawler_content\Service\InstitutionMembershipProjectionService
+    arguments:
+      - '@dungeoncrawler_content.institution_membership'
+      - '@logger.channel.dungeoncrawler'
+
+  dungeoncrawler_content.institution_disposition_matrix:
+    class: Drupal\dungeoncrawler_content\Service\InstitutionDispositionMatrixService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.relationship_manager'
+
+  dungeoncrawler_content.quest_institution_disposition_mutation:
+    class: Drupal\dungeoncrawler_content\Service\QuestInstitutionDispositionMutationService
+    arguments:
+      - '@dungeoncrawler_content.institution_disposition_matrix'
 
   dungeoncrawler_content.faction_generation:
     class: Drupal\dungeoncrawler_content\Service\FactionGenerationService
@@ -168,6 +208,7 @@ services:
       - '@dungeoncrawler_content.game_coordinator'
       - '@current_user'
       - '@dungeoncrawler_content.h3_projection_queue'
+      - '@dungeoncrawler_content.campaign_authorization'
 
   dungeoncrawler_content.gm_actor_chat_transport:
     class: Drupal\dungeoncrawler_content\Service\GmActorChatTransportService
@@ -180,6 +221,12 @@ services:
       - '@dungeoncrawler_content.game_coordinator'
       - '@dungeoncrawler_content.gm_actor_chat_transport'
       - '@dungeoncrawler_content.runtime_bootstrap'
+      - '@?dungeoncrawler_content.gm_actor_turn_context_loader'
+
+  dungeoncrawler_content.gm_actor_turn_context_loader:
+    class: Drupal\dungeoncrawler_content\Service\GmSubsystem\ActorTurnContextLoader
+    arguments:
+      - '@?dungeoncrawler_content.actor_narrative_context_service'
 
   dungeoncrawler_content.gm_actor_harness:
     class: Drupal\dungeoncrawler_content\Service\GmActorHarnessService
@@ -192,6 +239,10 @@ services:
     arguments:
       - '@dungeoncrawler_content.game_coordinator'
       - '@dungeoncrawler_content.gm_actor_harness'
+      - '@?dungeoncrawler_content.gm_subsystem.actor_turn_context_loader'
+      - '@?dungeoncrawler_content.gm_subsystem.actor_response_projector'
+      - '@?dungeoncrawler_content.gm_subsystem.legacy_room_chat_compatibility_adapter'
+      - '@?dungeoncrawler_content.runtime_bootstrap'
 
   dungeoncrawler_content.number_generation:
     class: Drupal\dungeoncrawler_content\Service\NumberGenerationService
@@ -323,6 +374,10 @@ services:
   dungeoncrawler_content.feat_effect_manager:
     class: Drupal\dungeoncrawler_content\Service\FeatEffectManager
 
+  dungeoncrawler_content.campaign_authorization:
+    class: Drupal\dungeoncrawler_content\Service\CampaignAuthorizationService
+    arguments: ['@database']
+
   # Access Control Services
   dungeoncrawler_content.character_access_check:
     class: Drupal\dungeoncrawler_content\Access\CharacterAccessCheck
@@ -332,7 +387,7 @@ services:
 
   dungeoncrawler_content.campaign_access_check:
     class: Drupal\dungeoncrawler_content\Access\CampaignAccessCheck
-    arguments: ['@database']
+    arguments: ['@dungeoncrawler_content.campaign_authorization']
     tags:
       - {name: access_check, applies_to: _campaign_access}
 
@@ -344,12 +399,13 @@ services:
 
   dungeoncrawler_content.campaign_gm_access_check:
     class: Drupal\dungeoncrawler_content\Access\CampaignGmAccessCheck
+    arguments: ['@dungeoncrawler_content.campaign_authorization']
     tags:
       - {name: access_check, applies_to: _campaign_gm_access}
 
   dungeoncrawler_content.campaign_quest_manage_access_check:
     class: Drupal\dungeoncrawler_content\Access\CampaignQuestManageAccessCheck
-    arguments: ['@database']
+    arguments: ['@dungeoncrawler_content.campaign_authorization']
     tags:
       - {name: access_check, applies_to: _campaign_quest_manage_access}
 
@@ -414,6 +470,8 @@ services:
       - '@dungeoncrawler_content.follower_subsystem'
       - '@?dungeoncrawler_content.npc_sheet_generation'
       - '@?dungeoncrawler_content.character_portrait_generator'
+      - '@?dungeoncrawler_content.institution_membership'
+      - '@?dungeoncrawler_content.institution_disposition_matrix'
 
   dungeoncrawler_content.campaign_character_runtime_resolver:
     class: Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService
@@ -566,6 +624,8 @@ services:
       - '@dungeoncrawler_content.actor_action_availability'
       - '@dungeoncrawler_content.actor_decision_contract'
       - '@dungeoncrawler_content.actor_decision_validator'
+      - '@dungeoncrawler_content.actor_context_projection_service'
+      - '@dungeoncrawler_content.aggression_state_store_service'
 
   dungeoncrawler_content.actor_action_availability:
     class: Drupal\dungeoncrawler_content\Service\ActorActionAvailabilityService
@@ -582,6 +642,7 @@ services:
       - '@dungeoncrawler_content.npc_psychology_service'
       - '@dungeoncrawler_content.actor_action_availability'
       - '@dungeoncrawler_content.actor_decision_contract'
+      - '@dungeoncrawler_content.actor_context_projection_service'
 
   dungeoncrawler_content.actor_autoplay_coordinator:
     class: Drupal\dungeoncrawler_content\Service\ActorAutoplayCoordinator
@@ -601,6 +662,38 @@ services:
       - '@dungeoncrawler_content.combat_encounter_store'
       - '@dungeoncrawler_content.character_state'
       - '@logger.factory'
+      - '@dungeoncrawler_content.effect_lifecycle'
+
+  dungeoncrawler_content.action_targeting:
+    class: Drupal\dungeoncrawler_content\Service\ActionTargetingService
+
+  dungeoncrawler_content.combat_resolution_contract:
+    class: Drupal\dungeoncrawler_content\Service\CombatResolutionContractService
+
+  dungeoncrawler_content.action_resolver_registry:
+    class: Drupal\dungeoncrawler_content\Service\ActionResolverRegistry
+
+  dungeoncrawler_content.unified_damage_engine:
+    class: Drupal\dungeoncrawler_content\Service\UnifiedDamageEngine
+    arguments:
+      - '@dungeoncrawler_content.combat_encounter_store'
+      - '@dungeoncrawler_content.number_generation'
+      - '@dungeoncrawler_content.combat_resolution_contract'
+
+  dungeoncrawler_content.unified_movement_engine:
+    class: Drupal\dungeoncrawler_content\Service\UnifiedMovementEngine
+    arguments:
+      - '@dungeoncrawler_content.combat_resolution_contract'
+
+  dungeoncrawler_content.unified_state_effect_engine:
+    class: Drupal\dungeoncrawler_content\Service\UnifiedStateEffectEngine
+    arguments:
+      - '@dungeoncrawler_content.combat_resolution_contract'
+
+  dungeoncrawler_content.unified_reaction_engine:
+    class: Drupal\dungeoncrawler_content\Service\UnifiedReactionEngine
+    arguments:
+      - '@dungeoncrawler_content.combat_resolution_contract'
 
   dungeoncrawler_content.encounter_action_executor:
     class: Drupal\dungeoncrawler_content\Service\EncounterActionExecutor
@@ -614,8 +707,14 @@ services:
       - '@dungeoncrawler_content.number_generation'
       - '@dungeoncrawler_content.combat_calculator'
       - '@dungeoncrawler_content.canonical_projection_service'
+      - '@dungeoncrawler_content.combat_resolution_contract'
       - '@logger.factory'
       - '@dungeoncrawler_content.movement_resolver'
+      - '@?dungeoncrawler_content.actor_disposition_service'
+      - '@?dungeoncrawler_content.disposition_mutation_classifier_service'
+      - '@dungeoncrawler_content.action_targeting'
+      - '@dungeoncrawler_content.unified_damage_engine'
+      - '@dungeoncrawler_content.unified_movement_engine'
 
   dungeoncrawler_content.encounter_intent_router:
     class: Drupal\dungeoncrawler_content\Service\EncounterIntentRouter
@@ -644,6 +743,74 @@ services:
       - '@logger.factory'
       - '@dungeoncrawler_content.campaign_state_service'
       - '@dungeoncrawler_content.storyline_manager'
+
+  dungeoncrawler_content.relationship_attitude_service:
+    class: Drupal\dungeoncrawler_content\Service\RelationshipAttitudeService
+    arguments:
+      - '@dungeoncrawler_content.relationship_manager'
+      - '@dungeoncrawler_content.relationship_attitude_event_store_service'
+      - '@dungeoncrawler_content.relationship_attitude_state_store_service'
+
+  dungeoncrawler_content.relationships_actor_identity_resolver:
+    class: Drupal\dungeoncrawler_content\Service\RelationshipsActorIdentityResolverService
+    arguments:
+      - '@database'
+      - '@dungeoncrawler_content.institution_membership'
+
+  dungeoncrawler_content.disposition_scene_context_service:
+    class: Drupal\dungeoncrawler_content\Service\DispositionSceneContextService
+
+  dungeoncrawler_content.disposition_resolver_service:
+    class: Drupal\dungeoncrawler_content\Service\DispositionResolverService
+    arguments:
+      - '@dungeoncrawler_content.actor_disposition_service'
+      - '@dungeoncrawler_content.relationship_attitude_service'
+      - '@dungeoncrawler_content.disposition_scene_context_service'
+
+  dungeoncrawler_content.institution_disposition_score_assembler:
+    class: Drupal\dungeoncrawler_content\Service\InstitutionDispositionScoreAssemblerService
+    arguments:
+      - '@dungeoncrawler_content.institution_membership'
+      - '@dungeoncrawler_content.institution_disposition_matrix'
+      - '@dungeoncrawler_content.relationships_actor_identity_resolver'
+
+  dungeoncrawler_content.relationships_matrix_read_model:
+    class: Drupal\dungeoncrawler_content\Service\RelationshipsMatrixReadModelService
+    arguments:
+      - '@dungeoncrawler_content.actor_disposition_service'
+      - '@dungeoncrawler_content.relationship_attitude_service'
+      - '@dungeoncrawler_content.institution_disposition_score_assembler'
+      - '@dungeoncrawler_content.relationships_actor_identity_resolver'
+      - '@dungeoncrawler_content.disposition_resolver_service'
+      - '@logger.factory'
+
+  dungeoncrawler_content.relationship_attitude_event_store_service:
+    class: Drupal\dungeoncrawler_content\Service\RelationshipAttitudeEventStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.relationship_attitude_state_store_service:
+    class: Drupal\dungeoncrawler_content\Service\RelationshipAttitudeStateStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.actor_context_projection_service:
+    class: Drupal\dungeoncrawler_content\Service\ActorContextProjectionService
+    arguments:
+      - '@dungeoncrawler_content.actor_disposition_service'
+      - '@dungeoncrawler_content.relationship_attitude_service'
+      - '@dungeoncrawler_content.stance_state_store_service'
+      - '@dungeoncrawler_content.disposition_resolver_service'
+      - '@?dungeoncrawler_content.institution_disposition_score_assembler'
+      - '@?dungeoncrawler_content.actor_narrative_context_service'
+
+  dungeoncrawler_content.actor_narrative_context_service:
+    class: Drupal\dungeoncrawler_content\Service\ActorNarrativeContextService
+    arguments:
+      - '@database'
+      - '@?dungeoncrawler_content.relationship_manager'
 
   dungeoncrawler_content.storyline_manager:
     class: Drupal\dungeoncrawler_content\Service\StorylineManagerService
@@ -692,6 +859,75 @@ services:
   dungeoncrawler_content.npc_psychology_service:
     class: Drupal\dungeoncrawler_content\Service\NpcPsychologyService
     arguments: ['@database', '@logger.factory', '@ai_conversation.ai_api_service', '@dungeoncrawler_content.ai_session_manager']
+
+  dungeoncrawler_content.disposition_event_store_service:
+    class: Drupal\dungeoncrawler_content\Service\DispositionEventStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.disposition_state_store_service:
+    class: Drupal\dungeoncrawler_content\Service\DispositionStateStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.disposition_trigger_service:
+    class: Drupal\dungeoncrawler_content\Service\DispositionTriggerService
+
+  dungeoncrawler_content.disposition_mutation_classifier_service:
+    class: Drupal\dungeoncrawler_content\Service\DispositionMutationClassifierService
+
+  dungeoncrawler_content.actor_disposition_service:
+    class: Drupal\dungeoncrawler_content\Service\ActorDispositionService
+    arguments:
+      - '@dungeoncrawler_content.npc_psychology_service'
+      - '@dungeoncrawler_content.disposition_event_store_service'
+      - '@dungeoncrawler_content.disposition_state_store_service'
+      - '@dungeoncrawler_content.disposition_trigger_service'
+      - '@?dungeoncrawler_content.relationship_attitude_service'
+      - '@?dungeoncrawler_content.relationships_actor_identity_resolver'
+
+  dungeoncrawler_content.aggression_policy_service:
+    class: Drupal\dungeoncrawler_content\Service\AggressionPolicyService
+
+  dungeoncrawler_content.aggression_event_store_service:
+    class: Drupal\dungeoncrawler_content\Service\AggressionEventStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.aggression_state_store_service:
+    class: Drupal\dungeoncrawler_content\Service\AggressionStateStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.stance_event_store_service:
+    class: Drupal\dungeoncrawler_content\Service\StanceEventStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.stance_state_store_service:
+    class: Drupal\dungeoncrawler_content\Service\StanceStateStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.stance_runtime_service:
+    class: Drupal\dungeoncrawler_content\Service\StanceRuntimeService
+    arguments:
+      - '@dungeoncrawler_content.stance_event_store_service'
+      - '@dungeoncrawler_content.stance_state_store_service'
+
+  dungeoncrawler_content.combat_entry_service:
+    class: Drupal\dungeoncrawler_content\Service\CombatEntryService
+    arguments:
+      - '@dungeoncrawler_content.game_coordinator'
+      - '@dungeoncrawler_content.actor_context_projection_service'
+      - '@dungeoncrawler_content.aggression_event_store_service'
+      - '@dungeoncrawler_content.aggression_state_store_service'
 
   dungeoncrawler_content.npc_attention_service:
     class: Drupal\dungeoncrawler_content\Service\NpcAttentionService
@@ -922,6 +1158,7 @@ services:
       - '@?dungeoncrawler_content.actor_decision_contract'
       - '@?dungeoncrawler_content.actor_decision_validator'
       - '@?dungeoncrawler_content.runtime_graph_assembler'
+      - '@?dungeoncrawler_content.actor_narrative_context_service'
 
   dungeoncrawler_content.campaign_initialization:
     class: Drupal\dungeoncrawler_content\Service\CampaignInitializationService
@@ -951,7 +1188,34 @@ services:
 
   dungeoncrawler_content.state_validation_service:
     class: Drupal\dungeoncrawler_content\Service\StateValidationService
-    arguments: ['@logger.factory', '@database', '@?ai_conversation.ai_api_service']
+    arguments:
+      - '@logger.factory'
+      - '@database'
+      - '@?ai_conversation.ai_api_service'
+      - '@dungeoncrawler_content.rules_data_validator'
+      - '@dungeoncrawler_content.canonical_action_registry'
+      - '@dungeoncrawler_content.validation_profile_resolver'
+      - '@dungeoncrawler_content.consumable_contract_validator'
+
+  dungeoncrawler_content.rules_data_validator:
+    class: Drupal\dungeoncrawler_content\Service\SpellFeatActionDataValidatorService
+    arguments:
+      - '@dungeoncrawler_content.skill_reference_validator'
+      - '@dungeoncrawler_content.condition_reference_validator'
+      - '@dungeoncrawler_content.validation_profile_resolver'
+
+  dungeoncrawler_content.validation_profile_resolver:
+    class: Drupal\dungeoncrawler_content\Service\ValidationProfileResolverService
+
+  dungeoncrawler_content.skill_reference_validator:
+    class: Drupal\dungeoncrawler_content\Service\SkillReferenceValidatorService
+
+  dungeoncrawler_content.condition_reference_validator:
+    class: Drupal\dungeoncrawler_content\Service\ConditionReferenceValidatorService
+    arguments: ['@?dungeoncrawler_content.effect_definition_registry']
+
+  dungeoncrawler_content.consumable_contract_validator:
+    class: Drupal\dungeoncrawler_content\Service\ConsumableContractValidatorService
 
   dungeoncrawler_content.navigation_road_graph_service:
     class: Drupal\dungeoncrawler_content\Service\NavigationRoadGraphService
@@ -1248,6 +1512,11 @@ services:
       - '@dungeoncrawler_content.encounter_intent_router'
       - '@dungeoncrawler_content.runtime_graph_assembler'
       - '@dungeoncrawler_content.h3_projection_queue'
+      - '@?dungeoncrawler_content.stance_runtime_service'
+      - '@dungeoncrawler_content.action_resolver_registry'
+      - '@dungeoncrawler_content.unified_state_effect_engine'
+      - '@dungeoncrawler_content.unified_reaction_engine'
+      - '@dungeoncrawler_content.unified_damage_engine'
 
   dungeoncrawler_content.encounter_master:
     alias: dungeoncrawler_content.encounter_phase_handler
@@ -1289,6 +1558,14 @@ services:
 
   dungeoncrawler_content.runtime_state_read_model_assembler:
     class: Drupal\dungeoncrawler_content\Service\RuntimeStateReadModelAssembler
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+      - '@dungeoncrawler_content.relationship_attitude_service'
+      - '@dungeoncrawler_content.aggression_state_store_service'
+      - '@dungeoncrawler_content.disposition_state_store_service'
+      - '@dungeoncrawler_content.stance_state_store_service'
+      - '@dungeoncrawler_content.disposition_resolver_service'
 
   dungeoncrawler_content.runtime_bootstrap:
     class: Drupal\dungeoncrawler_content\Service\RuntimeBootstrapService
@@ -1480,4 +1757,7 @@ services:
     class: Drupal\dungeoncrawler_content\Controller\SomController
     arguments:
       - '@dungeoncrawler_content.character_manager'
+      - '@dungeoncrawler_content.follower_subsystem'
       - '@dungeoncrawler_content.number_generation'
+      - '@dungeoncrawler_content.stance_runtime_service'
+      - '@dungeoncrawler_content.actor_context_projection_service'

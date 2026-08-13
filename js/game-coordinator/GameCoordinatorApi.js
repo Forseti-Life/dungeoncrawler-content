@@ -114,10 +114,21 @@ export class GameCoordinatorApi {
   /**
    * Get the full game state from the server.
    *
+   * @param {object} [options={}]
+   * @param {string} [options.actor] - Preferred runtime actor instance id
+   * @param {number} [options.characterId] - Fallback campaign character id
    * @returns {Promise<object>} { success, game_state, available_actions, event_log_cursor }
    */
-  async getState() {
-    return getJson(`${this.baseUrl}/state`);
+  async getState(options = {}) {
+    const params = new URLSearchParams();
+    if (options.actor) {
+      params.set('actor', String(options.actor));
+    }
+    if (options.characterId != null && Number(options.characterId) > 0) {
+      params.set('character_id', String(Number(options.characterId)));
+    }
+    const query = params.toString();
+    return getJson(`${this.baseUrl}/state${query ? `?${query}` : ''}`);
   }
 
   /**

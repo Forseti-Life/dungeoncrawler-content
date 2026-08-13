@@ -276,7 +276,9 @@ class PlaySessionController extends ControllerBase {
    *   email: string  — email address of the user to invite
    *
    * Validates the email corresponds to an active registered Drupal user.
-   * On success, adds the user to dc_campaign_characters (pending membership).
+   * On success, records invited membership in dc_campaign_members.
+   * Falls back to legacy runtime invite rows only when membership table is
+   * unavailable.
    */
   public function invitePlayer(int $campaign_id, Request $request): JsonResponse {
     $access = $this->campaignAccessCheck->access($this->currentUser, $campaign_id);
@@ -310,56 +312,97 @@ class PlaySessionController extends ControllerBase {
 
     $invited_uid = (int) reset($uids);
 
-    // Check if already a member.
-    $existing = $this->database->select('dc_campaign_characters', 'cc')
-      ->fields('cc', ['id'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('uid', $invited_uid)
-      ->execute()
-      ->fetchField();
+    $membership_table_exists = $this->database->schema()->tableExists('dc_campaign_members');
+    if ($membership_table_exists) {
+      $existing_membership = $this->database->select('dc_campaign_members', 'm')
+        ->fields('m', ['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('uid', $invited_uid)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
 
-    if ($existing) {
-      return new JsonResponse([
-        'success' => FALSE,
-        'error' => 'User is already a member of this campaign',
-      ], 409);
+      if ($existing_membership) {
+        $this->database->update('dc_campaign_members')
+          ->fields([
+            'role' => 'player',
+            'status' => 'invited',
+            'invited_by_uid' => (int) $this->currentUser->id(),
+            'changed' => time(),
+          ])
+          ->condition('campaign_id', $campaign_id)
+          ->condition('uid', $invited_uid)
+          ->execute();
+      }
+      else {
+        $this->database->insert('dc_campaign_members')
+          ->fields([
+            'campaign_id' => $campaign_id,
+            'uid' => $invited_uid,
+            'role' => 'player',
+            'status' => 'invited',
+            'invited_by_uid' => (int) $this->currentUser->id(),
+            'created' => time(),
+            'changed' => time(),
+          ])
+          ->execute();
+      }
     }
+    else {
+      // Legacy fallback for instances that have not yet run the membership
+      // migration/update path.
+      $existing = $this->database->select('dc_campaign_characters', 'cc')
+        ->fields('cc', ['id'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('uid', $invited_uid)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
 
-    // Add as a pending member. Character will be created on first session join.
-    $this->database->insert('dc_campaign_characters')
-      ->fields([
-        'campaign_id' => $campaign_id,
-        'uid' => $invited_uid,
-        'character_id' => 0,
-        'source_character_id' => NULL,
-        'role' => 'player',
-        'is_active' => 0,
-        'joined' => time(),
-        'instance_id' => '',
-        'type' => 'pc',
-        'lifecycle_state' => 'invited_pending_character',
-        'location_type' => '',
-        'location_ref' => '',
-        'name' => '',
-        'level' => 1,
-        'ancestry' => '',
-        'class' => '',
-        'status' => 0,
-        'version' => 0,
-        'default_locations' => NULL,
-        'portrait' => NULL,
-        'hp_current' => 0,
-        'hp_max' => 0,
-        'armor_class' => 0,
-        'experience_points' => 0,
-        'position_q' => 0,
-        'position_r' => 0,
-        'last_room_id' => '',
-        'character_data' => json_encode(['invite_status' => 'pending']),
-        'created' => time(),
-        'changed' => time(),
-      ])
-      ->execute();
+      if ($existing) {
+        return new JsonResponse([
+          'success' => FALSE,
+          'error' => 'User is already a member of this campaign',
+        ], 409);
+      }
+
+      // Add as a pending runtime participant. Character is created on first
+      // join.
+      $this->database->insert('dc_campaign_characters')
+        ->fields([
+          'campaign_id' => $campaign_id,
+          'uid' => $invited_uid,
+          'character_id' => 0,
+          'source_character_id' => NULL,
+          'role' => 'player',
+          'is_active' => 0,
+          'joined' => time(),
+          'instance_id' => '',
+          'type' => 'pc',
+          'lifecycle_state' => 'invited_pending_character',
+          'location_type' => '',
+          'location_ref' => '',
+          'name' => '',
+          'level' => 1,
+          'ancestry' => '',
+          'class' => '',
+          'status' => 0,
+          'version' => 0,
+          'default_locations' => NULL,
+          'portrait' => NULL,
+          'hp_current' => 0,
+          'hp_max' => 0,
+          'armor_class' => 0,
+          'experience_points' => 0,
+          'position_q' => 0,
+          'position_r' => 0,
+          'last_room_id' => '',
+          'character_data' => json_encode(['invite_status' => 'pending']),
+          'created' => time(),
+          'changed' => time(),
+        ])
+        ->execute();
+    }
 
     return new JsonResponse([
       'success' => TRUE,

@@ -5,16 +5,14 @@
  * Methods ported verbatim from hexmap.js UIManager.
  */
 
-import { getActionRailCost, formatActionRailCost, getActionRailRemainingActions } from '../utils/action-utils.js';
-import { normalizeSpellcastingData, collectSpellRankGroups, normalizeDisplayedSpellSlots } from '../utils/spell-utils.js';
-import { extractConsumableItems, collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
+import { getActionRailCost, formatActionRailCost, getActionRailRemainingActions } from '../utils/action-utils.js?v=20260811-v2-turn-sync-ui-1';
+import { collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
 import { escapeQuestHtml } from '../utils/quest-utils.js';
-import { escapeTooltipAttr, flattenTooltipBuckets, slugifyTooltipKey } from '../utils/dom-utils.js';
+import { escapeTooltipAttr } from '../utils/dom-utils.js';
 import { buildActionRailContext } from '../services/action-rail-context-service.js';
 import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260723-v2-nav-exit-numbering-4';
 import {
   getActionRailDirectRoute,
-  getServerActionIdForExecute,
   isActionRailSelectableAction,
   resolveActionRailCategory as resolveContractActionRailCategory,
 } from '../contracts/action-rail-contract.js';
@@ -103,6 +101,7 @@ export class ActionRailPanel {
     this.actionRailRealClockTimer = null;
     // UI state
     this.activeActionRailCategory = 'navigate';
+    this.actionRailCategoryPinnedByUser = false;
     this.actionRailDescriptionsCollapsed = true;
     this.actionRailFilters = {};
     this.actionRailAutomationTogglePending = false;
@@ -122,7 +121,10 @@ export class ActionRailPanel {
       skips: 0,
       headerRenders: 0,
       bodyRenders: 0,
+      bodySkips: 0,
     };
+    this._lastActionRailBodyCategory = '';
+    this._lastActionRailTelemetry = null;
     this._domListeners = [];
   }
 
@@ -296,6 +298,67 @@ export class ActionRailPanel {
     return { ...this._actionRailMetrics };
   }
 
+  isActionRailDebugEnabled() {
+    try {
+      if (this.stateManager?.get?.('debugActionRail') === true) {
+        return true;
+      }
+    } catch (_) {
+      // State manager debug key is optional.
+    }
+    const hexmapDebugFlag = this.stateManager?.hexmap?.debugFlags?.actionRail;
+    if (hexmapDebugFlag === true) {
+      return true;
+    }
+    if (typeof window !== 'undefined' && window?.DC_DEBUG_ACTION_RAIL === true) {
+      return true;
+    }
+    if (typeof window !== 'undefined' && window?.localStorage) {
+      return window.localStorage.getItem('dc:debug:action-rail') === '1';
+    }
+    return false;
+  }
+
+  logActionRailDebug(stage, details = {}) {
+    if (!this.isActionRailDebugEnabled()) {
+      return;
+    }
+    console.log('[ActionRailPanel]', { stage, ...details });
+  }
+
+  logActionRailStateSnapshot(stage, context) {
+    const actionContractActions = Array.isArray(context?.actionContract?.actions) ? context.actionContract.actions : [];
+    const families = context?.actionContract?.action_option_families && typeof context.actionContract.action_option_families === 'object'
+      ? context.actionContract.action_option_families
+      : {};
+    const familySummary = Object.entries(families).map(([key, family]) => {
+      const optionCount = Number(family?.option_count ?? (Array.isArray(family?.options) ? family.options.length : 0));
+      return `${key}:${Number.isFinite(optionCount) ? optionCount : 0}`;
+    });
+    console.info('[ActionRailPanel] state snapshot', {
+      stage,
+      category: this.activeActionRailCategory,
+      actorRef: context?.actorRef || null,
+      actorLabel: context?.actorLabel || null,
+      encounterActive: Boolean(context?.encounterActive),
+      isActorTurn: context?.isActorTurn,
+      availableActionCount: Array.isArray(context?.availableActions) ? context.availableActions.length : 0,
+      availableActions: Array.isArray(context?.availableActions) ? context.availableActions : [],
+      actionContractCount: actionContractActions.length,
+      familySummary,
+    });
+  }
+
+  emitActionRailTelemetry(payload = {}) {
+    this._lastActionRailTelemetry = payload;
+    try {
+      this.bus?.emit?.('action-rail:telemetry', payload);
+    } catch (_) {
+      // Telemetry bus emission is best-effort.
+    }
+    this.logActionRailDebug('telemetry', payload);
+  }
+
   _subscribe() {
     this._unsubs.push(
       this.bus.on('combat:turn-changed', (d) => {
@@ -304,8 +367,10 @@ export class ActionRailPanel {
       }),
       this.bus.on('combat:state-changed', () => this.invalidateActionRail(['combat', 'header'])),
       this.bus.on('game:init', () => this.invalidateActionRail([ACTION_RAIL_DOMAIN_ALL])),
+      this.bus.on('game:state-refreshed', () => this.invalidateActionRail([ACTION_RAIL_DOMAIN_ALL])),
       this.bus.on('room:changed', (payload) => this.handleRoomContextChanged(payload, 'room:changed')),
       this.bus.on('room:transitioned', (payload) => this.handleRoomContextChanged(payload, 'room:transitioned')),
+      this.bus.on('room:occupants-membership-changed', (payload) => this.handleRoomContextChanged(payload, 'room:occupants-membership-changed')),
       this.bus.on('room:occupants-changed', (payload) => this.handleRoomContextChanged(payload, 'room:occupants-changed')),
       this.bus.on('room:occupants-decoration-changed', (payload) => this.handleRoomContextChanged(payload, 'room:occupants-decoration-changed')),
       this.bus.on('character:updated', () => this.invalidateActionRail(['character', 'header'])),
@@ -338,6 +403,13 @@ export class ActionRailPanel {
       return;
     }
 
+    // Occupant membership changes can alter local actor affordances without
+    // requiring navigation capability recalculation.
+    if (normalizedSource === 'room:occupants-membership-changed') {
+      this.invalidateActionRail(['room', 'header']);
+      return;
+    }
+
     // Occupant fan-out (merchant enrichment, decoration, transient overlays)
     // must not force navigation recomputation.
     this.invalidateActionRail(['occupants-decoration']);
@@ -348,7 +420,7 @@ export class ActionRailPanel {
     const panelBody = this._el.actionRailPanelBody;
     const automationToggle = this._el.actionRailAutomationToggle;
     const actorCard = this._el.actionRailActorCard;
-    console.log('[ActionRailPanel] setupActionRail', {
+    this.logActionRailDebug('setupActionRail', {
       hasCategories: !!categories,
       hasPanelBody: !!panelBody,
       hasAutomationToggle: !!automationToggle,
@@ -398,7 +470,7 @@ export class ActionRailPanel {
         return;
       }
 
-      this.setActiveActionRailCategory(category, { refresh: true });
+      this.setActiveActionRailCategory(category, { refresh: true, userInitiated: true });
     });
     this.bindActionRailDomListener(categories, 'keydown', (event) => {
       const target = event.target instanceof HTMLElement
@@ -434,11 +506,11 @@ export class ActionRailPanel {
       if (!nextCategory) {
         return;
       }
-      this.setActiveActionRailCategory(nextCategory, { refresh: true, focus: true });
+      this.setActiveActionRailCategory(nextCategory, { refresh: true, focus: true, userInitiated: true });
     });
 
     if (panelBody) {
-      console.log('[ActionRailPanel] setupActionRail: binding panelBody click listener');
+      this.logActionRailDebug('setupActionRail:bindPanelBody');
       this.bindActionRailDomListener(panelBody, 'click', (event) => {
         const toggle = event.target instanceof HTMLElement
           ? event.target.closest('[data-action-rail-toggle-descriptions]')
@@ -498,6 +570,40 @@ export class ActionRailPanel {
 
   resolveActionRailActorCardTarget(context = null) {
     const resolvedContext = context || this.getActionRailContext();
+    const encounterScopedActorRef = String(
+      (resolvedContext?.encounterActive && resolvedContext?.hasServerTurn
+        ? (resolvedContext?.actionContract?.actor_id || resolvedContext?.phaseSnapshot?.turn?.entity || resolvedContext?.actorRef || '')
+        : '')
+    ).trim();
+    if (encounterScopedActorRef) {
+      const actorEntity = this.stateManager?.hexmap?.entityManager?.getEntity?.(encounterScopedActorRef) || null;
+      const actorMetadata = actorEntity?.dcStatePayload?.metadata || actorEntity?.dcStatePayload?.state?.metadata || {};
+      const actorCharacterId = Number(
+        actorEntity?.dcCharacterId
+        || actorMetadata?.character_id
+        || actorEntity?.dcStatePayload?.character_id
+        || actorEntity?.dcStatePayload?.state?.character_id
+        || 0
+      ) || 0;
+      const actorLabel = String(
+        actorEntity?.getComponent?.('IdentityComponent')?.name
+        || resolvedContext?.actorLabel
+        || encounterScopedActorRef
+      ).trim();
+      return {
+        actorRef: encounterScopedActorRef,
+        characterId: actorCharacterId || null,
+        actorLabel: actorLabel || 'No actor selected',
+        actorPortraitUrl: String(
+          actorMetadata?.portrait_url
+          || actorMetadata?.portrait
+          || resolvedContext?.actorPortraitUrl
+          || ''
+        ).trim(),
+        entity: actorEntity,
+      };
+    }
+
     const selectedEntity = this.stateManager?.get?.('selectedEntity') || null;
     const selectedRef = String(
       selectedEntity?.dcEntityRef
@@ -584,9 +690,12 @@ export class ActionRailPanel {
     return resolveContractActionRailCategory(category, 'navigate');
   }
 
-  setActiveActionRailCategory(category, { refresh = true, focus = false } = {}) {
+  setActiveActionRailCategory(category, { refresh = true, focus = false, userInitiated = false } = {}) {
     const resolvedCategory = this.resolveActionRailCategory(category);
     this.activeActionRailCategory = resolvedCategory;
+    if (userInitiated) {
+      this.actionRailCategoryPinnedByUser = true;
+    }
 
     if (focus) {
       const categories = this._el.actionRailCategories;
@@ -599,6 +708,10 @@ export class ActionRailPanel {
     if (refresh) {
       this.invalidateActionRail([ACTION_RAIL_DOMAIN_ALL]);
     }
+  }
+
+  resolveDefaultActionRailCategory(context) {
+    return 'navigate';
   }
 
   shouldRefreshActionRailHeader(dirtyDomains = []) {
@@ -717,7 +830,7 @@ export class ActionRailPanel {
     const refreshStartedAt = (typeof performance !== 'undefined' && typeof performance.now === 'function')
       ? performance.now()
       : Date.now();
-    console.log('[ActionRailPanel] refreshActionRail', { dirtyDomains });
+    this.logActionRailDebug('refreshActionRail:start', { dirtyDomains });
     const categories = this._el.actionRailCategories;
     const panelTitle = this._el.actionRailPanelTitle;
     const panelChip = this._el.actionRailPanelChip;
@@ -742,13 +855,31 @@ export class ActionRailPanel {
       ? Array.from(new Set(dirtyDomains.map((domain) => String(domain || '').trim().toLowerCase()).filter(Boolean)))
       : [ACTION_RAIL_DOMAIN_ALL];
     const shouldRefreshHeader = this.shouldRefreshActionRailHeader(normalizedDomains);
-    const shouldRefreshBody = this.shouldRefreshActionRailBody(normalizedDomains, this.activeActionRailCategory);
+    let shouldRefreshBody = this.shouldRefreshActionRailBody(normalizedDomains, this.activeActionRailCategory);
     if (!shouldRefreshHeader && !shouldRefreshBody) {
       this._actionRailMetrics.skips += 1;
-      console.log('[ActionRailPanel] refreshActionRail:skip', { dirtyDomains: normalizedDomains, activeCategory: this.activeActionRailCategory });
+      this.logActionRailDebug('refreshActionRail:skip', { dirtyDomains: normalizedDomains, activeCategory: this.activeActionRailCategory });
+      this.emitActionRailTelemetry({
+        type: 'refresh',
+        dirtyDomains: normalizedDomains,
+        activeCategory: this.activeActionRailCategory,
+        headerDecision: 'skip',
+        bodyDecision: 'skip',
+        reason: 'no-dependent-domains',
+        elapsedMs: 0,
+        metrics: { ...this._actionRailMetrics },
+      });
       return;
     }
     const context = this.getActionRailContext();
+    this.logActionRailStateSnapshot('refresh-start', context);
+    if (!this.actionRailCategoryPinnedByUser) {
+      const defaultCategory = this.resolveActionRailCategory(this.resolveDefaultActionRailCategory(context));
+      if (defaultCategory !== this.activeActionRailCategory) {
+        this.activeActionRailCategory = defaultCategory;
+        shouldRefreshBody = true;
+      }
+    }
     const actorCardTarget = this.resolveActionRailActorCardTarget(context);
     const maybeWakeAutomation = () => {
       if (context.automationState?.active) {
@@ -803,7 +934,7 @@ export class ActionRailPanel {
           || 'Draft and send the next in-character room chat line.';
       }
       this.updateActionRailClocks(context);
-      console.log('[ActionRailPanel] refreshActionRail:header', { actor: context.actorLabel, status: context.statusLabel, encounter: context.encounterActive });
+      this.logActionRailDebug('refreshActionRail:header', { actor: context.actorLabel, status: context.statusLabel, encounter: context.encounterActive });
       this._lastHeaderFingerprint = nextHeaderFingerprint;
       this._actionRailMetrics.headerRenders += 1;
     }
@@ -822,44 +953,69 @@ export class ActionRailPanel {
 
     this.activeActionRailCategory = this.resolveActionRailCategory(this.activeActionRailCategory);
     const categoryKey = this.activeActionRailCategory;
+    let bodyDecision = shouldRefreshBody ? 'render' : 'skip';
+    let bodyReason = shouldRefreshBody ? 'domain-invalidated' : 'not-dirty';
     if (shouldRefreshBody) {
       const nextCategoryFingerprint = this.buildActionRailCategoryFingerprint(categoryKey, context);
       const previousCategoryFingerprint = String(this._lastCategoryFingerprints[categoryKey] || '');
-      const panel = this.buildActionRailPanel(categoryKey, context);
-      if (panelTitle) {
-        panelTitle.textContent = panel.title;
-      }
-      if (panelChip) {
-        panelChip.textContent = panel.chip;
-      }
-      panelBody.innerHTML = panel.html;
-      if (context.automationState?.active) {
-        panelBody.querySelectorAll('[data-action-rail-execute]').forEach((entry) => {
-          if (entry instanceof HTMLButtonElement) {
-            entry.disabled = true;
-            entry.setAttribute('aria-disabled', 'true');
-          }
+      const didSwitchCategory = this._lastActionRailBodyCategory !== categoryKey;
+      const fingerprintChanged = nextCategoryFingerprint !== previousCategoryFingerprint;
+      if (!didSwitchCategory && !fingerprintChanged) {
+        bodyDecision = 'skip';
+        bodyReason = 'fingerprint-unchanged-skip';
+        this._actionRailMetrics.bodySkips += 1;
+      } else {
+        const panel = this.buildActionRailPanel(categoryKey, context);
+        if (panelTitle) {
+          panelTitle.textContent = panel.title;
+        }
+        if (panelChip) {
+          panelChip.textContent = panel.chip;
+        }
+        panelBody.innerHTML = panel.html;
+        if (context.automationState?.active) {
+          panelBody.querySelectorAll('[data-action-rail-execute]').forEach((entry) => {
+            if (entry instanceof HTMLButtonElement) {
+              entry.disabled = true;
+              entry.setAttribute('aria-disabled', 'true');
+            }
+          });
+        }
+        this.syncActionRailPanelState();
+        console.info('[ActionRailPanel] rendered panel', {
+          category: categoryKey,
+          title: panel.title,
+          chip: panel.chip,
+          htmlLength: String(panel.html || '').length,
+          entryCount: (String(panel.html || '').match(/data-action-rail-execute=/g) || []).length,
         });
+        this._lastActionRailBodyCategory = categoryKey;
+        this._lastCategoryFingerprints[categoryKey] = nextCategoryFingerprint;
+        this._actionRailMetrics.bodyRenders += 1;
+        bodyDecision = 'render';
+        bodyReason = didSwitchCategory ? 'category-switch' : 'fingerprint-changed';
       }
-      this.syncActionRailPanelState();
-      this._lastCategoryFingerprints[categoryKey] = nextCategoryFingerprint;
-      this._actionRailMetrics.bodyRenders += 1;
-      console.log('[ActionRailPanel] refreshActionRail:body', {
+      this.logActionRailDebug('refreshActionRail:body', {
         category: categoryKey,
-        reason: nextCategoryFingerprint !== previousCategoryFingerprint ? 'domain-invalidated+fingerprint-changed' : 'domain-invalidated',
+        decision: bodyDecision,
+        reason: bodyReason,
       });
     }
     const refreshElapsedMs = ((typeof performance !== 'undefined' && typeof performance.now === 'function')
       ? performance.now()
       : Date.now()) - refreshStartedAt;
-    console.log('[ActionRailPanel] refreshActionRail:complete', {
+    const telemetryPayload = {
+      type: 'refresh',
       dirtyDomains: normalizedDomains,
       activeCategory: categoryKey,
-      header: shouldRefreshHeader,
-      body: shouldRefreshBody,
+      headerDecision: shouldRefreshHeader ? 'render-or-check' : 'skip',
+      bodyDecision,
+      reason: bodyReason,
       elapsedMs: Number(refreshElapsedMs.toFixed(2)),
       metrics: { ...this._actionRailMetrics },
-    });
+    };
+    this.logActionRailDebug('refreshActionRail:complete', telemetryPayload);
+    this.emitActionRailTelemetry(telemetryPayload);
     maybeWakeAutomation();
   }
 
@@ -921,7 +1077,7 @@ export class ActionRailPanel {
     if (realClock || realClockMeta) {
       const realWorld = this.formatRealWorldClock();
       if (realClock) {
-        realClock.textContent = realWorld.value;
+        realClock.textContent = `Realworld Time: ${realWorld.value}`;
       }
       if (realClockMeta) {
         realClockMeta.textContent = realWorld.meta;
@@ -932,7 +1088,7 @@ export class ActionRailPanel {
       const resolvedContext = context || this.getActionRailContext();
       const campaign = this.formatCampaignClock(resolvedContext?.campaignClock || null);
       if (campaignClock) {
-        campaignClock.textContent = campaign.value;
+        campaignClock.textContent = `Campaign Time: ${campaign.value}`;
       }
       if (campaignClockMeta) {
         const activeCount = Array.isArray(resolvedContext?.timedActivities)
@@ -950,7 +1106,7 @@ export class ActionRailPanel {
       return true;
     }
 
-    if (!context?.encounterActive) {
+    if (!context?.encounterActive || !this.shouldEnforceEncounterBudgets(context)) {
       return false;
     }
 
@@ -964,6 +1120,10 @@ export class ActionRailPanel {
     }
 
     return getActionRailCost(actionCost, 1) > remainingActions;
+  }
+
+  shouldEnforceEncounterBudgets(context) {
+    return Number(context?.encounterId || 0) > 0;
   }
 
   isServerActionAvailable(context, actionId) {
@@ -980,10 +1140,10 @@ export class ActionRailPanel {
   }
 
   resolveTurnActionKey(context) {
-    if (this.isServerActionAvailable(context, getServerActionIdForExecute('choose_not_to_act'))) {
+    if (this.isServerActionAvailable(context, 'choose_not_to_act')) {
       return 'choose_not_to_act';
     }
-    if (this.isServerActionAvailable(context, getServerActionIdForExecute('end_turn'))) {
+    if (this.isServerActionAvailable(context, 'end_turn')) {
       return 'end_turn';
     }
     return '';
@@ -992,6 +1152,53 @@ export class ActionRailPanel {
   getServerActionDefinition(context, actionId) {
     const actions = Array.isArray(context?.actionContract?.actions) ? context.actionContract.actions : [];
     return actions.find((entry) => entry?.id === actionId) || null;
+  }
+
+  getServerActionOptions(context, actionId) {
+    if (this.isEncounterActionContractPending(context)) {
+      return null;
+    }
+
+    const families = context?.actionContract?.action_option_families;
+    if (families && typeof families === 'object') {
+      const family = families[actionId];
+      if (family && typeof family === 'object' && Array.isArray(family.options)) {
+        console.info('[ActionRailPanel] options from family', {
+          actionId,
+          optionCount: family.options.length,
+        });
+        return family.options;
+      }
+    }
+
+    const definition = this.getServerActionDefinition(context, actionId);
+    if (definition && Array.isArray(definition.resolved_options)) {
+      console.info('[ActionRailPanel] options from resolved_options', {
+        actionId,
+        optionCount: definition.resolved_options.length,
+      });
+      return definition.resolved_options;
+    }
+
+    console.warn('[ActionRailPanel] no options found for action', {
+      actionId,
+      availableActions: Array.isArray(context?.availableActions) ? context.availableActions : [],
+      hasActionContract: Boolean(context?.actionContract),
+    });
+
+    return [];
+  }
+
+  isEncounterActionContractPending(context) {
+    return Boolean(context?.encounterActive && context?.awaitingHydration);
+  }
+
+  buildPendingActionOptionsPanel(title = 'Actions') {
+    return {
+      title,
+      chip: 'Syncing…',
+      html: '<div class="action-rail__empty"><p>Waiting for encounter action hydration…</p></div>',
+    };
   }
 
   async handleActionRailAutomationToggle() {
@@ -1058,7 +1265,7 @@ export class ActionRailPanel {
     const actionLabel = turnActionKey === 'choose_not_to_act' ? 'Choose not to act' : 'End turn';
     const disabled = this.isActionRailExecutionDisabled(0, context, !context.actorRef || !hasTurnAction);
     const statusSummary = context.encounterActive ? 'Encounter turn control' : 'No active encounter turn';
-    const entries = [this.renderActionRailEntry({
+    const controlEntries = [this.renderActionRailEntry({
       execute: turnActionKey || 'end_turn',
       title: actionLabel,
       summary: buildActionRailEntrySummary([statusSummary]),
@@ -1071,12 +1278,343 @@ export class ActionRailPanel {
       },
       actionLabel,
     })];
+    if (this.isServerActionAvailable(context, 'delay')) {
+      controlEntries.push(this.renderActionRailEntry({
+        execute: 'delay',
+        title: 'Delay',
+        summary: buildActionRailEntrySummary(['Turn control']),
+        meta: 'Hold your place and re-enter later in the initiative order.',
+        disabled: this.isActionRailExecutionDisabled(0, context, !context.actorRef),
+        actionLabel: 'Delay',
+      }));
+    }
+
+    const combatEntries = this.buildContractAtomicActionEntries(context);
 
     return {
-      title: 'Turn actions',
-      chip: hasTurnAction ? 'Ready' : 'Unavailable',
-      html: entries.join(''),
+      title: 'Turn controls',
+      chip: context.encounterActive ? 'Turn' : 'Room mode',
+      html: [
+        this.renderActionRailGroup('Core controls', controlEntries.join('')),
+        combatEntries.length > 0
+          ? this.renderActionRailGroup('Combat actions', combatEntries.join(''))
+          : '',
+      ].join(''),
     };
+  }
+
+  buildContractAtomicActionEntries(context) {
+    const allowed = new Set([
+      'strike',
+      'raise_shield',
+      'interact',
+      'talk',
+      'demoralize',
+      'feint',
+      'point_out',
+      'command_animal',
+      'aid_setup',
+      'administer_first_aid',
+      'treat_poison',
+      'battle_medicine',
+      'treat_wounds',
+    ]);
+    const actions = Array.isArray(context?.actionContract?.actions) ? context.actionContract.actions : [];
+    const selectedTarget = this.resolveSelectedEntityTargetDataset(context);
+    return actions
+      .filter((action) => action && action.available !== false)
+      .filter((action) => allowed.has(String(action.id || '').trim()))
+      .map((action) => {
+        const actionId = String(action.id || '').trim();
+        const executeKey = this.resolveExecuteKeyForContractAction(actionId);
+        const actionCost = getActionRailCost(action.cost, 1);
+        const rawTargeting = String(action.targeting || 'contextual').trim().toLowerCase();
+        const targeting = rawTargeting === 'contextual'
+          ? this.resolveContextualTargetingMode({
+            targeting_text: action?.targeting_text,
+            description: action?.description,
+            desc: action?.summary,
+            target: action?.target,
+            targets: action?.targets,
+            range_text: action?.range_text,
+          }, action, rawTargeting)
+          : rawTargeting;
+        const label = String(action.label || actionId || 'Action').trim();
+        const guidance = this.describeTargetingGuidance(targeting);
+        const targetRequired = this.isTargetingModeMapPickRequired(targeting);
+
+        let disabled = false;
+        const dataset = {
+          actionType: actionId,
+          actionCost: String(actionCost),
+          targeting: String(targeting || 'contextual').trim().toLowerCase(),
+          targetRequired: targetRequired ? '1' : '0',
+        };
+        if (executeKey === 'interact' && selectedTarget?.hasHex) {
+          dataset.targetQ = String(selectedTarget.q);
+          dataset.targetR = String(selectedTarget.r);
+          dataset.targetEntityId = selectedTarget.entityId;
+          dataset.targetName = selectedTarget.name;
+          if (selectedTarget?.hasTargetRef) {
+            dataset.targetRef = selectedTarget.targetRef;
+          }
+          disabled = this.isActionRailExecutionDisabled(actionCost, context, false);
+        } else if (executeKey === 'raise_shield') {
+          disabled = this.isActionRailExecutionDisabled(actionCost, context, false);
+        } else if (targetRequired) {
+          if (selectedTarget?.hasNumericEntityId) {
+            dataset.targetId = String(selectedTarget.numericEntityId);
+          }
+          if (selectedTarget?.hasEntityId) {
+            dataset.targetEntityId = selectedTarget.entityId;
+          }
+          if (selectedTarget?.hasTargetRef) {
+            dataset.targetRef = selectedTarget.targetRef;
+          }
+          if (selectedTarget?.name) {
+            dataset.targetName = selectedTarget.name;
+          }
+          if (executeKey === 'attack') {
+            dataset.weaponName = 'weapon';
+          }
+          disabled = this.isActionRailExecutionDisabled(actionCost, context, false);
+        } else {
+          disabled = this.isActionRailExecutionDisabled(actionCost, context, false);
+        }
+
+        return this.renderActionRailEntry({
+          execute: executeKey || actionId || 'noop',
+          title: label,
+          summary: buildActionRailEntrySummary([
+            formatActionRailCost(actionCost),
+            targeting ? `Targeting: ${targeting}` : '',
+          ]),
+          meta: disabled
+            ? `${guidance} Select a target on the map to unlock direct execution when supported.`
+            : guidance,
+          disabled,
+          dataset,
+          actionLabel: disabled ? 'Use map targeting' : label,
+        });
+      });
+  }
+
+  resolveSelectedEntityTargetDataset(context) {
+    const selected = context?.selectedEntity || null;
+    if (!selected) {
+      return null;
+    }
+    const actorRef = String(context?.actorRef || '').trim();
+    const selectedRef = String(selected?.dcEntityRef || selected?.dcEntityInstanceId || selected?.instanceId || '').trim();
+    const selectedId = String(selected?.id || selectedRef || '').trim();
+    const targetRef = String(selected?.dcEntityRef || selected?.dcEntityInstanceId || selected?.instanceId || '').trim();
+    const numericEntityId = Number(selected?.id);
+    if (!selectedId || (selectedRef && actorRef && selectedRef === actorRef)) {
+      return null;
+    }
+    const name = String(selected?.getComponent?.('IdentityComponent')?.name || selected?.name || 'target').trim();
+    const pos = selected?.getComponent?.('PositionComponent') || null;
+    const q = Number(pos?.q);
+    const r = Number(pos?.r);
+    return {
+      entityId: selectedId,
+      numericEntityId: Number.isFinite(numericEntityId) && numericEntityId > 0 ? numericEntityId : null,
+      name,
+      hasEntityId: selectedId !== '',
+      hasNumericEntityId: Number.isFinite(numericEntityId) && numericEntityId > 0,
+      targetRef,
+      hasTargetRef: targetRef !== '',
+      hasHex: Number.isFinite(q) && Number.isFinite(r),
+      q: Number.isFinite(q) ? q : null,
+      r: Number.isFinite(r) ? r : null,
+    };
+  }
+
+  resolveSelectedHexTargetDataset(context) {
+    const selectedHex = this.stateManager?.get?.('selectedHex')
+      || context?.hexmap?.selectedHex
+      || null;
+    const q = Number(selectedHex?.q);
+    const r = Number(selectedHex?.r);
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      return null;
+    }
+    return {
+      hasHex: true,
+      q,
+      r,
+    };
+  }
+
+  resolveExecuteKeyForContractAction(actionId) {
+    const normalized = String(actionId || '').trim().toLowerCase();
+    if (normalized === 'strike') {
+      return 'attack';
+    }
+    if (normalized === 'interact') {
+      return 'interact';
+    }
+    if (normalized === 'talk') {
+      return 'talk';
+    }
+    if (normalized === 'stride') {
+      return 'stride';
+    }
+    if (normalized === 'step') {
+      return 'step';
+    }
+    if (normalized === 'demoralize') {
+      return 'demoralize';
+    }
+    if (normalized === 'raise_shield') {
+      return 'raise_shield';
+    }
+    if (normalized === 'delay') {
+      return 'delay';
+    }
+    if ([
+      'feint',
+      'point_out',
+      'command_animal',
+      'aid_setup',
+      'administer_first_aid',
+      'treat_poison',
+      'battle_medicine',
+    ].includes(normalized)) {
+      return normalized;
+    }
+    return '';
+  }
+
+  describeTargetingGuidance(targeting = '') {
+    switch (String(targeting || '').trim().toLowerCase()) {
+      case 'hostile_entity':
+        return 'Pick a hostile entity on the map first.';
+      case 'entity_or_object':
+        return 'Pick an adjacent entity or object on the map first.';
+      case 'hex':
+        return 'Select a destination hex on the map to resolve this action.';
+      case 'self':
+        return 'This action targets your active actor.';
+      case 'none':
+        return 'This action does not require a target.';
+      default:
+        return 'Resolve targeting through the map encounter view.';
+    }
+  }
+
+  resolveSpellTargetingMode(option = {}, metadata = {}) {
+    const rawTargeting = String(option?.targeting || metadata?.targeting || 'contextual').trim().toLowerCase();
+    if (rawTargeting === 'contextual') {
+      return this.resolveContextualTargetingMode(metadata, option, rawTargeting);
+    }
+    return rawTargeting;
+  }
+
+  isSpellTargetRequired(targeting = '') {
+    return this.isTargetingModeMapPickRequired(targeting);
+  }
+
+  isTargetingModeMapPickRequired(targeting = '') {
+    return [
+      'hostile_entity',
+      'ally',
+      'ally_or_self',
+      'self_or_target',
+      'entity_or_object',
+      'entity_or_room',
+      'hex',
+      'area_origin',
+      'connected_room',
+      'room_hazard',
+      'room',
+    ].includes(String(targeting || '').trim().toLowerCase());
+  }
+
+  shouldTreatContextualActionAsTargetable(metadata = {}, option = {}) {
+    const targetHints = [
+      metadata?.targeting_text,
+      metadata?.target,
+      metadata?.targets,
+      metadata?.range_text,
+      metadata?.description,
+      metadata?.desc,
+      metadata?.benefit,
+      metadata?.effect,
+      option?.label,
+      option?.id,
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+      .join(' ');
+
+    if (!targetHints) {
+      return false;
+    }
+    if (/\b(no target|no-target|self only|self-only)\b/.test(targetHints)) {
+      return false;
+    }
+    return /\b(target|creature|enemy|foe|ally|object|barrier|door|room|hazard|hex|adjacent|within|range|touch|willing)\b/.test(targetHints);
+  }
+
+  resolveContextualTargetingMode(metadata = {}, option = {}, fallback = 'contextual') {
+    const targetHints = [
+      metadata?.targeting_text,
+      metadata?.target,
+      metadata?.targets,
+      metadata?.range_text,
+      metadata?.description,
+      metadata?.desc,
+      metadata?.benefit,
+      metadata?.effect,
+      option?.label,
+      option?.id,
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+      .join(' ');
+
+    if (!targetHints) {
+      return fallback;
+    }
+    if (/\b(self only|self-only|targets? you|yourself)\b/.test(targetHints) && !/\bally\b/.test(targetHints)) {
+      return 'self';
+    }
+    if (/\b(ally or self|self or ally|ally\/self)\b/.test(targetHints)) {
+      return 'ally_or_self';
+    }
+    if (/\b(ally|willing creature)\b/.test(targetHints)) {
+      return 'ally';
+    }
+    if (/\b(enemy|foe|hostile|opponent)\b/.test(targetHints)) {
+      return 'hostile_entity';
+    }
+    if (/\b(connected room|next room|adjacent room|adjacent rooms)\b/.test(targetHints)) {
+      return 'connected_room';
+    }
+    if (/\b(room hazard|hazard)\b/.test(targetHints)) {
+      return 'room_hazard';
+    }
+    if (/\b(room)\b/.test(targetHints)) {
+      return 'room';
+    }
+    if (/\b(area origin|burst origin|cone origin|line origin|origin hex)\b/.test(targetHints)) {
+      return 'area_origin';
+    }
+    if (/\b(hex|tile|grid|destination)\b/.test(targetHints)) {
+      return 'hex';
+    }
+    if (/\b(object|barrier|door|lever|switch|device|container)\b/.test(targetHints)) {
+      return 'entity_or_object';
+    }
+    if (/\b(npc|creature|target|entity)\b/.test(targetHints)) {
+      return 'entity_or_room';
+    }
+    return fallback;
+  }
+
+  isTargetingModeEntityRequired(targeting = '') {
+    return ['hostile_entity', 'ally', 'entity_or_object', 'entity_or_room', 'ally_or_self'].includes(String(targeting || '').trim().toLowerCase());
   }
 
   syncActionRailPanelState() {
@@ -1179,7 +1717,7 @@ export class ActionRailPanel {
   }
 
   buildSearchActionRailPanel(context) {
-    const searchAvailable = this.isServerActionAvailable(context, getServerActionIdForExecute('search'));
+    const searchAvailable = this.isServerActionAvailable(context, 'search');
     const hasActor = Boolean(context.actorRef);
     const disabled = !hasActor || !searchAvailable;
     const entries = [this.renderActionRailEntry({
@@ -1201,44 +1739,88 @@ export class ActionRailPanel {
   }
 
   buildSpellActionRailPanel(context) {
-    const spells = normalizeSpellcastingData(context.state?.spells || {}, context.state || {});
-    const rankGroups = collectSpellRankGroups(spells);
-    const runtimeSlots = normalizeDisplayedSpellSlots(context.state?.resources?.spellSlots, spells.slots);
-    const entries = [];
-    const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('spell'));
-
-    rankGroups.forEach(({ rank, label, spells: rankSpells }) => {
-      rankSpells.forEach((spell) => {
-        const spellId = typeof spell === 'string' ? spell : (spell.spell_id || spell.id || '');
-        const spellName = typeof spell === 'string'
-          ? spell.replace(/_/g, ' ')
-          : (spell.spell_name || spell.name || spellId || 'Spell');
-        const slotState = rank > 0 ? runtimeSlots[String(rank)] || null : null;
-        const isFocusSpell = Boolean(spell?.is_focus_spell || spell?.focus || spell?.focus_spell);
-        const remaining = isFocusSpell
-          ? Number(context.state?.resources?.focusPoints?.current ?? 0)
-          : Number(slotState?.current ?? 0);
-        const disabled = rank > 0 && !isFocusSpell ? remaining <= 0 : false;
-        const actionCost = getActionRailCost(spell?.action_cost ?? spell?.actions ?? spell?.cast_actions, 2);
-        entries.push(this.renderActionRailEntry({
-          execute: 'spell',
-          title: spellName,
-          summary: buildActionRailEntrySummary([
-            rank === 0 ? 'Cantrip' : label,
-            spell?.tradition ? `${String(spell.tradition).replace(/^./, (char) => char.toUpperCase())}` : '',
-            isFocusSpell ? `Focus ${remaining}` : (slotState ? `Slots ${slotState.current}/${slotState.max}` : ''),
-            formatActionRailCost(actionCost),
-          ]),
-          meta: typeof spell === 'object' ? (spell.description || spell.desc || '') : '',
-          disabled: this.isActionRailExecutionDisabled(actionCost, context, disabled || !spellActionAvailable),
-          dataset: {
-            spellId,
-            spellName,
-            spellLevel: String(rank),
-            isFocusSpell: isFocusSpell ? '1' : '0',
-            actionCost: String(actionCost),
-          },
-        }));
+    const options = this.getServerActionOptions(context, 'cast_spell');
+    if (options === null) {
+      return this.buildPendingActionOptionsPanel('Spell actions');
+    }
+    const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'cast_spell');
+    const entries = options.map((option) => {
+      const metadata = option?.metadata && typeof option.metadata === 'object' ? option.metadata : {};
+      const spellId = String(metadata?.spell_id || option?.id || '').trim();
+      const spellName = String(metadata?.spell_name || option?.label || spellId || 'Spell').trim();
+      const spellLevel = Number(metadata?.spell_level ?? metadata?.level ?? 0);
+      const isFocusSpell = Boolean(metadata?.is_focus_spell || metadata?.focus || metadata?.focus_spell);
+      const actionCost = getActionRailCost(option?.action_cost ?? metadata?.action_cost ?? metadata?.actions, 2);
+      const targeting = this.resolveSpellTargetingMode(option, metadata);
+      const targetRequired = this.isSpellTargetRequired(targeting);
+      const targetingGuidance = this.describeTargetingGuidance(targeting);
+      const normalizedSpellId = String(spellId || '').trim().toLowerCase();
+      const normalizedSpellSlug = normalizedSpellId.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const explicitRangeFt = Number(
+        metadata?.range_ft
+        ?? metadata?.rangeFeet
+        ?? metadata?.max_distance_ft
+        ?? 0
+      );
+      const rangeText = String(metadata?.range_text || metadata?.range || metadata?.targeting_text || '').trim();
+      const inferredRangeFtMatch = rangeText.match(/(\d+)\s*(?:ft|feet|foot)\b/i);
+      const inferredRangeFt = inferredRangeFtMatch ? Number(inferredRangeFtMatch[1]) : 0;
+      const rangeFt = Number.isFinite(explicitRangeFt) && explicitRangeFt > 0
+        ? Math.max(5, Math.trunc(explicitRangeFt))
+        : (Number.isFinite(inferredRangeFt) && inferredRangeFt > 0 ? Math.max(5, Math.trunc(inferredRangeFt)) : 0);
+      const explicitMinTargets = Number(
+        metadata?.min_targets
+        ?? metadata?.target_min
+        ?? metadata?.minimum_targets
+        ?? 0
+      );
+      const explicitMaxTargets = Number(
+        metadata?.max_targets
+        ?? metadata?.target_max
+        ?? metadata?.maximum_targets
+        ?? metadata?.target_count
+        ?? 0
+      );
+      const inferredMagicMissileTargets = normalizedSpellSlug === 'magic_missile'
+        ? Math.max(1, Math.min(3, actionCost))
+        : 0;
+      const maxTargets = Number.isFinite(explicitMaxTargets) && explicitMaxTargets > 0
+        ? Math.max(1, Math.trunc(explicitMaxTargets))
+        : inferredMagicMissileTargets;
+      const minTargets = Number.isFinite(explicitMinTargets) && explicitMinTargets > 0
+        ? Math.max(1, Math.trunc(explicitMinTargets))
+        : (maxTargets > 1 ? maxTargets : 1);
+      const selectionMode = maxTargets > 1 ? 'multi' : 'single';
+      const completionPolicy = maxTargets > 1 ? 'max_targets' : 'auto';
+      return this.renderActionRailEntry({
+        execute: 'cast_spell',
+        title: spellName || 'Spell',
+        summary: buildActionRailEntrySummary([
+          Number.isFinite(spellLevel) && spellLevel === 0 ? 'Cantrip' : (Number.isFinite(spellLevel) ? `Rank ${spellLevel}` : ''),
+          isFocusSpell ? 'Focus spell' : '',
+          targeting ? `Targeting: ${targeting}` : '',
+          formatActionRailCost(actionCost),
+        ]),
+        meta: buildActionRailEntrySummary([
+          String(metadata?.description || metadata?.desc || '').trim(),
+          targetRequired ? `${targetingGuidance} Select on map after Use action.` : '',
+        ]),
+        disabled: this.isActionRailExecutionDisabled(actionCost, context, !spellActionAvailable),
+        dataset: {
+          spellId,
+          spellName,
+          spellLevel: String(Number.isFinite(spellLevel) ? spellLevel : 0),
+          isFocusSpell: isFocusSpell ? '1' : '0',
+          actionCost: String(actionCost),
+          targeting,
+          targetRequired: targetRequired ? '1' : '0',
+          minTargets: String(minTargets),
+          maxTargets: String(Math.max(minTargets, maxTargets || 1)),
+          selectionMode,
+          completionPolicy,
+          allowDuplicateTargets: normalizedSpellSlug === 'magic_missile' ? '1' : '0',
+          rangeFt: rangeFt > 0 ? String(rangeFt) : '',
+        },
       });
     });
 
@@ -1252,25 +1834,42 @@ export class ActionRailPanel {
   }
 
   buildConsumableActionRailPanel(context) {
-    const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
-    const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('consumable'));
-    const entries = items.map((item) => {
-      const itemId = item.id || item.item_id || item.name || '';
-      const quantity = Number(item.quantity || 1);
-      const actionCost = getActionRailCost(item.action_cost ?? item.actions, 1);
+    const options = this.getServerActionOptions(context, 'consume_item');
+    if (options === null) {
+      return this.buildPendingActionOptionsPanel('Consumables');
+    }
+    const consumeActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'consume_item');
+    const entries = options.map((option) => {
+      const metadata = option?.metadata && typeof option.metadata === 'object' ? option.metadata : {};
+      const itemId = String(metadata?.item_id || option?.id || '').trim();
+      const itemName = String(metadata?.name || option?.label || itemId || 'Consumable').trim();
+      const quantity = Number(metadata?.quantity || 1);
+      const actionCost = getActionRailCost(option?.action_cost ?? metadata?.action_cost ?? metadata?.actions, 1);
+      const rawTargeting = String(option?.targeting || metadata?.targeting || 'self_or_target').trim().toLowerCase();
+      const targeting = rawTargeting === 'contextual'
+        ? this.resolveContextualTargetingMode(metadata, option, rawTargeting)
+        : rawTargeting;
+      const targetRequired = this.isTargetingModeMapPickRequired(targeting);
+      const contextualTargetRequired = rawTargeting === 'contextual'
+        && this.shouldTreatContextualActionAsTargetable(metadata, option);
       return this.renderActionRailEntry({
-        execute: 'consumable',
-        title: item.name || itemId || 'Consumable',
+        execute: 'consume_item',
+        title: itemName || 'Consumable',
         summary: buildActionRailEntrySummary([
-          item.type || item.category || 'Consumable',
+          String(metadata?.type || metadata?.category || 'Consumable'),
           quantity > 1 ? `x${quantity}` : '',
+          targeting ? `Targeting: ${targeting}` : '',
           formatActionRailCost(actionCost),
         ]),
-        meta: item.consumable_stats?.effect || item.effect || item.description || item.desc || '',
+        meta: String(metadata?.consumable_stats?.effect || metadata?.effect || metadata?.description || metadata?.desc || '').trim(),
         disabled: this.isActionRailExecutionDisabled(actionCost, context, !consumeActionAvailable),
         dataset: {
-          itemId: String(itemId),
+          itemId: itemId || String(option?.id || ''),
+          itemName,
           actionCost: String(actionCost),
+          itemPayload: JSON.stringify(metadata || {}),
+          targeting,
+          targetRequired: (targetRequired || contextualTargetRequired) ? '1' : '0',
         },
       });
     });
@@ -1285,9 +1884,31 @@ export class ActionRailPanel {
   }
 
   buildSkillActionRailPanel(context) {
-    const skills = collectCharacterSkillEntries(context.state)
+    const skillOptions = this.getServerActionOptions(context, 'skill');
+    if (skillOptions === null) {
+      return this.buildPendingActionOptionsPanel('Skill actions');
+    }
+    const skills = skillOptions
+      .map((option) => {
+        const metadata = option?.metadata && typeof option.metadata === 'object' ? option.metadata : {};
+        const modifier = Number(metadata?.modifier ?? metadata?.bonus ?? 0);
+        const rawTargeting = String(option?.targeting || metadata?.targeting || 'contextual').trim().toLowerCase();
+        const targeting = rawTargeting === 'contextual'
+          ? this.resolveContextualTargetingMode(metadata, option, rawTargeting)
+          : rawTargeting;
+        const contextualTargetRequired = rawTargeting === 'contextual'
+          && this.shouldTreatContextualActionAsTargetable(metadata, option);
+        return {
+          name: String(metadata?.skill_name || metadata?.name || option?.label || option?.id || 'Skill').trim(),
+          modifier: Number.isFinite(modifier) ? modifier : 0,
+          proficiency: String(metadata?.proficiency || 'untrained').trim(),
+          actionCost: getActionRailCost(option?.action_cost ?? metadata?.action_cost ?? metadata?.actions, 1),
+          targeting,
+          targetRequired: this.isTargetingModeMapPickRequired(targeting) || contextualTargetRequired,
+        };
+      })
       .sort((a, b) => Number(b.modifier || 0) - Number(a.modifier || 0));
-    const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('skill'));
+    const skillActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'skill');
     const entries = skills.map((skill) => {
       const modifier = Number(skill.modifier || 0);
       return this.renderActionRailEntry({
@@ -1296,15 +1917,19 @@ export class ActionRailPanel {
         summary: buildActionRailEntrySummary([
           modifier >= 0 ? `+${modifier}` : `${modifier}`,
           skill.proficiency || 'untrained',
-          context.encounterActive ? formatActionRailCost(1) : 'Direct log',
+          skill.targeting ? `Targeting: ${skill.targeting}` : '',
+          context.encounterActive ? formatActionRailCost(skill.actionCost) : 'Direct log',
         ]),
         meta: context.encounterActive
           ? 'Resolve this skill directly without using chat.'
           : 'Logs the declared skill action directly in the shell.',
-        disabled: this.isActionRailExecutionDisabled(1, context, !skillActionAvailable),
+        disabled: this.isActionRailExecutionDisabled(skill.actionCost, context, !skillActionAvailable),
         dataset: {
           skillName: String(skill.name || ''),
           skillModifier: String(modifier),
+          actionCost: String(skill.actionCost),
+          targeting: String(skill.targeting || 'contextual'),
+          targetRequired: skill.targetRequired ? '1' : '0',
         },
       });
     });
@@ -1319,53 +1944,42 @@ export class ActionRailPanel {
   }
 
   buildFeatActionRailPanel(context) {
-    const features = context.state?.features || {};
-    const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, getServerActionIdForExecute('feat'));
-    const featActions = flattenTooltipBuckets(context.state?.actions?.availableActions?.feat || features?.featEffects?.available_actions || {});
-    const fallbackFeats = [
-      ...(Array.isArray(features.ancestryFeatures) ? features.ancestryFeatures : []),
-      ...(Array.isArray(features.classFeatures) ? features.classFeatures : []),
-      ...(Array.isArray(features.feats) ? features.feats : []),
-    ];
-
-    const actionEntries = featActions.length > 0
-      ? featActions.map((action) => ({
-        title: action.name || 'Feat action',
+    const options = this.getServerActionOptions(context, 'feat');
+    if (options === null) {
+      return this.buildPendingActionOptionsPanel('Feat actions');
+    }
+    const featActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'feat');
+    const entries = options.map((option) => {
+      const metadata = option?.metadata && typeof option.metadata === 'object' ? option.metadata : {};
+      const actionCost = getActionRailCost(option?.action_cost ?? metadata?.action_cost ?? metadata?.actions, 1);
+      const rawTargeting = String(option?.targeting || metadata?.targeting || 'contextual').trim().toLowerCase();
+      const targeting = rawTargeting === 'contextual'
+        ? this.resolveContextualTargetingMode(metadata, option, rawTargeting)
+        : rawTargeting;
+      const contextualTargetRequired = rawTargeting === 'contextual'
+        && this.shouldTreatContextualActionAsTargetable(metadata, option);
+      const targetRequired = this.isTargetingModeMapPickRequired(targeting) || contextualTargetRequired;
+      const dataset = {
+        featName: String(metadata?.name || option?.label || 'Feat action'),
+        featId: String(metadata?.id || option?.id || ''),
+        actionCost: String(actionCost),
+        targeting,
+        targetRequired: targetRequired ? '1' : '0',
+      };
+      return this.renderActionRailEntry({
+        execute: 'feat',
+        title: dataset.featName,
         summary: buildActionRailEntrySummary([
-          action.source_feat || '',
-          formatActionRailCost(getActionRailCost(action.action_cost, 1)),
-          action.uses_remaining != null && action.uses_max != null ? `${action.uses_remaining}/${action.uses_max} uses` : '',
+          String(metadata?.type || metadata?.source_feat || 'feat'),
+          metadata?.level ? `Lv ${metadata.level}` : '',
+          targeting ? `Targeting: ${targeting}` : '',
+          formatActionRailCost(actionCost),
         ]),
-        meta: action.description || '',
-        dataset: {
-          featName: action.name || 'Feat action',
-          featId: action.id || action.source_feat || '',
-          actionCost: String(getActionRailCost(action.action_cost, 1)),
-        },
-      }))
-      : fallbackFeats.map((feat) => ({
-        title: feat.name || String(feat || 'Feat'),
-        summary: buildActionRailEntrySummary([
-          feat.type || 'feat',
-          feat.level ? `Lv ${feat.level}` : '',
-          context.encounterActive ? formatActionRailCost(1) : 'Direct log',
-        ]),
-        meta: feat.description || feat.desc || feat.benefit || '',
-        dataset: {
-          featName: feat.name || String(feat || 'Feat'),
-          featId: feat.id || slugifyTooltipKey(feat.name || String(feat || 'feat')),
-          actionCost: '1',
-        },
-      }));
-
-    const entries = actionEntries.map((entry) => this.renderActionRailEntry({
-      execute: 'feat',
-      title: entry.title,
-      summary: entry.summary,
-      meta: entry.meta,
-      disabled: this.isActionRailExecutionDisabled(entry.dataset.actionCost, context, !featActionAvailable),
-      dataset: entry.dataset,
-    }));
+        meta: String(metadata?.description || metadata?.desc || metadata?.benefit || '').trim(),
+        disabled: this.isActionRailExecutionDisabled(dataset.actionCost, context, !featActionAvailable),
+        dataset,
+      });
+    });
 
     return {
       title: 'Feat actions',
@@ -1393,13 +2007,150 @@ export class ActionRailPanel {
     </article>`;
   }
 
+  renderActionRailGroup(label, entriesHtml = '') {
+    return `<section class="action-rail__group"><p class="action-rail__group-label">${escapeQuestHtml(label)}</p>${entriesHtml}</section>`;
+  }
+
+  isActionRailTargetPickRequired(actionType, button) {
+    const key = String(actionType || '').trim().toLowerCase();
+    const targeting = String(button?.dataset?.targeting || '').trim().toLowerCase();
+    const targetRequired = button?.dataset?.targetRequired === '1';
+    if (targetRequired) {
+      return true;
+    }
+    if (['attack', 'interact', 'talk', 'demoralize', 'stride', 'step'].includes(key)) {
+      return true;
+    }
+    if (key === 'cast_spell' || key === 'spell') {
+      if (targeting === '' || targeting === 'contextual') {
+        return true;
+      }
+      return !['self', 'none'].includes(targeting);
+    }
+    if (['skill', 'feat', 'consume_item', 'consumable'].includes(key)) {
+      return targeting !== '' && !['none', 'self'].includes(targeting);
+    }
+    return false;
+  }
+
+  resolveActionRailTargetPrompt(actionType, button) {
+    const key = String(actionType || '').trim().toLowerCase();
+    const targeting = String(button?.dataset?.targeting || '').trim().toLowerCase();
+    if (targeting === 'area_origin') {
+      return 'Pick area origin';
+    }
+    if (targeting === 'connected_room') {
+      return 'Pick destination connection';
+    }
+    if (targeting === 'room_hazard') {
+      return 'Pick hazard target';
+    }
+    if (targeting === 'room') {
+      return 'Pick room target';
+    }
+    if (targeting === 'hex') {
+      return 'Pick destination hex';
+    }
+    if (targeting === 'ally') {
+      return 'Pick ally target';
+    }
+    if (targeting === 'ally_or_self') {
+      return 'Pick ally or self target';
+    }
+    if (targeting === 'self_or_target') {
+      return 'Pick self or target';
+    }
+    if (targeting === 'hostile_entity') {
+      return 'Pick hostile target';
+    }
+    if (key === 'attack' || key === 'demoralize') {
+      return 'Pick hostile target';
+    }
+    if (key === 'interact') {
+      return 'Pick object, barrier, or entity target';
+    }
+    if (key === 'talk') {
+      return 'Pick conversation target';
+    }
+    if (key === 'stride' || key === 'step') {
+      return 'Pick destination hex';
+    }
+    if (key === 'cast_spell' || key === 'spell') {
+      if (targeting === 'ally' || targeting === 'ally_or_self') {
+        return 'Pick ally target';
+      }
+      if (targeting === 'entity_or_object') {
+        return 'Pick entity or object target';
+      }
+      if (targeting === 'hex') {
+        return 'Pick spell hex target';
+      }
+      if (targeting === 'self') {
+        return 'Pick self target';
+      }
+      return 'Pick spell target';
+    }
+    if (key === 'consume_item' || key === 'consumable') {
+      if (targeting === 'self_or_target') {
+        return 'Pick self or target';
+      }
+      if (targeting === 'ally' || targeting === 'ally_or_self') {
+        return 'Pick consumable target';
+      }
+      if (targeting === 'entity_or_object') {
+        return 'Pick consumable target';
+      }
+      return 'Pick consumable target';
+    }
+    if (key === 'skill') {
+      if (targeting === 'ally' || targeting === 'ally_or_self') {
+        return 'Pick skill target';
+      }
+      if (targeting === 'entity_or_object' || targeting === 'entity_or_room') {
+        return 'Pick skill target';
+      }
+      if (targeting === 'hex') {
+        return 'Pick skill target hex';
+      }
+      if (targeting === 'room' || targeting === 'room_hazard' || targeting === 'connected_room') {
+        return 'Pick skill target';
+      }
+      return 'Pick skill target';
+    }
+    if (key === 'feat') {
+      if (targeting === 'ally' || targeting === 'ally_or_self') {
+        return 'Pick feat target';
+      }
+      if (targeting === 'entity_or_object' || targeting === 'entity_or_room') {
+        return 'Pick feat target';
+      }
+      if (targeting === 'hex' || targeting === 'area_origin') {
+        return 'Pick feat target';
+      }
+      return 'Pick feat target';
+    }
+    if (key === 'feint') {
+      return 'Pick feint target';
+    }
+    if (key === 'point_out') {
+      return 'Pick target to point out';
+    }
+    if (key === 'command_animal') {
+      return 'Pick companion target';
+    }
+    if (key === 'aid_setup' || key === 'administer_first_aid' || key === 'battle_medicine' || key === 'treat_poison' || key === 'treat_wounds') {
+      return 'Pick ally target';
+    }
+    return 'Pick target';
+  }
+
   handleActionRailPanelAction(button) {
     const actionType = String(button.dataset.actionRailExecute || '').trim();
     if (!actionType) {
       return;
     }
 
-    console.info('[ActionRailPanel] Clicked action rail button', {
+    this.logActionRailDebug('action-clicked', {
       actionType,
       title: String(button.dataset.actionLabel || button.textContent || '').trim(),
       roomId: String(button.dataset.roomId || '').trim(),
@@ -1409,7 +2160,7 @@ export class ActionRailPanel {
 
     const directRoute = getActionRailDirectRoute(actionType, button);
     if (directRoute?.event) {
-      console.info('[ActionRailPanel] Dispatching direct route', {
+      this.logActionRailDebug('action-direct-route', {
         actionType,
         event: directRoute.event,
       });
@@ -1418,6 +2169,24 @@ export class ActionRailPanel {
     }
 
     if (isActionRailSelectableAction(actionType)) {
+      if (this.isActionRailTargetPickRequired(actionType, button)) {
+        const context = this.getActionRailContext();
+        const actorRef = String(
+          context?.actionContract?.actor_id
+          || context?.phaseSnapshot?.turn?.entity
+          || context?.actorRef
+          || ''
+        ).trim();
+        if (actorRef) {
+          button.dataset.actorRef = actorRef;
+        }
+        this.bus.emit('user:target-pick-requested', {
+          actionKey: actionType,
+          button,
+          promptLabel: this.resolveActionRailTargetPrompt(actionType, button),
+        });
+        return;
+      }
       this.bus.emit('user:action-selected', { actionKey: actionType, button });
       return;
     }
@@ -1435,7 +2204,7 @@ export class ActionRailPanel {
       return false;
     }
     const requestId = `action-rail-${Date.now()}-${++this._actionRailRequestSequence}`;
-    console.log('[ActionRailPanel] beginActionRailRequest: starting', { requestId, execute: button.dataset.actionRailExecute, roomId: button.dataset.roomId });
+    this.logActionRailDebug('beginActionRailRequest:start', { requestId, execute: button.dataset.actionRailExecute, roomId: button.dataset.roomId });
     button.dataset.actionRailPending = '1';
     button.dataset.backendRequestId = requestId;
     button.disabled = true;

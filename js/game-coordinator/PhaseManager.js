@@ -117,8 +117,29 @@ export class PhaseManager {
       this.availableActions = availableActions;
       this._emit('actionsUpdate', this.availableActions);
     }
-    this.actionContract = actionContract;
+    this.actionContract = actionContract ?? this.actionContract;
     this.legalIntents = Array.isArray(mergedState.legal_intents) ? mergedState.legal_intents : this.legalIntents;
+
+    const familySummary = [];
+    const families = actionContract && typeof actionContract === 'object' && actionContract.action_option_families
+      ? actionContract.action_option_families
+      : {};
+    if (families && typeof families === 'object') {
+      Object.entries(families).forEach(([key, family]) => {
+        const count = Number(family?.option_count ?? (Array.isArray(family?.options) ? family.options.length : 0));
+        familySummary.push(`${key}:${Number.isFinite(count) ? count : 0}`);
+      });
+    }
+    console.info('[PhaseManager] applyServerState', {
+      phase: this.currentPhase,
+      stateVersion: this.stateVersion,
+      encounterId: this.encounterId,
+      actorId: String(actionContract?.actor_id || this.turn?.entity || ''),
+      availableActionCount: Array.isArray(this.availableActions) ? this.availableActions.length : 0,
+      availableActions: Array.isArray(this.availableActions) ? this.availableActions : [],
+      actionContractCount: Array.isArray(actionContract?.actions) ? actionContract.actions.length : 0,
+      familySummary,
+    });
 
     // Emit phase change if phase actually changed.
     if (previousPhase !== this.currentPhase) {

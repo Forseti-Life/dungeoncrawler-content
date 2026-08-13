@@ -828,7 +828,16 @@ class QuestTrackerController extends ControllerBase {
         $speaker,
         $message,
         'npc',
-        $character_id
+        $character_id,
+        'room',
+        FALSE,
+        FALSE,
+        NULL,
+        [],
+        [
+          'response_mode' => 'actor_scoped',
+          'include_legacy_overlay' => FALSE,
+        ]
       );
     }
     catch (\Exception $e) {

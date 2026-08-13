@@ -150,24 +150,43 @@ class CampaignCreateForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
+    $theme = (string) $form_state->getValue('theme');
     // Use the campaign initialization service to create campaign with all defaults
     $campaign_id = $this->campaignInitialization->initializeCampaign(
       (int) $this->currentUser->id(),
       (string) $form_state->getValue('name'),
-      (string) $form_state->getValue('theme'),
+      $theme,
       (string) $form_state->getValue('difficulty')
     );
 
     if (!$campaign_id) {
+      $this->logger('dungeoncrawler_content')->error('CampaignCreateForm submit failed: initializeCampaign returned 0 (uid={uid}, theme={theme}, difficulty={difficulty}, submitted_name={submitted_name}).', [
+        'uid' => (int) $this->currentUser->id(),
+        'theme' => $theme,
+        'difficulty' => (string) $form_state->getValue('difficulty'),
+        'submitted_name' => (string) $form_state->getValue('name'),
+      ]);
       $this->messenger()->addError($this->t('Failed to create campaign. Please try again.'));
       return;
     }
 
-    $this->messenger()->addStatus($this->t('Campaign created! Your adventure awaits at the tavern entrance.'));
+    $this->messenger()->addStatus($this->t('Campaign created! Your adventure awaits at @start_location.', [
+      '@start_location' => $this->resolveStarterLaunchLocationLabel($theme),
+    ]));
 
     $form_state->setRedirect('dungeoncrawler_content.campaign_tavernentrance', [
       'campaign_id' => $campaign_id,
     ]);
+  }
+
+  /**
+   * Resolve launch copy for the campaign starter location.
+   */
+  private function resolveStarterLaunchLocationLabel(string $theme): string {
+    return match (strtolower(trim($theme))) {
+      'undead_crypt' => (string) $this->t('the undead crypt antechamber'),
+      default => (string) $this->t('the campaign starter location'),
+    };
   }
 
   /**

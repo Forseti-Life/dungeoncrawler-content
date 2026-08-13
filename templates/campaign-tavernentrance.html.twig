@@ -1,9 +1,9 @@
 {#
- # Campaign Tavern Entrance — select a character and launch campaign.
+ # Campaign launch — select a character and launch campaign.
  #}
 <div class="dc-character-list">
   <div class="dc-character-list__header">
-    <h1 class="dc-character-list__title">🍻 Legacy Tavern Entrance</h1>
+    <h1 class="dc-character-list__title">🚀 Campaign Launch</h1>
     <div class="dc-sheet__nav-actions">
       <a href="{{ back_url }}" class="dc-btn dc-btn-secondary">← Back to Campaigns</a>
       <a href="{{ dungeon_selection_url }}" class="dc-btn dc-btn-secondary">🗺️ Select Dungeon</a>
@@ -95,7 +95,7 @@
 
                   <div class="dc-character-card__action-text">
                     {% if char.select_url %}
-                      <span class="dc-btn dc-btn-success">▶️ Continue Legacy</span>
+                      <span class="dc-btn dc-btn-success">▶️ Launch Campaign</span>
                     {% elseif char.continue_url %}
                       <span class="dc-btn dc-btn-warning">⚠️ Complete Creation (Step {{ char.step }}/8)</span>
                     {% else %}

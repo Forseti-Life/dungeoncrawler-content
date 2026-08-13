@@ -205,9 +205,11 @@ class InventoryManagementService {
     int $campaign_id
   ): int {
     $state = $this->characterStateService->getState($character_id, $campaign_id);
-    $inventory = CharacterEquipmentSlotHelper::normalizeInventory(
-      is_array($state['inventory'] ?? NULL) ? $state['inventory'] : []
-    );
+    $inventory_seed = is_array($state['inventory'] ?? NULL) ? $state['inventory'] : [];
+    if ($inventory_seed === [] && is_array($state['resources']['inventory'] ?? NULL)) {
+      $inventory_seed = $state['resources']['inventory'];
+    }
+    $inventory = CharacterEquipmentSlotHelper::normalizeInventory($inventory_seed);
 
     $entries = [];
     $push_entry = function (?array $item, string $location) use (&$entries): void {
@@ -216,7 +218,58 @@ class InventoryManagementService {
       }
       $item_id = trim((string) ($item['id'] ?? $item['item_id'] ?? ''));
       if ($item_id === '') {
+        $item_name = trim((string) ($item['name'] ?? ''));
+        if ($item_name !== '') {
+          $item_id = strtolower(preg_replace('/[^a-z0-9]+/i', '_', $item_name));
+          $item_id = trim($item_id, '_');
+          if ($item_id !== '') {
+            $item['id'] = $item_id;
+            $item['item_id'] = $item_id;
+          }
+        }
+      }
+      if ($item_id === '') {
         return;
+      }
+      if (trim((string) ($item['id'] ?? '')) === '') {
+        $item['id'] = $item_id;
+      }
+      if (trim((string) ($item['item_id'] ?? '')) === '') {
+        $item['item_id'] = $item_id;
+      }
+      $item_type = trim((string) ($item['item_type'] ?? $item['type'] ?? ''));
+      if ($item_type === '') {
+        $fingerprint = strtolower(trim((string) ($item['item_id'] ?? $item['id'] ?? '') . ' ' . (string) ($item['name'] ?? '')));
+        if (str_contains($fingerprint, 'shield')) {
+          $item_type = 'shield';
+        }
+        elseif (
+          str_contains($fingerprint, 'armor')
+          || str_contains($fingerprint, 'helmet')
+          || str_contains($fingerprint, 'helm')
+          || str_contains($fingerprint, 'mail')
+          || str_contains($fingerprint, 'plate')
+          || str_contains($fingerprint, 'leather')
+        ) {
+          $item_type = 'armor';
+        }
+        elseif (
+          str_contains($fingerprint, 'sword')
+          || str_contains($fingerprint, 'axe')
+          || str_contains($fingerprint, 'mace')
+          || str_contains($fingerprint, 'hammer')
+          || str_contains($fingerprint, 'spear')
+          || str_contains($fingerprint, 'bow')
+          || str_contains($fingerprint, 'dagger')
+          || str_contains($fingerprint, 'staff')
+        ) {
+          $item_type = 'weapon';
+        }
+        else {
+          $item_type = 'gear';
+        }
+        $item['item_type'] = $item_type;
+        $item['type'] = $item_type;
       }
       $entries[] = [
         'location' => $location,
@@ -245,6 +298,29 @@ class InventoryManagementService {
     $push_entry(is_array($worn['shield'] ?? NULL) ? $worn['shield'] : NULL, 'worn');
 
     if ($entries === []) {
+      $equipment_source = [];
+      if (is_array($state['equipment'] ?? NULL)) {
+        $equipment_source = $state['equipment'];
+      }
+      elseif (is_array($state['npcDefinition']['equipment'] ?? NULL)) {
+        $equipment_source = $state['npcDefinition']['equipment'];
+      }
+
+      foreach ($equipment_source as $equipment_item) {
+        if (!is_array($equipment_item)) {
+          continue;
+        }
+        $declared_location = strtolower(trim((string) ($equipment_item['location'] ?? '')));
+        $location = match ($declared_location) {
+          'worn', 'equipped' => 'worn',
+          'stashed' => 'stashed',
+          default => (!empty($equipment_item['equipped']) || !empty($equipment_item['worn'])) ? 'worn' : 'carried',
+        };
+        $push_entry($equipment_item, $location);
+      }
+    }
+
+    if ($entries === []) {
       return 0;
     }
 
@@ -257,23 +333,30 @@ class InventoryManagementService {
       if ($item_instance_id === '') {
         $item_instance_id = sprintf(
           'bootstrap_%d_%s_%d',
-          $campaign_id,
+          (int) $character_id,
           preg_replace('/[^a-z0-9_]+/i', '_', (string) ($item['id'] ?? 'item')),
           $index + 1
         );
       }
 
-      $this->database->insert('dc_campaign_item_instances')
-        ->fields([
+      // Materialization must be idempotent under concurrent bootstrap reads.
+      // Use an upsert keyed on campaign + instance identity so duplicate
+      // insert races cannot throw 1062 and break inventory hydration.
+      $this->database->merge('dc_campaign_item_instances')
+        ->key([
           'campaign_id' => $campaign_id,
           'item_instance_id' => $item_instance_id,
+        ])
+        ->fields([
           'item_id' => $item['id'] ?? '',
           'location_type' => $entry['location'],
           'location_ref' => $character_id,
           'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
           'state_data' => json_encode($item),
-          'created' => $now,
           'updated' => $now,
+        ])
+        ->insertFields([
+          'created' => $now,
         ])
         ->execute();
     }

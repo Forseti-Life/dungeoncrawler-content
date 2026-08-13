@@ -8,7 +8,6 @@ use Drupal\Core\Database\Connection;
  * Manages campaign-scoped subject-registry records for collective actors.
  */
 class CampaignSubjectRegistryService {
-
   public function __construct(
     protected Connection $database,
     protected InstitutionNormalizationService $institutionNormalization,

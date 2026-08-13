@@ -136,6 +136,7 @@
               "type": "explore",
               "description": "Follow the strongest leads through the city.",
               "location_id": "nantambu",
+              "location": "nantambu",
               "npc_id": "npc_tavern_keeper",
               "next_step": "Travel to Nantambu, follow the top city lead, and confirm the investigation destination.",
               "wayfinding_hint": "Travel to nantambu via the city transition point, then follow the highest-confidence clue marker.",

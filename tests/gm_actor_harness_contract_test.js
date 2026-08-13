@@ -61,6 +61,17 @@ assert(
   'GM runtime emits gm_actor_runtime metadata envelope'
 );
 assert(
+  runtimeSource.includes("invocation_timing")
+    && runtimeSource.includes("post_validated_player_room_chat_ms")
+    && runtimeSource.includes("build_actor_turn_context_ms"),
+  'GM runtime emits per-stage invocation timing diagnostics for actor room chat'
+);
+assert(
+  harnessSource.includes("invocation_timing")
+    && harnessSource.includes("gm_actor_harness"),
+  'GM harness appends invocation timing metadata to runtime payload'
+);
+assert(
   runtimeSource.includes('$this->chatTransport->postValidatedPlayerRoomChat(')
     && transportSource.includes("$this->roomChatService->postMessage(")
     && transportSource.includes("'_validated_encounter_room_chat' => TRUE"),

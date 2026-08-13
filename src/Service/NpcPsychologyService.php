@@ -350,7 +350,10 @@ class NpcPsychologyService {
     string $event_description,
     array $context = []
   ): ?array {
+    $overall_started_at = hrtime(true);
+    $stage_started_at = hrtime(true);
     $profile = $this->loadProfile($campaign_id, $entity_ref);
+    $load_profile_ms = $this->elapsedMs($stage_started_at);
     if (!$profile) {
       $this->logger->warning('No psychology profile for @ref — cannot record monologue', [
         '@ref' => $entity_ref,
@@ -359,7 +362,10 @@ class NpcPsychologyService {
     }
 
     // Generate inner thought via AI (or fallback).
+    $stage_started_at = hrtime(true);
     $monologue_result = $this->generateInnerThought($profile, $event_type, $event_description, $context);
+    $generate_inner_thought_ms = $this->elapsedMs($stage_started_at);
+    $diagnostics = is_array($monologue_result['_diagnostics'] ?? NULL) ? $monologue_result['_diagnostics'] : [];
 
     $entry = [
       'timestamp' => date('c'),
@@ -411,7 +417,9 @@ class NpcPsychologyService {
       $updates['character_sheet'] = $sheet;
     }
 
-    $this->updateProfile($campaign_id, $entity_ref, $updates);
+    $stage_started_at = hrtime(true);
+    $updated = $this->updateProfile($campaign_id, $entity_ref, $updates);
+    $persist_profile_ms = $this->elapsedMs($stage_started_at);
 
     $this->logger->info('NPC @name inner monologue: @emotion / attitude shift @shift (@before→@after)', [
       '@name' => $profile['display_name'],
@@ -420,6 +428,55 @@ class NpcPsychologyService {
       '@before' => $profile['attitude'],
       '@after' => $new_attitude,
     ]);
+    $this->logger->info(
+      'NPC monologue timing: campaign=@campaign_id trace=@trace_id npc=@npc mode=@mode total_ms=@total load_profile_ms=@load profile_update_ms=@persist generate_ms=@generate ai_call_ms=@ai_call sheet_ctx_ms=@sheet_ctx recent_thoughts_ms=@recent action_ctx_ms=@action_ctx action_ctx_total_ms=@action_ctx_total action_ctx_resolve_ms=@action_ctx_resolve action_ctx_query_ms=@action_ctx_query action_ctx_actions_ms=@action_ctx_actions action_ctx_contract_ms=@action_ctx_contract action_ctx_encode_ms=@action_ctx_encode prompt_build_ms=@prompt_build parse_ms=@parse prompt_len=@prompt_len action_ctx_len=@action_ctx_len action_count=@action_count contract_action_count=@contract_action_count action_option_count=@action_option_count fallback=@fallback updated=@updated',
+      [
+        '@campaign_id' => $campaign_id,
+        '@trace_id' => (string) ($context['trace_id'] ?? ''),
+        '@npc' => $entity_ref,
+        '@mode' => (string) ($diagnostics['mode'] ?? 'unknown'),
+        '@total' => $this->elapsedMs($overall_started_at),
+        '@load' => $load_profile_ms,
+        '@persist' => $persist_profile_ms,
+        '@generate' => $generate_inner_thought_ms,
+        '@ai_call' => (float) ($diagnostics['ai_call_ms'] ?? 0),
+        '@sheet_ctx' => (float) ($diagnostics['sheet_context_ms'] ?? 0),
+        '@recent' => (float) ($diagnostics['recent_thoughts_ms'] ?? 0),
+        '@action_ctx' => (float) ($diagnostics['action_context_ms'] ?? 0),
+        '@action_ctx_total' => (float) ($diagnostics['action_context_total_ms'] ?? 0),
+        '@action_ctx_resolve' => (float) ($diagnostics['action_context_resolve_ms'] ?? 0),
+        '@action_ctx_query' => (float) ($diagnostics['action_context_query_ms'] ?? 0),
+        '@action_ctx_actions' => (float) ($diagnostics['action_context_available_actions_ms'] ?? 0),
+        '@action_ctx_contract' => (float) ($diagnostics['action_context_action_contract_ms'] ?? 0),
+        '@action_ctx_encode' => (float) ($diagnostics['action_context_encode_ms'] ?? 0),
+        '@prompt_build' => (float) ($diagnostics['prompt_build_ms'] ?? 0),
+        '@parse' => (float) ($diagnostics['parse_ms'] ?? 0),
+        '@prompt_len' => (int) ($diagnostics['prompt_length'] ?? 0),
+        '@action_ctx_len' => (int) ($diagnostics['action_availability_context_length'] ?? 0),
+        '@action_count' => (int) ($diagnostics['action_availability_action_count'] ?? 0),
+        '@contract_action_count' => (int) ($diagnostics['action_availability_contract_action_count'] ?? 0),
+        '@action_option_count' => (int) ($diagnostics['action_availability_option_count'] ?? 0),
+        '@fallback' => !empty($diagnostics['fallback_used']) ? 'yes' : 'no',
+        '@updated' => $updated ? 'yes' : 'no',
+      ]
+    );
+    $this->logger->debug(
+      'NPC monologue heuristic signals: campaign=@campaign_id trace=@trace_id npc=@npc long_prompt=@long_prompt large_action_ctx=@large_action_ctx slow_action_ctx_build=@slow_action_ctx_build slow_action_ctx_query=@slow_action_ctx_query slow_action_ctx_resolve=@slow_action_ctx_resolve slow_sheet_ctx_build=@slow_sheet_ctx_build slow_prompt_build=@slow_prompt_build recent_thought_count=@recent_thought_count invalid_json=@invalid_json',
+      [
+        '@campaign_id' => $campaign_id,
+        '@trace_id' => (string) ($context['trace_id'] ?? ''),
+        '@npc' => $entity_ref,
+        '@long_prompt' => ((int) ($diagnostics['prompt_length'] ?? 0) > 20000) ? 'yes' : 'no',
+        '@large_action_ctx' => ((int) ($diagnostics['action_availability_context_length'] ?? 0) > 6000) ? 'yes' : 'no',
+        '@slow_action_ctx_build' => ((float) ($diagnostics['action_context_ms'] ?? 0) > 500) ? 'yes' : 'no',
+        '@slow_action_ctx_query' => ((float) ($diagnostics['action_context_query_ms'] ?? 0) > 500) ? 'yes' : 'no',
+        '@slow_action_ctx_resolve' => ((float) ($diagnostics['action_context_resolve_ms'] ?? 0) > 500) ? 'yes' : 'no',
+        '@slow_sheet_ctx_build' => ((float) ($diagnostics['sheet_context_ms'] ?? 0) > 200) ? 'yes' : 'no',
+        '@slow_prompt_build' => ((float) ($diagnostics['prompt_build_ms'] ?? 0) > 300) ? 'yes' : 'no',
+        '@recent_thought_count' => (int) ($diagnostics['recent_thought_count'] ?? 0),
+        '@invalid_json' => !empty($diagnostics['invalid_json_response']) ? 'yes' : 'no',
+      ]
+    );
 
     return $entry;
   }
@@ -430,29 +487,66 @@ class NpcPsychologyService {
   protected function generateInnerThought(array $profile, string $event_type, string $event_description, array $context): array {
     // Try AI generation first.
     if ($this->aiApiService) {
+      $stage_started_at = hrtime(true);
       try {
-        return $this->generateAiInnerThought($profile, $event_type, $event_description, $context);
+        $result = $this->generateAiInnerThought($profile, $event_type, $event_description, $context);
+        $diagnostics = is_array($result['_diagnostics'] ?? NULL) ? $result['_diagnostics'] : [];
+        $diagnostics['generate_inner_thought_ai_ms'] = $this->elapsedMs($stage_started_at);
+        $diagnostics['ai_attempted'] = TRUE;
+        $result['_diagnostics'] = $diagnostics;
+        return $result;
       }
       catch (\Exception $e) {
         $this->logger->warning('AI inner thought generation failed: @err', ['@err' => $e->getMessage()]);
+        $fallback = $this->generateFallbackThought($profile, $event_type, $event_description, $context);
+        $fallback['_diagnostics'] = [
+          'mode' => 'fallback_exception',
+          'fallback_used' => TRUE,
+          'ai_attempted' => TRUE,
+          'ai_exception' => $e->getMessage(),
+          'generate_inner_thought_ai_ms' => $this->elapsedMs($stage_started_at),
+        ];
+        return $fallback;
       }
     }
 
     // Deterministic fallback.
-    return $this->generateFallbackThought($profile, $event_type, $event_description, $context);
+    $fallback = $this->generateFallbackThought($profile, $event_type, $event_description, $context);
+    $fallback['_diagnostics'] = [
+      'mode' => 'fallback_no_ai_service',
+      'fallback_used' => TRUE,
+      'ai_attempted' => FALSE,
+    ];
+    return $fallback;
   }
 
   /**
    * AI-powered inner thought generation.
    */
   protected function generateAiInnerThought(array $profile, string $event_type, string $event_description, array $context): array {
+    $overall_started_at = hrtime(true);
+    $stage_started_at = hrtime(true);
     $sheet = $this->buildCharacterSheetContext($profile);
+    $sheet_context_ms = $this->elapsedMs($stage_started_at);
+    $stage_started_at = hrtime(true);
     $recent_thoughts = $this->getRecentThoughts($profile, 3);
-    $action_availability_context = $this->buildActorActionAvailabilityPromptContext(
+    $recent_thoughts_ms = $this->elapsedMs($stage_started_at);
+    $stage_started_at = hrtime(true);
+    $action_context_payload = $this->buildActorActionAvailabilityPromptContext(
       (int) ($profile['campaign_id'] ?? 0),
-      (string) ($profile['entity_ref'] ?? '')
+      (string) ($profile['entity_ref'] ?? ''),
+      [
+        'trace_id' => (string) ($context['trace_id'] ?? ''),
+        'source' => 'npc_monologue',
+      ]
     );
+    $action_availability_context = (string) ($action_context_payload['context'] ?? '');
+    $action_context_diagnostics = is_array($action_context_payload['diagnostics'] ?? NULL)
+      ? $action_context_payload['diagnostics']
+      : [];
+    $action_context_ms = $this->elapsedMs($stage_started_at);
 
+    $stage_started_at = hrtime(true);
     $prompt = "You are the inner mind of {$profile['display_name']}, an NPC.\n\n";
     $prompt .= "=== CHARACTER SHEET ===\n{$sheet}\n\n";
     $prompt .= "=== CURRENT ATTITUDE TOWARD PARTY ===\n{$profile['attitude']}\n\n";
@@ -489,7 +583,9 @@ class NpcPsychologyService {
     $prompt .= "  \"attitude_shift\": integer from -2 to +2 (negative=more hostile, positive=more friendly, 0=no change),\n";
     $prompt .= "  \"motivation_update\": \"updated motivation string if this event changes their goals, or null\"\n";
     $prompt .= "}";
+    $prompt_build_ms = $this->elapsedMs($stage_started_at);
 
+    $stage_started_at = hrtime(true);
     $result = $this->aiApiService->invokeModelDirect(
         $prompt,
         'dungeoncrawler_content',
@@ -501,49 +597,146 @@ class NpcPsychologyService {
           'skip_cache' => TRUE,
         ]
     );
+    $ai_call_ms = $this->elapsedMs($stage_started_at);
+    $diagnostics = [
+      'mode' => 'ai',
+      'fallback_used' => FALSE,
+      'prompt_length' => strlen($prompt),
+      'sheet_context_length' => strlen($sheet),
+      'recent_thoughts_length' => strlen($recent_thoughts),
+      'recent_thought_count' => substr_count($recent_thoughts, "\n") + ($recent_thoughts !== '' ? 1 : 0),
+      'action_availability_context_length' => strlen($action_availability_context),
+      'sheet_context_ms' => $sheet_context_ms,
+      'recent_thoughts_ms' => $recent_thoughts_ms,
+      'action_context_ms' => $action_context_ms,
+      'prompt_build_ms' => $prompt_build_ms,
+      'ai_call_ms' => $ai_call_ms,
+      'total_generate_ai_ms' => $this->elapsedMs($overall_started_at),
+    ] + $action_context_diagnostics;
 
     if (!empty($result['success']) && !empty($result['response'])) {
+      $stage_started_at = hrtime(true);
       $parsed = json_decode(trim($result['response']), TRUE);
+      $diagnostics['parse_ms'] = $this->elapsedMs($stage_started_at);
       if (is_array($parsed)) {
         return [
           'thought' => $parsed['thought'] ?? '',
           'emotion' => $parsed['emotion'] ?? 'neutral',
           'attitude_shift' => max(-2, min(2, (int) ($parsed['attitude_shift'] ?? 0))),
           'motivation_update' => $parsed['motivation_update'] ?? NULL,
+          '_diagnostics' => $diagnostics + [
+            'mode' => 'ai_json',
+            'response_length' => strlen((string) $result['response']),
+          ],
         ];
       }
+      $diagnostics['invalid_json_response'] = TRUE;
+      $diagnostics['response_length'] = strlen((string) $result['response']);
+    }
+    else {
+      $diagnostics['empty_ai_response'] = TRUE;
     }
 
     // If AI response wasn't valid JSON, fall back.
-    return $this->generateFallbackThought($profile, $event_type, $event_description, $context);
+    $fallback = $this->generateFallbackThought($profile, $event_type, $event_description, $context);
+    $fallback['_diagnostics'] = $diagnostics + [
+      'mode' => 'fallback_invalid_ai_response',
+      'fallback_used' => TRUE,
+    ];
+    return $fallback;
+  }
+
+  /**
+   * Convert hrtime timestamp to elapsed milliseconds.
+   */
+  protected function elapsedMs(int $started_at): float {
+    return round((hrtime(true) - $started_at) / 1000000, 2);
   }
 
   /**
    * Build actor-scoped action availability prompt context when resolvable.
    */
-  protected function buildActorActionAvailabilityPromptContext(int $campaign_id, string $actor_id): string {
+  protected function buildActorActionAvailabilityPromptContext(int $campaign_id, string $actor_id, array $diagnostic_context = []): array {
+    $overall_started_at = hrtime(true);
     $actor_id = trim($actor_id);
     if ($campaign_id <= 0 || $actor_id === '' || !\Drupal::hasService('dungeoncrawler_content.game_coordinator')) {
-      return '';
+      return [
+        'context' => '',
+        'diagnostics' => [
+          'action_context_total_ms' => $this->elapsedMs($overall_started_at),
+          'action_context_skip_reason' => 'invalid_input_or_missing_service',
+        ],
+      ];
     }
 
     /** @var \Drupal\dungeoncrawler_content\Service\GameCoordinatorService $coordinator */
     $coordinator = \Drupal::service('dungeoncrawler_content.game_coordinator');
-    $availability = $coordinator->getActionAvailabilityForActor($campaign_id, $actor_id);
+    $stage_started_at = hrtime(true);
+    $availability = $coordinator->getActionAvailabilityForActor($campaign_id, $actor_id, $diagnostic_context);
+    $availability_query_ms = $this->elapsedMs($stage_started_at);
     if (!is_array($availability)) {
-      return '';
+      return [
+        'context' => '',
+        'diagnostics' => [
+          'action_context_total_ms' => $this->elapsedMs($overall_started_at),
+          'action_context_query_ms' => $availability_query_ms,
+          'action_context_skip_reason' => 'availability_not_array',
+        ],
+      ];
+    }
+
+    $action_contract = is_array($availability['action_contract'] ?? NULL)
+      ? $availability['action_contract']
+      : [];
+    $institution_membership_projection = is_array($availability['institution_membership_projection'] ?? NULL)
+      ? $availability['institution_membership_projection']
+      : [];
+    $coordinator_diagnostics = is_array($availability['diagnostics'] ?? NULL)
+      ? $availability['diagnostics']
+      : [];
+    $action_option_families = is_array($action_contract['action_option_families'] ?? NULL)
+      ? $action_contract['action_option_families']
+      : [];
+    $action_option_count = 0;
+    foreach ($action_option_families as $family) {
+      if (!is_array($family)) {
+        continue;
+      }
+      $action_option_count += (int) ($family['option_count'] ?? 0);
     }
 
     $payload = [
       'available_actions' => is_array($availability['available_actions'] ?? NULL)
         ? $availability['available_actions']
         : [],
-      'action_contract' => is_array($availability['action_contract'] ?? NULL)
-        ? $availability['action_contract']
+      'action_contract' => $action_contract !== []
+        ? $action_contract
+        : NULL,
+      'institution_membership_projection' => $institution_membership_projection !== []
+        ? $institution_membership_projection
         : NULL,
     ];
 
-    return json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '';
+    $stage_started_at = hrtime(true);
+    $encoded_payload = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '';
+    $encode_ms = $this->elapsedMs($stage_started_at);
+
+    return [
+      'context' => $encoded_payload,
+      'diagnostics' => [
+        'action_context_total_ms' => $this->elapsedMs($overall_started_at),
+        'action_context_resolve_ms' => (float) ($coordinator_diagnostics['resolve_context_ms'] ?? 0),
+        'action_context_query_ms' => $availability_query_ms,
+        'action_context_available_actions_ms' => (float) ($coordinator_diagnostics['available_actions_ms'] ?? 0),
+        'action_context_action_contract_ms' => (float) ($coordinator_diagnostics['action_contract_ms'] ?? 0),
+        'action_context_encode_ms' => $encode_ms,
+        'action_availability_action_count' => count($payload['available_actions']),
+        'action_availability_contract_action_count' => is_array($action_contract['actions'] ?? NULL) ? count($action_contract['actions']) : 0,
+        'action_availability_option_count' => $action_option_count,
+        'action_context_membership_projection_freshness' => (string) ($institution_membership_projection['freshness'] ?? 'none'),
+        'action_context_membership_projection_refresh_enqueued' => !empty($institution_membership_projection['refresh_enqueued']),
+      ],
+    ];
   }
 
   /**

@@ -161,6 +161,90 @@
       "location_ref": ""
     },
     {
+      "character_id": 2007,
+      "instance_id": "skeleton_guard_alpha",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Skeleton Guard Alpha",
+        "class": "fighter",
+        "level": 1,
+        "hp_current": 18,
+        "max_hp": 18,
+        "ac": 16,
+        "attitude": "hostile",
+        "equipment": [
+          {
+            "item_id": "longsword",
+            "name": "Longsword",
+            "quantity": 1,
+            "equipped": true,
+            "worn": false
+          },
+          {
+            "item_id": "shield",
+            "name": "Shield",
+            "quantity": 1,
+            "equipped": true,
+            "worn": true
+          },
+          {
+            "item_id": "helmet",
+            "name": "Helmet",
+            "quantity": 1,
+            "equipped": true,
+            "worn": true
+          }
+        ],
+        "conditions": []
+      },
+      "location_type": "room_template",
+      "location_ref": "tpl_room_crypt_anteroom"
+    },
+    {
+      "character_id": 2008,
+      "instance_id": "skeleton_guard_beta",
+      "type": "npc",
+      "uid": 1,
+      "role": "enemy",
+      "state_data": {
+        "name": "Skeleton Guard Beta",
+        "class": "fighter",
+        "level": 1,
+        "hp_current": 18,
+        "max_hp": 18,
+        "ac": 16,
+        "attitude": "hostile",
+        "equipment": [
+          {
+            "item_id": "longsword",
+            "name": "Longsword",
+            "quantity": 1,
+            "equipped": true,
+            "worn": false
+          },
+          {
+            "item_id": "shield",
+            "name": "Shield",
+            "quantity": 1,
+            "equipped": true,
+            "worn": true
+          },
+          {
+            "item_id": "helmet",
+            "name": "Helmet",
+            "quantity": 1,
+            "equipped": true,
+            "worn": true
+          }
+        ],
+        "conditions": []
+      },
+      "location_type": "room_template",
+      "location_ref": "tpl_room_crypt_anteroom"
+    },
+    {
       "character_id": 3001,
       "instance_id": "tpl_char_hazard_trap_001",
       "type": "trap",

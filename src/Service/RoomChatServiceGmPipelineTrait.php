@@ -31,7 +31,7 @@ trait RoomChatServiceGmPipelineTrait {
       $is_room_entry,
       new GmTurnCoordinatorCallbacks(
         fn (int $callback_campaign_id, string $callback_room_id, array $callback_dungeon_data): array => $this->gatherRoomNpcsWithProfiles($callback_campaign_id, $callback_room_id, $callback_dungeon_data),
-        fn (array $callback_room_npcs, string $callback_latest_player_message): ?array => $this->resolveDirectlyAddressedNpc($callback_room_npcs, $callback_latest_player_message),
+        fn (array $callback_room_npcs, string $callback_latest_player_message): ?array => $this->resolveDirectlyAddressedNpc($callback_room_npcs, $callback_latest_player_message, FALSE),
         fn (array $callback_room_meta, array $callback_room_npcs): ?array => $this->resolveExplicitRoomConversationNpc($callback_room_meta, $callback_room_npcs),
         fn (array $callback_chat, array $callback_room_npcs): ?array => $this->resolveActiveDirectConversationNpc($callback_chat, $callback_room_npcs),
         fn (string $callback_text): string => $this->normalizeNpcNameForMatch($callback_text),

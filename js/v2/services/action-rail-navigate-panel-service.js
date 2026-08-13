@@ -25,7 +25,7 @@ export function buildNavigateActionRailPanel(panel, context) {
   if (!groups.length) {
     const emptyMsg = 'No room exits are available yet.';
     return {
-      title: 'Navigate',
+      title: 'Movement',
       chip: currentLocationLabel ? `📍 ${currentLocationLabel}` : 'No routes',
       html: currentLocationLabel
         ? `<div class="action-rail__current-location"><p class="action-rail__current-location-label">📍 You are here: <strong>${escapeQuestHtml(currentLocationLabel)}</strong></p></div><div class="action-rail__empty"><p>${emptyMsg}</p></div>`
@@ -65,8 +65,10 @@ export function buildNavigateActionRailPanel(panel, context) {
   }).join('');
 
   return {
-    title: 'Navigate',
-    chip: `${entryCount} destination${entryCount === 1 ? '' : 's'}`,
+    title: 'Movement',
+    chip: entryCount > 0
+      ? `${entryCount} destination${entryCount === 1 ? '' : 's'}`
+      : 'No routes',
     html,
   };
 }

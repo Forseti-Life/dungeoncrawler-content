@@ -126,6 +126,7 @@ class RoomChatService {
   protected EncounterTurnGuard $encounterTurnGuard;
   protected RuntimeGraphAssemblerService $runtimeGraphAssembler;
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
+  protected ?ActorNarrativeContextService $actorNarrativeContextService;
   protected ActorDecisionContractService $actorDecisionContractService;
   protected ActorDecisionValidatorService $actorDecisionValidatorService;
   protected ?array $activeDebugTrace = NULL;
@@ -192,7 +193,8 @@ class RoomChatService {
     ?ActorActionAvailabilityService $actor_action_availability_service = NULL,
     ?ActorDecisionContractService $actor_decision_contract_service = NULL,
     ?ActorDecisionValidatorService $actor_decision_validator_service = NULL,
-    ?RuntimeGraphAssemblerService $runtime_graph_assembler = NULL
+    ?RuntimeGraphAssemblerService $runtime_graph_assembler = NULL,
+    ?ActorNarrativeContextService $actor_narrative_context_service = NULL
   ) {
     $this->database = $database;
     $this->dungeonStateService = $dungeon_state_service;
@@ -255,6 +257,7 @@ class RoomChatService {
       throw new \RuntimeException('RoomChatService contract violation: runtime graph assembler must be injected.');
     }
     $this->runtimeGraphAssembler = $runtime_graph_assembler;
+    $this->actorNarrativeContextService = $actor_narrative_context_service;
     $this->gmPromptOrchestration = $gm_prompt_orchestration ?? new GmPromptOrchestrationService($this->promptContextAssembler);
     $this->gmTurnFinalization = $gm_turn_finalization ?? new GmTurnFinalizationService(
       $this->gmNarrativePostProcessor,

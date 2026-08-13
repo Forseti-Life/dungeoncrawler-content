@@ -209,18 +209,34 @@ class GameEventLogger {
   /**
    * Normalize event payload to stable types.
    */
-  protected function normalizeEvent(array $event): array {
+  protected function normalizeEvent(array $event, bool $strict = TRUE): array {
     $actor = $event['actor'] ?? NULL;
     $target = $event['target'] ?? NULL;
+    $phase = trim((string) ($event['phase'] ?? ''));
+    $type = trim((string) ($event['type'] ?? ''));
+    $data = $event['data'] ?? [];
+
+    if ($strict) {
+      if ($phase === '') {
+        throw new \InvalidArgumentException('Game event contract violation: missing non-empty phase.');
+      }
+      if ($type === '') {
+        throw new \InvalidArgumentException('Game event contract violation: missing non-empty type.');
+      }
+      if (!is_array($data)) {
+        throw new \InvalidArgumentException('Game event contract violation: data must be an array.');
+      }
+    }
+
     return [
       'timestamp' => is_string($event['timestamp'] ?? NULL) && trim((string) $event['timestamp']) !== ''
         ? trim((string) $event['timestamp'])
         : date('c'),
-      'phase' => trim((string) ($event['phase'] ?? 'unknown')) ?: 'unknown',
-      'type' => trim((string) ($event['type'] ?? 'unknown')) ?: 'unknown',
+      'phase' => $phase !== '' ? $phase : 'unknown',
+      'type' => $type !== '' ? $type : 'unknown',
       'actor' => $actor === NULL ? NULL : (string) $actor,
       'target' => $target === NULL ? NULL : (string) $target,
-      'data' => is_array($event['data'] ?? NULL) ? $event['data'] : [],
+      'data' => is_array($data) ? $data : [],
       'narration' => isset($event['narration']) ? (string) $event['narration'] : NULL,
     ];
   }
@@ -329,7 +345,7 @@ class GameEventLogger {
     if (!is_array($context)) {
       $context = [];
     }
-    $normalized = $this->normalizeEvent($context);
+    $normalized = $this->normalizeEvent($context, FALSE);
     $normalized['id'] = $fallback_id;
     if (trim((string) ($normalized['timestamp'] ?? '')) === '') {
       $normalized['timestamp'] = date('c', (int) ($row->created ?? time()));

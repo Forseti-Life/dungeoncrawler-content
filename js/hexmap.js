@@ -617,6 +617,65 @@ import { SpriteService } from './SpriteService.js';
     if (!candidate || !sourceId) {
       return false;
     }
+
+    function buildConditionTooltipModel(condition, projectedTooltips = {}) {
+      const raw = (condition && typeof condition === 'object') ? condition : { name: String(condition || 'Condition') };
+      const rawCode = String(raw.condition_type || raw.id || raw.name || 'condition');
+      const code = rawCode.trim().toLowerCase().replace(/[\s-]+/g, '_');
+      const projected = projectedTooltips && typeof projectedTooltips === 'object'
+        ? projectedTooltips[code]
+        : null;
+      if (raw.tooltip && typeof raw.tooltip === 'object') {
+        return {
+          name: String(raw.tooltip.name || raw.name || raw.condition_type || raw.id || 'Condition').trim() || 'Condition',
+          type: String(raw.tooltip.type || 'condition'),
+          desc: String(raw.tooltip.desc || 'Active condition or effect.'),
+          stats: Array.isArray(raw.tooltip.stats) ? raw.tooltip.stats : [],
+          effects: Array.isArray(raw.tooltip.effects) ? raw.tooltip.effects : [],
+          notes: Array.isArray(raw.tooltip.notes) ? raw.tooltip.notes : [],
+        };
+      }
+      if (projected && typeof projected === 'object') {
+        return {
+          name: String(projected.name || raw.name || raw.condition_type || raw.id || 'Condition').trim() || 'Condition',
+          type: String(projected.type || 'condition'),
+          desc: String(projected.desc || 'Active condition or effect.'),
+          stats: Array.isArray(projected.stats) ? projected.stats : [],
+          effects: Array.isArray(projected.effects) ? projected.effects : [],
+          notes: Array.isArray(projected.notes) ? projected.notes : [],
+        };
+      }
+      const name = String(raw.name || raw.condition_type || raw.id || 'Condition').trim() || 'Condition';
+      const stats = [];
+      const effects = [];
+      const notes = [];
+      const desc = String(raw.description || '').trim();
+
+      if (raw.duration) {
+        notes.push(`Duration: ${String(raw.duration).replace(/_/g, ' ')}`);
+      }
+      if (raw.source) {
+        notes.push(`Source: ${raw.source}`);
+      }
+      if (raw.value !== undefined && raw.value !== null && raw.value !== '') {
+        effects.push(`Value: ${raw.value}`);
+      }
+
+      return {
+        name,
+        type: 'condition',
+        desc: desc || 'Active condition or effect.',
+        stats,
+        effects,
+        notes,
+      };
+    }
+
+    function renderConditionTooltipEntry(condition, projectedTooltips = {}) {
+      const tooltip = buildConditionTooltipModel(condition, projectedTooltips);
+      const nameHtml = escapeTooltipAttr(tooltip.name);
+      return `<li class="condition-entry" data-tooltip-enabled="true" data-tooltip-name="${nameHtml}" data-tooltip-type="${escapeTooltipAttr(tooltip.type)}" data-tooltip-desc="${escapeTooltipAttr(tooltip.desc)}" data-tooltip-stats="${escapeTooltipAttr(JSON.stringify(tooltip.stats))}" data-tooltip-effects="${escapeTooltipAttr(JSON.stringify(tooltip.effects))}" data-tooltip-notes="${escapeTooltipAttr(JSON.stringify(tooltip.notes))}">${nameHtml}</li>`;
+    }
     return candidate === sourceId || candidate.indexOf(`${sourceId}-`) === 0;
   }
 
@@ -4274,6 +4333,7 @@ import { SpriteService } from './SpriteService.js';
       const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
       const automationProfile = hexmap?.buildPlayerAutomationProfile?.() || {};
       const automationState = hexmap?.getPlayerAutomationState?.() || {};
+      const runtimeGameState = hexmap?.dungeonData?.game_state || {};
       const actions = actor?.getComponent?.('ActionsComponent') || null;
       const movement = actor?.getComponent?.('MovementComponent') || null;
       const serverActionsRemaining = Number(phaseSnapshot?.turn?.actions_remaining);
@@ -4330,6 +4390,14 @@ import { SpriteService } from './SpriteService.js';
         actionText,
         movementText,
       ]) || 'Select your character to unlock direct actions.';
+      const campaignClock = phaseSnapshot?.campaignClock
+        || phaseSnapshot?.gameTime
+        || runtimeGameState?.campaign_clock
+        || runtimeGameState?.game_time
+        || null;
+      const timedActivities = Array.isArray(phaseSnapshot?.timedActivities)
+        ? phaseSnapshot.timedActivities
+        : (Array.isArray(runtimeGameState?.timed_activities) ? runtimeGameState.timed_activities : []);
 
       return {
         hexmap,
@@ -4340,8 +4408,8 @@ import { SpriteService } from './SpriteService.js';
         characterId,
         runtimeContext,
         phaseSnapshot,
-        campaignClock: phaseSnapshot?.campaignClock || null,
-        timedActivities: Array.isArray(phaseSnapshot?.timedActivities) ? phaseSnapshot.timedActivities : [],
+        campaignClock,
+        timedActivities,
         encounterActive,
         hasServerTurn,
         isActorTurn,
@@ -4418,7 +4486,7 @@ import { SpriteService } from './SpriteService.js';
       if (realClock || realClockMeta) {
         const realWorld = this.formatRealWorldClock();
         if (realClock) {
-          realClock.textContent = realWorld.value;
+          realClock.textContent = `Realworld Time: ${realWorld.value}`;
         }
         if (realClockMeta) {
           realClockMeta.textContent = realWorld.meta;
@@ -4429,7 +4497,7 @@ import { SpriteService } from './SpriteService.js';
         const resolvedContext = context || this.getActionRailContext();
         const campaign = this.formatCampaignClock(resolvedContext?.campaignClock || null);
         if (campaignClock) {
-          campaignClock.textContent = campaign.value;
+          campaignClock.textContent = `Campaign Time: ${campaign.value}`;
         }
         if (campaignClockMeta) {
           const activeCount = Array.isArray(resolvedContext?.timedActivities)
@@ -6566,6 +6634,16 @@ import { SpriteService } from './SpriteService.js';
     updateInitiativeTracker(initiativeOrder) {
       if (!this.elements.initiativeList) return;
 
+      const resolveBooleanFlag = (value) => {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value > 0;
+        const normalized = String(value ?? '').trim().toLowerCase();
+        if (!normalized) return false;
+        if (['1', 'true', 'yes', 'y'].includes(normalized)) return true;
+        if (['0', 'false', 'no', 'n', 'null', 'undefined'].includes(normalized)) return false;
+        return Boolean(value);
+      };
+
       let html = '';
       initiativeOrder.forEach((data) => {
         const combat = data.entity?.getComponent('CombatComponent');
@@ -6592,7 +6670,7 @@ import { SpriteService } from './SpriteService.js';
 
         // Action pips — only shown on active combatant (AC-001 compact status cues)
         let actionsHtml = '';
-        if (data.isCurrent && actions) {
+        if (resolveBooleanFlag(data.isCurrent) && actions) {
           const maxA = actions.maxActions || 3;
           let pips = '';
           for (let i = 0; i < maxA; i++) {
@@ -6604,9 +6682,11 @@ import { SpriteService } from './SpriteService.js';
           actionsHtml = `<div class="rail-card__actions">${pips}</div>`;
         }
 
-        const activeClass = data.isCurrent ? 'rail-card--active' : '';
-        const defeatedClass = data.isDefeated ? 'rail-card--defeated' : '';
-        html += `<div class="initiative-item rail-card ${activeClass} ${defeatedClass}" data-entity-id="${data.entityId}" role="button" tabindex="0" aria-label="${data.name}${data.isCurrent ? ' — active turn' : ''}">
+        const isCurrent = resolveBooleanFlag(data.isCurrent);
+        const isDefeated = resolveBooleanFlag(data.isDefeated);
+        const activeClass = isCurrent ? 'rail-card--active' : '';
+        const defeatedClass = isDefeated ? 'rail-card--defeated' : '';
+        html += `<div class="initiative-item rail-card ${activeClass} ${defeatedClass}" data-entity-id="${data.entityId}" role="button" tabindex="0" aria-label="${data.name}${isCurrent ? ' — active turn' : ''}">
             <div class="rail-card__header">
               <span class="rail-card__init">${data.initiative}</span>
               <span class="rail-card__name">${data.name}</span>
@@ -6992,10 +7072,12 @@ import { SpriteService } from './SpriteService.js';
 
       // Update conditions
       if (this.elements.characterConditions) {
+        const conditionTooltips = state?.effectiveState?.sources?.condition_tooltips
+          || state?.effectiveState?.sources?.conditionTooltips
+          || {};
         if (Array.isArray(conditions) && conditions.length > 0) {
-          const conditionNames = conditions.map(c => typeof c === 'string' ? c : (c.name || 'Unknown'));
-          this.elements.characterConditions.innerHTML = conditionNames
-            .map(name => `<li>${name}</li>`)
+          this.elements.characterConditions.innerHTML = conditions
+            .map((condition) => renderConditionTooltipEntry(condition, conditionTooltips))
             .join('');
         } else {
           this.elements.characterConditions.innerHTML = '<li class="conditions-empty">No conditions</li>';
@@ -14018,7 +14100,7 @@ import { SpriteService } from './SpriteService.js';
       }
 
       if (occupant.visible === false) {
-        return inActiveRoom ? !(hidden && !detected) : false;
+        return false;
       }
 
       if (hidden && !detected) {

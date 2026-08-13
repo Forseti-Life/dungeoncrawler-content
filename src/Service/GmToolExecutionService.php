@@ -44,12 +44,20 @@ class GmToolExecutionService {
   protected GameCoordinatorService $coordinator;
   protected AccountProxyInterface $currentUser;
   protected H3ProjectionQueueService $h3ProjectionQueue;
+  protected CampaignAuthorizationService $campaignAuthorization;
 
-  public function __construct(Connection $database, GameCoordinatorService $coordinator, AccountProxyInterface $current_user, H3ProjectionQueueService $h3_projection_queue) {
+  public function __construct(
+    Connection $database,
+    GameCoordinatorService $coordinator,
+    AccountProxyInterface $current_user,
+    H3ProjectionQueueService $h3_projection_queue,
+    CampaignAuthorizationService $campaign_authorization
+  ) {
     $this->database = $database;
     $this->coordinator = $coordinator;
     $this->currentUser = $current_user;
     $this->h3ProjectionQueue = $h3_projection_queue;
+    $this->campaignAuthorization = $campaign_authorization;
   }
 
   /**
@@ -792,15 +800,14 @@ class GmToolExecutionService {
     if ($uid <= 0) {
       throw new \InvalidArgumentException('GM tool execution requires authenticated user context.', 403);
     }
-    $campaign_owner_uid = $this->loadCampaignOwnerUid($campaign_id);
-    if ($uid !== $campaign_owner_uid) {
-      throw new \InvalidArgumentException('GM tool execution principal entitlement failed: current user is not campaign owner GM.', 403);
+    if (!$this->campaignAuthorization->canManageCampaign($campaign_id, $uid)) {
+      throw new \InvalidArgumentException('GM tool execution principal entitlement failed: current user lacks campaign GM capability.', 403);
     }
 
     $character_principal = $this->loadCampaignCharacterPrincipal($campaign_id, $gm_character_id);
     $character_uid = (int) ($character_principal['uid'] ?? 0);
-    if ($character_uid !== $campaign_owner_uid) {
-      throw new \InvalidArgumentException('GM tool execution principal entitlement failed: GM character principal is not owned by campaign GM.', 403);
+    if ($character_uid !== $uid) {
+      throw new \InvalidArgumentException('GM tool execution principal entitlement failed: GM character principal is not owned by current user.', 403);
     }
 
     return [

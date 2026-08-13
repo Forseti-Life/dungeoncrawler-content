@@ -19,7 +19,13 @@ class EncounterActionExecutor {
   protected NumberGenerationService $numberGenerationService;
   protected CombatCalculator $combatCalculator;
   protected CanonicalProjectionService $canonicalProjectionService;
+  protected CombatResolutionContractService $combatResolutionContractService;
+  protected UnifiedDamageEngine $unifiedDamageEngine;
+  protected UnifiedMovementEngine $unifiedMovementEngine;
   protected ?MovementResolverService $movementResolver;
+  protected ?ActorDispositionService $actorDispositionService;
+  protected ?DispositionMutationClassifierService $dispositionMutationClassifierService;
+  protected ActionTargetingService $actionTargetingService;
   protected LoggerInterface $logger;
 
   public function __construct(
@@ -32,8 +38,14 @@ class EncounterActionExecutor {
     NumberGenerationService $number_generation_service,
     CombatCalculator $combat_calculator,
     CanonicalProjectionService $canonical_projection_service,
+    CombatResolutionContractService $combat_resolution_contract_service,
     LoggerChannelFactoryInterface $logger_factory,
-    ?MovementResolverService $movement_resolver = NULL
+    ?MovementResolverService $movement_resolver = NULL,
+    ?ActorDispositionService $actor_disposition_service = NULL,
+    ?DispositionMutationClassifierService $disposition_mutation_classifier_service = NULL,
+    ?ActionTargetingService $action_targeting_service = NULL,
+    ?UnifiedDamageEngine $unified_damage_engine = NULL,
+    ?UnifiedMovementEngine $unified_movement_engine = NULL
   ) {
     $this->encounterStore = $encounter_store;
     $this->combatEngine = $combat_engine;
@@ -44,8 +56,26 @@ class EncounterActionExecutor {
     $this->numberGenerationService = $number_generation_service;
     $this->combatCalculator = $combat_calculator;
     $this->canonicalProjectionService = $canonical_projection_service;
+    $this->combatResolutionContractService = $combat_resolution_contract_service;
     $this->logger = $logger_factory->get('dungeoncrawler');
     $this->movementResolver = $movement_resolver;
+    $this->actorDispositionService = $actor_disposition_service;
+    $this->dispositionMutationClassifierService = $disposition_mutation_classifier_service;
+    $this->actionTargetingService = $action_targeting_service ?? new ActionTargetingService();
+    $this->unifiedDamageEngine = $unified_damage_engine ?? new UnifiedDamageEngine(
+      $encounter_store,
+      $number_generation_service,
+      $combat_resolution_contract_service
+    );
+    $this->unifiedMovementEngine = $unified_movement_engine ?? new UnifiedMovementEngine(
+      $combat_resolution_contract_service
+    );
+  }
+
+  protected function isMagicMissileSpell(string $spell_id, string $spell_name): bool {
+    $identifier = strtolower(trim($spell_id !== '' ? $spell_id : $spell_name));
+    $canonical = preg_replace('/[^a-z0-9]+/', '', $identifier) ?? '';
+    return $canonical === 'magicmissile';
   }
 
   public function processTalk(
@@ -61,6 +91,25 @@ class EncounterActionExecutor {
     callable $prefix_encounter_chat_line,
     callable $build_encounter_chat_prefix
   ): array {
+    $target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);
+    $target_constraint_check = $this->actionTargetingService->validateTargetSelectionConstraints($target_refs, $params);
+    if (empty($target_constraint_check['valid'])) {
+      return [
+        'talked' => FALSE,
+        'error' => (string) ($target_constraint_check['error'] ?? 'Invalid target selection.'),
+        'mutations' => [],
+      ];
+    }
+    $target_id = $target_refs[0] ?? $target_id;
+    $targeting_mode = $this->actionTargetingService->resolveTargetingMode('talk', $params);
+    if ($this->actionTargetingService->requiresTarget('talk', $targeting_mode) && $target_id === NULL) {
+      return [
+        'talked' => FALSE,
+        'error' => sprintf("Talk targeting mode '%s' requires a target.", $targeting_mode),
+        'mutations' => [],
+      ];
+    }
+
     $turn_ctx = is_array($params['_encounter_turn_ctx'] ?? NULL)
       ? $params['_encounter_turn_ctx']
       : $capture_encounter_turn_context($game_state, $dungeon_data, $actor_id);
@@ -136,6 +185,10 @@ class EncounterActionExecutor {
           'entity_ref' => (string) ($target_id ?? ''),
           '_validated_encounter_talk' => TRUE,
           '_encounter_prefix' => $build_encounter_chat_prefix($turn_ctx),
+        ],
+        [
+          'response_mode' => 'actor_scoped',
+          'include_legacy_overlay' => FALSE,
         ]
       );
 
@@ -152,6 +205,8 @@ class EncounterActionExecutor {
         'quest_updates' => $chat_result['quest_updates'] ?? [],
         'state_diff' => $chat_result['state_diff'] ?? [],
         'combat_transition' => $chat_result['combat_transition'] ?? NULL,
+        'aggression_summary' => $chat_result['aggression_summary'] ?? NULL,
+        'combat_entry_summary' => $chat_result['combat_entry_summary'] ?? NULL,
         'canonical_actions' => $chat_result['canonical_actions'] ?? [],
       ];
       $this->logger->info('Encounter talk response quest handoff: campaign={campaign_id} character={character_id} room={room_id} quest_update_count={quest_update_count} quest_ids={quest_ids}', [
@@ -163,6 +218,34 @@ class EncounterActionExecutor {
           return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
         }, $chat_response['quest_updates'])),
       ]);
+      if (
+        $campaign_id > 0
+        && is_string($actor_id)
+        && trim($actor_id) !== ''
+        && is_string($target_id)
+        && trim($target_id) !== ''
+      ) {
+        $this->applyClassifiedDispositionMutation(
+          $campaign_id,
+          'talk',
+          $actor_id,
+          $target_id,
+          sprintf('Encounter talk with %s', $target_id),
+          [
+            'relationship_type' => 'conversation',
+            'relationship_status' => 'known',
+            'idempotency_key' => sha1(json_encode([
+              'encounter_talk' => TRUE,
+              'campaign_id' => $campaign_id,
+              'source' => $actor_id,
+              'target' => $target_id,
+              'message' => $message,
+              'turn' => $turn_ctx['turn_index_raw'] ?? ($game_state['turn']['index'] ?? NULL),
+              'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          ]
+        );
+      }
 
       return [
         'talked' => TRUE,
@@ -174,6 +257,8 @@ class EncounterActionExecutor {
         'quest_updates' => $chat_response['quest_updates'],
         'state_diff' => $chat_response['state_diff'],
         'combat_transition' => $chat_response['combat_transition'],
+        'aggression_summary' => $chat_response['aggression_summary'],
+        'combat_entry_summary' => $chat_response['combat_entry_summary'],
         'canonical_actions' => $chat_response['canonical_actions'],
         'npc_interjections_deferred' => !empty($chat_result['npc_interjections_deferred']),
         'turn_log_key' => array_key_exists('turn_log_key', $chat_result) ? $chat_result['turn_log_key'] : NULL,
@@ -208,6 +293,16 @@ class EncounterActionExecutor {
     callable $resolve_strike_weapon
   ): array {
     try {
+      $target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);
+      $target_constraint_check = $this->actionTargetingService->validateTargetSelectionConstraints($target_refs, $params);
+      if (empty($target_constraint_check['valid'])) {
+        return ['error' => (string) ($target_constraint_check['error'] ?? 'Invalid target selection.')];
+      }
+      $target_id = $target_refs[0] ?? NULL;
+      if ($target_id === NULL) {
+        return ['error' => 'Strike requires a target.'];
+      }
+
       $encounter = $this->encounterStore->loadEncounter($encounter_id);
       if (!$encounter) {
         return ['error' => 'Encounter not found.'];
@@ -241,23 +336,71 @@ class EncounterActionExecutor {
       $updated_target = $this->findEncounterParticipantByEntityId($updated_encounter, $target_id) ?? $target_participant;
 
       $mutations = [];
-      if (!empty($attack_result['damage_dealt'])) {
-        $mutations[] = [
-          'entity' => $target_id,
-          'field' => 'hp',
-          'from' => $target_participant['hp'] ?? NULL,
-          'to' => $updated_target['hp'] ?? ($attack_result['damage_result']['new_hp'] ?? NULL),
-        ];
+      $damage_packet = NULL;
+      $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+        'strike',
+        $actor_id,
+        $target_id,
+        $params
+      );
+      $strike_damage = $this->unifiedDamageEngine->resolveStrikeDamage(
+        $actor_id,
+        $target_id,
+        $encounter_id,
+        $weapon,
+        is_array($attack_result) ? $attack_result : [],
+        is_array($target_participant) ? $target_participant : [],
+        is_array($updated_target) ? $updated_target : []
+      );
+      $damage_packet = is_array($strike_damage['damage_packet'] ?? NULL) ? $strike_damage['damage_packet'] : NULL;
+      if (!empty($strike_damage['mutations']) && is_array($strike_damage['mutations'])) {
+        $mutations = array_merge($mutations, $strike_damage['mutations']);
       }
+      $this->applyClassifiedDispositionMutation(
+        $campaign_id,
+        'strike',
+        $actor_id,
+        $target_id,
+        sprintf('Encounter strike against %s', $target_id),
+        [
+          'relationship_type' => 'combat',
+          'relationship_status' => 'known',
+          'idempotency_key' => sha1(json_encode([
+            'encounter_id' => $encounter_id,
+            'event_type' => 'attack',
+            'source' => $actor_id,
+            'target' => $target_id,
+            'attack_result' => [
+              'roll' => $attack_result['roll'] ?? NULL,
+              'total' => $attack_result['total'] ?? NULL,
+              'degree' => $attack_result['degree'] ?? NULL,
+              'damage' => $attack_result['damage_dealt'] ?? NULL,
+            ],
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          'requires_attack_roll' => TRUE,
+        ]
+      );
 
       return [
         'strike' => TRUE,
+        'execution_request' => $execution_request,
+        'target_id' => $target_id,
         'roll' => $attack_result['roll'] ?? NULL,
         'total' => $attack_result['total'] ?? NULL,
         'ac' => $attack_result['target_ac'] ?? NULL,
         'degree' => $attack_result['degree'] ?? NULL,
         'damage' => $attack_result['damage_dealt'] ?? NULL,
         'damage_type' => $weapon['damage_type'] ?? 'physical',
+        'damage_packet' => $damage_packet,
+        'resolution_envelope' => $this->combatResolutionContractService->buildResolutionEnvelope(
+          $execution_request,
+          array_values(array_filter([$damage_packet], 'is_array')),
+          [
+            'degree' => $attack_result['degree'] ?? NULL,
+            'damage' => $attack_result['damage_dealt'] ?? NULL,
+            'is_defeated' => !empty($updated_target['is_defeated']),
+          ]
+        ),
         'is_defeated' => !empty($updated_target['is_defeated']),
         'mutations' => $mutations,
       ];
@@ -273,7 +416,8 @@ class EncounterActionExecutor {
     string $actor_id,
     array $params,
     array &$game_state,
-    array &$dungeon_data
+    array &$dungeon_data,
+    ?int $campaign_id = NULL
   ): array {
     $to_hex = $params['to_hex'] ?? NULL;
     if (!$to_hex) {
@@ -295,6 +439,9 @@ class EncounterActionExecutor {
           return ['error' => "No {$movement_type} speed.", 'mutations' => []];
         }
 
+        $action_cost = max(1, min(3, (int) ($params['action_cost'] ?? 1)));
+        $max_distance = $speed * $action_cost;
+
         $from_q = (int) ($actor_participant['position_q'] ?? 0);
         $from_r = (int) ($actor_participant['position_r'] ?? 0);
         $from_hex_calc = ['q' => $from_q, 'r' => $from_r];
@@ -308,16 +455,16 @@ class EncounterActionExecutor {
           $movement_type
         );
 
-        $movement_spent = (int) ($game_state['turn']['movement_spent'] ?? 0);
-        if ($movement_spent + $cost_info['cost'] > $speed) {
+        if ($cost_info['cost'] > $max_distance) {
           return [
-            'error' => "Movement cost ({$cost_info['cost']} ft) exceeds remaining speed (" . ($speed - $movement_spent) . " ft).",
+            'error' => "Movement cost ({$cost_info['cost']} ft) exceeds drag movement range ({$max_distance} ft).",
             'mutations' => [],
           ];
         }
 
-        $game_state['turn']['movement_spent'] = $movement_spent + $cost_info['cost'];
+        $game_state['turn']['movement_spent'] = $cost_info['cost'];
         $game_state['turn']['diagonal_count'] = $cost_info['new_diagonal_count'];
+        $params['distance_ft'] = (int) $cost_info['cost'];
       }
     }
 
@@ -359,22 +506,130 @@ class EncounterActionExecutor {
       $this->logger->warning('Failed to update participant position: @error', ['@error' => $e->getMessage()]);
     }
 
+    $this->syncCampaignCharacterPlacement(
+      $campaign_id ?? 0,
+      $actor_id,
+      (int) $to_hex['q'],
+      (int) $to_hex['r'],
+      (string) ($entity['placement']['room_id'] ?? $game_state['active_room_id'] ?? $dungeon_data['current_room_id'] ?? '')
+    );
+
     $snare_trigger = NULL;
     $location_id_stride = $game_state['active_room_id'] ?? ($dungeon_data['current_room_id'] ?? NULL);
     if ($location_id_stride !== NULL && !$is_forced) {
       $snare_trigger = $this->magicItemService->checkSnareAtHex($actor_id, $location_id_stride, $to_hex, $game_state);
     }
 
+    $resolved_from_hex = is_array($from_hex)
+      ? ['q' => (int) ($from_hex['q'] ?? 0), 'r' => (int) ($from_hex['r'] ?? 0)]
+      : ['q' => (int) ($to_hex['q'] ?? 0), 'r' => (int) ($to_hex['r'] ?? 0)];
+    $resolved_to_hex = ['q' => (int) ($to_hex['q'] ?? 0), 'r' => (int) ($to_hex['r'] ?? 0)];
+    $distance_ft = (int) ($params['distance_ft'] ?? 0);
+    $resolved_action_cost = max(0, (int) ($params['action_cost'] ?? 1));
+    $movement_packet = $this->unifiedMovementEngine->buildMovementResolutionPacket(
+      $actor_id,
+      $is_forced ? 'forced' : 'stride',
+      $resolved_from_hex,
+      $resolved_to_hex,
+      $distance_ft,
+      $resolved_action_cost,
+      [
+        'encounter_id' => $encounter_id,
+        'snare_triggered' => !empty($snare_trigger),
+      ]
+    );
+    $execution_request = $this->combatResolutionContractService->buildCombatExecutionRequest(
+      $is_forced ? 'forced_movement' : 'stride',
+      $actor_id,
+      NULL,
+      $params
+    );
+
     return [
       'stride' => TRUE,
-      'from_hex' => $from_hex,
-      'to_hex' => $to_hex,
+      'execution_request' => $execution_request,
+      'from_hex' => $resolved_from_hex,
+      'to_hex' => $resolved_to_hex,
+      'distance_ft' => $distance_ft,
       'is_forced' => $is_forced,
+      'movement_packet' => $movement_packet,
+      'resolution_envelope' => $this->combatResolutionContractService->buildResolutionEnvelope(
+        $execution_request,
+        [$movement_packet],
+        [
+          'distance_ft' => $distance_ft,
+          'is_forced' => $is_forced,
+        ]
+      ),
       'snare_triggered' => $snare_trigger,
       'mutations' => [
-        ['entity' => $actor_id, 'field' => 'placement.hex', 'from' => $from_hex, 'to' => $to_hex],
+        ['entity' => $actor_id, 'field' => 'placement.hex', 'from' => $resolved_from_hex, 'to' => $resolved_to_hex],
       ],
     ];
+  }
+
+  /**
+   * Keep dc_campaign_characters placement hot columns aligned with live runtime movement.
+   */
+  protected function syncCampaignCharacterPlacement(
+    int $campaign_id,
+    string $actor_id,
+    int $q,
+    int $r,
+    string $room_id
+  ): void {
+    if ($campaign_id <= 0 || $actor_id === '') {
+      return;
+    }
+
+    try {
+      $database = \Drupal::database();
+      if (!$database->schema()->tableExists('dc_campaign_characters')) {
+        return;
+      }
+
+      $existing_state = $database->select('dc_campaign_characters', 'cc')
+        ->fields('cc', ['state_data'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('instance_id', $actor_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($existing_state === FALSE) {
+        return;
+      }
+
+      $state_data = json_decode((string) $existing_state, TRUE);
+      if (!is_array($state_data)) {
+        $state_data = [];
+      }
+      $state_data['placement'] = is_array($state_data['placement'] ?? NULL) ? $state_data['placement'] : [];
+      $state_data['placement']['hex'] = [
+        'q' => $q,
+        'r' => $r,
+      ];
+      if ($room_id !== '') {
+        $state_data['placement']['room_id'] = $room_id;
+      }
+
+      $database->update('dc_campaign_characters')
+        ->fields([
+          'position_q' => $q,
+          'position_r' => $r,
+          'last_room_id' => $room_id !== '' ? $room_id : NULL,
+          'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+          'updated' => time(),
+        ])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('instance_id', $actor_id)
+        ->execute();
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Failed to sync dc_campaign_characters placement for actor @actor: @error', [
+        '@actor' => $actor_id,
+        '@error' => $e->getMessage(),
+      ]);
+    }
   }
 
   public function processInteract(
@@ -386,6 +641,25 @@ class EncounterActionExecutor {
     array &$dungeon_data,
     int $campaign_id
   ): array {
+    $target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);
+    $target_constraint_check = $this->actionTargetingService->validateTargetSelectionConstraints($target_refs, $params);
+    if (empty($target_constraint_check['valid'])) {
+      return [
+        'interacted' => FALSE,
+        'error' => (string) ($target_constraint_check['error'] ?? 'Invalid target selection.'),
+        'mutations' => [],
+      ];
+    }
+    $target_id = $target_refs[0] ?? $target_id;
+    $targeting_mode = $this->actionTargetingService->resolveTargetingMode('interact', $params);
+    if ($this->actionTargetingService->requiresTarget('interact', $targeting_mode) && $target_id === NULL) {
+      return [
+        'interacted' => FALSE,
+        'error' => sprintf("Interact targeting mode '%s' requires a target.", $targeting_mode),
+        'mutations' => [],
+      ];
+    }
+
     $interaction_type = $params['interaction_type'] ?? 'generic';
 
     if (in_array($interaction_type, ['open_door', 'open_passage'])) {
@@ -422,6 +696,61 @@ class EncounterActionExecutor {
     callable $sync_canonical_spellcasting_projection,
     callable $normalize_spell_resource_error_message
   ): array {
+    \Drupal::logger('dungeoncrawler_targeting')->debug(
+      'cast_spell start encounter=@encounter actor=@actor target=@target spell=@spell mode=@mode min=@min max=@max dup=@dup targets=@targets',
+      [
+        '@encounter' => (string) $encounter_id,
+        '@actor' => $actor_id,
+        '@target' => (string) ($target_id ?? ''),
+        '@spell' => (string) ($params['spell_id'] ?? $params['spell_name'] ?? 'unknown'),
+        '@mode' => (string) ($params['targeting_mode'] ?? $params['targeting'] ?? ''),
+        '@min' => (string) ($params['min_targets'] ?? ''),
+        '@max' => (string) ($params['max_targets'] ?? ''),
+        '@dup' => !empty($params['allow_duplicate_targets']) ? '1' : '0',
+        '@targets' => json_encode($params['targets'] ?? [], JSON_UNESCAPED_SLASHES),
+      ]
+    );
+    $target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);
+    \Drupal::logger('dungeoncrawler_targeting')->debug(
+      'cast_spell normalized targets refs=@refs',
+      ['@refs' => json_encode($target_refs, JSON_UNESCAPED_SLASHES)]
+    );
+    $target_constraint_check = $this->actionTargetingService->validateTargetSelectionConstraints($target_refs, $params);
+    if (empty($target_constraint_check['valid'])) {
+      \Drupal::logger('dungeoncrawler_targeting')->warning(
+        'cast_spell rejected target constraints actor=@actor refs=@refs error=@error',
+        [
+          '@actor' => $actor_id,
+          '@refs' => json_encode($target_refs, JSON_UNESCAPED_SLASHES),
+          '@error' => (string) ($target_constraint_check['error'] ?? 'invalid target selection'),
+        ]
+      );
+      return [
+        'cast' => FALSE,
+        'error' => (string) ($target_constraint_check['error'] ?? 'Invalid target selection.'),
+        'mutations' => [],
+        'narration' => NULL,
+      ];
+    }
+    $target_id = $target_refs[0] ?? NULL;
+    $targeting_mode = $this->actionTargetingService->resolveTargetingMode('cast_spell', $params);
+    if ($this->actionTargetingService->requiresTarget('cast_spell', $targeting_mode) && $target_id === NULL) {
+      \Drupal::logger('dungeoncrawler_targeting')->warning(
+        'cast_spell rejected missing required target actor=@actor mode=@mode refs=@refs',
+        [
+          '@actor' => $actor_id,
+          '@mode' => $targeting_mode,
+          '@refs' => json_encode($target_refs, JSON_UNESCAPED_SLASHES),
+        ]
+      );
+      return [
+        'cast' => FALSE,
+        'error' => sprintf("Spell targeting mode '%s' requires a target.", $targeting_mode),
+        'mutations' => [],
+        'narration' => NULL,
+      ];
+    }
+
     $spell_name = $params['spell_name'] ?? 'unknown';
     $spell_id = (string) ($params['spell_id'] ?? '');
     $spell_level = (int) ($params['spell_level'] ?? 0);
@@ -430,11 +759,110 @@ class EncounterActionExecutor {
     $is_focus_spell = !empty($params['is_focus_spell']);
     $requires_attack_roll = !empty($params['requires_attack_roll']);
     $spell_tradition = $params['spell_tradition'] ?? NULL;
+    if ($target_id === NULL && $this->isMagicMissileSpell($spell_id, (string) $spell_name)) {
+      return [
+        'cast' => FALSE,
+        'error' => 'Magic Missile requires selecting a valid target.',
+        'mutations' => [],
+        'narration' => NULL,
+      ];
+    }
 
     $enc_cs = $this->encounterStore->loadEncounter($encounter_id);
     $ptcp_cs = $enc_cs ? $this->findEncounterParticipantByEntityId($enc_cs, $actor_id) : NULL;
     if (!$ptcp_cs) {
+      \Drupal::logger('dungeoncrawler_targeting')->warning('cast_spell rejected caster not found actor=@actor encounter=@encounter', [
+        '@actor' => $actor_id,
+        '@encounter' => (string) $encounter_id,
+      ]);
       return ['cast' => FALSE, 'error' => 'Caster not found.', 'mutations' => [], 'narration' => NULL];
+    }
+    if ($target_id !== NULL) {
+      $target_participant = $this->findEncounterParticipantByEntityId($enc_cs ?: [], $target_id);
+      if (!$target_participant) {
+        \Drupal::logger('dungeoncrawler_targeting')->warning(
+          'cast_spell rejected primary target missing target=@target actor=@actor encounter=@encounter',
+          [
+            '@target' => $target_id,
+            '@actor' => $actor_id,
+            '@encounter' => (string) $encounter_id,
+          ]
+        );
+        return ['cast' => FALSE, 'error' => 'Target is not present in the encounter.', 'mutations' => [], 'narration' => NULL];
+      }
+      if (!isset($params['target_level'])) {
+        $target_ref_data = !empty($target_participant['entity_ref']) ? json_decode((string) $target_participant['entity_ref'], TRUE) : [];
+        $target_level = (int) ($target_ref_data['level'] ?? $target_ref_data['character_level'] ?? 0);
+        if ($target_level > 0) {
+          $params['target_level'] = $target_level;
+        }
+      }
+    }
+    $origin_hex = $this->resolveParticipantHex($ptcp_cs ?: []);
+    if (count($target_refs) > 1) {
+      foreach ($target_refs as $candidate_target_ref) {
+        $candidate = $this->findEncounterParticipantByEntityId($enc_cs ?: [], $candidate_target_ref);
+        if (!$candidate) {
+          \Drupal::logger('dungeoncrawler_targeting')->warning(
+            'cast_spell rejected selected target missing target=@target actor=@actor refs=@refs',
+            [
+              '@target' => $candidate_target_ref,
+              '@actor' => $actor_id,
+              '@refs' => json_encode($target_refs, JSON_UNESCAPED_SLASHES),
+            ]
+          );
+          return [
+            'cast' => FALSE,
+            'error' => sprintf('One or more selected targets are not present in the encounter (%s).', $candidate_target_ref),
+            'mutations' => [],
+            'narration' => NULL,
+          ];
+        }
+        $target_hex = $this->resolveParticipantHex($candidate);
+        $range_check = $this->actionTargetingService->validateRangeConstraint($origin_hex, $target_hex, $params);
+        if (empty($range_check['valid'])) {
+          \Drupal::logger('dungeoncrawler_targeting')->warning(
+            'cast_spell rejected range actor=@actor target=@target distance_ft=@distance error=@error',
+            [
+              '@actor' => $actor_id,
+              '@target' => $candidate_target_ref,
+              '@distance' => (string) ($range_check['distance_ft'] ?? ''),
+              '@error' => (string) ($range_check['error'] ?? 'range validation failed'),
+            ]
+          );
+          return [
+            'cast' => FALSE,
+            'error' => (string) ($range_check['error'] ?? 'Selected target is out of range.'),
+            'mutations' => [],
+            'narration' => NULL,
+          ];
+        }
+      }
+      $params['selected_targets'] = $target_refs;
+    }
+    elseif ($target_id !== NULL) {
+      $target_participant = $this->findEncounterParticipantByEntityId($enc_cs ?: [], $target_id);
+      if ($target_participant) {
+        $target_hex = $this->resolveParticipantHex($target_participant);
+        $range_check = $this->actionTargetingService->validateRangeConstraint($origin_hex, $target_hex, $params);
+        if (empty($range_check['valid'])) {
+          \Drupal::logger('dungeoncrawler_targeting')->warning(
+            'cast_spell rejected range actor=@actor target=@target distance_ft=@distance error=@error',
+            [
+              '@actor' => $actor_id,
+              '@target' => $target_id,
+              '@distance' => (string) ($range_check['distance_ft'] ?? ''),
+              '@error' => (string) ($range_check['error'] ?? 'range validation failed'),
+            ]
+          );
+          return [
+            'cast' => FALSE,
+            'error' => (string) ($range_check['error'] ?? 'Selected target is out of range.'),
+            'mutations' => [],
+            'narration' => NULL,
+          ];
+        }
+      }
     }
     $edata_cs = !empty($ptcp_cs['entity_ref']) ? json_decode((string) $ptcp_cs['entity_ref'], TRUE) : [];
     $actor_entity_index = $this->canonicalProjectionService->findDungeonEntityIndexByInstanceId($dungeon_data, $actor_id);
@@ -495,6 +923,12 @@ class EncounterActionExecutor {
     $is_innate_spell = !empty($params['is_innate_spell']);
     $spell_attack_mod = (int) ($edata_cs['spell_attack_modifier'] ?? $params['spell_attack_modifier'] ?? 0);
     $spell_dc = (int) ($edata_cs['spell_dc'] ?? $params['spell_dc'] ?? (10 + ($params['proficiency_bonus'] ?? 0) + ($params['key_ability_mod'] ?? 0)));
+    $spell_damage = NULL;
+    $spell_damage_type = NULL;
+    $spell_damage_mutations = [];
+    $spell_damage_packet = NULL;
+    $target_defeated = FALSE;
+    $missiles_fired = NULL;
     if ($is_innate_spell) {
       $cha_mod = (int) ($edata_cs['charisma_modifier'] ?? $params['charisma_modifier'] ?? 0);
       $innate_proficiency = (int) ($edata_cs['spell_proficiency_bonus'] ?? $params['proficiency_bonus'] ?? 2);
@@ -513,10 +947,42 @@ class EncounterActionExecutor {
       ];
     }
 
+    $should_trigger_negative_spell_disposition = $target_id !== NULL
+      && trim($target_id) !== ''
+      && (
+        !empty($params['is_negative_effect_spell'])
+        || $requires_attack_roll
+      );
+
     if ($is_cantrip) {
       $effective_level = $this->canonicalProjectionService->resolveEffectiveCantripLevel($canonical_state, $edata_cs);
+      if ($should_trigger_negative_spell_disposition) {
+        $this->applyClassifiedDispositionMutation(
+          $campaign_id > 0 ? $campaign_id : NULL,
+          'cast_spell',
+          $actor_id,
+          $target_id,
+          sprintf('Encounter spell cast against %s: %s', (string) $target_id, (string) $spell_name),
+          [
+            'relationship_type' => 'combat',
+            'relationship_status' => 'known',
+            'idempotency_key' => sha1(json_encode([
+              'encounter_id' => $encounter_id,
+              'event_type' => 'negative_effect_spell',
+              'source' => $actor_id,
+              'target' => (string) $target_id,
+              'spell_name' => (string) $spell_name,
+              'cast_at_level' => $cast_at_level,
+              'attack_result' => $attack_result,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+            'is_negative_effect_spell' => !empty($params['is_negative_effect_spell']),
+            'requires_attack_roll' => $requires_attack_roll,
+          ]
+        );
+      }
       return [
         'cast' => TRUE,
+        'target_id' => $target_id,
         'spell' => $spell_name,
         'is_cantrip' => TRUE,
         'effective_level' => $effective_level,
@@ -556,6 +1022,7 @@ class EncounterActionExecutor {
           $canonical_consumed = TRUE;
         }
         catch (\InvalidArgumentException $exception) {
+
           return [
             'cast' => FALSE,
             'error' => $normalize_spell_resource_error_message($exception->getMessage(), TRUE, 0),
@@ -574,15 +1041,89 @@ class EncounterActionExecutor {
         ];
       }
 
+      if ($should_trigger_negative_spell_disposition) {
+        $this->applyClassifiedDispositionMutation(
+          $campaign_id > 0 ? $campaign_id : NULL,
+          'cast_spell',
+          $actor_id,
+          $target_id,
+          sprintf('Encounter focus spell cast against %s: %s', (string) $target_id, (string) $spell_name),
+          [
+            'relationship_type' => 'combat',
+            'relationship_status' => 'known',
+            'idempotency_key' => sha1(json_encode([
+              'encounter_id' => $encounter_id,
+              'event_type' => 'negative_effect_spell',
+              'source' => $actor_id,
+              'target' => (string) $target_id,
+              'spell_name' => (string) $spell_name,
+              'cast_at_level' => $cast_at_level,
+              'is_focus_spell' => TRUE,
+              'attack_result' => $attack_result,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+            'is_negative_effect_spell' => !empty($params['is_negative_effect_spell']),
+            'requires_attack_roll' => $requires_attack_roll,
+          ]
+        );
+      }
+
+      if ($target_id !== NULL && trim($target_id) !== '') {
+        $damage_resolution = $this->applySupportedSpellDamageToEncounterTarget(
+          $encounter_id,
+          $actor_id,
+          (string) $target_id,
+          (string) $spell_id,
+          (string) $spell_name,
+          (int) $slot_level,
+          (int) ($params['action_cost'] ?? 1)
+        );
+        if (is_numeric($damage_resolution['damage'] ?? NULL)) {
+          $spell_damage = (int) $damage_resolution['damage'];
+        }
+        $spell_damage_type = is_string($damage_resolution['damage_type'] ?? NULL) ? (string) $damage_resolution['damage_type'] : NULL;
+        $spell_damage_mutations = is_array($damage_resolution['mutations'] ?? NULL) ? $damage_resolution['mutations'] : [];
+        $spell_damage_packet = is_array($damage_resolution['damage_packet'] ?? NULL) ? $damage_resolution['damage_packet'] : NULL;
+        $target_defeated = !empty($damage_resolution['is_defeated']);
+        $missiles_fired = is_numeric($damage_resolution['missiles_fired'] ?? NULL) ? (int) $damage_resolution['missiles_fired'] : NULL;
+      }
+
       return [
         'cast' => TRUE,
+        'execution_request' => $this->combatResolutionContractService->buildCombatExecutionRequest(
+          'cast_spell',
+          $actor_id,
+          $target_id,
+          $params
+        ),
+        'target_id' => $target_id,
         'spell' => $spell_name,
         'is_focus_spell' => TRUE,
         'focus_points_remaining' => max(0, (int) ($focus_remaining ?? 0)),
         'spell_dc' => $spell_dc,
         'attack_result' => $attack_result,
+        'damage' => $spell_damage,
+        'damage_type' => $spell_damage_type,
+        'damage_packet' => $spell_damage_packet,
+        'missiles_fired' => $missiles_fired,
+        'is_defeated' => $target_defeated,
+        'resolution_envelope' => $this->combatResolutionContractService->buildResolutionEnvelope(
+          $this->combatResolutionContractService->buildCombatExecutionRequest(
+            'cast_spell',
+            $actor_id,
+            $target_id,
+            $params
+          ),
+          array_values(array_filter([$spell_damage_packet], 'is_array')),
+          [
+            'spell' => $spell_name,
+            'damage' => $spell_damage,
+            'damage_type' => $spell_damage_type,
+            'missiles_fired' => $missiles_fired,
+            'is_defeated' => $target_defeated,
+          ]
+        ),
         'narration' => NULL,
-        'mutations' => [],
+        'mutations' => array_merge([['entity_id' => $actor_id]], $spell_damage_mutations),
       ];
     }
 
@@ -664,6 +1205,26 @@ class EncounterActionExecutor {
       ];
     }
 
+    if ($target_id !== NULL && trim($target_id) !== '') {
+      $damage_resolution = $this->applySupportedSpellDamageToEncounterTarget(
+        $encounter_id,
+        $actor_id,
+        (string) $target_id,
+        (string) $spell_id,
+        (string) $spell_name,
+        (int) $slot_level,
+        (int) ($params['action_cost'] ?? 1)
+      );
+      if (is_numeric($damage_resolution['damage'] ?? NULL)) {
+        $spell_damage = (int) $damage_resolution['damage'];
+      }
+      $spell_damage_type = is_string($damage_resolution['damage_type'] ?? NULL) ? (string) $damage_resolution['damage_type'] : NULL;
+      $spell_damage_mutations = is_array($damage_resolution['mutations'] ?? NULL) ? $damage_resolution['mutations'] : [];
+      $spell_damage_packet = is_array($damage_resolution['damage_packet'] ?? NULL) ? $damage_resolution['damage_packet'] : NULL;
+      $target_defeated = !empty($damage_resolution['is_defeated']);
+      $missiles_fired = is_numeric($damage_resolution['missiles_fired'] ?? NULL) ? (int) $damage_resolution['missiles_fired'] : NULL;
+    }
+
     $incapacitation_note = NULL;
     $is_incapacitation_spell = !empty($params['is_incapacitation']);
     if ($is_incapacitation_spell) {
@@ -687,8 +1248,40 @@ class EncounterActionExecutor {
       }
     }
 
+    if ($should_trigger_negative_spell_disposition) {
+      $this->applyClassifiedDispositionMutation(
+        $campaign_id > 0 ? $campaign_id : NULL,
+        'cast_spell',
+        $actor_id,
+        $target_id,
+        sprintf('Encounter spell cast against %s: %s', (string) $target_id, (string) $spell_name),
+        [
+          'relationship_type' => 'combat',
+          'relationship_status' => 'known',
+          'idempotency_key' => sha1(json_encode([
+            'encounter_id' => $encounter_id,
+            'event_type' => 'negative_effect_spell',
+            'source' => $actor_id,
+            'target' => (string) $target_id,
+            'spell_name' => (string) $spell_name,
+            'cast_at_level' => $slot_level,
+            'attack_result' => $attack_result,
+          ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
+          'is_negative_effect_spell' => !empty($params['is_negative_effect_spell']),
+          'requires_attack_roll' => $requires_attack_roll,
+        ]
+      );
+    }
+
     return [
       'cast' => TRUE,
+      'execution_request' => $this->combatResolutionContractService->buildCombatExecutionRequest(
+        'cast_spell',
+        $actor_id,
+        $target_id,
+        $params
+      ),
+      'target_id' => $target_id,
       'spell' => $spell_name,
       'spell_level' => $spell_level,
       'cast_at_level' => $slot_level,
@@ -697,12 +1290,56 @@ class EncounterActionExecutor {
       'spell_dc' => $spell_dc,
       'spell_attack_modifier' => $spell_attack_mod,
       'attack_result' => $attack_result,
+      'damage' => $spell_damage,
+      'damage_type' => $spell_damage_type,
+      'damage_packet' => $spell_damage_packet,
+      'missiles_fired' => $missiles_fired,
+      'is_defeated' => $target_defeated,
+      'resolution_envelope' => $this->combatResolutionContractService->buildResolutionEnvelope(
+        $this->combatResolutionContractService->buildCombatExecutionRequest(
+          'cast_spell',
+          $actor_id,
+          $target_id,
+          $params
+        ),
+        array_values(array_filter([$spell_damage_packet], 'is_array')),
+        [
+          'spell' => $spell_name,
+          'damage' => $spell_damage,
+          'damage_type' => $spell_damage_type,
+          'missiles_fired' => $missiles_fired,
+          'is_defeated' => $target_defeated,
+        ]
+      ),
       'metamagic_applied' => $metamagic_applied,
       'incapacitation_note' => $incapacitation_note,
       'avert_gaze_note' => $avert_gaze_note,
       'narration' => NULL,
-      'mutations' => [],
+      'mutations' => array_merge([['entity_id' => $actor_id]], $spell_damage_mutations),
     ];
+  }
+
+  /**
+   * Apply direct spell damage for currently supported deterministic spells.
+   */
+  protected function applySupportedSpellDamageToEncounterTarget(
+    int $encounter_id,
+    string $source_actor_id,
+    string $target_id,
+    string $spell_id,
+    string $spell_name,
+    int $cast_rank,
+    int $action_cost
+  ): array {
+    return $this->unifiedDamageEngine->applySupportedSpellDamageToEncounterTarget(
+      $encounter_id,
+      $source_actor_id,
+      $target_id,
+      $spell_id,
+      $spell_name,
+      $cast_rank,
+      $action_cost
+    );
   }
 
   protected function findEncounterParticipantByEntityId(array $encounter, string $entity_id): ?array {
@@ -713,6 +1350,97 @@ class EncounterActionExecutor {
     }
 
     return NULL;
+  }
+
+  /**
+   * Resolve participant axial hex from encounter participant payload.
+   *
+   * @return array{q:int, r:int}|null
+   *   Normalized hex payload or NULL when unavailable.
+   */
+  protected function resolveParticipantHex(array $participant): ?array {
+    $q = $participant['position_q'] ?? NULL;
+    $r = $participant['position_r'] ?? NULL;
+    if (!is_scalar($q) || !is_scalar($r)) {
+      return NULL;
+    }
+    return [
+      'q' => (int) $q,
+      'r' => (int) $r,
+    ];
+  }
+
+  /**
+   * Apply a classifier-scoped mutation for one encounter action.
+   */
+  protected function applyClassifiedDispositionMutation(
+    ?int $campaign_id,
+    string $action_type,
+    string $source_actor_ref,
+    ?string $target_actor_ref,
+    string $event_description,
+    array $context = []
+  ): void {
+    if ($campaign_id === NULL || $campaign_id <= 0 || $this->dispositionMutationClassifierService === NULL) {
+      return;
+    }
+
+    $classification = $this->dispositionMutationClassifierService->classifyActionMutationScope(
+      $campaign_id,
+      $action_type,
+      $context + [
+        'source_entity_ref' => $source_actor_ref,
+        'target_entity_ref' => (string) $target_actor_ref,
+      ]
+    );
+    if (empty($classification['matched'])) {
+      return;
+    }
+    $event_type = trim((string) ($classification['event_type'] ?? ''));
+    if ($event_type === '') {
+      return;
+    }
+
+    $this->applyDispositionTriggerMutation(
+      $campaign_id,
+      $source_actor_ref,
+      $target_actor_ref,
+      $event_type,
+      $event_description,
+      $context + ['trigger_classification' => $classification]
+    );
+  }
+
+  /**
+   * Apply one disposition-trigger mutation from encounter action execution.
+   */
+  protected function applyDispositionTriggerMutation(
+    ?int $campaign_id,
+    string $source_actor_ref,
+    ?string $target_actor_ref,
+    string $event_type,
+    string $event_description,
+    array $context = []
+  ): void {
+    if ($this->actorDispositionService === NULL || $campaign_id === NULL || $campaign_id <= 0) {
+      return;
+    }
+    $source_actor_ref = trim($source_actor_ref);
+    $target_actor_ref = trim((string) $target_actor_ref);
+    if ($source_actor_ref === '' || $target_actor_ref === '') {
+      return;
+    }
+
+    $this->actorDispositionService->applyDispositionEvent(
+      $campaign_id,
+      $source_actor_ref,
+      $event_type,
+      $event_description,
+      $context + [
+        'target_entity_ref' => $target_actor_ref,
+        'event_timestamp' => time(),
+      ]
+    );
   }
 
 }

@@ -6,6 +6,8 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\ActiveEffectStoreService;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
+use Drupal\dungeoncrawler_content\Service\EffectInstanceService;
+use Drupal\dungeoncrawler_content\Service\EffectProjectionService;
 use Drupal\dungeoncrawler_content\Service\FeatEffectManager;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\ImpactContractService;
@@ -18,7 +20,7 @@ use Drupal\Tests\UnitTestCase;
  */
 class CharacterStateServiceArmorClassTest extends UnitTestCase {
 
-  private function createService(?ActiveEffectStoreService $active_effect_store = NULL): CharacterStateService {
+  private function createService(?ActiveEffectStoreService $active_effect_store = NULL, ?EffectInstanceService $effect_instance_service = NULL, ?EffectProjectionService $effect_projection_service = NULL): CharacterStateService {
     return new CharacterStateService(
       $this->createMock(Connection::class),
       $this->createMock(AccountProxyInterface::class),
@@ -27,6 +29,8 @@ class CharacterStateServiceArmorClassTest extends UnitTestCase {
       $this->createMock(NumberGenerationService::class),
       new ImpactContractService(),
       $active_effect_store ?? $this->createMock(ActiveEffectStoreService::class),
+      $effect_instance_service,
+      $effect_projection_service,
     );
   }
 
@@ -147,6 +151,89 @@ class CharacterStateServiceArmorClassTest extends UnitTestCase {
     $this->assertNotEmpty($armor_impacts);
     $this->assertSame('add', $armor_impacts[0]['operation']);
     $this->assertSame('persistent-sheet', $armor_impacts[0]['phase']);
+  }
+
+  /**
+   * @covers ::resolveEffectiveState
+   */
+  public function testResolveEffectiveStateAppliesMageArmorFromEffectInstanceProjection(): void {
+    $effect_projection_service = $this->createMock(EffectProjectionService::class);
+    $effect_projection_service->expects($this->once())
+      ->method('projectPersistentActorEffects')
+      ->with('4754', 812, 'pc-812-1033', $this->isType('array'))
+      ->willReturn([
+        'instances' => [
+          ['definition_id' => 'mage_armor', 'target_subscope' => 'mage_armor'],
+        ],
+        'adjustments' => ['armor_class' => 1, 'speed' => 0],
+        'condition_tooltips' => [
+          'mage_armor' => [
+            'name' => 'Mage Armor',
+            'type' => 'condition',
+            'desc' => 'You gain +1 status bonus to AC until your next daily preparations.',
+            'stats' => [['stat' => 'Armor Class', 'val' => '+1 AC']],
+            'effects' => [],
+            'notes' => ['Expires: next daily preparations'],
+          ],
+        ],
+      ]);
+
+    $service = $this->createService(NULL, NULL, $effect_projection_service);
+
+    $method = new \ReflectionMethod($service, 'resolveEffectiveState');
+    $method->setAccessible(TRUE);
+
+    $state = [
+      'characterId' => '4754',
+      'campaignId' => 812,
+      'instanceId' => 'pc-812-1033',
+      'basicInfo' => [
+        'level' => 1,
+        'class' => 'wizard',
+      ],
+      'abilities' => [
+        'dexterity' => 14,
+      ],
+      'speed' => 25,
+      'resources' => [
+        'hitPoints' => [
+          'current' => 10,
+          'max' => 10,
+          'temporary' => 0,
+        ],
+      ],
+      'defenses' => [
+        'armorClass' => [],
+      ],
+      'inventory' => [
+        'worn' => [
+          'armor' => NULL,
+          'weapons' => [],
+          'shield' => NULL,
+          'accessories' => [],
+        ],
+        'carried' => [],
+        'currency' => ['cp' => 0, 'sp' => 0, 'gp' => 0, 'pp' => 0],
+        'totalBulk' => 0,
+        'encumbrance' => 'unencumbered',
+      ],
+      'features' => [
+        'feats' => [],
+        'featSelections' => [],
+        'classFeatures' => [],
+      ],
+      'conditions' => [
+        ['condition_type' => 'mage_armor', 'name' => 'Mage Armor', 'value' => 1],
+      ],
+      'spells' => [],
+    ];
+
+    $updated = $method->invoke($service, $state);
+
+    $this->assertSame(13, $updated['defenses']['armorClass']['total']);
+    $this->assertSame(1, $updated['effectiveState']['sources']['conditions']['supported_adjustments']['armor_class']);
+    $this->assertSame('mage_armor', $updated['effectiveState']['sources']['effect_instances'][0]['definition_id']);
+    $this->assertSame('Mage Armor', $updated['effectiveState']['sources']['condition_tooltips']['mage_armor']['name']);
   }
 
   /**
@@ -453,6 +540,52 @@ class CharacterStateServiceArmorClassTest extends UnitTestCase {
     $this->assertSame('grant', $spell_impacts[0]['operation']);
     $this->assertSame('daze', $spell_impacts[0]['metadata']['spell_id']);
     $this->assertSame('occult', $spell_impacts[0]['metadata']['tradition']);
+  }
+
+  /**
+   * @covers ::resolveEffectiveState
+   */
+  public function testResolveEffectiveStateUsesEffectProjectionService(): void {
+    $effect_projection_service = $this->createMock(EffectProjectionService::class);
+    $effect_projection_service->expects($this->once())
+      ->method('projectPersistentActorEffects')
+      ->with('4754', 812, 'pc-812-1033', $this->isType('array'))
+      ->willReturn([
+        'instances' => [
+          ['definition_id' => 'mage_armor', 'target_subscope' => 'mage_armor'],
+        ],
+        'adjustments' => ['armor_class' => 1, 'speed' => 0],
+        'condition_tooltips' => [
+          'mage_armor' => [
+            'name' => 'Mage Armor',
+            'type' => 'condition',
+            'desc' => 'You gain +1 status bonus to AC until your next daily preparations.',
+            'stats' => [['stat' => 'Armor Class', 'val' => '+1 AC']],
+            'effects' => [],
+            'notes' => ['Expires: next daily preparations'],
+          ],
+        ],
+      ]);
+
+    $service = $this->createService(NULL, NULL, $effect_projection_service);
+    $method = new \ReflectionMethod($service, 'resolveEffectiveState');
+    $method->setAccessible(TRUE);
+
+    $resolved = $method->invoke($service, [
+      'characterId' => '4754',
+      'campaignId' => 812,
+      'instanceId' => 'pc-812-1033',
+      'basicInfo' => ['level' => 1, 'class' => 'wizard'],
+      'abilities' => ['dexterity' => 14],
+      'resources' => ['hitPoints' => ['current' => 10, 'max' => 10, 'temporary' => 0]],
+      'spells' => [],
+      'inventory' => [],
+      'conditions' => [['condition_type' => 'mage_armor', 'name' => 'Mage Armor', 'value' => 1]],
+      'defenses' => [],
+    ]);
+
+    $this->assertSame(13, $resolved['defenses']['armorClass']['total']);
+    $this->assertSame('Mage Armor', $resolved['effectiveState']['sources']['condition_tooltips']['mage_armor']['name']);
   }
 
 }

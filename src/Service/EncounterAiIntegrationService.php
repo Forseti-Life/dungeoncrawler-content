@@ -9,6 +9,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
  * Orchestrates encounter AI recommendation and validation in read-only mode.
  */
 class EncounterAiIntegrationService {
+  protected const RESOLVED_ACTOR_CONTEXT_CONTRACT_VERSION = 'resolved_actor_context.v1';
 
   /**
    * Encounter AI provider implementation.
@@ -31,6 +32,8 @@ class EncounterAiIntegrationService {
   protected ActorActionAvailabilityService $actionAvailability;
   protected ActorDecisionContractService $decisionContractService;
   protected ActorDecisionValidatorService $decisionValidator;
+  protected ?ActorContextProjectionService $actorContextProjectionService;
+  protected ?AggressionStateStoreService $aggressionStateStoreService;
 
   /**
    * Constructs service.
@@ -41,7 +44,9 @@ class EncounterAiIntegrationService {
     LoggerChannelFactoryInterface $logger_factory,
     ?ActorActionAvailabilityService $action_availability = NULL,
     ?ActorDecisionContractService $decision_contract_service = NULL,
-    ?ActorDecisionValidatorService $decision_validator = NULL
+    ?ActorDecisionValidatorService $decision_validator = NULL,
+    ?ActorContextProjectionService $actor_context_projection_service = NULL,
+    ?AggressionStateStoreService $aggression_state_store_service = NULL
   ) {
     $this->provider = $provider;
     $this->time = $time;
@@ -49,6 +54,8 @@ class EncounterAiIntegrationService {
     $this->actionAvailability = $action_availability ?? new ActorActionAvailabilityService();
     $this->decisionContractService = $decision_contract_service ?? new ActorDecisionContractService();
     $this->decisionValidator = $decision_validator ?? new ActorDecisionValidatorService();
+    $this->actorContextProjectionService = $actor_context_projection_service;
+    $this->aggressionStateStoreService = $aggression_state_store_service;
   }
 
   /**
@@ -106,6 +113,10 @@ class EncounterAiIntegrationService {
       ? $availability['availability_envelope']
       : [];
     $action_contract_hash = $this->decisionContractService->buildActionContractHash($actor_action_contract, $allowed_actions);
+    $resolved_actor_context = $this->buildResolvedActorProjection($campaign_id, $current_actor, $actor_id, $participants);
+    $resolved_actor_context_contract_hash = $this->buildResolvedActorContextContractHash($resolved_actor_context);
+    $current_actor_tactical_intent = $this->resolveCurrentActorTacticalIntent($current_actor, $resolved_actor_context);
+    $combat_entry_summary = $this->loadCombatEntrySummaryFromRoom($campaign_id, (string) ($encounter['room_id'] ?? ''));
 
     return [
       'campaign_id' => $campaign_id,
@@ -122,7 +133,109 @@ class EncounterAiIntegrationService {
         ? $actor_action_contract['action_option_families']
         : [],
       'actions_available_to_me_this_turn' => $actions_available_to_me_this_turn,
+      'resolved_actor_context' => $resolved_actor_context,
+      'current_actor_tactical_intent' => $current_actor_tactical_intent,
+      'resolved_actor_context_contract_version' => self::RESOLVED_ACTOR_CONTEXT_CONTRACT_VERSION,
+      'resolved_actor_context_contract_hash' => $resolved_actor_context_contract_hash,
+      'disposition_summary' => is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : NULL,
+      'aggression_summary' => is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : NULL,
+      'stance_summary' => is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : NULL,
+      'combat_entry_summary' => $combat_entry_summary,
+      'resolved_disposition_by_target' => is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
+        ? $resolved_actor_context['resolved_disposition_by_target']
+        : [],
+      'relationship_attitudes' => is_array($resolved_actor_context['relationship_attitudes'] ?? NULL)
+        ? $resolved_actor_context['relationship_attitudes']
+        : [],
       'context_built_at' => $this->time->getCurrentTime(),
+    ];
+  }
+
+  /**
+   * Load canonical combat-entry summary for active encounter room when present.
+   */
+  protected function loadCombatEntrySummaryFromRoom(int $campaign_id, string $room_id): ?array {
+    if ($campaign_id <= 0 || $room_id === '' || !$this->aggressionStateStoreService) {
+      return NULL;
+    }
+    $state = $this->aggressionStateStoreService->loadLatestState($campaign_id, $room_id);
+    $summary = is_array($state['combat_entry_summary'] ?? NULL) ? $state['combat_entry_summary'] : NULL;
+    return $summary !== [] ? $summary : NULL;
+  }
+
+  /**
+   * Build a stable contract hash for resolved actor-context slices.
+   *
+   * @param array<string, mixed> $resolved_actor_context
+   *   Resolved actor projection payload.
+   */
+  protected function buildResolvedActorContextContractHash(array $resolved_actor_context): string {
+    $payload = [
+      'disposition' => is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : NULL,
+      'aggression' => is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : NULL,
+      'stance' => is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : NULL,
+      'resolved_disposition_by_target' => is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
+        ? $resolved_actor_context['resolved_disposition_by_target']
+        : [],
+      'narrative_context' => is_array($resolved_actor_context['narrative_context'] ?? NULL)
+        ? $resolved_actor_context['narrative_context']
+        : [],
+    ];
+    $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded) || $encoded === '') {
+      return '';
+    }
+    return hash('sha256', $encoded);
+  }
+
+  /**
+   * Resolve current actor tactical intent context for encounter AI consumers.
+   *
+   * @param array<string, mixed> $current_actor
+   *   Active actor payload.
+   * @param array<string, mixed> $resolved_actor_context
+   *   Canonical resolved actor context projection.
+   *
+   * @return array<string, mixed>
+   *   Tactical intent envelope.
+   */
+  protected function resolveCurrentActorTacticalIntent(array $current_actor, array $resolved_actor_context): array {
+    $candidate = $current_actor['tactical_intent'] ?? $current_actor['intent_contract'] ?? NULL;
+    if (is_array($candidate) && $candidate !== []) {
+      return $candidate;
+    }
+
+    $aggression = is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : [];
+    $disposition = is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : [];
+    $resolved_disposition_by_target = is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
+      ? $resolved_actor_context['resolved_disposition_by_target']
+      : [];
+    $state = strtolower(trim((string) ($aggression['state'] ?? '')));
+    $actor_score = isset($disposition['score']) && is_numeric($disposition['score'])
+      ? DispositionAuthorityContract::clampScore((int) round((float) $disposition['score']))
+      : (DispositionAuthorityContract::attitudeToScore((string) ($disposition['attitude'] ?? '')) ?? 0);
+    $has_hostile_target_flag = $this->hasHostileDispositionPolicyFlag($resolved_disposition_by_target);
+    $most_hostile_target_score = $this->resolveMostHostileDispositionScore($resolved_disposition_by_target);
+    $has_hostile_disposition = $has_hostile_target_flag
+      || $this->isHostileDispositionScore($actor_score)
+      || ($most_hostile_target_score !== NULL && $this->isHostileDispositionScore($most_hostile_target_score));
+
+    if (in_array($state, ['engaged', 'hostile'], TRUE) || $has_hostile_disposition) {
+      return [
+        'intent' => 'aggressive_engage',
+        'action_sequence' => ['strike', 'strike', 'strike'],
+        'target_strategy' => 'nearest',
+        'decision_reason' => 'Resolved aggression/disposition scores indicate hostile combat posture.',
+        'decision_basis' => ['used_profile' => FALSE, 'used_psychology' => FALSE, 'used_availability' => TRUE],
+      ];
+    }
+
+    return [
+      'intent' => 'evaluate',
+      'action_sequence' => ['recall_knowledge', 'stride', 'talk'],
+      'target_strategy' => 'nearest',
+      'decision_reason' => 'No explicit tactical intent payload; defaulting to evaluate posture.',
+      'decision_basis' => ['used_profile' => FALSE, 'used_psychology' => FALSE, 'used_availability' => TRUE],
     ];
   }
 
@@ -574,6 +687,122 @@ class EncounterAiIntegrationService {
       'entities' => $entities,
       'rooms' => $room_id !== '' ? [['room_id' => $room_id]] : [],
     ];
+  }
+
+  /**
+   * Build resolved actor projection context for encounter AI consumers.
+   *
+   * @param int $campaign_id
+   *   Campaign identifier.
+   * @param array<string, mixed> $current_actor
+   *   Active encounter participant payload.
+   * @param string $actor_id
+   *   Normalized actor identifier.
+   *
+   * @return array<string, mixed>
+   *   Resolved actor-context envelope or empty array when unavailable.
+   */
+  protected function buildResolvedActorProjection(int $campaign_id, array $current_actor, string $actor_id, array $participants = []): array {
+    if (!$this->actorContextProjectionService || $campaign_id <= 0 || $actor_id === '') {
+      return [];
+    }
+
+    $entity_ref = $actor_id;
+    $raw_entity_ref = $current_actor['entity_ref'] ?? NULL;
+    if (is_string($raw_entity_ref)) {
+      $decoded = json_decode($raw_entity_ref, TRUE);
+      if (is_array($decoded)) {
+        $decoded_content_id = trim((string) ($decoded['content_id'] ?? ''));
+        if ($decoded_content_id !== '') {
+          $entity_ref = $decoded_content_id;
+        }
+      }
+      elseif (trim($raw_entity_ref) !== '') {
+        $entity_ref = trim($raw_entity_ref);
+      }
+    }
+    elseif (is_array($raw_entity_ref)) {
+      $decoded_content_id = trim((string) ($raw_entity_ref['content_id'] ?? ''));
+      if ($decoded_content_id !== '') {
+        $entity_ref = $decoded_content_id;
+      }
+    }
+
+    $live_entity = [
+      'name' => (string) ($current_actor['name'] ?? $current_actor['display_name'] ?? $actor_id),
+      'state' => is_array($current_actor['state'] ?? NULL) ? $current_actor['state'] : [],
+    ];
+    $character_data = [];
+    if (is_array($live_entity['state']['character_data'] ?? NULL)) {
+      $character_data = $live_entity['state']['character_data'];
+    }
+    elseif (is_array($current_actor['character_data'] ?? NULL)) {
+      $character_data = $current_actor['character_data'];
+    }
+    $target_entity_refs = [];
+    foreach ((array) ($participants ?? []) as $participant) {
+      if (!is_array($participant) || !empty($participant['is_defeated'])) {
+        continue;
+      }
+      $candidate = trim((string) (
+        $participant['entity_ref']
+        ?? $participant['actor_id']
+        ?? ''
+      ));
+      if ($candidate === '') {
+        continue;
+      }
+      $target_entity_refs[] = $candidate;
+    }
+
+    return $this->actorContextProjectionService->buildResolvedActorContext($campaign_id, $entity_ref, $live_entity, $character_data, [], $target_entity_refs);
+  }
+
+  /**
+   * Resolve whether any target DTO carries a canonical hostile policy flag.
+   *
+   * @param array<string,mixed> $resolved_disposition_by_target
+   *   Canonical resolver DTO map.
+   */
+  protected function hasHostileDispositionPolicyFlag(array $resolved_disposition_by_target): bool {
+    foreach ($resolved_disposition_by_target as $dto) {
+      if (!is_array($dto)) {
+        continue;
+      }
+      if (!empty($dto['policy_flags']['hostile'])) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Resolve most hostile effective disposition score from target map.
+   *
+   * @param array<string,mixed> $resolved_disposition_by_target
+   *   Canonical resolver DTO map.
+   */
+  protected function resolveMostHostileDispositionScore(array $resolved_disposition_by_target): ?int {
+    $lowest_score = NULL;
+    foreach ($resolved_disposition_by_target as $dto) {
+      if (!is_array($dto)) {
+        continue;
+      }
+      if (!isset($dto['effective_disposition_score']) || !is_numeric($dto['effective_disposition_score'])) {
+        continue;
+      }
+      $score = DispositionAuthorityContract::clampScore((int) round((float) $dto['effective_disposition_score']));
+      $lowest_score = $lowest_score === NULL ? $score : min($lowest_score, $score);
+    }
+    return $lowest_score;
+  }
+
+  /**
+   * Determine whether a score crosses canonical hostility threshold.
+   */
+  protected function isHostileDispositionScore(int $score): bool {
+    return DispositionAuthorityContract::isHostileScore($score);
   }
 
 }

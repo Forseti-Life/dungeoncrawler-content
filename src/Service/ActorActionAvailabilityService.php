@@ -49,8 +49,43 @@ class ActorActionAvailabilityService {
       'requires_turn' => TRUE,
       'targeting' => 'room',
     ],
+    'seek' => [
+      'label' => 'Seek',
+      'cost' => 1,
+      'category' => 'perception',
+      'requires_turn' => TRUE,
+      'targeting' => 'room',
+    ],
+    'sense_motive' => [
+      'label' => 'Sense Motive',
+      'cost' => 1,
+      'category' => 'social',
+      'requires_turn' => TRUE,
+      'targeting' => 'entity_or_room',
+    ],
+    'recall_knowledge' => [
+      'label' => 'Recall Knowledge',
+      'cost' => 1,
+      'category' => 'knowledge',
+      'requires_turn' => TRUE,
+      'targeting' => 'contextual',
+    ],
     'talk' => [
       'label' => 'Talk',
+      'cost' => 1,
+      'category' => 'conversation',
+      'requires_turn' => TRUE,
+      'targeting' => 'entity_or_room',
+    ],
+    'request' => [
+      'label' => 'Request',
+      'cost' => 1,
+      'category' => 'conversation',
+      'requires_turn' => TRUE,
+      'targeting' => 'entity_or_room',
+    ],
+    'perform' => [
+      'label' => 'Perform',
       'cost' => 1,
       'category' => 'conversation',
       'requires_turn' => TRUE,
@@ -63,14 +98,21 @@ class ActorActionAvailabilityService {
       'requires_turn' => TRUE,
       'targeting' => 'contextual',
     ],
-    'use_feat' => [
+    'feat' => [
       'label' => 'Use Feat',
       'cost' => 1,
       'category' => 'feat',
       'requires_turn' => TRUE,
       'targeting' => 'contextual',
     ],
-    'use_consumable' => [
+    'skill' => [
+      'label' => 'Use Skill',
+      'cost' => 1,
+      'category' => 'skill',
+      'requires_turn' => TRUE,
+      'targeting' => 'contextual',
+    ],
+    'consume_item' => [
       'label' => 'Use Consumable',
       'cost' => 1,
       'category' => 'item',
@@ -98,12 +140,75 @@ class ActorActionAvailabilityService {
       'requires_turn' => TRUE,
       'targeting' => 'hostile_entity',
     ],
+    'create_diversion' => [
+      'label' => 'Create Diversion',
+      'cost' => 1,
+      'category' => 'social',
+      'requires_turn' => TRUE,
+      'targeting' => 'entity_or_room',
+    ],
+    'feint' => [
+      'label' => 'Feint',
+      'cost' => 2,
+      'category' => 'social',
+      'requires_turn' => TRUE,
+      'targeting' => 'hostile_entity',
+    ],
+    'command_animal' => [
+      'label' => 'Command Animal',
+      'cost' => 1,
+      'category' => 'companion',
+      'requires_turn' => TRUE,
+      'targeting' => 'ally',
+    ],
     'raise_shield' => [
       'label' => 'Raise Shield',
       'cost' => 1,
       'category' => 'defense',
       'requires_turn' => TRUE,
       'targeting' => 'self',
+    ],
+    'take_cover' => [
+      'label' => 'Take Cover',
+      'cost' => 1,
+      'category' => 'defense',
+      'requires_turn' => TRUE,
+      'targeting' => 'self',
+    ],
+    'point_out' => [
+      'label' => 'Point Out',
+      'cost' => 1,
+      'category' => 'support',
+      'requires_turn' => TRUE,
+      'targeting' => 'hostile_entity',
+    ],
+    'aid_setup' => [
+      'label' => 'Prepare Aid',
+      'cost' => 1,
+      'category' => 'support',
+      'requires_turn' => TRUE,
+      'targeting' => 'ally',
+    ],
+    'administer_first_aid' => [
+      'label' => 'Administer First Aid',
+      'cost' => 2,
+      'category' => 'care',
+      'requires_turn' => TRUE,
+      'targeting' => 'ally',
+    ],
+    'treat_poison' => [
+      'label' => 'Treat Poison',
+      'cost' => 1,
+      'category' => 'care',
+      'requires_turn' => TRUE,
+      'targeting' => 'ally_or_self',
+    ],
+    'battle_medicine' => [
+      'label' => 'Battle Medicine',
+      'cost' => 1,
+      'category' => 'care',
+      'requires_turn' => TRUE,
+      'targeting' => 'ally_or_self',
     ],
     'delay' => [
       'label' => 'Delay',
@@ -217,7 +322,8 @@ class ActorActionAvailabilityService {
       $available_actions,
       $high_option_families,
       $is_active_turn_actor,
-      $actions_remaining
+      $actions_remaining,
+      !$room_scene
     );
     $transition_option_count = (int) (($high_option_families['transition']['option_count'] ?? 0));
     if ($transition_option_count <= 0) {
@@ -273,61 +379,57 @@ class ActorActionAvailabilityService {
       && $current_entity !== NULL
       && $current_entity !== ''
       && $actor_id === $current_entity;
-
-    if ($room_scene) {
-      if ($is_active_turn_actor) {
-        $actions[] = 'transition';
-        // Product policy: Search should remain available throughout encounter turns.
-        $actions[] = 'search';
-        if ($actions_remaining >= 1) {
-          $actions = array_merge($actions, [
-            'talk',
-            'interact',
-            'delay',
-          ]);
-        }
-        if ($safe_rest_available) {
-          $actions = array_merge($actions, [
-            'treat_wounds',
-            'refocus',
-            'repair',
-            'daily_preparations',
-          ]);
-        }
-        $actions[] = 'end_turn';
-        $actions[] = 'choose_not_to_act';
-      }
-
+    $combat_active = !$room_scene;
+    $can_use_turn_actions = !$combat_active || $is_active_turn_actor;
+    if (!$can_use_turn_actions) {
       return $this->normalizeActionIds($actions);
     }
 
-    if ($is_active_turn_actor) {
-      $actions[] = 'transition';
-      // Product policy: Search should remain available throughout encounter turns.
-      $actions[] = 'search';
-      if ($actions_remaining >= 1) {
-        $actions = array_merge($actions, [
-          'strike',
-          'step',
-          'stride',
-          'interact',
-          'talk',
-          'demoralize',
-          'raise_shield',
-        ]);
-        if ($heritage === 'chameleon') {
-          $actions[] = 'minor_color_shift';
-        }
+    $actions[] = 'transition';
+    // Product policy: Search should remain available throughout encounter turns.
+    $actions = array_merge($actions, ['search', 'seek', 'talk', 'request', 'sense_motive', 'recall_knowledge']);
+
+    $has_single_action_budget = !$combat_active || $actions_remaining >= 1;
+    if ($has_single_action_budget) {
+      $actions = array_merge($actions, [
+        'strike',
+        'step',
+        'stride',
+        'interact',
+        'demoralize',
+        'create_diversion',
+        'command_animal',
+        'perform',
+        'take_cover',
+        'point_out',
+        'aid_setup',
+        'treat_poison',
+        'battle_medicine',
+        'raise_shield',
+        'delay',
+      ]);
+      if ($heritage === 'chameleon') {
+        $actions[] = 'minor_color_shift';
       }
-      if ($actions_remaining >= 2) {
-        $actions[] = 'cast_spell';
-      }
-      $actions[] = 'end_turn';
-      $actions[] = 'choose_not_to_act';
-      $actions[] = 'delay';
     }
 
-    if ($is_active_turn_actor && $reaction_available) {
+    if (!$combat_active || $actions_remaining >= 2) {
+      $actions = array_merge($actions, ['cast_spell', 'feint', 'administer_first_aid']);
+    }
+
+    if ($safe_rest_available) {
+      $actions = array_merge($actions, [
+        'treat_wounds',
+        'refocus',
+        'repair',
+        'daily_preparations',
+      ]);
+    }
+
+    $actions[] = 'end_turn';
+    $actions[] = 'choose_not_to_act';
+
+    if ($reaction_available) {
       $actions[] = 'reaction';
     }
 
@@ -411,8 +513,11 @@ class ActorActionAvailabilityService {
     $state = is_array($entity['state'] ?? NULL) ? $entity['state'] : [];
     $room_id = (string) ($game_state['encounter_context']['room_id'] ?? $dungeon_data['active_room_id'] ?? '');
     $room = $this->resolveRoomById($room_id, $dungeon_data);
+    $room_scene = $this->isRoomSceneMode($game_state);
+    $can_use_turn_actions = $room_scene || ($is_active_turn_actor && $actions_remaining > 0);
 
     $spells = $this->resolveActorSpellOptions($state);
+    $skills = $this->resolveActorSkillOptions($state);
     $feats = $this->resolveActorFeatOptions($state);
     $consumables = $this->resolveActorConsumableOptions($state);
     $item_activations = $this->resolveActorItemActivationOptions($state);
@@ -425,23 +530,31 @@ class ActorActionAvailabilityService {
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($spells),
-        'is_action_currently_legal' => TRUE,
+        'is_action_currently_legal' => $can_use_turn_actions,
         'options' => $spells,
       ],
-      'use_feat' => [
+      'skill' => [
+        'family' => 'skills',
+        'requires_turn' => TRUE,
+        'requires_llm_interpretation' => TRUE,
+        'option_count' => count($skills),
+        'is_action_currently_legal' => $can_use_turn_actions,
+        'options' => $skills,
+      ],
+      'feat' => [
         'family' => 'feats',
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($feats),
-        'is_action_currently_legal' => TRUE,
+        'is_action_currently_legal' => $can_use_turn_actions,
         'options' => $feats,
       ],
-      'use_consumable' => [
+      'consume_item' => [
         'family' => 'consumables',
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($consumables),
-        'is_action_currently_legal' => TRUE,
+        'is_action_currently_legal' => $can_use_turn_actions,
         'options' => $consumables,
       ],
       'activate_item' => [
@@ -449,7 +562,7 @@ class ActorActionAvailabilityService {
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($item_activations),
-        'is_action_currently_legal' => TRUE,
+        'is_action_currently_legal' => $can_use_turn_actions,
         'options' => $item_activations,
       ],
       'trigger_hazard' => [
@@ -457,7 +570,7 @@ class ActorActionAvailabilityService {
         'requires_turn' => TRUE,
         'requires_llm_interpretation' => TRUE,
         'option_count' => count($hazard_actions),
-        'is_action_currently_legal' => TRUE,
+        'is_action_currently_legal' => $can_use_turn_actions,
         'options' => $hazard_actions,
       ],
       'transition' => [
@@ -478,9 +591,10 @@ class ActorActionAvailabilityService {
     array $available_actions,
     array $high_option_families,
     bool $is_active_turn_actor,
-    int $actions_remaining
+    int $actions_remaining,
+    bool $enforce_turn_gating = TRUE
   ): array {
-    if (!$is_active_turn_actor || $actions_remaining <= 0) {
+    if ($enforce_turn_gating && (!$is_active_turn_actor || $actions_remaining <= 0)) {
       return $this->normalizeActionIds($available_actions);
     }
 
@@ -614,6 +728,16 @@ class ActorActionAvailabilityService {
     $containers = [
       $actor_state['spells']['prepared'] ?? NULL,
       $actor_state['spells']['known'] ?? NULL,
+      $actor_state['spells']['cantrips'] ?? NULL,
+      $actor_state['spells']['first_level'] ?? NULL,
+      $actor_state['spells']['second_level'] ?? NULL,
+      $actor_state['spells']['third_level'] ?? NULL,
+      $actor_state['spells']['fourth_level'] ?? NULL,
+      $actor_state['spells']['fifth_level'] ?? NULL,
+      $actor_state['spells']['sixth_level'] ?? NULL,
+      $actor_state['spells']['seventh_level'] ?? NULL,
+      $actor_state['spells']['eighth_level'] ?? NULL,
+      $actor_state['spells']['ninth_level'] ?? NULL,
       $actor_state['spellbook']['prepared'] ?? NULL,
       $actor_state['spellbook']['known'] ?? NULL,
       $actor_state['spellbook']['spells'] ?? NULL,
@@ -624,7 +748,159 @@ class ActorActionAvailabilityService {
         $spells[$option['id']] = $option;
       }
     }
+    $ranked_spell_groups = [
+      'cantrips' => 0,
+      'first_level' => 1,
+      'second_level' => 2,
+      'third_level' => 3,
+      'fourth_level' => 4,
+      'fifth_level' => 5,
+      'sixth_level' => 6,
+      'seventh_level' => 7,
+      'eighth_level' => 8,
+      'ninth_level' => 9,
+    ];
+    foreach ($ranked_spell_groups as $group_key => $spell_level) {
+      $group = $actor_state['spells'][$group_key] ?? NULL;
+      if (!is_array($group)) {
+        continue;
+      }
+      foreach ($group as $spell_entry) {
+        $row = is_array($spell_entry)
+          ? $spell_entry
+          : ['id' => (string) $spell_entry, 'name' => (string) $spell_entry];
+        if (!isset($row['spell_level']) && !isset($row['level'])) {
+          $row['spell_level'] = $spell_level;
+        }
+        $option = $this->normalizeOptionRow($row, 'spell', 2, 'contextual');
+        if ($option !== NULL) {
+          $spells[$option['id']] = $option;
+        }
+      }
+    }
     return array_values($spells);
+  }
+
+  /**
+   * Resolve skill options from actor state payload.
+   *
+   * @return array<int, array{id: string, label: string, action_cost: int, targeting: string, metadata: array<string,mixed>}>
+   *   Normalized skill options.
+   */
+  protected function resolveActorSkillOptions(array $actor_state): array {
+    $skill_map = [];
+    $skills = $actor_state['skills'] ?? NULL;
+    if (is_array($skills)) {
+      foreach ($skills as $name => $skill_state) {
+        if (is_array($skill_state)) {
+          $raw_name = is_string($name) ? $name : (string) ($skill_state['name'] ?? $skill_state['label'] ?? $skill_state['id'] ?? '');
+          $normalized_name = trim(str_replace('_', ' ', (string) $raw_name));
+          if ($normalized_name === '') {
+            continue;
+          }
+          $skill_map[strtolower($normalized_name)] = [
+            'name' => $normalized_name,
+            'modifier' => is_numeric($skill_state['bonus'] ?? NULL)
+              ? (int) $skill_state['bonus']
+              : (is_numeric($skill_state['modifier'] ?? NULL) ? (int) $skill_state['modifier'] : 0),
+            'proficiency' => trim((string) ($skill_state['proficiency'] ?? $skill_state['proficiencyRank'] ?? $skill_state['rank'] ?? '')),
+          ];
+          continue;
+        }
+        if (is_string($skill_state) || is_numeric($skill_state)) {
+          $normalized_name = trim(str_replace('_', ' ', (string) $name));
+          if ($normalized_name === '') {
+            continue;
+          }
+          $skill_map[strtolower($normalized_name)] = [
+            'name' => $normalized_name,
+            'modifier' => 0,
+            'proficiency' => trim((string) $skill_state),
+          ];
+        }
+      }
+    }
+
+    $feat_training = is_array($actor_state['features']['featTraining'] ?? NULL) ? $actor_state['features']['featTraining'] : [];
+    foreach ((array) ($feat_training['skills'] ?? []) as $skill_name) {
+      $normalized_name = trim(str_replace('_', ' ', (string) $skill_name));
+      if ($normalized_name === '') {
+        continue;
+      }
+      $key = strtolower($normalized_name);
+      $existing = $skill_map[$key] ?? ['name' => $normalized_name, 'modifier' => 0, 'proficiency' => ''];
+      $skill_map[$key] = [
+        'name' => $existing['name'],
+        'modifier' => (int) ($existing['modifier'] ?? 0),
+        'proficiency' => trim((string) ($existing['proficiency'] ?: 'trained')),
+      ];
+    }
+
+    foreach ((array) ($feat_training['lore'] ?? []) as $lore_name) {
+      $normalized_name = trim(str_replace('_', ' ', (string) $lore_name));
+      if ($normalized_name === '') {
+        continue;
+      }
+      $display_name = str_ends_with(strtolower($normalized_name), ' lore') ? $normalized_name : ($normalized_name . ' Lore');
+      $key = strtolower($display_name);
+      $existing = $skill_map[$key] ?? ['name' => $display_name, 'modifier' => 0, 'proficiency' => ''];
+      $skill_map[$key] = [
+        'name' => $existing['name'],
+        'modifier' => (int) ($existing['modifier'] ?? 0),
+        'proficiency' => trim((string) ($existing['proficiency'] ?: 'trained')),
+      ];
+    }
+
+    $conditional_mods = (array) ($actor_state['features']['featConditionalModifiers']['skills'] ?? []);
+    foreach ($conditional_mods as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $target_name = trim(str_replace('_', ' ', (string) ($entry['target'] ?? $entry['skill'] ?? $entry['name'] ?? '')));
+      if ($target_name === '') {
+        continue;
+      }
+      $key = strtolower($target_name);
+      $existing = $skill_map[$key] ?? ['name' => $target_name, 'modifier' => 0, 'proficiency' => ''];
+      $modifier_delta = is_numeric($entry['modifier'] ?? NULL)
+        ? (int) $entry['modifier']
+        : (is_numeric($entry['value'] ?? NULL) ? (int) $entry['value'] : 0);
+      $skill_map[$key] = [
+        'name' => $existing['name'],
+        'modifier' => (int) ($existing['modifier'] ?? 0) + $modifier_delta,
+        'proficiency' => trim((string) ($existing['proficiency'] ?? '')),
+      ];
+    }
+
+    $options = [];
+    foreach ($skill_map as $skill) {
+      $skill_name = trim((string) ($skill['name'] ?? ''));
+      if ($skill_name === '') {
+        continue;
+      }
+      $skill_id = strtolower(trim((string) preg_replace('/[^a-z0-9]+/', '_', $skill_name), '_'));
+      if ($skill_id === '') {
+        continue;
+      }
+      $modifier = (int) ($skill['modifier'] ?? 0);
+      $proficiency = trim((string) ($skill['proficiency'] ?? ''));
+      $options[$skill_id] = [
+        'id' => $skill_id,
+        'label' => $skill_name,
+        'action_cost' => 1,
+        'targeting' => 'contextual',
+        'metadata' => [
+          'id' => $skill_id,
+          'skill_name' => $skill_name,
+          'name' => $skill_name,
+          'modifier' => $modifier,
+          'bonus' => $modifier,
+          'proficiency' => $proficiency !== '' ? $proficiency : 'untrained',
+        ],
+      ];
+    }
+
+    return array_values($options);
   }
 
   /**
@@ -847,13 +1123,178 @@ class ActorActionAvailabilityService {
     $action_cost = is_numeric($row['action_cost'] ?? NULL)
       ? (int) $row['action_cost']
       : (is_numeric($row['actions'] ?? NULL) ? (int) $row['actions'] : $default_cost);
+    $targeting = $this->resolveOptionTargeting($row, $kind, $default_targeting);
+
     return [
       'id' => $option_id,
       'label' => $label !== '' ? $label : $option_id,
       'action_cost' => max(0, $action_cost),
-      'targeting' => trim((string) ($row['targeting'] ?? $default_targeting)),
+      'targeting' => $targeting,
       'metadata' => $row,
     ];
+  }
+
+  /**
+   * Resolve canonical targeting token for an option row.
+   */
+  protected function resolveOptionTargeting(array $row, string $kind, string $default_targeting): string {
+    $explicit = trim((string) ($row['targeting'] ?? $row['targeting_mode'] ?? ''));
+    if ($explicit !== '') {
+      return $explicit;
+    }
+
+    if ($kind === 'spell') {
+      return $this->inferSpellTargetingFromMetadata($row, $default_targeting);
+    }
+
+    if (in_array($kind, ['skill', 'feat', 'item', 'consumable'], TRUE)) {
+      return $this->inferNonSpellTargetingFromMetadata($row, $default_targeting, $kind);
+    }
+
+    return trim((string) $default_targeting);
+  }
+
+  /**
+   * Infer spell targeting mode from spell metadata when explicit mode is absent.
+   */
+  protected function inferSpellTargetingFromMetadata(array $spell, string $fallback): string {
+    $target_text = strtolower(trim((string) (
+      $spell['target']
+      ?? $spell['targets']
+      ?? $spell['targeting_text']
+      ?? $spell['range_text']
+      ?? ''
+    )));
+    $area_text = strtolower(trim((string) (
+      $spell['area']
+      ?? $spell['area_of_effect']
+      ?? ''
+    )));
+    $traits = array_map(
+      static fn($trait): string => strtolower(trim((string) $trait)),
+      is_array($spell['traits'] ?? NULL) ? $spell['traits'] : []
+    );
+
+    if (in_array('self', $traits, TRUE) || $target_text === 'self' || strpos($target_text, 'yourself') !== FALSE) {
+      return 'self';
+    }
+    if (strpos($target_text, 'ally') !== FALSE || strpos($target_text, 'willing') !== FALSE) {
+      return 'ally_or_self';
+    }
+    if (
+      $area_text !== ''
+      || strpos($target_text, 'burst') !== FALSE
+      || strpos($target_text, 'cone') !== FALSE
+      || strpos($target_text, 'line') !== FALSE
+      || strpos($target_text, 'emanation') !== FALSE
+      || strpos($target_text, 'radius') !== FALSE
+    ) {
+      return 'contextual';
+    }
+    if (
+      strpos($target_text, 'creature') !== FALSE
+      || strpos($target_text, 'enemy') !== FALSE
+      || strpos($target_text, 'target') !== FALSE
+    ) {
+      return 'hostile_entity';
+    }
+
+    return trim((string) $fallback);
+  }
+
+  /**
+   * Infer non-spell targeting mode from option metadata when explicit mode is absent.
+   */
+  protected function inferNonSpellTargetingFromMetadata(array $row, string $fallback, string $kind = ''): string {
+    $text = strtolower(trim(implode(' ', array_filter([
+      (string) ($row['target'] ?? ''),
+      (string) ($row['targets'] ?? ''),
+      (string) ($row['targeting_text'] ?? ''),
+      (string) ($row['range_text'] ?? ''),
+      (string) ($row['description'] ?? ''),
+      (string) ($row['desc'] ?? ''),
+      (string) ($row['effect'] ?? ''),
+      (string) ($row['benefit'] ?? ''),
+      (string) ($row['name'] ?? ''),
+      (string) ($row['label'] ?? ''),
+      (string) ($row['id'] ?? ''),
+    ], static fn($value): bool => trim($value) !== ''))));
+
+    if ($text === '') {
+      return trim((string) $fallback);
+    }
+    if (
+      (strpos($text, 'self only') !== FALSE || strpos($text, 'self-only') !== FALSE || strpos($text, 'yourself') !== FALSE)
+      && strpos($text, 'ally') === FALSE
+    ) {
+      return 'self';
+    }
+    if (
+      strpos($text, 'ally or self') !== FALSE
+      || strpos($text, 'self or ally') !== FALSE
+      || strpos($text, 'willing creature') !== FALSE
+    ) {
+      return 'ally_or_self';
+    }
+    if (strpos($text, 'ally') !== FALSE) {
+      return 'ally';
+    }
+    if (
+      strpos($text, 'hostile') !== FALSE
+      || strpos($text, 'enemy') !== FALSE
+      || strpos($text, 'foe') !== FALSE
+      || strpos($text, 'opponent') !== FALSE
+    ) {
+      return 'hostile_entity';
+    }
+    if (strpos($text, 'room hazard') !== FALSE || strpos($text, 'hazard') !== FALSE) {
+      return 'room_hazard';
+    }
+    if (
+      strpos($text, 'connected room') !== FALSE
+      || strpos($text, 'adjacent room') !== FALSE
+      || strpos($text, 'next room') !== FALSE
+    ) {
+      return 'connected_room';
+    }
+    if (strpos($text, 'area origin') !== FALSE || strpos($text, 'origin hex') !== FALSE) {
+      return 'area_origin';
+    }
+    if (
+      strpos($text, 'hex') !== FALSE
+      || strpos($text, 'tile') !== FALSE
+      || strpos($text, 'grid') !== FALSE
+      || strpos($text, 'destination') !== FALSE
+    ) {
+      return 'hex';
+    }
+    if (
+      strpos($text, 'object') !== FALSE
+      || strpos($text, 'barrier') !== FALSE
+      || strpos($text, 'door') !== FALSE
+      || strpos($text, 'container') !== FALSE
+      || strpos($text, 'lever') !== FALSE
+      || strpos($text, 'switch') !== FALSE
+    ) {
+      return 'entity_or_object';
+    }
+    if (strpos($text, 'room') !== FALSE) {
+      return 'room';
+    }
+    if (
+      strpos($text, 'target') !== FALSE
+      || strpos($text, 'creature') !== FALSE
+      || strpos($text, 'entity') !== FALSE
+      || strpos($text, 'npc') !== FALSE
+    ) {
+      $normalized_kind = strtolower(trim((string) $kind));
+      if (in_array($normalized_kind, ['item', 'consumable'], TRUE)) {
+        return 'self_or_target';
+      }
+      return 'entity_or_room';
+    }
+
+    return trim((string) $fallback);
   }
 
   /**

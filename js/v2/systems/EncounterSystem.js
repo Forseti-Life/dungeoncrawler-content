@@ -6,7 +6,6 @@
  */
 
 import { getActionRailCost } from '../utils/action-utils.js';
-import { extractConsumableItems } from '../utils/inventory-utils.js';
 import { ACTION_SELECTION_HANDLERS, isRestActivityActionKey } from '../contracts/action-rail-contract.js';
 
 export class EncounterSystem {
@@ -175,7 +174,6 @@ export class EncounterSystem {
       });
     });
 
-    this.bus.emit('combat:order-changed', { order: orderedTurns });
     return orderedTurns;
   }
 
@@ -354,8 +352,9 @@ export class EncounterSystem {
       const targetId = Number(button.dataset.targetId || 0);
       const weaponId = String(button.dataset.weaponId || '').trim();
       const weaponName = String(button.dataset.weaponName || 'weapon').trim();
+      const resolvedTargetRef = this._resolveButtonTargetRef(context, button);
 
-      if (!hexmap || !context.actor || !context.actorRef || !targetId) {
+      if (!hexmap || !context.actor || !context.actorRef || (!targetId && !resolvedTargetRef)) {
         this._appendChatLine('System', 'Attack options require an active encounter actor and target.', 'system');
         return;
       }
@@ -371,15 +370,16 @@ export class EncounterSystem {
         return;
       }
 
-      const target = hexmap.entityManager?.getEntity?.(targetId) || null;
-      if (!target) {
-        this._appendChatLine('System', 'That target is no longer available.', 'system');
-        return;
-      }
-
-      const targetRef = String(target?.dcEntityRef || target?.dcEntityInstanceId || target?.dcEntityInstanceID || '').trim();
+      const target = targetId ? (hexmap.entityManager?.getEntity?.(targetId) || null) : null;
+      const targetRef = String(
+        resolvedTargetRef
+        || target?.dcEntityRef
+        || target?.dcEntityInstanceId
+        || target?.dcEntityInstanceID
+        || ''
+      ).trim();
       if (!targetRef) {
-        const targetName = this._resolveEntityName(target) || 'that target';
+        const targetName = this._resolveEntityName(target) || String(button?.dataset?.targetName || '').trim() || 'that target';
         this._appendChatLine('System', `Unable to resolve a stable target reference for ${targetName}. Refresh the room.`, 'system');
         return;
       }
@@ -469,6 +469,434 @@ export class EncounterSystem {
     }
   }
 
+  async executeDirectTalk(button) {
+    if (!this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+      const context = this._getActionRailContext();
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      const actorRef = context.actorRef || null;
+      if (!coordinator?.api || !actorRef) {
+        this._appendChatLine('System', 'Talk requires an active encounter actor.', 'system');
+        return;
+      }
+
+      const targetRef = this._resolveButtonTargetRef(context, button);
+      const targets = this._resolveButtonTargets(context, button);
+      const targetName = String(
+        targets?.[0]?.target_label
+        || button?.dataset?.targetName
+        || 'target'
+      ).trim();
+      if (!targetRef) {
+        this._appendChatLine('System', 'Talk requires a selected target on the map.', 'system');
+        return;
+      }
+
+      const message = String(button?.dataset?.talkMessage || `I speak to ${targetName}.`).trim();
+      const result = await this._sendCoordinatorActionWithResync(coordinator, 'talk', actorRef, {
+        message,
+      }, {
+        target: targetRef,
+      });
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to talk to ${targetName}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this.announceGameState(result?.game_state);
+      this._refreshActionRail();
+    } finally {
+      this._endActionRailRequest(button);
+    }
+  }
+
+  async executeDirectStride(button) {
+    await this.executeDirectMovementAction('stride', button);
+  }
+
+  async executeDirectStep(button) {
+    await this.executeDirectMovementAction('step', button);
+  }
+
+  async executeDirectMovementAction(actionType, button) {
+    if (!this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+      const context = this._getActionRailContext();
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      const selectedEntity = context?.selectedEntity || null;
+      const selectedActorRef = String(
+        selectedEntity?.dcEntityRef
+        || selectedEntity?.dcEntityInstanceId
+        || selectedEntity?.instanceId
+        || selectedEntity?.id
+        || ''
+      ).trim();
+      const selectedIsControllable = Boolean(
+        selectedEntity
+        && typeof context?.hexmap?.canDragEntityOnMap === 'function'
+        && context.hexmap.canDragEntityOnMap(selectedEntity)
+      );
+      const actorRef = String(context.actorRef || '').trim() || (selectedIsControllable ? selectedActorRef : '') || null;
+      if (!coordinator?.api || !actorRef) {
+        this._appendChatLine('System', `${actionType} requires an active encounter actor.`, 'system');
+        return;
+      }
+
+      let targetQ = Number(button?.dataset?.targetQ);
+      let targetR = Number(button?.dataset?.targetR);
+      if (!Number.isFinite(targetQ) || !Number.isFinite(targetR)) {
+        const selectedHex = this.stateManager?.get?.('selectedHex') || null;
+        targetQ = Number(selectedHex?.q);
+        targetR = Number(selectedHex?.r);
+      }
+      if (!Number.isFinite(targetQ) || !Number.isFinite(targetR)) {
+        this._appendChatLine('System', `${actionType} requires a selected destination hex on the map.`, 'system');
+        return;
+      }
+
+      const result = await this._sendCoordinatorActionWithResync(coordinator, actionType, actorRef, {
+        target_hex: {
+          q: Number(targetQ),
+          r: Number(targetR),
+        },
+      });
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to resolve ${actionType}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this.announceGameState(result?.game_state);
+      this._refreshActionRail();
+    } finally {
+      this._endActionRailRequest(button);
+    }
+  }
+
+  async executeDirectDemoralize(button) {
+    await this.executeDirectTargetedAction('demoralize', button, {
+      missingTargetMessage: 'Demoralize requires a selected hostile target on the map.',
+      fallbackErrorMessage: 'Unable to demoralize that target.',
+      targetRequired: true,
+    });
+  }
+
+  async executeDirectFeint(button) {
+    await this.executeDirectTargetedAction('feint', button, {
+      missingTargetMessage: 'Feint requires a selected hostile target on the map.',
+      fallbackErrorMessage: 'Unable to feint against that target.',
+      targetRequired: true,
+    });
+  }
+
+  async executeDirectPointOut(button) {
+    await this.executeDirectTargetedAction('point_out', button, {
+      missingTargetMessage: 'Point Out requires a selected target on the map.',
+      fallbackErrorMessage: 'Unable to point out that target.',
+      targetRequired: true,
+    });
+  }
+
+  async executeDirectCommandAnimal(button) {
+    await this.executeDirectTargetedAction('command_animal', button, {
+      missingTargetMessage: 'Command Animal requires selecting your companion.',
+      fallbackErrorMessage: 'Unable to command that companion.',
+      targetRequired: true,
+    });
+  }
+
+  async executeDirectAidSetup(button) {
+    await this.executeDirectTargetedAction('aid_setup', button, {
+      missingTargetMessage: 'Prepare Aid requires selecting an ally target.',
+      fallbackErrorMessage: 'Unable to prepare aid for that target.',
+      targetRequired: true,
+    });
+  }
+
+  async executeDirectAdministerFirstAid(button) {
+    await this.executeDirectTargetedAction('administer_first_aid', button, {
+      missingTargetMessage: 'Administer First Aid requires selecting an ally target.',
+      fallbackErrorMessage: 'Unable to administer first aid to that target.',
+      targetRequired: true,
+    });
+  }
+
+  async executeDirectTreatPoison(button) {
+    await this.executeDirectTargetedAction('treat_poison', button, {
+      targetRequired: false,
+      fallbackErrorMessage: 'Unable to treat poison for that target.',
+    });
+  }
+
+  async executeDirectBattleMedicine(button) {
+    await this.executeDirectTargetedAction('battle_medicine', button, {
+      targetRequired: false,
+      fallbackErrorMessage: 'Unable to apply battle medicine to that target.',
+    });
+  }
+
+  _resolveButtonTargetRef(context, button) {
+    const targets = this._resolveButtonTargets(context, button);
+    const primaryTarget = targets[0] || null;
+    const primaryRef = String(primaryTarget?.target_ref || '').trim();
+    if (primaryRef) {
+      return primaryRef;
+    }
+    const targetEntityId = String(button?.dataset?.targetEntityId || button?.dataset?.targetId || '').trim();
+    let targetRef = String(button?.dataset?.targetRef || '').trim();
+    if (!targetRef && targetEntityId && context?.hexmap?.entityManager?.getEntitiesWith) {
+      const candidates = context.hexmap.entityManager.getEntitiesWith('PositionComponent', 'IdentityComponent');
+      const targetEntity = candidates.find((entity) => {
+        const instanceId = String(entity?.dcEntityInstanceId || entity?.instanceId || '').trim();
+        return String(entity?.id || '') === targetEntityId || instanceId === targetEntityId;
+      }) || null;
+      targetRef = String(
+        targetEntity?.dcEntityRef
+        || targetEntity?.dcEntityInstanceId
+        || targetEntity?.instanceId
+        || ''
+      ).trim();
+    }
+    if (!targetRef) {
+      targetRef = String(
+        context?.selectedEntity?.dcEntityRef
+        || context?.selectedEntity?.dcEntityInstanceId
+        || context?.selectedEntity?.instanceId
+        || ''
+      ).trim();
+    }
+    return targetRef;
+  }
+
+  _resolveButtonTargetHex(context, button) {
+    const targets = this._resolveButtonTargets(context, button);
+    const primaryTarget = targets[0] || null;
+    if (primaryTarget?.target_hex && Number.isFinite(Number(primaryTarget.target_hex.q)) && Number.isFinite(Number(primaryTarget.target_hex.r))) {
+      return {
+        q: Number(primaryTarget.target_hex.q),
+        r: Number(primaryTarget.target_hex.r),
+      };
+    }
+    let q = Number(button?.dataset?.targetQ);
+    let r = Number(button?.dataset?.targetR);
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      q = Number(button?.dataset?.areaOriginQ);
+      r = Number(button?.dataset?.areaOriginR);
+    }
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      const selectedHex = context?.selectedHex || context?.hexmap?.stateManager?.get?.('selectedHex') || null;
+      q = Number(selectedHex?.q);
+      r = Number(selectedHex?.r);
+    }
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      return null;
+    }
+    return { q: Number(q), r: Number(r) };
+  }
+
+  _hasResolvedActionTarget(context, button) {
+    if (this._resolveButtonTargets(context, button).length > 0) {
+      return true;
+    }
+    const targetRef = this._resolveButtonTargetRef(context, button);
+    if (targetRef) {
+      return true;
+    }
+    const targetRoomId = String(button?.dataset?.targetRoomId || '').trim();
+    if (targetRoomId) {
+      return true;
+    }
+    const hex = this._resolveButtonTargetHex(context, button);
+    return Boolean(hex);
+  }
+
+  _resolveButtonTargets(context, button) {
+    const raw = String(button?.dataset?.targetsJson || '').trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const normalized = parsed
+            .map((entry) => this._normalizeResolvedTarget(entry))
+            .filter(Boolean);
+          if (normalized.length > 0) {
+            return normalized;
+          }
+        }
+      } catch (_error) {
+        // Fall through to legacy target bridges.
+      }
+    }
+
+    const targetRef = String(button?.dataset?.targetRef || '').trim();
+    const targetEntityId = String(button?.dataset?.targetEntityId || button?.dataset?.targetId || '').trim();
+    const targetRoomId = String(button?.dataset?.targetRoomId || '').trim();
+    const targetHex = this._resolveButtonTargetHexLegacy(context, button);
+    if (!targetRef && !targetEntityId && !targetRoomId && !targetHex) {
+      return [];
+    }
+    return [this._normalizeResolvedTarget({
+      target_kind: targetRoomId ? 'room' : (targetRef || targetEntityId ? 'entity' : 'hex'),
+      target_ref: targetRef || targetRoomId || null,
+      target_entity_id: targetEntityId || null,
+      target_room_id: targetRoomId || null,
+      target_hex: targetHex || null,
+      target_label: String(button?.dataset?.targetName || button?.dataset?.targetRoomName || '').trim() || null,
+    })].filter(Boolean);
+  }
+
+  _resolveButtonTargetHexLegacy(context, button) {
+    let q = Number(button?.dataset?.targetQ);
+    let r = Number(button?.dataset?.targetR);
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      q = Number(button?.dataset?.areaOriginQ);
+      r = Number(button?.dataset?.areaOriginR);
+    }
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      const selectedHex = context?.selectedHex || context?.hexmap?.stateManager?.get?.('selectedHex') || null;
+      q = Number(selectedHex?.q);
+      r = Number(selectedHex?.r);
+    }
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      return null;
+    }
+    return { q: Number(q), r: Number(r) };
+  }
+
+  _normalizeResolvedTarget(entry) {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+    const targetKind = String(entry.target_kind || entry.targetKind || 'entity').trim().toLowerCase();
+    const targetRef = String(entry.target_ref || entry.targetRef || '').trim() || null;
+    const targetEntityId = String(entry.target_entity_id || entry.targetEntityId || '').trim() || null;
+    const targetRoomId = String(entry.target_room_id || entry.targetRoomId || '').trim() || null;
+    const q = Number(entry?.target_hex?.q ?? entry?.targetHex?.q);
+    const r = Number(entry?.target_hex?.r ?? entry?.targetHex?.r);
+    const targetHex = Number.isFinite(q) && Number.isFinite(r)
+      ? { q: Number(q), r: Number(r) }
+      : null;
+    return {
+      target_kind: targetKind || 'entity',
+      target_ref: targetRef,
+      target_entity_id: targetEntityId,
+      target_room_id: targetRoomId,
+      target_hex: targetHex,
+      target_label: String(entry.target_label || entry.targetLabel || '').trim() || null,
+    };
+  }
+
+  _resolveTargetSelectionContract(button) {
+    const minTargets = Number(button?.dataset?.minTargets);
+    const maxTargets = Number(button?.dataset?.maxTargets);
+    const rangeFt = Number(button?.dataset?.rangeFt);
+    const selectionMode = String(button?.dataset?.selectionMode || '').trim().toLowerCase();
+    const completionPolicy = String(button?.dataset?.completionPolicy || '').trim().toLowerCase();
+    const allowDuplicateTargets = button?.dataset?.allowDuplicateTargets === '1';
+    return {
+      min_targets: Number.isFinite(minTargets) && minTargets > 0 ? Math.max(1, Math.trunc(minTargets)) : undefined,
+      max_targets: Number.isFinite(maxTargets) && maxTargets > 0 ? Math.max(1, Math.trunc(maxTargets)) : undefined,
+      range_ft: Number.isFinite(rangeFt) && rangeFt > 0 ? Math.max(0, Math.trunc(rangeFt)) : undefined,
+      selection_mode: selectionMode || undefined,
+      completion_policy: completionPolicy || undefined,
+      allow_duplicate_targets: allowDuplicateTargets || undefined,
+    };
+  }
+
+  async executeDirectTargetedAction(actionType, button, options = {}) {
+    if (!this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+      const context = this._getActionRailContext();
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      const actorRef = context.actorRef || null;
+      if (!coordinator?.api || !actorRef) {
+        this._appendChatLine('System', `${actionType} requires an active encounter actor.`, 'system');
+        return;
+      }
+
+      const targetRequired = options?.targetRequired !== false;
+      const targetRef = this._resolveButtonTargetRef(context, button);
+      const targetHex = this._resolveButtonTargetHex(context, button);
+      const targets = this._resolveButtonTargets(context, button);
+      const targetSelection = this._resolveTargetSelectionContract(button);
+      if (targetRequired && !targetRef && !targetHex) {
+        this._appendChatLine('System', options?.missingTargetMessage || `${actionType} requires a selected target on the map.`, 'system');
+        return;
+      }
+
+      const params = {
+        action_cost: getActionRailCost(button?.dataset?.actionCost, 1),
+        targeting_mode: String(button?.dataset?.targeting || '').trim() || undefined,
+        target_hex: targetHex || undefined,
+        targets: targets.length > 0 ? targets : undefined,
+        ...targetSelection,
+      };
+      const result = await this._sendCoordinatorActionWithResync(
+        coordinator,
+        actionType,
+        actorRef,
+        params,
+        targetRef ? { target: targetRef } : {},
+      );
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || options?.fallbackErrorMessage || `Unable to resolve ${actionType}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this.announceGameState(result?.game_state);
+      this._refreshActionRail();
+    } finally {
+      this._endActionRailRequest(button);
+    }
+  }
+
+  async executeDirectRaiseShield(button) {
+    await this.executeDirectAtomicAction('raise_shield', button);
+  }
+
+  async executeDirectDelay(button) {
+    await this.executeDirectAtomicAction('delay', button);
+  }
+
+  async executeDirectAtomicAction(actionType, button) {
+    if (!this._beginActionRailRequest(button)) {
+      return;
+    }
+
+    try {
+      const context = this._getActionRailContext();
+      const coordinator = context.hexmap?.gameCoordinator || null;
+      const actorRef = context.actorRef || null;
+      if (!coordinator?.api || !actorRef) {
+        this._appendChatLine('System', `${actionType} requires an active encounter actor.`, 'system');
+        return;
+      }
+
+      const result = await this._sendCoordinatorActionWithResync(coordinator, actionType, actorRef, {});
+      if (!result?.success) {
+        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to resolve ${actionType}.`, 'system');
+        return;
+      }
+
+      coordinator.applyAuthoritativeUpdate?.(result);
+      this.announceGameState(result?.game_state);
+      this._refreshActionRail();
+    } finally {
+      this._endActionRailRequest(button);
+    }
+  }
+
   async executeDirectSkill(button) {
     if (!this._beginActionRailRequest(button)) {
       return;
@@ -479,6 +907,14 @@ export class EncounterSystem {
     const characterId = Number(context.characterId || 0) || 0;
     const skillName = String(button.dataset.skillName || '').replace(/_/g, ' ').trim();
     const skillModifier = Number(button.dataset.skillModifier || 0);
+    const actionCost = getActionRailCost(button.dataset.actionCost, 1);
+    const targetRequired = button.dataset.targetRequired === '1';
+    const targetingMode = String(button.dataset.targeting || 'contextual').trim().toLowerCase();
+    const selectedTargetRef = this._resolveButtonTargetRef(context, button);
+    const targetHex = this._resolveButtonTargetHex(context, button);
+    const targets = this._resolveButtonTargets(context, button);
+    const targetSelection = this._resolveTargetSelectionContract(button);
+    const targetRoomId = String(button?.dataset?.targetRoomId || '').trim();
     const labelBase = skillName || 'skill action';
     const label = `${labelBase}${Number.isFinite(skillModifier) ? ` (${skillModifier >= 0 ? '+' : ''}${skillModifier})` : ''}`;
 
@@ -491,6 +927,10 @@ export class EncounterSystem {
       this._appendChatLine('System', 'Skill action is missing a canonical skill name.', 'system');
       return;
     }
+    if (targetRequired && !this._hasResolvedActionTarget(context, button)) {
+      this._appendChatLine('System', 'That skill action requires a selected target on the map.', 'system');
+      return;
+    }
 
     if (context.encounterActive && context.actor && context.hexmap && context.actorRef) {
       const coordinator = context.hexmap?.gameCoordinator || null;
@@ -500,10 +940,15 @@ export class EncounterSystem {
       }
 
       const result = await this._sendCoordinatorActionWithResync(coordinator, 'skill', context.actorRef, {
-        action_cost: 1,
+        action_cost: actionCost,
         skill_name: skillName,
         skill_bonus: Number.isFinite(skillModifier) ? skillModifier : null,
-      });
+        targeting_mode: targetingMode,
+        target_hex: targetHex || undefined,
+        target_room_id: targetRoomId || undefined,
+        targets: targets.length > 0 ? targets : undefined,
+        ...targetSelection,
+      }, (targetRequired && selectedTargetRef) ? { target: selectedTargetRef } : {});
 
       if (!result?.success) {
         this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${label}.`, 'system');
@@ -533,6 +978,12 @@ export class EncounterSystem {
         payload: {
           skillName,
           skillModifier,
+          targetingMode,
+          targetRef: selectedTargetRef || null,
+          targets,
+          targetHex: targetHex || null,
+          targetRoomId: targetRoomId || null,
+          targetSelection,
         },
         campaignId: runtimeContext.campaignId || null,
         instanceId: runtimeContext.instanceId || null,
@@ -570,12 +1021,39 @@ export class EncounterSystem {
       spellLevel: Number(button.dataset.spellLevel || 0),
       isFocusSpell: button.dataset.isFocusSpell === '1',
       actionCost: getActionRailCost(button.dataset.actionCost, 2),
+      targeting: String(button.dataset.targeting || 'contextual').trim().toLowerCase(),
+      targetRequired: button.dataset.targetRequired === '1',
     };
+    const selectedTargetRef = this._resolveButtonTargetRef(context, button);
+    const targetHex = this._resolveButtonTargetHex(context, button);
+    const targets = this._resolveButtonTargets(context, button);
+    const targetSelection = this._resolveTargetSelectionContract(button);
+    const targetRoomId = String(button?.dataset?.targetRoomId || '').trim();
+    const spellTargetRef = selectedTargetRef;
+    console.info('[EncounterSystem] cast_spell prepared payload', {
+      actorRef: context.actorRef || null,
+      characterId: context.characterId || null,
+      spellId: payload.spellId,
+      spellName: payload.spellName,
+      spellLevel: payload.spellLevel,
+      actionCost: payload.actionCost,
+      targeting: payload.targeting,
+      targetRequired: payload.targetRequired,
+      targetRef: spellTargetRef || null,
+      targetHex: targetHex || null,
+      targetRoomId: targetRoomId || null,
+      targets,
+      targetSelection,
+    });
 
     if (context.encounterActive && context.actor && context.actorRef) {
       const coordinator = hexmap?.gameCoordinator || null;
       if (!coordinator?.api) {
         this._appendChatLine('System', 'Spell actions require an active coordinator session. Refresh the room.', 'system');
+        return;
+      }
+      if (payload.targetRequired && !this._hasResolvedActionTarget(context, button)) {
+        this._appendChatLine('System', 'That spell requires a selected target on the map.', 'system');
         return;
       }
 
@@ -587,14 +1065,32 @@ export class EncounterSystem {
         cast_at_level: payload.spellLevel,
         is_focus_spell: payload.isFocusSpell,
         is_cantrip: payload.spellLevel === 0,
+        targeting_mode: payload.targeting,
         character_id: context.characterId,
-      });
+        target_hex: targetHex || undefined,
+        target_room_id: targetRoomId || undefined,
+        targets: targets.length > 0 ? targets : undefined,
+        ...targetSelection,
+      }, spellTargetRef ? { target: spellTargetRef } : {});
 
       if (!result?.success) {
+        console.warn('[EncounterSystem] cast_spell rejected', {
+          actorRef: context.actorRef,
+          spellId: payload.spellId,
+          spellName: payload.spellName,
+          result,
+        });
         this._appendChatLine('System', result?.error || result?.result?.error || `Unable to cast ${spellName}.`, 'system');
         return;
       }
 
+      console.info('[EncounterSystem] cast_spell success', {
+        actorRef: context.actorRef,
+        spellId: payload.spellId,
+        spellName: payload.spellName,
+        resultSummary: result?.result?.summary || null,
+        narration: result?.narration || null,
+      });
       coordinator.applyAuthoritativeUpdate?.(result);
       this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} casts ${spellName}.`, 'system');
       if (typeof result.narration === 'string' && result.narration.trim()) {
@@ -618,6 +1114,7 @@ export class EncounterSystem {
         body: JSON.stringify({
           type: 'cast_spell',
           actor: context.actorRef,
+          ...(spellTargetRef ? { target: spellTargetRef } : {}),
           params: {
             spell_id: payload.spellId,
             spell_name: payload.spellName,
@@ -625,7 +1122,12 @@ export class EncounterSystem {
             cast_at_level: payload.spellLevel,
             is_focus_spell: payload.isFocusSpell,
             is_cantrip: payload.spellLevel === 0,
+            targeting_mode: payload.targeting,
             character_id: context.characterId,
+            target_hex: targetHex || undefined,
+            target_room_id: targetRoomId || undefined,
+            targets: targets.length > 0 ? targets : undefined,
+            ...targetSelection,
           },
         }),
       });
@@ -681,10 +1183,21 @@ export class EncounterSystem {
     const context = this._getActionRailContext();
     const featName = button.dataset.featName || 'feat action';
     const actionCost = getActionRailCost(button.dataset.actionCost, 1);
+    const targetRequired = button.dataset.targetRequired === '1';
+    const targetingMode = String(button.dataset.targeting || 'contextual').trim().toLowerCase();
+    const selectedTargetRef = this._resolveButtonTargetRef(context, button);
+    const targetHex = this._resolveButtonTargetHex(context, button);
+    const targets = this._resolveButtonTargets(context, button);
+    const targetSelection = this._resolveTargetSelectionContract(button);
+    const targetRoomId = String(button?.dataset?.targetRoomId || '').trim();
     const characterId = Number(context.characterId || 0) || 0;
 
     if (!characterId) {
       this._appendChatLine('System', 'Feat actions require an active character.', 'system');
+      return;
+    }
+    if (targetRequired && !this._hasResolvedActionTarget(context, button)) {
+      this._appendChatLine('System', 'That feat action requires a selected target on the map.', 'system');
       return;
     }
 
@@ -700,7 +1213,12 @@ export class EncounterSystem {
         feat_id: button.dataset.featId || '',
         feat_name: featName,
         character_id: characterId,
-      });
+        targeting_mode: targetingMode,
+        target_hex: targetHex || undefined,
+        target_room_id: targetRoomId || undefined,
+        targets: targets.length > 0 ? targets : undefined,
+        ...targetSelection,
+      }, (targetRequired && selectedTargetRef) ? { target: selectedTargetRef } : {});
       if (!result?.success) {
         this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${featName}.`, 'system');
         return;
@@ -730,6 +1248,12 @@ export class EncounterSystem {
           featId: button.dataset.featId || '',
           featName,
           actionCost,
+          targetingMode,
+          targetRef: selectedTargetRef || null,
+          targets,
+          targetHex: targetHex || null,
+          targetRoomId: targetRoomId || null,
+          targetSelection,
         },
         campaignId: runtimeContext.campaignId || null,
         instanceId: runtimeContext.instanceId || null,
@@ -757,11 +1281,38 @@ export class EncounterSystem {
     const context = this._getActionRailContext();
     const hexmap = context.hexmap;
     const characterId = Number(context.characterId || 0) || 0;
-    const items = extractConsumableItems(context.state?.inventory || {}, context.state?.equipment || []);
-    const item = items.find((entry) => String(entry.id || entry.item_id || entry.name || '') === String(button.dataset.itemId || ''));
+    const itemPayloadRaw = String(button.dataset.itemPayload || '').trim();
+    const targetRequired = button.dataset.targetRequired === '1';
+    const targetingMode = String(button.dataset.targeting || 'self_or_target').trim().toLowerCase();
+    const selectedTargetRef = this._resolveButtonTargetRef(context, button);
+    const targetHex = this._resolveButtonTargetHex(context, button);
+    const targets = this._resolveButtonTargets(context, button);
+    const targetSelection = this._resolveTargetSelectionContract(button);
+    const targetRoomId = String(button?.dataset?.targetRoomId || '').trim();
+    let item = null;
+    if (itemPayloadRaw !== '') {
+      try {
+        const parsed = JSON.parse(itemPayloadRaw);
+        if (parsed && typeof parsed === 'object') {
+          item = parsed;
+        }
+      } catch (_error) {
+        item = null;
+      }
+    }
+    if (!item) {
+      item = {
+        item_id: String(button.dataset.itemId || '').trim(),
+        name: String(button.dataset.itemName || '').trim(),
+      };
+    }
 
-    if (!hexmap || !characterId || !item) {
-      this._appendChatLine('System', 'Consumable action requires an active character and valid inventory item.', 'system');
+    if (!hexmap || !characterId || !item || (!item.item_id && !item.id && !item.name)) {
+      this._appendChatLine('System', 'Consumable action requires an active character and canonical consumable option data.', 'system');
+      return;
+    }
+    if (targetRequired && !this._hasResolvedActionTarget(context, button)) {
+      this._appendChatLine('System', 'That consumable requires a selected target on the map.', 'system');
       return;
     }
 
@@ -778,8 +1329,13 @@ export class EncounterSystem {
       const result = await this._sendCoordinatorActionWithResync(coordinator, 'consume_item', context.actorRef, {
         action_cost: actionCost,
         character_id: characterId,
+        targeting_mode: targetingMode,
+        target_hex: targetHex || undefined,
+        target_room_id: targetRoomId || undefined,
+        targets: targets.length > 0 ? targets : undefined,
+        ...targetSelection,
         item,
-      });
+      }, (targetRequired && selectedTargetRef) ? { target: selectedTargetRef } : {});
       if (!result?.success) {
         this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${itemLabel}.`, 'system');
         return;
@@ -804,6 +1360,12 @@ export class EncounterSystem {
       body: JSON.stringify({
         action: 'consume',
         item,
+        targetRef: selectedTargetRef || null,
+        targets,
+        targetHex: targetHex || null,
+        targetRoomId: targetRoomId || null,
+        targetingMode,
+        targetSelection,
         campaignId: runtimeContext.campaignId || null,
         instanceId: runtimeContext.instanceId || null,
       }),
@@ -847,33 +1409,131 @@ export class EncounterSystem {
       ...options,
       stateVersion: coordinator.phaseManager?.stateVersion,
     });
+    if (type === 'cast_spell') {
+      console.info('[EncounterSystem] coordinator action dispatch', {
+        type,
+        actorRef,
+        stateVersion: coordinator.phaseManager?.stateVersion ?? null,
+        params,
+        options,
+      });
+    }
+
+    const requestStartedAt = Date.now();
+    let pendingLogTimer = null;
+    if (type === 'cast_spell') {
+      pendingLogTimer = setTimeout(() => {
+        console.warn('[EncounterSystem] coordinator action still pending', {
+          type,
+          actorRef,
+          pendingMs: Date.now() - requestStartedAt,
+          stateVersion: coordinator.phaseManager?.stateVersion ?? null,
+        });
+      }, 8000);
+    }
 
     try {
       const result = await sendWithCurrentStateVersion();
+      if (pendingLogTimer) {
+        clearTimeout(pendingLogTimer);
+      }
+      if (type === 'cast_spell') {
+        console.info('[EncounterSystem] coordinator action response', {
+          type,
+          actorRef,
+          elapsedMs: Date.now() - requestStartedAt,
+          success: Boolean(result?.success),
+          error: result?.error || null,
+          result,
+        });
+      }
       if (result?.success) {
         this._refreshSystemLogView();
       }
       return result;
     } catch (error) {
+      if (pendingLogTimer) {
+        clearTimeout(pendingLogTimer);
+      }
       const fallbackResult = this._toCoordinatorFailureResult(error);
       const status = Number(error?.status || 0);
       const payload = error?.payload && typeof error.payload === 'object' ? error.payload : null;
-      const mismatchError = String(payload?.error || '').toLowerCase().includes('state version mismatch');
+      const errorMessage = String(payload?.error || error?.message || '').toLowerCase();
+      const mismatchError = errorMessage.includes('state version mismatch');
+      const isStateVersionMismatch = status === 422 && mismatchError;
 
-      if (status !== 422 || !mismatchError || !payload?.game_state) {
+      if (type === 'cast_spell') {
+        console[isStateVersionMismatch ? 'info' : 'warn']('[EncounterSystem] coordinator action threw', {
+          type,
+          actorRef,
+          elapsedMs: Date.now() - requestStartedAt,
+          status: status || null,
+          message: String(error?.message || ''),
+          payload,
+          retrying: isStateVersionMismatch,
+        });
+      }
+
+      if (!isStateVersionMismatch) {
         return fallbackResult;
       }
 
-      coordinator.applyAuthoritativeUpdate?.(payload);
-      this.announceGameState(payload.game_state);
+      let hasAuthoritativeState = false;
+      if (payload?.game_state) {
+        coordinator.applyAuthoritativeUpdate?.(payload);
+        this.announceGameState(payload.game_state);
+        hasAuthoritativeState = true;
+      } else {
+        try {
+          const refreshed = await coordinator.api.getState({ actor: actorRef });
+          if (refreshed?.success && refreshed?.game_state) {
+            coordinator.applyAuthoritativeUpdate?.(refreshed);
+            this.announceGameState(refreshed.game_state);
+            hasAuthoritativeState = true;
+          }
+        } catch (refreshError) {
+          if (type === 'cast_spell') {
+            console.warn('[EncounterSystem] coordinator mismatch refresh failed', {
+              type,
+              actorRef,
+              status: Number(refreshError?.status || 0) || null,
+              message: String(refreshError?.message || ''),
+            });
+          }
+        }
+      }
+
+      if (!hasAuthoritativeState) {
+        return fallbackResult;
+      }
 
       try {
         const retryResult = await sendWithCurrentStateVersion();
+        if (type === 'cast_spell') {
+          console.info('[EncounterSystem] coordinator action retry response', {
+            type,
+            actorRef,
+            elapsedMs: Date.now() - requestStartedAt,
+            success: Boolean(retryResult?.success),
+            error: retryResult?.error || null,
+            result: retryResult,
+          });
+        }
         if (retryResult?.success) {
           this._refreshSystemLogView();
         }
         return retryResult;
       } catch (retryError) {
+        if (type === 'cast_spell') {
+          console.warn('[EncounterSystem] coordinator action retry threw', {
+            type,
+            actorRef,
+            elapsedMs: Date.now() - requestStartedAt,
+            status: Number(retryError?.status || 0) || null,
+            message: String(retryError?.message || ''),
+            payload: retryError?.payload || null,
+          });
+        }
         return this._toCoordinatorFailureResult(retryError);
       }
     }

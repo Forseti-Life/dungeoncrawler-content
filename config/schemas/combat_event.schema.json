@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/combat_event.schema.json",
+  "title": "Combat Event Schema",
+  "description": "Canonical encounter event envelope contract emitted by GameEventLogger and consumed by UI projection surfaces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "phase",
+    "data"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "enum": [
+        "combat.event.v1"
+      ]
+    },
+    "id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "timestamp": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "phase": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "actor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 255
+    },
+    "target": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 255
+    },
+    "data": {
+      "type": "object"
+    },
+    "narration": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 32000
+    }
+  }
+}

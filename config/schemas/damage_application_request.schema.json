@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/damage_application_request.schema.json",
+  "title": "Damage Application Request Schema",
+  "description": "Canonical typed damage mutation DTO for strike/spell/hazard/effect lanes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "kind",
+    "source_entity_ref",
+    "target_entity_ref",
+    "delivery_mode",
+    "damage_type",
+    "amount",
+    "tags",
+    "metadata"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "enum": [
+        "combat.damage_packet.v1"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "damage_application"
+      ]
+    },
+    "source_entity_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "target_entity_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "delivery_mode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "damage_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "amount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
+}

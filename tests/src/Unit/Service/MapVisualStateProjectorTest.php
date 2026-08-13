@@ -215,6 +215,13 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     $this->assertSame('room-a:0:0', $result['occupants']['party'][0]['hex_id']);
     $this->assertSame('sw', $result['occupants']['party'][0]['placement']['orientation']);
     $this->assertArrayNotHasKey('destroyed', $result['occupants']['party'][0]['state']);
+    $this->assertSame('actor-roster-v1', $result['actor_roster']['schema_version']);
+    $this->assertSame('room-a', $result['actor_roster']['room_id']);
+    $this->assertSame('party', $result['actor_roster']['default_filter']);
+    $this->assertSame('party', $result['actor_roster']['entries'][0]['side']);
+    $this->assertSame('character', $result['actor_roster']['entries'][0]['sheet_ref']['sheet_type']);
+    $this->assertSame('dungeoncrawler_content.character_view', $result['actor_roster']['entries'][0]['sheet_ref']['route_name']);
+    $this->assertSame(365, $result['actor_roster']['entries'][0]['sheet_ref']['route_params']['character_id']);
     $this->assertSame('props', $result['presentation']['object_definitions']['table']['visual']['layer']);
     $this->assertTrue($result['presentation']['object_definitions']['table']['movement']['passable']);
     $this->assertFalse($result['presentation']['object_definitions']['table']['movement']['blocks_movement']);
@@ -425,6 +432,192 @@ class MapVisualStateProjectorTest extends UnitTestCase {
     // Explicit merchant_enabled flag.
     $this->assertTrue($byId['npc-vendor-explicit']['presentation']['is_merchant'], 'Explicit merchant_enabled flag detected');
     $this->assertSame('', $byId['npc-vendor-explicit']['presentation']['role'], 'Role is empty string when no role/occupation');
+  }
+
+  /**
+   * Actor roster projection preserves side and sheet contract for mixed actors.
+   */
+  public function testProjectBuildsActorRosterForMixedSides(): void {
+    $projector = new MapVisualStateProjector();
+
+    $result = $projector->project([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        'room-a' => [
+          'room_id' => 'room-a',
+          'hexes' => [['q' => 0, 'r' => 0], ['q' => 1, 'r' => 0], ['q' => 2, 'r' => 0]],
+        ],
+      ],
+      'entities' => [
+        [
+          'entity_type' => 'player_character',
+          'entity_instance_id' => 'pc-1',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Hero',
+              'team' => 'player',
+              'character_id' => 365,
+              'campaign_character_id' => 1001,
+            ],
+          ],
+        ],
+        [
+          'entity_type' => 'npc',
+          'entity_instance_id' => 'npc-skeleton-a',
+          'entity_ref' => ['content_id' => 'skeleton_guard'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Skeleton Guard',
+              'team' => 'enemy',
+              'initiative' => 18,
+            ],
+          ],
+        ],
+        [
+          'entity_type' => 'hazard',
+          'entity_instance_id' => 'hazard-spike-trap',
+          'entity_ref' => ['content_id' => 'spike_trap'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 2, 'r' => 0]],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Spike Trap',
+            ],
+          ],
+        ],
+      ],
+    ], ['campaign_id' => 42], ['instance_id' => 'pc-1', 'id' => 365]);
+
+    $this->assertSame('actor-roster-v1', $result['actor_roster']['schema_version']);
+    $this->assertCount(3, $result['actor_roster']['entries']);
+    $byRuntimeId = [];
+    foreach ($result['actor_roster']['entries'] as $entry) {
+      $byRuntimeId[$entry['runtime_instance_id']] = $entry;
+    }
+
+    $this->assertSame('party', $byRuntimeId['pc-1']['side']);
+    $this->assertSame('character', $byRuntimeId['pc-1']['sheet_ref']['sheet_type']);
+    $this->assertSame('hostile', $byRuntimeId['npc-skeleton-a']['side']);
+    $this->assertSame('actor', $byRuntimeId['npc-skeleton-a']['sheet_ref']['sheet_type']);
+    $this->assertSame('hazard', $byRuntimeId['hazard-spike-trap']['side']);
+    $this->assertSame('actor', $byRuntimeId['hazard-spike-trap']['sheet_ref']['sheet_type']);
+  }
+
+  /**
+   * Duplicate runtime rows must collapse to one logical actor in room projections.
+   */
+  public function testProjectDedupesLogicalDuplicateRoomActors(): void {
+    $projector = new MapVisualStateProjector();
+
+    $result = $projector->project([
+      'active_room_id' => 'room-a',
+      'rooms' => [
+        'room-a' => [
+          'room_id' => 'room-a',
+          'hexes' => [['q' => 0, 'r' => 0], ['q' => 1, 'r' => 0], ['q' => 2, 'r' => 0], ['q' => 3, 'r' => 0]],
+        ],
+      ],
+      'entities' => [
+        [
+          'entity_type' => 'player_character',
+          'entity_instance_id' => 'pc-816-992',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 0, 'r' => 0]],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Burasco',
+              'team' => 'player',
+              'character_id' => 992,
+              'campaign_character_id' => 992,
+              'source_character_id' => 4773,
+              'runtime_entity_id' => 'pc-816-992',
+            ],
+          ],
+        ],
+        [
+          'entity_type' => 'player_character',
+          'entity_instance_id' => 'pc-816-811',
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 1, 'r' => 0]],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Burasco',
+              'team' => 'player',
+              'character_id' => 811,
+              'campaign_character_id' => 811,
+              'source_character_id' => 4773,
+              'runtime_entity_id' => 'pc-816-811',
+            ],
+          ],
+        ],
+        [
+          'entity_type' => 'npc',
+          'entity_instance_id' => 'familiar-4773',
+          'entity_ref' => ['content_id' => 'familiar_weasel'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 2, 'r' => 0]],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Mimi',
+              'team' => 'ally',
+              'character_id' => 931,
+              'campaign_character_id' => 931,
+              'runtime_entity_id' => 'familiar-4773',
+              'follower_kind' => 'familiar',
+              'owner_character_id' => 992,
+              'owner_source_character_id' => 4773,
+              'follower_source_character_id' => 3239,
+            ],
+          ],
+        ],
+        [
+          'entity_type' => 'npc',
+          'entity_instance_id' => 'familiar-4773-dup',
+          'entity_ref' => ['content_id' => 'familiar_weasel'],
+          'placement' => ['room_id' => 'room-a', 'hex' => ['q' => 3, 'r' => 0]],
+          'state' => [
+            'active' => TRUE,
+            'metadata' => [
+              'display_name' => 'Mimi',
+              'team' => 'ally',
+              'character_id' => 944,
+              'campaign_character_id' => 944,
+              'runtime_entity_id' => 'familiar-4773-dup',
+              'follower_kind' => 'familiar',
+              'owner_character_id' => 992,
+              'owner_source_character_id' => 4773,
+              'follower_source_character_id' => 3239,
+            ],
+          ],
+        ],
+      ],
+    ], ['campaign_id' => 816], ['instance_id' => 'pc-816-992', 'id' => 4773]);
+
+    $occupants = array_merge(
+      $result['occupants']['party'] ?? [],
+      $result['occupants']['entities'] ?? []
+    );
+    $this->assertCount(2, $occupants);
+    $this->assertSame(['Burasco', 'Mimi'], array_values(array_map(
+      static fn(array $occupant): string => (string) ($occupant['label'] ?? ''),
+      $occupants
+    )));
+
+    $this->assertCount(2, $result['actor_roster']['entries']);
+    $byRuntimeId = [];
+    foreach ($result['actor_roster']['entries'] as $entry) {
+      $byRuntimeId[$entry['runtime_instance_id']] = $entry;
+    }
+    $this->assertArrayHasKey('pc-816-992', $byRuntimeId);
+    $this->assertArrayHasKey('familiar-4773', $byRuntimeId);
+    $this->assertArrayNotHasKey('pc-816-811', $byRuntimeId);
+    $this->assertArrayNotHasKey('familiar-4773-dup', $byRuntimeId);
+    $this->assertSame('follower', $byRuntimeId['familiar-4773']['actor_kind']);
+    $this->assertSame('follower', $byRuntimeId['familiar-4773']['sheet_ref']['sheet_type']);
   }
 
   /**

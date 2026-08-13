@@ -62,9 +62,11 @@ assert(
 );
 
 assert(
-  panelSource.includes('setActiveActionRailCategory(category, { refresh = true, focus = false } = {}) {')
+  panelSource.includes('setActiveActionRailCategory(category, { refresh = true, focus = false, userInitiated = false } = {}) {')
     && panelSource.includes('this.activeActionRailCategory = resolvedCategory;')
-    && panelSource.includes('this.resolveActionRailCategory(this.activeActionRailCategory)'),
+    && panelSource.includes('this.resolveActionRailCategory(this.activeActionRailCategory)')
+    && panelSource.includes('this.actionRailCategoryPinnedByUser = true;')
+    && panelSource.includes("return 'navigate';"),
   'tab-state transitions run through canonical category resolver/setter methods'
 );
 
@@ -74,6 +76,39 @@ assert(
     && panelSource.includes("this.bus.emit('user:action-selected', { actionKey: actionType, button });")
     && panelSource.includes("console.warn('[ActionRailPanel] Unsupported panel action:', actionType);"),
   'panel action routing follows direct-route mapping, selectable whitelist, and unknown-action guard'
+);
+
+assert(
+  panelSource.includes("const skillOptions = this.getServerActionOptions(context, 'skill');")
+    && panelSource.includes("const options = this.getServerActionOptions(context, 'cast_spell');")
+    && panelSource.includes("const options = this.getServerActionOptions(context, 'consume_item');")
+    && panelSource.includes("const options = this.getServerActionOptions(context, 'feat');")
+    && panelSource.includes('definition.resolved_options'),
+  'high-option action categories render from authoritative contract option payloads'
+);
+
+assert(
+  panelSource.includes("title: 'Turn controls'")
+    && panelSource.includes("this.renderActionRailGroup('Core controls', controlEntries.join(''))")
+    && panelSource.includes("const combatEntries = this.buildContractAtomicActionEntries(context);")
+    && panelSource.includes("this.renderActionRailGroup('Combat actions', combatEntries.join(''))")
+    && !panelSource.includes("controlEntries.unshift(this.renderActionRailEntry({")
+    && !panelSource.includes("this.renderActionRailGroup('Server action contract'")
+    && !panelSource.includes("this.renderActionRailGroup('Atomic encounter actions', atomicEntries.join(''))"),
+  'turn tab is constrained to turn controls plus a compact combat-actions subset'
+);
+
+assert(
+  panelSource.includes('buildContractAtomicActionEntries(context) {')
+    && panelSource.includes('const allowed = new Set([')
+    && panelSource.includes("'strike'")
+    && panelSource.includes("'raise_shield'")
+    && panelSource.includes("'interact'")
+    && panelSource.includes("'demoralize'")
+    && panelSource.includes('resolveSelectedEntityTargetDataset(context) {')
+    && panelSource.includes('resolveExecuteKeyForContractAction(actionId) {')
+    && panelSource.includes('describeTargetingGuidance(targeting = \'\') {'),
+  'turn tab combat subset keeps only non-redundant atomic action affordances'
 );
 
 console.log('\n===========================================');

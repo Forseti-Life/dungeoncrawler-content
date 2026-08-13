@@ -1,7 +1,7 @@
 # Chat, Session & Narration Architecture
 
-**Last updated:** 2026-07-08  
-**Status:** Implemented and tested
+**Last updated:** 2026-07-29  
+**Status:** Implemented with actor-scoped response target state documented
 
 ---
 
@@ -18,6 +18,112 @@ backward compatibility while enabling the new perception-aware narrative system.
 
 See also [GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md](GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md) for the authoritative dialogue -> canonical action -> phase transition -> encounter lifecycle.
 See also [DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md](DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md) for the planned shift from prompt-driven GM action selection to deterministic room-chat orchestration.
+
+---
+
+## 2026-07-29 Actor-Scoped Room-Chat Response Architecture
+
+The current GM actor harness and room-chat POST response are no longer aligned.
+
+### Live current-state snapshot
+
+Today the actor runtime path is effectively:
+
+```text
+ChatPanel POST /room/{room_id}/chat
+  -> RoomChatService::postMessage()
+    -> buildRoomChatResponsePayload()
+       -> includes full dungeon_data
+  -> GmActorRuntimeService::handlePlayerRoomChat()
+    -> appends runtime read-state + action availability
+```
+
+That means one synchronous room-chat response currently mixes four concerns in one
+payload:
+
+1. **turn outputs** — player message, GM reply, NPC interjections, turn logs
+2. **actor-scoped runtime state** — `game_state`, phase/turn metadata, legal actions
+3. **legacy full-state transport** — full `dungeon_data`
+4. **diagnostics** — timing/debug metadata
+
+From the actor-harness perspective, only the first two are required for the next
+informed actor turn. The full `dungeon_data` blob is a compatibility surface, not
+true actor reasoning context.
+
+### Context that one actor should include
+
+| Context block | Include | Source/shape |
+|---|---|---|
+| Actor identity | Yes | actor id, character id, display name, route/workflow metadata |
+| Immediate room scene | Yes | active room id, room name, short room description, visible exits |
+| Visible room occupants | Yes | visible entities in active room; richer detail only for directly addressed / active conversation NPCs |
+| Recent transcript | Yes | compact room-local recent chat lines only |
+| Current phase/turn | Yes | `game_state`, phase, encounter id, round, turn, initiative subset when relevant |
+| Legal action surface | Yes | `available_actions`, `action_contract`, compact option families |
+| Room-local quest pressure | Yes | room questbook context and current quest updates only |
+| Navigation consequence | Yes, when present | target room / navigation receipt |
+| Full dungeon payload | No | exclude from synchronous actor response |
+| Unrelated rooms/entities | No | exclude from synchronous actor response |
+| Global chat/session history | No | exclude beyond compact recent room-local context |
+| Full debug trace | No by default | opt-in diagnostic surface only |
+
+### Target outward actor response contract
+
+The perfect target-state room-chat response is an actor-scoped projection, not a
+full-state transport dump.
+
+```php
+$actor_chat_response = [
+  'schema_version' => 'room-chat-actor-response-v1',
+  'message' => [...],                 // authoritative player message echo
+  'gm_response' => [...] | NULL,
+  'npc_interjections' => [...],
+  'turn_harness' => [...] | NULL,
+  'turn_logs' => [...],
+  'quest_updates' => [...],
+  'navigation' => [...] | NULL,
+  'runtime_snapshot' => [
+    'game_state' => [...],
+    'phase' => 'encounter|downtime|...',
+    'encounter_id' => '...' | NULL,
+    'round' => 1 | NULL,
+    'turn' => [...] | NULL,
+    'active_room_id' => '...',
+    'active_room' => [...],
+    'actor_entity' => [...] | NULL,
+    'visible_entities' => [...],
+    'visible_npcs' => [...],
+    'connected_rooms' => [...],
+    'hostile_targets' => [...],
+    'social_progression' => [...],
+  ],
+  'available_actions' => [...],
+  'action_contract' => [...],
+  'action_option_families' => [...],
+  'timing' => [...],                  // compact timing summary only
+  'gm_actor_runtime' => [...],
+  'gm_actor_harness' => [...],
+];
+```
+
+Normal actor-scoped POST responses should not carry `dungeon_data`. Any caller
+that still requires a heavy/full-state payload should obtain it from an explicit
+compatibility read lane rather than from the authoritative actor turn response.
+
+### Architectural separation that must be preserved
+
+The target architecture separates three different projections that are currently
+too entangled:
+
+1. **Prompt context**
+   - compact strings and summaries used to help one actor formulate a reply.
+2. **Authoritative execution state**
+   - backend-owned mutation, persistence, receipts, and canonical runtime state.
+3. **Outward client response projection**
+   - the minimal actor-scoped response needed for immediate UI completion.
+
+These three projections may overlap in meaning, but they must not share the same
+transport contract or payload budget.
 
 ---
 
@@ -371,6 +477,32 @@ $response = [
 The `session_narration` field contains per-character scene beats from the NarrationEngine
 buffer flush. Each beat is keyed by character_id and contains the filtered narrative
 that character perceived.
+
+## Room Chat Response Shape (Current vs Target)
+
+### Current live room-chat response
+
+`RoomChatService::buildRoomChatResponsePayload()` still treats `dungeon_data` as a
+core field in the room-chat envelope. The actor runtime then appends additional
+read-state and availability fields after transport execution completes.
+
+That current shape keeps older consumers alive, but it is architecturally too
+heavy for the actor harness and too broad for synchronous room-chat POST.
+
+### Target room-chat response rule
+
+The authoritative room-chat POST should return only the data required to:
+
+1. render the completed turn,
+2. update actor-local runtime state,
+3. render immediate room-local follow-up affordances,
+4. hand off optional diagnostics without exposing full debug state by default.
+
+Everything else must move to:
+
+- explicit heavy compatibility reads,
+- explicit debug/admin endpoints,
+- or dedicated bootstrap/read-model APIs.
 
 ---
 

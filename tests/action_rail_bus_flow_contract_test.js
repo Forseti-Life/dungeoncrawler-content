@@ -52,12 +52,24 @@ assert(
 
 assert(
   contractSource.includes("attack: 'executeDirectAttack'")
-    && contractSource.includes("spell: 'executeDirectSpell'")
+    && contractSource.includes("cast_spell: 'executeDirectSpell'")
+    && contractSource.includes("stride: 'executeDirectStride'")
+    && contractSource.includes("step: 'executeDirectStep'")
+    && contractSource.includes("talk: 'executeDirectTalk'")
+    && contractSource.includes("demoralize: 'executeDirectDemoralize'")
+    && contractSource.includes("raise_shield: 'executeDirectRaiseShield'")
+    && contractSource.includes("delay: 'executeDirectDelay'")
     && contractSource.includes("search: 'executeDirectSearch'")
     && contractSource.includes("skill: 'executeDirectSkill'")
     && contractSource.includes("feat: 'executeDirectFeat'")
-    && contractSource.includes("consumable: 'executeDirectConsumable'"),
+    && contractSource.includes("consume_item: 'executeDirectConsumable'"),
   'selection handlers are defined for all direct encounter execution categories'
+);
+
+assert(
+  contractSource.includes('return normalizeKey(actionType);')
+    && !contractSource.includes('ACTION_RAIL_EXECUTE_TO_SERVER_ACTION'),
+  'execute keys are treated as canonical server action ids without client-side id translation maps'
 );
 
 assert(

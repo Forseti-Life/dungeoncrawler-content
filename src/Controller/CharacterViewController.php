@@ -525,6 +525,127 @@ class CharacterViewController extends ControllerBase {
   }
 
   /**
+   * Renders a generic actor sheet for runtime/non-PC actor refs.
+   */
+  public function viewRuntimeActor(string $actor_id): array {
+    $campaign_id = (int) (\Drupal::request()->query->get('campaign_id') ?? 0);
+    if ($campaign_id <= 0) {
+      throw new AccessDeniedHttpException();
+    }
+
+    $is_admin = $this->currentUser()->hasPermission('administer site configuration');
+    if (!$is_admin) {
+      $campaign_authorization = \Drupal::service('dungeoncrawler_content.campaign_authorization');
+      if (!$campaign_authorization->canAccessCampaign($campaign_id, (int) $this->currentUser()->id())) {
+        throw new AccessDeniedHttpException();
+      }
+    }
+
+    $descriptor = $this->resolveRuntimeActorDescriptor($campaign_id, $actor_id);
+    if (!$descriptor) {
+      throw new NotFoundHttpException();
+    }
+
+    $name = (string) ($descriptor['display_name'] ?? 'Actor');
+    $actor_kind = (string) ($descriptor['actor_kind'] ?? 'actor');
+    $team = (string) ($descriptor['team'] ?? 'neutral');
+    $room_id = (string) ($descriptor['room_id'] ?? '');
+    $initiative = $descriptor['initiative'] ?? NULL;
+    $sheet_meta = [
+      'actor_id' => (string) ($descriptor['actor_id'] ?? $actor_id),
+      'entity_ref' => (string) ($descriptor['entity_ref'] ?? ''),
+      'campaign_character_id' => (int) ($descriptor['campaign_character_id'] ?? 0),
+      'character_id' => (int) ($descriptor['character_id'] ?? 0),
+      'type' => (string) ($descriptor['type'] ?? ''),
+    ];
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['dc-character-sheet']],
+      'title' => [
+        '#markup' => '<h1>' . $this->t('@name', ['@name' => $name]) . '</h1>',
+      ],
+      'subtitle' => [
+        '#markup' => '<p><strong>' . $this->t('Kind') . ':</strong> '
+          . $this->t('@kind', ['@kind' => $actor_kind])
+          . ' · <strong>' . $this->t('Team') . ':</strong> '
+          . $this->t('@team', ['@team' => $team])
+          . ($room_id !== '' ? ' · <strong>' . $this->t('Room') . ':</strong> ' . $this->t('@room', ['@room' => $room_id]) : '')
+          . '</p>',
+      ],
+      'initiative' => [
+        '#markup' => is_numeric($initiative)
+          ? '<p><strong>' . $this->t('Initiative') . ':</strong> ' . (int) $initiative . '</p>'
+          : '',
+      ],
+      'meta' => [
+        '#markup' => '<pre style="white-space:pre-wrap;">' . json_encode($sheet_meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . '</pre>',
+      ],
+    ];
+  }
+
+  /**
+   * Resolve a runtime actor descriptor from campaign dungeon state.
+   *
+   * @return array<string,mixed>|null
+   */
+  protected function resolveRuntimeActorDescriptor(int $campaign_id, string $actor_id): ?array {
+    $normalized_actor_id = trim($actor_id);
+    if ($normalized_actor_id === '') {
+      return NULL;
+    }
+
+    $row = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    $dungeon_data = is_array($row)
+      ? json_decode((string) ($row['dungeon_data'] ?? '{}'), TRUE)
+      : [];
+    $entities = is_array($dungeon_data['entities'] ?? NULL) ? $dungeon_data['entities'] : [];
+
+    foreach ($entities as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $metadata = is_array($entity['state']['metadata'] ?? NULL) ? $entity['state']['metadata'] : [];
+      $runtime_id = trim((string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? ''));
+      $campaign_character_id = (int) ($metadata['campaign_character_id'] ?? 0);
+      $character_id = (int) ($metadata['character_id'] ?? $entity['character_id'] ?? 0);
+      $content_id = trim((string) ($entity['entity_ref']['content_id'] ?? ''));
+      $candidate_actor_ids = array_filter([
+        $runtime_id !== '' ? 'runtime:' . $runtime_id : '',
+        $campaign_character_id > 0 ? 'campaign-character:' . $campaign_character_id : '',
+        $character_id > 0 ? 'character:' . $character_id : '',
+        $content_id !== '' ? 'content:' . $content_id : '',
+        $runtime_id,
+      ]);
+      if (!in_array($normalized_actor_id, $candidate_actor_ids, TRUE)) {
+        continue;
+      }
+      $placement = is_array($entity['placement'] ?? NULL) ? $entity['placement'] : [];
+      return [
+        'actor_id' => $normalized_actor_id,
+        'entity_ref' => $runtime_id,
+        'campaign_character_id' => $campaign_character_id,
+        'character_id' => $character_id,
+        'display_name' => (string) ($metadata['display_name'] ?? $metadata['name'] ?? $runtime_id),
+        'actor_kind' => (string) ($entity['entity_type'] ?? 'actor'),
+        'type' => (string) ($entity['entity_type'] ?? 'actor'),
+        'team' => (string) ($metadata['team'] ?? 'neutral'),
+        'room_id' => (string) ($placement['room_id'] ?? ''),
+        'initiative' => is_numeric($metadata['initiative'] ?? NULL) ? (int) $metadata['initiative'] : NULL,
+      ];
+    }
+
+    return NULL;
+  }
+
+  /**
    * Renders a follower actor detail page for a character-owned follower.
    */
   public function viewFollowerActor(int $character_id, string $follower_kind): array {

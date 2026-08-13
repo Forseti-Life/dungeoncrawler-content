@@ -545,7 +545,7 @@ dungeoncrawler_content.campaign_tavernentrance:
   path: '/campaigns/{campaign_id}/tavernentrance'
   defaults:
     _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignController::tavernEntrance'
-    _title: 'Tavern Entrance'
+    _title: 'Campaign Launch'
   methods: [GET]
   requirements:
     _campaign_access: 'TRUE'
@@ -658,6 +658,16 @@ dungeoncrawler_content.character_follower_view:
     _character_access: 'TRUE'
     character_id: '\d+'
     follower_kind: 'familiar|animal_companion|construct_companion|eidolon'
+
+dungeoncrawler_content.actor_view:
+  path: '/actors/{actor_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CharacterViewController::viewRuntimeActor'
+    _title: 'Actor'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    actor_id: '[A-Za-z0-9:_-]+'
 
 # Character editing - requires ownership or admin
 dungeoncrawler_content.character_edit:
@@ -2800,6 +2810,57 @@ dungeoncrawler_content.api.campaign_invite:
   methods: [POST]
   requirements:
     _csrf_request_header_mode: TRUE
+    _campaign_gm_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_settings_get:
+  path: '/api/campaign/{campaign_id}/settings'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignSettingsController::getSettings'
+    _title: 'Campaign Settings'
+  methods: [GET]
+  requirements:
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_settings_mode:
+  path: '/api/campaign/{campaign_id}/settings/mode'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignSettingsController::setMode'
+    _title: 'Campaign Mode Preference'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_access: 'TRUE'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_settings_member_update:
+  path: '/api/campaign/{campaign_id}/settings/members/{member_uid}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignSettingsController::updateMember'
+    _title: 'Campaign Member Update'
+  methods: [POST]
+  requirements:
+    _csrf_request_header_mode: TRUE
+    _campaign_gm_access: 'TRUE'
+    campaign_id: '\d+'
+    member_uid: '\d+'
+  options:
+    _format: json
+
+dungeoncrawler_content.api.campaign_relationships_matrix:
+  path: '/api/campaign/{campaign_id}/relationships/matrix'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\CampaignSettingsController::getRelationshipsMatrix'
+    _title: 'Campaign Relationship Matrix'
+  methods: [GET]
+  requirements:
     _campaign_access: 'TRUE'
     campaign_id: '\d+'
   options:

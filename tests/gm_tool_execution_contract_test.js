@@ -50,7 +50,7 @@ assert(
   source.includes('GM tool execution requires actor_role=gm.')
     && source.includes('requires gm_actor_id and gm_character_id principal context')
     && source.includes('principal binding failed')
-    && source.includes('current user is not campaign owner GM')
+    && source.includes('current user lacks campaign GM capability')
     && source.includes('gm_character_id is not an active campaign principal'),
   'GM tool execution enforces actor-role and server-side principal binding'
 );

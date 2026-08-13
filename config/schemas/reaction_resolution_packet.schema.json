@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.life/schemas/reaction_resolution_packet.schema.json",
+  "title": "Reaction Resolution Packet Schema",
+  "description": "Canonical reaction/interrupt mutation packet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "kind",
+    "reactor_entity_ref",
+    "triggering_actor_entity_ref",
+    "reaction_type",
+    "outcome",
+    "metadata"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "enum": [
+        "combat.reaction_packet.v1"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "reaction_resolution"
+      ]
+    },
+    "reactor_entity_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "triggering_actor_entity_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "reaction_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "outcome": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
+}

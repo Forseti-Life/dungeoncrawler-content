@@ -29,6 +29,70 @@ export class CharacterPanel {
     this._convertToLibraryInFlight = false;
     this._suppressActorSelectorChange = false;
     this._lastRoomSyncTransitionId = '';
+    this._relationshipsMatrixRequestToken = 0;
+    this._relationshipsMatrixRemoteDisabledUntil = 0;
+    this.activeActorFilter = 'party';
+    this.activeActorSort = 'alpha';
+    this._actorFilterButtons = [];
+  }
+
+  buildConditionTooltipModel(condition, projectedTooltips = {}) {
+    const raw = (condition && typeof condition === 'object') ? condition : { name: String(condition || 'Condition') };
+    const rawCode = String(raw.condition_type || raw.id || raw.name || 'condition');
+    const code = rawCode.trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const projected = projectedTooltips && typeof projectedTooltips === 'object'
+      ? projectedTooltips[code]
+      : null;
+    if (raw.tooltip && typeof raw.tooltip === 'object') {
+      return {
+        name: String(raw.tooltip.name || raw.name || raw.condition_type || raw.id || 'Condition').trim() || 'Condition',
+        type: String(raw.tooltip.type || 'condition'),
+        desc: String(raw.tooltip.desc || 'Active condition or effect.'),
+        stats: Array.isArray(raw.tooltip.stats) ? raw.tooltip.stats : [],
+        effects: Array.isArray(raw.tooltip.effects) ? raw.tooltip.effects : [],
+        notes: Array.isArray(raw.tooltip.notes) ? raw.tooltip.notes : [],
+      };
+    }
+    if (projected && typeof projected === 'object') {
+      return {
+        name: String(projected.name || raw.name || raw.condition_type || raw.id || 'Condition').trim() || 'Condition',
+        type: String(projected.type || 'condition'),
+        desc: String(projected.desc || 'Active condition or effect.'),
+        stats: Array.isArray(projected.stats) ? projected.stats : [],
+        effects: Array.isArray(projected.effects) ? projected.effects : [],
+        notes: Array.isArray(projected.notes) ? projected.notes : [],
+      };
+    }
+    const name = String(raw.name || raw.condition_type || raw.id || 'Condition').trim() || 'Condition';
+    const stats = [];
+    const effects = [];
+    const notes = [];
+    const desc = String(raw.description || '').trim();
+
+    if (raw.duration) {
+      notes.push(`Duration: ${String(raw.duration).replace(/_/g, ' ')}`);
+    }
+    if (raw.source) {
+      notes.push(`Source: ${raw.source}`);
+    }
+    if (raw.value !== undefined && raw.value !== null && raw.value !== '') {
+      effects.push(`Value: ${raw.value}`);
+    }
+
+    return {
+      name,
+      type: 'condition',
+      desc: desc || 'Active condition or effect.',
+      stats,
+      effects,
+      notes,
+    };
+  }
+
+  renderConditionTooltipEntry(condition, projectedTooltips = {}) {
+    const tooltip = this.buildConditionTooltipModel(condition, projectedTooltips);
+    const nameHtml = escapeTooltipAttr(tooltip.name);
+    return `<li class="condition-entry" data-tooltip-enabled="true" data-tooltip-name="${nameHtml}" data-tooltip-type="${escapeTooltipAttr(tooltip.type)}" data-tooltip-desc="${escapeTooltipAttr(tooltip.desc)}" data-tooltip-stats="${escapeTooltipAttr(JSON.stringify(tooltip.stats))}" data-tooltip-effects="${escapeTooltipAttr(JSON.stringify(tooltip.effects))}" data-tooltip-notes="${escapeTooltipAttr(JSON.stringify(tooltip.notes))}">${nameHtml}</li>`;
   }
 
   init(dungeonData, stateManager) {
@@ -84,6 +148,8 @@ export class CharacterPanel {
       characterConditions:     id('char-conditions'),
       characterFullSheetLink:  id('char-full-sheet-link'),
       partyActorSelectWrap:    id('party-actor-select-wrap'),
+      partyActorFilters:       id('party-actor-filters'),
+      partyActorSort:          id('party-actor-sort'),
       partyActorSelect:        id('party-actor-select'),
       partyFullSheetLink:      id('party-full-sheet-link'),
       partySheetName:          id('party-sheet-name'),
@@ -91,6 +157,7 @@ export class CharacterPanel {
       partySheetEmbedWrap:     id('party-sheet-embed-wrap'),
       partySheetEmbed:         id('party-sheet-embed'),
       partySheetEmpty:         id('party-sheet-empty'),
+      actorRelationshipsMatrix: id('actor-relationships-matrix'),
       characterConvertLibraryButton: id('char-convert-library-button'),
       characterSheetEmbedWrap: id('char-sheet-embed-wrap'),
       characterSheetEmbed:     id('char-sheet-embed'),
@@ -120,14 +187,82 @@ export class CharacterPanel {
     console.log('[CharacterPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
     this._subscribe();
     this._bindGameShellTabChanges();
+    this.ensureRelationshipsSidebarSurface();
     this.setupCharacterSheetSections();
     this._initSidebarTabs();
     this._bindCharacterActions();
     this.refreshActorSelector();
   }
 
+  ensureRelationshipsSidebarSurface() {
+    const sidebar = this.container?.closest('.game-layout__sidebar');
+    if (!sidebar) {
+      return;
+    }
+
+    const tabStrip = sidebar.querySelector('#sidebar-tabs') || sidebar.querySelector('.sidebar-tabs');
+    if (tabStrip && !tabStrip.querySelector('[data-sidebar-tab="relationships"]')) {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'sidebar-tab';
+      tab.dataset.sidebarTab = 'relationships';
+      tab.textContent = 'Relationships';
+      const characterTab = tabStrip.querySelector('[data-sidebar-tab="character"]');
+      if (characterTab?.nextSibling) {
+        tabStrip.insertBefore(tab, characterTab.nextSibling);
+      } else {
+        tabStrip.appendChild(tab);
+      }
+    }
+
+    if (!sidebar.querySelector('#sidebar-panel-relationships')) {
+      const panel = document.createElement('div');
+      panel.id = 'sidebar-panel-relationships';
+      panel.className = 'sidebar-panel';
+      panel.style.display = 'none';
+      panel.innerHTML = `
+        <div class="character-sheet">
+          <div class="character-sheet__section">
+            <div class="section-header section-header--static">
+              <h4>Actor Disposition Calculations</h4>
+            </div>
+            <div class="section-body section-body--static">
+              <p class="muted small">Selected actor disposition formula and weighted components toward other room actors.</p>
+              <div id="actor-relationships-matrix" class="relationships-matrix-wrap">
+                <div class="relationships-calculation-summary" style="padding:8px 4px;color:#94a3b8;font-size:12px;">
+                  Select a campaign room to load actor relationship calculations.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      const spellsPanel = sidebar.querySelector('#sidebar-panel-spells-feats');
+      if (spellsPanel?.parentNode) {
+        spellsPanel.parentNode.insertBefore(panel, spellsPanel);
+      } else {
+        sidebar.appendChild(panel);
+      }
+    }
+
+    if (!this._el.actorRelationshipsMatrix) {
+      this._el.actorRelationshipsMatrix = document.getElementById('actor-relationships-matrix');
+    }
+
+    const actorSwitch = this._el.partyActorSelectWrap;
+    if (actorSwitch && !actorSwitch.querySelector('[data-char-action="open-relationships-tab"]')) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'character-sheet__actor-filter';
+      button.dataset.charAction = 'open-relationships-tab';
+      button.textContent = 'Relationships';
+      const filterGroup = this._el.partyActorFilters || actorSwitch;
+      filterGroup.appendChild(button);
+    }
+  }
+
   /**
-   * Wire sidebar sub-tab buttons (Character / Spells & Feats / Inventory / Quests).
+   * Wire sidebar sub-tab buttons (Character / Relationships / Spells & Feats / Inventory / Quests).
    * Buttons use [data-sidebar-tab] and panels use .sidebar-panel + matching IDs.
    */
   _initSidebarTabs() {
@@ -154,6 +289,9 @@ export class CharacterPanel {
         });
         if (tab.dataset.sidebarTab === 'inventory' && this.currentCharacterInventoryContext) {
           this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
+        }
+        if (tab.dataset.sidebarTab === 'relationships') {
+          this.renderRelationshipsMatrix();
         }
         if (tab.dataset.sidebarTab === 'quests') {
           this.bus.emit('quest:refresh-requested', this.buildQuestRefreshContext('character-sidebar-tab'));
@@ -186,6 +324,41 @@ export class CharacterPanel {
       };
       partyActorSelect.addEventListener('change', partyActorSelectHandler);
       this._unsubs.push(() => partyActorSelect.removeEventListener('change', partyActorSelectHandler));
+    }
+
+    const actorFilterButtons = Array.from(this._el.partyActorFilters?.querySelectorAll?.('[data-actor-filter]') || []);
+    this._actorFilterButtons = actorFilterButtons;
+    actorFilterButtons.forEach((button) => {
+      const handler = () => {
+        const requestedFilter = String(button?.dataset?.actorFilter || '').trim().toLowerCase();
+        if (!requestedFilter) {
+          return;
+        }
+        this.activeActorFilter = this.normalizeActorFilter(requestedFilter);
+        this.refreshActorSelector();
+      };
+      button.addEventListener('click', handler);
+      this._unsubs.push(() => button.removeEventListener('click', handler));
+    });
+
+    const partyActorSort = this._el.partyActorSort;
+    if (partyActorSort) {
+      const handler = () => {
+        this.activeActorSort = this.normalizeActorSortMode(partyActorSort.value);
+        this.refreshActorSelector();
+      };
+      partyActorSort.addEventListener('change', handler);
+      this._unsubs.push(() => partyActorSort.removeEventListener('change', handler));
+    }
+
+    const openRelationshipsButton = this._el.partyActorSelectWrap?.querySelector?.('[data-char-action="open-relationships-tab"]') || null;
+    if (openRelationshipsButton) {
+      const handler = () => {
+        this._activateSidebarTab('relationships');
+        this.renderRelationshipsMatrix();
+      };
+      openRelationshipsButton.addEventListener('click', handler);
+      this._unsubs.push(() => openRelationshipsButton.removeEventListener('click', handler));
     }
   }
 
@@ -230,6 +403,9 @@ export class CharacterPanel {
         if (d?.characterId) this.showEmbeddedCharacterSheet(d.characterId);
       }),
       this.bus.on('room:changed', (payload) => this.handleRoomContextChanged(payload)),
+      this.bus.on('room:actor-roster-changed', (payload) => this.handleRoomContextChanged(payload)),
+      this.bus.on('room:occupants-membership-changed', (payload) => this.handleRoomContextChanged(payload)),
+      // Legacy compatibility event during bus migration.
       this.bus.on('room:occupants-changed', (payload) => this.handleRoomContextChanged(payload)),
     );
   }
@@ -245,6 +421,9 @@ export class CharacterPanel {
     this.refreshActorSelector();
     if (this.isPartySurfaceActive()) {
       this.applyPartyFollowerSelectionToCharacterSheet();
+    }
+    if (this.isRelationshipsTabActive()) {
+      this.renderRelationshipsMatrix();
     }
   }
 
@@ -366,6 +545,9 @@ export class CharacterPanel {
     if (tabId === 'inventory' && this.currentCharacterInventoryContext) {
       this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
     }
+    if (tabId === 'relationships') {
+      this.renderRelationshipsMatrix();
+    }
     if (tabId === 'quests') {
       this.bus.emit('quest:refresh-requested', this.buildQuestRefreshContext('character-sidebar-programmatic'));
     }
@@ -418,7 +600,39 @@ export class CharacterPanel {
     }
 
     const entities = hexmap?.entityManager?.getEntitiesWith?.('PositionComponent') || [];
-    return entities.find((entity) => this.resolveEntityRef(entity) === normalizedRef) || null;
+    return entities.find((entity) => this.entityMatchesActorRef(entity, normalizedRef)) || null;
+  }
+
+  entityMatchesActorRef(entity = null, actorRef = '') {
+    const normalizedRef = String(actorRef || '').trim();
+    if (!entity || !normalizedRef) {
+      return false;
+    }
+    const runtimeRef = this.resolveEntityRef(entity);
+    const metadata = this.resolveEntityMetadata(entity);
+    const characterId = this.resolveEntityCharacterId(entity);
+    const campaignCharacterId = Number(
+      metadata?.campaign_character_id
+      || entity?.dcStatePayload?.campaign_character_id
+      || entity?.dcEntityPayload?.campaign_character_id
+      || 0
+    ) || 0;
+    const contentId = String(
+      entity?.dcContentId
+      || entity?.dcStatePayload?.content_id
+      || entity?.dcStatePayload?.entity_ref?.content_id
+      || entity?.dcEntityPayload?.content_id
+      || entity?.dcEntityPayload?.entity_ref?.content_id
+      || ''
+    ).trim();
+    const candidateActorRefs = new Set([
+      runtimeRef,
+      runtimeRef ? `runtime:${runtimeRef}` : '',
+      campaignCharacterId > 0 ? `campaign-character:${campaignCharacterId}` : '',
+      characterId > 0 ? `character:${characterId}` : '',
+      contentId ? `content:${contentId}` : '',
+    ].filter(Boolean));
+    return candidateActorRefs.has(normalizedRef);
   }
 
   resolveEntityCharacterId(entity = null) {
@@ -451,6 +665,285 @@ export class CharacterPanel {
       || entity?.dcEntityPayload?.state?.metadata
       || null;
     return metadata && typeof metadata === 'object' ? metadata : {};
+  }
+
+  normalizeActorFilter(rawFilter = '') {
+    const normalized = String(rawFilter || '').trim().toLowerCase();
+    if (['all', 'party', 'allied', 'hostile', 'neutral', 'hazard'].includes(normalized)) {
+      return normalized;
+    }
+    return 'party';
+  }
+
+  normalizeActorSortMode(rawMode = '') {
+    const normalized = String(rawMode || '').trim().toLowerCase();
+    if (normalized === 'initiative') {
+      return 'initiative';
+    }
+    return 'alpha';
+  }
+
+  normalizeActorSide(rawSide = '') {
+    const normalized = String(rawSide || '').trim().toLowerCase();
+    if (['all', 'party', 'allied', 'hostile', 'neutral', 'hazard'].includes(normalized)) {
+      return normalized;
+    }
+    if (normalized === 'ally') {
+      return 'allied';
+    }
+    if (normalized === 'enemy' || normalized === 'hostile') {
+      return 'hostile';
+    }
+    if (normalized === 'player') {
+      return 'party';
+    }
+    return 'neutral';
+  }
+
+  resolveActorSideForEntity(entity = null) {
+    if (!entity) {
+      return 'neutral';
+    }
+
+    const metadata = this.resolveEntityMetadata(entity);
+    const identityType = String(entity?.getComponent?.('IdentityComponent')?.entityType || '').trim().toLowerCase();
+    if (identityType === 'hazard' || identityType === 'trap' || identityType === 'obstacle') {
+      return 'hazard';
+    }
+
+    const currentCharacterId = this.resolveCurrentCharacterId();
+    if (this.isFollowerEntityForCurrentCharacter(entity, currentCharacterId)) {
+      return 'party';
+    }
+
+    const teamFromCombat = String(entity?.getComponent?.('CombatComponent')?.team || '').trim().toLowerCase();
+    const teamFromMetadata = String(
+      metadata?.team
+      || entity?.dcEntityPayload?.team
+      || entity?.dcEntityPayload?.presentation?.badge
+      || entity?.dcStatePayload?.team
+      || ''
+    ).trim().toLowerCase();
+    const normalizedTeam = this.normalizeActorSide(teamFromCombat || teamFromMetadata);
+    if (normalizedTeam !== 'neutral') {
+      return normalizedTeam;
+    }
+
+    if (identityType === 'player_character' || identityType === 'player' || identityType === 'pc') {
+      return 'party';
+    }
+
+    return 'neutral';
+  }
+
+  isEntityInActiveRoom(entity = null) {
+    if (!entity) {
+      return false;
+    }
+    const activeRoomId = String(
+      this.stateManager?.hexmap?.resolveActiveRoomId?.()
+      || this.stateManager?.hexmap?.activeRoomId
+      || ''
+    ).trim();
+    if (!activeRoomId) {
+      return true;
+    }
+    const positionRoomId = String(entity?.getComponent?.('PositionComponent')?.roomId || '').trim();
+    const placementRoomId = String(entity?.placement?.room_id || '').trim();
+    const payloadRoomId = String(entity?.dcEntityPayload?.room_id || entity?.dcEntityPayload?.placement?.room_id || '').trim();
+    const roomId = positionRoomId || placementRoomId || payloadRoomId;
+    return roomId === activeRoomId;
+  }
+
+  formatActorSideLabel(side = '') {
+    const normalized = this.normalizeActorSide(side);
+    if (normalized === 'party') {
+      return 'Party';
+    }
+    if (normalized === 'allied') {
+      return 'Allied';
+    }
+    if (normalized === 'hostile') {
+      return 'Hostile';
+    }
+    if (normalized === 'hazard') {
+      return 'Hazard';
+    }
+    return 'Neutral';
+  }
+
+  syncActorFilterButtons(optionSet = []) {
+    const counts = {
+      all: 0,
+      party: 0,
+      allied: 0,
+      hostile: 0,
+      neutral: 0,
+      hazard: 0,
+    };
+    optionSet.forEach((option) => {
+      const side = this.normalizeActorSide(option?.actorSide || 'neutral');
+      counts.all++;
+      if (Object.prototype.hasOwnProperty.call(counts, side)) {
+        counts[side]++;
+      }
+    });
+    this._actorFilterButtons.forEach((button) => {
+      const filter = this.normalizeActorFilter(button?.dataset?.actorFilter || 'party');
+      const isActive = filter === this.activeActorFilter;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      const label = String(button.dataset.actorFilterLabel || button.textContent || '').trim();
+      const count = counts[filter] ?? 0;
+      button.textContent = `${label} (${count})`;
+    });
+  }
+
+  getAvailableActorSortModes() {
+    const sortModes = this.stateManager?.hexmap?.mapVisualState?.actor_roster?.sort_modes;
+    if (!Array.isArray(sortModes) || sortModes.length === 0) {
+      return ['alpha'];
+    }
+    const normalizedModes = Array.from(new Set(
+      sortModes.map((mode) => this.normalizeActorSortMode(mode))
+    ));
+    return normalizedModes.length > 0 ? normalizedModes : ['alpha'];
+  }
+
+  syncActorSortControl() {
+    const select = this._el.partyActorSort;
+    if (!select) {
+      return;
+    }
+
+    const availableModes = this.getAvailableActorSortModes();
+    if (!availableModes.includes(this.activeActorSort)) {
+      this.activeActorSort = availableModes[0] || 'alpha';
+    }
+
+    const modeLabels = {
+      alpha: 'Alphabetical',
+      initiative: 'Initiative',
+    };
+    select.innerHTML = '';
+    availableModes.forEach((mode) => {
+      const option = document.createElement('option');
+      option.value = mode;
+      option.textContent = modeLabels[mode] || mode;
+      select.appendChild(option);
+    });
+    select.value = this.activeActorSort;
+    select.disabled = availableModes.length <= 1;
+  }
+
+  buildActorOptionsFromCanonicalRoster() {
+    const hexmap = this.stateManager?.hexmap || null;
+    const rosterEntries = Array.isArray(hexmap?.getActiveRoomActorRoster?.())
+      ? hexmap.getActiveRoomActorRoster()
+      : [];
+    return rosterEntries.map((entry) => {
+      const runtimeRef = String(entry?.entity_ref || entry?.runtime_instance_id || entry?.actor_id || '').trim();
+      if (!runtimeRef) {
+        return null;
+      }
+      const actorSide = this.normalizeActorSide(entry?.side || 'neutral');
+      const actorKind = String(entry?.actor_kind || '').trim().toLowerCase() === 'follower'
+        ? 'follower'
+        : 'actor';
+      const followerKind = String(
+        entry?.sheet_ref?.sheet_type === 'follower'
+          ? (entry?.sheet_ref?.route_params?.follower_kind || '')
+          : ''
+      ).trim().toLowerCase();
+      const ownerCharacterId = Number(entry?.sheet_ref?.route_params?.character_id || 0) || 0;
+      const followerCharacterId = Number(
+        entry?.sheet_ref?.sheet_type === 'character'
+          ? (entry?.sheet_ref?.route_params?.character_id || 0)
+          : 0
+      ) || 0;
+      const displayName = String(entry?.display_name || runtimeRef).trim() || runtimeRef;
+      const kindLabel = this.formatActorSideLabel(actorSide);
+      const sheetHref = this.buildSheetHrefFromSheetRef(entry?.sheet_ref || null);
+      const combat = entry?.combat && typeof entry.combat === 'object' ? entry.combat : {};
+      const sortInitiative = Number.isFinite(Number(combat?.initiative)) ? Number(combat.initiative) : null;
+      return {
+        value: runtimeRef,
+        label: `${displayName} (${kindLabel})`,
+        actorKind,
+        actorSide,
+        followerKind,
+        ownerCharacterId,
+        followerCharacterId,
+        sheetHref,
+        sortInitiative,
+        sortIsParticipant: Boolean(combat?.is_participant) || sortInitiative !== null,
+        sortIsCurrent: Boolean(combat?.is_current),
+      };
+    }).filter(Boolean);
+  }
+
+  sortActorOptions(optionSet = []) {
+    const sortMode = this.normalizeActorSortMode(this.activeActorSort);
+    return [...optionSet].sort((a, b) => {
+      if (sortMode === 'initiative') {
+        const aParticipant = Boolean(a?.sortIsParticipant);
+        const bParticipant = Boolean(b?.sortIsParticipant);
+        if (aParticipant !== bParticipant) {
+          return aParticipant ? -1 : 1;
+        }
+        if (aParticipant && bParticipant) {
+          const aCurrent = Boolean(a?.sortIsCurrent);
+          const bCurrent = Boolean(b?.sortIsCurrent);
+          if (aCurrent !== bCurrent) {
+            return aCurrent ? -1 : 1;
+          }
+          const aInitiative = Number.isFinite(Number(a?.sortInitiative)) ? Number(a.sortInitiative) : Number.NEGATIVE_INFINITY;
+          const bInitiative = Number.isFinite(Number(b?.sortInitiative)) ? Number(b.sortInitiative) : Number.NEGATIVE_INFINITY;
+          if (aInitiative !== bInitiative) {
+            return bInitiative - aInitiative;
+          }
+        }
+      } else {
+        if (a?.value === '__primary__' && b?.value !== '__primary__') {
+          return -1;
+        }
+        if (b?.value === '__primary__' && a?.value !== '__primary__') {
+          return 1;
+        }
+      }
+      return String(a?.label || '').localeCompare(String(b?.label || ''), undefined, { sensitivity: 'base' });
+    });
+  }
+
+  buildSheetHrefFromSheetRef(sheetRef = null) {
+    if (!sheetRef || typeof sheetRef !== 'object') {
+      return '';
+    }
+    const routeName = String(sheetRef.route_name || '').trim();
+    const routeParams = sheetRef.route_params && typeof sheetRef.route_params === 'object'
+      ? sheetRef.route_params
+      : {};
+    const query = sheetRef.query && typeof sheetRef.query === 'object' ? { ...sheetRef.query } : {};
+
+    if (routeName === 'dungeoncrawler_content.character_view') {
+      const characterId = Number(routeParams.character_id || 0) || 0;
+      return this.buildCharacterSheetHref(characterId);
+    }
+    if (routeName === 'dungeoncrawler_content.character_follower_view') {
+      const ownerCharacterId = Number(routeParams.character_id || 0) || 0;
+      const followerKind = String(routeParams.follower_kind || '').trim().toLowerCase();
+      return this.buildCharacterSheetHref(ownerCharacterId, followerKind);
+    }
+
+    const campaignId = Number(query.campaign_id || this.currentCharacterContext?.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || 0) || 0;
+    const actorId = String(routeParams.actor_id || sheetRef.sheet_id || '').trim();
+    if (routeName === 'dungeoncrawler_content.actor_view' && actorId) {
+      return campaignId > 0
+        ? `/actors/${encodeURIComponent(actorId)}?campaign_id=${campaignId}`
+        : `/actors/${encodeURIComponent(actorId)}`;
+    }
+
+    return '';
   }
 
   resolveEntityFollowerKind(entity = null) {
@@ -822,12 +1315,16 @@ export class CharacterPanel {
     const partySelect = this._el.partyActorSelect;
     const partySelectionRef = String(partySelect?.value || '').trim();
     const selectedOption = partySelect?.selectedOptions?.[0] || null;
+    const selectedActorKind = String(selectedOption?.dataset?.actorKind || '').trim().toLowerCase();
+    const selectedActorSide = this.normalizeActorSide(String(selectedOption?.dataset?.actorSide || '').trim());
     const selectedFollowerKindFromOption = String(selectedOption?.dataset?.followerKind || '').trim().toLowerCase();
     const selectedOwnerCharacterIdFromOption = Number(selectedOption?.dataset?.ownerCharacterId || 0) || 0;
     const selectedEntity = entity || this.resolveEntityByRef(partySelectionRef) || null;
-    const href = selectedEntity
-      ? this.resolveSheetHrefForEntity(selectedEntity)
-      : this.buildCharacterSheetHref(selectedOwnerCharacterIdFromOption, selectedFollowerKindFromOption);
+    const preferredSheetHref = String(selectedOption?.dataset?.sheetHref || '').trim();
+    const href = preferredSheetHref
+      || (selectedEntity
+        ? this.resolveSheetHrefForEntity(selectedEntity)
+        : this.buildCharacterSheetHref(selectedOwnerCharacterIdFromOption, selectedFollowerKindFromOption));
     const selectedLabel = this.resolveEntityLabel(selectedEntity);
     const selectedFollowerKind = selectedEntity
       ? this.resolveEntityFollowerKind(selectedEntity)
@@ -839,9 +1336,13 @@ export class CharacterPanel {
       this._el.partySheetName.textContent = href ? (selectedLabel || fallbackLabel || 'Follower') : 'Select a follower';
     }
     if (this._el.partySheetSubtitle) {
-      this._el.partySheetSubtitle.textContent = selectedFollowerKindLabel
-        ? `${selectedFollowerKindLabel} follower`
-        : 'Follower character sheet';
+      if (selectedActorKind === 'actor') {
+        this._el.partySheetSubtitle.textContent = `${this.formatActorSideLabel(selectedActorSide)} actor sheet`;
+      } else if (selectedFollowerKindLabel) {
+        this._el.partySheetSubtitle.textContent = `${selectedFollowerKindLabel} follower`;
+      } else {
+        this._el.partySheetSubtitle.textContent = 'Character sheet';
+      }
     }
     if (href) {
       link.href = href;
@@ -881,72 +1382,102 @@ export class CharacterPanel {
       return;
     }
 
-    const followerRoster = this.resolvePrimaryFollowerRoster();
-    const options = [];
+    const canonicalRosterOptions = this.buildActorOptionsFromCanonicalRoster();
+    const allOptions = [];
     const seen = new Set();
     const primaryLaunchCharacter = this.primaryLaunchCharacter
       || this.stateManager?.hexmap?.launchCharacter
       || this.stateManager?.hexmap?.characterData
       || null;
     const primaryState = primaryLaunchCharacter?.data || primaryLaunchCharacter || {};
+    const primaryCharacterId = Number(primaryState?.sheet_character_id || primaryState?.character_id || primaryState?.characterId || 0) || 0;
+    const launchPlayerEntity = this.stateManager?.hexmap?.findLaunchPlayerEntity?.() || null;
+    const launchPlayerRef = this.resolveEntityRef(launchPlayerEntity);
+    const launchPlayerMetadata = this.resolveEntityMetadata(launchPlayerEntity);
+    const primaryCampaignCharacterId = Number(
+      launchPlayerMetadata?.campaign_character_id
+      || launchPlayerEntity?.dcStatePayload?.campaign_character_id
+      || launchPlayerEntity?.dcEntityPayload?.campaign_character_id
+      || 0
+    ) || 0;
+    const primaryRefCandidates = new Set([
+      launchPlayerRef,
+      launchPlayerRef ? `runtime:${launchPlayerRef}` : '',
+      primaryCampaignCharacterId > 0 ? `campaign-character:${primaryCampaignCharacterId}` : '',
+      primaryCharacterId > 0 ? `character:${primaryCharacterId}` : '',
+    ].filter(Boolean));
+    const isPrimaryRosterDuplicate = (option = {}) => {
+      const actorKind = String(option?.actorKind || '').trim().toLowerCase();
+      if (actorKind && actorKind !== 'actor') {
+        return false;
+      }
+      const actorSide = this.normalizeActorSide(option?.actorSide || 'neutral');
+      if (actorSide !== 'party') {
+        return false;
+      }
+      const optionValue = String(option?.value || '').trim();
+      const optionOwnerCharacterId = Number(option?.ownerCharacterId || 0) || 0;
+      const optionFollowerCharacterId = Number(option?.followerCharacterId || 0) || 0;
+      if (primaryCharacterId > 0 && (optionOwnerCharacterId === primaryCharacterId || optionFollowerCharacterId === primaryCharacterId)) {
+        return true;
+      }
+      if (optionValue && primaryRefCandidates.has(optionValue)) {
+        return true;
+      }
+      return false;
+    };
     const primaryLabel = String(
       primaryState?.basicInfo?.name
       || primaryState?.name
-      || this.resolveEntityLabel(this.stateManager?.hexmap?.findLaunchPlayerEntity?.() || null)
+      || this.resolveEntityLabel(launchPlayerEntity)
       || 'Main character'
     ).trim() || 'Main character';
-    options.push({
+    allOptions.push({
       value: '__primary__',
       label: `${primaryLabel} (PC)`,
       actorKind: 'primary',
-      ownerCharacterId: Number(primaryState?.sheet_character_id || primaryState?.character_id || primaryState?.characterId || 0) || 0,
+      actorSide: 'party',
+      ownerCharacterId: primaryCharacterId,
       followerKind: '',
-      followerCharacterId: Number(primaryState?.sheet_character_id || primaryState?.character_id || primaryState?.characterId || 0) || 0,
+      followerCharacterId: primaryCharacterId,
+      sortInitiative: Number.isFinite(Number(
+        launchPlayerEntity?.getComponent?.('CombatComponent')?.getInitiative?.()
+        ?? launchPlayerMetadata?.initiative
+      )) ? Number(
+        launchPlayerEntity?.getComponent?.('CombatComponent')?.getInitiative?.()
+        ?? launchPlayerMetadata?.initiative
+      ) : null,
+      sortIsParticipant: Number.isFinite(Number(
+        launchPlayerEntity?.getComponent?.('CombatComponent')?.getInitiative?.()
+        ?? launchPlayerMetadata?.initiative
+      )),
+      sortIsCurrent: Boolean(launchPlayerMetadata?.is_current_turn),
     });
     seen.add('__primary__');
 
-    followerRoster.forEach((follower) => {
-      const actorRef = String(
-        follower?.runtime_entity_id
-        || follower?.instance_id
-        || follower?.entity_instance_id
-        || ''
-      ).trim();
-      if (!actorRef) {
-        throw new Error('Follower roster entry is missing runtime_entity_id.');
-      }
-      if (seen.has(actorRef)) {
+    canonicalRosterOptions.forEach((option) => {
+      if (!option?.value || seen.has(option.value) || isPrimaryRosterDuplicate(option)) {
         return;
       }
-
-      const followerKind = String(follower?.follower_kind || follower?.role || '').trim().toLowerCase();
-      if (!followerKind) {
-        throw new Error(`Follower roster entry "${actorRef}" is missing follower_kind.`);
-      }
-      const ownerCharacterId = Number(follower?.owner_character_id || 0) || 0;
-      if (ownerCharacterId <= 0) {
-        throw new Error(`Follower roster entry "${actorRef}" is missing owner_character_id.`);
-      }
-      const followerCharacterId = Number(follower?.follower_character_id || 0) || 0;
-      if (followerCharacterId <= 0) {
-        throw new Error(`Follower roster entry "${actorRef}" is missing follower_character_id.`);
-      }
-
-      const actorName = String(follower?.display_name || actorRef).trim() || actorRef;
-      const kindLabel = followerKind.toUpperCase();
-      options.push({
-        value: actorRef,
-        label: `${actorName} (${kindLabel})`,
-        actorKind: 'follower',
-        ownerCharacterId,
-        followerKind,
-        followerCharacterId,
-      });
-      seen.add(actorRef);
+      allOptions.push(option);
+      seen.add(option.value);
     });
-    const [primaryOption, ...followerOptions] = options;
-    followerOptions.sort((a, b) => a.label.localeCompare(b.label));
-    const resolvedOptions = [primaryOption, ...followerOptions];
+
+    const [primaryOption, ...restOptions] = allOptions;
+    const primaryIncluded = this.activeActorFilter === 'all' || this.activeActorFilter === 'party';
+    const filteredOptions = restOptions.filter((option) => {
+      const side = this.normalizeActorSide(option?.actorSide || 'neutral');
+      if (this.activeActorFilter === 'all') {
+        return true;
+      }
+      return side === this.activeActorFilter;
+    });
+    const resolvedOptions = this.sortActorOptions([
+      ...(primaryIncluded && primaryOption ? [primaryOption] : []),
+      ...filteredOptions,
+    ]);
+    this.syncActorFilterButtons(allOptions);
+    this.syncActorSortControl();
 
     if (resolvedOptions.length === 0) {
       this._suppressActorSelectorChange = true;
@@ -979,6 +1510,9 @@ export class CharacterPanel {
         if (option.actorKind) {
           el.dataset.actorKind = String(option.actorKind);
         }
+        if (option.actorSide) {
+          el.dataset.actorSide = String(option.actorSide);
+        }
         if (option.ownerCharacterId > 0) {
           el.dataset.ownerCharacterId = String(option.ownerCharacterId);
         }
@@ -987,6 +1521,9 @@ export class CharacterPanel {
         }
         if (option.followerCharacterId > 0) {
           el.dataset.followerCharacterId = String(option.followerCharacterId);
+        }
+        if (option.sheetHref) {
+          el.dataset.sheetHref = String(option.sheetHref);
         }
         select.appendChild(el);
       });
@@ -997,13 +1534,566 @@ export class CharacterPanel {
     this._suppressActorSelectorChange = false;
     this.syncSheetLinksForSelectedEntity();
     this.syncPartySelectorVisibility();
+    if (this.isRelationshipsTabActive()) {
+      this.renderRelationshipsMatrix();
+    }
   }
 
   syncPartySelectorVisibility() {
     if (!this._el.partyActorSelectWrap) {
-    return;
+      return;
     }
     this._el.partyActorSelectWrap.style.display = '';
+  }
+
+  isRelationshipsTabActive() {
+    const partyPanel = this.container?.closest('#game-panel-party');
+    if (!partyPanel || partyPanel.hidden || !partyPanel.classList.contains('game-shell__panel--active')) {
+      return false;
+    }
+    const activeTab = partyPanel.querySelector('[data-sidebar-tab].sidebar-tab--active');
+    return String(activeTab?.dataset?.sidebarTab || '').trim().toLowerCase() === 'relationships';
+  }
+
+  resolveRelationshipMatrixActors() {
+    const actors = [];
+    const seen = new Set();
+    const canonicalRosterOptions = this.buildActorOptionsFromCanonicalRoster();
+    canonicalRosterOptions.forEach((option) => {
+      const actorRef = String(option?.value || '').trim();
+      if (!actorRef || seen.has(actorRef)) {
+        return;
+      }
+      seen.add(actorRef);
+      const displayName = String(option?.label || actorRef).replace(/\s+\([^)]+\)\s*$/, '').trim() || actorRef;
+      const linkedEntity = this.resolveEntityByRef(actorRef);
+      const resolvedSide = linkedEntity ? this.resolveActorSideForEntity(linkedEntity) : this.normalizeActorSide(option?.actorSide || 'neutral');
+      actors.push({
+        actorRef,
+        displayName,
+        actorSide: resolvedSide,
+      });
+    });
+
+    const launchPlayerEntity = this.stateManager?.hexmap?.findLaunchPlayerEntity?.() || null;
+    const launchPlayerRef = this.resolveEntityRef(launchPlayerEntity);
+    if (launchPlayerRef && !seen.has(launchPlayerRef)) {
+      actors.unshift({
+        actorRef: launchPlayerRef,
+        displayName: this.resolveEntityLabel(launchPlayerEntity),
+        actorSide: 'party',
+      });
+    }
+
+    return actors;
+  }
+
+  canUseServerRelationshipActorRef(actorRef = '') {
+    const normalized = String(actorRef || '').trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return /^pc-\d+-\d+$/.test(normalized)
+      || /^npc[_-][a-z0-9_-]+$/.test(normalized);
+  }
+
+  resolveSelectedRelationshipSourceRef(actors = [], preferredSourceRef = '') {
+    const actorRefs = new Set((Array.isArray(actors) ? actors : []).map((actor) => String(actor?.actorRef || '').trim()).filter(Boolean));
+    const preferred = String(preferredSourceRef || '').trim();
+    if (preferred && actorRefs.has(preferred)) {
+      return preferred;
+    }
+
+    const selectedValue = String(this._el.partyActorSelect?.value || '').trim();
+    if (selectedValue === '__primary__') {
+      const launchPlayerRef = this.resolveEntityRef(this.stateManager?.hexmap?.findLaunchPlayerEntity?.() || null);
+      if (launchPlayerRef && actorRefs.has(launchPlayerRef)) {
+        return launchPlayerRef;
+      }
+    } else if (selectedValue && actorRefs.has(selectedValue)) {
+      return selectedValue;
+    }
+
+    return String(actors?.[0]?.actorRef || '').trim();
+  }
+
+  formatRelationshipAttitudeLabel(attitude = '') {
+    const normalized = String(attitude || '').trim().toLowerCase();
+    if (!normalized) {
+      return '—';
+    }
+    return normalized.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  renderRelationshipsMatrixTable(actors = [], matrix = {}, calculations = {}, selectedSourceRef = '') {
+    const container = this._el.actorRelationshipsMatrix;
+    if (!container) {
+      return;
+    }
+    const scrollStyle = 'overflow:auto;border:1px solid rgba(148,163,184,0.35);border-radius:10px;background:rgba(15,23,42,0.35);';
+    const tableStyle = 'width:100%;min-width:640px;border-collapse:collapse;table-layout:fixed;';
+    const thStyle = 'border:1px solid rgba(148,163,184,0.35);padding:8px 10px;font-size:12px;text-align:center;background:rgba(148,163,184,0.15);font-weight:700;white-space:nowrap;';
+    const rowHeaderStyle = 'border:1px solid rgba(148,163,184,0.35);padding:8px 10px;font-size:12px;text-align:left;background:rgba(148,163,184,0.15);font-weight:700;white-space:nowrap;';
+    const tdBaseStyle = 'border:1px solid rgba(148,163,184,0.35);padding:8px 10px;font-size:12px;text-align:center;vertical-align:middle;background:rgba(15,23,42,0.45);';
+    const badgeBaseStyle = 'display:inline-flex;align-items:center;justify-content:center;min-width:88px;padding:3px 8px;border-radius:9999px;border:1px solid rgba(148,163,184,0.45);font-size:11px;font-weight:700;color:#e2e8f0;';
+    const badgeStyleByAttitude = {
+      hostile: `${badgeBaseStyle}background:rgba(239,68,68,0.24);border-color:rgba(239,68,68,0.6);`,
+      unfriendly: `${badgeBaseStyle}background:rgba(245,158,11,0.22);border-color:rgba(245,158,11,0.6);`,
+      indifferent: `${badgeBaseStyle}background:rgba(148,163,184,0.2);border-color:rgba(148,163,184,0.6);`,
+      friendly: `${badgeBaseStyle}background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.55);`,
+      helpful: `${badgeBaseStyle}background:rgba(16,185,129,0.28);border-color:rgba(16,185,129,0.7);`,
+      unknown: `${badgeBaseStyle}background:rgba(71,85,105,0.2);border-color:rgba(148,163,184,0.45);`,
+    };
+    const selectedSource = this.resolveSelectedRelationshipSourceRef(actors, selectedSourceRef);
+    const selectedSourceActor = actors.find((actor) => actor.actorRef === selectedSource) || null;
+    const selectedSourceLabel = String(selectedSourceActor?.displayName || selectedSource || '').trim() || 'Selected actor';
+    const calculationRows = actors
+      .filter(({ actorRef }) => actorRef !== selectedSource)
+      .map(({ actorRef: targetRef, displayName: targetDisplay }) => {
+        const calculation = (calculations?.[selectedSource]?.[targetRef] && typeof calculations[selectedSource][targetRef] === 'object')
+          ? calculations[selectedSource][targetRef]
+          : {};
+        const fallbackAttitude = this.normalizeAttitudeValue(String(matrix?.[selectedSource]?.[targetRef] || ''));
+        const finalAttitude = this.normalizeAttitudeValue(String(calculation?.final_attitude || fallbackAttitude));
+        const sourceDefault = this.normalizeAttitudeValue(String(calculation?.source_default_attitude || ''));
+        const edgeAttitude = this.normalizeAttitudeValue(String(calculation?.edge_attitude || ''));
+        const rule = String(calculation?.rule || '').trim();
+        const formula = String(calculation?.formula || '').trim()
+          || 'final_score = clamp((w_default*source_default_score) + (w_edge*edge_score_or_0) + (w_inst*institution_score), -100, 100)';
+        const equation = String(calculation?.equation || '').trim()
+          || `formula(${formula})`;
+        const sourceDefaultScore = Number.isFinite(Number(calculation?.source_default_score))
+          ? Number(calculation.source_default_score)
+          : this.resolveAttitudeScore(sourceDefault);
+        const edgeScoreHasValue = calculation?.edge_score !== null
+          && calculation?.edge_score !== undefined
+          && Number.isFinite(Number(calculation.edge_score));
+        const edgeScore = edgeScoreHasValue
+          ? Number(calculation.edge_score)
+          : (edgeAttitude ? this.resolveAttitudeScore(edgeAttitude) : null);
+        const finalScore = Number.isFinite(Number(calculation?.final_score))
+          ? Number(calculation.final_score)
+          : this.resolveAttitudeScore(finalAttitude);
+        const institutionScore = Number.isFinite(Number(calculation?.institution_score))
+          ? Number(calculation.institution_score)
+          : 0;
+        const institutionWeightedScore = Number.isFinite(Number(calculation?.institution_weighted_score))
+          ? Number(calculation.institution_weighted_score)
+          : 0;
+        const weights = (calculation?.weights && typeof calculation.weights === 'object')
+          ? calculation.weights
+          : {};
+        const wDefault = Number.isFinite(Number(weights?.default)) ? Number(weights.default) : 0;
+        const wEdge = Number.isFinite(Number(weights?.edge)) ? Number(weights.edge) : 0;
+        const wInstitution = Number.isFinite(Number(weights?.institution)) ? Number(weights.institution) : 0;
+        const institutionBreakdown = Array.isArray(calculation?.institution_breakdown)
+          ? calculation.institution_breakdown
+          : [];
+        const institutionBreakdownMarkup = institutionBreakdown.length > 0
+          ? institutionBreakdown.slice(0, 4).map((entry) => {
+            const instName = String(entry?.institution_name || entry?.institution_subject_id || 'Institution').trim();
+            const domain = String(entry?.domain || 'unknown').trim();
+            const rawScore = Number.isFinite(Number(entry?.raw_score)) ? Number(entry.raw_score) : 0;
+            const domainWeight = Number.isFinite(Number(entry?.domain_weight)) ? Number(entry.domain_weight) : 0;
+            const knowledgeWeight = Number.isFinite(Number(entry?.knowledge_weight)) ? Number(entry.knowledge_weight) : 0;
+            const weightedComponent = Number.isFinite(Number(entry?.weighted_component)) ? Number(entry.weighted_component) : 0;
+            return `<div style="color:#94a3b8;">inst(${escapeQuestHtml(instName)}|${escapeQuestHtml(domain)}): ${rawScore} × ${domainWeight.toFixed(2)} × ${knowledgeWeight.toFixed(2)} = ${weightedComponent}</div>`;
+          }).join('')
+          : '<div style="color:#94a3b8;">No institutional membership/sentiment adjustments found.</div>';
+        const finalLabel = this.formatRelationshipAttitudeLabel(finalAttitude);
+        const detailLabel = rule === 'relationship_edge_override'
+          ? 'Edge override'
+          : (rule === 'source_default' ? 'Source default' : (rule === 'inferred_from_sides' ? 'Side inference' : (rule === 'weighted_edge_plus_institutions' ? 'Weighted formula (edge + institutions)' : (rule === 'weighted_default_plus_institutions' ? 'Weighted formula (default + institutions)' : 'Computed'))));
+        const components = `default(${sourceDefault || 'unknown'}=${sourceDefaultScore}), edge(${edgeAttitude || 'none'}=${edgeScore === null ? 'n/a' : edgeScore}), institution=${institutionScore} (weighted ${institutionWeightedScore}), final(${finalAttitude || 'unknown'}=${finalScore})`;
+        const weightLine = `weights: w_default=${wDefault.toFixed(2)}, w_edge=${wEdge.toFixed(2)}, w_inst=${wInstitution.toFixed(2)}`;
+        return `
+          <tr>
+            <th scope="row" style="${rowHeaderStyle}">${escapeQuestHtml(targetDisplay)}</th>
+            <td style="${tdBaseStyle}"><span style="${badgeStyleByAttitude[finalAttitude] || badgeStyleByAttitude.unknown}">${escapeQuestHtml(finalLabel)} (score ${finalScore})</span></td>
+            <td style="${tdBaseStyle}text-align:left;">
+              <div style="font-weight:700;color:#cbd5e1;">${escapeQuestHtml(detailLabel)}</div>
+              <div style="color:#cbd5e1;">${escapeQuestHtml(formula)}</div>
+              <div style="color:#cbd5e1;">${escapeQuestHtml(weightLine)}</div>
+              <div style="color:#cbd5e1;">${escapeQuestHtml(components)}</div>
+              <div style="color:#94a3b8;">${escapeQuestHtml(equation)}</div>
+              <div style="margin-top:4px;">${institutionBreakdownMarkup}</div>
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+    const calculationSummaryMarkup = selectedSource
+      ? `
+        <div class="relationships-calculation-summary" style="margin-top:10px;">
+          <div style="font-size:12px;font-weight:700;color:#cbd5e1;margin-bottom:6px;">Disposition calculation: ${escapeQuestHtml(selectedSourceLabel)} → other room actors</div>
+          <div class="relationships-matrix-scroll" style="${scrollStyle}">
+            <table class="relationships-matrix-table" style="${tableStyle}">
+              <thead>
+                <tr>
+                  <th scope="col" style="${thStyle}">Target Actor</th>
+                  <th scope="col" style="${thStyle}">Final Attitude</th>
+                  <th scope="col" style="${thStyle}">Calculation</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${calculationRows || `<tr><td colspan="3" style="${tdBaseStyle}text-align:left;color:#94a3b8;">No other visible actors available for calculation.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `
+      : '<div class="relationships-calculation-summary" style="padding:8px 4px;color:#94a3b8;font-size:12px;">No selected actor available for relationship calculation.</div>';
+
+    container.innerHTML = calculationSummaryMarkup;
+  }
+
+  renderRelationshipsMatrixStatusTable(message = '') {
+    const container = this._el.actorRelationshipsMatrix;
+    if (!container) {
+      return;
+    }
+    const text = String(message || '').trim() || 'Relationship matrix unavailable.';
+    container.innerHTML = `<div class="relationships-calculation-summary" style="padding:8px 4px;color:#94a3b8;font-size:12px;">${escapeQuestHtml(text)}</div>`;
+  }
+
+  normalizeAttitudeValue(value = '') {
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['helpful', 'friendly', 'indifferent', 'unfriendly', 'hostile'].includes(normalized)
+      ? normalized
+      : '';
+  }
+
+  resolveAttitudeScore(attitude = '') {
+    switch (this.normalizeAttitudeValue(attitude)) {
+      case 'helpful':
+        return 100;
+      case 'friendly':
+        return 50;
+      case 'unfriendly':
+        return -50;
+      case 'hostile':
+        return -100;
+      default:
+        return 0;
+    }
+  }
+
+  resolveDefaultAttitudeFromSide(actorSide = 'neutral') {
+    const side = this.normalizeActorSide(actorSide);
+    if (side === 'hostile' || side === 'hazard') {
+      return 'hostile';
+    }
+    if (side === 'party' || side === 'allied') {
+      return 'friendly';
+    }
+    return 'indifferent';
+  }
+
+  resolveActorDefaultAttitude(entity = null) {
+    if (!entity || typeof entity !== 'object') {
+      return '';
+    }
+    const metadata = this.resolveEntityMetadata(entity);
+    const statePayload = (entity?.dcStatePayload && typeof entity.dcStatePayload === 'object') ? entity.dcStatePayload : {};
+    const entityPayload = (entity?.dcEntityPayload && typeof entity.dcEntityPayload === 'object') ? entity.dcEntityPayload : {};
+    const descriptorAttitude = statePayload?.descriptors?.attitude
+      || statePayload?.state?.descriptors?.attitude
+      || entityPayload?.descriptors?.attitude
+      || entityPayload?.state?.descriptors?.attitude
+      || metadata?.attitude
+      || statePayload?.attitude
+      || entityPayload?.attitude
+      || '';
+    return this.normalizeAttitudeValue(descriptorAttitude);
+  }
+
+  resolveActorRelationshipAttitudes(entity = null) {
+    if (!entity || typeof entity !== 'object') {
+      return new Map();
+    }
+    const metadata = this.resolveEntityMetadata(entity);
+    const statePayload = (entity?.dcStatePayload && typeof entity.dcStatePayload === 'object') ? entity.dcStatePayload : {};
+    const entityPayload = (entity?.dcEntityPayload && typeof entity.dcEntityPayload === 'object') ? entity.dcEntityPayload : {};
+    const source = statePayload?.relationship_attitudes
+      || statePayload?.state?.relationship_attitudes
+      || entityPayload?.relationship_attitudes
+      || entityPayload?.state?.relationship_attitudes
+      || metadata?.relationship_attitudes
+      || [];
+    const result = new Map();
+
+    if (Array.isArray(source)) {
+      source.forEach((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return;
+        }
+        const targetRef = String(
+          entry?.target_entity_ref
+          || entry?.target_ref
+          || entry?.target_id
+          || entry?.entity_ref
+          || ''
+        ).trim();
+        const attitude = this.normalizeAttitudeValue(entry?.attitude || entry?.value || '');
+        if (targetRef && attitude) {
+          result.set(targetRef, attitude);
+        }
+      });
+      return result;
+    }
+
+    if (source && typeof source === 'object') {
+      Object.entries(source).forEach(([targetRef, rawAttitude]) => {
+        const normalizedTarget = String(targetRef || '').trim();
+        const attitude = this.normalizeAttitudeValue(rawAttitude);
+        if (normalizedTarget && attitude) {
+          result.set(normalizedTarget, attitude);
+        }
+      });
+    }
+    return result;
+  }
+
+  inferAttitudeFromSides(sourceSide = 'neutral', targetSide = 'neutral') {
+    const from = this.normalizeActorSide(sourceSide);
+    const to = this.normalizeActorSide(targetSide);
+    if (from === 'party' && to === 'party') {
+      return 'friendly';
+    }
+    if (from === 'allied' && to === 'allied') {
+      return 'friendly';
+    }
+    if (from === 'hostile' && ['party', 'allied'].includes(to)) {
+      return 'hostile';
+    }
+    if (['party', 'allied'].includes(from) && to === 'hostile') {
+      return 'hostile';
+    }
+    if (from === 'allied' && to === 'party') {
+      return 'friendly';
+    }
+    if (from === 'party' && to === 'allied') {
+      return 'friendly';
+    }
+    return 'indifferent';
+  }
+
+  buildLocalRelationshipsMatrix(actors = []) {
+    const matrix = {};
+    actors.forEach((source) => {
+      matrix[source.actorRef] = {};
+      const sourceEntity = this.resolveEntityByRef(source.actorRef);
+      const sourceDefault = this.resolveActorDefaultAttitude(sourceEntity) || this.resolveDefaultAttitudeFromSide(source.actorSide);
+      const edges = this.resolveActorRelationshipAttitudes(sourceEntity);
+      actors.forEach((target) => {
+        if (source.actorRef === target.actorRef) {
+          matrix[source.actorRef][target.actorRef] = '';
+          return;
+        }
+        const direct = this.normalizeAttitudeValue(edges.get(target.actorRef) || '');
+        if (direct) {
+          matrix[source.actorRef][target.actorRef] = direct;
+          return;
+        }
+        if (sourceDefault) {
+          matrix[source.actorRef][target.actorRef] = sourceDefault;
+          return;
+        }
+        const inferred = this.inferAttitudeFromSides(source.actorSide, target.actorSide);
+        matrix[source.actorRef][target.actorRef] = inferred;
+      });
+    });
+    return matrix;
+  }
+
+  buildLocalRelationshipCalculations(actors = [], matrix = {}) {
+    const calculations = {};
+    actors.forEach((source) => {
+      calculations[source.actorRef] = {};
+      const sourceEntity = this.resolveEntityByRef(source.actorRef);
+      const sourceDefault = this.resolveActorDefaultAttitude(sourceEntity) || this.resolveDefaultAttitudeFromSide(source.actorSide);
+      const edges = this.resolveActorRelationshipAttitudes(sourceEntity);
+      actors.forEach((target) => {
+        if (source.actorRef === target.actorRef) {
+          calculations[source.actorRef][target.actorRef] = {
+            rule: 'self',
+            formula: 'self',
+            weights: { default: 0.8, edge: 0.0, institution: 0.2 },
+            source_default_attitude: sourceDefault,
+            source_default_score: this.resolveAttitudeScore(sourceDefault),
+            edge_attitude: '',
+            edge_score: null,
+            edge_score_source: 'none',
+            institution_score: 0,
+            institution_weighted_score: 0,
+            institution_breakdown: [],
+            final_attitude: '',
+            final_score: 0,
+            equation: 'self',
+          };
+          return;
+        }
+        const edgeAttitude = this.normalizeAttitudeValue(edges.get(target.actorRef) || '');
+        const fallbackAttitude = this.normalizeAttitudeValue(String(matrix?.[source.actorRef]?.[target.actorRef] || ''));
+        const inferred = this.inferAttitudeFromSides(source.actorSide, target.actorSide);
+        const finalAttitude = edgeAttitude || sourceDefault || fallbackAttitude || inferred;
+        const rule = edgeAttitude
+          ? 'relationship_edge_override'
+          : (sourceDefault ? 'source_default' : 'inferred_from_sides');
+        const weights = edgeAttitude
+          ? { default: 0.35, edge: 0.45, institution: 0.20 }
+          : { default: 0.80, edge: 0.00, institution: 0.20 };
+        const sourceDefaultScore = this.resolveAttitudeScore(sourceDefault);
+        const edgeScore = edgeAttitude ? this.resolveAttitudeScore(edgeAttitude) : null;
+        const institutionScore = 0;
+        const institutionWeightedScore = Math.round(institutionScore * Number(weights.institution || 0));
+        const finalScore = Math.max(
+          -100,
+          Math.min(
+            100,
+            Math.round(
+              (Number(weights.default || 0) * sourceDefaultScore)
+              + (Number(weights.edge || 0) * (edgeScore ?? 0))
+              + institutionWeightedScore
+            )
+          )
+        );
+        const equation = edgeAttitude
+          ? `clamp((${Number(weights.default || 0).toFixed(2)}*${sourceDefaultScore}) + (${Number(weights.edge || 0).toFixed(2)}*${edgeScore ?? 0}) + (${institutionWeightedScore}), -100, 100) = ${finalScore}`
+          : (sourceDefault
+            ? `clamp((${Number(weights.default || 0).toFixed(2)}*${sourceDefaultScore}) + (${Number(weights.edge || 0).toFixed(2)}*0) + (${institutionWeightedScore}), -100, 100) = ${finalScore}`
+            : `inferred(${source.actorSide}→${target.actorSide} => ${inferred})`);
+        calculations[source.actorRef][target.actorRef] = {
+          rule,
+          formula: 'final_score = clamp((w_default*source_default_score) + (w_edge*edge_score_or_0) + (w_inst*institution_score), -100, 100)',
+          weights,
+          source_default_attitude: sourceDefault,
+          source_default_score: sourceDefaultScore,
+          edge_attitude: edgeAttitude,
+          edge_score: edgeScore,
+          edge_score_source: edgeAttitude ? 'attitude_bucket' : 'none',
+          institution_score: institutionScore,
+          institution_weighted_score: institutionWeightedScore,
+          institution_breakdown: [],
+          final_attitude: finalAttitude,
+          final_score: finalScore,
+          equation,
+        };
+      });
+    });
+    return calculations;
+  }
+
+  async renderRelationshipsMatrix() {
+    const container = this._el.actorRelationshipsMatrix;
+    if (!container) {
+      return;
+    }
+    if (!this.isRelationshipsTabActive()) {
+      return;
+    }
+    const campaignId = Number(this.currentCharacterContext?.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || 0) || 0;
+    if (campaignId <= 0) {
+      this.renderRelationshipsMatrixStatusTable('Relationship matrix is available in campaign mode.');
+      return;
+    }
+
+    const actors = this.resolveRelationshipMatrixActors();
+    if (actors.length <= 1) {
+      this.renderRelationshipsMatrixStatusTable('Need at least two room actors to build a relationship matrix.');
+      return;
+    }
+
+    const requestToken = ++this._relationshipsMatrixRequestToken;
+    if (Date.now() < this._relationshipsMatrixRemoteDisabledUntil) {
+      const localMatrix = this.buildLocalRelationshipsMatrix(actors);
+      const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
+      this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, this.resolveSelectedRelationshipSourceRef(actors));
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams();
+      const selectedSourceRef = this.resolveSelectedRelationshipSourceRef(actors);
+      if (selectedSourceRef) {
+        params.set('selected_actor_ref', selectedSourceRef);
+      }
+      const serverActors = actors.filter(({ actorRef }) => this.canUseServerRelationshipActorRef(actorRef));
+      if (serverActors.length <= 1) {
+        const localMatrix = this.buildLocalRelationshipsMatrix(actors);
+        const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
+        this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, selectedSourceRef);
+        return;
+      }
+      const requestKey = `${campaignId}|${selectedSourceRef}|${serverActors.map(({ actorRef }) => String(actorRef || '').trim()).filter(Boolean).join(',')}`;
+      if (this._relationshipsMatrixPendingKey === requestKey) {
+        return;
+      }
+      const lastCompletedAt = Number(this._relationshipsMatrixLastCompletedAt || 0);
+      if (this._relationshipsMatrixLastCompletedKey === requestKey && (Date.now() - lastCompletedAt) < 2000) {
+        return;
+      }
+      this._relationshipsMatrixPendingKey = requestKey;
+      this.renderRelationshipsMatrixStatusTable('Loading relationship matrix…');
+      params.set('actor_refs', serverActors.map(({ actorRef }) => String(actorRef || '').trim()).filter(Boolean).join(','));
+      try {
+        const response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/relationships/matrix?${params.toString()}`, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          credentials: 'same-origin',
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (requestToken !== this._relationshipsMatrixRequestToken) {
+          return;
+        }
+        if (!response.ok || !payload?.success || typeof payload?.matrix !== 'object') {
+          if (response.status === 404) {
+            const localMatrix = this.buildLocalRelationshipsMatrix(actors);
+            const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
+            this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, selectedSourceRef);
+            return;
+          }
+          if (response.status >= 500) {
+            this._relationshipsMatrixRemoteDisabledUntil = Date.now() + 120000;
+          }
+          throw new Error(payload?.error || `Unable to load relationship matrix (${response.status})`);
+        }
+        const payloadCalculations = payload?.calculations && typeof payload.calculations === 'object'
+          ? payload.calculations
+          : {};
+        const localMatrix = this.buildLocalRelationshipsMatrix(actors);
+        const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
+        Object.entries(payload?.matrix || {}).forEach(([sourceRef, row]) => {
+          if (!sourceRef || typeof row !== 'object' || row === null) {
+            return;
+          }
+          localMatrix[sourceRef] = { ...(localMatrix[sourceRef] || {}), ...row };
+        });
+        Object.entries(payloadCalculations).forEach(([sourceRef, row]) => {
+          if (!sourceRef || typeof row !== 'object' || row === null) {
+            return;
+          }
+          localCalculations[sourceRef] = { ...(localCalculations[sourceRef] || {}), ...row };
+        });
+        const payloadSelectedSourceRef = this.resolveSelectedRelationshipSourceRef(actors, String(payload?.selected_actor_ref || selectedSourceRef));
+        this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, payloadSelectedSourceRef);
+        this._relationshipsMatrixLastCompletedKey = requestKey;
+        this._relationshipsMatrixLastCompletedAt = Date.now();
+      } finally {
+        if (this._relationshipsMatrixPendingKey === requestKey) {
+          this._relationshipsMatrixPendingKey = '';
+        }
+      }
+    } catch (error) {
+      console.error('[CharacterPanel] renderRelationshipsMatrix failed', error);
+      this._relationshipsMatrixRemoteDisabledUntil = Date.now() + 120000;
+      if (requestToken !== this._relationshipsMatrixRequestToken) {
+        return;
+      }
+      const localMatrix = this.buildLocalRelationshipsMatrix(actors);
+      const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
+      this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, this.resolveSelectedRelationshipSourceRef(actors));
+    }
   }
 
   focusActorFromSelector(actorRef = '', options = {}) {
@@ -1028,6 +2118,17 @@ export class CharacterPanel {
     const entity = this.resolveEntityByRef(normalizedRef);
     if (entity && typeof hexmap?.selectEntity === 'function') {
       hexmap.selectEntity(entity);
+    }
+    if (selectedActorKind === 'actor') {
+      if (entity) {
+        this.showActorCharacterFromEntity(entity);
+      }
+      this.syncSheetLinksForSelectedEntity(entity || null);
+      this.togglePartyEmptyState(false);
+      if (activateCharacterTab) {
+        this._activateCharacterTab();
+      }
+      return;
     }
     if (entity) {
       this.showFollowerCharacterFromEntity(entity);
@@ -1066,6 +2167,15 @@ export class CharacterPanel {
       return;
     }
     const selectedEntity = this.resolveSelectedFollowerEntityFromSelector();
+    if (selectedActorKind === 'actor') {
+      const actorEntity = this.resolveEntityByRef(selectedRef);
+      if (actorEntity) {
+        this.showActorCharacterFromEntity(actorEntity);
+      }
+      this.syncSheetLinksForSelectedEntity(actorEntity);
+      this.togglePartyEmptyState(false);
+      return;
+    }
     if (selectedEntity) {
       this.showFollowerCharacterFromEntity(selectedEntity);
       this.syncSheetLinksForSelectedEntity(selectedEntity);
@@ -1116,6 +2226,454 @@ export class CharacterPanel {
       return;
     }
     this.showLaunchCharacter(payload, { storeAsPrimary: false });
+  }
+
+  showActorCharacterFromEntity(entity) {
+    const payload = this.buildActorLaunchCharacterPayload(entity);
+    if (!payload) {
+      return;
+    }
+    this.showLaunchCharacter(payload, { storeAsPrimary: false });
+  }
+
+  buildActorLaunchCharacterPayload(entity) {
+    if (!entity) {
+      return null;
+    }
+
+    const identity = entity.getComponent?.('IdentityComponent') || null;
+    const statsComponent = entity.getComponent?.('StatsComponent') || null;
+    const movement = entity.getComponent?.('MovementComponent') || null;
+    const combat = entity.getComponent?.('CombatComponent') || null;
+    const metadata = this.resolveEntityMetadata(entity);
+    const statePayload = (entity?.dcStatePayload && typeof entity.dcStatePayload === 'object') ? entity.dcStatePayload : {};
+    const entityPayload = (entity?.dcEntityPayload && typeof entity.dcEntityPayload === 'object') ? entity.dcEntityPayload : {};
+    const nestedStatePayload = (statePayload?.state && typeof statePayload.state === 'object') ? statePayload.state : {};
+    const nestedEntityStatePayload = (entityPayload?.state && typeof entityPayload.state === 'object') ? entityPayload.state : {};
+    const actorCharacterData = (
+      (metadata?.character_data && typeof metadata.character_data === 'object') ? metadata.character_data
+        : ((statePayload?.character_data && typeof statePayload.character_data === 'object') ? statePayload.character_data
+          : ((nestedStatePayload?.character_data && typeof nestedStatePayload.character_data === 'object') ? nestedStatePayload.character_data
+            : ((entityPayload?.character_data && typeof entityPayload.character_data === 'object') ? entityPayload.character_data
+              : ((nestedEntityStatePayload?.character_data && typeof nestedEntityStatePayload.character_data === 'object') ? nestedEntityStatePayload.character_data : {}))))
+    ) || {};
+    const actorBasicInfo = (
+      (metadata?.basic_info && typeof metadata.basic_info === 'object') ? metadata.basic_info
+        : ((metadata?.basicInfo && typeof metadata.basicInfo === 'object') ? metadata.basicInfo
+          : ((actorCharacterData?.basicInfo && typeof actorCharacterData.basicInfo === 'object') ? actorCharacterData.basicInfo
+            : ((actorCharacterData?.basic_info && typeof actorCharacterData.basic_info === 'object') ? actorCharacterData.basic_info : {})))
+    ) || {};
+    const actorCalculatedStats = (
+      (actorCharacterData?.calculated_stats && typeof actorCharacterData.calculated_stats === 'object') ? actorCharacterData.calculated_stats
+        : ((metadata?.calculated_stats && typeof metadata.calculated_stats === 'object') ? metadata.calculated_stats : {})
+    ) || {};
+    const identityName = this.resolveEntityLabel(entity);
+    const displayName = String(metadata.display_name || metadata.name || identityName || 'Actor').trim();
+    if (!displayName) {
+      return null;
+    }
+
+    const actorType = String(
+      entity?.dcStatePayload?.entity_type
+      || entity?.dcEntityPayload?.entity_type
+      || metadata.entity_type
+      || metadata.role
+      || identity?.entityType
+      || 'actor'
+    ).trim().toLowerCase();
+    const classId = String(metadata.class_id || actorType || 'actor').trim();
+    const resolvedClass = String(
+      metadata.class_id
+      || metadata.class
+      || actorCharacterData.class
+      || actorBasicInfo.class
+      || actorType
+      || 'actor'
+    ).trim();
+    const ancestry = String(
+      metadata.species
+      || metadata.ancestry
+      || metadata.follower_species
+      || actorCharacterData.ancestry
+      || actorBasicInfo.ancestry
+      || actorType
+      || 'Actor'
+    ).trim();
+    const level = Number(
+      metadata.level
+      || actorCharacterData.level
+      || actorBasicInfo.level
+      || metadata.stats?.level
+      || actorCalculatedStats.level
+      || 1
+    ) || 1;
+    const metadataStats = (metadata && typeof metadata.stats === 'object' && metadata.stats !== null) ? metadata.stats : {};
+    const hpCurrent = Number(
+      statsComponent?.currentHp
+      ?? statsComponent?.current_hp
+      ?? metadata.hp_current
+      ?? actorCharacterData.hp_current
+      ?? actorCharacterData?.hp?.current
+      ?? metadataStats?.currentHp
+      ?? metadataStats?.current_hp
+      ?? actorCalculatedStats.current_hp
+      ?? 0
+    ) || 0;
+    const hpMax = Number(
+      statsComponent?.maxHp
+      ?? statsComponent?.max_hp
+      ?? metadata.hp_max
+      ?? actorCharacterData.hp_max
+      ?? actorCharacterData?.hp?.max
+      ?? metadataStats?.maxHp
+      ?? metadataStats?.max_hp
+      ?? actorCalculatedStats.max_hp
+      ?? hpCurrent
+    ) || hpCurrent;
+    const armorClass = Number(
+      statsComponent?.ac
+      ?? metadata.armor_class
+      ?? actorCharacterData.ac
+      ?? metadataStats?.ac
+      ?? actorCalculatedStats.ac
+      ?? 0
+    ) || 0;
+    const speed = Number(
+      movement?.speed
+      ?? metadata.movement_speed
+      ?? statsComponent?.speed
+      ?? metadataStats?.speed
+      ?? 25
+    ) || 25;
+    const perception = Number(
+      statsComponent?.perception
+      ?? metadata.perception
+      ?? actorCharacterData.perception
+      ?? metadataStats?.perception
+      ?? actorCalculatedStats.perception
+      ?? 0
+    ) || 0;
+    const campaignId = Number(this.currentCharacterContext?.campaignId || this.stateManager?.hexmap?.resolveCampaignId?.() || 0) || 0;
+    const runtimeCharacterId = Number(
+      metadata.character_id
+      || metadata.campaign_character_id
+      || statePayload.character_id
+      || statePayload.campaign_character_id
+      || nestedStatePayload.character_id
+      || nestedStatePayload.campaign_character_id
+      || entityPayload.character_id
+      || entityPayload.campaign_character_id
+      || nestedEntityStatePayload.character_id
+      || nestedEntityStatePayload.campaign_character_id
+      || 0
+    ) || 0;
+    const portraitUrl = String(metadata.portrait_url || metadata.portrait || '').trim();
+    const resourcesPayload = (metadata && typeof metadata.resources === 'object' && metadata.resources !== null) ? metadata.resources : {};
+    const rawEquipment = (
+      (Array.isArray(metadata.equipment) ? metadata.equipment : null)
+      || (Array.isArray(statePayload.equipment) ? statePayload.equipment : null)
+      || (Array.isArray(nestedStatePayload.equipment) ? nestedStatePayload.equipment : null)
+      || (Array.isArray(entityPayload.equipment) ? entityPayload.equipment : null)
+      || (Array.isArray(nestedEntityStatePayload.equipment) ? nestedEntityStatePayload.equipment : null)
+      || []
+    );
+    const normalizedEquipment = rawEquipment
+      .map((item, index) => {
+        if (typeof item === 'string') {
+          const label = item.trim();
+          if (!label) {
+            return null;
+          }
+          const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `item-${index + 1}`;
+          return {
+            item_id: slug,
+            name: label,
+            quantity: 1,
+            equipped: true,
+            worn: false,
+          };
+        }
+        if (!item || typeof item !== 'object') {
+          return null;
+        }
+        return {
+          item_id: String(item.item_id || item.id || item.name || `item-${index + 1}`).trim() || `item-${index + 1}`,
+          name: String(item.name || item.item_id || item.id || `Item ${index + 1}`).trim() || `Item ${index + 1}`,
+          quantity: Number(item.quantity || 1) || 1,
+          equipped: item.equipped !== false,
+          worn: item.worn === true,
+        };
+      })
+      .filter(Boolean);
+    const inferEquipmentHint = (item = {}) => {
+      const explicitEquipSlot = String(item.equip_slot || item?.inventory_metadata?.equip_slot || '').trim().toLowerCase();
+      const explicitWornSlot = String(item.worn_slot || item?.inventory_metadata?.worn_slot || '').trim().toLowerCase();
+      if (explicitEquipSlot || explicitWornSlot) {
+        return { equipSlot: explicitEquipSlot, wornSlot: explicitWornSlot };
+      }
+      const fingerprint = String(`${item.item_id || ''} ${item.name || ''}`).trim().toLowerCase();
+      if (fingerprint.includes('shield')) {
+        return { equipSlot: 'shield', wornSlot: '' };
+      }
+      if (fingerprint.includes('helmet') || fingerprint.includes('helm') || fingerprint.includes('hat') || fingerprint.includes('hood')) {
+        return { equipSlot: '', wornSlot: 'head' };
+      }
+      if (
+        fingerprint.includes('armor')
+        || fingerprint.includes('mail')
+        || fingerprint.includes('breastplate')
+        || fingerprint.includes('leather')
+        || fingerprint.includes('chain')
+        || fingerprint.includes('plate')
+      ) {
+        return { equipSlot: 'armor', wornSlot: '' };
+      }
+      if (
+        fingerprint.includes('sword')
+        || fingerprint.includes('axe')
+        || fingerprint.includes('bow')
+        || fingerprint.includes('spear')
+        || fingerprint.includes('hammer')
+        || fingerprint.includes('mace')
+        || fingerprint.includes('dagger')
+        || fingerprint.includes('staff')
+      ) {
+        return { equipSlot: 'held', wornSlot: '' };
+      }
+      return { equipSlot: '', wornSlot: '' };
+    };
+    const deriveInventoryFromEquipment = (equipmentItems = [], baseInventory = null) => {
+      const inventoryBase = (baseInventory && typeof baseInventory === 'object') ? { ...baseInventory } : {};
+      const carriedItems = Array.isArray(inventoryBase.carried) ? [...inventoryBase.carried] : [];
+      const equippedItems = Array.isArray(inventoryBase.equipped) ? [...inventoryBase.equipped] : [];
+      const stashedItems = Array.isArray(inventoryBase.stashed) ? [...inventoryBase.stashed] : [];
+      const wornSeed = (inventoryBase.worn && typeof inventoryBase.worn === 'object') ? { ...inventoryBase.worn } : {};
+      const hasExplicitWorn = Object.keys(wornSeed).length > 0;
+      const hasExplicitEquipped = equippedItems.length > 0;
+      const candidatePool = equipmentItems.length > 0
+        ? equipmentItems
+        : carriedItems.filter((item) => item && typeof item === 'object' && (item.equipped === true || item.worn === true));
+      if (!hasExplicitWorn && !hasExplicitEquipped && candidatePool.length > 0) {
+        const derivedWorn = {
+          weapons: [],
+          accessories: [],
+          armor: null,
+          shield: null,
+        };
+        const movedItemKeys = new Set();
+        candidatePool.forEach((item) => {
+          if (!item || typeof item !== 'object' || item.equipped === false) {
+            return;
+          }
+          const { equipSlot, wornSlot } = inferEquipmentHint(item);
+          const slotItem = {
+            ...item,
+            equipped: true,
+            inventory_metadata: {
+              ...(item.inventory_metadata && typeof item.inventory_metadata === 'object' ? item.inventory_metadata : {}),
+              ...(equipSlot ? { equip_slot: equipSlot } : {}),
+              ...(wornSlot ? { worn_slot: wornSlot } : {}),
+            },
+          };
+          if (equipSlot === 'shield') {
+            if (!derivedWorn.shield) {
+              derivedWorn.shield = slotItem;
+            } else {
+              derivedWorn.accessories.push(slotItem);
+            }
+          } else if (equipSlot === 'armor') {
+            if (!derivedWorn.armor) {
+              derivedWorn.armor = slotItem;
+            } else {
+              derivedWorn.accessories.push(slotItem);
+            }
+          } else if (equipSlot === 'held') {
+            derivedWorn.weapons.push(slotItem);
+          } else {
+            derivedWorn.accessories.push(slotItem);
+          }
+          movedItemKeys.add(String(item.item_instance_id || `${item.item_id || item.id || item.name || 'item'}:${item.quantity || 1}`));
+        });
+        const normalizedCarried = carriedItems.filter((item) => {
+          if (!item || typeof item !== 'object') {
+            return false;
+          }
+          const itemKey = String(item.item_instance_id || `${item.item_id || item.id || item.name || 'item'}:${item.quantity || 1}`);
+          return !movedItemKeys.has(itemKey);
+        });
+        return {
+          ...inventoryBase,
+          worn: derivedWorn,
+          carried: normalizedCarried,
+          equipped: hasExplicitEquipped ? equippedItems : [],
+          stashed: stashedItems,
+        };
+      }
+      return {
+        ...inventoryBase,
+        worn: wornSeed,
+        carried: carriedItems,
+        equipped: equippedItems,
+        stashed: stashedItems,
+      };
+    };
+    const rawInventorySeed = (
+      resourcesPayload.inventory
+      || metadata.inventory
+      || statePayload.inventory
+      || nestedStatePayload.inventory
+      || entityPayload.inventory
+      || nestedEntityStatePayload.inventory
+      || null
+    );
+    const derivedInventorySeed = deriveInventoryFromEquipment(
+      normalizedEquipment,
+      rawInventorySeed && typeof rawInventorySeed === 'object' ? rawInventorySeed : null
+    );
+    const inventorySeed = normalizeInventoryState(
+      Object.keys(derivedInventorySeed || {}).length > 0
+        ? derivedInventorySeed
+        : (normalizedEquipment.length > 0 ? deriveInventoryFromEquipment(normalizedEquipment, { carried: normalizedEquipment }) : {}),
+      resourcesPayload.currency || metadata.currency || {}
+    );
+    const abilitiesPayload = (
+      (metadata && typeof metadata.abilities === 'object' && metadata.abilities !== null) ? metadata.abilities
+        : ((actorCharacterData && typeof actorCharacterData.abilities === 'object' && actorCharacterData.abilities !== null) ? actorCharacterData.abilities
+          : ((actorCalculatedStats && typeof actorCalculatedStats.abilities === 'object' && actorCalculatedStats.abilities !== null) ? actorCalculatedStats.abilities
+            : {}))
+    );
+    const ability = (key, fallback = 10) => Number(
+      abilitiesPayload[key]
+      ?? abilitiesPayload[String(key).toLowerCase()]
+      ?? abilitiesPayload[String(key).slice(0, 3).toLowerCase()]
+      ?? fallback
+    ) || fallback;
+    const skillsPayload = (
+      (metadata && typeof metadata.skills === 'object' && metadata.skills !== null) ? metadata.skills
+        : ((actorCharacterData && typeof actorCharacterData.skills === 'object' && actorCharacterData.skills !== null) ? actorCharacterData.skills : {})
+    );
+    const skills = Array.isArray(skillsPayload)
+      ? skillsPayload
+      : Object.entries(skillsPayload).map(([name, value]) => ({
+        name,
+        modifier: Number(value?.modifier ?? value?.bonus ?? value ?? 0) || 0,
+        proficiency: String(value?.proficiency ?? value?.rank ?? ''),
+      }));
+    const savesPayload = (
+      (metadata && typeof metadata.saves === 'object' && metadata.saves !== null) ? metadata.saves
+        : ((actorCharacterData && typeof actorCharacterData.saves === 'object' && actorCharacterData.saves !== null) ? actorCharacterData.saves : {})
+    );
+    const combatInitiative = Number(combat?.getInitiative?.() ?? metadata.initiative ?? 0) || 0;
+    const fortitude = Number(
+      savesPayload.fortitude?.base
+      ?? savesPayload.fortitude
+      ?? metadataStats?.fortitude
+      ?? 0
+    ) || 0;
+    const reflex = Number(
+      savesPayload.reflex?.base
+      ?? savesPayload.reflex
+      ?? metadataStats?.reflex
+      ?? 0
+    ) || 0;
+    const will = Number(
+      savesPayload.will?.base
+      ?? savesPayload.will
+      ?? metadataStats?.will
+      ?? 0
+    ) || 0;
+    const spellsPayload = (
+      (metadata && typeof metadata.spellcasting === 'object' && metadata.spellcasting !== null) ? metadata.spellcasting
+        : ((actorCharacterData && typeof actorCharacterData.spellcasting === 'object' && actorCharacterData.spellcasting !== null) ? actorCharacterData.spellcasting
+          : ((actorCharacterData && typeof actorCharacterData.spells === 'object' && actorCharacterData.spells !== null) ? actorCharacterData.spells : {}))
+    );
+    const actorFeaturesPayload = (
+      (actorCharacterData && typeof actorCharacterData.features === 'object' && actorCharacterData.features !== null) ? actorCharacterData.features
+        : {}
+    );
+
+    return {
+      id: runtimeCharacterId || null,
+      character_id: runtimeCharacterId || null,
+      sheet_character_id: runtimeCharacterId || null,
+      campaignId,
+      is_runtime_actor: true,
+      actor_kind: actorType,
+      portrait: portraitUrl,
+      data: {
+        id: runtimeCharacterId || null,
+        characterId: runtimeCharacterId || null,
+        character_id: runtimeCharacterId || null,
+        sheet_character_id: runtimeCharacterId || null,
+        is_runtime_actor: true,
+        actor_kind: actorType,
+        name: displayName,
+        ancestry,
+        class: resolvedClass || classId,
+        level,
+        speed,
+        hp_current: hpCurrent,
+        hp_max: hpMax,
+        armor_class: armorClass,
+        perception,
+        portrait_url: portraitUrl,
+        basicInfo: {
+          name: displayName,
+          ancestry,
+          class: resolvedClass || classId,
+          level,
+        },
+        inventory: inventorySeed,
+        resources: {
+          hitPoints: { current: hpCurrent, max: hpMax },
+          heroPoints: {
+            current: Number(resourcesPayload.heroPoints?.current ?? resourcesPayload.hero_points ?? 0) || 0,
+            max: Number(resourcesPayload.heroPoints?.max ?? resourcesPayload.hero_points_max ?? 0) || 0,
+          },
+          inventory: inventorySeed,
+        },
+        defenses: {
+          armorClass,
+          perception,
+          fortitude,
+          reflex,
+          will,
+        },
+        saves: {
+          fortitude,
+          reflex,
+          will,
+        },
+        abilities: {
+          strength: ability('strength'),
+          dexterity: ability('dexterity'),
+          constitution: ability('constitution'),
+          intelligence: ability('intelligence'),
+          wisdom: ability('wisdom'),
+          charisma: ability('charisma'),
+        },
+        skills,
+        spells: spellsPayload,
+        features: {
+          classFeatures: Array.isArray(actorFeaturesPayload.classFeatures) ? actorFeaturesPayload.classFeatures : [],
+          feats: Array.isArray(actorFeaturesPayload.feats)
+            ? actorFeaturesPayload.feats
+            : (Array.isArray(actorCharacterData.feats) ? actorCharacterData.feats : []),
+        },
+        conditions: Array.isArray(metadata.conditions)
+          ? metadata.conditions
+          : (Array.isArray(actorCharacterData.conditions) ? actorCharacterData.conditions : []),
+        combat: {
+          initiative: combatInitiative,
+          team: String(combat?.team || metadata.team || '').trim(),
+        },
+        personality: {
+          personality: String(metadata.psychology_profile?.personality || actorCharacterData.personality || '').trim(),
+          backstory: String(metadata.description || actorCharacterData.backstory || '').trim(),
+        },
+        equipment: normalizedEquipment,
+      },
+    };
   }
 
   buildFollowerLaunchCharacterPayload(entity) {
@@ -1745,10 +3303,12 @@ export class CharacterPanel {
 
     // Update conditions
     if (this._el.characterConditions) {
+      const conditionTooltips = state?.effectiveState?.sources?.condition_tooltips
+        || state?.effectiveState?.sources?.conditionTooltips
+        || {};
       if (Array.isArray(conditions) && conditions.length > 0) {
-        const conditionNames = conditions.map(c => typeof c === 'string' ? c : (c.name || 'Unknown'));
-        this._el.characterConditions.innerHTML = conditionNames
-          .map(name => `<li>${name}</li>`)
+        this._el.characterConditions.innerHTML = conditions
+          .map((condition) => this.renderConditionTooltipEntry(condition, conditionTooltips))
           .join('');
       } else {
         this._el.characterConditions.innerHTML = '<li class="conditions-empty">No conditions</li>';
@@ -1792,6 +3352,9 @@ export class CharacterPanel {
     this.syncSheetLinksForSelectedEntity();
     this.updateLibraryConversionAction();
     this.bus.emit('inventory:changed', this.currentCharacterInventoryContext);
+    // Runtime actor payloads can arrive without item_instance_ids; force a canonical
+    // inventory refresh so mutation controls bind to real instance rows.
+    this.bus.emit('character:inventory-refresh-requested', this.currentCharacterInventoryContext);
 
     // Update features & feats (with type badges)
     if (this._el.characterFeatures) {

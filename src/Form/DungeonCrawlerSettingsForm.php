@@ -103,7 +103,7 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
     $form['ai_settings']['encounter_ai_retry_attempts'] = [
       '#type' => 'number',
       '#title' => $this->t('Encounter AI retry attempts'),
-      '#default_value' => $config->get('encounter_ai_retry_attempts') ?? 2,
+      '#default_value' => $config->get('encounter_ai_retry_attempts') ?? 1,
       '#min' => 1,
       '#max' => 3,
       '#description' => $this->t('Maximum Bedrock invocation attempts per encounter recommendation/narration request before deterministic fallback.'),
@@ -112,16 +112,16 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
     $form['ai_settings']['encounter_ai_recommendation_max_tokens'] = [
       '#type' => 'number',
       '#title' => $this->t('Encounter AI recommendation max tokens'),
-      '#default_value' => $config->get('encounter_ai_recommendation_max_tokens') ?? 800,
-      '#min' => 200,
-      '#max' => 2000,
+      '#default_value' => $config->get('encounter_ai_recommendation_max_tokens') ?? 350,
+      '#min' => 120,
+      '#max' => 1200,
       '#description' => $this->t('Token budget passed to Bedrock recommendation calls.'),
     ];
 
     $form['ai_settings']['encounter_ai_narration_max_tokens'] = [
       '#type' => 'number',
       '#title' => $this->t('Encounter AI narration max tokens'),
-      '#default_value' => $config->get('encounter_ai_narration_max_tokens') ?? 500,
+      '#default_value' => $config->get('encounter_ai_narration_max_tokens') ?? 220,
       '#min' => 120,
       '#max' => 1200,
       '#description' => $this->t('Token budget passed to Bedrock narration calls.'),
@@ -139,6 +139,49 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
       '#title' => $this->t('Expose full room chat prompt bodies in debug trace'),
       '#default_value' => $config->get('chat_timing_debug_include_prompts') ?? TRUE,
       '#description' => $this->t('When enabled, admin room chat API responses include the full prompt and system prompt sent to each LLM call.'),
+    ];
+
+    $form['ai_settings']['action_availability_bypass_active_room_sync'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Bypass active-room sync on action-availability reads'),
+      '#default_value' => $config->get('action_availability_bypass_active_room_sync') ?? FALSE,
+      '#description' => $this->t('Read-lane optimization: when enabled, actor action-availability skips active-room player/NPC sync in request time.'),
+    ];
+
+    $form['ai_settings']['action_availability_membership_projection_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Use institution-membership projection on action-availability reads'),
+      '#default_value' => $config->get('action_availability_membership_projection_enabled') ?? FALSE,
+      '#description' => $this->t('When enabled, action-availability and NPC monologue context use read-only institution-membership projections and bypass read-lane membership reconciliation.'),
+    ];
+
+    $form['ai_settings']['action_availability_turn_cache_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Enable turn-scoped action-availability cache'),
+      '#default_value' => $config->get('action_availability_turn_cache_enabled') ?? FALSE,
+      '#description' => $this->t('Caches actor-scoped action-availability payloads per campaign/turn signature during request execution to avoid repeat recomputation.'),
+    ];
+
+    $form['ai_settings']['room_entry_warmup_split_enabled'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Defer room-entry warmup work from the visible entry path'),
+      '#default_value' => $config->get('room_entry_warmup_split_enabled') ?? FALSE,
+      '#description' => $this->t('When enabled, room-entry warmup tasks are queued into runtime state metadata instead of running inline on entry requests.'),
+    ];
+
+    $form['ai_settings']['latency_toggle_canary_campaign_ids'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Latency rollout canary campaign IDs'),
+      '#default_value' => $config->get('latency_toggle_canary_campaign_ids') ?? '',
+      '#maxlength' => 255,
+      '#description' => $this->t('Comma or whitespace-separated campaign IDs that should force-enable latency rollout toggles for canary rollout when env overrides are not set.'),
+    ];
+
+    $form['ai_settings']['latency_toggle_auto_enroll_new_campaigns'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Auto-enroll newly created campaigns in latency canary cohort'),
+      '#default_value' => $config->get('latency_toggle_auto_enroll_new_campaigns') ?? FALSE,
+      '#description' => $this->t('When enabled, each newly created campaign is appended to the latency canary campaign ID list so rollout focuses on new campaign creation/support.'),
     ];
 
     $form['ai_settings']['gemini_image_enabled'] = [
@@ -335,6 +378,12 @@ class DungeonCrawlerSettingsForm extends ConfigFormBase {
       ->set('encounter_ai_narration_max_tokens', (int) $form_state->getValue('encounter_ai_narration_max_tokens'))
       ->set('chat_timing_debug_enabled', $form_state->getValue('chat_timing_debug_enabled'))
       ->set('chat_timing_debug_include_prompts', $form_state->getValue('chat_timing_debug_include_prompts'))
+      ->set('action_availability_bypass_active_room_sync', $form_state->getValue('action_availability_bypass_active_room_sync'))
+      ->set('action_availability_membership_projection_enabled', $form_state->getValue('action_availability_membership_projection_enabled'))
+      ->set('action_availability_turn_cache_enabled', $form_state->getValue('action_availability_turn_cache_enabled'))
+      ->set('room_entry_warmup_split_enabled', $form_state->getValue('room_entry_warmup_split_enabled'))
+      ->set('latency_toggle_canary_campaign_ids', trim((string) $form_state->getValue('latency_toggle_canary_campaign_ids')))
+      ->set('latency_toggle_auto_enroll_new_campaigns', $form_state->getValue('latency_toggle_auto_enroll_new_campaigns'))
       ->set('generated_image_provider', (string) $form_state->getValue('generated_image_provider'))
       ->set('gemini_image_enabled', $form_state->getValue('gemini_image_enabled'))
       ->set('gemini_image_model', trim((string) $form_state->getValue('gemini_image_model')))

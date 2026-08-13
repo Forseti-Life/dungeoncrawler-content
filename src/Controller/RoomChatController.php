@@ -251,8 +251,8 @@ class RoomChatController extends ControllerBase {
         $campaign_id,
         $room_id,
         $request_context,
-        function (int $current_campaign_id, string $current_room_id, string $speaker, string $message, string $type, ?int $character_id, string $channel, string $client_request_id): Response {
-          return $this->streamChatMessage($current_campaign_id, $current_room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id);
+        function (int $current_campaign_id, string $current_room_id, string $speaker, string $message, string $type, ?int $character_id, string $channel, string $client_request_id, array $options = []): Response {
+          return $this->streamChatMessage($current_campaign_id, $current_room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id, $options);
         },
         function (int $current_campaign_id, string $current_room_id, ?int $character_id, string $channel, string $client_request_id): Response {
           return $this->streamQueuedGmContinuation($current_campaign_id, $current_room_id, $character_id, $channel, $client_request_id);
@@ -438,10 +438,11 @@ class RoomChatController extends ControllerBase {
     string $type,
     ?int $character_id,
     string $channel,
-    string $client_request_id = ''
+    string $client_request_id = '',
+    array $options = []
   ): StreamedResponse {
     return $this->createStreamedTurnResponse(
-      function (callable $emit) use ($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id): void {
+      function (callable $emit) use ($campaign_id, $room_id, $speaker, $message, $type, $character_id, $channel, $client_request_id, $options): void {
         $this->streamFlowOrchestrator->handleStreamChatMessageFlow(
           $emit,
           $campaign_id,
@@ -452,6 +453,7 @@ class RoomChatController extends ControllerBase {
           $character_id,
           $channel,
           $client_request_id,
+          $options,
           $this->buildStreamProgressForwarder(),
           $this->buildStreamResultForwarder()
         );

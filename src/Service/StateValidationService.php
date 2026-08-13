@@ -113,9 +113,36 @@ class StateValidationService {
    */
   private const ENABLE_LLM_DESCRIPTION_METADATA_ALIGNMENT_VALIDATION = FALSE;
 
+  /**
+   * Starter profile connector authority requirements.
+   *
+   * Runtime starter room ids are validated directly to match strict
+   * CampaignInitializationService connector resolution behavior.
+   *
+   * @var array<int, array<string, string>>
+   */
+  private const STARTER_CONNECTOR_REQUIREMENTS = [
+    [
+      'profile_id' => 'classic_dungeon',
+      'canonical_connector_dungeon_id' => 'tpl_dungeon_absalom_city',
+      'starter_runtime_room_id' => 'tavern_entrance',
+      'connected_room_source_id' => 'tpl_room_absalom_streets',
+    ],
+    [
+      'profile_id' => 'undead_crypt',
+      'canonical_connector_dungeon_id' => 'tpl_dungeon_absalom_city',
+      'starter_runtime_room_id' => 'undead_crypt_entry_hall',
+      'connected_room_source_id' => 'tpl_room_absalom_streets',
+    ],
+  ];
+
   private LoggerInterface $logger;
   private ?Connection $database;
   private ?AIApiService $aiApiService;
+  private ?SpellFeatActionDataValidatorService $rulesDataValidator;
+  private ?CanonicalActionRegistryService $canonicalActionRegistry;
+  private ?ValidationProfileResolverService $validationProfileResolver;
+  private ?ConsumableContractValidatorService $consumableContractValidator;
   private string $schemaBasePath;
   private ?array $contractRegistry = NULL;
 
@@ -125,11 +152,19 @@ class StateValidationService {
   public function __construct(
     LoggerChannelFactoryInterface $logger_factory,
     ?Connection $database = NULL,
-    ?AIApiService $ai_api_service = NULL
+    ?AIApiService $ai_api_service = NULL,
+    ?SpellFeatActionDataValidatorService $rules_data_validator = NULL,
+    ?CanonicalActionRegistryService $canonical_action_registry = NULL,
+    ?ValidationProfileResolverService $validation_profile_resolver = NULL,
+    ?ConsumableContractValidatorService $consumable_contract_validator = NULL
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler');
     $this->database = $database;
     $this->aiApiService = $ai_api_service;
+    $this->rulesDataValidator = $rules_data_validator;
+    $this->canonicalActionRegistry = $canonical_action_registry;
+    $this->validationProfileResolver = $validation_profile_resolver;
+    $this->consumableContractValidator = $consumable_contract_validator;
     $this->schemaBasePath = dirname(__DIR__) . '/../config/schemas';
   }
 
@@ -281,8 +316,16 @@ class StateValidationService {
    * Validate a canonical item definition against the contract schema.
    */
   public function validateItemDefinition(array $item): array {
-    $errors = $this->validateCanonicalItemDefinition($item);
-    $item_id = trim((string) ($item['item_id'] ?? $item['content_id'] ?? ''));
+    $errors = $this->validateCanonicalItemDefinition($item, ValidationProfileResolverService::PROFILE_CANONICAL_REGISTRY);
+    $item_id = trim((string) (
+      $item['item_id']
+      ?? $item['content_id']
+      ?? (
+        $resolved_profile === ValidationProfileResolverService::PROFILE_INTERMEDIARY_INGEST
+          ? ($item['id'] ?? '')
+          : ''
+      )
+    ));
     $item_type = strtolower(trim((string) ($item['item_type'] ?? $item['type'] ?? '')));
 
     $errors = array_merge($errors, $this->validateItemDefinitionAgainstDatabase($item, $item_id, $item_type));
@@ -297,8 +340,229 @@ class StateValidationService {
    * generation workflows that are still assembling a canonical contract.
    */
   public function validateItemDefinitionStructure(array $item): array {
-    $errors = $this->validateCanonicalItemDefinition($item);
+    $errors = $this->validateCanonicalItemDefinition($item, ValidationProfileResolverService::PROFILE_CANONICAL_REGISTRY);
     return ['valid' => $errors === [], 'errors' => $errors];
+  }
+
+  /**
+   * Validate item payload using an explicit validation profile.
+   *
+   * @param array<string, mixed> $item
+   *   Item payload.
+   * @param string|null $profile
+   *   Profile (canonical_registry|intermediary_ingest).
+   *
+   * @return array{valid: bool, errors: array<int, string>}
+   *   Validation result.
+   */
+  public function validateItemDefinitionForProfile(array $item, ?string $profile = NULL): array {
+    $resolved_profile = $this->resolveValidationProfile($profile);
+    $errors = $this->validateCanonicalItemDefinition($item, $resolved_profile);
+    return ['valid' => $errors === [], 'errors' => $errors];
+  }
+
+  /**
+   * Validate canonical spell definition objects for completeness and safety.
+   */
+  public function validateSpellDefinition(array $spell): array {
+    if ($this->rulesDataValidator === NULL) {
+      return ['valid' => FALSE, 'errors' => ['Spell/feat/action validator service is unavailable.']];
+    }
+    return $this->rulesDataValidator->validateSpellDefinition($spell);
+  }
+
+  /**
+   * Validate canonical feat definition objects for completeness and safety.
+   */
+  public function validateFeatDefinition(array $feat): array {
+    if ($this->rulesDataValidator === NULL) {
+      return ['valid' => FALSE, 'errors' => ['Spell/feat/action validator service is unavailable.']];
+    }
+    return $this->rulesDataValidator->validateFeatDefinition($feat);
+  }
+
+  /**
+   * Validate canonical action definition objects for completeness and safety.
+   */
+  public function validateActionDefinition(string $action_type, array $action): array {
+    if ($this->rulesDataValidator === NULL) {
+      return ['valid' => FALSE, 'errors' => ['Spell/feat/action validator service is unavailable.']];
+    }
+    return $this->rulesDataValidator->validateActionDefinition($action_type, $action);
+  }
+
+  /**
+   * Validate canonical spell contracts from the content registry.
+   *
+   * @return array<string, mixed>
+   *   Validation report with aggregate summary and per-spell diagnostics.
+   */
+  public function validateCanonicalSpellLibraryContracts(): array {
+    return $this->validateCanonicalLibraryContractsByType('spell');
+  }
+
+  /**
+   * Validate canonical feat contracts from the content registry.
+   *
+   * @return array<string, mixed>
+   *   Validation report with aggregate summary and per-feat diagnostics.
+   */
+  public function validateCanonicalFeatLibraryContracts(): array {
+    return $this->validateCanonicalLibraryContractsByType('feat');
+  }
+
+  /**
+   * Validate the authoritative canonical action registry definitions.
+   *
+   * @return array<string, mixed>
+   *   Validation report with aggregate summary and per-action diagnostics.
+   */
+  public function validateCanonicalActionRegistryContracts(): array {
+    $report = [
+      'valid' => FALSE,
+      'errors' => [],
+      'summary' => [
+        'total_items' => 0,
+        'valid_items' => 0,
+        'invalid_items' => 0,
+      ],
+      'items' => [],
+    ];
+
+    if ($this->rulesDataValidator === NULL) {
+      $report['errors'][] = 'Spell/feat/action validator service is unavailable.';
+      return $report;
+    }
+    if ($this->canonicalActionRegistry === NULL) {
+      $report['errors'][] = 'Canonical action registry service is unavailable.';
+      return $report;
+    }
+
+    $actions = $this->canonicalActionRegistry->getCanonicalActions();
+    foreach ($actions as $action_type => $action) {
+      if (!is_array($action)) {
+        $report['items'][] = [
+          'content_id' => (string) $action_type,
+          'item_type' => 'action',
+          'valid' => FALSE,
+          'errors' => ['Action definition must be an object/array.'],
+        ];
+        continue;
+      }
+      $validation = $this->rulesDataValidator->validateActionDefinition((string) $action_type, $action);
+      $report['items'][] = [
+        'content_id' => (string) $action_type,
+        'item_type' => 'action',
+        'name' => trim((string) ($action['label'] ?? $action_type)),
+        'contract' => $action,
+        'valid' => !empty($validation['valid']),
+        'errors' => array_values(array_map('strval', (array) ($validation['errors'] ?? []))),
+      ];
+    }
+
+    $report['summary']['total_items'] = count($report['items']);
+    $report['summary']['valid_items'] = count(array_filter($report['items'], static fn(array $item): bool => !empty($item['valid'])));
+    $report['summary']['invalid_items'] = $report['summary']['total_items'] - $report['summary']['valid_items'];
+    $report['valid'] = $report['errors'] === [] && $report['summary']['invalid_items'] === 0;
+
+    return $report;
+  }
+
+  /**
+   * Validate canonical spell/feat contracts from the content registry.
+   *
+   * @param string $content_type
+   *   Canonical content_type (spell|feat).
+   *
+   * @return array<string, mixed>
+   *   Validation report with aggregate summary and per-item diagnostics.
+   */
+  private function validateCanonicalLibraryContractsByType(string $content_type): array {
+    $type = strtolower(trim($content_type));
+    $report = [
+      'valid' => FALSE,
+      'errors' => [],
+      'summary' => [
+        'total_items' => 0,
+        'valid_items' => 0,
+        'invalid_items' => 0,
+      ],
+      'items' => [],
+    ];
+
+    if (!in_array($type, ['spell', 'feat'], TRUE)) {
+      $report['errors'][] = "Unsupported content type '{$content_type}' for validator report.";
+      return $report;
+    }
+    if ($this->rulesDataValidator === NULL) {
+      $report['errors'][] = 'Spell/feat/action validator service is unavailable.';
+      return $report;
+    }
+    if ($this->database === NULL) {
+      $report['errors'][] = 'Canonical content validation requires database access.';
+      return $report;
+    }
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_registry')) {
+      $report['errors'][] = 'Canonical content registry table dungeoncrawler_content_registry is unavailable.';
+      return $report;
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'name', 'content_type', 'source_file', 'schema_data'])
+      ->condition('content_type', $type)
+      ->orderBy('content_id', 'ASC')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    if (!is_array($rows) || $rows === []) {
+      $report['errors'][] = "Canonical content registry contains no {$type} records.";
+      return $report;
+    }
+
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $content_id = trim((string) ($row['content_id'] ?? ''));
+      $name = trim((string) ($row['name'] ?? ''));
+      $source_file = trim((string) ($row['source_file'] ?? ''));
+      $schema_data_raw = (string) ($row['schema_data'] ?? '');
+      $schema_data = json_decode($schema_data_raw, TRUE);
+      $item_errors = [];
+
+      if (!is_array($schema_data)) {
+        $item_errors[] = 'schema_data must be a valid JSON object.';
+        $schema_data = [];
+      }
+
+      if ($schema_data !== []) {
+        $validation = $type === 'spell'
+          ? $this->rulesDataValidator->validateSpellDefinition($schema_data)
+          : $this->rulesDataValidator->validateFeatDefinition($schema_data);
+        foreach ((array) ($validation['errors'] ?? []) as $validation_error) {
+          $item_errors[] = (string) $validation_error;
+        }
+      }
+
+      $item_errors = array_values(array_unique($item_errors));
+      $report['items'][] = [
+        'content_id' => $content_id,
+        'item_type' => $type,
+        'name' => trim((string) ($schema_data['name'] ?? $name)),
+        'source_file' => $source_file,
+        'contract' => $schema_data,
+        'valid' => $item_errors === [],
+        'errors' => $item_errors,
+      ];
+    }
+
+    $report['summary']['total_items'] = count($report['items']);
+    $report['summary']['valid_items'] = count(array_filter($report['items'], static fn(array $item): bool => !empty($item['valid'])));
+    $report['summary']['invalid_items'] = $report['summary']['total_items'] - $report['summary']['valid_items'];
+    $report['valid'] = $report['errors'] === [] && $report['summary']['invalid_items'] === 0;
+
+    return $report;
   }
 
   /**
@@ -501,6 +765,27 @@ class StateValidationService {
       $report['errors'][] = 'Canonical actor validation requires dungeoncrawler_content_h3_room_cells for H3 ownership contract checks.';
       return $report;
     }
+    $campaign_room_source_map = [];
+    if ($schema->tableExists('dc_campaign_rooms')) {
+      $campaign_room_rows = $this->database->select('dc_campaign_rooms', 'cr')
+        ->fields('cr', ['campaign_id', 'room_id', 'source_room_id'])
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC);
+      foreach ((array) $campaign_room_rows as $campaign_room_row) {
+        if (!is_array($campaign_room_row)) {
+          continue;
+        }
+        $campaign_room_campaign_id = isset($campaign_room_row['campaign_id']) && is_numeric($campaign_room_row['campaign_id'])
+          ? (int) $campaign_room_row['campaign_id']
+          : 0;
+        $campaign_room_id = trim((string) ($campaign_room_row['room_id'] ?? ''));
+        $campaign_source_room_id = trim((string) ($campaign_room_row['source_room_id'] ?? ''));
+        if ($campaign_room_campaign_id <= 0 || $campaign_room_id === '' || $campaign_source_room_id === '') {
+          continue;
+        }
+        $campaign_room_source_map[$campaign_room_campaign_id][$campaign_room_id] = $campaign_source_room_id;
+      }
+    }
 
     $canonical_room_hex_map = [];
     $canonical_room_rows = $this->database->select('dungeoncrawler_content_rooms', 'r')
@@ -652,9 +937,20 @@ class StateValidationService {
       $template_actor_id = (int) ($template_actor_id_by_instance[$template_instance_id] ?? 0);
       $template_has_portrait = $template_actor_id > 0 && isset($template_actor_portrait_links[(string) $template_actor_id]);
       $start_room_id = $last_room_id !== '' ? $last_room_id : $location_ref;
-      $start_room_hexes = $start_room_id !== '' ? ($canonical_room_hex_map[$start_room_id] ?? NULL) : NULL;
-      $start_room_sparse_h3 = $start_room_id !== '' ? ($sparse_room_h3_map[$start_room_id] ?? []) : [];
-      $start_room_sparse_qr = $start_room_id !== '' ? ($sparse_room_qr_map[$start_room_id] ?? []) : [];
+      $start_room_contract_id = $start_room_id;
+      if (
+        $start_room_contract_id !== ''
+        && !isset($canonical_room_hex_map[$start_room_contract_id])
+        && $campaign_id > 0
+      ) {
+        $mapped_start_room = trim((string) ($campaign_room_source_map[$campaign_id][$start_room_contract_id] ?? ''));
+        if ($mapped_start_room !== '') {
+          $start_room_contract_id = $mapped_start_room;
+        }
+      }
+      $start_room_hexes = $start_room_contract_id !== '' ? ($canonical_room_hex_map[$start_room_contract_id] ?? NULL) : NULL;
+      $start_room_sparse_h3 = $start_room_contract_id !== '' ? ($sparse_room_h3_map[$start_room_contract_id] ?? []) : [];
+      $start_room_sparse_qr = $start_room_contract_id !== '' ? ($sparse_room_qr_map[$start_room_contract_id] ?? []) : [];
       $start_hex_key = ($position_q !== NULL && $position_r !== NULL) ? ($position_q . ':' . $position_r) : '';
       $start_hex = ($start_hex_key !== '' && is_array($start_room_hexes) && isset($start_room_hexes[$start_hex_key]))
         ? $start_room_hexes[$start_hex_key]
@@ -663,6 +959,13 @@ class StateValidationService {
         ? strtolower(trim((string) ($start_room_sparse_qr[$start_hex_key] ?? '')))
         : '';
       $room_scoped = !in_array($location_type, $location_ref_optional_types, TRUE);
+      $uses_runtime_room_alias = $campaign_id > 0
+        && $start_room_id !== ''
+        && $start_room_contract_id !== ''
+        && $start_room_contract_id !== $start_room_id;
+      $allow_deferred_runtime_npc_portrait = $campaign_id > 0
+        && $actor_type === 'npc'
+        && str_starts_with($lifecycle_state, 'campaign_');
 
       $character_data_raw = trim((string) ($row['character_data'] ?? ''));
       $character_data = [];
@@ -745,7 +1048,7 @@ class StateValidationService {
         [
           'id' => 'start_room_must_resolve_to_canonical_room',
           'label' => 'every actor start room must resolve to dungeoncrawler_content_rooms.room_id.',
-          'passed' => $start_room_id !== '' && isset($canonical_room_hex_map[$start_room_id]),
+          'passed' => $start_room_contract_id !== '' && isset($canonical_room_hex_map[$start_room_contract_id]),
           'error' => "start room '{$start_room_id}' must resolve to dungeoncrawler_content_rooms.room_id.",
         ],
         [
@@ -757,14 +1060,14 @@ class StateValidationService {
         [
           'id' => 'start_hex_must_exist_in_canonical_room_layout',
           'label' => 'every actor start hex must exist in the canonical room layout hex set.',
-          'passed' => $position_q !== NULL && $position_r !== NULL && $start_room_id !== '' && $start_hex !== NULL,
-          'error' => "start hex '{$start_hex_key}' must exist in canonical room '{$start_room_id}' layout_data.hexes.",
+          'passed' => $position_q !== NULL && $position_r !== NULL && $start_room_contract_id !== '' && $start_hex !== NULL,
+          'error' => "start hex '{$start_hex_key}' must exist in canonical room '{$start_room_contract_id}' layout_data.hexes.",
         ],
         [
           'id' => 'start_hex_requires_canonical_h3_index',
           'label' => 'every actor start hex must provide canonical h3_index_res14/h3_index in room layout data.',
           'passed' => is_array($start_hex) && !empty($start_hex['has_canonical_h3']),
-          'error' => "start hex '{$start_hex_key}' in canonical room '{$start_room_id}' must provide canonical h3_index_res14/h3_index.",
+          'error' => "start hex '{$start_hex_key}' in canonical room '{$start_room_contract_id}' must provide canonical h3_index_res14/h3_index.",
         ],
         [
           'id' => 'position_h3_required',
@@ -781,11 +1084,13 @@ class StateValidationService {
         [
           'id' => 'position_h3_matches_start_hex_canonical_h3',
           'label' => 'position_h3 must match the canonical H3 index of the actor start hex.',
-          'passed' => is_array($start_hex)
+          'passed' => $uses_runtime_room_alias || (
+            is_array($start_hex)
             && !empty($start_hex['has_canonical_h3'])
             && $position_h3 !== ''
-            && $position_h3 === strtolower(trim((string) ($start_hex['canonical_h3'] ?? ''))),
-          'error' => "position_h3 must match canonical start-hex h3 for '{$start_hex_key}' in room '{$start_room_id}'.",
+            && $position_h3 === strtolower(trim((string) ($start_hex['canonical_h3'] ?? '')))
+          ),
+          'error' => "position_h3 must match canonical start-hex h3 for '{$start_hex_key}' in room '{$start_room_contract_id}'.",
         ],
         [
           'id' => 'facing_required',
@@ -802,20 +1107,20 @@ class StateValidationService {
         [
           'id' => 'position_h3_owned_by_start_room_sparse_cells',
           'label' => 'room-scoped actor position_h3 must be owned by the actor start room in sparse res14 room-cell authority.',
-          'passed' => !$room_scoped || ($position_h3 !== '' && isset($start_room_sparse_h3[$position_h3])),
-          'error' => "position_h3 '{$position_h3}' must be owned by start room '{$start_room_id}' in sparse res14 room-cell authority.",
+          'passed' => $uses_runtime_room_alias || !$room_scoped || ($position_h3 !== '' && isset($start_room_sparse_h3[$position_h3])),
+          'error' => "position_h3 '{$position_h3}' must be owned by start room '{$start_room_contract_id}' in sparse res14 room-cell authority.",
         ],
         [
           'id' => 'position_h3_matches_start_qr_sparse_mapping',
           'label' => 'room-scoped actor position_h3 must match sparse room-cell mapping for position_q/position_r.',
-          'passed' => !$room_scoped || (
+          'passed' => $uses_runtime_room_alias || !$room_scoped || (
             $position_q !== NULL
             && $position_r !== NULL
             && $position_h3 !== ''
             && $sparse_mapped_h3_from_qr !== ''
             && $position_h3 === $sparse_mapped_h3_from_qr
           ),
-          'error' => "position_h3 '{$position_h3}' must match sparse mapping for start hex '{$start_hex_key}' in room '{$start_room_id}'.",
+          'error' => "position_h3 '{$position_h3}' must match sparse mapping for start hex '{$start_hex_key}' in room '{$start_room_contract_id}'.",
         ],
         [
           'id' => 'status_allowed',
@@ -840,7 +1145,7 @@ class StateValidationService {
         [
           'id' => 'npc_portrait_required',
           'label' => 'npc actor rows must provide a portrait via portrait column or portrait image link.',
-          'passed' => !($actor_type === 'npc' && !$has_runtime_portrait),
+          'passed' => $allow_deferred_runtime_npc_portrait || !($actor_type === 'npc' && !$has_runtime_portrait),
           'error' => 'npc actor rows must provide a portrait via portrait column or portrait image link.',
         ],
         [
@@ -906,6 +1211,7 @@ class StateValidationService {
             'sparse_mapped_h3_from_qr' => $sparse_mapped_h3_from_qr,
             'last_room_id' => $last_room_id,
             'start_room_id' => $start_room_id,
+            'start_room_contract_id' => $start_room_contract_id,
             'portrait' => $portrait,
             'has_runtime_portrait_link' => $has_runtime_portrait_link,
             'template_actor_id' => $template_actor_id > 0 ? $template_actor_id : NULL,
@@ -1139,6 +1445,11 @@ class StateValidationService {
         );
       }
 
+      $room_errors = array_merge(
+        $room_errors,
+        $this->validateStarterRoomBootstrapContract($room_id, $layout_data, $contents_data, $environment_tags)
+      );
+
       $room_errors = array_values(array_unique($room_errors));
       $room_valid = $room_errors === [];
 
@@ -1170,6 +1481,7 @@ class StateValidationService {
       $report['errors'],
       $this->validateCanonicalDungeonCrossDungeonLinkage($canonical_room_ids, $room_exit_targets_by_room)
     );
+    $report['errors'] = array_merge($report['errors'], $this->validateStarterConnectorAuthorityContracts());
     $report['hex_validation'] = $this->validateCanonicalHexReferentialContracts($canonical_room_ids);
     $report['errors'] = array_merge($report['errors'], (array) ($report['hex_validation']['errors'] ?? []));
 
@@ -1432,6 +1744,7 @@ class StateValidationService {
       $errors[] = 'layout_data.hexes must define at least one hex.';
       return $errors;
     }
+
     if (count($hexes) < 4) {
       $errors[] = 'layout_data.hexes must define at least four hexes per room.';
     }
@@ -1561,6 +1874,138 @@ class StateValidationService {
     }
 
     return $errors;
+  }
+
+  /**
+   * Validate starter-room launch/bootstrap contract invariants.
+   *
+   * @param array<string, mixed> $layout_data
+   *   Room layout payload.
+   * @param array<string, mixed> $contents_data
+   *   Room contents payload.
+   * @param array<int, string> $environment_tags
+   *   Normalized environment tags.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateStarterRoomBootstrapContract(
+    string $room_id,
+    array $layout_data,
+    array $contents_data,
+    array $environment_tags
+  ): array {
+    $errors = [];
+    $normalized_room_type = strtolower(trim((string) ($layout_data['room_type'] ?? '')));
+    $normalized_tags = [];
+    foreach ($environment_tags as $tag) {
+      if (!is_string($tag) || trim($tag) === '') {
+        continue;
+      }
+      $normalized_tags[strtolower(trim($tag))] = TRUE;
+    }
+
+    $is_starter_room = isset($normalized_tags['starting_area'])
+      || str_starts_with($normalized_room_type, 'starter_');
+    $is_undead_crypt_starter = $room_id === 'tpl_room_crypt_anteroom'
+      || $normalized_room_type === 'starter_undead_crypt';
+
+    if (!$is_starter_room && !$is_undead_crypt_starter) {
+      return $errors;
+    }
+
+    $hexes = is_array($layout_data['hexes'] ?? NULL) ? $layout_data['hexes'] : [];
+    foreach ($hexes as $hex_index => $hex) {
+      if (!is_array($hex) || !is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        continue;
+      }
+      $h3_index = strtolower(trim((string) ($hex['h3_index_res14'] ?? $hex['h3_index'] ?? '')));
+      if (!$this->isCanonicalH3IndexValue($h3_index)) {
+        $errors[] = sprintf(
+          "Starter launch contract violation: layout_data.hexes[%d] at '%d:%d' must define canonical h3_index_res14/h3_index.",
+          $hex_index,
+          (int) $hex['q'],
+          (int) $hex['r']
+        );
+      }
+    }
+
+    if (!$is_undead_crypt_starter) {
+      return $errors;
+    }
+
+    if ((int) ($layout_data['width'] ?? 0) !== 8 || (int) ($layout_data['height'] ?? 0) !== 8) {
+      $errors[] = 'Undead crypt starter contract violation: layout dimensions must be 8x8 (40x40 feet).';
+    }
+
+    $entry_points = is_array($layout_data['entry_points'] ?? NULL) ? $layout_data['entry_points'] : [];
+    $has_west_entry = FALSE;
+    foreach ($entry_points as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      if (
+        (int) ($entry['q'] ?? 999) === -4
+        && (int) ($entry['r'] ?? 999) === 0
+        && strtolower(trim((string) ($entry['side'] ?? ''))) === 'west'
+      ) {
+        $has_west_entry = TRUE;
+        break;
+      }
+    }
+    if (!$has_west_entry) {
+      $errors[] = 'Undead crypt starter contract violation: west entry point (-4,0) is required.';
+    }
+
+    $required_npc_positions = [
+      'skeleton_guard_alpha' => ['q' => 3, 'r' => 2],
+      'skeleton_guard_beta' => ['q' => 2, 'r' => 3],
+    ];
+    $npcs = is_array($contents_data['npcs'] ?? NULL) ? $contents_data['npcs'] : [];
+    foreach ($required_npc_positions as $content_id => $position) {
+      $matched = NULL;
+      foreach ($npcs as $npc) {
+        if (!is_array($npc) || trim((string) ($npc['content_id'] ?? '')) !== $content_id) {
+          continue;
+        }
+        $matched = $npc;
+        break;
+      }
+      if (!is_array($matched)) {
+        $errors[] = sprintf(
+          'Undead crypt starter contract violation: required NPC %s is missing from contents_data.npcs.',
+          $content_id
+        );
+        continue;
+      }
+      if (
+        (int) ($matched['position']['q'] ?? 999) !== (int) $position['q']
+        || (int) ($matched['position']['r'] ?? 999) !== (int) $position['r']
+      ) {
+        $errors[] = sprintf(
+          'Undead crypt starter contract violation: NPC %s must spawn at (%d,%d).',
+          $content_id,
+          (int) $position['q'],
+          (int) $position['r']
+        );
+      }
+      if (!$this->isStarterNpcHostileAttitude((string) ($matched['attitude'] ?? ''))) {
+        $errors[] = sprintf(
+          'Undead crypt starter contract violation: NPC %s must be hostile.',
+          $content_id
+        );
+      }
+    }
+
+    return $errors;
+  }
+
+  /**
+   * Resolve whether starter NPC attitude satisfies hostile contract gate.
+   */
+  private function isStarterNpcHostileAttitude(string $attitude): bool {
+    $score = DispositionAuthorityContract::attitudeToScore($attitude);
+    return $score !== NULL && DispositionAuthorityContract::isHostileScore($score);
   }
 
   /**
@@ -1865,6 +2310,90 @@ class StateValidationService {
     }
 
     return $normalized;
+  }
+
+  /**
+   * Validate starter profile connector authority requirements.
+   *
+   * @return array<int, string>
+   *   Validation errors.
+   */
+  private function validateStarterConnectorAuthorityContracts(): array {
+    if ($this->database === NULL) {
+      return ['Starter connector authority validation requires database access.'];
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('dungeoncrawler_content_connections')) {
+      return ['Starter connector authority validation requires dungeoncrawler_content_connections table.'];
+    }
+
+    $required_fields = ['dungeon_id', 'from_room_id', 'to_room_id'];
+    $missing_fields = [];
+    foreach ($required_fields as $field) {
+      if (!$schema->fieldExists('dungeoncrawler_content_connections', $field)) {
+        $missing_fields[] = $field;
+      }
+    }
+    if ($missing_fields !== []) {
+      return [
+        'Starter connector authority validation requires connector fields: ' . implode(', ', $missing_fields) . '.',
+      ];
+    }
+
+    $required_dungeons = array_values(array_unique(array_map(
+      static fn(array $row): string => trim((string) ($row['canonical_connector_dungeon_id'] ?? '')),
+      self::STARTER_CONNECTOR_REQUIREMENTS
+    )));
+    $required_dungeons = array_values(array_filter($required_dungeons, static fn(string $id): bool => $id !== ''));
+    if ($required_dungeons === []) {
+      return [];
+    }
+
+    $rows = $this->database->select('dungeoncrawler_content_connections', 'c')
+      ->fields('c', ['dungeon_id', 'from_room_id', 'to_room_id'])
+      ->condition('dungeon_id', $required_dungeons, 'IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
+
+    $pair_index = [];
+    foreach ((array) $rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $dungeon_id = trim((string) ($row['dungeon_id'] ?? ''));
+      $from_room_id = trim((string) ($row['from_room_id'] ?? ''));
+      $to_room_id = trim((string) ($row['to_room_id'] ?? ''));
+      if ($dungeon_id === '' || $from_room_id === '' || $to_room_id === '') {
+        continue;
+      }
+      $rooms = [$from_room_id, $to_room_id];
+      sort($rooms, SORT_STRING);
+      $pair_index[$dungeon_id . '::' . $rooms[0] . '::' . $rooms[1]] = TRUE;
+    }
+
+    $errors = [];
+    foreach (self::STARTER_CONNECTOR_REQUIREMENTS as $requirement) {
+      $dungeon_id = trim((string) ($requirement['canonical_connector_dungeon_id'] ?? ''));
+      $starter_room_id = trim((string) ($requirement['starter_runtime_room_id'] ?? ''));
+      $connected_room_id = trim((string) ($requirement['connected_room_source_id'] ?? ''));
+      if ($dungeon_id === '' || $starter_room_id === '' || $connected_room_id === '') {
+        continue;
+      }
+      $rooms = [$starter_room_id, $connected_room_id];
+      sort($rooms, SORT_STRING);
+      $pair_key = $dungeon_id . '::' . $rooms[0] . '::' . $rooms[1];
+      if (!isset($pair_index[$pair_key])) {
+        $errors[] = sprintf(
+          'Starter connector authority contract violation: canonical connector missing for %s <-> %s in %s.',
+          $starter_room_id,
+          $connected_room_id,
+          $dungeon_id
+        );
+      }
+    }
+
+    return $errors;
   }
 
   /**
@@ -2446,6 +2975,7 @@ class StateValidationService {
       ->fetchAll(\PDO::FETCH_ASSOC);
 
     $anchor_by_room = [];
+    $anchor_by_room_scope = [];
     $res14_anchor_h3_by_dungeon = [];
     foreach ((array) $anchor_rows as $anchor_row) {
       if (!is_array($anchor_row)) {
@@ -2548,7 +3078,7 @@ class StateValidationService {
       if ($resolution === 15) {
         $result['errors'][] = "Sparse hex anchor '{$room_id}' uses resolution 15, which is out of scope for active generation validation.";
       }
-      $anchor_by_room[$room_id] = [
+      $anchor_record = [
         'room_id' => $room_id,
         'dungeon_id' => $dungeon_id,
         'h3_resolution' => $resolution,
@@ -2557,6 +3087,11 @@ class StateValidationService {
         'center_longitude' => $anchor_longitude,
         'metadata' => is_array($anchor_metadata) ? $anchor_metadata : [],
       ];
+      if (!isset($anchor_by_room[$room_id])) {
+        $anchor_by_room[$room_id] = $anchor_record;
+      }
+      $anchor_scope_key = $room_id . '|' . $dungeon_id;
+      $anchor_by_room_scope[$anchor_scope_key] = $anchor_record;
       $result['summary']['total_anchors']++;
     }
     foreach ($res14_anchor_h3_by_dungeon as $dungeon_id => $anchor_h3_by_room) {
@@ -2765,7 +3300,10 @@ class StateValidationService {
       }
 
       if ($room_required) {
-        $anchor = is_array($anchor_by_room[$room_id] ?? NULL) ? $anchor_by_room[$room_id] : NULL;
+        $anchor_scope_key = $room_id . '|' . $dungeon_id;
+        $anchor = is_array($anchor_by_room_scope[$anchor_scope_key] ?? NULL)
+          ? $anchor_by_room_scope[$anchor_scope_key]
+          : (is_array($anchor_by_room[$room_id] ?? NULL) ? $anchor_by_room[$room_id] : NULL);
         if ($anchor === NULL) {
           $result['errors'][] = "Sparse hex cell #{$cell_id} ({$room_id}) has no matching room anchor.";
         }
@@ -2967,10 +3505,11 @@ class StateValidationService {
     $result['summary']['hex_graph_nodes'] = count($cell_designation_map);
     $result['summary']['hex_graph_edges'] = count($edge_keys);
 
-    foreach ($anchor_by_room as $room_id => $anchor) {
+    foreach ($anchor_by_room_scope as $scope_key => $anchor) {
       if (!is_array($anchor)) {
         continue;
       }
+      $room_id = trim((string) ($anchor['room_id'] ?? ''));
       $dungeon_id = trim((string) ($anchor['dungeon_id'] ?? ''));
       if ($dungeon_id === '') {
         continue;
@@ -3321,8 +3860,9 @@ class StateValidationService {
    * @return array<int, string>
    *   Validation errors.
    */
-  private function validateCanonicalItemDefinition(array $item): array {
+  private function validateCanonicalItemDefinition(array $item, ?string $profile = NULL): array {
     $errors = [];
+    $resolved_profile = $this->resolveValidationProfile($profile);
     $allowed_fields = [
       'schema_version',
       'item_id',
@@ -3352,6 +3892,17 @@ class StateValidationService {
       'sell_taboo',
       'sell_taboo_message',
     ];
+    if ($resolved_profile === ValidationProfileResolverService::PROFILE_INTERMEDIARY_INGEST) {
+      $allowed_fields = array_merge($allowed_fields, [
+        'id',
+        'price_gp',
+        'source_book',
+        'source_display',
+        'parser_version',
+        'extraction_method',
+        'references',
+      ]);
+    }
 
     foreach (array_keys($item) as $key) {
       if (!in_array((string) $key, $allowed_fields, TRUE)) {
@@ -3360,11 +3911,13 @@ class StateValidationService {
     }
 
     $schema_version = trim((string) ($item['schema_version'] ?? ''));
-    if ($schema_version === '') {
-      $errors[] = 'Missing required field: schema_version';
-    }
-    elseif (!preg_match('/^\d+\.\d+\.\d+$/', $schema_version)) {
-      $errors[] = "Field 'schema_version' does not match required pattern";
+    if ($resolved_profile === ValidationProfileResolverService::PROFILE_CANONICAL_REGISTRY) {
+      if ($schema_version === '') {
+        $errors[] = 'Missing required field: schema_version';
+      }
+      elseif (!preg_match('/^\d+\.\d+\.\d+$/', $schema_version)) {
+        $errors[] = "Field 'schema_version' does not match required pattern";
+      }
     }
 
     $item_id = trim((string) ($item['item_id'] ?? $item['content_id'] ?? ''));
@@ -3411,13 +3964,16 @@ class StateValidationService {
     if (!array_key_exists('level', $item)) {
       $errors[] = 'Missing required field: level';
     }
-    elseif (!is_int($item['level'])) {
+    elseif (!is_int($item['level']) && !(
+      $resolved_profile === ValidationProfileResolverService::PROFILE_INTERMEDIARY_INGEST
+      && is_numeric($item['level'])
+    )) {
       $errors[] = "Field 'level' has invalid type. Expected integer, got " . $this->resolveJsonType($item['level']);
     }
-    elseif ($item['level'] < 0) {
+    elseif ((int) $item['level'] < 0) {
       $errors[] = "Field 'level' is below minimum value 0";
     }
-    elseif ($item['level'] > 25) {
+    elseif ((int) $item['level'] > 25) {
       $errors[] = "Field 'level' is above maximum value 25";
     }
 
@@ -3522,7 +4078,7 @@ class StateValidationService {
     }
 
     if ($item_type !== '') {
-      $errors = array_merge($errors, $this->validateItemSpecificContractFields($item, $item_type));
+      $errors = array_merge($errors, $this->validateItemSpecificContractFields($item, $item_type, $resolved_profile));
     }
 
     return $errors;
@@ -3539,8 +4095,9 @@ class StateValidationService {
    * @return array<int, string>
    *   Validation errors.
    */
-  private function validateItemSpecificContractFields(array $item, string $item_type): array {
+  private function validateItemSpecificContractFields(array $item, string $item_type, ?string $profile = NULL): array {
     $errors = [];
+    $resolved_profile = $this->resolveValidationProfile($profile);
 
     if ($item_type === 'weapon' && (!isset($item['weapon_stats']) || !is_array($item['weapon_stats']))) {
       $errors[] = "Missing required field: weapon_stats when item_type is weapon";
@@ -3567,13 +4124,30 @@ class StateValidationService {
       }
     }
 
-    if (in_array($item_type, ['potion', 'scroll', 'talisman'], TRUE)) {
+    if ($resolved_profile === ValidationProfileResolverService::PROFILE_CANONICAL_REGISTRY && in_array($item_type, ['potion', 'scroll', 'talisman'], TRUE)) {
       if (!isset($item['consumable_stats']) || !is_array($item['consumable_stats'])) {
         $errors[] = "Missing required field: consumable_stats when item_type is {$item_type}";
       }
     }
 
+    if ($this->consumableContractValidator !== NULL) {
+      $errors = array_merge(
+        $errors,
+        $this->consumableContractValidator->validateConsumableContract($item, $item_type, $resolved_profile)
+      );
+    }
+
     return $errors;
+  }
+
+  /**
+   * Resolve validation profile with canonical as default.
+   */
+  private function resolveValidationProfile(?string $profile): string {
+    if ($this->validationProfileResolver !== NULL) {
+      return $this->validationProfileResolver->resolveProfile($profile);
+    }
+    return ValidationProfileResolverService::PROFILE_CANONICAL_REGISTRY;
   }
 
   /**

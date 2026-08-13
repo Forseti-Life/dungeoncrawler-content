@@ -43,24 +43,12 @@
           <p class="eyebrow">{{ 'Action Bar'|t }}</p>
           <h3 id="action-rail-actor-name">{{ 'No actor selected'|t }}</h3>
           <p class="action-rail__status" id="action-rail-status">{{ 'Select your character to unlock direct actions.'|t }}</p>
-          <div class="action-rail__automation">
-            <button type="button" class="btn btn-action action-rail__automation-toggle" id="action-rail-automate-toggle" aria-pressed="false">
-              {{ 'Automate'|t }}
-            </button>
-            <p class="action-rail__automation-meta" id="action-rail-automation-meta">{{ 'Let your character act through the algorithmic player-policy harness.'|t }}</p>
-          </div>
         </div>
 
         <div class="action-rail__clocks" aria-label="{{ 'Time references'|t }}">
-          <div class="action-rail__clock-card">
-            <p class="action-rail__clock-label">{{ 'Real world'|t }}</p>
-            <p class="action-rail__clock-value" id="action-rail-real-clock">{{ 'Loading…'|t }}</p>
-            <p class="action-rail__clock-meta" id="action-rail-real-clock-meta">{{ 'Local device time'|t }}</p>
-          </div>
-          <div class="action-rail__clock-card">
-            <p class="action-rail__clock-label">{{ 'Campaign'|t }}</p>
-            <p class="action-rail__clock-value" id="action-rail-campaign-clock">{{ 'Unavailable'|t }}</p>
-            <p class="action-rail__clock-meta" id="action-rail-campaign-clock-meta">{{ 'Advances when actions consume time'|t }}</p>
+          <div class="action-rail__clock-card action-rail__clock-card--stacked">
+            <p class="action-rail__clock-line" id="action-rail-real-clock">{{ 'Realworld Time: Loading…'|t }}</p>
+            <p class="action-rail__clock-line" id="action-rail-campaign-clock">{{ 'Campaign Time: Unavailable'|t }}</p>
           </div>
         </div>
 

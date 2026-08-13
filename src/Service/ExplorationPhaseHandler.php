@@ -131,6 +131,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
   protected ?QuestTrackerService $questTracker;
   protected StorylineQuestLifecycleService $storylineQuestLifecycleService;
   protected DungeonPayloadStatePersistenceService $dungeonPayloadStatePersistence;
+  protected ActionTargetingService $actionTargetingService;
 
   /**
    * Constructs an ExplorationPhaseHandler.
@@ -153,7 +154,8 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     ?CampaignClockService $campaign_clock_service = NULL,
     ?TextToSpeechIntegrationService $text_to_speech_integration = NULL,
     ?FileUrlGeneratorInterface $file_url_generator = NULL,
-    ?QuestTrackerService $quest_tracker = NULL
+    ?QuestTrackerService $quest_tracker = NULL,
+    ?ActionTargetingService $action_targeting_service = NULL
   ) {
     $this->database = $database;
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -178,6 +180,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     $this->campaignClockService = $campaign_clock_service ?? new CampaignClockService();
     $this->textToSpeechIntegration = $text_to_speech_integration;
     $this->fileUrlGenerator = $file_url_generator;
+    $this->actionTargetingService = $action_targeting_service ?? new ActionTargetingService();
     $this->questTracker = $quest_tracker;
     $this->storylineQuestLifecycleService = $storyline_quest_lifecycle_service;
     if (
@@ -342,8 +345,14 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
     $pre_slice_fingerprints = $this->computeRuntimeSliceFingerprints($dungeon_data);
     $type = $intent['type'] ?? '';
     $actor_id = $intent['actor'] ?? NULL;
-    $target_id = $intent['target'] ?? NULL;
+    $target_id = is_scalar($intent['target'] ?? NULL) ? trim((string) $intent['target']) : NULL;
+    $target_id = $target_id !== '' ? $target_id : NULL;
     $params = $intent['params'] ?? [];
+    $normalized_target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);
+    if ($normalized_target_refs !== []) {
+      $params['selected_targets'] = $normalized_target_refs;
+      $target_id = $normalized_target_refs[0] ?? $target_id;
+    }
 
     $result = [];
     $mutations = [];
@@ -2477,6 +2486,10 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
           'objective_type' => (string) ($params['objective_type'] ?? ''),
           'objective_id' => (string) ($params['objective_id'] ?? ''),
           'entity_ref' => (string) ($target_id ?? ''),
+        ],
+        [
+          'response_mode' => 'actor_scoped',
+          'include_legacy_overlay' => FALSE,
         ]
       );
 
@@ -3796,12 +3809,32 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
         break;
       }
     }
+    $room_entry_warmup = [
+      'mode' => 'inline',
+      'queued_task_ids' => [],
+      'queue_depth' => count((array) ($game_state['room_entry_warmup_queue'] ?? [])),
+    ];
     if ($room_entities) {
-      try {
-        $this->roomChatService->ensureNpcProfiles($campaign_id, $room_entities);
+      if ($this->shouldSplitRoomEntryWarmup($campaign_id)) {
+        $queued_task_ids = $this->enqueueRoomEntryWarmupTasks(
+          $game_state,
+          $campaign_id,
+          $target_room_id,
+          $room_entities
+        );
+        $room_entry_warmup = [
+          'mode' => 'deferred',
+          'queued_task_ids' => $queued_task_ids,
+          'queue_depth' => count((array) ($game_state['room_entry_warmup_queue'] ?? [])),
+        ];
       }
-      catch (\Throwable $e) {
-        $this->logger->warning('Auto-profile creation failed on room entry: @err', ['@err' => $e->getMessage()]);
+      else {
+        try {
+          $this->roomChatService->ensureNpcProfiles($campaign_id, $room_entities);
+        }
+        catch (\Throwable $e) {
+          $this->logger->warning('Auto-profile creation failed on room entry: @err', ['@err' => $e->getMessage()]);
+        }
       }
     }
 
@@ -3809,6 +3842,7 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
       'transitioned' => TRUE,
       'from_room' => $game_state['exploration']['previous_room'],
       'to_room' => $target_room_id,
+      'room_entry_warmup' => $room_entry_warmup,
       'sensory_reveals' => $auto_sensory_reveal['reveals'] ?? [],
       'sensory_narration' => $this->buildRoomEntrySensoryNarration($auto_sensory_reveal),
       'mutations' => [
@@ -3825,6 +3859,144 @@ class ExplorationPhaseHandler implements MutationContextPhaseHandlerInterface {
         )],
       ],
     ];
+  }
+
+  /**
+   * Determine whether room-entry warmup should be deferred from transition path.
+   */
+  protected function shouldSplitRoomEntryWarmup(int $campaign_id): bool {
+    $raw = strtolower(trim((string) getenv('DC_ROOM_ENTRY_WARMUP_SPLIT_ENABLED')));
+    if (in_array($raw, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+    if (in_array($raw, ['0', 'false', 'no', 'off'], TRUE)) {
+      return FALSE;
+    }
+
+    $config_raw = (string) \Drupal::config('dungeoncrawler_content.settings')->get('room_entry_warmup_split_enabled');
+    $config_value = strtolower(trim($config_raw));
+    if (in_array($config_value, ['1', 'true', 'yes', 'on'], TRUE)) {
+      return TRUE;
+    }
+
+    return $this->isLatencyToggleCanaryCampaign($campaign_id);
+  }
+
+  /**
+   * Determines whether this campaign is in the latency canary cohort.
+   */
+  protected function isLatencyToggleCanaryCampaign(int $campaign_id): bool {
+    if ($campaign_id <= 0) {
+      return FALSE;
+    }
+    $raw = (string) \Drupal::config('dungeoncrawler_content.settings')->get('latency_toggle_canary_campaign_ids');
+    if ($raw === '') {
+      return FALSE;
+    }
+    foreach (preg_split('/[\s,]+/', $raw, -1, \PREG_SPLIT_NO_EMPTY) ?: [] as $candidate) {
+      if ((int) $candidate === $campaign_id) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
+   * Queue room-entry warmup tasks in game-state for deferred worker lanes.
+   *
+   * @return array<int,string>
+   *   Task IDs queued during this call.
+   */
+  protected function enqueueRoomEntryWarmupTasks(array &$game_state, int $campaign_id, string $room_id, array $room_entities): array {
+    $room_id = trim($room_id);
+    if ($campaign_id <= 0 || $room_id === '') {
+      return [];
+    }
+
+    $npc_entity_refs = [];
+    foreach ($room_entities as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      if (strtolower(trim((string) ($entity['entity_type'] ?? ''))) !== 'npc') {
+        continue;
+      }
+      $entity_ref = trim((string) (
+        $entity['entity_instance_id']
+        ?? $entity['instance_id']
+        ?? $entity['id']
+        ?? ''
+      ));
+      if ($entity_ref !== '') {
+        $npc_entity_refs[$entity_ref] = TRUE;
+      }
+    }
+    if ($npc_entity_refs === []) {
+      return [];
+    }
+
+    $task_specs = [
+      'ensure_room_npc_psychology_profiles',
+      'refresh_room_actor_projection',
+      'refresh_institution_membership_projection',
+      'prebuild_actor_action_availability_for_room',
+    ];
+    $queue = is_array($game_state['room_entry_warmup_queue'] ?? NULL)
+      ? array_values($game_state['room_entry_warmup_queue'])
+      : [];
+    $existing = [];
+    foreach ($queue as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $task_id = trim((string) ($entry['task_id'] ?? ''));
+      if ($task_id !== '') {
+        $existing[$task_id] = TRUE;
+      }
+    }
+
+    $queued_task_ids = [];
+    $created_at = date('c');
+    foreach ($task_specs as $task_type) {
+      $task_id = sprintf('warmup:%d:%s:%s', $campaign_id, $room_id, $task_type);
+      if (isset($existing[$task_id])) {
+        continue;
+      }
+      $existing[$task_id] = TRUE;
+      $queued_task_ids[] = $task_id;
+      $queue[] = [
+        'task_id' => $task_id,
+        'task_type' => $task_type,
+        'campaign_id' => $campaign_id,
+        'room_id' => $room_id,
+        'status' => 'pending',
+        'created_at' => $created_at,
+        'source' => 'room_entry_transition',
+        'actor_refs' => array_keys($npc_entity_refs),
+      ];
+    }
+
+    $game_state['room_entry_warmup_queue'] = $queue;
+    $game_state['room_entry_warmup'] = [
+      'mode' => 'deferred',
+      'room_id' => $room_id,
+      'queue_depth' => count($queue),
+      'queued_at' => $created_at,
+    ];
+
+    if ($queued_task_ids !== []) {
+      $this->logger->notice(
+        'Room-entry warmup queued: campaign={campaign_id} room={room_id} tasks={task_count} queue_depth={queue_depth}',
+        [
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'task_count' => count($queued_task_ids),
+          'queue_depth' => count($queue),
+        ]
+      );
+    }
+
+    return $queued_task_ids;
   }
 
   /**

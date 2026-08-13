@@ -198,9 +198,12 @@ assert(
 );
 
 assert(
-  runtimeAdapterSource.includes('getActionAvailabilityForActor')
+  runtimeAdapterSource.includes('getRuntimeReadState($campaign_id, $actor_id)')
+    && runtimeAdapterSource.includes("$available_actions = is_array($state_payload['available_actions'] ?? NULL)")
+    && runtimeAdapterSource.includes("$action_contract = is_array($state_payload['action_contract'] ?? NULL)")
+    && runtimeAdapterSource.includes("'available_actions' => $available_actions")
     && runtimeAdapterSource.includes("'action_contract' => $action_contract"),
-  'Snapshot exposes actor-scoped available_actions and action_contract'
+  'Snapshot exposes actor-scoped available_actions and action_contract from canonical runtime read state'
 );
 
 assert(

@@ -6,6 +6,8 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\dungeoncrawler_content\Access\CampaignAccessCheck;
+use Drupal\dungeoncrawler_content\Service\CampaignAuthorizationService;
+use Drupal\dungeoncrawler_content\Service\HazardService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -17,15 +19,21 @@ class CampaignEntityController extends ControllerBase {
 
   private Connection $database;
   private CampaignAccessCheck $campaignAccessCheck;
+  private CampaignAuthorizationService $campaignAuthorization;
+  private HazardService $hazardService;
   protected $currentUser;
 
   public function __construct(
     Connection $database,
     CampaignAccessCheck $campaign_access_check,
+    CampaignAuthorizationService $campaign_authorization,
+    HazardService $hazard_service,
     AccountInterface $current_user
   ) {
     $this->database = $database;
     $this->campaignAccessCheck = $campaign_access_check;
+    $this->campaignAuthorization = $campaign_authorization;
+    $this->hazardService = $hazard_service;
     $this->currentUser = $current_user;
   }
 
@@ -33,6 +41,8 @@ class CampaignEntityController extends ControllerBase {
     return new static(
       $container->get('database'),
       $container->get('dungeoncrawler_content.campaign_access_check'),
+      $container->get('dungeoncrawler_content.campaign_authorization'),
+      $container->get('dungeoncrawler_content.hazard_service'),
       $container->get('current_user')
     );
   }
@@ -234,6 +244,13 @@ class CampaignEntityController extends ControllerBase {
       ], 404);
     }
 
+    if (!$this->canMoveEntity($campaign_id, $entity)) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => 'You are not allowed to move this actor.',
+      ], 403);
+    }
+
     // Update location and hot columns.
     try {
       $update_fields = [
@@ -241,6 +258,7 @@ class CampaignEntityController extends ControllerBase {
         'location_ref' => $location_ref,
         'updated' => time(),
       ];
+      $hazard_events = [];
       
       // If stateData is provided, merge with existing and update hot columns.
       if ($new_state_data !== NULL && is_array($new_state_data)) {
@@ -286,10 +304,69 @@ class CampaignEntityController extends ControllerBase {
         ->condition('instance_id', $instance_id)
         ->execute();
 
+      // Resolve passive room hazard triggers when movement targets a room hex.
+      $moved_q = isset($update_fields['position_q']) ? (int) $update_fields['position_q'] : NULL;
+      $moved_r = isset($update_fields['position_r']) ? (int) $update_fields['position_r'] : NULL;
+      if ($location_type === 'room' && $moved_q !== NULL && $moved_r !== NULL) {
+        $dungeon_record = $this->loadLatestCampaignDungeonRecord($campaign_id);
+        if ($dungeon_record !== NULL && is_numeric($dungeon_record['id'] ?? NULL)) {
+          $dungeon_data = json_decode((string) ($dungeon_record['dungeon_data'] ?? '{}'), TRUE);
+          if (is_array($dungeon_data)) {
+            $hazard_events = $this->resolvePassiveRoomMovementHazardEvents(
+              $dungeon_data,
+              $location_ref,
+              $moved_q,
+              $moved_r
+            );
+            $terrain_hazard = $this->resolveTerrainMovementHazardEvent(
+              $dungeon_data,
+              $location_ref,
+              $moved_q,
+              $moved_r
+            );
+            if ($terrain_hazard !== NULL) {
+              $hazard_events[] = $terrain_hazard;
+            }
+            if ($hazard_events !== []) {
+              $this->persistCampaignDungeonPayload((int) $dungeon_record['id'], $dungeon_data);
+            }
+          }
+        }
+      }
+
       // Return updated entity data.
       $state_data = json_decode($update_fields['state_data'] ?? $entity['state_data'] ?? '{}', TRUE);
       if (!is_array($state_data)) {
         $state_data = [];
+      }
+      $hazard_damage = $this->resolveTotalHazardDamage($hazard_events);
+      if ($hazard_damage > 0) {
+        $damage_applied = $this->applyDamageToStateData($state_data, $hazard_damage);
+        if ($damage_applied > 0) {
+          foreach ($hazard_events as &$hazard_event) {
+            if (!is_array($hazard_event)) {
+              continue;
+            }
+            $effect = is_array($hazard_event['effect'] ?? NULL) ? $hazard_event['effect'] : [];
+            if (!isset($effect['resolved_damage']) || !is_numeric($effect['resolved_damage'])) {
+              continue;
+            }
+            $effect['damage_applied'] = (int) $effect['resolved_damage'];
+            $hazard_event['effect'] = $effect;
+          }
+          unset($hazard_event);
+
+          $update_damage_fields = [
+            'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE),
+            'hp_current' => $this->extractCurrentHpFromStateData($state_data),
+            'updated' => time(),
+          ];
+          $this->database->update('dc_campaign_characters')
+            ->fields($update_damage_fields)
+            ->condition('campaign_id', $campaign_id)
+            ->condition('instance_id', $instance_id)
+            ->execute();
+        }
       }
 
       return new JsonResponse([
@@ -303,6 +380,7 @@ class CampaignEntityController extends ControllerBase {
           'locationType' => $location_type,
           'locationRef' => $location_ref,
           'stateData' => $state_data,
+          'hazardEvents' => $hazard_events,
         ],
       ]);
     }
@@ -439,6 +517,349 @@ class CampaignEntityController extends ControllerBase {
       'position_r' => $position_r,
       'last_room_id' => $last_room_id,
     ];
+  }
+
+  /**
+   * Enforce actor-scoped movement authority for room drag/drop moves.
+   */
+  private function canMoveEntity(int $campaign_id, array $entity): bool {
+    $uid = (int) $this->currentUser->id();
+    if ($uid <= 0) {
+      return FALSE;
+    }
+    if ($this->currentUser->hasPermission('administer dungeoncrawler content')) {
+      return TRUE;
+    }
+
+    $campaign_access = $this->campaignAuthorization->buildCampaignAccessContext($campaign_id, $uid);
+    $current_mode = strtolower(trim((string) ($campaign_access['current_mode'] ?? 'player')));
+    if ($current_mode === 'gm' && !empty($campaign_access['can_use_gm_mode'])) {
+      return TRUE;
+    }
+
+    if (strtolower(trim((string) ($entity['type'] ?? ''))) !== 'pc') {
+      $state_data = json_decode((string) ($entity['state_data'] ?? '{}'), TRUE);
+      $metadata = [];
+      if (is_array($state_data)) {
+        $metadata = is_array($state_data['metadata'] ?? NULL)
+          ? $state_data['metadata']
+          : (is_array($state_data['state']['metadata'] ?? NULL) ? $state_data['state']['metadata'] : []);
+      }
+      $follower_kind = strtolower(trim((string) ($metadata['follower_kind'] ?? ($metadata['bond_contract']['follower_kind'] ?? ''))));
+      if ($follower_kind === '') {
+        return FALSE;
+      }
+
+      $owner_source_character_id = isset($metadata['owner_source_character_id']) && is_numeric($metadata['owner_source_character_id'])
+        ? (int) $metadata['owner_source_character_id']
+        : (isset($metadata['bond_contract']['owner_source_character_id']) && is_numeric($metadata['bond_contract']['owner_source_character_id'])
+          ? (int) $metadata['bond_contract']['owner_source_character_id']
+          : 0);
+      $owner_character_id = isset($metadata['owner_character_id']) && is_numeric($metadata['owner_character_id'])
+        ? (int) $metadata['owner_character_id']
+        : (isset($metadata['bond_contract']['owner_character_id']) && is_numeric($metadata['bond_contract']['owner_character_id'])
+          ? (int) $metadata['bond_contract']['owner_character_id']
+          : 0);
+      foreach ((array) ($campaign_access['playable_principals'] ?? []) as $principal) {
+        if (!is_array($principal)) {
+          continue;
+        }
+        $principal_character_id = isset($principal['character_id']) && is_numeric($principal['character_id']) ? (int) $principal['character_id'] : 0;
+        if ($principal_character_id > 0 && ($principal_character_id === $owner_source_character_id || $principal_character_id === $owner_character_id)) {
+          return TRUE;
+        }
+      }
+
+      return FALSE;
+    }
+
+    $entity_uid = isset($entity['uid']) && is_numeric($entity['uid']) ? (int) $entity['uid'] : 0;
+    if ($entity_uid > 0 && $entity_uid === $uid) {
+      return TRUE;
+    }
+
+    $entity_character_id = isset($entity['character_id']) && is_numeric($entity['character_id']) ? (int) $entity['character_id'] : 0;
+    $entity_instance_id = trim((string) ($entity['instance_id'] ?? ''));
+    foreach ((array) ($campaign_access['playable_principals'] ?? []) as $principal) {
+      if (!is_array($principal)) {
+        continue;
+      }
+      $principal_character_id = isset($principal['character_id']) && is_numeric($principal['character_id']) ? (int) $principal['character_id'] : 0;
+      $principal_instance_id = trim((string) ($principal['instance_id'] ?? ''));
+      if (($entity_character_id > 0 && $principal_character_id === $entity_character_id) || ($entity_instance_id !== '' && $principal_instance_id === $entity_instance_id)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Load the most recently updated dungeon payload for a campaign.
+   */
+  private function loadLatestCampaignDungeonRecord(int $campaign_id): ?array {
+    $record = $this->database->select('dc_campaign_dungeons', 'd')
+      ->fields('d', ['id', 'dungeon_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    return is_array($record) ? $record : NULL;
+  }
+
+  /**
+   * Persist dungeon_data JSON after hazard-state mutation.
+   */
+  private function persistCampaignDungeonPayload(int $row_id, array $dungeon_data): void {
+    $this->database->update('dc_campaign_dungeons')
+      ->fields([
+        'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => time(),
+      ])
+      ->condition('id', $row_id)
+      ->execute();
+  }
+
+  /**
+   * Resolve passive hazard triggers for in-room movement placement.
+   *
+   * @param array<string, mixed> $dungeon_data
+   * @return array<int, array<string, mixed>>
+   */
+  private function resolvePassiveRoomMovementHazardEvents(array &$dungeon_data, string $room_id, int $q, int $r): array {
+    if (!is_array($dungeon_data['entities'] ?? NULL)) {
+      return [];
+    }
+
+    $events = [];
+    foreach ($dungeon_data['entities'] as &$entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($entity['entity_type'] ?? $entity['type'] ?? '')));
+      if ($entity_type !== 'hazard') {
+        continue;
+      }
+      $entity_room_id = trim((string) ($entity['placement']['room_id'] ?? ''));
+      if ($entity_room_id !== $room_id) {
+        continue;
+      }
+      $hex = is_array($entity['placement']['hex'] ?? NULL) ? $entity['placement']['hex'] : [];
+      if (!is_numeric($hex['q'] ?? NULL) || !is_numeric($hex['r'] ?? NULL)) {
+        continue;
+      }
+      if ((int) $hex['q'] !== $q || (int) $hex['r'] !== $r) {
+        continue;
+      }
+
+      $trigger_type = strtolower(trim((string) ($entity['trigger']['type'] ?? 'passive')));
+      if ($trigger_type !== 'passive') {
+        continue;
+      }
+
+      $trigger_result = $this->hazardService->triggerHazard($entity);
+      if (!empty($trigger_result['triggered'])) {
+        $events[] = [
+          'type' => 'hazard_triggered',
+          'instance_id' => (string) ($entity['instance_id'] ?? $entity['id'] ?? ''),
+          'name' => (string) ($entity['name'] ?? 'Hazard'),
+          'room_id' => $room_id,
+          'hex' => ['q' => $q, 'r' => $r],
+          'effect' => is_array($trigger_result['effect'] ?? NULL) ? $trigger_result['effect'] : [],
+        ];
+      }
+    }
+    unset($entity);
+
+    return $events;
+  }
+
+  /**
+   * Resolve terrain-based movement hazards (for example lava hex entry).
+   *
+   * @param array<string, mixed> $dungeon_data
+   * @return array<string, mixed>|null
+   */
+  private function resolveTerrainMovementHazardEvent(array $dungeon_data, string $room_id, int $q, int $r): ?array {
+    $terrain = $this->resolveRoomHexTerrainType($dungeon_data, $room_id, $q, $r);
+    if ($terrain === '') {
+      return NULL;
+    }
+
+    if (str_contains($terrain, 'lava')) {
+      return [
+        'type' => 'hazard_triggered',
+        'instance_id' => 'terrain:lava',
+        'name' => 'Lava',
+        'room_id' => $room_id,
+        'hex' => ['q' => $q, 'r' => $r],
+        'effect' => [
+          'description' => 'Molten terrain scorches the creature.',
+          'damage' => 6,
+          'damage_type' => 'fire',
+          'resolved_damage' => 6,
+        ],
+      ];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Resolve room-hex terrain label from dungeon payload.
+   */
+  private function resolveRoomHexTerrainType(array $dungeon_data, string $room_id, int $q, int $r): string {
+    $room_nodes = [];
+    if (is_array($dungeon_data['rooms'][$room_id] ?? NULL)) {
+      $room_nodes[] = $dungeon_data['rooms'][$room_id];
+    }
+    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room_node) {
+      if (!is_array($room_node)) {
+        continue;
+      }
+      $candidate_room_id = trim((string) ($room_node['room_id'] ?? $room_node['id'] ?? ''));
+      if ($candidate_room_id === $room_id) {
+        $room_nodes[] = $room_node;
+      }
+    }
+
+    foreach ($room_nodes as $room_node) {
+      foreach ((array) ($room_node['hexes'] ?? []) as $room_hex) {
+        if (!is_array($room_hex)) {
+          continue;
+        }
+        if (!is_numeric($room_hex['q'] ?? NULL) || !is_numeric($room_hex['r'] ?? NULL)) {
+          continue;
+        }
+        if ((int) $room_hex['q'] !== $q || (int) $room_hex['r'] !== $r) {
+          continue;
+        }
+        $terrain = strtolower(trim((string) ($room_hex['terrain_type'] ?? $room_hex['terrain'] ?? $room_hex['tile_type'] ?? '')));
+        if ($terrain !== '') {
+          return $terrain;
+        }
+      }
+    }
+
+    return '';
+  }
+
+  /**
+   * Resolve aggregate damage from movement-triggered hazard events.
+   *
+   * @param array<int, array<string, mixed>> $hazard_events
+   */
+  private function resolveTotalHazardDamage(array &$hazard_events): int {
+    $total = 0;
+    foreach ($hazard_events as &$event) {
+      if (!is_array($event)) {
+        continue;
+      }
+      $effect = is_array($event['effect'] ?? NULL) ? $event['effect'] : [];
+      $resolved_damage = $this->resolveHazardDamageValue($effect['damage'] ?? NULL);
+      if ($resolved_damage <= 0) {
+        continue;
+      }
+      $total += $resolved_damage;
+      $effect['resolved_damage'] = $resolved_damage;
+      $event['effect'] = $effect;
+    }
+    unset($event);
+
+    return max(0, $total);
+  }
+
+  /**
+   * Parse hazard damage value from numeric/scalar dice expressions.
+   */
+  private function resolveHazardDamageValue($damage): int {
+    if (is_int($damage) || is_float($damage)) {
+      return max(0, (int) floor((float) $damage));
+    }
+    if (!is_string($damage)) {
+      return 0;
+    }
+    $trimmed = trim($damage);
+    if ($trimmed === '') {
+      return 0;
+    }
+    if (preg_match('/^\d+$/', $trimmed) === 1) {
+      return (int) $trimmed;
+    }
+    if (preg_match('/^(\d+)d(\d+)(?:\s*([+-])\s*(\d+))?/i', $trimmed, $matches) === 1) {
+      $dice_count = max(1, (int) ($matches[1] ?? 1));
+      $die_sides = max(2, (int) ($matches[2] ?? 2));
+      $modifier_sign = (string) ($matches[3] ?? '+');
+      $modifier_value = (int) ($matches[4] ?? 0);
+      $total = 0;
+      for ($i = 0; $i < $dice_count; $i++) {
+        $total += random_int(1, $die_sides);
+      }
+      $total += ($modifier_sign === '-') ? -$modifier_value : $modifier_value;
+      return max(0, $total);
+    }
+    return 0;
+  }
+
+  /**
+   * Apply damage to available HP fields in state payload.
+   */
+  private function applyDamageToStateData(array &$state_data, int $damage): int {
+    if ($damage <= 0) {
+      return 0;
+    }
+    $current_hp = $this->extractCurrentHpFromStateData($state_data);
+    if ($current_hp <= 0) {
+      return 0;
+    }
+
+    $next_hp = max(0, $current_hp - $damage);
+    if (is_array($state_data['hit_points'] ?? NULL)) {
+      $state_data['hit_points']['current'] = $next_hp;
+    }
+    if (isset($state_data['hp'])) {
+      $state_data['hp'] = $next_hp;
+    }
+    if (is_array($state_data['resources']['hitPoints'] ?? NULL)) {
+      $state_data['resources']['hitPoints']['current'] = $next_hp;
+    }
+    if (is_array($state_data['state']['hit_points'] ?? NULL)) {
+      $state_data['state']['hit_points']['current'] = $next_hp;
+    }
+    if (is_array($state_data['state']['resources']['hitPoints'] ?? NULL)) {
+      $state_data['state']['resources']['hitPoints']['current'] = $next_hp;
+    }
+    if (is_array($state_data['metadata']['stats'] ?? NULL)) {
+      $state_data['metadata']['stats']['currentHp'] = $next_hp;
+    }
+    if (is_array($state_data['state']['metadata']['stats'] ?? NULL)) {
+      $state_data['state']['metadata']['stats']['currentHp'] = $next_hp;
+    }
+
+    return max(0, $current_hp - $next_hp);
+  }
+
+  /**
+   * Extract current HP from common runtime state-data shapes.
+   */
+  private function extractCurrentHpFromStateData(array $state_data): int {
+    $candidates = [
+      $state_data['hit_points']['current'] ?? NULL,
+      $state_data['resources']['hitPoints']['current'] ?? NULL,
+      $state_data['state']['hit_points']['current'] ?? NULL,
+      $state_data['state']['resources']['hitPoints']['current'] ?? NULL,
+      $state_data['metadata']['stats']['currentHp'] ?? NULL,
+      $state_data['state']['metadata']['stats']['currentHp'] ?? NULL,
+      $state_data['hp'] ?? NULL,
+    ];
+    foreach ($candidates as $candidate) {
+      if (is_numeric($candidate)) {
+        return max(0, (int) $candidate);
+      }
+    }
+    return 0;
   }
 
   /**

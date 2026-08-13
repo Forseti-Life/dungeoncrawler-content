@@ -5,7 +5,7 @@
   "description": "Canonical outer response envelope for RoomChatService::postMessage().",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "message", "totalMessages", "dungeon_data"],
+  "required": ["schema_version", "message", "totalMessages", "response_mode"],
   "properties": {
     "schema_version": {
       "type": "string",
@@ -26,6 +26,10 @@
       }
     },
     "totalMessages": { "type": "integer", "minimum": 0 },
+    "response_mode": {
+      "type": "string",
+      "enum": ["legacy", "dual_transition", "actor_scoped"]
+    },
     "dungeon_data": { "type": "object" },
     "gm_response": { "type": ["object", "null"] },
     "gm_deferred": { "type": "boolean" },
@@ -40,6 +44,8 @@
     "canonical_actions": { "type": ["object", "null"] },
     "combat_transition": { "type": ["object", "null"] },
     "runtime_snapshot": { "type": ["object", "null"] },
+    "aggression_summary": { "type": ["object", "null"] },
+    "combat_entry_summary": { "type": ["object", "null"] },
     "navigation": { "type": ["object", "null"] },
     "client_request_id": { "type": ["string", "null"], "maxLength": 255 },
     "timing": { "type": ["object", "null"] },

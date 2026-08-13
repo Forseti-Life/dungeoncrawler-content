@@ -658,7 +658,13 @@ Combat initiation format:
           "enemy_entity_ids": ["exact enemy entity ids if known"],
           "enemy_names": ["exact enemy names if ids are unavailable"],
           "target_entity_id": "single enemy entity id if only one matters",
-          "target_name": "single enemy name if ids are unavailable"
+          "target_name": "single enemy name if ids are unavailable",
+          "source_entity_id": "optional initiating actor entity id/ref when known",
+          "actor_attitude": "optional initiating actor attitude (friendly|indifferent|unfriendly|hostile)",
+          "relationship_attitude": "optional relationship-edge attitude toward the target",
+          "aggression_signal": "optional signal (direct_attack|violent_threat|weapon_drawn|harmful_spell_targeted)",
+          "threat_level": "optional threat level (none|minor|major|extreme)",
+          "explicit_attack_declared": true
         },
         "result_description": "Brief combat start outcome"
       },
