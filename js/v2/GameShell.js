@@ -24,27 +24,32 @@
  * @see canvas/HexCanvas
  * @see systems/EncounterSystem
  */
-
 import { GameEventBus } from './GameEventBus.js';
 import { HexCanvas } from './canvas/HexCanvas.js';
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20260811-v2-targeting-debug-3';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20260818-v2-authoritative-actor-guard-2';
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20260728-v2-nav-transition-receipt-4';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js?v=20260811-v2-turn-sync-ui-11';
-import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260811-v2-target-pick-hardening-15';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260819-v2-action-rail-api-authority-1';
 import { ChatPanel } from './panels/ChatPanel.js?v=20260812-v2-map-status-centralization-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
 import { InventoryPanel } from './panels/InventoryPanel.js';
-import { CharacterPanel } from './panels/CharacterPanel.js?v=20260731-v2-relationships-ui-11';
+import { CharacterPanel } from './panels/CharacterPanel.js?v=20260818-v2-authoritative-actor-guard-2';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
 import { StatusPanel } from './panels/StatusPanel.js?v=20260812-v2-map-status-centralization-1';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
+import { normalizeAuthoritativeStateActorRef } from './utils/authoritative-state-utils.js';
+import { GameShellFetchBridge } from './shell/GameShellFetchBridge.js';
+import { GameShellCampaignSettingsCoordinator } from './shell/GameShellCampaignSettingsCoordinator.js';
+import { GameShellTargetPickController } from './shell/GameShellTargetPickController.js';
+import { GameShellQuestCoordinator } from './shell/GameShellQuestCoordinator.js';
+import { GameShellRoomGenerationCoordinator } from './shell/GameShellRoomGenerationCoordinator.js';
 import { SpriteService } from '../SpriteService.js';
 import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260811-v2-target-pick-hardening-15';
 import {
@@ -61,7 +66,44 @@ import {
   TurnManagementSystem,
   CombatSystem,
 } from '../ecs/index.js';
-
+import {
+  _getPresentationObjectDefinitions,
+  _getVisualOccupants,
+  _getVisualActorRoster,
+  _getEntityDisplayName,
+  _isVisualOccupantVisible,
+  _parseVisualHexId,
+  _getConnectionRoomId,
+  _getConnectionHex,
+  _getActiveRoomData,
+  _getActiveRoomHex,
+  _buildActiveRoomOccupantSummary,
+  _getObjectDefinition,
+  _buildObstacleMobilityProfile,
+  _getObstacleMobilityAtHex,
+  _getAxialLine,
+  _hasLineOfSight,
+  _getHostileTargets,
+  _normalizeAuthoritativeNavigationCapability,
+  _normalizeHexPayload,
+  _findLaunchPlayerEntity,
+  _preloadSpriteUrls,
+  _flattenQuestObjectives,
+  _isPlainObject,
+  _hasMeaningfulValue,
+  _mergeRoomMetadata,
+  _buildRoomSubtitle,
+  _buildRoomConnections,
+  _buildRenderableEntityBlueprints,
+  _buildVisualOccupantIndex,
+  _resolveVisualOccupant,
+  _normalizeRenderableEntityType,
+  _normalizeRenderableEntityTeam,
+  _buildRenderableEntityKey,
+  _buildRenderableProjectionKey,
+  _buildLogicalActorIdentityKey,
+  _buildRuntimeBundleQueryForRoom,
+} from './shell/GameShellProjectionHelpers.js';
 /** Canvas config defaults — matches old hexmap behavior.config */
 const DEFAULT_CANVAS_CONFIG = {
   hexSize: 30,
@@ -73,8 +115,7 @@ const DEFAULT_CANVAS_CONFIG = {
   backgroundColor: 0x1a1a2e,
   serverStateSyncIntervalMs: 3000,
 };
-const HEXMAP_UI_BUILD_VERSION = '20260810-rm-ui-14';
-
+const HEXMAP_UI_BUILD_VERSION = '20260819-v2-action-rail-api-authority-1';
 export class GameShell {
   /**
    * @param {HTMLElement} container - Root DOM container for hexmap-v2
@@ -82,7 +123,7 @@ export class GameShell {
    */
   constructor(container, rawSettings = {}) {
     console.info('[GameShell] module loaded', {
-      version: '20260805-v2-action-rail-runtime-contract-fix-1',
+      version: HEXMAP_UI_BUILD_VERSION,
     });
     this.container = container;
 
@@ -112,6 +153,7 @@ export class GameShell {
     this._busUnsubs = [];
     this._inventoryRefreshSequence = 0;
     this._characterRefreshSequence = 0;
+    this._lastRosterRuntimeRefreshAt = 0;
     this.reset();
 
     // Sub-module handles — populated in init()
@@ -128,6 +170,16 @@ export class GameShell {
 
     /** @type {GameCoordinator|null} */
     this.gameCoordinator = null;
+    /** @type {GameShellFetchBridge|null} */
+    this.fetchBridge = null;
+    /** @type {GameShellCampaignSettingsCoordinator|null} */
+    this.campaignSettingsCoordinator = new GameShellCampaignSettingsCoordinator(this);
+    /** @type {GameShellTargetPickController|null} */
+    this.targetPickController = new GameShellTargetPickController(this);
+    /** @type {GameShellQuestCoordinator|null} */
+    this.questCoordinator = new GameShellQuestCoordinator(this);
+    /** @type {GameShellRoomGenerationCoordinator|null} */
+    this.roomGenerationCoordinator = new GameShellRoomGenerationCoordinator(this);
 
     // ECS — populated in _initECS()
     this.entityManager = null;
@@ -199,89 +251,7 @@ export class GameShell {
    *   TRUE when refreshed successfully; otherwise FALSE.
    */
   async refreshQuestJournalFromApi(context = {}) {
-    const campaignId = this.resolveCampaignId();
-    if (!campaignId || typeof fetch !== 'function') {
-      return false;
-    }
-
-    const requestedCharacterId = Number(context?.characterId || 0);
-    const hasExplicitCharacterScope = Object.prototype.hasOwnProperty.call(context || {}, 'characterId');
-    if (hasExplicitCharacterScope && requestedCharacterId <= 0) {
-      this.questSummary = normalizeQuestSummaryPayload({
-        schema_version: 'quest-summary-v2',
-        location_id: this.resolveActiveRoomId() || '',
-        active: [],
-        offers: [],
-        leads: [],
-        completed: [],
-        management_tree: [],
-      });
-      this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary, characterId: null, campaignId });
-      return true;
-    }
-    const runtimeCharacterId = Number(this.resolveLaunchCharacterRuntimeContext?.().characterId || 0);
-    const characterId = requestedCharacterId > 0
-      ? requestedCharacterId
-      : (runtimeCharacterId > 0
-        ? runtimeCharacterId
-        : Number(this.launchContext?.character_id || 0));
-    const endpoint = characterId > 0
-      ? `/api/campaign/${campaignId}/character/${characterId}/quest-journal`
-      : `/api/campaign/${campaignId}/quest-journal`;
-
-    try {
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        credentials: 'same-origin',
-      });
-      if (!response.ok) {
-        return false;
-      }
-
-      const payload = await response.json().catch(() => null);
-      if (!payload?.success) {
-        return false;
-      }
-
-      if (payload.quest_summary && typeof payload.quest_summary === 'object') {
-        this.questSummary = normalizeQuestSummaryPayload(payload.quest_summary);
-      } else {
-        const tracking = Array.isArray(payload.tracking) ? payload.tracking : [];
-        const active = [];
-        const offers = [];
-        const leads = [];
-        const completed = [];
-        tracking.forEach((row) => {
-          const status = String(row?.status || '').trim().toLowerCase();
-          const completedAt = Number(row?.completed_at || 0);
-          if (status === 'completed' || completedAt > 0) {
-            completed.push(row);
-          } else if (status === 'offered') {
-            offers.push(row);
-          } else if (status === 'lead') {
-            leads.push(row);
-          } else {
-            active.push(row);
-          }
-        });
-        this.questSummary = normalizeQuestSummaryPayload({
-          schema_version: 'quest-summary-v2',
-          location_id: this.resolveActiveRoomId() || '',
-          active,
-          offers,
-          leads,
-          completed,
-          management_tree: [],
-        });
-      }
-
-      this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary, characterId: characterId || null, campaignId });
-      return true;
-    } catch (error) {
-      console.warn('[GameShell] refreshQuestJournalFromApi failed', { campaignId, error });
-      return false;
-    }
+    return this.questCoordinator?.refreshQuestJournalFromApi(context);
   }
 
   /**
@@ -292,53 +262,7 @@ export class GameShell {
    * @returns {Promise<boolean>}
    */
   async applyQuestUpdates(questUpdates = []) {
-    if (!Array.isArray(questUpdates) || questUpdates.length === 0) {
-      return false;
-    }
-
-    const refreshed = await this.refreshQuestJournalFromApi();
-    if (refreshed) {
-      return true;
-    }
-
-    if (!this.questSummary || typeof this.questSummary !== 'object') {
-      this.questSummary = { active: [], offers: [], leads: [], completed: [] };
-    }
-    ['active', 'offers', 'leads', 'completed'].forEach((bucket) => {
-      if (!Array.isArray(this.questSummary?.[bucket])) {
-        this.questSummary[bucket] = [];
-      }
-    });
-
-    questUpdates.forEach((q) => {
-      if (!q || typeof q !== 'object') {
-        return;
-      }
-
-      const questKey = String(q.quest_id || q.quest_key || q.id || '').trim();
-      if (!questKey) {
-        return;
-      }
-
-      const status = String(q.status || 'active').trim().toLowerCase();
-      const completedAt = Number(q?.completed_at || 0);
-      const targetBucket = status === 'completed' || completedAt > 0
-        ? 'completed'
-        : (status === 'offered'
-        ? 'offers'
-        : (status === 'lead' ? 'leads' : 'active'));
-      const updated = { ...q, objectives: _flattenQuestObjectives(q) };
-
-      ['active', 'offers', 'leads', 'completed'].forEach((bucket) => {
-        this.questSummary[bucket] = this.questSummary[bucket].filter(
-          (entry) => String(entry?.quest_id || entry?.quest_key || entry?.id || '').trim() !== questKey
-        );
-      });
-      this.questSummary[targetBucket].push(updated);
-    });
-
-    this.bus?.emit('quest:progress-updated', { questSummary: this.questSummary });
-    return true;
+    return this.questCoordinator?.applyQuestUpdates(questUpdates);
   }
 
   /**
@@ -477,52 +401,7 @@ export class GameShell {
   }
 
   buildRuntimeBundleQueryForRoom(roomId = '', options = {}) {
-    const normalizedRoomId = String(roomId || '').trim();
-    const campaignId = Number(this.resolveCampaignId?.() || this.launchContext?.campaign_id || 0) || 0;
-    const characterId = Number(this.launchContext?.character_id || 0) || 0;
-    const mapId = String(
-      options?.mapId
-      || this.launchContext?.map_id
-      || this.dungeonData?.map_id
-      || this.dungeonData?.dungeon_id
-      || ''
-    ).trim();
-    const dungeonLevelId = String(
-      options?.dungeonLevelId
-      || this.launchContext?.dungeon_level_id
-      || this.dungeonData?.level_id
-      || ''
-    ).trim();
-    const nextRoomId = String(options?.nextRoomId || '').trim();
-    const startQ = Number.isFinite(Number(options?.startQ))
-      ? Number(options.startQ)
-      : Number(this.launchContext?.start_q ?? 0);
-    const startR = Number.isFinite(Number(options?.startR))
-      ? Number(options.startR)
-      : Number(this.launchContext?.start_r ?? 0);
-
-    const query = {
-      campaign_id: campaignId,
-      start_q: Number.isFinite(startQ) ? startQ : 0,
-      start_r: Number.isFinite(startR) ? startR : 0,
-    };
-    if (characterId > 0) {
-      query.character_id = characterId;
-    }
-    if (normalizedRoomId !== '') {
-      query.room_id = normalizedRoomId;
-    }
-    if (mapId !== '') {
-      query.map_id = mapId;
-    }
-    if (dungeonLevelId !== '') {
-      query.dungeon_level_id = dungeonLevelId;
-    }
-    if (nextRoomId !== '') {
-      query.next_room_id = nextRoomId;
-    }
-
-    return query;
+    return _buildRuntimeBundleQueryForRoom(this, roomId, options);
   }
 
   /**
@@ -568,6 +447,15 @@ export class GameShell {
       forRoom: roomOccupants.length,
       npcsWithPortrait: roomOccupants.filter((o) => o?.presentation?.portrait_url).length,
       npcSample: roomOccupants.filter((o) => o?.occupant_type === 'npc').map((o) => ({ name: o?.label, portrait: o?.presentation?.portrait_url ? o.presentation.portrait_url.slice(-40) : null })),
+      playerPlacementSample: roomOccupants
+        .filter((o) => String(o?.occupant_type ?? '') === 'player_character' || o?.is_party === true)
+        .map((o) => ({
+          label: o?.label ?? null,
+          actorRef: o?.occupant_ref ?? o?.actor_ref ?? null,
+          roomId: o?.room_id ?? null,
+          placement: o?.placement ?? null,
+          source: o?.source ?? null,
+        })),
     });
     this._emitCanonicalRoomChanged({
       roomId,
@@ -722,60 +610,7 @@ export class GameShell {
    * @private
    */
   async _triggerPendingRoomGeneration() {
-    const pending = this.dungeonData?.pending_room_generation;
-    if (!pending || typeof pending !== 'object') {
-      return;
-    }
-    const campaignId = Number(this.launchContext?.campaign_id || 0);
-    const characterId = Number(this.launchContext?.character_id || 0);
-    const roomId = String(pending.room_id || '').trim();
-    const originRoomId = String(pending.origin_room_id || '').trim();
-    if (!campaignId || !roomId) {
-      return;
-    }
-
-    console.log('[GameShell] Auto-generating quest destination room:', roomId);
-    this.bus?.emit('chat:system-message', {
-      speaker: 'System',
-      kind: 'info',
-      text: `Generating quest destination: ${roomId}...`,
-    });
-
-    try {
-      const response = await fetch(`/api/campaign/${campaignId}/navigation/locations/request`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          destination: roomId,
-          origin_room_id: originRoomId || roomId,
-          character_id: characterId || undefined,
-        }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (result?.success && result?.data?.navigation?.target_room_id) {
-        const nav = result.data.navigation;
-        console.log('[GameShell] Quest destination generated:', nav.target_room_id);
-        // Apply the navigation result to update dungeon data and transition
-        if (typeof this.applyNavigationResult === 'function') {
-          this.applyNavigationResult(nav);
-        } else {
-          this.bus?.emit('navigation:apply-result', { navigation: nav });
-        }
-      } else {
-        console.warn('[GameShell] Quest destination generation failed:', result?.error || 'unknown');
-        this.bus?.emit('chat:system-message', {
-          speaker: 'System',
-          kind: 'error',
-          text: `Could not generate destination: ${result?.error || 'Room generation failed'}`,
-        });
-      }
-    } catch (err) {
-      console.warn('[GameShell] Quest destination generation error:', err?.message || err);
-    }
+    return this.roomGenerationCoordinator?.triggerPendingRoomGeneration();
   }
 
 
@@ -787,26 +622,14 @@ export class GameShell {
     // Chat submit → POST to server, emit response lines
     this.bus.on('user:chat-submitted', (data) => this._handleChatSubmit(data));
 
-    // Session view data request from ChatPanel
-    this.bus.on('user:session-view-requested', ({ view, options } = {}) => {
-      if (!view) return;
-      void this.fetchSessionViewData(view, options ?? {}).then((data) => {
-        this.bus.emit('session:view-data', { view, data });
-      }).catch((err) => {
-        console.error(`fetchSessionViewData(${view}) failed:`, err?.message);
-      });
-    });
+    this.fetchBridge?.destroy?.();
+    this.fetchBridge = new GameShellFetchBridge(this);
+    this.fetchBridge.register();
 
     // Session message submit from ChatPanel non-room view
     this.bus.on('user:session-message-submitted', (d) => this._postSessionViewMessage(d));
 
-    // ChatPanel requests room chat history refresh
-    this.bus.on('user:chat-history-requested', () => this._loadChatHistory());
     this.bus.on('user:target-pick-requested', (data) => this._beginTargetPickSession(data || {}));
-
-    // Shell-owned room-view refresh entrypoint. Legacy reload event is bridged here.
-    this.bus.on('room:view-refresh-intent', (opts) => this._handleRoomViewRefreshIntent(opts, 'room:view-refresh-intent'));
-    this.bus.on('room:view-reload-requested', (opts) => this._handleRoomViewRefreshIntent(opts, 'room:view-reload-requested'));
 
     // Bridge: entity:select-request (from stateManager shim / HexInputHandler) →
     // resolve entity from ECS and emit entity:selected for CharacterPanel etc.
@@ -839,6 +662,11 @@ export class GameShell {
       if (this.activeGameShellTab === 'merchant') {
         void this._loadMerchantStock(true);
       }
+    });
+    this.bus.on('character:runtime-state-refresh-requested', (payload = {}) => {
+      const context = (payload && typeof payload.context === 'object') ? payload.context : payload;
+      const reason = String(payload?.reason || 'character-panel-runtime-refresh').trim() || 'character-panel-runtime-refresh';
+      void this.refreshCharacterRuntimeState(context, reason);
     });
 
     // Character/quest UI requests canonical quest journal refresh.
@@ -950,7 +778,14 @@ export class GameShell {
     if (tabId === 'party' || tabId === 'character') {
       const charId = this.launchCharacter?.id ?? this.launchContext?.character_id ?? null;
       console.log('[GameShell] party tab → sheet-requested', { charId });
-      if (charId) this.bus.emit('character:sheet-requested', { characterId: charId });
+      if (charId) {
+        this.bus.emit('character:sheet-requested', { characterId: charId });
+        const now = Date.now();
+        if ((now - this._lastRosterRuntimeRefreshAt) > 1000) {
+          this._lastRosterRuntimeRefreshAt = now;
+          void this.loadCharacterFromApi(charId);
+        }
+      }
       const questRefreshContext = typeof this.panels?.character?.buildQuestRefreshContext === 'function'
         ? this.panels.character.buildQuestRefreshContext('game-shell-party-tab-open')
         : {};
@@ -969,181 +804,27 @@ export class GameShell {
    * Load campaign settings payload for the settings tab.
    */
   async _loadCampaignSettings(force = false) {
-    const campaignId = Number(this.launchContext?.campaign_id || 0);
-    const statusEl = document.getElementById('campaign-settings-status');
-    if (!campaignId) {
-      if (statusEl) statusEl.textContent = 'Campaign settings are unavailable outside campaign mode.';
-      return;
-    }
-    if (!force && this._campaignSettingsLoaded && this._campaignSettingsPayload) {
-      this._renderCampaignSettings(this._campaignSettingsPayload);
-      return;
-    }
-    if (this._campaignSettingsLoading) {
-      return;
-    }
-
-    this._campaignSettingsLoading = true;
-    if (statusEl) statusEl.textContent = 'Loading campaign settings...';
-    try {
-      const response = await fetch(`/api/campaign/${campaignId}/settings`, {
-        method: 'GET',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        credentials: 'same-origin',
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) {
-        const error = String(payload?.error || `HTTP ${response.status}`).trim();
-        if (statusEl) statusEl.textContent = `Unable to load settings: ${error}`;
-        return;
-      }
-      this._campaignSettingsPayload = payload;
-      this._campaignSettingsLoaded = true;
-      this._renderCampaignSettings(payload);
-    } catch (error) {
-      if (statusEl) statusEl.textContent = `Unable to load settings: ${error?.message || 'network error'}`;
-    } finally {
-      this._campaignSettingsLoading = false;
-    }
+    return this.campaignSettingsCoordinator?.loadCampaignSettings(force);
   }
 
   /**
    * Render settings payload into the settings tab.
    */
   _renderCampaignSettings(payload) {
-    const statusEl = document.getElementById('campaign-settings-status');
-    const titleEl = document.getElementById('campaign-settings-title');
-    const memberListEl = document.getElementById('campaign-member-list');
-    const playerBtn = document.getElementById('campaign-mode-player');
-    const gmBtn = document.getElementById('campaign-mode-gm');
-    if (!memberListEl || !playerBtn || !gmBtn) {
-      return;
-    }
-
-    const campaignName = String(payload?.settings?.campaign_name || '').trim();
-    if (titleEl && campaignName) {
-      titleEl.textContent = `${campaignName} settings`;
-    }
-
-    const canManage = payload?.capabilities?.can_manage === true;
-    const canUseGmMode = payload?.capabilities?.can_use_gm_mode === true;
-    const canUsePlayerMode = payload?.capabilities?.can_use_player_mode !== false;
-    const mode = String(payload?.settings?.mode || 'player').trim().toLowerCase() === 'gm' ? 'gm' : 'player';
-    playerBtn.classList.toggle('btn-primary', mode === 'player');
-    playerBtn.classList.toggle('btn-secondary', mode !== 'player');
-    gmBtn.classList.toggle('btn-primary', mode === 'gm');
-    gmBtn.classList.toggle('btn-secondary', mode !== 'gm');
-    gmBtn.disabled = !canUseGmMode;
-    playerBtn.disabled = !canUsePlayerMode;
-
-    playerBtn.onclick = () => this._setCampaignMode('player');
-    gmBtn.onclick = () => this._setCampaignMode('gm');
-
-    this.campaignAccess = this._normalizeCampaignAccess({
-      ...(payload?.campaign_access || {}),
-      campaign_id: Number(payload?.campaign_id || this.campaignAccess?.campaign_id || 0),
-      current_mode: mode,
-      can_use_player_mode: canUsePlayerMode,
-      can_use_gm_mode: canUseGmMode,
-    });
-    this.activeCampaignMode = mode;
-    this._applyCampaignModeGates();
-
-    const members = Array.isArray(payload?.members) ? payload.members : [];
-    memberListEl.innerHTML = '';
-    if (!members.length) {
-      memberListEl.innerHTML = '<p class="muted">No campaign members found.</p>';
-    } else {
-      members.forEach((member) => {
-        const uid = Number(member?.uid || 0);
-        if (!uid) return;
-        const role = String(member?.role || 'player').trim().toLowerCase();
-        const status = String(member?.status || 'active').trim().toLowerCase();
-        const name = String(member?.display_name || `User ${uid}`).trim();
-        const email = String(member?.email || '').trim();
-        const row = document.createElement('div');
-        row.className = 'campaign-settings-panel__member-row';
-
-        const identity = document.createElement('div');
-        const identityName = document.createElement('strong');
-        identityName.textContent = name;
-        const identityMeta = document.createElement('p');
-        identityMeta.className = 'campaign-settings-panel__member-meta';
-        identityMeta.textContent = email || `UID ${uid}`;
-        identity.appendChild(identityName);
-        identity.appendChild(identityMeta);
-
-        const roleBadge = document.createElement('span');
-        roleBadge.className = 'pill pill-muted';
-        roleBadge.textContent = role === 'owner_gm' ? 'owner_gm' : role;
-
-        const roleControl = document.createElement('select');
-        roleControl.className = 'merchant-trade-panel__select';
-        roleControl.innerHTML = `
-          <option value="player"${role === 'player' ? ' selected' : ''}>player</option>
-          <option value="gm"${role === 'gm' ? ' selected' : ''}>gm</option>
-        `;
-        roleControl.disabled = !canManage || role === 'owner_gm' || status === 'revoked';
-        roleControl.onchange = () => this._updateCampaignMemberRole(uid, roleControl.value);
-
-        row.appendChild(identity);
-        row.appendChild(roleBadge);
-        row.appendChild(roleControl);
-        memberListEl.appendChild(row);
-      });
-    }
-
-    if (statusEl) {
-      statusEl.textContent = canManage
-        ? 'You can manage campaign members and GM mode.'
-        : 'You can switch your own mode; member management is GM-only.';
-    }
+    this.campaignSettingsCoordinator?.renderCampaignSettings(payload);
   }
 
   /**
    * Persist user mode preference in campaign settings.
    */
   async _setCampaignMode(mode) {
-    const normalizedMode = String(mode || '').trim().toLowerCase();
-    if (!['player', 'gm'].includes(normalizedMode)) {
-      return;
-    }
-    const campaignId = Number(this.launchContext?.campaign_id || 0);
-    if (!campaignId) {
-      return;
-    }
-    const statusEl = document.getElementById('campaign-settings-status');
-    if (statusEl) statusEl.textContent = 'Saving mode preference...';
-
-    try {
-      const response = await fetch(`/api/campaign/${campaignId}/settings/mode`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ mode: normalizedMode }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) {
-        const error = String(payload?.error || `HTTP ${response.status}`).trim();
-        if (statusEl) statusEl.textContent = `Unable to save mode: ${error}`;
-        return;
-      }
-      this.activeCampaignMode = normalizedMode;
-      this.campaignAccess = this._normalizeCampaignAccess({
-        ...this.campaignAccess,
-        current_mode: normalizedMode,
-      });
-      this._applyCampaignModeGates();
-      await this._loadCampaignSettings(true);
-    } catch (error) {
-      if (statusEl) statusEl.textContent = `Unable to save mode: ${error?.message || 'network error'}`;
-    }
+    return this.campaignSettingsCoordinator?.setCampaignMode(mode);
   }
 
   _normalizeCampaignAccess(input = {}) {
+    if (this.campaignSettingsCoordinator?.normalizeCampaignAccess) {
+      return this.campaignSettingsCoordinator.normalizeCampaignAccess(input);
+    }
     const access = input && typeof input === 'object' ? input : {};
     const canUseGmMode = access.can_use_gm_mode === true;
     const canUsePlayerMode = access.can_use_player_mode !== false;
@@ -1173,70 +854,14 @@ export class GameShell {
   }
 
   _applyCampaignModeGates() {
-    const mode = String(this.activeCampaignMode || this.campaignAccess?.current_mode || 'player').trim().toLowerCase() === 'gm'
-      ? 'gm'
-      : 'player';
-    const canUseGmMode = this.campaignAccess?.can_use_gm_mode === true;
-    const effectiveMode = (mode === 'gm' && canUseGmMode) ? 'gm' : 'player';
-    this.activeCampaignMode = effectiveMode;
-    this.campaignAccess = this._normalizeCampaignAccess({
-      ...this.campaignAccess,
-      current_mode: effectiveMode,
-    });
-
-    const shell = this.container?.closest?.('[data-game-shell]')
-      || this.container?.querySelector?.('[data-game-shell]')
-      || null;
-    if (shell) {
-      shell.dataset.campaignMode = effectiveMode;
-      shell.dataset.canUseGmMode = canUseGmMode ? '1' : '0';
-    }
-
-    const gmSessionTab = this.container?.querySelector?.('.session-view-tab[data-view="gm-private"]') || null;
-    const gmViewEnabled = canUseGmMode && effectiveMode === 'gm';
-    if (gmSessionTab) {
-      gmSessionTab.hidden = !gmViewEnabled;
-      gmSessionTab.setAttribute('aria-hidden', gmViewEnabled ? 'false' : 'true');
-      gmSessionTab.tabIndex = gmViewEnabled ? 0 : -1;
-    }
-    if (!gmViewEnabled && this.panels?.chat?.activeSessionView === 'gm-private') {
-      this.panels.chat.switchSessionView('room');
-    }
+    this.campaignSettingsCoordinator?.applyCampaignModeGates();
   }
 
   /**
    * Persist campaign member role assignment.
    */
   async _updateCampaignMemberRole(memberUid, role) {
-    const campaignId = Number(this.launchContext?.campaign_id || 0);
-    const uid = Number(memberUid || 0);
-    const normalizedRole = String(role || '').trim().toLowerCase();
-    if (!campaignId || !uid || !['player', 'gm'].includes(normalizedRole)) {
-      return;
-    }
-    const statusEl = document.getElementById('campaign-settings-status');
-    if (statusEl) statusEl.textContent = 'Saving member role...';
-
-    try {
-      const response = await fetch(`/api/campaign/${campaignId}/settings/members/${uid}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ role: normalizedRole, status: 'active' }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.success) {
-        const error = String(payload?.error || `HTTP ${response.status}`).trim();
-        if (statusEl) statusEl.textContent = `Unable to update member: ${error}`;
-        return;
-      }
-      await this._loadCampaignSettings(true);
-    } catch (error) {
-      if (statusEl) statusEl.textContent = `Unable to update member: ${error?.message || 'network error'}`;
-    }
+    return this.campaignSettingsCoordinator?.updateCampaignMemberRole(memberUid, role);
   }
 
   /**
@@ -1262,19 +887,7 @@ export class GameShell {
   }
 
   _handleRoomViewRefreshIntent(options = {}, eventName = 'room:view-refresh-intent') {
-    const requestedRoomId = String(options?.roomId || this.activeRoomId || '').trim();
-    const activeRoomId = String(this.activeRoomId || '').trim();
-    if (!requestedRoomId || !activeRoomId || requestedRoomId !== activeRoomId) {
-      return;
-    }
-    this._loadRoomView({
-      ...options,
-      roomId: requestedRoomId,
-      preserveExisting: options?.preserveExisting !== false,
-    });
-    if (eventName === 'room:view-reload-requested') {
-      console.debug('[GameShell] room:view-reload-requested is legacy; prefer room:view-refresh-intent');
-    }
+    this.fetchBridge?.handleRoomViewRefreshIntent(options, eventName);
   }
 
   /**
@@ -1282,115 +895,15 @@ export class GameShell {
    * @private
    */
   async _loadChatHistory() {
-    const campaignId = this.launchContext?.campaign_id;
-    const roomId     = this.activeRoomId;
-    const requestRoomId = String(roomId || '').trim();
-    const charId     = Number(
-      this.resolveLaunchCharacterRuntimeContext?.().characterId
-      || this.launchCharacter?.id
-      || this.launchContext?.character_id
-      || 0
-    ) || null;
-    if (!campaignId || !roomId) {
-      console.warn('[GameShell] _loadChatHistory: missing campaignId or roomId', { campaignId, roomId });
-      return;
-    }
-    const mapId = String(
-      this.hexmap?.dungeonData?.map_id
-      || this.hexmap?.launchContext?.map_id
-      || this.launchContext?.map_id
-      || this.stateManager?.get?.('mapId')
-      || ''
-    ).trim();
-    const requestKey = `${campaignId}:${requestRoomId}:${charId || 0}:${mapId || ''}`;
-    if (!(this._chatHistoryInflight instanceof Map)) {
-      this._chatHistoryInflight = new Map();
-    }
-    if (!(this._chatHistoryLastLoadedAt instanceof Map)) {
-      this._chatHistoryLastLoadedAt = new Map();
-    }
-    if (this._chatHistoryInflight.has(requestKey)) {
-      return this._chatHistoryInflight.get(requestKey);
-    }
-    const loadedAt = Number(this._chatHistoryLastLoadedAt.get(requestKey) || 0);
-    if (loadedAt > 0 && (Date.now() - loadedAt) < 1200) {
-      return;
-    }
+    return this.fetchBridge?.loadChatHistory();
+  }
 
-    const requestToken = ++this._chatHistoryRequestToken;
-    console.log('[GameShell] _loadChatHistory', { campaignId, roomId, requestToken });
+  _isPlainObject(value) {
+    return _isPlainObject(value);
+  }
 
-    const request = (async () => {
-      try {
-        let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`;
-        const params = new URLSearchParams();
-        if (charId) params.set('character_id', String(charId));
-        if (mapId) params.set('map_id', mapId);
-        if (params.toString()) url += `?${params.toString()}`;
-        const resp = await fetch(url, {
-          headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-          credentials: 'same-origin',
-        });
-        if (requestToken !== this._chatHistoryRequestToken) {
-          return;
-        }
-        if (!resp.ok) {
-          const responseText = await resp.text().catch(() => '');
-          console.error('[GameShell] _loadChatHistory failed', {
-            campaignId,
-            roomId,
-            characterId: charId,
-            status: resp.status,
-            body: responseText,
-          });
-          return;
-        }
-        const result = await resp.json().catch(() => ({}));
-        if (requestToken !== this._chatHistoryRequestToken) {
-          return;
-        }
-        if (!result?.success || !Array.isArray(result.data?.messages)) {
-          console.warn('[GameShell] _loadChatHistory: unexpected response', { ok: resp.ok, success: result?.success, messageCount: result?.data?.messages?.length });
-          return;
-        }
-
-        const payloadRoomId = String(result?.data?.roomId || result?.data?.room_id || requestRoomId).trim();
-        const activeRoomId = String(this.activeRoomId || '').trim();
-        if (payloadRoomId && activeRoomId && payloadRoomId !== activeRoomId) {
-          console.info('[GameShell] _loadChatHistory: stale response dropped', {
-            requestedRoomId: requestRoomId,
-            payloadRoomId,
-            activeRoomId,
-          });
-          return;
-        }
-
-        this._chatHistoryLoaded = true;
-        this._chatHistoryLastLoadedAt.set(requestKey, Date.now());
-        console.log('[GameShell] _loadChatHistory: loaded', { lineCount: result.data.messages.length });
-        this.bus.emit('chat:history-loaded', {
-          ...result,
-          roomId: payloadRoomId || requestRoomId,
-          campaignId: Number(campaignId) || null,
-          requestToken,
-        });
-        this.queueRoomEntryAcknowledgement({
-          campaignId: Number(campaignId) || null,
-          roomId: payloadRoomId || requestRoomId,
-          characterId: charId,
-          mapId,
-        });
-      } catch (_) {
-        // Chat history is best-effort; no user-facing error
-      } finally {
-        if (this._chatHistoryInflight.get(requestKey) === request) {
-          this._chatHistoryInflight.delete(requestKey);
-        }
-      }
-    })();
-
-    this._chatHistoryInflight.set(requestKey, request);
-    await request;
+  _mergeRoomMetadata(visualRoom, apiRoom, roomId) {
+    return _mergeRoomMetadata(visualRoom, apiRoom, roomId);
   }
 
   queueRoomEntryAcknowledgement({ campaignId = null, roomId = '', characterId = null, mapId = '' } = {}) {
@@ -1664,143 +1177,15 @@ export class GameShell {
    * @private
    */
   async _loadRoomView(options = {}) {
-    const campaignId = this.launchContext?.campaign_id;
-    const roomId     = this.activeRoomId;
-    if (!campaignId || !roomId) {
-      console.warn('[GameShell] _loadRoomView: missing campaignId or roomId', { campaignId, roomId });
-      return;
-    }
-
-    const force          = Boolean(options.force);
-    const preserveExisting = Boolean(options.preserveExisting);
-    const viewKey        = `${campaignId}:${roomId}`;
-    const visualRoom     = this.mapVisualState?.topology?.rooms?.[roomId] ?? {};
-    const payloadRoomBase = { ...visualRoom, room_id: visualRoom?.room_id || roomId };
-
-    // Dedup: skip if same key already loaded unless forced
-    if (!force && this._roomViewLastKey === viewKey && this._roomViewHasContent) {
-      console.log('[GameShell] _loadRoomView: skipped (cached)', { viewKey });
-      return;
-    }
-
-    // In-flight dedup: return same promise if already fetching
-    if (this._roomViewInflight.has(viewKey)) {
-      console.log('[GameShell] _loadRoomView: skipped (inflight)', { viewKey });
-      return;
-    }
-
-    this._roomViewLastKey = viewKey;
-    const token = ++this._roomViewRequestToken;
-    const backendRequestId = `room-view-${viewKey}-${token}`;
-    console.log('[GameShell] _loadRoomView', { campaignId, roomId, force, preserveExisting });
-
-    // Show "Generating" immediately unless preserving existing gallery
-    if (!preserveExisting || !this._roomViewHasContent) {
-      this.bus.emit('room:view-loaded', {
-        room: payloadRoomBase,
-        viewState: { statusLabel: 'Generating', placeholderText: 'Loading room scene...', entries: [] },
-      });
-    }
-
-    const request = (async () => {
-      this.bus.emit('game:backend-request-start', {
-        requestId: backendRequestId,
-        label: 'Waiting for room view generation...',
-        source: 'room-view',
-      });
-      const resp = await fetch(
-        `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/view-image`,
-        {
-          headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-          credentials: 'same-origin',
-        },
-      );
-      if (token !== this._roomViewRequestToken) return;
-      if (!resp.ok) {
-        this.bus.emit('game:server-unavailable', { message: `Room view unavailable (${resp.status})` });
-        return;
-      }
-      const result = await resp.json().catch(() => ({}));
-      if (!result?.success || !result?.data) {
-        console.warn('[GameShell] _loadRoomView: bad result', { success: result?.success, hasData: !!result?.data });
-        return;
-      }
-
-      const entries = Array.isArray(result.data.entries)
-        ? result.data.entries.filter((e) => e?.image?.url || e?.image?.data_uri)
-        : [];
-      const first = entries[0];
-      const sceneImageUrl = first?.image?.url ?? first?.image?.data_uri ?? null;
-
-      const apiRoom = _isPlainObject(result.data.room) ? result.data.room : {};
-      const payloadRoom = _mergeRoomMetadata(visualRoom, apiRoom, roomId);
-      const roomName = payloadRoom?.name ?? visualRoom?.name ?? roomId;
-
-      const dataStatus = String(result.data.status || '').toLowerCase();
-      this._roomViewHasContent = entries.length > 0;
-
-      const statusLabel = entries.length > 0
-        ? `${entries.length} Scene${entries.length === 1 ? '' : 's'}`
-        : (dataStatus === 'pending' ? 'Generating' : (result.data.available === false ? 'Unavailable' : 'Pending'));
-      const placeholderText = entries.length > 0
-        ? ''
-        : (dataStatus === 'pending'
-          ? 'Room scene is being generated — checking again shortly...'
-          : (result.data.message || 'No room view image is available yet.'));
-
-      console.log('[GameShell] _loadRoomView: result', {
-        rawEntries: result.data.entries?.length ?? 0,
-        filteredEntries: entries.length,
-        sceneImageUrl: !!sceneImageUrl,
-        available: result.data.available,
-        status: dataStatus,
-        message: result.data.message ?? null,
-        visualRoomHasDescription: Boolean(String(visualRoom?.description ?? '').trim()),
-        apiRoomHasDescription: Boolean(String(apiRoom?.description ?? '').trim()),
-        payloadRoomHasDescription: Boolean(String(payloadRoom?.description ?? '').trim()),
-        payloadRoomName: payloadRoom?.name ?? null,
-      });
-
-      this.bus.emit('room:view-loaded', { room: payloadRoom, viewState: { statusLabel, placeholderText, entries } });
-
-      // Auto-retry when pending (image generation queued server-side)
-      if (entries.length === 0 && dataStatus === 'pending') {
-        this._scheduleRoomViewRetry(roomId, viewKey);
-      } else {
-        this._clearRoomViewRetry();
-      }
-    })();
-
-    this._roomViewInflight.set(viewKey, request);
-    try {
-      await request;
-    } catch (err) {
-      if (token !== this._roomViewRequestToken) return;
-      this.bus?.emit('room:view-loaded', {
-        room: payloadRoomBase,
-        viewState: { statusLabel: 'Unavailable', placeholderText: err?.message || 'Room view generation failed.', entries: [] },
-      });
-    } finally {
-      this._roomViewInflight.delete(viewKey);
-      this.bus?.emit('game:backend-request-end', { requestId: backendRequestId, source: 'room-view' });
-    }
+    return this.fetchBridge?.loadRoomView(options);
   }
 
   _scheduleRoomViewRetry(roomId, viewKey) {
-    this._clearRoomViewRetry();
-    this._roomViewRetryTimer = window.setTimeout(() => {
-      this._roomViewRetryTimer = null;
-      if (this._roomViewLastKey !== viewKey) return;
-      console.log('[GameShell] _loadRoomView: retrying pending', { viewKey });
-      this._loadRoomView({ force: true, preserveExisting: true });
-    }, 5000);
+    this.fetchBridge?.scheduleRoomViewRetry(roomId, viewKey);
   }
 
   _clearRoomViewRetry() {
-    if (this._roomViewRetryTimer) {
-      window.clearTimeout(this._roomViewRetryTimer);
-      this._roomViewRetryTimer = null;
-    }
+    this.fetchBridge?.clearRoomViewRetry();
   }
 
   /**
@@ -1809,91 +1194,11 @@ export class GameShell {
    * @private
    */
   async _loadMerchantStock() {
-    // Prevent concurrent duplicate fetches; re-trigger is handled by MerchantPanel's own retry.
-    if (this._merchantStockLoading) return;
-    this._merchantStockLoading = true;
-
-    try {
-      await this.__loadMerchantStockImpl();
-    } finally {
-      this._merchantStockLoading = false;
-    }
+    return this.fetchBridge?.loadMerchantStock();
   }
 
   async __loadMerchantStockImpl() {
-    const campaignId = this.launchContext?.campaign_id;
-    const roomId     = this.activeRoomId;
-    const charId     = this.launchCharacter?.id ?? this.launchContext?.character_id;
-    if (!campaignId || !roomId) return;
-
-    const merchants = this._currentOccupants.filter((o) => o?.presentation?.is_merchant);
-    console.log('[GameShell] _loadMerchantStock start', {
-      merchantCount: merchants.length,
-      merchantRefs: merchants.map((m) => m?.occupant_id ?? m?.content_id ?? null),
-      activeTab: this.activeGameShellTab,
-    });
-    if (!merchants.length) return;
-
-    const updatedOccupants = [...this._currentOccupants];
-
-    await Promise.all(merchants.map(async (merchant) => {
-      const merchantRef = merchant.occupant_id ?? merchant.content_id;
-      if (!merchantRef) return;
-      const token = (this._merchantRequestTokens.get(merchantRef) ?? 0) + 1;
-      this._merchantRequestTokens.set(merchantRef, token);
-
-      try {
-        const params = charId ? `?character_id=${encodeURIComponent(charId)}` : '';
-        const url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/merchant/${encodeURIComponent(merchantRef)}${params}`;
-        const resp = await fetch(url, {
-          headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-          credentials: 'same-origin',
-        });
-        if (this._merchantRequestTokens.get(merchantRef) !== token) return;
-        if (!resp.ok) return;
-        const result = await resp.json().catch(() => ({}));
-        if (!result?.success || !result?.context) return;
-
-        const ctx = result.context;
-        const idx = updatedOccupants.findIndex((o) => o.occupant_id === merchant.occupant_id);
-        if (idx !== -1) {
-          updatedOccupants[idx] = {
-            ...updatedOccupants[idx],
-            presentation: {
-              ...updatedOccupants[idx].presentation,
-              role: ctx.merchant?.role ?? updatedOccupants[idx].presentation?.role ?? '',
-              merchant_summary: ctx.merchant?.summary ?? '',
-              merchant_profile: ctx.merchant?.profile ?? '',
-              merchant_profile_label: ctx.merchant?.profile_label ?? '',
-              merchant_wares_label: ctx.merchant?.wares_label ?? '',
-              merchant_wares_types: Array.isArray(ctx.merchant?.wares_types) ? ctx.merchant.wares_types : [],
-              stock:           Array.isArray(ctx.stock) ? ctx.stock : [],
-              player_currency: ctx.player?.currency ?? ctx.player_currency ?? {},
-            },
-          };
-        }
-      } catch (_) {
-        // Per-merchant failure is silent
-      }
-    }));
-
-    this._currentOccupants = updatedOccupants;
-    const room = this.mapVisualState?.topology?.rooms?.[roomId];
-    console.log('[GameShell] _loadMerchantStock complete', {
-      activeTab: this.activeGameShellTab,
-      stockedMerchantCount: updatedOccupants.filter((o) => o?.presentation?.stock).length,
-    });
-    this.bus.emit('room:occupants-decoration-changed', {
-      roomId,
-      roomName: room?.name ?? roomId,
-      source: 'merchant-stock',
-    });
-    this.bus.emit('merchant:stock-loaded', {
-      roomId,
-      roomName: room?.name ?? roomId,
-      merchantCount: updatedOccupants.filter((entry) => entry?.presentation?.is_merchant).length,
-      occupants: updatedOccupants,
-    });
+    return this.fetchBridge?.loadMerchantStockImpl();
   }
 
   /**
@@ -2263,526 +1568,55 @@ export class GameShell {
   }
 
   _cloneActionButtonForTargetPick(button) {
-    const clone = document.createElement('button');
-    clone.type = 'button';
-    const source = button instanceof HTMLButtonElement ? button : null;
-    if (source?.dataset) {
-      Object.entries(source.dataset).forEach(([key, value]) => {
-        clone.dataset[key] = String(value ?? '');
-      });
-    }
-    clone.dataset.actionRailExecute = String(source?.dataset?.actionRailExecute || '').trim();
-    clone.dataset.actionLabel = String(source?.dataset?.actionLabel || source?.textContent || source?.dataset?.actionRailExecute || 'action').trim();
-    return clone;
+    return this.targetPickController?.cloneActionButtonForTargetPick(button);
   }
 
   _normalizeTargetPickKindsForAction(actionKey = '', button = null) {
-    const key = String(actionKey || '').trim().toLowerCase();
-    const targeting = String(button?.dataset?.targeting || '').trim().toLowerCase();
-    if (targeting === 'hex' || targeting === 'area_origin' || targeting === 'connected_room' || targeting === 'room_hazard' || targeting === 'room' || targeting === 'self_or_target') {
-      return [targeting];
-    }
-    if (['skill', 'feat', 'consume_item', 'consumable'].includes(key) && targeting) {
-      return [targeting];
-    }
-    if (key === 'attack' || key === 'demoralize') {
-      return ['hostile_entity'];
-    }
-    if (key === 'feint' || key === 'point_out') {
-      return ['hostile_entity'];
-    }
-    if (key === 'talk') {
-      return ['entity_or_room'];
-    }
-    if (key === 'interact') {
-      return ['entity_or_object'];
-    }
-    if (key === 'command_animal') {
-      return ['ally'];
-    }
-    if ([
-      'aid_setup',
-      'administer_first_aid',
-      'battle_medicine',
-      'treat_poison',
-      'treat_wounds',
-    ].includes(key)) {
-      return ['ally_or_self'];
-    }
-    if (key === 'stride' || key === 'step') {
-      return ['hex'];
-    }
-    if (key === 'cast_spell' || key === 'spell') {
-      if (targeting) {
-        return [targeting];
-      }
-      return ['contextual'];
-    }
-    return ['contextual'];
+    return this.targetPickController?.normalizeTargetPickKindsForAction(actionKey, button);
   }
 
   _setTargetPickOverlay(active = false, promptLabel = 'Pick target') {
-    if (!(this._targetPickPromptEl instanceof HTMLElement)) {
-      this._targetPickPromptEl = document.getElementById('map-target-pick-prompt');
-    }
-    const container = this.container?.closest?.('#hexmap-container')
-      || (typeof document !== 'undefined' ? document.getElementById('hexmap-container') : null)
-      || this.container
-      || null;
-    if (container instanceof HTMLElement) {
-      container.classList.toggle('dc-target-pick-active', Boolean(active));
-    }
-    if (this._targetPickPromptEl instanceof HTMLElement) {
-      this._targetPickPromptEl.hidden = !active;
-      this._targetPickPromptEl.textContent = active ? String(promptLabel || 'Pick target').trim() : '';
-    }
-    const instruction = document.getElementById('action-instruction');
-    if (instruction instanceof HTMLElement && active) {
-      instruction.hidden = false;
-      instruction.textContent = String(promptLabel || 'Pick target').trim();
-    }
+    this.targetPickController?.setTargetPickOverlay(active, promptLabel);
   }
 
   _clearTargetPickSession(reason = 'cleared') {
-    if (!this._targetPickSession) {
-      this._setTargetPickOverlay(false);
-      return;
-    }
-    console.info('[GameShell] target pick session cleared', { reason, actionKey: this._targetPickSession.actionKey });
-    this._targetPickSession = null;
-    this._setTargetPickOverlay(false);
+    this.targetPickController?.clearTargetPickSession(reason);
   }
 
   _beginTargetPickSession({ actionKey = '', button = null, promptLabel = '' } = {}) {
-    const normalizedAction = String(actionKey || '').trim().toLowerCase();
-    if (!normalizedAction) {
-      return;
-    }
-    const executionButton = this._cloneActionButtonForTargetPick(button);
-    const allowedKinds = this._normalizeTargetPickKindsForAction(normalizedAction, executionButton);
-    const targetActorRef = this._resolveTargetPickActorRef(executionButton);
-    const minTargets = Number.isFinite(Number(executionButton?.dataset?.minTargets))
-      ? Math.max(1, Math.trunc(Number(executionButton.dataset.minTargets)))
-      : 1;
-    const maxTargets = Number.isFinite(Number(executionButton?.dataset?.maxTargets))
-      ? Math.max(minTargets, Math.trunc(Number(executionButton.dataset.maxTargets)))
-      : minTargets;
-    const selectionMode = String(executionButton?.dataset?.selectionMode || (maxTargets > 1 ? 'multi' : 'single')).trim().toLowerCase();
-    const completionPolicy = String(
-      executionButton?.dataset?.completionPolicy
-      || (selectionMode === 'multi' ? 'max_targets' : 'auto')
-    ).trim().toLowerCase();
-    const allowDuplicateTargets = executionButton?.dataset?.allowDuplicateTargets === '1';
-    const rangeFt = Number(executionButton?.dataset?.rangeFt || 0);
-    const maxRangeFt = Number.isFinite(rangeFt) && rangeFt > 0 ? Math.max(0, Math.trunc(rangeFt)) : null;
-    const resolvedPrompt = String(promptLabel || '').trim() || 'Pick target';
-    this._targetPickSession = {
-      actionKey: normalizedAction,
-      button: executionButton,
-      promptLabel: resolvedPrompt,
-      allowedKinds,
-      actorRef: targetActorRef,
-      minTargets,
-      maxTargets,
-      selectionMode,
-      completionPolicy,
-      allowDuplicateTargets,
-      maxRangeFt,
-      selectedTargets: [],
-      sourceSurface: 'action-rail',
-    };
-    this.activateGameShellTab('map');
-    const prompt = maxTargets > 1 ? `${resolvedPrompt} (0/${maxTargets})` : resolvedPrompt;
-    this._setTargetPickOverlay(true, prompt);
-    console.info('[GameShell] target pick session started', {
-      actionKey: normalizedAction,
-      promptLabel: resolvedPrompt,
-      allowedKinds,
-      actorRef: targetActorRef,
-      minTargets,
-      maxTargets,
-      selectionMode,
-      completionPolicy,
-      maxRangeFt,
-    });
+    this.targetPickController?.beginTargetPickSession({ actionKey, button, promptLabel });
   }
 
   _resolveTargetPickActorRef(button = null) {
-    const explicitActorRef = String(button?.dataset?.actorRef || '').trim();
-    if (explicitActorRef) {
-      return explicitActorRef;
-    }
-
-    const snapshot = this.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
-    const encounterActorRef = String(
-      snapshot?.actionContract?.actor_id
-      || snapshot?.turn?.entity
-      || ''
-    ).trim();
-    if (encounterActorRef) {
-      return encounterActorRef;
-    }
-
-    const selectedEntity = this._getStateValue('selectedEntity') || null;
-    const selectedRef = this.getEntityInstanceRef(selectedEntity);
-    if (selectedRef) {
-      return selectedRef;
-    }
-
-    return this.getEntityInstanceRef(this.findLaunchPlayerEntity?.() || null);
+    return this.targetPickController?.resolveTargetPickActorRef(button);
   }
 
   _resolveEntityByInstanceRef(actorRef = '') {
-    const targetRef = String(actorRef || '').trim();
-    if (!targetRef || !this.entityManager?.getEntitiesWith) {
-      return null;
-    }
-    const entities = this.entityManager.getEntitiesWith('PositionComponent');
-    return entities.find((entity) => this.getEntityInstanceRef(entity) === targetRef) || null;
+    return this.targetPickController?.resolveEntityByInstanceRef(actorRef);
   }
 
   _isHostileEntityTarget(entity, actorEntity) {
-    if (!entity || !actorEntity || entity.id === actorEntity.id) {
-      return false;
-    }
-    const actorCombat = actorEntity.getComponent?.('CombatComponent') || null;
-    const targetCombat = entity.getComponent?.('CombatComponent') || null;
-    if (!actorCombat || !targetCombat) {
-      return false;
-    }
-    if (typeof actorCombat.isHostileTo === 'function') {
-      return actorCombat.isHostileTo(targetCombat);
-    }
-    const actorTeam = String(actorCombat.team || '').trim().toLowerCase();
-    const targetTeam = String(targetCombat.team || '').trim().toLowerCase();
-    return Boolean(actorTeam && targetTeam && actorTeam !== targetTeam);
+    return this.targetPickController?.isHostileEntityTarget(entity, actorEntity);
   }
 
   _isAllyEntityTarget(entity, actorEntity) {
-    if (!entity || !actorEntity || entity.id === actorEntity.id) {
-      return false;
-    }
-    const actorCombat = actorEntity.getComponent?.('CombatComponent') || null;
-    const targetCombat = entity.getComponent?.('CombatComponent') || null;
-    if (!actorCombat || !targetCombat) {
-      return false;
-    }
-    const actorTeam = String(actorCombat.team || '').trim().toLowerCase();
-    const targetTeam = String(targetCombat.team || '').trim().toLowerCase();
-    return Boolean(actorTeam && targetTeam && actorTeam === targetTeam);
+    return this.targetPickController?.isAllyEntityTarget(entity, actorEntity);
   }
 
   _resolvePrimaryHexEntity(q, r, provided = []) {
-    const entities = Array.isArray(provided) && provided.length
-      ? provided
-      : this.getEntitiesAtHex(q, r);
-    if (!entities.length) {
-      return null;
-    }
-    const selectedId = this._getStateValue('selectedEntity')?.id || null;
-    if (selectedId) {
-      const match = entities.find((entity) => entity?.id === selectedId);
-      if (match) {
-        return match;
-      }
-    }
-    return entities[0] || null;
+    return this.targetPickController?.resolvePrimaryHexEntity(q, r, provided);
   }
 
   _handleTargetPickHexClick(q, r, providedEntities = []) {
-    const session = this._targetPickSession;
-    if (!session) {
-      return false;
-    }
-    const actor = this._resolveEntityByInstanceRef(session.actorRef) || this.findLaunchPlayerEntity?.() || null;
-    const targetEntity = this._resolvePrimaryHexEntity(q, r, providedEntities);
-    const kinds = Array.isArray(session.allowedKinds) ? session.allowedKinds : [];
-    const button = session.button;
-    console.info('[GameShell] target pick click received', {
-      actionKey: session.actionKey,
-      actorRef: session.actorRef,
-      q: Number(q),
-      r: Number(r),
-      selectedCount: Array.isArray(session.selectedTargets) ? session.selectedTargets.length : 0,
-      minTargets: session.minTargets,
-      maxTargets: session.maxTargets,
-      completionPolicy: session.completionPolicy,
-      selectionMode: session.selectionMode,
-      allowDuplicateTargets: session.allowDuplicateTargets,
-      targetEntityRef: this.getEntityInstanceRef(targetEntity),
-      targetEntityId: String(targetEntity?.id || ''),
-      targetEntityName: _getEntityDisplayName(targetEntity),
-    });
-
-    const chooseEntityTarget = (entity, kind = 'entity') => {
-      if (!entity) {
-        return false;
-      }
-      const targetRef = String(entity?.dcEntityRef || entity?.dcEntityInstanceId || entity?.instanceId || '').trim();
-      const targetName = _getEntityDisplayName(entity);
-      button.dataset.targetId = String(entity.id || '');
-      button.dataset.targetEntityId = String(entity.id || '');
-      button.dataset.targetName = targetName;
-      if (targetRef) {
-        button.dataset.targetRef = targetRef;
-      }
-      this.selectEntity(entity, { suppressCoordinatorResync: true });
-      return {
-        target_kind: kind,
-        target_ref: targetRef || null,
-        target_entity_id: String(entity.id || '').trim() || null,
-        target_hex: { q: Number(q), r: Number(r) },
-        target_label: targetName || null,
-      };
-    };
-
-    const chooseHexTarget = (kind = 'hex') => {
-      button.dataset.targetQ = String(q);
-      button.dataset.targetR = String(r);
-      return {
-        target_kind: kind,
-        target_ref: null,
-        target_entity_id: null,
-        target_hex: { q: Number(q), r: Number(r) },
-        target_label: `Hex (${q}, ${r})`,
-      };
-    };
-
-    const chooseSelfTarget = () => {
-      if (!actor) {
-        return false;
-      }
-      const actorRef = this.getEntityInstanceRef(actor);
-      const actorLabel = _getEntityDisplayName(actor);
-      if (actorRef) {
-        button.dataset.targetRef = actorRef;
-      }
-      button.dataset.targetEntityId = String(actor?.id || '');
-      button.dataset.targetId = String(actor?.id || '');
-      button.dataset.targetName = actorLabel;
-      this.selectEntity(actor, { suppressCoordinatorResync: true });
-      return {
-        target_kind: 'self',
-        target_ref: actorRef || null,
-        target_entity_id: String(actor?.id || '').trim() || null,
-        target_hex: { q: Number(q), r: Number(r) },
-        target_label: actorLabel || 'self',
-      };
-    };
-
-    let selection = null;
-    if (kinds.includes('hostile_entity')) {
-      selection = this._isHostileEntityTarget(targetEntity, actor) ? chooseEntityTarget(targetEntity, 'hostile_entity') : null;
-    } else if (kinds.includes('ally') || kinds.includes('ally_or_self')) {
-      selection = this._isAllyEntityTarget(targetEntity, actor) ? chooseEntityTarget(targetEntity, 'ally') : null;
-      if (!selection && kinds.includes('ally_or_self')) {
-        selection = chooseSelfTarget();
-      }
-    } else if (kinds.includes('self_or_target')) {
-      const actorRef = this.getEntityInstanceRef(actor);
-      const targetRef = this.getEntityInstanceRef(targetEntity);
-      if (targetEntity && actor && actorRef && targetRef && actorRef === targetRef) {
-        selection = chooseSelfTarget();
-      } else {
-        selection = chooseEntityTarget(targetEntity, 'self_or_target');
-      }
-    } else if (kinds.includes('entity_or_object') || kinds.includes('entity_or_room') || kinds.includes('contextual')) {
-      selection = chooseEntityTarget(targetEntity);
-      if (!selection) {
-        selection = chooseHexTarget();
-      }
-    } else if (kinds.includes('hex')) {
-      selection = chooseHexTarget('hex');
-    } else if (kinds.includes('area_origin')) {
-      button.dataset.areaOriginQ = String(q);
-      button.dataset.areaOriginR = String(r);
-      button.dataset.targetQ = String(q);
-      button.dataset.targetR = String(r);
-      selection = {
-        target_kind: 'area_origin',
-        target_ref: null,
-        target_entity_id: null,
-        target_hex: { q: Number(q), r: Number(r) },
-        target_label: `Area origin (${q}, ${r})`,
-      };
-    } else if (kinds.includes('connected_room')) {
-      const capability = this.resolveNavigationCapabilityAtHex?.(q, r) || null;
-      if (capability?.available && capability?.target_room_id) {
-        button.dataset.targetRoomId = String(capability.target_room_id);
-        button.dataset.targetRoomName = String(capability.target_room_name || capability.target_room_id);
-        button.dataset.targetRef = String(capability.target_room_id);
-        selection = {
-          target_kind: 'connected_room',
-          target_ref: String(capability.target_room_id),
-          target_entity_id: null,
-          target_room_id: String(capability.target_room_id),
-          target_hex: { q: Number(q), r: Number(r) },
-          target_label: String(capability.target_room_name || capability.target_room_id),
-        };
-      }
-    } else if (kinds.includes('room_hazard') || kinds.includes('room')) {
-      button.dataset.targetRoomId = String(this.resolveActiveRoomId() || '');
-      selection = chooseEntityTarget(targetEntity, kinds.includes('room_hazard') ? 'room_hazard' : 'room')
-        || {
-          ...chooseHexTarget(kinds.includes('room_hazard') ? 'room_hazard' : 'room'),
-          target_room_id: String(this.resolveActiveRoomId() || ''),
-        };
-    } else {
-      selection = chooseEntityTarget(targetEntity);
-    }
-
-    if (!selection || !this._appendTargetPickSelection(session, selection)) {
-      console.warn('[GameShell] target pick selection rejected', {
-        actionKey: session.actionKey,
-        q: Number(q),
-        r: Number(r),
-        selection,
-        selectedTargets: session.selectedTargets,
-      });
-      this._setTargetPickOverlay(true, `${session.promptLabel} (invalid target)`);
-      return true;
-    }
-
-    const selectedCount = Array.isArray(session.selectedTargets) ? session.selectedTargets.length : 0;
-    const maxTargets = Number.isFinite(Number(session.maxTargets)) ? Number(session.maxTargets) : 1;
-    const minTargets = Number.isFinite(Number(session.minTargets)) ? Number(session.minTargets) : 1;
-    const completionPolicy = String(session.completionPolicy || '').trim().toLowerCase();
-    const shouldComplete = selectedCount >= minTargets
-      && (
-        session.selectionMode !== 'multi'
-        || completionPolicy === 'min_targets'
-        || selectedCount >= maxTargets
-      );
-    if (!shouldComplete) {
-      console.info('[GameShell] target pick awaiting additional selections', {
-        actionKey: session.actionKey,
-        selectedCount,
-        minTargets,
-        maxTargets,
-        completionPolicy,
-        selectedTargets: session.selectedTargets,
-      });
-      this._setTargetPickOverlay(true, `${session.promptLabel} (${selectedCount}/${maxTargets})`);
-      return true;
-    }
-
-    this._applyLegacySelectionDataset(button, session.selectedTargets[0] || null);
-    button.dataset.targetsJson = JSON.stringify(session.selectedTargets || []);
-    button.dataset.targetQ = button.dataset.targetQ || String(q);
-    button.dataset.targetR = button.dataset.targetR || String(r);
-    this.setSelectedHex(q, r, { emitDetails: false });
-    const actionKey = String(session.actionKey || '').trim();
-    console.info('[GameShell] target pick finalizing action dispatch', {
-      actionKey,
-      actorRef: session.actorRef,
-      minTargets,
-      maxTargets,
-      completionPolicy,
-      targets: session.selectedTargets,
-      datasetTargetRef: String(button?.dataset?.targetRef || ''),
-      datasetTargetsJson: String(button?.dataset?.targetsJson || ''),
-    });
-    this._clearTargetPickSession('picked');
-    this.bus.emit('user:action-selected', { actionKey, button });
-    return true;
+    return this.targetPickController?.handleTargetPickHexClick(q, r, providedEntities);
   }
 
   _appendTargetPickSelection(session, selection) {
-    if (!session || !selection || typeof selection !== 'object') {
-      return false;
-    }
-    if (!Array.isArray(session.selectedTargets)) {
-      session.selectedTargets = [];
-    }
-    const key = [
-      String(selection.target_kind || '').trim(),
-      String(selection.target_ref || '').trim(),
-      String(selection.target_entity_id || '').trim(),
-      Number.isFinite(Number(selection?.target_hex?.q)) ? Number(selection.target_hex.q) : '',
-      Number.isFinite(Number(selection?.target_hex?.r)) ? Number(selection.target_hex.r) : '',
-      String(selection.target_room_id || '').trim(),
-    ].join(':');
-    const existingKeys = new Set((session.selectedTargets || []).map((entry) => [
-      String(entry?.target_kind || '').trim(),
-      String(entry?.target_ref || '').trim(),
-      String(entry?.target_entity_id || '').trim(),
-      Number.isFinite(Number(entry?.target_hex?.q)) ? Number(entry.target_hex.q) : '',
-      Number.isFinite(Number(entry?.target_hex?.r)) ? Number(entry.target_hex.r) : '',
-      String(entry?.target_room_id || '').trim(),
-    ].join(':')));
-    if (!session.allowDuplicateTargets && existingKeys.has(key)) {
-      console.warn('[GameShell] target pick duplicate blocked', {
-        actionKey: session.actionKey,
-        key,
-        selection,
-        allowDuplicateTargets: session.allowDuplicateTargets,
-      });
-      return false;
-    }
-    const maxTargets = Number.isFinite(Number(session.maxTargets)) ? Number(session.maxTargets) : 1;
-    if (session.selectedTargets.length >= maxTargets) {
-      console.warn('[GameShell] target pick max target count reached', {
-        actionKey: session.actionKey,
-        selectedCount: session.selectedTargets.length,
-        maxTargets,
-      });
-      return false;
-    }
-    if (Number.isFinite(Number(session.maxRangeFt)) && Number(session.maxRangeFt) > 0) {
-      const actor = this._resolveEntityByInstanceRef(session.actorRef) || this.findLaunchPlayerEntity?.() || null;
-      const actorPos = actor?.getComponent?.('PositionComponent') || null;
-      const targetQ = Number(selection?.target_hex?.q);
-      const targetR = Number(selection?.target_hex?.r);
-      const distanceHexes = actorPos && Number.isFinite(targetQ) && Number.isFinite(targetR) && this.movementSystem?.hexDistance
-        ? this.movementSystem.hexDistance(Number(actorPos.q), Number(actorPos.r), targetQ, targetR)
-        : null;
-      const hexCost = Number(actor?.getComponent?.('MovementComponent')?.hexMovementCost || 5);
-      const distanceFt = Number.isFinite(Number(distanceHexes))
-        ? Number(distanceHexes) * (Number.isFinite(hexCost) && hexCost > 0 ? hexCost : 5)
-        : null;
-      if (Number.isFinite(Number(distanceFt)) && Number(distanceFt) > Number(session.maxRangeFt)) {
-        console.warn('[GameShell] target pick range blocked', {
-          actionKey: session.actionKey,
-          actorRef: session.actorRef,
-          maxRangeFt: session.maxRangeFt,
-          distanceFt,
-          selection,
-        });
-        return false;
-      }
-    }
-    session.selectedTargets.push(selection);
-    console.info('[GameShell] target pick selection appended', {
-      actionKey: session.actionKey,
-      selectedCount: session.selectedTargets.length,
-      maxTargets: session.maxTargets,
-      selection,
-      selectedTargets: session.selectedTargets,
-    });
-    return true;
+    return this.targetPickController?.appendTargetPickSelection(session, selection);
   }
 
   _applyLegacySelectionDataset(button, selection) {
-    if (!button?.dataset || !selection || typeof selection !== 'object') {
-      return;
-    }
-    if (selection.target_ref) {
-      button.dataset.targetRef = String(selection.target_ref);
-    }
-    if (selection.target_entity_id) {
-      button.dataset.targetEntityId = String(selection.target_entity_id);
-      button.dataset.targetId = String(selection.target_entity_id);
-    }
-    if (selection.target_label) {
-      button.dataset.targetName = String(selection.target_label);
-    }
-    if (selection.target_room_id) {
-      button.dataset.targetRoomId = String(selection.target_room_id);
-    }
-    if (selection?.target_hex && Number.isFinite(Number(selection.target_hex.q)) && Number.isFinite(Number(selection.target_hex.r))) {
-      button.dataset.targetQ = String(selection.target_hex.q);
-      button.dataset.targetR = String(selection.target_hex.r);
-    }
+    this.targetPickController?.applyLegacySelectionDataset(button, selection);
   }
 
   /**
@@ -3002,6 +1836,9 @@ export class GameShell {
       window.removeEventListener('dungeoncrawler:game-shell-tab-changed', this._tabChangedHandler);
       this._tabChangedHandler = null;
     }
+
+    this.fetchBridge?.destroy?.();
+    this.fetchBridge = null;
 
     Object.values(this.panels).forEach((p) => p?.destroy?.());
     Object.values(this.systems).forEach((s) => s?.destroy?.());
@@ -3511,8 +2348,9 @@ export class GameShell {
       }
       this._coordinatorStateSyncInFlightKey = syncKey;
 
+      const requestActorRef = normalizeAuthoritativeStateActorRef(actorRef, { runtimeContext: fallbackRuntimeContext });
       const state = await this.gameCoordinator.api.getState({
-        actor: actorRef || undefined,
+        actor: requestActorRef || undefined,
         characterId: characterId || undefined,
       });
       const responseActorRef = String(
@@ -3550,7 +2388,17 @@ export class GameShell {
         this.gameCoordinator.applyAuthoritativeUpdate(state);
         return true;
       }
+      this.gameCoordinator?.runtimeStateStore?.noteSyncFailure?.({
+        code: 'coordinator_state_sync_failed',
+        error: state?.error || 'unknown',
+        expectedRoomId: canonicalExpectedRoomId || null,
+      });
     } catch (error) {
+      this.gameCoordinator?.runtimeStateStore?.noteSyncFailure?.({
+        code: 'coordinator_state_sync_fetch_error',
+        error: error?.message || String(error || ''),
+        expectedRoomId: String(expectedRoomId || '').trim() || null,
+      });
       console.warn('[GameShell] Failed to resync coordinator state after runtime bundle apply', error);
     } finally {
       this._coordinatorStateSyncInFlightKey = null;
@@ -3992,15 +2840,16 @@ export class GameShell {
     const launchCharacterId = this.resolveLaunchCharacterStateId();
     const selectedInstanceId = selectedEntity?.dcEntityRef || selectedEntity?.dcEntityInstanceId || null;
     const selectedIsLaunchActor = launchCharacterId > 0 && selectedCharacterId === launchCharacterId;
-    const selectedIsControlledFollower = selectedEntity ? this.isControlledFollowerEntity(selectedEntity) : false;
+    const launchCharacterInstanceId = this.launchCharacter?.instanceId || this.launchCharacter?.instance_id || null;
+    const authoritativeInstanceId = launchCharacterInstanceId || (selectedIsLaunchActor ? selectedInstanceId : null);
     return {
       campaignId: this.resolveCampaignId(),
-      characterId: (selectedIsLaunchActor || selectedIsControlledFollower)
+      characterId: selectedIsLaunchActor
         ? (selectedCharacterId || launchCharacterId || null)
         : (launchCharacterId || null),
-      instanceId: (selectedIsLaunchActor || selectedIsControlledFollower)
-        ? selectedInstanceId
-        : (this.launchCharacter?.instanceId || this.launchCharacter?.instance_id || null),
+      instanceId: selectedIsLaunchActor
+        ? (selectedInstanceId || authoritativeInstanceId)
+        : authoritativeInstanceId,
       roomId: this.resolveActiveRoomId(),
       questSummary: this.questSummary && typeof this.questSummary === 'object' ? this.questSummary : {},
     };
@@ -4196,7 +3045,7 @@ export class GameShell {
     }
     const launchCharacterId = this.resolveLaunchCharacterStateId();
     const matchesLaunchCharacter = launchCharacterId > 0 && this.getEntityCharacterId(entity) === launchCharacterId;
-    return matchesLaunchCharacter || this.isControlledFollowerEntity(entity);
+    return matchesLaunchCharacter;
   }
 
   resolveMapDragDropValidation(entity, targetQ, targetR) {
@@ -4798,6 +3647,7 @@ export class GameShell {
     fetch(`/api/campaign/${campaignId}/entity/${resolvedEntityRef}/move`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'same-origin',
       body: JSON.stringify({
         locationType: 'room',
         locationRef: nextRoomId,
@@ -4811,7 +3661,20 @@ export class GameShell {
           },
         },
       }),
-    }).catch((err) => console.warn('[Location] Entity move persist failed:', err));
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Entity move persist failed (${response.status}).`);
+        }
+        if (String(this.resolveActiveRoomId() || '').trim() !== String(nextRoomId).trim()) {
+          return;
+        }
+        await this.loadRuntimeStateBundle(this.buildRuntimeBundleQueryForRoom(nextRoomId, {
+          startQ: q,
+          startR: r,
+        }));
+      })
+      .catch((err) => console.warn('[Location] Entity move persist failed:', err));
 
     if (entityRef) {
       this.launchCharacter = {
@@ -4919,8 +3782,10 @@ export class GameShell {
         return false;
       }
       try {
+        const fallbackRuntimeContext = this.resolveLaunchCharacterRuntimeContext?.() || {};
+        const requestActorRef = normalizeAuthoritativeStateActorRef(actorRef, { runtimeContext: fallbackRuntimeContext });
         const state = await coordinator.api.getState({
-          actor: actorRef || null,
+          actor: requestActorRef || undefined,
           characterId: runtimeCharacterId,
         });
         if (state?.success) {
@@ -5077,6 +3942,35 @@ export class GameShell {
     }
   }
 
+  async refreshCharacterRuntimeState(context = {}, reason = 'character-panel-runtime-refresh') {
+    const launchCharacterId = this.resolveLaunchCharacterStateId();
+    const runtimeCharacterId = Number(
+      context?.runtimeCharacterId
+      || context?.sheetCharacterId
+      || context?.characterId
+      || this.launchCharacter?.id
+      || this.launchContext?.character_id
+      || 0
+    ) || 0;
+    if (runtimeCharacterId <= 0 || launchCharacterId <= 0 || runtimeCharacterId !== launchCharacterId) {
+      return null;
+    }
+
+    const now = Date.now();
+    if ((now - this._lastRosterRuntimeRefreshAt) < 350) {
+      return null;
+    }
+    this._lastRosterRuntimeRefreshAt = now;
+    const refreshed = await this.loadCharacterFromApi(runtimeCharacterId);
+    if (!refreshed) {
+      console.debug('[GameShell] runtime state refresh returned empty payload', {
+        reason,
+        runtimeCharacterId,
+      });
+    }
+    return refreshed;
+  }
+
   // --- ported from hexmap.js ---
   async refreshCharacterInventoryFromApi(context) {
     if (!context?.characterId || typeof fetch !== 'function') {
@@ -5088,6 +3982,9 @@ export class GameShell {
     const params = new URLSearchParams();
     if (context.campaignId) {
       params.set('campaign_id', String(context.campaignId));
+    }
+    if (context.instanceId) {
+      params.set('instance_id', String(context.instanceId));
     }
     const requestUrl = `/api/inventory/character/${encodeURIComponent(context.characterId)}${params.toString() ? `?${params.toString()}` : ''}`;
 
@@ -5200,6 +4097,8 @@ export class GameShell {
       combatActive: false,
       encounterId: null,
       latestEncounterState: null,
+      runtimeSnapshotId: null,
+      runtimeSyncHealth: 'healthy',
       serverCombatMode: false,
       attackTarget: null,
       draggedObject: null,
@@ -5211,1115 +4110,4 @@ export class GameShell {
       visibleHexes: null
     };
   }
-
-
-}
-
-
-// ---------------------------------------------------------------------------
-// Module-level helpers
-// ---------------------------------------------------------------------------
-
-function _getPresentationObjectDefinitions(mapVisualState = {}, dungeonData = {}) {
-  const visualDefinitions = mapVisualState?.presentation?.object_definitions;
-  if (visualDefinitions && typeof visualDefinitions === 'object') {
-    return visualDefinitions;
-  }
-  return {};
-}
-
-function _getVisualOccupants(mapVisualState = {}) {
-  return [
-    ...(Array.isArray(mapVisualState?.occupants?.party)
-      ? mapVisualState.occupants.party.map((occupant) => ({ ...occupant, is_party: true }))
-      : []),
-    ...(Array.isArray(mapVisualState?.occupants?.entities) ? mapVisualState.occupants.entities : []),
-  ];
-}
-
-function _getVisualActorRoster(mapVisualState = {}) {
-  const roster = mapVisualState?.actor_roster;
-  const entries = Array.isArray(roster?.entries) ? roster.entries : [];
-  return entries
-    .filter((entry) => entry && typeof entry === 'object')
-    .map((entry) => ({ ...entry }));
-}
-
-function _getEntityDisplayName(entity = null) {
-  if (!entity || typeof entity !== 'object') {
-    return 'Unknown';
-  }
-
-  const identity = entity.getComponent?.('IdentityComponent');
-  if (identity?.name) {
-    return String(identity.name);
-  }
-
-  return String(
-    entity?.dcLabel
-    || entity?.dcName
-    || entity?.dcStatePayload?.label
-    || entity?.dcStatePayload?.display_name
-    || entity?.dcStatePayload?.name
-    || entity?.dcStatePayload?.metadata?.name
-    || entity?.dcEntityRef
-    || entity?.id
-    || 'Unknown'
-  );
-}
-
-function _isVisualOccupantVisible(occupant, activeRoomId = '') {
-  if (!occupant) {
-    return false;
-  }
-
-  const hidden = occupant?.hidden === true || occupant?.state?.hidden === true;
-  const detected = occupant?.detected === true || occupant?.state?.detected === true;
-  const inActiveRoom = String(occupant?.room_id || '').trim() !== ''
-    && String(occupant?.room_id || '').trim() === String(activeRoomId || '').trim();
-
-  if (occupant.visible === true) {
-    return true;
-  }
-
-  if (occupant.visible === false) {
-    return false;
-  }
-
-  if (hidden && !detected) {
-    return false;
-  }
-
-  return true;
-}
-
-function _parseVisualHexId(hexId) {
-  const normalized = String(hexId || '').trim();
-  if (!normalized) {
-    return null;
-  }
-
-  const segments = normalized.split(':');
-  if (segments.length < 3) {
-    return null;
-  }
-
-  const r = Number(segments.pop());
-  const q = Number(segments.pop());
-  const roomId = segments.join(':');
-  if (!roomId || !Number.isFinite(q) || !Number.isFinite(r)) {
-    return null;
-  }
-
-  return {
-    room_id: roomId,
-    q,
-    r,
-  };
-}
-
-function _getConnectionRoomId(connection, side) {
-  const key = side === 'to' ? 'to' : 'from';
-  return String(connection?.[`${key}_room_id`] || connection?.[`${key}_room`] || '').trim() || null;
-}
-
-function _getConnectionHex(connection, side) {
-  const key = side === 'to' ? 'to' : 'from';
-  return _parseVisualHexId(connection?.[`${key}_hex_id`]) || connection?.[`${key}_hex`] || null;
-}
-
-function _getActiveRoomData(rooms = {}, activeRoomId = null) {
-  const roomId = String(activeRoomId || '').trim();
-  if (!roomId) {
-    return null;
-  }
-  return rooms?.[roomId] || null;
-}
-
-function _getActiveRoomHex(room = null, q, r) {
-  if (!room || !Array.isArray(room.hexes)) {
-    return null;
-  }
-
-  return room.hexes.find((candidate) => Number(candidate?.q) === Number(q) && Number(candidate?.r) === Number(r)) || null;
-}
-
-function _buildActiveRoomOccupantSummary(roomId, occupants = [], isVisible = () => true) {
-  const normalizedRoomId = String(roomId || '').trim();
-  if (!normalizedRoomId) {
-    return '';
-  }
-
-  const groupedNames = { pc: [], npc: [], creature: [] };
-  const seen = new Set();
-  const pushGroupedName = (bucket, name) => {
-    if (!bucket || !name) {
-      return;
-    }
-    const dedupeKey = `${bucket}:${String(name).toLowerCase()}`;
-    if (seen.has(dedupeKey)) {
-      return;
-    }
-    seen.add(dedupeKey);
-    groupedNames[bucket].push(name);
-  };
-
-  occupants
-    .filter((occupant) => String(occupant?.room_id || '') === normalizedRoomId && isVisible(occupant))
-    .forEach((occupant) => {
-      const rawType = String(occupant?.occupant_type || '').toLowerCase();
-      let bucket = '';
-      if (rawType === 'player_character' || rawType === 'player' || rawType === 'pc') {
-        bucket = 'pc';
-      } else if (rawType === 'npc') {
-        bucket = 'npc';
-      } else if (rawType === 'creature') {
-        bucket = 'creature';
-      }
-
-      const name = String(occupant?.label || occupant?.content_id || '').trim();
-      pushGroupedName(bucket, name);
-    });
-
-  const parts = [];
-  if (groupedNames.pc.length) {
-    parts.push(`Party present: ${groupedNames.pc.join(', ')}`);
-  }
-  if (groupedNames.npc.length) {
-    parts.push(`NPCs present: ${groupedNames.npc.join(', ')}`);
-  }
-  if (groupedNames.creature.length) {
-    parts.push(`Other creatures present: ${groupedNames.creature.join(', ')}`);
-  }
-
-  return parts.join('. ');
-}
-
-function _getObjectDefinition(contentId, mapVisualState = {}, dungeonData = {}) {
-  if (!contentId) {
-    return null;
-  }
-
-  const definitions = _getPresentationObjectDefinitions(mapVisualState, dungeonData);
-  return definitions && typeof definitions === 'object' ? (definitions[contentId] || null) : null;
-}
-
-function _buildObstacleMobilityProfile(objectDefinition, metadata = {}, contentId = '') {
-  const definitionMovement = objectDefinition?.movement || {};
-  const normalizedContentId = String(contentId || '').toLowerCase();
-  const metadataBlocksMovement = (typeof metadata.blocks_movement === 'boolean') ? metadata.blocks_movement : null;
-  const definitionBlocksMovement = (typeof definitionMovement.blocks_movement === 'boolean')
-    ? definitionMovement.blocks_movement
-    : ((typeof objectDefinition?.blocks_movement === 'boolean') ? objectDefinition.blocks_movement : null);
-  const movable = (typeof metadata.movable === 'boolean') ? metadata.movable : Boolean(objectDefinition?.movable);
-  const passable = (typeof metadata.passable === 'boolean')
-    ? metadata.passable
-    : (metadataBlocksMovement !== null)
-      ? !metadataBlocksMovement
-      : (typeof definitionMovement.passable === 'boolean')
-        ? definitionMovement.passable
-        : (definitionBlocksMovement === true ? false : Boolean(definitionMovement.passable));
-  const stackable = (typeof metadata.stackable === 'boolean') ? metadata.stackable : Boolean(objectDefinition?.stackable);
-  const indicatorValues = [
-    metadata.fixture_type,
-    metadata.obstacle_type,
-    metadata.category,
-    metadata.type,
-    objectDefinition?.category,
-    objectDefinition?.type,
-    objectDefinition?.object_type,
-    normalizedContentId,
-  ]
-    .filter((value) => typeof value === 'string' && value.length)
-    .map((value) => value.toLowerCase());
-  const tagValues = [
-    ...(Array.isArray(objectDefinition?.tags) ? objectDefinition.tags : []),
-    ...(Array.isArray(objectDefinition?.traits) ? objectDefinition.traits : []),
-  ]
-    .filter((value) => typeof value === 'string' && value.length)
-    .map((value) => value.toLowerCase());
-  const isWall =
-    metadata.is_wall === true ||
-    indicatorValues.some((value) => value.includes('wall')) ||
-    tagValues.some((value) => value === 'wall' || value.includes('boundary_wall') || value.includes('perimeter_wall'));
-
-  return { movable, passable, stackable, isWall };
-}
-
-function _getObstacleMobilityAtHex(room = null, definitions = {}, q, r) {
-  const roomHex = _getActiveRoomHex(room, q, r);
-  const roomObjects = Array.isArray(roomHex?.objects) ? roomHex.objects : [];
-  const candidate = roomObjects.find((object) => {
-    const objectId = String(object?.object_id || '').trim();
-    const objectDefinition = definitions?.[objectId] || null;
-    const category = String(object?.category || objectDefinition?.category || '').toLowerCase();
-    const movement = objectDefinition?.movement || {};
-    if (typeof object?.blocks_movement === 'boolean' || typeof object?.passable === 'boolean') {
-      return object.blocks_movement === true || object.passable === false;
-    }
-    return movement.blocks_movement === true
-      || movement.passable === false
-      || ['obstacle', 'wall', 'barrier', 'barricade', 'door', 'collapsed'].some((token) => category.includes(token));
-  });
-  if (!candidate) {
-    return null;
-  }
-
-  const objectId = String(candidate?.object_id || '').trim();
-  return _buildObstacleMobilityProfile(definitions?.[objectId] || null, candidate || {}, objectId);
-}
-
-function _getAxialLine(fromQ, fromR, toQ, toR, movementSystem = null) {
-  const toCube = (q, r) => ({ x: q, z: r, y: -q - r });
-  const fromCube = toCube(fromQ, fromR);
-  const targetCube = toCube(toQ, toR);
-  const distance = movementSystem?.hexDistance
-    ? movementSystem.hexDistance(fromQ, fromR, toQ, toR)
-    : Math.max(Math.abs(fromQ - toQ), Math.abs(fromR - toR), Math.abs((fromQ + fromR) - (toQ + toR)));
-
-  const points = [];
-  for (let step = 0; step <= distance; step += 1) {
-    const t = distance === 0 ? 0 : step / distance;
-    const x = fromCube.x + (targetCube.x - fromCube.x) * t;
-    const y = fromCube.y + (targetCube.y - fromCube.y) * t;
-    const z = fromCube.z + (targetCube.z - fromCube.z) * t;
-
-    let rx = Math.round(x);
-    let ry = Math.round(y);
-    let rz = Math.round(z);
-    const dx = Math.abs(rx - x);
-    const dy = Math.abs(ry - y);
-    const dz = Math.abs(rz - z);
-
-    if (dx > dy && dx > dz) {
-      rx = -ry - rz;
-    } else if (dy > dz) {
-      ry = -rx - rz;
-    } else {
-      rz = -rx - ry;
-    }
-
-    points.push({ q: rx, r: rz });
-  }
-  return points;
-}
-
-function _hasLineOfSight(fromQ, fromR, toQ, toR, getObstacleMobilityAtHex, movementSystem = null) {
-  if (fromQ === toQ && fromR === toR) {
-    return true;
-  }
-
-  const line = _getAxialLine(fromQ, fromR, toQ, toR, movementSystem);
-  for (let i = 1; i < line.length - 1; i += 1) {
-    const { q, r } = line[i];
-    const obstacle = getObstacleMobilityAtHex(q, r);
-    if (obstacle && !obstacle.passable) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function _getHostileTargets(actor, entityManager, movementSystem = null, hasLineOfSight = () => true) {
-  const actorCombat = actor?.getComponent?.('CombatComponent');
-  const actorPos = actor?.getComponent?.('PositionComponent');
-  if (!actorCombat || !actorPos || !entityManager?.getEntitiesWith) {
-    return [];
-  }
-
-  const candidates = entityManager.getEntitiesWith('CombatComponent', 'StatsComponent', 'PositionComponent');
-  const hostileTargets = [];
-
-  candidates.forEach((candidate) => {
-    if (candidate.id === actor.id) {
-      return;
-    }
-
-    const targetCombat = candidate.getComponent('CombatComponent');
-    const targetStats = candidate.getComponent('StatsComponent');
-    const targetPos = candidate.getComponent('PositionComponent');
-    if (!targetCombat || !targetPos) {
-      return;
-    }
-
-    const alive = typeof targetStats?.isAlive === 'function'
-      ? targetStats.isAlive()
-      : Number(targetStats?.currentHp ?? 1) > 0;
-    if (!alive) {
-      return;
-    }
-
-    const actorTeam = String(actorCombat?.team || '').toLowerCase();
-    const targetTeam = String(targetCombat?.team || '').toLowerCase();
-    const hostile = typeof actorCombat?.isHostileTo === 'function'
-      ? actorCombat.isHostileTo(targetCombat)
-      : (actorTeam && targetTeam && actorTeam !== targetTeam);
-    if (!hostile) {
-      return;
-    }
-
-    const distance = movementSystem?.hexDistance
-      ? movementSystem.hexDistance(actorPos.q, actorPos.r, targetPos.q, targetPos.r)
-      : Math.max(Math.abs(actorPos.q - targetPos.q), Math.abs(actorPos.r - targetPos.r), Math.abs((actorPos.q + actorPos.r) - (targetPos.q + targetPos.r)));
-    if (!hasLineOfSight(actorPos.q, actorPos.r, targetPos.q, targetPos.r)) {
-      return;
-    }
-    hostileTargets.push({ target: candidate, distance });
-  });
-
-  hostileTargets.sort((left, right) => left.distance - right.distance);
-  return hostileTargets;
-}
-
-function _normalizeAuthoritativeNavigationCapability(exit, activeRoomId) {
-  const targetRoomId = String(exit?.target_room_id || '').trim();
-  const targetRoomName = String(exit?.target_room_name || exit?.to_room_name || '').trim();
-  const destinationType = String(exit?.destination_type || 'room').trim().toLowerCase() || 'room';
-  const destinationId = String(exit?.destination_id || (destinationType === 'room' ? targetRoomId : '')).trim();
-  const type = String(exit?.type || 'passage').trim() || 'passage';
-  const distance = Number.isFinite(Number(exit?.distance)) ? Math.max(0, Math.trunc(Number(exit.distance))) : 0;
-  const blockedReason = String(exit?.blocked_reason || '').trim() || null;
-  const isDiscovered = Object.prototype.hasOwnProperty.call(exit || {}, 'is_discovered') ? Boolean(exit.is_discovered) : true;
-  const isPassable = Object.prototype.hasOwnProperty.call(exit || {}, 'is_passable') ? Boolean(exit.is_passable) : true;
-  const available = typeof exit?.available === 'boolean'
-    ? exit.available
-    : (blockedReason === null && Boolean(targetRoomId) && isDiscovered && isPassable);
-  const originHex = _normalizeHexPayload(exit?.origin_hex) || _normalizeHexPayload(_getConnectionHex(exit, 'from'));
-  const targetHex = _normalizeHexPayload(exit?.target_hex) || _normalizeHexPayload(_getConnectionHex(exit, 'to'));
-
-  return {
-    connection_id: String(exit?.connection_id || `${activeRoomId || 'unknown'}__${targetRoomId || 'unknown'}`),
-    origin_room_id: String(exit?.origin_room_id || activeRoomId || '').trim(),
-    target_room_id: targetRoomId,
-    target_room_name: targetRoomName,
-    destination_type: destinationType,
-    destination_id: destinationId,
-    type,
-    available,
-    blocked_reason: blockedReason || (available ? null : 'blocked'),
-    is_discovered: isDiscovered,
-    is_passable: isPassable,
-    bidirectional: Object.prototype.hasOwnProperty.call(exit || {}, 'bidirectional')
-      ? Boolean(exit.bidirectional)
-      : type !== 'one_way',
-    requires_interaction: Object.prototype.hasOwnProperty.call(exit || {}, 'requires_interaction')
-      ? Boolean(exit.requires_interaction)
-      : !isPassable,
-    distance,
-    quest_reference: exit?.quest_reference === true,
-    quest_ids: Array.isArray(exit?.quest_ids)
-      ? exit.quest_ids.map((value) => String(value || '').trim()).filter(Boolean)
-      : [],
-    origin_hex: originHex,
-    target_hex: targetHex,
-    connection: exit,
-  };
-}
-
-function _normalizeHexPayload(hex) {
-  if (!hex || typeof hex !== 'object') {
-    return null;
-  }
-  const q = Number(hex.q);
-  const r = Number(hex.r);
-  if (!Number.isFinite(q) || !Number.isFinite(r)) {
-    return null;
-  }
-  return { q, r };
-}
-
-function _findLaunchPlayerEntity(entityManager, launchContext = {}, launchCharacterId = 0) {
-  if (!entityManager?.getEntitiesWith) {
-    return null;
-  }
-
-  const entities = entityManager.getEntitiesWith('PositionComponent');
-  if (!Array.isArray(entities) || !entities.length) {
-    return null;
-  }
-
-  const playerEntities = entities.filter((entity) => {
-    const combat = entity.getComponent?.('CombatComponent');
-    if (combat) {
-      return typeof combat.isPlayerTeam === 'function'
-        ? combat.isPlayerTeam()
-        : String(combat?.team || '').toLowerCase() === 'player';
-    }
-
-    const entityType = String(entity?.dcEntityType || entity?.dcStatePayload?.entity_type || '').toLowerCase();
-    const metadata = entity?.dcStatePayload?.state?.metadata || entity?.dcStatePayload?.metadata || {};
-    const metadataTeam = String(metadata.team || '').toLowerCase();
-    const campaignCharacterId = Number(metadata.campaign_character_id || metadata.character_id || entity?.dcCharacterId || 0);
-
-    return entityType === 'player_character'
-      || metadataTeam === 'player'
-      || (launchCharacterId > 0 && campaignCharacterId === launchCharacterId);
-  });
-
-  if (!playerEntities.length) {
-    return null;
-  }
-
-  const preferredPlayerEntities = playerEntities.filter((entity) => {
-    const entityRef = String(
-      entity?.dcEntityRef
-      || entity?.dcEntityInstanceId
-      || entity?.instanceId
-      || entity?.id
-      || ''
-    ).trim().toLowerCase();
-    const entityType = String(entity?.dcEntityType || entity?.dcStatePayload?.entity_type || '').trim().toLowerCase();
-    const metadata = entity?.dcStatePayload?.state?.metadata || entity?.dcStatePayload?.metadata || {};
-    const followerKind = String(metadata?.follower_kind || metadata?.bond_contract?.follower_kind || '').trim().toLowerCase();
-    const roleKind = String(
-      metadata?.role
-      || metadata?.bond_contract?.role
-      || entity?.dcStatePayload?.role
-      || entity?.dcStatePayload?.state?.role
-      || ''
-    ).trim().toLowerCase();
-    const isFollowerLike = entityRef.startsWith('familiar-')
-      || entityRef.startsWith('companion-')
-      || entityRef.startsWith('follower-')
-      || followerKind === 'familiar'
-      || followerKind === 'companion'
-      || followerKind === 'follower'
-      || roleKind.includes('familiar')
-      || roleKind.includes('companion')
-      || roleKind.includes('follower');
-    if (isFollowerLike) {
-      return false;
-    }
-    const campaignCharacterId = Number(metadata.campaign_character_id || metadata.character_id || entity?.dcCharacterId || 0);
-    return entityType === 'player_character'
-      || (launchCharacterId > 0 && campaignCharacterId === launchCharacterId);
-  });
-  const launchCandidates = preferredPlayerEntities.length ? preferredPlayerEntities : playerEntities;
-
-  const startQ = Number.isFinite(Number(launchContext?.start_q)) ? Number(launchContext.start_q) : 0;
-  const startR = Number.isFinite(Number(launchContext?.start_r)) ? Number(launchContext.start_r) : 0;
-  const onStartHex = launchCandidates.find((entity) => {
-    const pos = entity.getComponent?.('PositionComponent');
-    return pos && pos.q === startQ && pos.r === startR;
-  });
-
-  return onStartHex || launchCandidates[0] || null;
-}
-
-function _preloadSpriteUrls(spriteService, blueprints = [], objectDefinitions = {}, launchCharacter = null) {
-  if (!spriteService?.preloadUrl) {
-    return;
-  }
-
-  blueprints.forEach((blueprint) => {
-    const spriteId = String(blueprint?.render?.spriteKey || '').trim();
-    if (!spriteId) {
-      return;
-    }
-
-    const definition = objectDefinitions?.[blueprint?.contentId] || {};
-    const url = String(
-      definition?.visual?.image_url
-      || definition?.visual?.portrait_url
-      || definition?.visual?.url
-      || '',
-    ).trim();
-    if (url) {
-      spriteService.preloadUrl(spriteId, url);
-    }
-  });
-
-  const portraitSpriteId = String(
-    launchCharacter?.portrait?.sprite_id
-    || launchCharacter?.portrait_sprite_id
-    || launchCharacter?.portraitSpriteId
-    || '',
-  ).trim();
-  const portraitUrl = String(
-    launchCharacter?.portrait?.url
-    || launchCharacter?.portrait_url
-    || launchCharacter?.portraitUrl
-    || '',
-  ).trim();
-  if (portraitSpriteId && portraitUrl) {
-    spriteService.preloadUrl(portraitSpriteId, portraitUrl);
-  }
-}
-
-/**
- * Flatten phase-based objectives from a quest entry (server shape) into a
- * flat array that QuestPanel can render directly.
- *
- * Server shape: quest.objective_states = [{ phase_id, objectives: [{label, status, ...}] }]
- *
- * @param {object} quest
- * @returns {Array<{label: string, status: string, children?: Array}>}
- */
-function _flattenQuestObjectives(quest) {
-  const phases = quest.objective_states ?? quest.generated_objectives ?? [];
-  if (!Array.isArray(phases)) return [];
-  return phases.flatMap((phase) => Array.isArray(phase.objectives) ? phase.objectives : []);
-}
-
-function _isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function _hasMeaningfulValue(value) {
-  if (value === null || value === undefined) return false;
-  if (typeof value === 'string') return value.trim() !== '';
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === 'object') return Object.keys(value).length > 0;
-  return true;
-}
-
-function _mergeRoomMetadata(visualRoom = {}, apiRoom = {}, roomId = '') {
-  const merged = {
-    ...(_isPlainObject(visualRoom) ? visualRoom : {}),
-    ...(_isPlainObject(apiRoom) ? apiRoom : {}),
-    room_id: apiRoom?.room_id || visualRoom?.room_id || roomId,
-  };
-
-  ['name', 'description', 'room_type', 'size_category', 'terrain', 'lighting'].forEach((key) => {
-    if (!_hasMeaningfulValue(apiRoom?.[key]) && _hasMeaningfulValue(visualRoom?.[key])) {
-      merged[key] = visualRoom[key];
-    }
-  });
-
-  if (typeof merged.lighting !== 'string') {
-    delete merged.lighting;
-  }
-  if (!_isPlainObject(merged.terrain) || typeof merged.terrain.type !== 'string') {
-    delete merged.terrain;
-  }
-
-  if (!_hasMeaningfulValue(merged.subtitle)) {
-    merged.subtitle = _buildRoomSubtitle(merged);
-  }
-
-  return merged;
-}
-
-function _buildRoomSubtitle(room = {}) {
-  if (!_isPlainObject(room)) {
-    return '';
-  }
-
-  const terrainValue = typeof room?.terrain?.type === 'string' ? room.terrain.type : '';
-  const terrainLabel = String(terrainValue || '').replace(/_/g, ' ').trim();
-  const lightingValue = typeof room?.lighting === 'string' ? room.lighting : '';
-  const lightingLabel = lightingValue && lightingValue !== 'normal'
-    ? `Lighting: ${String(lightingValue).replace(/_/g, ' ')}`
-    : '';
-  const sizeLabel = room?.size_category && room.size_category !== 'medium'
-    ? String(room.size_category).replace(/_/g, ' ')
-    : '';
-
-  return [terrainLabel, lightingLabel, sizeLabel].filter(Boolean).join(' | ');
-}
-
-/**
- * Build a connections array for the navigate sub-panel from mapVisualState topology.
- * Returns connections that originate FROM the given roomId (or are passable to/from it).
- *
- * @param {string} roomId
- * @param {object} mapVisualState
- * @returns {Array<{room_id, room_name, connection_id, direction?}>}
- */
-function _buildRoomConnections(roomId, mapVisualState) {
-  const topology = mapVisualState?.topology ?? {};
-  const rooms = topology.rooms ?? {};
-  const room = rooms?.[roomId] ?? null;
-  const exits = Array.isArray(room?.exits) ? room.exits : [];
-
-  const result = [];
-  const seen = new Set();
-
-  exits.forEach((exit) => {
-    if (!exit?.is_passable) return;
-
-    const targetRoomId = String(exit?.target_room_id || '').trim();
-    const connectionId = String(exit?.connection_id || '').trim();
-    if (!targetRoomId || !connectionId || seen.has(connectionId)) return;
-
-    seen.add(connectionId);
-    result.push({
-      connection_id: connectionId,
-      room_id:       targetRoomId,
-      room_name:     rooms[targetRoomId]?.name ?? targetRoomId,
-      type:          exit.type ?? 'open_passage',
-    });
-  });
-
-  return result;
-}
-
-function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId = '', launchCharacter = {}, mapVisualState = {}) {
-  const roomId = String(activeRoomId || '').trim();
-  if (!roomId) {
-    return [];
-  }
-
-  const objectDefinitions = _getPresentationObjectDefinitions(mapVisualState, dungeonData);
-  const visualOccupants = _buildVisualOccupantIndex(mapVisualState);
-  const blueprints = [];
-  const seen = new Set();
-  const projectedEntitySignatures = new Set();
-  const logicalActorSignatures = new Set();
-  const launchCharacterId = Number(
-    launchCharacter?.id
-    || launchCharacter?.character_id
-    || 0,
-  ) || null;
-  const launchCharacterName = String(
-    launchCharacter?.basicInfo?.name
-    || launchCharacter?.name
-    || launchCharacter?.character_name
-    || '',
-  ).trim();
-  const normalizedLaunchCharacterName = launchCharacterName.toLowerCase();
-  const launchPortraitSpriteId = String(
-    launchCharacter?.portrait?.sprite_id
-    || launchCharacter?.portrait_sprite_id
-    || launchCharacter?.portraitSpriteId
-    || '',
-  ).trim();
-
-  const entities = Array.isArray(dungeonData?.entities) ? dungeonData.entities : [];
-  entities.forEach((entity) => {
-    const placement = _isPlainObject(entity?.placement) ? entity.placement : {};
-    const hex = _isPlainObject(placement?.hex) ? placement.hex : {};
-    const entityRoomId = String(placement?.room_id || '').trim();
-    const q = Number(hex?.q);
-    const r = Number(hex?.r);
-    if (entityRoomId !== roomId || !Number.isFinite(q) || !Number.isFinite(r)) {
-      return;
-    }
-
-    const metadata = _isPlainObject(entity?.state?.metadata) ? entity.state.metadata : {};
-    const rawType = String(entity?.entity_type || entity?.entityType || '').trim().toLowerCase();
-    const entityType = _normalizeRenderableEntityType(rawType, entity?.entity_ref?.content_type, metadata);
-    const contentId = String(entity?.entity_ref?.content_id || '').trim();
-    const definition = contentId ? (objectDefinitions[contentId] || {}) : {};
-    const instanceId = String(entity?.entity_instance_id || entity?.instance_id || entity?.id || '').trim()
-      || `payload-entity:${roomId}:${q}:${r}:${contentId || rawType || 'unknown'}`;
-    const visual = _resolveVisualOccupant(visualOccupants, instanceId, contentId, roomId, q, r);
-    const entityCharacterId = Number(metadata?.character_id || entity?.character_id || 0) || null;
-    const isLaunchPlayerEntity = entityType === 'player_character'
-      || Boolean(entityCharacterId && launchCharacterId && entityCharacterId === launchCharacterId);
-    const name = String(
-      metadata?.display_name
-      || metadata?.name
-      || entity?.display_name
-      || (isLaunchPlayerEntity ? launchCharacterName : '')
-      || definition?.label
-      || contentId
-      || rawType
-      || 'entity',
-    ).trim();
-    const team = _normalizeRenderableEntityTeam(
-      metadata?.team
-      || visual?.presentation?.badge
-      || (entityCharacterId && launchCharacterId && entityCharacterId === launchCharacterId ? 'player' : ''),
-    );
-    const hidden = visual?.visible === false || entity?.state?.hidden === true;
-    const logicalActorKey = _buildLogicalActorIdentityKey(rawType, metadata, instanceId, roomId);
-
-    const blueprint = {
-      key: _buildRenderableEntityKey(instanceId, contentId, q, r),
-      sourceKind: 'entity',
-      roomId,
-      q,
-      r,
-      instanceId,
-      entityRef: instanceId,
-      entityType,
-      contentId,
-      characterId: entityCharacterId,
-      name: name !== '' ? name : 'entity',
-      description: String(metadata?.description || definition?.description || '').trim(),
-      hidden,
-      combatCapable: entityType === 'player_character' || entityType === 'npc' || entityType === 'creature',
-      team,
-      actionsPerTurn: Number(metadata?.actions_per_turn || 3) || 3,
-      initiativeBonus: Number(metadata?.initiative_bonus || 0) || 0,
-      attackBonus: Number(metadata?.attack_bonus || 0) || 0,
-      stats: {
-        maxHp: Number(metadata?.stats?.maxHp ?? metadata?.stats?.max_hp ?? metadata?.max_hp ?? 10) || 10,
-        currentHp: Number(metadata?.stats?.currentHp ?? metadata?.stats?.current_hp ?? metadata?.hp ?? metadata?.max_hp ?? 10) || 10,
-        ac: Number(metadata?.stats?.ac ?? metadata?.armor_class ?? 10) || 10,
-        perception: Number(metadata?.stats?.perception ?? metadata?.perception ?? 0) || 0,
-        speed: Number(metadata?.movement_speed ?? metadata?.stats?.speed ?? 30) || 30,
-      },
-      render: {
-        spriteKey: String(
-          metadata?.sprite_id
-          || definition?.visual?.sprite_id
-          || visual?.presentation?.sprite_id
-          || (isLaunchPlayerEntity ? launchPortraitSpriteId : '')
-          || '',
-        ).trim() || null,
-        scale: Number(metadata?.render_scale ?? (entityType === 'item' ? 0.55 : 1)) || (entityType === 'item' ? 0.55 : 1),
-        orientation: String(placement?.orientation || metadata?.orientation || definition?.visual?.orientation || 'n').trim().toLowerCase() || 'n',
-        objectCategory: String(definition?.category || metadata?.object_category || '').trim() || null,
-        objectColor: definition?.visual?.color || metadata?.object_color || visual?.presentation?.color || null,
-      },
-      state: _isPlainObject(entity?.state) ? entity.state : {},
-      source: entity,
-    };
-
-    if (!hidden && !seen.has(blueprint.key) && (!logicalActorKey || !logicalActorSignatures.has(logicalActorKey))) {
-      seen.add(blueprint.key);
-      if (logicalActorKey) {
-        logicalActorSignatures.add(logicalActorKey);
-      }
-      if (contentId) {
-        projectedEntitySignatures.add(_buildRenderableProjectionKey(contentId, roomId, q, r));
-      }
-      blueprints.push(blueprint);
-    }
-  });
-
-  const activeRoom = mapVisualState?.topology?.rooms?.[roomId];
-  const roomHexes = Array.isArray(activeRoom?.hexes) ? activeRoom.hexes : [];
-  roomHexes.forEach((hex) => {
-    const q = Number(hex?.q);
-    const r = Number(hex?.r);
-    if (!Number.isFinite(q) || !Number.isFinite(r)) {
-      return;
-    }
-
-    const objects = Array.isArray(hex?.objects) ? hex.objects : [];
-    objects.forEach((object, objectIndex) => {
-      const contentId = String(object?.object_id || object?.id || '').trim();
-      if (!contentId) {
-        return;
-      }
-
-      const definition = objectDefinitions[contentId] || {};
-      const entityType = _normalizeRenderableEntityType('', object?.category, object);
-      const projectionKey = _buildRenderableProjectionKey(contentId, roomId, q, r);
-      if (projectedEntitySignatures.has(projectionKey)) {
-        return;
-      }
-
-      const instanceId = String(object?.object_instance_id || '').trim()
-        || `room-object:${roomId}:${q}:${r}:${contentId}:${objectIndex}`;
-      const key = _buildRenderableEntityKey(instanceId, roomId, q, r);
-      if (seen.has(key)) {
-        return;
-      }
-
-      const blueprint = {
-        key,
-        sourceKind: 'hex-object',
-        roomId,
-        q,
-        r,
-        instanceId,
-        entityRef: contentId,
-        entityType,
-        contentId,
-        characterId: null,
-        name: String(object?.label || object?.name || definition?.label || contentId).trim() || contentId,
-        description: String(object?.description || definition?.description || '').trim(),
-        hidden: false,
-        combatCapable: false,
-        team: 'neutral',
-        actionsPerTurn: 0,
-        initiativeBonus: 0,
-        attackBonus: 0,
-        stats: {
-          maxHp: 10,
-          currentHp: 10,
-          ac: 10,
-          perception: 0,
-          speed: 0,
-        },
-        render: {
-          spriteKey: String(object?.visual?.sprite_id || definition?.visual?.sprite_id || '').trim() || null,
-          scale: Number(entityType === 'item' ? 0.55 : 0.95) || 1,
-          orientation: String(object?.orientation || definition?.visual?.orientation || 'n').trim().toLowerCase() || 'n',
-          objectCategory: String(object?.category || definition?.category || '').trim() || null,
-          objectColor: object?.visual?.color || definition?.visual?.color || null,
-        },
-        state: {
-          active: true,
-          metadata: {
-            passable: object?.passable,
-            movable: object?.movable,
-            collectible: object?.collectible,
-            blocks_movement: object?.blocks_movement,
-            stackable: typeof object?.stackable === 'boolean' ? object.stackable : Boolean(definition?.stackable),
-          },
-        },
-        source: object,
-      };
-
-      seen.add(key);
-      blueprints.push(blueprint);
-    });
-  });
-
-  _getVisualOccupants(mapVisualState)
-    .filter((occupant) => {
-      if (!_isVisualOccupantVisible(occupant)) {
-        return false;
-      }
-      return String(occupant?.room_id || '').trim() === roomId;
-    })
-    .forEach((occupant, occupantIndex) => {
-      const q = Number(occupant?.placement?.q);
-      const r = Number(occupant?.placement?.r);
-      if (!Number.isFinite(q) || !Number.isFinite(r)) {
-        return;
-      }
-
-      const contentId = String(occupant?.content_id || '').trim();
-      const occupantId = String(occupant?.occupant_id || '').trim();
-      const projectionKey = contentId ? _buildRenderableProjectionKey(contentId, roomId, q, r) : '';
-      if ((projectionKey && projectedEntitySignatures.has(projectionKey)) || (occupantId && seen.has(_buildRenderableEntityKey(occupantId, roomId, q, r)))) {
-        return;
-      }
-
-      const definition = contentId ? (objectDefinitions[contentId] || {}) : {};
-      const occupantType = String(occupant?.occupant_type || '').trim().toLowerCase();
-      const entityType = _normalizeRenderableEntityType(occupantType, definition?.category, occupant);
-      const isPartyOccupant = occupant?.is_party === true || occupantType === 'player_character' || occupantType === 'player' || occupantType === 'pc';
-      const occupantCharacterId = Number(occupant?.character_id || occupant?.state?.character_id || 0) || null;
-      const occupantLabel = String(occupant?.label || '').trim();
-      const isLaunchPlayerOccupant = isPartyOccupant && (
-        Boolean(occupantCharacterId && launchCharacterId && occupantCharacterId === launchCharacterId)
-        || Boolean(occupantLabel && normalizedLaunchCharacterName && occupantLabel.toLowerCase() === normalizedLaunchCharacterName)
-      );
-      const instanceId = occupantId || `visual-occupant:${roomId}:${q}:${r}:${contentId || entityType || occupantIndex}`;
-      const occupantMetadata = _isPlainObject(occupant?.state?.metadata) ? occupant.state.metadata : {};
-      const key = _buildRenderableEntityKey(instanceId, roomId, q, r);
-      const logicalActorKey = _buildLogicalActorIdentityKey(occupantType, occupantMetadata, instanceId, roomId, Boolean(isPartyOccupant));
-      if (seen.has(key) || (logicalActorKey && logicalActorSignatures.has(logicalActorKey))) {
-        return;
-      }
-
-      const team = _normalizeRenderableEntityTeam(
-        isPartyOccupant
-          ? 'player'
-          : (occupant?.presentation?.badge || occupant?.team || occupant?.state?.team || '')
-      );
-      const combatCapable = entityType === 'player_character' || entityType === 'npc' || entityType === 'creature';
-      const blueprint = {
-        key,
-        sourceKind: 'visual-occupant',
-        roomId,
-        q,
-        r,
-        instanceId,
-        entityRef: occupantId || contentId || instanceId,
-        entityType,
-        contentId,
-        characterId: occupantCharacterId,
-        name: String(occupantLabel || (isLaunchPlayerOccupant ? launchCharacterName : '') || definition?.label || contentId || occupantType || 'occupant').trim(),
-        description: String(occupant?.presentation?.summary || definition?.description || '').trim(),
-        hidden: false,
-        combatCapable,
-        team,
-        actionsPerTurn: Number(occupant?.state?.actions_per_turn || 3) || 3,
-        initiativeBonus: Number(occupant?.state?.initiative_bonus || 0) || 0,
-        attackBonus: Number(occupant?.state?.attack_bonus || 0) || 0,
-        stats: {
-          maxHp: Number(occupant?.state?.max_hp ?? occupant?.state?.stats?.max_hp ?? occupant?.state?.stats?.maxHp ?? 10) || 10,
-          currentHp: Number(occupant?.state?.hp ?? occupant?.state?.current_hp ?? occupant?.state?.stats?.current_hp ?? occupant?.state?.stats?.currentHp ?? occupant?.state?.max_hp ?? 10) || 10,
-          ac: Number(occupant?.state?.armor_class ?? occupant?.state?.stats?.ac ?? 10) || 10,
-          perception: Number(occupant?.state?.perception ?? occupant?.state?.stats?.perception ?? 0) || 0,
-          speed: Number(occupant?.state?.movement_speed ?? occupant?.state?.stats?.speed ?? 30) || 30,
-        },
-        render: {
-          spriteKey: String(
-            occupant?.presentation?.sprite_id
-            || definition?.visual?.sprite_id
-            || (isLaunchPlayerOccupant ? launchPortraitSpriteId : '')
-            || '',
-          ).trim() || null,
-          scale: Number(occupant?.presentation?.render_scale ?? (entityType === 'item' ? 0.55 : 1)) || (entityType === 'item' ? 0.55 : 1),
-          orientation: String(occupant?.placement?.orientation || occupant?.presentation?.orientation || definition?.visual?.orientation || 'n').trim().toLowerCase() || 'n',
-          objectCategory: String(definition?.category || occupant?.category || '').trim() || null,
-          objectColor: occupant?.presentation?.color || definition?.visual?.color || null,
-        },
-        state: _isPlainObject(occupant?.state) ? occupant.state : {},
-        source: occupant,
-      };
-
-      seen.add(key);
-      if (logicalActorKey) {
-        logicalActorSignatures.add(logicalActorKey);
-      }
-      if (projectionKey) {
-        projectedEntitySignatures.add(projectionKey);
-      }
-      blueprints.push(blueprint);
-    });
-
-  return blueprints;
-}
-
-function _buildVisualOccupantIndex(mapVisualState = {}) {
-  const index = new Map();
-  const buckets = mapVisualState?.occupants || {};
-  const occupants = [
-    ...(Array.isArray(buckets.party) ? buckets.party : []),
-    ...(Array.isArray(buckets.entities) ? buckets.entities : []),
-  ];
-
-  occupants.forEach((occupant) => {
-    const occupantId = String(occupant?.occupant_id || '').trim();
-    const contentId = String(occupant?.content_id || '').trim();
-    const roomId = String(occupant?.room_id || '').trim();
-    const q = Number(occupant?.placement?.q);
-    const r = Number(occupant?.placement?.r);
-    if (occupantId) {
-      index.set(occupantId, occupant);
-    }
-    if (contentId && roomId && Number.isFinite(q) && Number.isFinite(r)) {
-      index.set(_buildRenderableProjectionKey(contentId, roomId, q, r), occupant);
-    }
-    if (contentId && roomId && !index.has(`${roomId}:${contentId}`)) {
-      index.set(`${roomId}:${contentId}`, occupant);
-    }
-  });
-
-  return index;
-}
-
-function _resolveVisualOccupant(visualOccupants, instanceId = '', contentId = '', roomId = '', q = 0, r = 0) {
-  if (!(visualOccupants instanceof Map)) {
-    return null;
-  }
-
-  const normalizedInstanceId = String(instanceId || '').trim();
-  if (normalizedInstanceId && visualOccupants.has(normalizedInstanceId)) {
-    return visualOccupants.get(normalizedInstanceId) || null;
-  }
-
-  const normalizedContentId = String(contentId || '').trim();
-  const normalizedRoomId = String(roomId || '').trim();
-  if (!normalizedContentId || !normalizedRoomId) {
-    return null;
-  }
-
-  const exactKey = _buildRenderableProjectionKey(normalizedContentId, normalizedRoomId, q, r);
-  if (visualOccupants.has(exactKey)) {
-    return visualOccupants.get(exactKey) || null;
-  }
-
-  const roomKey = `${normalizedRoomId}:${normalizedContentId}`;
-  if (visualOccupants.has(roomKey)) {
-    return visualOccupants.get(roomKey) || null;
-  }
-
-  return null;
-}
-
-function _normalizeRenderableEntityType(rawType = '', fallbackCategory = '', metadata = {}) {
-  const normalizedType = String(rawType || '').trim().toLowerCase();
-  if (normalizedType === 'player_character' || normalizedType === 'player' || normalizedType === 'pc') {
-    return 'player_character';
-  }
-  if (normalizedType === 'npc') {
-    return 'npc';
-  }
-  if (normalizedType === 'creature') {
-    return 'creature';
-  }
-  if (normalizedType === 'item' || normalizedType === 'treasure') {
-    return 'item';
-  }
-  if (normalizedType === 'obstacle' || normalizedType === 'trap' || normalizedType === 'hazard') {
-    return normalizedType;
-  }
-
-  const category = String(fallbackCategory || metadata?.category || metadata?.type || '').trim().toLowerCase();
-  if (metadata?.is_party === true || metadata?.party_member === true || metadata?.isPlayer === true) {
-    return 'player_character';
-  }
-  if (
-    category.includes('item')
-    || category.includes('loot')
-    || category.includes('collect')
-    || category.includes('quest_item')
-    || metadata?.collectible === true
-  ) {
-    return 'item';
-  }
-
-  return 'obstacle';
-}
-
-function _normalizeRenderableEntityTeam(rawTeam = '') {
-  const normalized = String(rawTeam || '').trim().toLowerCase();
-  if (normalized === 'player' || normalized === 'ally' || normalized === 'enemy' || normalized === 'neutral') {
-    return normalized;
-  }
-  return 'neutral';
-}
-
-function _buildRenderableEntityKey(instanceId = '', roomId = '', q = 0, r = 0) {
-  const stableId = String(instanceId || '').trim() || 'entity';
-  const stableRoomId = String(roomId || '').trim() || 'room';
-  return `${stableRoomId}:${stableId}:${Number(q)}:${Number(r)}`;
-}
-
-function _buildRenderableProjectionKey(contentId = '', roomId = '', q = 0, r = 0) {
-  const stableContentId = String(contentId || '').trim();
-  const stableRoomId = String(roomId || '').trim() || 'room';
-  if (stableContentId === '') {
-    return '';
-  }
-  return `${stableRoomId}:${stableContentId}:${Number(q)}:${Number(r)}`;
-}
-
-function _buildLogicalActorIdentityKey(rawType = '', metadata = {}, instanceId = '', roomId = '', isPartyMember = false) {
-  const stableRoomId = String(roomId || '').trim();
-  if (!stableRoomId || !_isPlainObject(metadata)) {
-    return '';
-  }
-
-  const entityType = String(rawType || '').trim().toLowerCase();
-  const team = _normalizeRenderableEntityTeam(metadata?.team || '');
-  const followerKind = String(metadata?.follower_kind || metadata?.bond_contract?.follower_kind || '').trim().toLowerCase();
-  const sourceCharacterId = Number(metadata?.source_character_id || 0) || 0;
-  const campaignCharacterId = Number(metadata?.campaign_character_id || 0) || 0;
-  const characterId = Number(metadata?.character_id || 0) || 0;
-  const ownerSourceCharacterId = Number(metadata?.owner_source_character_id || metadata?.bond_contract?.owner_source_character_id || 0) || 0;
-  const ownerCharacterId = Number(metadata?.owner_character_id || metadata?.bond_contract?.owner_character_id || 0) || 0;
-  const followerSourceCharacterId = Number(metadata?.follower_source_character_id || 0) || 0;
-  const runtimeEntityId = String(metadata?.runtime_entity_id || instanceId || '').trim();
-  const isPlayerLike = Boolean(isPartyMember)
-    || entityType === 'player_character'
-    || entityType === 'player'
-    || entityType === 'pc'
-    || team === 'player';
-
-  if (followerKind && followerSourceCharacterId > 0) {
-    return `${stableRoomId}:follower-source:${followerSourceCharacterId}:${followerKind}`;
-  }
-  if (followerKind && ownerSourceCharacterId > 0) {
-    return `${stableRoomId}:follower-owner-source:${ownerSourceCharacterId}:${followerKind}`;
-  }
-  if (followerKind && ownerCharacterId > 0) {
-    return `${stableRoomId}:follower-owner:${ownerCharacterId}:${followerKind}`;
-  }
-  if (isPlayerLike && sourceCharacterId > 0) {
-    return `${stableRoomId}:player-source:${sourceCharacterId}`;
-  }
-  if (campaignCharacterId > 0) {
-    return `${stableRoomId}:campaign-character:${campaignCharacterId}`;
-  }
-  if (isPlayerLike && characterId > 0) {
-    return `${stableRoomId}:player-character:${characterId}`;
-  }
-  if (runtimeEntityId) {
-    return `${stableRoomId}:runtime:${runtimeEntityId}`;
-  }
-
-  return '';
 }

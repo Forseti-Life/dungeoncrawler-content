@@ -200,10 +200,15 @@ class CombatEncounterApiController extends ControllerBase {
     foreach ($participants as $idx => $participant) {
       $entity_id = $participant['entity_ref'] ?? ($participant['entity_id'] ?? $participant['id']);
       $is_defeated = (bool) ($participant['is_defeated'] ?? FALSE);
+      $participant_id = (int) ($participant['id'] ?? 0);
+      $conditions = $participant_id > 0 && $encounter_id > 0
+        ? $this->loadParticipantConditions($participant_id, $encounter_id)
+        : [];
 
       $normalized = $participant;
       $normalized['entity_id'] = $entity_id;
       $normalized['is_defeated'] = $is_defeated;
+      $normalized['conditions'] = $conditions;
       $normalized_participants[] = $normalized;
 
       $initiative_order[] = [
@@ -257,6 +262,7 @@ class CombatEncounterApiController extends ControllerBase {
       if ($entity_id !== '') {
         $participant_by_entity_id[$entity_id] = $participant;
       }
+
     }
 
     foreach ($initiative_order as $index => $entry) {
@@ -358,6 +364,42 @@ class CombatEncounterApiController extends ControllerBase {
       'payload' => is_array($payload) ? $payload : [],
       'result' => is_array($result) ? $result : [],
     ];
+  }
+
+  /**
+   * Load active condition rows for a participant in one encounter.
+   *
+   * @return array<int,array<string,mixed>>
+   */
+  protected function loadParticipantConditions(int $participant_id, int $encounter_id): array {
+    $rows = $this->database->select('combat_conditions', 'cc')
+      ->fields('cc', ['id', 'condition_type', 'value', 'duration', 'source'])
+      ->condition('participant_id', $participant_id)
+      ->condition('encounter_id', $encounter_id)
+      ->condition('removed', 0)
+      ->orderBy('id', 'ASC')
+      ->execute()
+      ->fetchAllAssoc('id');
+
+    if (empty($rows)) {
+      return [];
+    }
+
+    $conditions = [];
+    foreach ($rows as $row) {
+      $duration = is_string($row->duration ?? NULL)
+        ? json_decode((string) $row->duration, TRUE)
+        : (is_array($row->duration ?? NULL) ? $row->duration : NULL);
+      $conditions[] = [
+        'id' => (int) ($row->id ?? 0),
+        'condition_type' => (string) ($row->condition_type ?? ''),
+        'value' => is_numeric($row->value ?? NULL) ? (int) $row->value : NULL,
+        'duration' => is_array($duration) ? $duration : NULL,
+        'source' => (string) ($row->source ?? ''),
+      ];
+    }
+
+    return $conditions;
   }
 
   /**

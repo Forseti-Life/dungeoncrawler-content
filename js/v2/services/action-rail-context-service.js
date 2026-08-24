@@ -14,7 +14,9 @@ export function selectRailSelectedEntity(stateManager) {
 }
 
 export function selectRailPhaseSnapshot(hexmap) {
-  return hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+  return hexmap?.gameCoordinator?.getAuthoritativePhaseSnapshot?.()
+    || hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.()
+    || {};
 }
 
 export function selectRailEncounterId(phaseSnapshot) {
@@ -31,17 +33,7 @@ export function selectRailTurnEnvelope(hexmap, phaseSnapshot, selectedEntity) {
   const encounterActive = phaseSnapshot?.phase === 'encounter';
   const serverTurnEntity = String(phaseSnapshot?.turn?.entity || '').trim();
   const hasServerTurn = serverTurnEntity !== '';
-  const serverTurnActor = hasServerTurn && hexmap?.entityManager?.getEntitiesWith
-    ? (hexmap.entityManager.getEntitiesWith('PositionComponent') || []).find((entity) => {
-        const refs = [
-          entity?.dcEntityRef,
-          entity?.dcEntityInstanceId,
-          entity?.instanceId,
-          entity?.id,
-        ].map((value) => String(value || '').trim()).filter(Boolean);
-        return refs.includes(serverTurnEntity);
-      }) || null
-    : null;
+  const serverTurnActor = hasServerTurn ? selectRailCanonicalActorByRef(hexmap, serverTurnEntity) : null;
   const launchPlayer = hexmap?.findLaunchPlayerEntity?.() || null;
   const selectedControllableActor = selectedEntity
     && typeof hexmap?.canDragEntityOnMap === 'function'
@@ -49,8 +41,8 @@ export function selectRailTurnEnvelope(hexmap, phaseSnapshot, selectedEntity) {
     ? selectedEntity
     : null;
   const actor = serverTurnActor
-    || selectedControllableActor
     || launchPlayer
+    || selectedControllableActor
     || (!hasServerTurn ? (selectedEntity || current || null) : null);
 
   return {
@@ -59,6 +51,7 @@ export function selectRailTurnEnvelope(hexmap, phaseSnapshot, selectedEntity) {
     serverTurnEntity,
     hasServerTurn,
     serverTurnActor,
+    launchPlayer,
     selectedControllableActor,
     actor,
   };
@@ -105,6 +98,28 @@ export function selectRailEntityByRef(hexmap, entityRef) {
   }) || null;
 }
 
+export function selectRailCanonicalActorByRef(hexmap, actorRef) {
+  const ref = String(actorRef || '').trim();
+  if (!ref) {
+    return null;
+  }
+  const directEntity = hexmap?.entityManager?.getEntity?.(ref) || null;
+  if (directEntity) {
+    return directEntity;
+  }
+  return selectRailEntityByRef(hexmap, ref);
+}
+
+export function selectRailEntityRef(entity) {
+  return String(
+    entity?.dcEntityRef
+    || entity?.dcEntityInstanceId
+    || entity?.instanceId
+    || entity?.id
+    || ''
+  ).trim();
+}
+
 export function selectRailRuntimeContext(hexmap) {
   return hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
 }
@@ -126,22 +141,13 @@ export function selectRailActionState(hexmap, actor, phaseSnapshot, turnEnvelope
   const movementText = movement && Number.isFinite(movement.movementRemaining)
     ? `${movement.movementRemaining} ft move`
     : null;
-  const serverTurnActor = turnEnvelope.hasServerTurn && hexmap?.entityManager?.getEntitiesWith
-    ? (hexmap.entityManager.getEntitiesWith('PositionComponent') || []).find((entity) => {
-        const refs = [
-          entity?.dcEntityRef,
-          entity?.dcEntityInstanceId,
-          entity?.instanceId,
-          entity?.id,
-        ].map((value) => String(value || '').trim()).filter(Boolean);
-        return refs.includes(turnEnvelope.serverTurnEntity);
-      }) || null
-    : null;
+  const serverTurnActor = turnEnvelope.serverTurnActor || null;
   const currentTurnLabel = turnEnvelope.hasServerTurn
     ? (serverTurnActor?.getComponent?.('IdentityComponent')?.name || turnEnvelope.serverTurnEntity)
     : (turnEnvelope.current?.getComponent?.('IdentityComponent')?.name || actorIdentity.actorName);
   const availableActions = Array.isArray(phaseSnapshot?.availableActions) ? phaseSnapshot.availableActions : [];
   const hasTurnScopedAction = availableActions.some((entry) => [
+    'attack',
     'end_turn',
     'choose_not_to_act',
     'strike',
@@ -170,12 +176,18 @@ export function selectRailActionState(hexmap, actor, phaseSnapshot, turnEnvelope
 
 export function selectRailActorRef(actor, runtimeContext, actionState, turnEnvelope) {
   const encounterScopedActorRef = (turnEnvelope.hasServerTurn && actionState.hasTurnScopedAction)
-    ? String(actionState.contractActorRef || turnEnvelope.serverTurnEntity || '').trim()
+    ? String(turnEnvelope.serverTurnEntity || actionState.contractActorRef || '').trim()
     : '';
+  const launchPlayerRef = selectRailEntityRef(turnEnvelope?.launchPlayer || null);
+  const authoritativeActorRef = String(
+    runtimeContext?.instanceId
+    || runtimeContext?.instance_id
+    || launchPlayerRef
+    || '',
+  ).trim();
   const directActorRef = String(
-    actor?.dcEntityRef
-    || actor?.dcEntityInstanceId
-    || runtimeContext?.instanceId
+    authoritativeActorRef
+    || selectRailEntityRef(actor)
     || '',
   ).trim();
   return encounterScopedActorRef
@@ -224,10 +236,35 @@ export function selectRailActionHydrationPending(turnEnvelope, phaseSnapshot, ac
   return hasTurnEntity && (!Array.isArray(availableActions) || availableActions.length === 0);
 }
 
+export function selectRailRuntimeSyncState(stateManager, phaseSnapshot = {}) {
+  const syncHealth = String(
+    stateManager?.get?.('runtimeSyncHealth')
+    || phaseSnapshot?.syncHealth
+    || 'healthy'
+  ).trim().toLowerCase() || 'healthy';
+  const snapshotId = String(
+    stateManager?.get?.('runtimeSnapshotId')
+    || phaseSnapshot?.snapshotId
+    || ''
+  ).trim() || null;
+
+  return {
+    syncHealth,
+    snapshotId,
+    degraded: syncHealth === 'degraded' || syncHealth === 'read_only_desynced',
+    readOnlyDesynced: syncHealth === 'read_only_desynced',
+  };
+}
+
 export function selectRailStatusLabel(turnEnvelope, isActorTurn, actionState, automationState, actionHydrationPending = false) {
+  const runtimeSync = (arguments.length > 5 && arguments[5] && typeof arguments[5] === 'object')
+    ? arguments[5]
+    : {};
   const baseStatus = buildActionRailEntrySummary([
     turnEnvelope.encounterActive ? 'Encounter active' : 'Encounter unavailable',
     actionHydrationPending ? 'Syncing encounter actions' : '',
+    runtimeSync?.syncHealth === 'degraded' ? 'Runtime sync degraded' : '',
+    runtimeSync?.syncHealth === 'read_only_desynced' ? 'Runtime desynced (read-only)' : '',
     turnEnvelope.hasServerTurn ? (isActorTurn ? 'Active turn' : `${actionState.currentTurnLabel}'s turn`) : '',
     actionState.actionText,
     actionState.movementText,
@@ -276,7 +313,7 @@ export function buildActionRailContext(stateManager) {
     actor?.id,
   ].map((value) => String(value || '').trim()).filter(Boolean).includes(String(actorRef).trim());
   if (actorRef && !actorMatchesRef) {
-    const actorFromRef = selectRailEntityByRef(hexmap, actorRef);
+    const actorFromRef = selectRailCanonicalActorByRef(hexmap, actorRef);
     if (actorFromRef) {
       const identity = actorFromRef.getComponent?.('IdentityComponent');
       const metadata = actorFromRef?.dcStatePayload?.metadata || actorFromRef?.dcStatePayload?.state?.metadata || {};
@@ -287,13 +324,23 @@ export function buildActionRailContext(stateManager) {
         || actorPortraitUrl
         || ''
       ).trim();
+    } else if (turnEnvelope.hasServerTurn && String(turnEnvelope.serverTurnEntity || '').trim() === String(actorRef).trim()) {
+      actorName = String(actionState.currentTurnLabel || actorRef).trim() || String(actorRef).trim();
     } else if (launchActorRef !== '' && String(actorRef).trim() !== launchActorRef) {
       actorName = String(actorRef).trim();
     }
   }
   const isActorTurn = selectRailIsActorTurn(actorRef, turnEnvelope);
   const characterId = selectRailCharacterId(runtimeContext, hexmap, state);
-  const statusLabel = selectRailStatusLabel(turnEnvelope, isActorTurn, actionState, automationState, actionHydrationPending);
+  const runtimeSync = selectRailRuntimeSyncState(stateManager, phaseSnapshot);
+  const statusLabel = selectRailStatusLabel(
+    turnEnvelope,
+    isActorTurn,
+    actionState,
+    automationState,
+    actionHydrationPending,
+    runtimeSync,
+  );
   const canAutomate = selectRailCanAutomate(runtimeContext, automationProfile, hexmap);
   const campaignClock = phaseSnapshot?.campaignClock
     || phaseSnapshot?.gameTime
@@ -326,6 +373,7 @@ export function buildActionRailContext(stateManager) {
     actionContract,
     automationState,
     canAutomate,
+    runtimeSync,
     actions,
     movement,
     statusLabel,

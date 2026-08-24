@@ -90,6 +90,49 @@ class InventoryManagementService {
   }
 
   /**
+   * Get canonical item-instance state.
+   *
+   * @throws \InvalidArgumentException
+   *   When the item instance cannot be found.
+   */
+  public function getItemState(string $item_instance_id, ?int $campaign_id = NULL): array {
+    $item_instance_id = trim($item_instance_id);
+    if ($item_instance_id === '') {
+      throw new \InvalidArgumentException('Item instance id is required.');
+    }
+
+    $query = $this->database->select('dc_campaign_item_instances', 'i')
+      ->fields('i')
+      ->condition('item_instance_id', $item_instance_id)
+      ->range(0, 1);
+    if ($campaign_id !== NULL) {
+      $query->condition('campaign_id', $campaign_id);
+    }
+
+    $row = $query->execute()->fetchAssoc();
+    if (!$row) {
+      throw new \InvalidArgumentException(sprintf('Item instance not found: %s', $item_instance_id));
+    }
+
+    $state = json_decode((string) ($row['state_data'] ?? '{}'), TRUE);
+    if (!is_array($state)) {
+      $state = [];
+    }
+
+    return [
+      'item_instance_id' => (string) ($row['item_instance_id'] ?? $item_instance_id),
+      'item_id' => (string) ($row['item_id'] ?? ''),
+      'campaign_id' => isset($row['campaign_id']) ? (int) $row['campaign_id'] : NULL,
+      'location_ref' => (string) ($row['location_ref'] ?? ''),
+      'location_type' => (string) ($row['location_type'] ?? ''),
+      'quantity' => (int) ($row['quantity'] ?? 0),
+      'state' => $state,
+      'updated' => isset($row['updated']) ? (int) $row['updated'] : 0,
+      'created' => isset($row['created']) ? (int) $row['created'] : 0,
+    ];
+  }
+
+  /**
    * Get character inventory from item instances table.
    *
    * This is the source of truth for character inventory.
@@ -343,7 +386,7 @@ class InventoryManagementService {
       // Use an upsert keyed on campaign + instance identity so duplicate
       // insert races cannot throw 1062 and break inventory hydration.
       $this->database->merge('dc_campaign_item_instances')
-        ->key([
+        ->keys([
           'campaign_id' => $campaign_id,
           'item_instance_id' => $item_instance_id,
         ])
@@ -353,10 +396,8 @@ class InventoryManagementService {
           'location_ref' => $character_id,
           'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
           'state_data' => json_encode($item),
-          'updated' => $now,
-        ])
-        ->insertFields([
           'created' => $now,
+          'updated' => $now,
         ])
         ->execute();
     }

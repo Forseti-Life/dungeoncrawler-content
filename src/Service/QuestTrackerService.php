@@ -1619,6 +1619,35 @@ class QuestTrackerService {
   }
 
   /**
+   * Get one canonical quest state row with best progress overlay.
+   *
+   * @throws \InvalidArgumentException
+   *   When the quest cannot be found for the requested scope.
+   */
+  public function getQuestState(int $campaign_id, string $quest_id, ?int $character_id = NULL): array {
+    $quest_id = trim($quest_id);
+    if ($campaign_id <= 0 || $quest_id === '') {
+      throw new \InvalidArgumentException('Quest state requires campaign_id and quest_id.');
+    }
+
+    $rows = $character_id !== NULL && $character_id > 0
+      ? $this->loadCharacterQuestRows($campaign_id, $character_id)
+      : $this->loadCampaignQuestRows($campaign_id);
+
+    foreach ($rows as $row) {
+      if (trim((string) ($row['quest_id'] ?? '')) === $quest_id) {
+        return $row;
+      }
+    }
+
+    throw new \InvalidArgumentException(sprintf(
+      'Quest not found for campaign %d: %s',
+      $campaign_id,
+      $quest_id
+    ));
+  }
+
+  /**
    * Load quest rows visible to a character, overlaying the best progress scope.
    *
    * Character journals need more than rows that already have direct

@@ -25,6 +25,7 @@ function assert(condition, message) {
 const targetingService = fs.readFileSync(path.resolve(__dirname, '../src/Service/ActionTargetingService.php'), 'utf8');
 const encounterExecutor = fs.readFileSync(path.resolve(__dirname, '../src/Service/EncounterActionExecutor.php'), 'utf8');
 const encounterPhaseHandler = fs.readFileSync(path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'), 'utf8');
+const encounterPhaseHandlerRuntimeTrait = fs.readFileSync(path.resolve(__dirname, '../src/Service/EncounterPhaseHandlerRuntimeTrait.php'), 'utf8');
 const explorationPhaseHandler = fs.readFileSync(path.resolve(__dirname, '../src/Service/ExplorationPhaseHandler.php'), 'utf8');
 
 console.log('\n=== Action targeting service contracts ===');
@@ -32,9 +33,13 @@ console.log('\n=== Action targeting service contracts ===');
 assert(
   targetingService.includes('public function normalizeTargetRefs(?string $intent_target, array $params = []): array {')
     && targetingService.includes("$target_rows = $params['targets'] ?? NULL;")
+    && targetingService.includes("$params['target_entity_id'] ?? NULL,")
+    && targetingService.includes("$params['targetEntityId'] ?? NULL,")
     && targetingService.includes('if (is_scalar($row)) {')
     && targetingService.includes('$normalized = trim((string) $row);')
     && targetingService.includes('$row_refs = [];')
+    && targetingService.includes("$row['target_entity_id'] ?? NULL,")
+    && targetingService.includes("$row['targetEntityId'] ?? NULL,")
     && targetingService.includes('return $row_refs;')
     && targetingService.includes("return $normalized_refs;"),
   'ActionTargetingService supports canonical targets[] normalization for object rows and scalar target-ref rows'
@@ -73,9 +78,15 @@ assert(
 );
 
 assert(
-  encounterPhaseHandler.includes('$normalized_target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);')
-    && encounterPhaseHandler.includes("$params['selected_targets'] = $normalized_target_refs;")
-    && encounterPhaseHandler.includes('$target_id = $normalized_target_refs[0] ?? $target_id;'),
+  (
+    encounterPhaseHandler.includes('$normalized_target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);')
+      && encounterPhaseHandler.includes("$params['selected_targets'] = $normalized_target_refs;")
+      && encounterPhaseHandler.includes('$target_id = $normalized_target_refs[0] ?? $target_id;')
+  ) || (
+    encounterPhaseHandlerRuntimeTrait.includes('$normalized_target_refs = $this->actionTargetingService->normalizeTargetRefs($target_id, $params);')
+      && encounterPhaseHandlerRuntimeTrait.includes("$params['selected_targets'] = $normalized_target_refs;")
+      && encounterPhaseHandlerRuntimeTrait.includes('$target_id = $normalized_target_refs[0] ?? $target_id;')
+  ),
   'EncounterPhaseHandler normalizes intent targets through ActionTargetingService before routing targeted actions'
 );
 

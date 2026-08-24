@@ -140,6 +140,7 @@ class EncounterAiIntegrationService {
       'disposition_summary' => is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : NULL,
       'aggression_summary' => is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : NULL,
       'stance_summary' => is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : NULL,
+      'process_flow_summary' => is_array($resolved_actor_context['process_flow'] ?? NULL) ? $resolved_actor_context['process_flow'] : NULL,
       'combat_entry_summary' => $combat_entry_summary,
       'resolved_disposition_by_target' => is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
         ? $resolved_actor_context['resolved_disposition_by_target']
@@ -174,6 +175,7 @@ class EncounterAiIntegrationService {
       'disposition' => is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : NULL,
       'aggression' => is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : NULL,
       'stance' => is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : NULL,
+      'process_flow' => is_array($resolved_actor_context['process_flow'] ?? NULL) ? $resolved_actor_context['process_flow'] : NULL,
       'resolved_disposition_by_target' => is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
         ? $resolved_actor_context['resolved_disposition_by_target']
         : [],
@@ -207,6 +209,12 @@ class EncounterAiIntegrationService {
 
     $aggression = is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : [];
     $disposition = is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : [];
+    $stance_summary = is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : [];
+    $process_flow = is_array($resolved_actor_context['process_flow'] ?? NULL) ? $resolved_actor_context['process_flow'] : [];
+    $flow_summary = is_array($process_flow['summary'] ?? NULL) ? $process_flow['summary'] : $process_flow;
+    $active_flow = strtolower(trim((string) ($flow_summary['active_flow'] ?? '')));
+    $behavioral_stance = is_array($stance_summary['behavioral_stance'] ?? NULL) ? $stance_summary['behavioral_stance'] : [];
+    $resolved_stance = strtolower(trim((string) ($behavioral_stance['stance'] ?? '')));
     $resolved_disposition_by_target = is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
       ? $resolved_actor_context['resolved_disposition_by_target']
       : [];
@@ -219,6 +227,29 @@ class EncounterAiIntegrationService {
     $has_hostile_disposition = $has_hostile_target_flag
       || $this->isHostileDispositionScore($actor_score)
       || ($most_hostile_target_score !== NULL && $this->isHostileDispositionScore($most_hostile_target_score));
+
+    if ($active_flow !== '' && $active_flow !== 'encounter-turn-flow') {
+      return [
+        'intent' => 'pass',
+        'action_sequence' => ['end_turn'],
+        'target_strategy' => 'none',
+        'decision_reason' => sprintf(
+          'Active process flow (%s) does not authorize encounter-turn action planning.',
+          $active_flow
+        ),
+        'decision_basis' => ['used_profile' => FALSE, 'used_psychology' => FALSE, 'used_availability' => TRUE],
+      ];
+    }
+
+    if (in_array($resolved_stance, ['flee', 'self_preserve', 'pass'], TRUE)) {
+      return [
+        'intent' => $resolved_stance === 'flee' ? 'flee' : 'pass',
+        'action_sequence' => $resolved_stance === 'flee' ? ['stride', 'stride', 'end_turn'] : ['end_turn'],
+        'target_strategy' => 'safest',
+        'decision_reason' => 'Resolved behavioral stance deprioritizes aggressive encounter actions.',
+        'decision_basis' => ['used_profile' => FALSE, 'used_psychology' => FALSE, 'used_availability' => TRUE],
+      ];
+    }
 
     if (in_array($state, ['engaged', 'hostile'], TRUE) || $has_hostile_disposition) {
       return [

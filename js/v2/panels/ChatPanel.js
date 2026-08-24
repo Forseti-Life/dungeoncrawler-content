@@ -171,11 +171,32 @@ export class ChatPanel {
       this.bus.on('room:occupants-membership-changed', (d) => this.handleRoomOccupantsChanged(d)),
       // Legacy compatibility event during bus migration.
       this.bus.on('room:occupants-changed', (d) => this.handleRoomOccupantsChanged(d)),
+      this.bus.on('runtime:state-committed', (d) => this.handleRuntimeStateCommitted(d)),
       this.bus.on('inventory:changed', (d) => this.handleCharacterContextChanged(d)),
       this.bus.on('session:view-data', (d) => {
         if (d?.view && d?.data) this.renderSessionViewData(d.view, d.data);
       }),
     );
+  }
+
+  handleRuntimeStateCommitted(payload = {}) {
+    const context = this.getChatContext();
+    const snapshot = payload?.snapshot && typeof payload.snapshot === 'object'
+      ? payload.snapshot
+      : null;
+    const cursor = Number(snapshot?.eventCursor ?? 0);
+    if (!Number.isFinite(cursor) || cursor <= 0) {
+      return;
+    }
+    const before = this.getEncounterEventCursor(context);
+    if (cursor <= before) {
+      return;
+    }
+    this.setEncounterEventCursor(context, cursor);
+    this.invalidateChatCaches({ sessionViews: ['system-log'] });
+    if (this.activeSessionView === 'system-log') {
+      void this.loadSessionViewMessages('system-log', { force: true });
+    }
   }
 
   handleRoomChanged(payload = {}) {
@@ -1384,6 +1405,13 @@ export class ChatPanel {
     }
   }
 
+  invalidateCrossViewChatCaches(options = {}) {
+    this.invalidateChatCaches({
+      room: options?.room === true,
+      sessionViews: ['party', 'gm-private', 'system-log'],
+    });
+  }
+
   renderRoomChatHistory(result) {
     if (!result?.success || !result.data?.messages) {
       console.warn('[ChatPanel] renderRoomChatHistory: bad result', { success: result?.success, hasMessages: !!result?.data?.messages });
@@ -2008,20 +2036,28 @@ export class ChatPanel {
     const roomId = this.stateManager?.hexmap?.resolveActiveRoomId?.() || null;
     const characterId = this.resolveActiveChatCharacterId();
 
-    if (!campaignId || !roomId) return;
+    if (!campaignId || !roomId) return null;
 
     try {
       const url = `/api/campaign/${campaignId}/room/${roomId}/channels${characterId ? '?character_id=' + characterId : ''}`;
-      const response = await fetch(url);
-      if (!response.ok) return;
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
+      });
+      if (!response.ok) return null;
 
       const result = await response.json();
-      if (!result.success || !result.data) return;
+      if (!result.success || !result.data) return null;
 
       this.channels = result.data.channels || { room: { key: 'room', label: 'Room', type: 'room', active: true } };
       this.renderChannelTabs();
+      return this.channels;
     } catch (err) {
       console.error('Failed to load channels:', err);
+      return null;
     }
   }
 
@@ -2039,7 +2075,12 @@ export class ChatPanel {
     try {
       const response = await fetch(`/api/campaign/${campaignId}/room/${roomId}/channels`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
         body: JSON.stringify({
           channel_key: channelKey,
           opened_by: String(characterId),
@@ -2051,10 +2092,11 @@ export class ChatPanel {
 
       const result = await response.json();
       if (result.success && result.data?.channel) {
-        // Add to local channels and render.
-        this.channels[channelKey] = result.data.channel;
-        this.renderChannelTabs();
-        // Switch to the new channel.
+        await this.loadChannels();
+        if (!this.channels?.[channelKey]) {
+          this.channels[channelKey] = result.data.channel;
+          this.renderChannelTabs();
+        }
         this.switchChannel(channelKey);
       } else {
         this.appendChatLine('System', result.data?.error || result.error || 'Unable to open channel.', 'system', {
@@ -2081,15 +2123,21 @@ export class ChatPanel {
     if (!campaignId || !roomId) return;
 
     try {
-      await fetch(`/api/campaign/${campaignId}/room/${roomId}/channels/${encodeURIComponent(channelKey)}`, {
+      const wasActiveChannel = this.activeChannel === channelKey;
+      const response = await fetch(`/api/campaign/${campaignId}/room/${roomId}/channels/${encodeURIComponent(channelKey)}`, {
         method: 'DELETE',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'same-origin',
       });
+      if (!response.ok) {
+        throw new Error(`Failed to close channel (${response.status}).`);
+      }
 
-      // Remove from local state and switch to room if we were on it.
-      delete this.channels[channelKey];
-      this.renderChannelTabs();
-      if (this.activeChannel === channelKey) {
+      await this.loadChannels();
+      if (wasActiveChannel) {
         this.switchChannel('room');
       }
     } catch (err) {
@@ -3043,12 +3091,19 @@ export class ChatPanel {
     const normalizedType = String(type || '').trim().toLowerCase();
     const targetId = String(event?.target || data?.target || '').trim();
     const targetName = targetId ? this.resolveEncounterActorName(targetId) : '';
-    const resolutionEnvelope = (data?.resolution_envelope && typeof data.resolution_envelope === 'object')
-      ? data.resolution_envelope
-      : null;
-    const resolutionPackets = Array.isArray(resolutionEnvelope?.packets)
-      ? resolutionEnvelope.packets.filter((packet) => packet && typeof packet === 'object')
-      : [];
+    const collectResolutionPackets = (envelope) => (
+      Array.isArray(envelope?.packets)
+        ? envelope.packets.filter((packet) => packet && typeof packet === 'object')
+        : []
+    );
+    const resolutionEnvelope = (data?.resolution_envelope && typeof data.resolution_envelope === 'object') ? data.resolution_envelope : null;
+    const strikeResolutionEnvelope = (data?.strike_resolution_envelope && typeof data.strike_resolution_envelope === 'object') ? data.strike_resolution_envelope : null;
+    const spellResolutionEnvelope = (data?.spell_resolution_envelope && typeof data.spell_resolution_envelope === 'object') ? data.spell_resolution_envelope : null;
+    const resolutionPackets = [
+      ...collectResolutionPackets(resolutionEnvelope),
+      ...collectResolutionPackets(strikeResolutionEnvelope),
+      ...collectResolutionPackets(spellResolutionEnvelope),
+    ];
     const hazardResolutionEnvelope = (data?.hazard_resolution_envelope && typeof data.hazard_resolution_envelope === 'object')
       ? data.hazard_resolution_envelope
       : null;
@@ -3065,6 +3120,13 @@ export class ChatPanel {
       || ((data?.movement_packet && typeof data.movement_packet === 'object') ? data.movement_packet : null);
     const stateEffectPacket = findResolutionPacket('state_effect_change')
       || ((data?.state_effect_packet && typeof data.state_effect_packet === 'object') ? data.state_effect_packet : null);
+    const stateEffectPackets = (resolutionPackets.length > 0
+      ? resolutionPackets.filter((packet) => String(packet?.kind || '').trim().toLowerCase() === 'state_effect_change')
+      : (Array.isArray(data?.state_effect_packets) ? data.state_effect_packets : []))
+      .filter((packet) => packet && typeof packet === 'object');
+    if (stateEffectPacket && !stateEffectPackets.includes(stateEffectPacket)) {
+      stateEffectPackets.push(stateEffectPacket);
+    }
     const reactionPacket = findResolutionPacket('reaction_resolution')
       || ((data?.reaction_packet && typeof data.reaction_packet === 'object') ? data.reaction_packet : null);
     const actionCost = Number(data?.action_cost);
@@ -3073,6 +3135,77 @@ export class ChatPanel {
     const remainingSuffix = Number.isFinite(actionsRemaining)
       ? ` (${Math.max(0, actionsRemaining)} AP left)`
       : '';
+    const conditionApplications = [];
+    const appliedConditionChangeTypes = new Set(['', 'applied', 'added', 'gained', 'inflicted', 'set']);
+    for (const packet of stateEffectPackets) {
+      const changeType = String(packet?.change_type || '').trim().toLowerCase();
+      if (!appliedConditionChangeTypes.has(changeType)) {
+        continue;
+      }
+      const conditionName = String(packet?.effect_name || '').trim().toLowerCase();
+      if (!conditionName) {
+        continue;
+      }
+      const conditionTargetRef = String(packet?.target_entity_ref || '').trim();
+      const conditionTargetName = conditionTargetRef
+        ? this.resolveEncounterActorName(conditionTargetRef) || conditionTargetRef
+        : (targetName || '');
+      conditionApplications.push({
+        condition: conditionName.replace(/_/g, ' '),
+        target: conditionTargetName,
+      });
+    }
+    const fallbackConditionName = String(data?.condition_applied || '').trim().toLowerCase();
+    if (fallbackConditionName) {
+      conditionApplications.push({
+        condition: fallbackConditionName.replace(/_/g, ' '),
+        target: targetName || '',
+      });
+    }
+    const uniqueConditionApplications = [];
+    const seenConditionApplications = new Set();
+    for (const application of conditionApplications) {
+      const key = `${String(application.condition || '').trim().toLowerCase()}|${String(application.target || '').trim().toLowerCase()}`;
+      if (!key || seenConditionApplications.has(key)) {
+        continue;
+      }
+      seenConditionApplications.add(key);
+      uniqueConditionApplications.push(application);
+    }
+    const conditionSuffix = uniqueConditionApplications.length === 0
+      ? ''
+      : uniqueConditionApplications.length === 1
+        ? ` ${uniqueConditionApplications[0].condition} applied${uniqueConditionApplications[0].target ? ` to ${uniqueConditionApplications[0].target}` : ''}.`
+        : ` Conditions applied: ${uniqueConditionApplications
+          .map((application) => application.target ? `${application.condition} to ${application.target}` : application.condition)
+          .join(', ')}.`;
+    const dispositionChange = data?.disposition_change && typeof data.disposition_change === 'object'
+      ? data.disposition_change
+      : null;
+    const beforeDisposition = dispositionChange?.before && typeof dispositionChange.before === 'object'
+      ? dispositionChange.before
+      : null;
+    const afterDisposition = dispositionChange?.after && typeof dispositionChange.after === 'object'
+      ? dispositionChange.after
+      : null;
+    const beforeAttitude = String(beforeDisposition?.attitude || '').trim().toLowerCase();
+    const afterAttitude = String(afterDisposition?.attitude || '').trim().toLowerCase();
+    const beforeScore = Number(beforeDisposition?.score);
+    const afterScore = Number(afterDisposition?.score);
+    const hasDispositionScore = Number.isFinite(beforeScore) && Number.isFinite(afterScore);
+    const hasDispositionText = beforeAttitude !== '' || afterAttitude !== '';
+    const dispositionSuffix = dispositionChange && (hasDispositionText || hasDispositionScore)
+      ? ` Disposition: ${beforeAttitude || 'unknown'} → ${afterAttitude || 'unknown'}${hasDispositionScore ? ` (${Math.floor(beforeScore)} → ${Math.floor(afterScore)})` : ''}.`
+      : '';
+    const stanceChange = data?.stance_change && typeof data.stance_change === 'object'
+      ? data.stance_change
+      : (data?.stance_transition && typeof data.stance_transition === 'object' ? data.stance_transition : null);
+    const stanceAction = String(stanceChange?.stance_action || '').trim().toLowerCase();
+    const stanceId = String(stanceChange?.stance_id || stanceChange?.after_stance || '').trim().toLowerCase();
+    const stanceSuffix = stanceChange && (stanceAction !== '' || stanceId !== '')
+      ? ` Stance: ${stanceAction !== '' ? stanceAction : 'updated'}${stanceId !== '' ? ` ${stanceId.replace(/_/g, ' ')}` : ''}.`
+      : '';
+    const behaviorSuffix = `${conditionSuffix}${dispositionSuffix}${stanceSuffix}`;
 
     const movementToHex = movementPacket?.to_hex || data?.to;
     const toHex = movementToHex && typeof movementToHex === 'object'
@@ -3118,7 +3251,7 @@ export class ChatPanel {
           && String(reactionPacket?.reaction_type || '').trim() !== ''
           ? ` ${String(reactionPacket.reaction_type).replace(/_/g, ' ')} resolved.`
           : '';
-        return `${actorName} uses ${normalizedType.replace(/_/g, ' ')}${targetSuffix}.${costSuffix}${remainingSuffix}${damageSuffix}${reactionSuffix}`;
+        return `${actorName} uses ${normalizedType.replace(/_/g, ' ')}${targetSuffix}.${costSuffix}${remainingSuffix}${damageSuffix}${reactionSuffix}${behaviorSuffix}`;
       }
       case 'cast_spell': {
         const spellName = String(data?.spell || '').trim();
@@ -3129,20 +3262,13 @@ export class ChatPanel {
         const damageSuffix = Number.isFinite(damage) && damage > 0
           ? ` ${Math.floor(damage)} damage applied to ${targetLabel || damagePacket?.target_entity_ref || 'target'}.`
           : '';
-        return `${actorName} casts ${spellLabel}${targetSuffix}.${costSuffix}${remainingSuffix}${damageSuffix}`;
+        return `${actorName} casts ${spellLabel}${targetSuffix}.${costSuffix}${remainingSuffix}${damageSuffix}${behaviorSuffix}`;
       }
       case 'grapple': {
-        const applied = String(data?.condition_applied || stateEffectPacket?.effect_name || '').trim();
-        const conditionSuffix = applied ? ` ${applied} applied.` : '';
-        return `${actorName} uses grapple${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${conditionSuffix}`;
+        return `${actorName} uses grapple${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${behaviorSuffix}`;
       }
       case 'trip': {
-        const packets = resolutionPackets.length > 0
-          ? resolutionPackets
-          : (Array.isArray(data?.state_effect_packets) ? data.state_effect_packets : []);
-        const hasProne = packets.some((packet) => String(packet?.effect_name || '').toLowerCase() === 'prone');
-        const conditionSuffix = hasProne ? ' prone applied.' : '';
-        return `${actorName} uses trip${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${conditionSuffix}`;
+        return `${actorName} uses trip${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${behaviorSuffix}`;
       }
       case 'shove': {
         const pushedFeet = Number(data?.push_ft);
@@ -3159,7 +3285,7 @@ export class ChatPanel {
         const hazardDamageSuffix = Number.isFinite(hazardDamage) && hazardDamage > 0
           ? ` ${Math.floor(hazardDamage)} ${String(damagePacket?.damage_type || 'damage').trim()} from hazard.`
           : '';
-        return `${actorName} uses shove${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${moveSuffix}${hazardDamageSuffix}`;
+        return `${actorName} uses shove${targetName ? ` on ${targetName}` : ''}.${costSuffix}${remainingSuffix}${moveSuffix}${hazardDamageSuffix}${behaviorSuffix}`;
       }
       case 'hazard_triggered': {
         const hazard = (data?.hazard && typeof data.hazard === 'object') ? data.hazard : {};
@@ -4368,7 +4494,7 @@ export class ChatPanel {
             partyLine.dataset.messageId = String(partyResult.message_id);
             this.syncCurrentChatViewState('party');
           }
-          this.invalidateChatCaches({ sessionViews: ['party'] });
+          this.invalidateCrossViewChatCaches();
           break;
         }
 
@@ -4426,7 +4552,7 @@ export class ChatPanel {
             if (roomResult?.navigation?.target_room_id) {
               this.handleNavigationResult(roomResult.navigation);
             }
-            this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
+            this.invalidateCrossViewChatCaches();
             break;
           }
 
@@ -4467,7 +4593,7 @@ export class ChatPanel {
               });
             }
             await this.stateManager?.hexmap?.refreshQuestJournalFromApi?.();
-            this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
+            this.invalidateCrossViewChatCaches();
             break;
           }
 
@@ -4497,7 +4623,7 @@ export class ChatPanel {
               channel: 'gm-private',
               view: 'gm-private',
             });
-            this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
+            this.invalidateCrossViewChatCaches();
             break;
           }
 
@@ -4540,7 +4666,7 @@ export class ChatPanel {
             if (locationResult?.navigation?.target_room_id) {
               this.handleNavigationResult(locationResult.navigation);
             }
-            this.invalidateChatCaches({ sessionViews: ['gm-private', 'system-log'] });
+            this.invalidateCrossViewChatCaches();
             break;
           }
 
@@ -4556,7 +4682,7 @@ export class ChatPanel {
             gmPrivateLine.dataset.messageId = String(gmPrivateResult.message_id);
             this.syncCurrentChatViewState('gm-private');
           }
-          this.invalidateChatCaches({ sessionViews: ['gm-private'] });
+          this.invalidateCrossViewChatCaches();
           break;
         }
 

@@ -10,15 +10,18 @@ class UnifiedDamageEngine {
   protected CombatEncounterStore $encounterStore;
   protected NumberGenerationService $numberGenerationService;
   protected CombatResolutionContractService $combatResolutionContractService;
+  protected ?HPManager $hpManager;
 
   public function __construct(
     CombatEncounterStore $encounter_store,
     NumberGenerationService $number_generation_service,
-    CombatResolutionContractService $combat_resolution_contract_service
+    CombatResolutionContractService $combat_resolution_contract_service,
+    ?HPManager $hp_manager = NULL
   ) {
     $this->encounterStore = $encounter_store;
     $this->numberGenerationService = $number_generation_service;
     $this->combatResolutionContractService = $combat_resolution_contract_service;
+    $this->hpManager = $hp_manager;
   }
 
   /**
@@ -114,7 +117,8 @@ class UnifiedDamageEngine {
     string $spell_id,
     string $spell_name,
     int $cast_rank,
-    int $action_cost
+    int $action_cost,
+    ?array $target_participant_hint = NULL
   ): array {
     $normalized_spell = strtolower(trim($spell_id !== '' ? $spell_id : $spell_name));
     $canonical_spell = preg_replace('/[^a-z0-9]+/', '', $normalized_spell) ?? '';
@@ -123,13 +127,28 @@ class UnifiedDamageEngine {
     }
 
     $encounter = $this->encounterStore->loadEncounter($encounter_id);
-    $target_participant = $encounter ? $this->findEncounterParticipantByEntityId($encounter, $target_id) : NULL;
+    $target_participant = NULL;
+    if (is_array($target_participant_hint) && !empty($target_participant_hint['id'])) {
+      $target_participant = $target_participant_hint;
+    }
+    elseif (is_array($encounter)) {
+      $target_participant = $this->findEncounterParticipantByEntityId($encounter, $target_id);
+    }
     $target_participant_id = (int) ($target_participant['id'] ?? 0);
-    if (!$target_participant || $target_participant_id <= 0 || !is_numeric($target_participant['hp'] ?? NULL)) {
+    if (!$target_participant || $target_participant_id <= 0) {
+      \Drupal::logger('dungeoncrawler_targeting')->warning(
+        'Magic Missile damage skipped: target participant unresolved encounter=@encounter target=@target',
+        [
+          '@encounter' => (string) $encounter_id,
+          '@target' => $target_id,
+        ]
+      );
       return [];
     }
 
-    $target_hp_before = (int) $target_participant['hp'];
+    $target_hp_before = is_numeric($target_participant['hp'] ?? NULL)
+      ? (int) $target_participant['hp']
+      : (is_numeric($target_participant['current_hp'] ?? NULL) ? (int) $target_participant['current_hp'] : 0);
     $rank = max(1, (int) $cast_rank);
     $actions_spent = max(1, min(3, (int) $action_cost));
     $missiles_per_action = 1 + max(0, (int) floor(($rank - 1) / 2));
@@ -140,13 +159,43 @@ class UnifiedDamageEngine {
       $damage_total += (int) $this->numberGenerationService->rollPathfinderDie(4) + 1;
     }
 
-    $target_hp_after = max(0, $target_hp_before - $damage_total);
-    $is_defeated = $target_hp_after <= 0;
+    $source_participant_id = 0;
+    if (is_array($encounter)) {
+      $source_participant = $this->findEncounterParticipantByEntityId($encounter, $source_actor_id);
+      $source_participant_id = (int) ($source_participant['id'] ?? 0);
+    }
 
-    $this->encounterStore->updateParticipant($target_participant_id, [
-      'hp' => $target_hp_after,
-      'is_defeated' => $is_defeated ? 1 : 0,
-    ]);
+    $damage_result = [];
+    if ($this->hpManager) {
+      $damage_result = $this->hpManager->applyDamage(
+        $target_participant_id,
+        $damage_total,
+        'force',
+        [
+          'source' => 'spell',
+          'spell_id' => $spell_id !== '' ? $spell_id : $spell_name,
+          'spell_name' => $spell_name,
+          'cast_rank' => $rank,
+          'attacker_participant_id' => $source_participant_id,
+        ],
+        $encounter_id,
+        FALSE,
+        FALSE
+      );
+      $target_hp_after = (int) ($damage_result['new_hp'] ?? max(0, $target_hp_before - $damage_total));
+      $is_defeated = ($damage_result['new_status'] ?? 'active') !== 'active';
+    }
+    else {
+      \Drupal::logger('dungeoncrawler_targeting')->error(
+        'Magic Missile damage failed closed: hp_manager unavailable encounter=@encounter target=@target spell=@spell',
+        [
+          '@encounter' => (string) $encounter_id,
+          '@target' => $target_id,
+          '@spell' => $spell_id !== '' ? $spell_id : $spell_name,
+        ]
+      );
+      return ['error' => 'Damage engine unavailable for canonical spell damage resolution.'];
+    }
 
     return [
       'damage' => $damage_total,
@@ -169,6 +218,7 @@ class UnifiedDamageEngine {
       ),
       'missiles_fired' => $missiles_fired,
       'is_defeated' => $is_defeated,
+      'damage_result' => $damage_result,
       'mutations' => [[
         'entity' => $target_id,
         'field' => 'hp',
@@ -184,12 +234,79 @@ class UnifiedDamageEngine {
    * @return array<string, mixed>|null
    */
   protected function findEncounterParticipantByEntityId(array $encounter, string $entity_id): ?array {
+    $needle_raw = trim($entity_id);
+    if ($needle_raw === '') {
+      return NULL;
+    }
+    $needle_canonical = $this->normalizeEntityRefKey($needle_raw);
+
     foreach (($encounter['participants'] ?? []) as $participant) {
-      if ((string) ($participant['entity_id'] ?? '') === $entity_id) {
-        return is_array($participant) ? $participant : NULL;
+      if (!is_array($participant)) {
+        continue;
+      }
+      foreach ($this->collectParticipantEntityRefs($participant) as $candidate) {
+        if ($candidate === $needle_raw || $this->normalizeEntityRefKey($candidate) === $needle_canonical) {
+          return $participant;
+        }
       }
     }
     return NULL;
+  }
+
+  /**
+   * @return string[]
+   */
+  protected function collectParticipantEntityRefs(array $participant): array {
+    $candidates = [];
+    foreach (['entity_id', 'entity_ref'] as $key) {
+      $value = $participant[$key] ?? NULL;
+      if (is_scalar($value)) {
+        $normalized = trim((string) $value);
+        if ($normalized !== '') {
+          $candidates[] = $normalized;
+        }
+      }
+    }
+
+    $entity_ref = $participant['entity_ref'] ?? NULL;
+    if (is_scalar($entity_ref)) {
+      $decoded = json_decode((string) $entity_ref, TRUE);
+      if (is_array($decoded)) {
+        foreach (['entity_id', 'instance_id', 'entity_instance_id', 'content_id', 'id'] as $key) {
+          $value = $decoded[$key] ?? NULL;
+          if (is_scalar($value)) {
+            $normalized = trim((string) $value);
+            if ($normalized !== '') {
+              $candidates[] = $normalized;
+            }
+          }
+        }
+      }
+    }
+
+    $unique = [];
+    $seen = [];
+    foreach ($candidates as $candidate) {
+      if (!isset($seen[$candidate])) {
+        $seen[$candidate] = TRUE;
+        $unique[] = $candidate;
+      }
+    }
+
+    return $unique;
+  }
+
+  protected function normalizeEntityRefKey(string $value): string {
+    $value = strtolower(trim($value));
+    if ($value === '') {
+      return '';
+    }
+    $normalized = preg_replace('/[^a-z0-9]+/', '', $value);
+    if (is_string($normalized) && $normalized !== '') {
+      return $normalized;
+    }
+
+    return $value;
   }
 
 }

@@ -1063,13 +1063,28 @@ export class MerchantPanel {
         status: result.status || null,
         message: result.message || result.error || null,
       });
-      this.currentMerchantContext = result.context || this.currentMerchantContext;
-      this.renderMerchantPanel(this.currentMerchantContext);
-      this.syncMerchantContextIntoInventoryPanel(this.currentMerchantContext);
       if (!response.ok || !result.success) {
+        this.currentMerchantContext = result.context || this.currentMerchantContext;
+        this.renderMerchantPanel(this.currentMerchantContext);
+        this.syncMerchantContextIntoInventoryPanel(this.currentMerchantContext);
         this.setMerchantStatus(result.error || result.message || 'Merchant trade failed.', 'error');
         return;
       }
+      this.currentMerchantContext = result.context || this.currentMerchantContext;
+      this.renderMerchantPanel(this.currentMerchantContext);
+      this.syncMerchantContextIntoInventoryPanel(this.currentMerchantContext);
+      const runtimeContext = hexmap?.resolveLaunchCharacterRuntimeContext?.() || {};
+      const activeCharacterId = Number(payload.character_id || 0) || null;
+      if (activeCharacterId) {
+        await hexmap?.refreshCharacterInventoryFromApi?.({
+          characterId: activeCharacterId,
+          campaignId,
+          instanceId: runtimeContext.instanceId || runtimeContext.instance_id || null,
+          currency: this.currentMerchantContext?.player?.currency || {},
+        });
+      }
+      await hexmap?._loadMerchantStock?.();
+      await this.loadMerchantPanel(true);
       this.setMerchantStatus(result.message || 'Trade complete.', 'success');
     } catch (error) {
       this.logMerchantPanelTrace('trade-error', {

@@ -13,10 +13,12 @@ class HPManager {
 
   protected $database;
   protected $conditionManager;
+  protected $zeroHpTransitionService;
 
-  public function __construct(Connection $database, ConditionManager $condition_manager) {
+  public function __construct(Connection $database, ConditionManager $condition_manager, ZeroHpTransitionService $zero_hp_transition_service = NULL) {
     $this->database = $database;
     $this->conditionManager = $condition_manager;
+    $this->zeroHpTransitionService = $zero_hp_transition_service ?: new ZeroHpTransitionService();
   }
 
   /**
@@ -114,32 +116,61 @@ class HPManager {
     $is_dead = FALSE;
 
     if ($is_defeated) {
-      // REQ 2173: Massive damage check — single-hit damage >= 2×max_hp = instant death.
-      if ($remaining_damage >= 2 * $max_hp) {
+      $active_conditions = $this->conditionManager->getActiveConditions((int) $participant_id, (int) $encounter_id);
+      $existing_dying = 0;
+      $wounded = 0;
+      $doomed = 0;
+      $already_dying = FALSE;
+      foreach ($active_conditions as $cond) {
+        if (($cond['condition_type'] ?? '') === 'dying') {
+          $already_dying = TRUE;
+          $existing_dying = max($existing_dying, (int) ($cond['value'] ?? 0));
+        }
+        elseif (($cond['condition_type'] ?? '') === 'wounded') {
+          $wounded = max($wounded, (int) ($cond['value'] ?? 0));
+        }
+        elseif (($cond['condition_type'] ?? '') === 'doomed') {
+          $doomed = max($doomed, (int) ($cond['value'] ?? 0));
+        }
+      }
+
+      $transition = $this->zeroHpTransitionService->resolveDamageToZeroHp([
+        'base_hp' => $base_hp,
+        'max_hp' => $max_hp,
+        'remaining_damage' => $remaining_damage,
+        'is_nonlethal' => $is_nonlethal,
+        'is_critical' => $is_critical,
+        'already_dying' => $already_dying,
+        'existing_dying' => $existing_dying,
+        'wounded' => $wounded,
+        'doomed' => $doomed,
+        'source' => $source,
+      ]);
+
+      if (($transition['new_status'] ?? '') === 'dead') {
         $this->database->update('combat_participants')
-          ->fields(['status' => 'dead'])
+          ->fields(['status' => 'dead', 'is_defeated' => 1, 'updated' => $now])
           ->condition('id', $participant_id)
           ->execute();
+        $this->removeConditionByType((int) $participant_id, 'dying', (int) $encounter_id);
+        $this->removeConditionByType((int) $participant_id, 'unconscious', (int) $encounter_id);
         $is_dead = TRUE;
-        $death_reason = 'massive_damage';
+        $death_reason = $transition['death_reason'] ?? 'dead';
       }
-      // REQ 2172: death_effect source flag → instant death, bypasses dying track.
-      elseif (!empty($source['death_effect'])) {
-        $this->database->update('combat_participants')
-          ->fields(['status' => 'dead'])
-          ->condition('id', $participant_id)
-          ->execute();
-        $is_dead = TRUE;
-        $death_reason = 'death_effect';
+      elseif (!empty($transition['apply_dying'])) {
+        $this->applyResolvedDyingState(
+          (int) $participant_id,
+          (int) ($transition['dying_value'] ?? 1),
+          (int) $encounter_id
+        );
       }
-      // REQ 2156: Nonlethal damage at 0 HP → unconscious, not dying.
-      elseif ($is_nonlethal) {
+      elseif (!empty($transition['apply_unconscious'])) {
         $this->conditionManager->applyCondition($participant_id, 'unconscious', 1, ['type' => 'encounter', 'remaining' => NULL], $source, $encounter_id);
       }
-      else {
-        // DEF-2154/2155: Route through applyDyingCondition() so wounded is
-        // added and crits correctly apply dying 2 instead of dying 1.
-        $this->applyDyingCondition($participant_id, 1, $encounter_id, $is_critical);
+
+      $attacker_participant_id = $this->extractAttackerParticipantId($source);
+      if ($attacker_participant_id > 0 && $attacker_participant_id !== (int) $participant_id) {
+        $this->shiftInitiativeAfterAttacker((int) $encounter_id, (int) $participant_id, $attacker_participant_id);
       }
     }
 
@@ -180,7 +211,9 @@ class HPManager {
   /**
    * Apply healing.
    *
-   * REQ 2164: Removes wounded if new HP = max HP (full heal).
+   * Wounded removal posture:
+   * - Full HP alone does not clear wounded.
+   * - Wounded clears only on explicit recovery lanes (e.g., Treat Wounds / rest).
    * REQ 2170: Wakes unconscious character if they have HP > 0.
    *
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#applyhealing
@@ -189,6 +222,9 @@ class HPManager {
     $participant = $this->loadParticipant($participant_id);
     if (!$participant) {
       return ['healing_applied' => 0, 'new_hp' => 0];
+    }
+    if (($participant['status'] ?? '') === 'dead') {
+      return ['healing_applied' => 0, 'new_hp' => (int) ($participant['hp'] ?? 0), 'blocked' => 'dead'];
     }
 
     $now = time();
@@ -201,19 +237,22 @@ class HPManager {
       ->fields([
         'hp' => $new_hp,
         'is_defeated' => $new_hp > 0 ? 0 : (int) ($participant['is_defeated'] ?? 0),
+        'status' => $new_hp > 0 ? 'active' : (string) ($participant['status'] ?? 'active'),
         'updated' => $now,
       ])
       ->condition('id', $participant_id)
       ->execute();
 
-    // REQ 2164: Full heal removes wounded condition.
-    if ($new_hp >= $max_hp) {
+    if ($new_hp >= $max_hp && $this->shouldRemoveWoundedAfterHealingSource($source)) {
       $this->removeConditionByType($participant_id, 'wounded', $encounter_id);
     }
 
     // REQ 2170: Healing wakes an unconscious character (HP > 0 after heal).
     if ($new_hp > 0 && $this->conditionManager->hasCondition($participant_id, 'unconscious', $encounter_id)) {
       $this->removeUnconsciousCondition($participant_id, $encounter_id);
+    }
+    if ($new_hp > 0 && $this->conditionManager->hasCondition($participant_id, 'dying', $encounter_id)) {
+      $this->removeConditionByType((int) $participant_id, 'dying', (int) $encounter_id);
     }
 
     return [
@@ -287,6 +326,10 @@ class HPManager {
       return ['is_dead' => FALSE, 'death_reason' => ''];
     }
 
+    if (($participant['status'] ?? '') === 'dead') {
+      return ['is_dead' => TRUE, 'death_reason' => 'status_dead'];
+    }
+
     $hp = $hp_override ?? (int) ($participant['hp'] ?? 0);
     $max_hp = $max_hp_override ?? (int) ($participant['max_hp'] ?? 0);
 
@@ -301,42 +344,43 @@ class HPManager {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#applydyingcondition
    */
   public function applyDyingCondition($participant_id, $dying_value, $encounter_id, bool $is_critical = FALSE) {
-    // REQ 2154: Critical hits apply dying 2 instead of dying 1.
-    if ($is_critical && $dying_value < 2) {
-      $dying_value = 2;
-    }
-
-    // PF2E: wounded condition increases dying value at start.
     $active = $this->conditionManager->getActiveConditions($participant_id, $encounter_id);
+    $existing_dying = 0;
+    $already_dying = FALSE;
     $wounded_value = 0;
-    foreach ($active as $cond) {
-      if ($cond['condition_type'] === 'wounded') {
-        $wounded_value = max($wounded_value, (int) ($cond['value'] ?? 0));
-      }
-    }
-
-    $effective_dying = $dying_value + $wounded_value;
-
-    // GAP-2166: doomed reduces the dying death threshold; if effective_dying already
-    // meets or exceeds the threshold, the character dies immediately without entering
-    // the dying track (REQ 2165/2166).
     $doomed_value = 0;
     foreach ($active as $cond) {
-      if ($cond['condition_type'] === 'doomed') {
+      if ($cond['condition_type'] === 'dying') {
+        $already_dying = TRUE;
+        $existing_dying = max($existing_dying, (int) ($cond['value'] ?? 0));
+      }
+      elseif ($cond['condition_type'] === 'wounded') {
+        $wounded_value = max($wounded_value, (int) ($cond['value'] ?? 0));
+      }
+      elseif ($cond['condition_type'] === 'doomed') {
         $doomed_value = max($doomed_value, (int) ($cond['value'] ?? 0));
       }
     }
+    if ($is_critical && $dying_value < 2) {
+      $dying_value = 2;
+    }
+    $effective_dying = $already_dying
+      ? ($existing_dying + max(1, (int) $dying_value))
+      : ((int) $dying_value + $wounded_value);
+
     $death_threshold = max(1, 4 - $doomed_value);
     if ($effective_dying >= $death_threshold) {
       $now = time();
       $this->database->update('combat_participants')
-        ->fields(['status' => 'dead', 'updated' => $now])
+        ->fields(['status' => 'dead', 'is_defeated' => 1, 'updated' => $now])
         ->condition('id', $participant_id)
         ->execute();
+      $this->removeConditionByType((int) $participant_id, 'dying', (int) $encounter_id);
+      $this->removeConditionByType((int) $participant_id, 'unconscious', (int) $encounter_id);
       return ['instant_death' => TRUE, 'doomed' => $doomed_value, 'effective_dying' => $effective_dying, 'threshold' => $death_threshold];
     }
 
-    $this->conditionManager->applyCondition($participant_id, 'dying', $effective_dying, ['type' => 'encounter', 'remaining' => NULL], 'dying_condition', $encounter_id);
+    $this->conditionManager->setConditionValueExact($participant_id, 'dying', $effective_dying, ['type' => 'encounter', 'remaining' => NULL], 'dying_condition', $encounter_id);
     $this->conditionManager->applyCondition($participant_id, 'unconscious', 0, ['type' => 'encounter', 'remaining' => NULL], 'dying_condition', $encounter_id);
     $this->conditionManager->applyCondition($participant_id, 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'dying_condition', $encounter_id);
 
@@ -352,6 +396,10 @@ class HPManager {
    * @see /docs/dungeoncrawler/issues/combat-engine-service.md#stabilizecharacter
    */
   public function stabilizeCharacter($participant_id, $encounter_id) {
+    $participant = $this->loadParticipant($participant_id);
+    if (!$participant || ($participant['status'] ?? '') === 'dead') {
+      return FALSE;
+    }
     $active = $this->conditionManager->getActiveConditions($participant_id, $encounter_id);
 
     // Remove dying condition.
@@ -369,13 +417,17 @@ class HPManager {
       }
     }
     $new_wounded = $current_wounded + 1;
-    $this->conditionManager->applyCondition($participant_id, 'wounded', $new_wounded, ['type' => 'persistent', 'remaining' => NULL], 'stabilize', $encounter_id);
+    $this->conditionManager->setConditionValueExact($participant_id, 'wounded', $new_wounded, ['type' => 'persistent', 'remaining' => NULL], 'stabilize', $encounter_id);
 
     // REQ 2160: Character stays at 0 HP — do NOT set to 1. Remains unconscious.
     $this->database->update('combat_participants')
-      ->fields(['is_defeated' => 1, 'updated' => time()])
+      ->fields(['hp' => 0, 'is_defeated' => 1, 'updated' => time()])
       ->condition('id', $participant_id)
       ->execute();
+
+    if (!$this->conditionManager->hasCondition((int) $participant_id, 'unconscious', (int) $encounter_id)) {
+      $this->conditionManager->applyCondition($participant_id, 'unconscious', 1, ['type' => 'encounter', 'remaining' => NULL], 'stabilize', $encounter_id);
+    }
 
     return TRUE;
   }
@@ -409,13 +461,20 @@ class HPManager {
    * - HP restored = Con modifier (if positive, else 0).
    */
   public function heroicRecovery($participant_id, $encounter_id, int $con_modifier = 0): array {
+    $participant = $this->loadParticipant($participant_id);
+    if (!$participant || ($participant['status'] ?? '') === 'dead') {
+      return [
+        'heroic_recovery' => FALSE,
+        'blocked' => 'dead',
+        'dying_removed' => FALSE,
+        'wounded_added' => FALSE,
+        'hp_gained' => 0,
+      ];
+    }
     $active = $this->conditionManager->getActiveConditions($participant_id, $encounter_id);
 
     foreach ($active as $cond) {
       if ($cond['condition_type'] === 'dying') {
-        $this->conditionManager->removeCondition($participant_id, (int) $cond['id'], $encounter_id);
-      }
-      if ($cond['condition_type'] === 'unconscious') {
         $this->conditionManager->removeCondition($participant_id, (int) $cond['id'], $encounter_id);
       }
     }
@@ -423,6 +482,9 @@ class HPManager {
     $hp_gained = max(0, $con_modifier);
     if ($hp_gained > 0) {
       $this->applyHealing($participant_id, $hp_gained, 'hero_point_recovery', $encounter_id);
+    }
+    else {
+      $this->ensureUnconsciousAtZeroHp((int) $participant_id, (int) $encounter_id);
     }
 
     return [
@@ -441,6 +503,16 @@ class HPManager {
    * REQ 2282: Also usable for familiars/animal companions (caller must pass their participant_id).
    */
   public function heroicRecoveryAllPoints($participant_id, $encounter_id): array {
+    $participant = $this->loadParticipant($participant_id);
+    if (!$participant || ($participant['status'] ?? '') === 'dead') {
+      return [
+        'heroic_recovery_all_points' => FALSE,
+        'blocked'                    => 'dead',
+        'dying_removed'              => FALSE,
+        'wounded_added'              => FALSE,
+        'hp'                         => (int) ($participant['hp'] ?? 0),
+      ];
+    }
     $active = $this->conditionManager->getActiveConditions($participant_id, $encounter_id);
 
     $dying_removed = FALSE;
@@ -449,19 +521,17 @@ class HPManager {
         $this->conditionManager->removeCondition($participant_id, (int) $cond['id'], $encounter_id);
         $dying_removed = TRUE;
       }
-      if ($cond['condition_type'] === 'unconscious') {
-        $this->conditionManager->removeCondition($participant_id, (int) $cond['id'], $encounter_id);
-      }
     }
 
     // Ensure character stays at 0 HP (stabilized, not killed).
     $participant = $this->loadParticipant($participant_id);
-    if ($participant && (int) ($participant['hp'] ?? 0) < 0) {
+    if ($participant && (int) ($participant['hp'] ?? 0) !== 0) {
       $this->database->update('combat_participants')
-        ->fields(['hp' => 0, 'updated' => time()])
+        ->fields(['hp' => 0, 'status' => 'defeated', 'is_defeated' => 1, 'updated' => time()])
         ->condition('id', $participant_id)
         ->execute();
     }
+    $this->ensureUnconsciousAtZeroHp((int) $participant_id, (int) $encounter_id);
 
     return [
       'heroic_recovery_all_points' => TRUE,
@@ -479,6 +549,9 @@ class HPManager {
     $participant = $this->loadParticipant($participant_id);
     if (!$participant) {
       return ['error' => 'Participant not found'];
+    }
+    if (($participant['status'] ?? '') === 'dead') {
+      return ['error' => 'Character is dead — natural recovery does not apply'];
     }
 
     $hp = (int) ($participant['hp'] ?? 0);
@@ -528,6 +601,35 @@ class HPManager {
     }
   }
 
+  protected function ensureUnconsciousAtZeroHp(int $participant_id, int $encounter_id): void {
+    $participant = $this->loadParticipant($participant_id);
+    if (!$participant) {
+      return;
+    }
+    if ((int) ($participant['hp'] ?? 0) > 0) {
+      return;
+    }
+    if (!$this->conditionManager->hasCondition($participant_id, 'unconscious', $encounter_id)) {
+      $this->conditionManager->applyCondition($participant_id, 'unconscious', 1, ['type' => 'encounter', 'remaining' => NULL], 'heroic_recovery', $encounter_id);
+    }
+  }
+
+  protected function shouldRemoveWoundedAfterHealingSource($source): bool {
+    $source_key = '';
+    if (is_scalar($source)) {
+      $source_key = (string) $source;
+    }
+    elseif (is_array($source) && is_scalar($source['source'] ?? NULL)) {
+      $source_key = (string) $source['source'];
+    }
+    $source_key = strtolower(trim($source_key));
+    if ($source_key === '') {
+      return FALSE;
+    }
+
+    return in_array($source_key, ['treat_wounds', 'long_rest', 'full_rest'], TRUE);
+  }
+
   /**
    * Remove all active instances of a condition type for a participant.
    */
@@ -538,6 +640,50 @@ class HPManager {
         $this->conditionManager->removeCondition($participant_id, (int) $cond['id'], $encounter_id);
       }
     }
+  }
+
+  /**
+   * Apply a pre-resolved dying value without additional wounded/critical math.
+   */
+  protected function applyResolvedDyingState(int $participant_id, int $dying_value, int $encounter_id): void {
+    $resolved = max(1, (int) $dying_value);
+    $this->conditionManager->setConditionValueExact($participant_id, 'dying', $resolved, ['type' => 'encounter', 'remaining' => NULL], 'dying_condition', $encounter_id);
+    $this->conditionManager->applyCondition($participant_id, 'unconscious', 0, ['type' => 'encounter', 'remaining' => NULL], 'dying_condition', $encounter_id);
+    $this->conditionManager->applyCondition($participant_id, 'prone', 0, ['type' => 'encounter', 'remaining' => NULL], 'dying_condition', $encounter_id);
+  }
+
+  protected function extractAttackerParticipantId($source): int {
+    if (!is_array($source)) {
+      return 0;
+    }
+    if (is_numeric($source['attacker_participant_id'] ?? NULL)) {
+      return max(0, (int) $source['attacker_participant_id']);
+    }
+    if (is_numeric($source['attacker'] ?? NULL)) {
+      return max(0, (int) $source['attacker']);
+    }
+
+    return 0;
+  }
+
+  protected function shiftInitiativeAfterAttacker(int $encounter_id, int $target_id, int $attacker_id): void {
+    $attacker = $this->database->select('combat_participants', 'p')
+      ->fields('p', ['initiative'])
+      ->condition('id', $attacker_id)
+      ->condition('encounter_id', $encounter_id)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!$attacker) {
+      return;
+    }
+
+    $new_initiative = max(0, (int) ($attacker['initiative'] ?? 0) - 1);
+    $this->database->update('combat_participants')
+      ->fields(['initiative' => $new_initiative])
+      ->condition('id', $target_id)
+      ->condition('encounter_id', $encounter_id)
+      ->execute();
   }
 
   /**

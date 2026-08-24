@@ -551,7 +551,7 @@ class DeityService {
    */
   public function upsert(array $deity): void {
     $this->database->merge('dc_deities')
-      ->key(['deity_id' => $deity['id']])
+      ->keys(['deity_id' => $deity['id']])
       ->fields([
         'deity_id'       => $deity['id'],
         'name'           => $deity['name'],

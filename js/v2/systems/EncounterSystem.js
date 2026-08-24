@@ -7,6 +7,7 @@
 
 import { getActionRailCost } from '../utils/action-utils.js';
 import { ACTION_SELECTION_HANDLERS, isRestActivityActionKey } from '../contracts/action-rail-contract.js';
+import { normalizeAuthoritativeStateActorRef } from '../utils/authoritative-state-utils.js';
 
 export class EncounterSystem {
   constructor(shell, bus) {
@@ -18,6 +19,7 @@ export class EncounterSystem {
     this._lastAnnouncedRound = null;
     this._lastAnnouncedActorKey = '';
     this._actionRailPendingRequests = new Map();
+    this._coordinatorActionLocks = new Map();
   }
 
   init(dungeonData, stateManager) {
@@ -30,6 +32,7 @@ export class EncounterSystem {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
     this._actionRailPendingRequests.clear();
+    this._coordinatorActionLocks.clear();
   }
 
   _subscribe() {
@@ -996,7 +999,8 @@ export class EncounterSystem {
     }
 
     this._appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${label}.`, 'system');
-    context.hexmap?.loadCharacterFromApi(characterId);
+    await context.hexmap?.loadCharacterFromApi?.(characterId);
+    this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);
     }
@@ -1092,7 +1096,14 @@ export class EncounterSystem {
         narration: result?.narration || null,
       });
       coordinator.applyAuthoritativeUpdate?.(result);
-      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} casts ${spellName}.`, 'system');
+      const castSummary = this._buildSpellCastSummary(
+        context.actorLabel,
+        spellName,
+        this._resolveActionDamageFromResult(result),
+        spellTargetRef,
+        result?.result?.summary || '',
+      );
+      this._appendChatLine('System', castSummary, 'system');
       if (typeof result.narration === 'string' && result.narration.trim()) {
         this._appendChatLine('Game Master', result.narration.trim(), 'gm');
       }
@@ -1137,11 +1148,22 @@ export class EncounterSystem {
         return;
       }
 
-      this._appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
+      this._appendChatLine(
+        'System',
+        this._buildSpellCastSummary(
+          context.actorLabel,
+          spellName,
+          this._resolveActionDamageFromResult(data),
+          spellTargetRef,
+          '',
+        ),
+        'system',
+      );
       if (typeof data.narration === 'string' && data.narration.trim()) {
         this._appendChatLine('Game Master', data.narration.trim(), 'gm');
       }
-      hexmap.loadCharacterFromApi(context.characterId);
+      await hexmap.loadCharacterFromApi?.(context.characterId);
+      this._refreshActionRail();
       return;
     }
 
@@ -1167,8 +1189,19 @@ export class EncounterSystem {
       return;
     }
 
-    this._appendChatLine('System', `${context.actorLabel} casts ${spellName}.`, 'system');
-    hexmap.loadCharacterFromApi(context.characterId);
+    this._appendChatLine(
+      'System',
+      this._buildSpellCastSummary(
+        context.actorLabel,
+        spellName,
+        this._resolveActionDamageFromResult(data),
+        spellTargetRef,
+        '',
+      ),
+      'system',
+    );
+    await hexmap.loadCharacterFromApi?.(context.characterId);
+    this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);
     }
@@ -1266,7 +1299,8 @@ export class EncounterSystem {
     }
 
     this._appendChatLine('System', data.action?.summary || `${context.actorLabel} uses ${featName}.`, 'system');
-    context.hexmap?.loadCharacterFromApi(context.characterId);
+    await context.hexmap?.loadCharacterFromApi?.(context.characterId);
+    this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);
     }
@@ -1319,65 +1353,32 @@ export class EncounterSystem {
     const actionCost = getActionRailCost(button.dataset.actionCost, 1);
     const itemLabel = item.name || 'consumable';
 
-    if (context.encounterActive && context.actor && context.actorRef) {
-      const coordinator = hexmap?.gameCoordinator || null;
-      if (!coordinator?.api) {
-        this._appendChatLine('System', 'Consumable actions require an active coordinator session. Refresh the room.', 'system');
-        return;
-      }
-
-      const result = await this._sendCoordinatorActionWithResync(coordinator, 'consume_item', context.actorRef, {
-        action_cost: actionCost,
-        character_id: characterId,
-        targeting_mode: targetingMode,
-        target_hex: targetHex || undefined,
-        target_room_id: targetRoomId || undefined,
-        targets: targets.length > 0 ? targets : undefined,
-        ...targetSelection,
-        item,
-      }, (targetRequired && selectedTargetRef) ? { target: selectedTargetRef } : {});
-      if (!result?.success) {
-        this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${itemLabel}.`, 'system');
-        return;
-      }
-
-      coordinator.applyAuthoritativeUpdate?.(result);
-      this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
-      hexmap.loadCharacterFromApi(characterId);
-      this._refreshActionRail();
+    const coordinator = hexmap?.gameCoordinator || null;
+    const actorRef = String(context.actorRef || '').trim();
+    if (!coordinator?.api || !actorRef) {
+      this._appendChatLine('System', 'Consumable actions require authoritative coordinator state and an active actor.', 'system');
       return;
     }
 
-    const runtimeContext = context.runtimeContext || {};
-    const response = await fetch(`/api/character/${characterId}/inventory`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        action: 'consume',
-        item,
-        targetRef: selectedTargetRef || null,
-        targets,
-        targetHex: targetHex || null,
-        targetRoomId: targetRoomId || null,
-        targetingMode,
-        targetSelection,
-        campaignId: runtimeContext.campaignId || null,
-        instanceId: runtimeContext.instanceId || null,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      this._appendChatLine('System', data.error || `Unable to use ${itemLabel}.`, 'system');
+    const result = await this._sendCoordinatorActionWithResync(coordinator, 'consume_item', actorRef, {
+      action_cost: actionCost,
+      character_id: characterId,
+      targeting_mode: targetingMode,
+      target_hex: targetHex || undefined,
+      target_room_id: targetRoomId || undefined,
+      targets: targets.length > 0 ? targets : undefined,
+      ...targetSelection,
+      item,
+    }, (targetRequired && selectedTargetRef) ? { target: selectedTargetRef } : {});
+    if (!result?.success) {
+      this._appendChatLine('System', result?.error || result?.result?.error || `Unable to use ${itemLabel}.`, 'system');
       return;
     }
 
-    this._appendChatLine('System', data.actionSummary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
+    coordinator.applyAuthoritativeUpdate?.(result);
+    this._appendChatLine('System', result?.result?.summary || `${context.actorLabel} uses ${itemLabel}.`, 'system');
     hexmap.loadCharacterFromApi(characterId);
+    this._refreshActionRail();
     } finally {
       this._endActionRailRequest(button);
     }
@@ -1403,6 +1404,28 @@ export class EncounterSystem {
   async _sendCoordinatorActionWithResync(coordinator, type, actorRef, params = {}, options = {}) {
     if (!coordinator?.api) {
       return { success: false, error: 'Coordinator API unavailable.' };
+    }
+
+    const lockKey = this._buildCoordinatorActionLockKey(coordinator, actorRef);
+    if (lockKey && this._coordinatorActionLocks.has(lockKey)) {
+      const lock = this._coordinatorActionLocks.get(lockKey) || {};
+      return {
+        success: false,
+        error: `Another action (${lock.type || 'unknown'}) is already in progress for this actor.`,
+      };
+    }
+    if (lockKey) {
+      const lockState = {
+        key: lockKey,
+        type,
+        actorRef: String(actorRef || '').trim(),
+        startedAt: Date.now(),
+      };
+      this._coordinatorActionLocks.set(lockKey, lockState);
+      this.bus?.emit?.('encounter:action-lock-changed', {
+        locked: true,
+        ...lockState,
+      });
     }
 
     const sendWithCurrentStateVersion = () => coordinator.api.sendAction(type, actorRef, params, {
@@ -1448,6 +1471,15 @@ export class EncounterSystem {
         });
       }
       if (result?.success) {
+        try {
+          await this._refreshEncounterServerStateFromApi();
+        } catch (syncError) {
+          console.warn('[EncounterSystem] encounter state refresh failed after action', {
+            type,
+            actorRef,
+            message: String(syncError?.message || syncError || ''),
+          });
+        }
         this._refreshSystemLogView();
       }
       return result;
@@ -1477,6 +1509,10 @@ export class EncounterSystem {
       if (!isStateVersionMismatch) {
         return fallbackResult;
       }
+      coordinator?.runtimeStateStore?.setSyncHealth?.('resyncing', {
+        code: 'state_version_mismatch',
+        actionType: type,
+      });
 
       let hasAuthoritativeState = false;
       if (payload?.game_state) {
@@ -1485,7 +1521,9 @@ export class EncounterSystem {
         hasAuthoritativeState = true;
       } else {
         try {
-          const refreshed = await coordinator.api.getState({ actor: actorRef });
+          const fallbackRuntimeContext = this.shell?.resolveLaunchCharacterRuntimeContext?.() || {};
+          const refreshActorRef = normalizeAuthoritativeStateActorRef(actorRef, { runtimeContext: fallbackRuntimeContext });
+          const refreshed = await coordinator.api.getState({ actor: refreshActorRef || undefined });
           if (refreshed?.success && refreshed?.game_state) {
             coordinator.applyAuthoritativeUpdate?.(refreshed);
             this.announceGameState(refreshed.game_state);
@@ -1504,6 +1542,10 @@ export class EncounterSystem {
       }
 
       if (!hasAuthoritativeState) {
+        coordinator?.runtimeStateStore?.noteSyncFailure?.({
+          code: 'resync_failed',
+          actionType: type,
+        });
         return fallbackResult;
       }
 
@@ -1520,10 +1562,19 @@ export class EncounterSystem {
           });
         }
         if (retryResult?.success) {
+          coordinator?.runtimeStateStore?.noteSyncSuccess?.({
+            code: 'resync_recovered',
+            actionType: type,
+          });
           this._refreshSystemLogView();
         }
         return retryResult;
       } catch (retryError) {
+        coordinator?.runtimeStateStore?.noteSyncFailure?.({
+          code: 'resync_retry_failed',
+          actionType: type,
+          status: Number(retryError?.status || 0) || null,
+        });
         if (type === 'cast_spell') {
           console.warn('[EncounterSystem] coordinator action retry threw', {
             type,
@@ -1536,7 +1587,27 @@ export class EncounterSystem {
         }
         return this._toCoordinatorFailureResult(retryError);
       }
+    } finally {
+      if (lockKey) {
+        this._coordinatorActionLocks.delete(lockKey);
+        this.bus?.emit?.('encounter:action-lock-changed', {
+          locked: false,
+          key: lockKey,
+          type,
+          actorRef: String(actorRef || '').trim(),
+        });
+      }
     }
+  }
+
+  _buildCoordinatorActionLockKey(coordinator, actorRef) {
+    const actor = String(actorRef || '').trim();
+    if (!actor) {
+      return '';
+    }
+    const campaignId = Number(coordinator?.campaignId || this.shell?.resolveLaunchCharacterRuntimeContext?.()?.campaignId || 0) || 0;
+    const encounterId = Number(coordinator?.phaseManager?.encounterId || coordinator?.phaseManager?.getSnapshot?.()?.encounterId || 0) || 0;
+    return `${campaignId}:${encounterId}:${actor}`;
   }
 
   _toCoordinatorFailureResult(error) {
@@ -1685,6 +1756,63 @@ export class EncounterSystem {
     actionRail?.refreshActionRail?.();
   }
 
+  _resolveActionDamageFromResult(payload = null) {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const packets = [];
+    const envelopeEffects = Array.isArray(payload?.result?.resolution_envelope?.effects)
+      ? payload.result.resolution_envelope.effects
+      : [];
+    packets.push(...envelopeEffects);
+    if (payload?.result?.damage_packet && typeof payload.result.damage_packet === 'object') {
+      packets.push(payload.result.damage_packet);
+    }
+    if (payload?.damage_packet && typeof payload.damage_packet === 'object') {
+      packets.push(payload.damage_packet);
+    }
+
+    const candidates = [
+      payload?.result?.damage,
+      payload?.damage,
+      ...packets.map((packet) => packet?.amount),
+    ];
+
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    for (const event of events) {
+      const data = (event && typeof event === 'object') ? (event.data || event.payload || {}) : {};
+      candidates.push(data?.damage);
+      candidates.push(data?.damage_packet?.amount);
+    }
+
+    for (const value of candidates) {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return Math.floor(numeric);
+      }
+    }
+
+    return null;
+  }
+
+  _buildSpellCastSummary(actorLabel, spellName, damage = null, targetRef = '', preferredSummary = '') {
+    const preferred = String(preferredSummary || '').trim();
+    if (preferred) {
+      return preferred;
+    }
+
+    const actor = String(actorLabel || 'Actor').trim() || 'Actor';
+    const spell = String(spellName || 'spell').trim() || 'spell';
+    const target = String(targetRef || '').trim();
+    const base = target ? `${actor} casts ${spell} at ${target}.` : `${actor} casts ${spell}.`;
+    if (!Number.isFinite(Number(damage)) || Number(damage) <= 0) {
+      return base;
+    }
+
+    return `${base} ${Math.floor(Number(damage))} damage applied.`;
+  }
+
   _appendChatLine(speaker, message, type = 'system') {
     this.bus.emit('chat:system-message', {
       text: message,
@@ -1714,6 +1842,42 @@ export class EncounterSystem {
   _refreshSystemLogView() {
     this.shell?.panels?.chat?.invalidateChatCaches?.({ sessionViews: ['system-log'] });
     this.shell?.panels?.chat?.prefetchSessionViews?.(['system-log']);
+  }
+
+  async _refreshEncounterServerStateFromApi() {
+    const coordinator = this.shell?.gameCoordinator || this.stateManager?.hexmap?.gameCoordinator || null;
+    if (!coordinator?.api?.getState || !coordinator?.applyAuthoritativeUpdate) {
+      return;
+    }
+
+    const runtimeContext = this.shell?.resolveLaunchCharacterRuntimeContext?.() || {};
+    const actorRef = String(
+      this._getActionRailContext?.()?.actorRef
+      || coordinator?.phaseManager?.turn?.entity
+      || runtimeContext?.instanceId
+      || ''
+    ).trim();
+    const characterId = Number(
+      this._getActionRailContext?.()?.characterId
+      || runtimeContext?.characterId
+      || 0
+    ) || null;
+
+    const refreshActorRef = normalizeAuthoritativeStateActorRef(actorRef, { runtimeContext });
+    const state = await coordinator.api.getState({
+      actor: refreshActorRef || undefined,
+      characterId: characterId || undefined,
+    });
+    if (!state?.success) {
+      throw new Error(`authoritative_state_refresh_failed:${String(state?.error || 'unknown')}`);
+    }
+
+    coordinator.applyAuthoritativeUpdate(state);
+
+    const selectedEntity = this.shell?._getStateValue?.('selectedEntity') || null;
+    if (selectedEntity) {
+      this.bus.emit('entity:selected', { entity: selectedEntity });
+    }
   }
 
   _resolveEntityName(entity) {

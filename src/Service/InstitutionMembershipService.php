@@ -83,6 +83,7 @@ class InstitutionMembershipService {
    * Synchronizes deterministic memberships for a campaign NPC.
    */
   public function syncCampaignNpcMemberships(int $campaign_id, string $npc_entity_ref, array $npc_data): int {
+    $npc_data = $this->enrichNpcInstitutionInputsFromCampaignContext($campaign_id, $npc_entity_ref, $npc_data);
     return $this->syncMemberships(
       $campaign_id,
       'campaign_npc',
@@ -1161,6 +1162,9 @@ class InstitutionMembershipService {
    */
   protected function buildAncestryInstitutionInput(array $actor_data, string $seed_source): array {
     $ancestry = $this->extractNonEmptyString($actor_data, ['ancestry', 'species']);
+    if ($ancestry === '' && $this->isUndeadActorData($actor_data)) {
+      $ancestry = 'undead';
+    }
     if ($ancestry === '') {
       return $this->buildSeededInstitutionInput(
         'ancestry',
@@ -1178,8 +1182,32 @@ class InstitutionMembershipService {
       'ancestry',
       $display_name,
       $seed_source,
-      'ancestry'
+      strtolower($display_name) === 'undead' ? 'ancestry_inferred_undead' : 'ancestry'
     );
+  }
+
+  /**
+   * Determine whether actor payload implies undead ancestry defaults.
+   */
+  protected function isUndeadActorData(array $actor_data): bool {
+    $creature_type = strtolower($this->extractNonEmptyString($actor_data, ['creature_type', 'creatureType']));
+    if ($creature_type !== '' && str_contains($creature_type, 'undead')) {
+      return TRUE;
+    }
+
+    $traits = $actor_data['traits'] ?? [];
+    if (is_array($traits)) {
+      foreach ($traits as $trait) {
+        if (strtolower(trim((string) $trait)) === 'undead') {
+          return TRUE;
+        }
+      }
+    }
+
+    $entity_hint = strtolower($this->extractNonEmptyString($actor_data, ['runtime_entity_id', 'instance_id', 'entity_ref', 'id', 'name']));
+    return str_contains($entity_hint, 'skeleton')
+      || str_contains($entity_hint, 'zombie')
+      || str_contains($entity_hint, 'undead');
   }
 
   /**
@@ -1196,6 +1224,109 @@ class InstitutionMembershipService {
         'source_field' => $source_field,
       ],
     ];
+  }
+
+  /**
+   * Enrich NPC institution input fields using campaign context when missing.
+   *
+   * Familiar payloads often omit ancestry/class, so we inherit from the owner
+   * campaign character when resolvable.
+   */
+  protected function enrichNpcInstitutionInputsFromCampaignContext(int $campaign_id, string $npc_entity_ref, array $npc_data): array {
+    $has_ancestry = $this->extractNonEmptyString($npc_data, ['ancestry', 'species']) !== '';
+    $has_profession = $this->extractNonEmptyString($npc_data, ['occupation', 'class']) !== '';
+    if ($has_ancestry && $has_profession) {
+      return $npc_data;
+    }
+    if (!$this->database->schema()->tableExists('dc_campaign_characters')) {
+      return $npc_data;
+    }
+
+    $owner_character_id = $this->resolveNpcOwnerCharacterId($campaign_id, $npc_entity_ref, $npc_data);
+    if ($owner_character_id <= 0) {
+      return $npc_data;
+    }
+
+    $owner_row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['ancestry', 'class', 'character_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('character_id', $owner_character_id)
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($owner_row)) {
+      return $npc_data;
+    }
+
+    $owner_character_data = $this->decodeJsonColumn($owner_row['character_data'] ?? NULL);
+    $owner_basic_info = is_array($owner_character_data['basicInfo'] ?? NULL) ? $owner_character_data['basicInfo'] : [];
+    $owner_ancestry = trim((string) ($owner_row['ancestry'] ?? $owner_basic_info['ancestry'] ?? ''));
+    $owner_class = trim((string) ($owner_row['class'] ?? $owner_basic_info['class'] ?? ''));
+
+    if (!$has_ancestry && $owner_ancestry !== '') {
+      $npc_data['ancestry'] = $owner_ancestry;
+    }
+    if (!$has_profession && $owner_class !== '') {
+      $npc_data['class'] = $owner_class;
+    }
+
+    return $npc_data;
+  }
+
+  /**
+   * Resolve owning campaign character id from familiar/NPC payload context.
+   */
+  protected function resolveNpcOwnerCharacterId(int $campaign_id, string $npc_entity_ref, array $npc_data): int {
+    $candidate = $this->extractPositiveInt($npc_data, ['source_character_id', 'owner_character_id']);
+    if ($candidate > 0) {
+      return $candidate;
+    }
+
+    $bond_contract = is_array($npc_data['bond_contract'] ?? NULL) ? $npc_data['bond_contract'] : [];
+    $candidate = $this->extractPositiveInt($bond_contract, ['owner_character_id', 'source_character_id']);
+    if ($candidate > 0) {
+      return $candidate;
+    }
+
+    if ($campaign_id <= 0 || trim($npc_entity_ref) === '') {
+      return 0;
+    }
+
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['source_character_id', 'character_id'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', trim($npc_entity_ref))
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return 0;
+    }
+    $source_character_id = isset($row['source_character_id']) && is_numeric($row['source_character_id'])
+      ? (int) $row['source_character_id']
+      : 0;
+    if ($source_character_id > 0) {
+      return $source_character_id;
+    }
+    return isset($row['character_id']) && is_numeric($row['character_id']) ? (int) $row['character_id'] : 0;
+  }
+
+  /**
+   * Extract first positive integer value from a keyed array.
+   *
+   * @param array<string,mixed> $values
+   * @param string[] $keys
+   */
+  protected function extractPositiveInt(array $values, array $keys): int {
+    foreach ($keys as $key) {
+      $value = $values[$key] ?? NULL;
+      if (is_numeric($value) && (int) $value > 0) {
+        return (int) $value;
+      }
+    }
+    return 0;
   }
 
   /**

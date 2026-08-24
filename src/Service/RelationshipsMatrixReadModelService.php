@@ -304,6 +304,17 @@ class RelationshipsMatrixReadModelService {
             ? $resolver_dto['weights']
             : $this->defaultDispositionWeights($edge_score !== NULL);
           $edge_component = $edge_score !== NULL ? $edge_score : 0;
+          $stance_details = $this->resolveStanceDetails(
+            $campaign_id,
+            $source_ref,
+            $target_ref,
+            $source_default_score,
+            $final_score,
+            (string) ($resolver_dto['effective_disposition_label'] ?? ''),
+            (string) ($resolver_dto['effective_policy_flags']['hostile'] ?? ''),
+            $edge_score,
+            $edge_attitude
+          );
           $matrix[$source_ref][$target_ref] = $final_attitude;
           $calculations[$source_ref][$target_ref] = [
             'rule' => $edge_score !== NULL ? 'weighted_edge_plus_institutions' : 'weighted_default_plus_institutions',
@@ -321,6 +332,14 @@ class RelationshipsMatrixReadModelService {
             'institution_breakdown' => is_array($institution['breakdown'] ?? NULL) ? $institution['breakdown'] : [],
             'final_attitude' => $final_attitude,
             'final_score' => $final_score,
+            'stance' => $stance_details['stance'],
+            'stance_confidence' => $stance_details['confidence'],
+            'stance_reason' => $stance_details['reason'],
+            'stance_mode' => $stance_details['mode'],
+            'stance_target_actor_ref' => $stance_details['target_actor_ref'],
+            'stance_policy_flags' => $stance_details['policy_flags'],
+            'stance_basis' => $stance_details['basis'],
+            'stance_formula' => $stance_details['formula'],
             'equation' => (string) ($resolver_dto['equation'] ?? sprintf(
               'clamp((%.2f*%d) + (%.2f*%d) + (%d), %d, %d) = %d',
               (float) ($weights['baseline'] ?? $weights['default'] ?? 0),
@@ -416,6 +435,165 @@ class RelationshipsMatrixReadModelService {
       'edge' => $has_edge_score ? 0.45 : 0.00,
       'institution' => 0.20,
     ];
+  }
+
+  /**
+   * Resolve stance details for one source->target matrix edge.
+   *
+   * @return array<string,mixed>
+   *   Canonical stance payload for matrix calculations.
+   */
+  protected function resolveStanceDetails(
+    int $campaign_id,
+    string $source_ref,
+    string $target_ref,
+    int $source_default_score,
+    int $final_score,
+    string $final_attitude,
+    string $resolver_hostile_flag,
+    ?int $edge_score = NULL,
+    string $edge_attitude = ''
+  ): array {
+    $is_hostile = $this->isHostileSignal(
+      $source_default_score,
+      $final_score,
+      $final_attitude,
+      $resolver_hostile_flag,
+      $edge_score,
+      $edge_attitude
+    );
+    $threat_score = ($edge_score !== NULL && DispositionAuthorityContract::isHostileScore($edge_score)) ? 50 : 0;
+    $explicit_attack_declared = FALSE;
+    $direct_addressed = FALSE;
+    $scripted_scene_required = FALSE;
+    $hp_ratio = 1.0;
+    $danger_level = 'none';
+    $mode = 'combat_entry';
+    $has_target = $target_ref !== '';
+    if ($scripted_scene_required) {
+      $stance = 'engage_dialogue';
+      $reason = 'Scripted-scene obligation overrides lower-order posture heuristics.';
+    }
+    elseif ($hp_ratio <= 0.20 || in_array($danger_level, ['critical', 'fatal'], TRUE)) {
+      $stance = 'flee';
+      $reason = 'Survival pressure is critical; actor should break contact.';
+    }
+    elseif ($hp_ratio <= 0.35 || $danger_level === 'high') {
+      $stance = 'self_preserve';
+      $reason = 'Survival pressure is high; actor should prioritize defensive behavior.';
+    }
+    elseif ($explicit_attack_declared && $has_target) {
+      $stance = 'aggressive_engage';
+      $reason = 'Combat-entry declaration with a valid target signals aggressive engagement.';
+    }
+    elseif ($is_hostile && $has_target && $threat_score >= 25) {
+      $stance = 'aggressive_engage';
+      $reason = 'Hostility and elevated threat make combat entry behaviorally plausible.';
+    }
+    elseif ($is_hostile && $has_target) {
+      $stance = 'threaten';
+      $reason = 'Hostility is elevated but does not yet cross aggressive-entry threshold.';
+    }
+    elseif ($direct_addressed) {
+      $stance = 'warn';
+      $reason = 'Direct-address room pressure indicates guarded response posture.';
+    }
+    else {
+      $stance = 'observe';
+      $reason = 'No combat-entry trigger exceeded; continue observing.';
+    }
+    $confidence = 80;
+    $policy_flags = [
+      'chat_allowed' => in_array($stance, ['engage_dialogue', 'deescalate', 'warn', 'threaten', 'observe'], TRUE),
+      'combat_entry_candidate' => in_array($stance, ['threaten', 'aggressive_engage', 'finish_weakest'], TRUE),
+      'aggressive_action_allowed' => in_array($stance, ['aggressive_engage', 'finish_weakest'], TRUE),
+      'turn_action_required' => FALSE,
+      'room_silence_allowed' => in_array($stance, ['observe', 'self_preserve', 'flee', 'pass'], TRUE),
+    ];
+    $basis = [
+      'mode' => [
+        'mode' => $mode,
+        'scripted_scene_required' => $scripted_scene_required,
+      ],
+      'profile' => [
+        'attitude' => $this->scoreToAttitude($source_default_score),
+        'score' => $source_default_score,
+        'score_source' => 'relationships_matrix_source_default_score',
+      ],
+      'resolved_disposition' => [
+        'target_count' => $has_target ? 1 : 0,
+        'primary_target_ref' => $target_ref,
+        'primary_target_score' => $final_score,
+        'primary_target_label' => $this->scoreToAttitude($final_score),
+      ],
+      'aggression' => [
+        'explicit_attack_declared' => $explicit_attack_declared,
+        'threat_score' => $threat_score,
+      ],
+      'survival' => [
+        'hp_ratio' => $hp_ratio,
+        'danger_level' => $danger_level,
+      ],
+      'narrative' => [
+        'direct_addressed' => $direct_addressed,
+        'scripted_scene_required' => $scripted_scene_required,
+      ],
+      'targeting' => [
+        'candidate_targets' => $has_target ? [$target_ref] : [],
+        'primary_target_ref' => $target_ref,
+      ],
+    ];
+    $details = [
+      'stance' => $stance,
+      'confidence' => $confidence,
+      'reason' => $reason,
+      'mode' => $mode,
+      'target_actor_ref' => $target_ref,
+      'policy_flags' => $policy_flags,
+      'basis' => $basis,
+      'formula' => sprintf(
+        'stance = evaluate(mode=%s, is_hostile=%s, has_target=%s, threat_score=%d, explicit_attack=%s, direct_addressed=%s, hp_ratio=%s, danger=%s) => %s',
+        $mode,
+        $is_hostile ? 'true' : 'false',
+        $has_target ? 'true' : 'false',
+        $threat_score,
+        $explicit_attack_declared ? 'true' : 'false',
+        $direct_addressed ? 'true' : 'false',
+        (string) $hp_ratio,
+        $danger_level,
+        $stance
+      ),
+    ];
+    return $details;
+  }
+
+  /**
+   * Resolve whether disposition signals are hostile.
+   */
+  protected function isHostileSignal(
+    int $source_default_score,
+    int $final_score,
+    string $final_attitude,
+    string $resolver_hostile_flag,
+    ?int $edge_score = NULL,
+    string $edge_attitude = ''
+  ): bool {
+    if (in_array(strtolower(trim($resolver_hostile_flag)), ['1', 'true', 'yes', 'hostile'], TRUE)) {
+      return TRUE;
+    }
+    if ($edge_score !== NULL && DispositionAuthorityContract::isHostileScore($edge_score)) {
+      return TRUE;
+    }
+    if ($this->normalizeAttitude($edge_attitude) === DispositionAuthorityContract::LABEL_HOSTILE) {
+      return TRUE;
+    }
+    if (DispositionAuthorityContract::isHostileScore($final_score)) {
+      return TRUE;
+    }
+    if (DispositionAuthorityContract::isHostileScore($source_default_score)) {
+      return TRUE;
+    }
+    return $this->normalizeAttitude($final_attitude) === DispositionAuthorityContract::LABEL_HOSTILE;
   }
 
 }

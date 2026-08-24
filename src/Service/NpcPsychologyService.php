@@ -978,20 +978,28 @@ class NpcPsychologyService {
 
     // Abilities/attacks.
     if (!empty($sheet['abilities'])) {
-      $abilities = is_array($sheet['abilities']) ? implode(', ', $sheet['abilities']) : $sheet['abilities'];
-      $parts[] = "Abilities: {$abilities}";
+      $abilities = $this->normalizeContextListValue($sheet['abilities']);
+      if ($abilities !== '') {
+        $parts[] = "Abilities: {$abilities}";
+      }
     }
     if (!empty($sheet['equipment'])) {
-      $equip = is_array($sheet['equipment']) ? implode(', ', $sheet['equipment']) : $sheet['equipment'];
-      $parts[] = "Equipment: {$equip}";
+      $equip = $this->normalizeContextListValue($sheet['equipment']);
+      if ($equip !== '') {
+        $parts[] = "Equipment: {$equip}";
+      }
     }
     if (!empty($sheet['languages'])) {
-      $lang = is_array($sheet['languages']) ? implode(', ', $sheet['languages']) : $sheet['languages'];
-      $parts[] = "Languages: {$lang}";
+      $lang = $this->normalizeContextListValue($sheet['languages']);
+      if ($lang !== '') {
+        $parts[] = "Languages: {$lang}";
+      }
     }
     if (!empty($sheet['senses'])) {
-      $senses = is_array($sheet['senses']) ? implode(', ', $sheet['senses']) : $sheet['senses'];
-      $parts[] = "Senses: {$senses}";
+      $senses = $this->normalizeContextListValue($sheet['senses']);
+      if ($senses !== '') {
+        $parts[] = "Senses: {$senses}";
+      }
     }
 
     // Psychology.
@@ -1181,6 +1189,34 @@ class NpcPsychologyService {
     }
 
     return implode("\n", $parts);
+  }
+
+  /**
+   * Convert scalar/list/mixed context values into stable prompt text.
+   */
+  protected function normalizeContextListValue(mixed $value): string {
+    if (is_scalar($value)) {
+      return trim((string) $value);
+    }
+    if (!is_array($value)) {
+      return '';
+    }
+
+    $tokens = [];
+    array_walk_recursive($value, static function ($item) use (&$tokens): void {
+      if (!is_scalar($item)) {
+        return;
+      }
+      $text = trim((string) $item);
+      if ($text !== '') {
+        $tokens[] = $text;
+      }
+    });
+    if ($tokens === []) {
+      return '';
+    }
+    $tokens = array_values(array_unique($tokens));
+    return implode(', ', $tokens);
   }
 
   /**
@@ -1383,7 +1419,7 @@ class NpcPsychologyService {
         'languages' => $metadata['languages'] ?? $entity['languages'] ?? ['Common'],
         'senses' => $metadata['senses'] ?? $entity['senses'] ?? [],
         'role' => $metadata['role'] ?? $entity['role'] ?? ($type === 'npc' ? 'neutral' : 'hostile'),
-        'initial_attitude' => $entity['attitude'] ?? ($type === 'npc' ? 'indifferent' : 'hostile'),
+        'initial_attitude' => $entity['attitude'] ?? $metadata['attitude'] ?? ($type === 'npc' ? 'indifferent' : 'hostile'),
       ];
 
       $this->createProfile($campaign_id, $ref, $seed);

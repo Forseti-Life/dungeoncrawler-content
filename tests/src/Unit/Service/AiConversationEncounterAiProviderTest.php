@@ -37,6 +37,10 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
   protected function setUp(): void {
     parent::setUp();
 
+    if (!class_exists(AIApiService::class)) {
+      $this->markTestSkipped('AiConversation provider tests require Drupal\\ai_conversation\\Service\\AIApiService.');
+    }
+
     $this->aiApiService = $this->createMock(AIApiService::class);
     $this->loggerFactory = $this->createMock(LoggerChannelFactoryInterface::class);
     $this->configFactory = $this->createMock(ConfigFactoryInterface::class);
@@ -210,6 +214,20 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
       'target_strategy' => 'weakest_adjacent',
       'decision_reason' => 'High cunning/discipline profile prioritizes focused pressure on weak targets.',
     ];
+    $context['resolved_actor_context'] = [
+      'disposition' => ['attitude' => 'hostile', 'score' => -120],
+      'aggression' => ['state' => 'hostile', 'entry_authorized' => TRUE],
+      'stance' => ['behavioral_stance' => ['stance' => 'aggressive_engage']],
+      'process_flow' => ['summary' => ['active_flow' => 'encounter-turn-flow']],
+      'relationship_attitudes' => ['pc-1' => 'hostile'],
+      'resolved_disposition_by_target' => [
+        'pc-1' => [
+          'effective_disposition_score' => -200,
+          'effective_disposition_label' => 'hostile',
+          'policy_flags' => ['hostile' => TRUE],
+        ],
+      ],
+    ];
     $context['npc_psychology'] = "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
 
     $this->aiApiService->expects($this->once())
@@ -224,9 +242,13 @@ class AiConversationEncounterAiProviderTest extends UnitTestCase {
             return FALSE;
           }
           $encounter = is_array($payload['encounter'] ?? NULL) ? $payload['encounter'] : [];
+          $resolved_context = is_array($encounter['resolved_actor_context'] ?? NULL) ? $encounter['resolved_actor_context'] : [];
+          $process_flow = is_array($resolved_context['process_flow'] ?? NULL) ? $resolved_context['process_flow'] : [];
+          $flow_summary = is_array($process_flow['summary'] ?? NULL) ? $process_flow['summary'] : [];
           return ($encounter['current_actor_profile']['motivations'] ?? '') === 'Protect the relic'
             && ($encounter['current_actor_profile']['goals'][0] ?? '') === 'Gain XP'
             && ($encounter['current_actor_tactical_intent']['intent'] ?? '') === 'finish_weakest'
+            && (($flow_summary['active_flow'] ?? '') === 'encounter-turn-flow')
             && ($encounter['npc_psychology'] ?? '') === "=== NPC COMBAT PERSONALITY ===\nFighting motivation: Protect the relic";
         }),
         'dungeoncrawler_content',

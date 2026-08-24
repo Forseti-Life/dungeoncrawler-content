@@ -15,9 +15,9 @@
  * During Phase 10 parallel testing it runs alongside the old hexmap library.
  */
 
-import { GameShell } from './v2/GameShell.js?v=20260812-v2-map-status-centralization-1';
+import { GameShell } from './v2/GameShell.js?v=20260818-v2-authoritative-actor-guard-2';
 
-const HEXMAP_V2_ENTRY_VERSION = '20260812-v2-map-status-centralization-1';
+const HEXMAP_V2_ENTRY_VERSION = '20260818-v2-authoritative-actor-guard-2';
 
 function enforceBackendWaitDock(wrapper) {
   if (!(wrapper instanceof HTMLElement)) {

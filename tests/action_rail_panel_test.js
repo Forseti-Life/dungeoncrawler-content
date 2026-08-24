@@ -29,7 +29,7 @@ const contextServiceSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/s
 console.log('\n=== ActionRailPanel architecture contracts ===');
 
 assert(
-  panelSource.includes("import { buildActionRailContext } from '../services/action-rail-context-service.js';")
+  panelSource.includes("import { buildActionRailContext } from '../services/action-rail-context-service.js?v=20260818-v2-action-rail-actor-identity-fix-1';")
     && panelSource.includes('getActionRailContext() {')
     && panelSource.includes('return buildActionRailContext(this.stateManager);')
     && contextServiceSource.includes('const phaseSnapshot = selectRailPhaseSnapshot(hexmap);')

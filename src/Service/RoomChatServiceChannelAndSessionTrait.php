@@ -1371,6 +1371,20 @@ trait RoomChatServiceChannelAndSessionTrait {
         '@speaker' => $current_speaker,
       ]);
       $built_messages = [];
+      $flow_gate = [
+        'allow_interjection' => TRUE,
+        'summary' => [],
+      ];
+      if ($speaker_can_interject) {
+        $flow_gate = $this->resolveNpcRoomInterjectionFlowGate(
+          $campaign_id,
+          $room_id,
+          $current_speaker_ref,
+          is_array($directly_addressed_npc) ? (string) ($directly_addressed_npc['entity_ref'] ?? '') : '',
+          $room_npcs
+        );
+        $speaker_can_interject = !empty($flow_gate['allow_interjection']);
+      }
       if ($speaker_can_interject) {
         $built_messages = $this->buildNpcInterjectionMessage(
           $campaign_id,
@@ -1386,6 +1400,13 @@ trait RoomChatServiceChannelAndSessionTrait {
           FALSE,
           $npc_encounter_prefix
         );
+      }
+      if (!$speaker_can_interject && is_array($flow_gate['summary'] ?? NULL) && $flow_gate['summary'] !== []) {
+        $this->recordDebugStage('npc.interjection_flow_blocked', hrtime(true), [
+          'npc_entity' => $current_speaker_ref,
+          'flow' => (string) ($flow_gate['summary']['active_flow'] ?? ''),
+          'stance' => (string) ($flow_gate['summary']['stance'] ?? ''),
+        ]);
       }
 
         if (!empty($built_messages)) {
@@ -1589,6 +1610,82 @@ trait RoomChatServiceChannelAndSessionTrait {
       'turn_logs' => $turn_logs,
       'messages' => $messages,
     ]);
+  }
+
+  /**
+   * Resolve whether one NPC is flow-authorized to interject in room dialogue.
+   *
+   * @param array<int, array<string, mixed>> $room_npcs
+   *   Candidate room NPC payloads.
+   *
+   * @return array<string, mixed>
+   *   Flow gate summary.
+   */
+  protected function resolveNpcRoomInterjectionFlowGate(
+    int $campaign_id,
+    string $room_id,
+    string $speaker_entity_ref,
+    string $direct_address_entity_ref,
+    array $room_npcs
+  ): array {
+    if (!\Drupal::hasService('dungeoncrawler_content.actor_stance_resolver_service')
+      || !\Drupal::hasService('dungeoncrawler_content.actor_process_flow_coordinator_service')) {
+      return [
+        'allow_interjection' => TRUE,
+        'summary' => [],
+      ];
+    }
+    $stance_resolver = \Drupal::service('dungeoncrawler_content.actor_stance_resolver_service');
+    $flow_coordinator = \Drupal::service('dungeoncrawler_content.actor_process_flow_coordinator_service');
+    if (!$stance_resolver instanceof ActorStanceResolverService || !$flow_coordinator instanceof ActorProcessFlowCoordinatorService) {
+      return [
+        'allow_interjection' => TRUE,
+        'summary' => [],
+      ];
+    }
+
+    $speaker_entity_ref = trim($speaker_entity_ref);
+    if ($speaker_entity_ref === '') {
+      return [
+        'allow_interjection' => TRUE,
+        'summary' => [],
+      ];
+    }
+    $target_refs = [];
+    foreach ($room_npcs as $npc) {
+      $candidate = trim((string) ($npc['entity_ref'] ?? ''));
+      if ($candidate === '' || $candidate === $speaker_entity_ref) {
+        continue;
+      }
+      $target_refs[] = $candidate;
+    }
+    $stance = $stance_resolver->resolveStance($campaign_id, $speaker_entity_ref, [
+      'mode' => 'room',
+      'target_entity_refs' => $target_refs,
+      'direct_addressed' => $speaker_entity_ref !== '' && $speaker_entity_ref === trim($direct_address_entity_ref),
+      'disposition_context' => [
+        'room_id' => $room_id,
+      ],
+    ]);
+    $flow = $flow_coordinator->selectActiveFlow($campaign_id, $speaker_entity_ref, $stance, [
+      'mode' => 'room',
+      'trigger' => 'room_interjection_cycle',
+    ]);
+    $active_flow = strtolower(trim((string) ($flow['active_flow'] ?? '')));
+    $allow_interjection = in_array($active_flow, [
+      'room-dialogue-flow',
+      'quest-brokered-dialogue-flow',
+      'room-ambient-observer-flow',
+    ], TRUE);
+
+    return [
+      'allow_interjection' => $allow_interjection,
+      'summary' => [
+        'active_flow' => $active_flow,
+        'stance' => (string) ($stance['stance'] ?? ''),
+        'reason' => (string) ($flow['metadata']['selection_reason'] ?? ''),
+      ],
+    ];
   }
 
   /**

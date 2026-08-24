@@ -1537,6 +1537,15 @@ class CampaignCharacterRuntimeSyncService {
     $resolved_class = $is_familiar
       ? 'familiar'
       : (string) ($character_data['class'] ?? $basic_info['class'] ?? 'Commoner');
+    $resolved_attitude = $this->normalizeRuntimeNpcSeedAttitude(
+      (string) (
+        $character_data['attitude']
+        ?? $state['attitude']
+        ?? $metadata['attitude']
+        ?? $state['character_data']['attitude']
+        ?? ''
+      )
+    );
 
     return [
       'campaign_id' => $campaign_id,
@@ -1552,7 +1561,7 @@ class CampaignCharacterRuntimeSyncService {
       'description' => $description,
       'backstory' => (string) ($character_data['backstory'] ?? ''),
       'alignment' => (string) ($character_data['alignment'] ?? 'N'),
-      'attitude' => (string) ($character_data['attitude'] ?? 'indifferent'),
+      'attitude' => $resolved_attitude,
       'motivations' => (string) ($character_data['motivations'] ?? ''),
       'fears' => (string) ($character_data['fears'] ?? ''),
       'bonds' => (string) ($character_data['bonds'] ?? ''),
@@ -1567,6 +1576,21 @@ class CampaignCharacterRuntimeSyncService {
       'familiar_type' => $familiar_type,
       'familiar_species_name' => $familiar_species_name,
     ];
+  }
+
+  /**
+   * Normalize runtime NPC attitude seed to canonical disposition labels.
+   */
+  protected function normalizeRuntimeNpcSeedAttitude(string $raw_attitude): string {
+    $attitude = strtolower(trim($raw_attitude));
+    if (in_array($attitude, ['helpful', 'friendly', 'indifferent', 'unfriendly', 'hostile'], TRUE)) {
+      return $attitude;
+    }
+    return match ($attitude) {
+      'ally', 'allied', 'supportive' => 'friendly',
+      'enemy', 'aggressive', 'angry', 'threatening' => 'hostile',
+      default => 'indifferent',
+    };
   }
 
   /**
@@ -2100,7 +2124,7 @@ class CampaignCharacterRuntimeSyncService {
     ];
     $record_room_id = $this->resolveRecordRoomId($record);
     $has_canonical_room_placement = $record_room_id === $room_id
-      && trim((string) ($record['position_h3'] ?? '')) !== ''
+      && $this->canResolvePlacementH3FromPayloadOrSparse($dungeon_payload, $room_id, $preferred['q'], $preferred['r'])
       && ($room_hexes === [] || $this->roomContainsHex($room_hexes, $preferred['q'], $preferred['r']));
     if (!$has_canonical_room_placement) {
       $entry_hex = $this->resolveRoomEntryHexCoordinate($dungeon_payload, $room_id);

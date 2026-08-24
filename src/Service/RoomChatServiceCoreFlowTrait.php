@@ -78,21 +78,35 @@ trait RoomChatServiceCoreFlowTrait {
       (int) ($character_id ?? 0)
     );
 
-    $messages = $this->buildNpcInterjectionMessage(
-      $campaign_id,
-      $room_id,
-      $room_index,
-      $dungeon_id,
-      $dungeon_data,
-      $player_message,
-      $gm_narrative,
-      $room_npcs,
-      (string) $speaker_npc['entity_ref'],
-      (string) ($speaker_npc['profile']['display_name'] ?? $speaker_npc['entity_ref']),
-      TRUE,
-      NULL,
-      $consumption_key
-    );
+    try {
+      $messages = $this->buildNpcInterjectionMessage(
+        $campaign_id,
+        $room_id,
+        $room_index,
+        $dungeon_id,
+        $dungeon_data,
+        $player_message,
+        $gm_narrative,
+        $room_npcs,
+        (string) $speaker_npc['entity_ref'],
+        (string) ($speaker_npc['profile']['display_name'] ?? $speaker_npc['entity_ref']),
+        TRUE,
+        NULL,
+        $consumption_key
+      );
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning(
+        'Room entry acknowledgement generation skipped: campaign={campaign_id} room={room_id} speaker={speaker_ref} error={error}',
+        [
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+          'speaker_ref' => (string) ($speaker_npc['entity_ref'] ?? ''),
+          'error' => $e->getMessage(),
+        ]
+      );
+      return ['acknowledged' => FALSE, 'reason' => 'ack_generation_failed'];
+    }
 
     if ($messages === [] || !is_array($messages[0] ?? NULL)) {
       return ['acknowledged' => FALSE, 'reason' => 'no_generated_message'];
@@ -1137,6 +1151,19 @@ trait RoomChatServiceCoreFlowTrait {
     }
     if (is_array($combat_action_result['combat_entry_summary'] ?? NULL)) {
       $result['combat_entry_summary'] = $combat_action_result['combat_entry_summary'];
+    }
+    $policy_basis = is_array($combat_action_result['policy']['basis'] ?? NULL)
+      ? $combat_action_result['policy']['basis']
+      : [];
+    if ($policy_basis !== []) {
+      $result['process_flow_summary'] = [
+        'active_flow' => (string) ($policy_basis['actor_process_flow'] ?? ''),
+        'selection_reason' => (string) ($policy_basis['actor_process_flow_reason'] ?? ''),
+        'blocking_conditions' => is_array($policy_basis['actor_process_flow_blockers'] ?? NULL)
+          ? array_values($policy_basis['actor_process_flow_blockers'])
+          : [],
+        'source' => 'combat_entry_policy',
+      ];
     }
 
     $combat_transition = $combat_action_result['transition'] ?? NULL;

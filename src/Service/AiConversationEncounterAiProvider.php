@@ -347,7 +347,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
    * Build system prompt for recommendation requests.
    */
   private function buildRecommendationSystemPrompt(): string {
-    return 'You are a tactical combat assistant. Use resolved_actor_context as the canonical disposition/aggression/stance/relationship source, then current_actor_profile, current_actor_tactical_intent, npc_psychology, and action availability contract fields to choose one legal action. Return strict JSON only (no markdown) and include every required field exactly, including contract_version matching action_contract_hash and decision_basis booleans used_profile/used_psychology/used_availability.';
+    return 'You are a tactical combat assistant. Use resolved_actor_context as the canonical disposition/aggression/stance/process_flow/relationship source, then current_actor_profile, current_actor_tactical_intent, npc_psychology, and action availability contract fields to choose one legal action. Return strict JSON only (no markdown) and include every required field exactly, including contract_version matching action_contract_hash and decision_basis booleans used_profile/used_psychology/used_availability.';
   }
 
   /**
@@ -571,6 +571,7 @@ class AiConversationEncounterAiProvider implements EncounterAiProviderInterface 
       'disposition' => is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : [],
       'aggression' => is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : [],
       'stance' => is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : [],
+      'process_flow' => is_array($resolved_actor_context['process_flow'] ?? NULL) ? $resolved_actor_context['process_flow'] : [],
       'resolved_disposition_by_target' => $slim_map,
       'relationship_attitudes' => is_array($resolved_actor_context['relationship_attitudes'] ?? NULL)
         ? $resolved_actor_context['relationship_attitudes']

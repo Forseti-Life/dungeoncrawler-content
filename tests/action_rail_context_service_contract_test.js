@@ -31,6 +31,7 @@ assert(
   contextServiceSource.includes('export function buildActionRailContext(stateManager) {')
     && contextServiceSource.includes('export function selectRailHexmap(stateManager) {')
     && contextServiceSource.includes('export function selectRailSelectedEntity(stateManager) {')
+    && contextServiceSource.includes('export function selectRailCanonicalActorByRef(hexmap, actorRef) {')
     && contextServiceSource.includes('export function selectRailRuntimeGameState(hexmap) {')
     && contextServiceSource.includes('const hexmap = selectRailHexmap(stateManager);')
     && contextServiceSource.includes('const selected = selectRailSelectedEntity(stateManager);')
@@ -42,7 +43,7 @@ assert(
   contextServiceSource.includes('export function selectRailPhaseSnapshot(hexmap) {')
     && contextServiceSource.includes('export function selectRailEncounterId(phaseSnapshot) {')
     && contextServiceSource.includes('export function selectRailTurnEnvelope(hexmap, phaseSnapshot, selectedEntity) {')
-    && contextServiceSource.includes('const serverTurnActor = hasServerTurn && hexmap?.entityManager?.getEntitiesWith')
+    && contextServiceSource.includes('const serverTurnActor = hasServerTurn ? selectRailCanonicalActorByRef(hexmap, serverTurnEntity) : null;')
     && contextServiceSource.includes('const selectedControllableActor = selectedEntity')
     && contextServiceSource.includes('&& typeof hexmap?.canDragEntityOnMap === \'function\'')
     && contextServiceSource.includes('&& hexmap.canDragEntityOnMap(selectedEntity)')
@@ -51,6 +52,9 @@ assert(
     && contextServiceSource.includes('export function selectRailActionHydrationPending(turnEnvelope, phaseSnapshot, actionContract, availableActions) {')
     && contextServiceSource.includes('export function selectRailStatusLabel(turnEnvelope, isActorTurn, actionState, automationState, actionHydrationPending = false) {')
     && contextServiceSource.includes('const encounterScopedActorRef = (turnEnvelope.hasServerTurn && actionState.hasTurnScopedAction)')
+    && contextServiceSource.includes('const actorFromRef = selectRailCanonicalActorByRef(hexmap, actorRef);')
+    && contextServiceSource.includes('else if (turnEnvelope.hasServerTurn && String(turnEnvelope.serverTurnEntity || \'\').trim() === String(actorRef).trim()) {')
+    && contextServiceSource.includes('actorName = String(actionState.currentTurnLabel || actorRef).trim() || String(actorRef).trim();')
     && contextServiceSource.includes('const encounterId = selectRailEncounterId(phaseSnapshot);')
     && contextServiceSource.includes('const campaignClock = phaseSnapshot?.campaignClock')
     && contextServiceSource.includes('|| phaseSnapshot?.gameTime')
@@ -68,7 +72,7 @@ assert(
 );
 
 assert(
-  panelSource.includes("import { buildActionRailContext } from '../services/action-rail-context-service.js';")
+  panelSource.includes("import { buildActionRailContext } from '../services/action-rail-context-service.js?v=20260818-v2-action-rail-actor-identity-fix-1';")
     && panelSource.includes('return buildActionRailContext(this.stateManager);')
     && !panelSource.includes('const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};'),
   'ActionRailPanel consumes the context service and no longer duplicates context assembly internals'

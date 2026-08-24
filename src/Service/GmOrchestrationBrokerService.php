@@ -555,6 +555,33 @@ class GmOrchestrationBrokerService {
       $current_state_source = 'default';
     }
 
+    $stance = NULL;
+    $stance_resolver = $this->resolveActorStanceResolverService();
+    if ($stance_resolver instanceof ActorStanceResolverService && $source_entity_ref !== '') {
+      $stance = $stance_resolver->resolveStance($campaign_id, $source_entity_ref, [
+        'mode' => 'combat_entry',
+        'target_entity_refs' => $target_ids,
+        'target_actor_ref' => (string) ($target_ids[0] ?? ''),
+        'threat_level' => (string) ($combat['threat_level'] ?? 'major'),
+        'explicit_attack_declared' => $explicit_attack_declared,
+      ]);
+    }
+    $flow = NULL;
+    $flow_blockers = [];
+    if ($target_ids === []) {
+      $flow_blockers['combat-entry-flow'] = ['no_valid_targets'];
+    }
+    $flow_coordinator = $this->resolveActorProcessFlowCoordinatorService();
+    if ($flow_coordinator instanceof ActorProcessFlowCoordinatorService && is_array($stance) && $source_entity_ref !== '') {
+      $flow = $flow_coordinator->selectActiveFlow($campaign_id, $source_entity_ref, $stance, [
+        'mode' => 'combat_entry',
+        'trigger' => $explicit_attack_declared ? 'explicit_attack_declared' : 'combat_policy_evaluation',
+        'combat_entry_threshold_gate' => TRUE,
+        'explicit_attack_declared' => $explicit_attack_declared,
+        'flow_blockers' => $flow_blockers,
+      ]);
+    }
+
     return [
       'current_state' => $current_state,
       'actor_attitude' => $actor_attitude,
@@ -573,6 +600,16 @@ class GmOrchestrationBrokerService {
       'actor_attitude_source' => $actor_attitude_source,
       'relationship_attitude_source' => $relationship_attitude_source,
       'current_state_source' => $current_state_source,
+      'actor_stance' => is_array($stance) ? (string) ($stance['stance'] ?? '') : '',
+      'actor_stance_confidence' => is_array($stance) && isset($stance['confidence']) && is_numeric($stance['confidence']) ? (int) $stance['confidence'] : 0,
+      'actor_stance_reason' => is_array($stance) ? (string) ($stance['reason'] ?? '') : '',
+      'actor_stance_contract' => is_array($stance) ? $stance : NULL,
+      'actor_process_flow' => is_array($flow) ? (string) ($flow['active_flow'] ?? '') : '',
+      'actor_process_flow_reason' => is_array($flow) ? (string) ($flow['metadata']['selection_reason'] ?? '') : '',
+      'actor_process_flow_blockers' => is_array($flow) && is_array($flow['metadata']['blocking_conditions'] ?? NULL)
+        ? array_values($flow['metadata']['blocking_conditions'])
+        : [],
+      'actor_process_flow_contract' => is_array($flow) ? $flow : NULL,
     ];
   }
 
@@ -634,6 +671,28 @@ class GmOrchestrationBrokerService {
     }
     $service = \Drupal::service('dungeoncrawler_content.aggression_state_store_service');
     return $service instanceof AggressionStateStoreService ? $service : NULL;
+  }
+
+  /**
+   * Resolve actor stance authority only when available.
+   */
+  protected function resolveActorStanceResolverService(): ?ActorStanceResolverService {
+    if (!\Drupal::hasService('dungeoncrawler_content.actor_stance_resolver_service')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.actor_stance_resolver_service');
+    return $service instanceof ActorStanceResolverService ? $service : NULL;
+  }
+
+  /**
+   * Resolve actor process-flow coordinator only when available.
+   */
+  protected function resolveActorProcessFlowCoordinatorService(): ?ActorProcessFlowCoordinatorService {
+    if (!\Drupal::hasService('dungeoncrawler_content.actor_process_flow_coordinator_service')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.actor_process_flow_coordinator_service');
+    return $service instanceof ActorProcessFlowCoordinatorService ? $service : NULL;
   }
 
   /**

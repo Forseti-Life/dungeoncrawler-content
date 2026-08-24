@@ -98,6 +98,14 @@ class ActorContextProjectionService {
         'relationship_score' => isset($basis['relationship_score']) && is_numeric($basis['relationship_score']) ? (int) $basis['relationship_score'] : 0,
         'actor_attitude_source' => (string) ($basis['actor_attitude_source'] ?? ''),
         'relationship_attitude_source' => (string) ($basis['relationship_attitude_source'] ?? ''),
+        'actor_stance' => (string) ($basis['actor_stance'] ?? ''),
+        'actor_stance_confidence' => isset($basis['actor_stance_confidence']) && is_numeric($basis['actor_stance_confidence']) ? (int) $basis['actor_stance_confidence'] : 0,
+        'actor_stance_reason' => (string) ($basis['actor_stance_reason'] ?? ''),
+        'actor_process_flow' => (string) ($basis['actor_process_flow'] ?? ''),
+        'actor_process_flow_reason' => (string) ($basis['actor_process_flow_reason'] ?? ''),
+        'actor_process_flow_blockers' => is_array($basis['actor_process_flow_blockers'] ?? NULL)
+          ? array_values($basis['actor_process_flow_blockers'])
+          : [],
       ],
     ];
   }
@@ -153,6 +161,7 @@ class ActorContextProjectionService {
       'active_stances' => $normalized_active,
       'max_active_stances' => max(1, (int) ($stored_summary['max_active_stances'] ?? ($stance_state['max_active_stances'] ?? 1))),
       'arcane_cascade_active' => $arcane_cascade_active,
+      'behavioral_stance' => is_array($stored_summary['behavioral_stance'] ?? NULL) ? $stored_summary['behavioral_stance'] : [],
       'updated_at' => $stored_updated_at !== '' ? $stored_updated_at : (string) ($stance_state['updated_at'] ?? ''),
     ];
   }
@@ -274,10 +283,37 @@ class ActorContextProjectionService {
       'resolved_disposition_by_target' => $resolved_disposition_by_target,
       'aggression' => $this->buildAggressionSummary($policy),
       'stance' => $this->buildStanceSummary($character_data, $campaign_id, $entity_ref),
+      'process_flow' => $this->buildProcessFlowSummary($campaign_id, $entity_ref),
       'relationship_attitudes' => $this->projectRelationshipAttitudesFromResolvedDispositionMap($resolved_disposition_by_target),
       'narrative_context' => $this->actorNarrativeContextService
         ? $this->actorNarrativeContextService->buildContextEnvelope($campaign_id, $entity_ref)
         : [],
+    ];
+  }
+
+  /**
+   * Build normalized process-flow summary projection.
+   */
+  public function buildProcessFlowSummary(int $campaign_id, string $entity_ref): array {
+    if ($campaign_id <= 0 || trim($entity_ref) === '') {
+      return [];
+    }
+    if (!\Drupal::hasService('dungeoncrawler_content.process_flow_state_store_service')) {
+      return [];
+    }
+    $service = \Drupal::service('dungeoncrawler_content.process_flow_state_store_service');
+    if (!$service instanceof ProcessFlowStateStoreService) {
+      return [];
+    }
+    $stored = $service->loadLatestState($campaign_id, $entity_ref);
+    if (!is_array($stored)) {
+      return [];
+    }
+    return [
+      'entity_ref' => (string) ($stored['entity_ref'] ?? $entity_ref),
+      'updated_at' => (int) ($stored['updated_at'] ?? 0),
+      'summary' => is_array($stored['summary'] ?? NULL) ? $stored['summary'] : [],
+      'meta' => is_array($stored['meta'] ?? NULL) ? $stored['meta'] : [],
     ];
   }
 

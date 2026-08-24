@@ -25,6 +25,19 @@ class AggressionPolicyService {
     $aggression_signal = strtolower(trim((string) ($input['aggression_signal'] ?? 'none')));
     $threat_level = strtolower(trim((string) ($input['threat_level'] ?? 'none')));
     $explicit_attack_declared = !empty($input['explicit_attack_declared']);
+    $actor_stance = strtolower(trim((string) ($input['actor_stance'] ?? '')));
+    $actor_stance_confidence = isset($input['actor_stance_confidence']) && is_numeric($input['actor_stance_confidence'])
+      ? max(0, min(100, (int) round((float) $input['actor_stance_confidence'])))
+      : 0;
+    $actor_stance_reason = trim((string) ($input['actor_stance_reason'] ?? ''));
+    $actor_process_flow = strtolower(trim((string) ($input['actor_process_flow'] ?? '')));
+    $actor_process_flow_reason = trim((string) ($input['actor_process_flow_reason'] ?? ''));
+    $actor_process_flow_blockers = is_array($input['actor_process_flow_blockers'] ?? NULL)
+      ? array_values(array_filter(array_map(
+        static fn($value): string => trim((string) $value),
+        (array) $input['actor_process_flow_blockers']
+      )))
+      : [];
     $actor_score = $this->resolveDispositionScore(
       $input['actor_score'] ?? NULL,
       $attitude
@@ -111,6 +124,12 @@ class AggressionPolicyService {
         'threat_score' => $threat_score,
         'hostility_pressure' => $hostility_pressure,
         'explicit_attack_declared' => $explicit_attack_declared,
+        'actor_stance' => $actor_stance,
+        'actor_stance_confidence' => $actor_stance_confidence,
+        'actor_stance_reason' => $actor_stance_reason,
+        'actor_process_flow' => $actor_process_flow,
+        'actor_process_flow_reason' => $actor_process_flow_reason,
+        'actor_process_flow_blockers' => $actor_process_flow_blockers,
       ],
     ];
   }

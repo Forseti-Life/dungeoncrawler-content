@@ -28,13 +28,80 @@ class CanonicalProjectionService {
   }
 
   public function findEncounterParticipantByEntityId(array $encounter, string $entity_id): ?array {
+    $needle_raw = trim($entity_id);
+    if ($needle_raw === '') {
+      return NULL;
+    }
+    $needle_canonical = $this->normalizeEntityRefKey($needle_raw);
+
     foreach (($encounter['participants'] ?? []) as $participant) {
-      if ((string) ($participant['entity_id'] ?? '') === (string) $entity_id) {
-        return $participant;
+      if (!is_array($participant)) {
+        continue;
+      }
+      foreach ($this->collectParticipantEntityRefs($participant) as $candidate) {
+        if ($candidate === $needle_raw || $this->normalizeEntityRefKey($candidate) === $needle_canonical) {
+          return $participant;
+        }
       }
     }
 
     return NULL;
+  }
+
+  /**
+   * @return string[]
+   */
+  protected function collectParticipantEntityRefs(array $participant): array {
+    $candidates = [];
+    foreach (['entity_id', 'entity_ref'] as $key) {
+      $value = $participant[$key] ?? NULL;
+      if (is_scalar($value)) {
+        $normalized = trim((string) $value);
+        if ($normalized !== '') {
+          $candidates[] = $normalized;
+        }
+      }
+    }
+
+    $entity_ref = $participant['entity_ref'] ?? NULL;
+    if (is_scalar($entity_ref)) {
+      $decoded = json_decode((string) $entity_ref, TRUE);
+      if (is_array($decoded)) {
+        foreach (['entity_id', 'instance_id', 'entity_instance_id', 'content_id', 'id'] as $key) {
+          $value = $decoded[$key] ?? NULL;
+          if (is_scalar($value)) {
+            $normalized = trim((string) $value);
+            if ($normalized !== '') {
+              $candidates[] = $normalized;
+            }
+          }
+        }
+      }
+    }
+
+    $unique = [];
+    $seen = [];
+    foreach ($candidates as $candidate) {
+      if (!isset($seen[$candidate])) {
+        $seen[$candidate] = TRUE;
+        $unique[] = $candidate;
+      }
+    }
+
+    return $unique;
+  }
+
+  protected function normalizeEntityRefKey(string $value): string {
+    $value = strtolower(trim($value));
+    if ($value === '') {
+      return '';
+    }
+    $normalized = preg_replace('/[^a-z0-9]+/', '', $value);
+    if (is_string($normalized) && $normalized !== '') {
+      return $normalized;
+    }
+
+    return $value;
   }
 
   public function loadCanonicalTurnState(int $encounter_id): ?array {
@@ -47,6 +114,16 @@ class CanonicalProjectionService {
     if ($participants === []) {
       return NULL;
     }
+
+    foreach ($participants as &$participant) {
+      $participant_id = (int) ($participant['id'] ?? 0);
+      if ($participant_id <= 0) {
+        $participant['conditions'] = [];
+        continue;
+      }
+      $participant['conditions'] = array_values($this->encounterStore->listActiveConditions($participant_id));
+    }
+    unset($participant);
 
     $turn_index = (int) ($encounter['turn_index'] ?? 0);
     if ($turn_index < 0 || $turn_index >= count($participants)) {

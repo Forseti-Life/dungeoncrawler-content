@@ -26,9 +26,19 @@ function read(relPath) {
   return fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
 }
 
+function readEncounterPhaseHandlerCompositeSource() {
+  const serviceDir = path.resolve(__dirname, '../src/Service');
+  const phaseHandlerSource = fs.readdirSync(serviceDir)
+    .filter((name) => name === 'EncounterPhaseHandler.php' || (name.startsWith('EncounterPhaseHandler') && name.endsWith('Trait.php')))
+    .sort()
+    .map((name) => fs.readFileSync(path.join(serviceDir, name), 'utf8'))
+    .join('\n');
+  return phaseHandlerSource;
+}
+
 console.log('\n=== Combat batch-10 medicine/thievery/wand envelope contract ===');
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = readEncounterPhaseHandlerCompositeSource();
 
 assert(
   phaseHandlerSource.includes("buildCombatExecutionRequest(\n      'administer_first_aid'")

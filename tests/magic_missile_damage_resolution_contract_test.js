@@ -37,8 +37,9 @@ assert(
 );
 assert(
   damageEngineSource.includes("$canonical_spell !== 'magicmissile'")
-    && damageEngineSource.includes("$this->encounterStore->updateParticipant($target_participant_id, ["),
-  'UnifiedDamageEngine canonicalizes spell identifiers and persists participant HP changes for Magic Missile'
+    && damageEngineSource.includes('$this->hpManager->applyDamage(')
+    && damageEngineSource.includes('Damage engine unavailable for canonical spell damage resolution.'),
+  'UnifiedDamageEngine canonicalizes spell identifiers and resolves Magic Missile through canonical HP manager seam (fail-closed when unavailable)'
 );
 assert(
   executorSource.includes('isMagicMissileSpell(')
@@ -55,7 +56,7 @@ assert(
   'magic missile damage payload includes canonical damage packet, force typing, missiles fired, and HP mutation descriptors'
 );
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = read('../src/Service/EncounterPhaseHandlerRouteExecutionCorePartCTrait.php');
 assert(
   phaseHandlerSource.includes("'damage' => $resolved_damage")
     && phaseHandlerSource.includes("'damage_type' => is_string($result['damage_type'] ?? NULL)")

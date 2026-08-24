@@ -757,6 +757,17 @@
   text-transform: uppercase;
 }
 
+.action-rail__entry-disabled-note {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--panel-border));
+  background: color-mix(in srgb, var(--warning) 14%, var(--panel));
+  color: color-mix(in srgb, var(--warning) 88%, white 12%);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
 .action-rail__empty {
   display: flex;
   flex-direction: column;

@@ -42,16 +42,16 @@ assert(
   'full-state read paths resolve context through coordinator runtime-read service'
 );
 assert(
-  coordinatorSource.includes('public function getMaterializedFullState(int $campaign_id): array'),
-  'materialized full-state entrypoint exists for bootstrap-compatible callers'
+  coordinatorSource.includes('public function getMaterializedFullState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array'),
+  'materialized full-state entrypoint exists for bootstrap-compatible callers with actor/character scope'
 );
 assert(
-  coordinatorSource.includes('return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, TRUE);'),
-  'materialized full-state path explicitly opts into bootstrap/materialization behavior'
+  coordinatorSource.includes('return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, FALSE, $actor_id !== \'\' ? $actor_id : NULL);'),
+  'materialized full-state path remains read-only and does not persist/bootstrap on GET state'
 );
 assert(
-  controllerSource.includes('getMaterializedFullState($campaign_id)'),
-  'controller state endpoints use the materialized compatibility path'
+  controllerSource.includes('getMaterializedFullState('),
+  'controller state endpoint uses the materialized compatibility entrypoint'
 );
 
 console.log(`\nPassed: ${passed}`);

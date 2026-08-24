@@ -22,6 +22,27 @@ Primary action entry point:
 
 Legacy combat mutation endpoints under `/api/combat/*` are non-canonical support surfaces; player action flow is coordinator-driven.
 
+## 1A. Hexmap UI API Ownership Contract
+
+Hexmap V2 panels must map directly to authoritative read/write API families.
+
+| UI surface | Read authority | Mutation authority |
+|---|---|---|
+| Action Rail | `/api/map/visual-state`, `/api/game/{campaign_id}/state`, `/api/character/{character_id}/actions` | `/api/game/{campaign_id}/action`, `/api/character/{character_id}/cast-spell` |
+| Combat HUD / initiative | `/api/game/{campaign_id}/state`, `/api/game/{campaign_id}/events` | `/api/game/{campaign_id}/action` |
+| Character sheet | `/api/character/{character_id}/state`, `/api/campaign/{campaign_id}/relationships/matrix` | character-specific mutation endpoints |
+| Inventory | `/api/inventory/{owner_type}/{owner_id}` | `/api/inventory/{owner_type}/{owner_id}/item/{item_instance_id}/location` and inventory mutation routes |
+| Room chat / channels | `/api/campaign/{campaign_id}/room/{room_id}/chat`, `/channels...`, session chat APIs | same family |
+| Room view | `/api/campaign/{campaign_id}/room/{room_id}/view-image` | none |
+| Merchant | `/api/campaign/{campaign_id}/room/{room_id}/merchant/{merchant_ref}` and `/search` | `/transaction` |
+| Quest journal | `/api/campaign/{campaign_id}/character/{character_id}/quest-journal` or `/api/campaign/{campaign_id}/quest-journal` | quest lifecycle routes |
+
+Rules:
+
+- No panel may null out or replace API-owned actor identity with panel-local shell state.
+- Local selection/highlight state may refine presentation, but not canonical legality, turn owner, or actor identity.
+- If a panel cannot name its read authority and mutation authority, its state ownership is incomplete.
+
 ## 2. Subsystem Map (Current)
 
 | Subsystem | Core services/controllers | Responsibility |
@@ -81,6 +102,166 @@ The actor psychology subsystem is invoked in two canonical gameplay lanes:
 | Encounter decision context | Build structured + narrative psychology payloads for NPC next-action recommendations from the same canonical actor context envelope | `NpcPsychologyService::buildUnifiedActorContext()` consumed by `EncounterActorContextBuilder` (via `EncounterPhaseHandler` wrappers) |
 | Encounter AI boundary | Enforce handoff of psychology fields into model/provider payload contract | `AiConversationEncounterAiProvider` (`current_actor_profile`, `npc_psychology`) |
 | Unified actor decision contract | Canonical action/chat decision envelope mapping + shared action-contract hash normalization | `ActorDecisionContractService`, `ActorDecisionValidatorService` |
+
+### Hostility, Aggression, and Combat Entry Framework (2026-08-20)
+
+The runtime uses **three separate layers**. They should not be conflated:
+
+| Layer | What it decides | Canonical surfaces | How to tune it |
+|---|---|---|---|
+| **1. Baseline actor disposition / psychology** | Who this actor generally is: attitude, personality axes, goals, fears, motivation, memory | `NpcPsychologyService`, `ActorDispositionService`, `DispositionAuthorityContract`, `dc_psychology`, disposition state/event stores | Adjust canonical attitude labels/scores in `DispositionAuthorityContract`; adjust personality/profile generation and update behavior in `NpcPsychologyService`; adjust durable trigger deltas in `DispositionTriggerCatalog` / `DispositionTriggerService` |
+| **2. Effective source→target disposition resolver** | How actor A currently feels about actor B in context | `DispositionResolverService`, `DispositionSceneContextService`, relationship-attitude service, institution score assembler | Adjust factor set and factor weights in `DispositionResolverService`; adjust situational inputs such as `threat_level`, coercion, recent harm/help in `DispositionSceneContextService`; adjust relationship/institution inputs in their respective services |
+| **3. Aggression / combat-entry policy** | Whether hostility escalates into combat right now | `AggressionPolicyService`, `CombatEntryService`, `GmOrchestrationBrokerService` | Adjust combat-entry thresholds and hostility-pressure formula in `AggressionPolicyService`; adjust policy input sourcing/defaults in `GmOrchestrationBrokerService`; adjust final blocking/persistence behavior in `CombatEntryService` |
+
+#### Layer 1 — Baseline actor disposition / psychology
+
+- **Canonical hostility label:** `DispositionAuthorityContract::LABEL_HOSTILE`
+- **Canonical hostile score mapping:** `DispositionAuthorityContract::attitudeToScore('hostile') => -100`
+- **Canonical hostile threshold helper:** `DispositionAuthorityContract::HOSTILE_SCORE_THRESHOLD` (`<= -70`)
+
+This layer is where the actor's **long-lived social baseline** lives:
+
+- personality axes (`boldness`, `honesty`, `empathy`, `discipline`, `cunning`, `motivation`)
+- motivations / fears / bonds / goals
+- attitude history
+- inner monologue memory
+- durable disposition shifts from domain events
+
+**Primary adjustment points**
+
+- `src/Service/DispositionAuthorityContract.php`
+  - change label-to-score mapping
+  - change hostile threshold
+- `src/Service/NpcPsychologyService.php`
+  - change default axes, profile generation, monologue-based attitude updates
+  - change room bootstrap/default role behavior
+- `src/Service/DispositionTriggerCatalog.php` and `src/Service/DispositionTriggerService.php`
+  - add/remove event types that mutate disposition
+  - adjust actor/relationship deltas
+  - adjust repeat-window damping / idempotency policy
+
+#### Layer 2 — Effective source→target disposition resolver
+
+This layer answers: **"Given the actor's baseline, relationships, and scene context, how hostile is actor A toward target B right now?"**
+
+`DispositionResolverService` currently combines:
+
+- actor baseline score
+- relationship edge score
+- situational score
+- institution score
+- recent harm score
+- recent help score
+- coercion score
+- recent impulse score
+
+It also emits policy-facing fields such as:
+
+- `effective_disposition_score`
+- `effective_disposition_label`
+- `policy_flags.hostile`
+- `policy_flags.attack_authorized_candidate`
+
+**Primary adjustment points**
+
+- `src/Service/DispositionResolverService.php`
+  - add/remove factors in the resolver equation
+  - adjust factor weights
+  - adjust confidence logic
+- `src/Service/DispositionSceneContextService.php`
+  - change how `threat_level` maps to situational pressure
+  - change how recent harm/help/coercion/impulse are normalized
+- relationship / institution services
+  - change upstream edge scores or institution adjustments that feed the resolver
+
+**Important boundary:** `policy_flags.hostile` and `attack_authorized_candidate` are **not combat entry authority**. They are inputs/signals for the combat-entry layer.
+
+#### Layer 3 — Aggression / combat-entry policy
+
+This layer answers: **"Even if hostility exists, are we authorized to start combat now?"**
+
+`GmOrchestrationBrokerService::buildCombatPolicyInput()` assembles the canonical policy input from:
+
+- actor attitude / actor score
+- most hostile relationship edge toward the selected targets
+- fear score
+- aggression bias score
+- recent harm score
+- recent help score
+- aggression signal
+- threat level
+- explicit attack declaration
+- valid target ids
+- prior aggression state
+
+`AggressionPolicyService::evaluateAggressionState()` then computes **hostility pressure**:
+
+```text
+(0.35 * actor_score)
++ (0.35 * relationship_score)
++ (0.15 * aggression_bias_score)
++ (0.25 * recent_harm_score)
+- (0.20 * recent_help_score)
+- (0.10 * fear_score)
++ (0.20 * threat_score)
+```
+
+Combat entry is currently authorized only when one of these gates passes:
+
+1. `hostility_pressure <= -65`
+2. `hostility_pressure <= -40` **and** (`explicit_attack_declared` **or** current state is `threatened|hostile|engaged`)
+3. `explicit_attack_declared` **and** `hostility_pressure <= -20` **and** `threat_score >= 25`
+
+Then `CombatEntryService` applies final blockers, especially:
+
+- `no_valid_targets`
+- no resolved enemy entities
+- encounter start failure from runtime coordinator
+
+**Primary adjustment points**
+
+- `src/Service/AggressionPolicyService.php`
+  - adjust hostility-pressure weights
+  - add/remove input variables
+  - change escalation-state defaults
+  - change authorization thresholds
+  - change `threat_level -> threat_score`
+- `src/Service/GmOrchestrationBrokerService.php`
+  - change how policy inputs are inferred/defaulted
+  - change how explicit attack and aggression signals are derived from canonical actions
+  - change which relationship edge becomes canonical input
+- `src/Service/CombatEntryService.php`
+  - change final block/enter behavior, summary persistence, and state transitions
+
+#### Is the framework clear enough to adjust?
+
+**Mostly yes, with one caveat.**
+
+The framework is reasonably clear for tuning because each layer has a dominant service:
+
+- baseline disposition / psychology → `NpcPsychologyService` + disposition stores/contracts
+- target-specific hostility resolution → `DispositionResolverService`
+- combat authorization → `AggressionPolicyService`
+
+The main caveat is that **some inputs are assembled outside the policy service**, especially in `GmOrchestrationBrokerService`. So if combat behavior feels wrong, the fix may belong in:
+
+1. the **source data** (baseline disposition / relationship / scene context),
+2. the **resolver weights**, or
+3. the **combat-entry policy thresholds**.
+
+Use this rule of thumb:
+
+- **Actor is too hateful in all contexts** → adjust **Layer 1**
+- **Actor is only too hateful toward specific targets or scenes** → adjust **Layer 2**
+- **Actor feels hateful but starts combat too easily / too rarely** → adjust **Layer 3**
+
+#### Recommended maintenance rule
+
+When changing this subsystem, preserve the separation:
+
+- **Layer 1** may decide who an actor is.
+- **Layer 2** may decide how that actor currently feels about a target.
+- **Layer 3** alone should decide whether that hostility becomes combat.
 
 See subsystem docs for full invocation points and context payload details:
 
@@ -168,7 +349,11 @@ Canonical architecture references in this repository:
 - `GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md` — gameplay/runtime orchestration
 - `CHAT_AND_NARRATION_ARCHITECTURE.md` — chat/session/narration model
 - `COMBAT_ENGINE_ARCHITECTURE.md` — encounter/combat subsystem coverage
+- `TAB_RUNTIME_CONSISTENCY_ARCHITECTURE.md` — current-state and target-state tab/runtime consistency architecture
+- `TAB_RUNTIME_CONSISTENCY_IMPLEMENTATION_PLAN.md` — implementation plan for single-store tab/runtime convergence
 - `HEXMAP_ARCHITECTURE.md` — map/runtime model
+- `HEXMAP_UI_API_FRAMEWORK.md` — authoritative query/post framework for Hexmap UI surfaces
+- `HEXMAP_UI_API_CONFORMANCE_IMPLEMENTATION_PLAN.md` — validation and remediation plan for Hexmap UI/API conformance
 - `DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md` — deterministic GM orchestration direction
 - `docs/README.md` — docs index for implementation/contract documents
 

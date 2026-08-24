@@ -6,6 +6,8 @@ namespace Drupal\dungeoncrawler_content\Service;
  * Canonical writer/reader façade for actor-wide disposition.
  */
 class ActorDispositionService {
+  protected const LIVING_BASELINE_DEFAULT_SCORE = 50;
+  protected const UNDEAD_HOSTILITY_THRESHOLD_SCORE = -70;
 
   protected NpcPsychologyService $npcPsychologyService;
   protected DispositionEventStoreService $dispositionEventStoreService;
@@ -68,12 +70,17 @@ class ActorDispositionService {
       $attitude = DispositionAuthorityContract::LABEL_INDIFFERENT;
     }
 
+    $current_score = $this->resolveDefaultDispositionScore($context, $resolved_ref, $attitude);
+    $current_attitude = $this->usesAncestryDefaultDisposition($context, $resolved_ref)
+      ? DispositionAuthorityContract::scoreToAttitude($current_score)
+      : $attitude;
+
     $summary = [
       'entity_ref' => $entity_ref,
       'display_name' => (string) ($profile['display_name'] ?? $entity_ref),
-      'current_attitude' => $attitude,
-      'current_score' => DispositionAuthorityContract::attitudeToScore($attitude) ?? 0,
-      'score_source' => 'attitude_projection',
+      'current_attitude' => $current_attitude,
+      'current_score' => $current_score,
+      'score_source' => $this->resolveScoreSource($context, $resolved_ref, $attitude),
       'personality_axes' => is_array($profile['personality_axes'] ?? NULL)
         ? $profile['personality_axes']
         : NpcPsychologyService::PERSONALITY_AXES,
@@ -92,6 +99,72 @@ class ActorDispositionService {
     }
 
     return $summary;
+  }
+
+  /**
+   * Resolve fallback default disposition score from profile/context.
+   */
+  protected function resolveDefaultDispositionScore(array $context, string $entity_ref, string $attitude): int {
+    $attitude_score = DispositionAuthorityContract::attitudeToScore($attitude) ?? 0;
+    if ($this->isUndeadDispositionDefault($context, $entity_ref)) {
+      return min($attitude_score, self::UNDEAD_HOSTILITY_THRESHOLD_SCORE);
+    }
+    if (!$this->isNeutralAttitudeDefault($attitude)) {
+      return $attitude_score;
+    }
+    return max($attitude_score, self::LIVING_BASELINE_DEFAULT_SCORE);
+  }
+
+  /**
+   * Resolve score source label for actor summary baseline.
+   */
+  protected function resolveScoreSource(array $context, string $entity_ref, string $attitude): string {
+    if ($this->isUndeadDispositionDefault($context, $entity_ref)) {
+      return 'undead_hostility_threshold_default';
+    }
+    if ($this->isNeutralAttitudeDefault($attitude)) {
+      return 'living_affinity_default';
+    }
+    return 'attitude_projection';
+  }
+
+  /**
+   * Determine whether actor baseline should be score-derived from ancestry defaults.
+   */
+  protected function usesAncestryDefaultDisposition(array $context, string $entity_ref): bool {
+    if ($this->isUndeadDispositionDefault($context, $entity_ref)) {
+      return TRUE;
+    }
+    $profile = is_array($context['decision_profile'] ?? NULL) ? $context['decision_profile'] : [];
+    return $this->isNeutralAttitudeDefault((string) ($profile['attitude'] ?? ''));
+  }
+
+  /**
+   * Returns TRUE when the incoming attitude should use baseline defaulting.
+   */
+  protected function isNeutralAttitudeDefault(string $attitude): bool {
+    $normalized = DispositionAuthorityContract::normalizeAttitudeLabel($attitude);
+    return $normalized === '' || $normalized === DispositionAuthorityContract::LABEL_INDIFFERENT;
+  }
+
+  /**
+   * Determine whether this actor should use undead hostility defaulting.
+   */
+  protected function isUndeadDispositionDefault(array $context, string $entity_ref): bool {
+    $profile = is_array($context['profile'] ?? NULL) ? $context['profile'] : [];
+    $sheet = is_array($profile['character_sheet'] ?? NULL) ? $profile['character_sheet'] : [];
+    $ancestry = strtolower(trim((string) ($sheet['ancestry'] ?? '')));
+    $creature_type = strtolower(trim((string) ($sheet['creature_type'] ?? '')));
+    $entity_ref = strtolower(trim($entity_ref));
+    if ($ancestry === 'undead') {
+      return TRUE;
+    }
+    if ($creature_type === 'undead' || str_contains($creature_type, 'undead')) {
+      return TRUE;
+    }
+    return str_contains($entity_ref, 'skeleton_')
+      || str_contains($entity_ref, 'zombie_')
+      || str_contains($entity_ref, 'undead');
   }
 
   /**

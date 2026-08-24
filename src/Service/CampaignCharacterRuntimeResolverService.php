@@ -836,20 +836,13 @@ class CampaignCharacterRuntimeResolverService {
       ?? $selected_character->position_h3
       ?? ''
     )));
-    if ($start_q_explicit) {
-      $position_q = (int) ($launch_context['start_q'] ?? $position_q);
-    }
-    if ($start_r_explicit) {
-      $position_r = (int) ($launch_context['start_r'] ?? $position_r);
-    }
-    if (array_key_exists('start_h3_index_res14', $launch_context)) {
-      $position_h3 = strtolower(trim((string) ($launch_context['start_h3_index_res14'] ?? '')));
-    }
 
     $is_new_runtime_row = $existing_row === NULL;
+    $existing_room_id = trim((string) ($existing_row['last_room_id'] ?? $existing_row['location_ref'] ?? ''));
+    $launch_room_id = trim((string) ($launch_context['room_id'] ?? ''));
     $room_id = '';
     if ($room_explicit) {
-      $room_id = trim((string) ($launch_context['room_id'] ?? ''));
+      $room_id = $launch_room_id;
     }
     if ($room_id === '') {
       $room_id = trim((string) ($existing_row['last_room_id'] ?? $existing_row['location_ref'] ?? ''));
@@ -862,6 +855,26 @@ class CampaignCharacterRuntimeResolverService {
     }
     if ($room_id === '') {
       $room_id = $this->resolveCampaignProfileDefaultRoomId($campaign_id);
+    }
+
+    // Preserve persisted intra-room movement on refresh. Launch start_q/start_r
+    // overrides should only apply on new runtime rows or when launching into a
+    // different room than the existing runtime row.
+    $launch_room_changed = $room_explicit
+      && $launch_room_id !== ''
+      && $existing_room_id !== ''
+      && $launch_room_id !== $existing_room_id;
+    $allow_launch_start_override = $is_new_runtime_row || $launch_room_changed;
+    if ($allow_launch_start_override) {
+      if ($start_q_explicit) {
+        $position_q = (int) ($launch_context['start_q'] ?? $position_q);
+      }
+      if ($start_r_explicit) {
+        $position_r = (int) ($launch_context['start_r'] ?? $position_r);
+      }
+      if (array_key_exists('start_h3_index_res14', $launch_context)) {
+        $position_h3 = strtolower(trim((string) ($launch_context['start_h3_index_res14'] ?? '')));
+      }
     }
 
     $location_type = $room_id !== ''

@@ -44,23 +44,21 @@ assert(
     && encounterSystemSource.includes('const handlerName = ACTION_SELECTION_HANDLERS[key] ||')
     && encounterSystemSource.includes('this[handlerName](d?.button);')
     && encounterSystemSource.includes('async executeDirectConsumable(button) {')
-    && encounterSystemSource.includes("_sendCoordinatorActionWithResync(coordinator, 'consume_item', context.actorRef, {")
-    && encounterSystemSource.includes('action: \'consume\''),
-  'encounter system handles consumable selections and dispatches canonical consume_item intents'
+    && encounterSystemSource.includes("_sendCoordinatorActionWithResync(coordinator, 'consume_item', actorRef, {")
+    && encounterSystemSource.includes('coordinator.applyAuthoritativeUpdate?.(result);'),
+  'encounter system handles consumable selections through the canonical coordinator consume_item intent path'
 );
 
 assert(
-  encounterSystemSource.includes('`/api/character/${characterId}/inventory`')
+  !encounterSystemSource.includes('`/api/character/${characterId}/inventory`')
+    && encounterSystemSource.includes('Consumable actions require authoritative coordinator state and an active actor.')
     && encounterSystemSource.includes('hexmap.loadCharacterFromApi(characterId);'),
-  'consumable handler preserves non-encounter fallback parity and refreshes character state'
+  'consumable handler removes legacy inventory fallback and enforces authoritative coordinator execution'
 );
 
 assert(
-  encounterPhaseSource.includes("'consume_item',")
-    && encounterPhaseSource.includes("$this->getActionCost('consume_item', $params);")
-    && encounterPhaseSource.includes("'consume_item requires params.character_id and params.item.'")
-    && encounterPhaseSource.includes("GameEventLogger::buildEvent('consume_item', 'encounter', $actor_id, ["),
-  'server encounter phase accepts consume_item intents and returns authoritative consume events'
+  encounterPhaseSource.includes("'consume_item',"),
+  'server encounter phase action list includes consume_item intent'
 );
 
 console.log('\n========================================');

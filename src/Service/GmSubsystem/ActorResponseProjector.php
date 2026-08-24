@@ -36,6 +36,7 @@ class ActorResponseProjector {
       'navigation' => is_array($chat_result['navigation'] ?? NULL) ? $chat_result['navigation'] : NULL,
       'aggression_summary' => is_array($chat_result['aggression_summary'] ?? NULL) ? $chat_result['aggression_summary'] : NULL,
       'combat_entry_summary' => is_array($chat_result['combat_entry_summary'] ?? NULL) ? $chat_result['combat_entry_summary'] : NULL,
+      'process_flow_summary' => is_array($chat_result['process_flow_summary'] ?? NULL) ? $chat_result['process_flow_summary'] : NULL,
       'runtime_snapshot' => is_array($actor_turn_context['runtime_snapshot'] ?? NULL)
         ? $actor_turn_context['runtime_snapshot']
         : [],
@@ -75,6 +76,12 @@ class ActorResponseProjector {
     }
     if (!is_array($response['stance_summary'] ?? NULL) && is_array($runtime_snapshot['stance_state']['summary'] ?? NULL)) {
       $response['stance_summary'] = $runtime_snapshot['stance_state']['summary'];
+    }
+    if (is_array($runtime_snapshot['process_flow_state'] ?? NULL)) {
+      $response['process_flow_state'] = $runtime_snapshot['process_flow_state'];
+    }
+    if (!is_array($response['process_flow_summary'] ?? NULL) && is_array($runtime_snapshot['process_flow_state']['summary'] ?? NULL)) {
+      $response['process_flow_summary'] = $runtime_snapshot['process_flow_state']['summary'];
     }
     $response['resolved_actor_context'] = $this->buildResolvedActorContextEnvelope($response, $runtime_snapshot);
 
@@ -126,6 +133,14 @@ class ActorResponseProjector {
       $stance = $runtime_snapshot['stance_state']['summary'];
     }
 
+    $process_flow = [];
+    if (is_array($response['process_flow_summary'] ?? NULL)) {
+      $process_flow = $response['process_flow_summary'];
+    }
+    elseif (is_array($runtime_snapshot['process_flow_state']['summary'] ?? NULL)) {
+      $process_flow = $runtime_snapshot['process_flow_state']['summary'];
+    }
+
     $resolved_disposition_by_target = is_array($runtime_snapshot['resolved_disposition_by_target'] ?? NULL)
       ? $runtime_snapshot['resolved_disposition_by_target']
       : [];
@@ -136,7 +151,7 @@ class ActorResponseProjector {
       $relationship_attitudes = $this->projectCompatibilityRelationshipAttitudesFromResolvedDisposition($resolved_disposition_by_target);
     }
 
-    if ($disposition === [] && $aggression === [] && $stance === [] && $relationship_attitudes === [] && $resolved_disposition_by_target === []) {
+    if ($disposition === [] && $aggression === [] && $stance === [] && $process_flow === [] && $relationship_attitudes === [] && $resolved_disposition_by_target === []) {
       return NULL;
     }
 
@@ -144,6 +159,7 @@ class ActorResponseProjector {
       'disposition' => $disposition,
       'aggression' => $aggression,
       'stance' => $stance,
+      'process_flow' => $process_flow,
       'resolved_disposition_by_target' => $resolved_disposition_by_target,
       'relationship_attitudes' => $relationship_attitudes,
       'narrative_context' => is_array($response['quest_context'] ?? NULL)

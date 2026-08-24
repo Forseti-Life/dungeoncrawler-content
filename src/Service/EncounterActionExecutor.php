@@ -25,6 +25,9 @@ class EncounterActionExecutor {
   protected ?MovementResolverService $movementResolver;
   protected ?ActorDispositionService $actorDispositionService;
   protected ?DispositionMutationClassifierService $dispositionMutationClassifierService;
+  protected ?RelationshipAttitudeService $relationshipAttitudeService;
+  protected ?RelationshipsActorIdentityResolverService $relationshipsActorIdentityResolverService;
+  protected ?InstitutionMembershipService $institutionMembershipService;
   protected ActionTargetingService $actionTargetingService;
   protected LoggerInterface $logger;
 
@@ -45,7 +48,10 @@ class EncounterActionExecutor {
     ?DispositionMutationClassifierService $disposition_mutation_classifier_service = NULL,
     ?ActionTargetingService $action_targeting_service = NULL,
     ?UnifiedDamageEngine $unified_damage_engine = NULL,
-    ?UnifiedMovementEngine $unified_movement_engine = NULL
+    ?UnifiedMovementEngine $unified_movement_engine = NULL,
+    ?RelationshipAttitudeService $relationship_attitude_service = NULL,
+    ?RelationshipsActorIdentityResolverService $relationships_actor_identity_resolver_service = NULL,
+    ?InstitutionMembershipService $institution_membership_service = NULL
   ) {
     $this->encounterStore = $encounter_store;
     $this->combatEngine = $combat_engine;
@@ -61,6 +67,9 @@ class EncounterActionExecutor {
     $this->movementResolver = $movement_resolver;
     $this->actorDispositionService = $actor_disposition_service;
     $this->dispositionMutationClassifierService = $disposition_mutation_classifier_service;
+    $this->relationshipAttitudeService = $relationship_attitude_service;
+    $this->relationshipsActorIdentityResolverService = $relationships_actor_identity_resolver_service;
+    $this->institutionMembershipService = $institution_membership_service;
     $this->actionTargetingService = $action_targeting_service ?? new ActionTargetingService();
     $this->unifiedDamageEngine = $unified_damage_engine ?? new UnifiedDamageEngine(
       $encounter_store,
@@ -218,6 +227,7 @@ class EncounterActionExecutor {
           return (string) ($update['quest_id'] ?? $update['quest_key'] ?? $update['quest_name'] ?? 'unknown');
         }, $chat_response['quest_updates'])),
       ]);
+      $disposition_change = NULL;
       if (
         $campaign_id > 0
         && is_string($actor_id)
@@ -225,7 +235,7 @@ class EncounterActionExecutor {
         && is_string($target_id)
         && trim($target_id) !== ''
       ) {
-        $this->applyClassifiedDispositionMutation(
+        $disposition_change = $this->applyClassifiedDispositionMutation(
           $campaign_id,
           'talk',
           $actor_id,
@@ -265,6 +275,7 @@ class EncounterActionExecutor {
         'turn_logs' => array_values(array_filter($chat_result['turn_logs'] ?? [], 'is_array')),
         'chat_response' => $chat_response,
         'narration' => $chat_result['gm_response']['message'] ?? ($chat_result['gm_response']['text'] ?? NULL),
+        'disposition_change' => $disposition_change,
         'mutations' => $chat_result['mutations'] ?? [],
       ];
     }
@@ -356,7 +367,7 @@ class EncounterActionExecutor {
       if (!empty($strike_damage['mutations']) && is_array($strike_damage['mutations'])) {
         $mutations = array_merge($mutations, $strike_damage['mutations']);
       }
-      $this->applyClassifiedDispositionMutation(
+      $disposition_change = $this->applyClassifiedDispositionMutation(
         $campaign_id,
         'strike',
         $actor_id,
@@ -380,6 +391,16 @@ class EncounterActionExecutor {
           'requires_attack_roll' => TRUE,
         ]
       );
+      $damage_disposition_change = $this->applyDamageTriggeredHostilityConsequences(
+        $campaign_id,
+        $encounter_id,
+        $actor_id,
+        $target_id,
+        $damage_packet
+      );
+      if ($damage_disposition_change !== NULL) {
+        $disposition_change = $damage_disposition_change;
+      }
 
       return [
         'strike' => TRUE,
@@ -402,6 +423,7 @@ class EncounterActionExecutor {
           ]
         ),
         'is_defeated' => !empty($updated_target['is_defeated']),
+        'disposition_change' => $disposition_change,
         'mutations' => $mutations,
       ];
     }
@@ -589,37 +611,52 @@ class EncounterActionExecutor {
       }
 
       $existing_state = $database->select('dc_campaign_characters', 'cc')
-        ->fields('cc', ['state_data'])
+        ->fields('cc', ['state_data', 'last_room_id', 'location_ref'])
         ->condition('campaign_id', $campaign_id)
         ->condition('instance_id', $actor_id)
         ->range(0, 1)
         ->execute()
-        ->fetchField();
-      if ($existing_state === FALSE) {
+        ->fetchAssoc();
+      if (!is_array($existing_state)) {
         return;
       }
 
-      $state_data = json_decode((string) $existing_state, TRUE);
+      $state_data = json_decode((string) ($existing_state['state_data'] ?? ''), TRUE);
       if (!is_array($state_data)) {
         $state_data = [];
+      }
+      $resolved_room_id = trim($room_id);
+      if ($resolved_room_id === '') {
+        $resolved_room_id = trim((string) (
+          $state_data['placement']['room_id']
+          ?? $existing_state['last_room_id']
+          ?? $existing_state['location_ref']
+          ?? ''
+        ));
       }
       $state_data['placement'] = is_array($state_data['placement'] ?? NULL) ? $state_data['placement'] : [];
       $state_data['placement']['hex'] = [
         'q' => $q,
         'r' => $r,
       ];
-      if ($room_id !== '') {
-        $state_data['placement']['room_id'] = $room_id;
+      if ($resolved_room_id !== '') {
+        $state_data['placement']['room_id'] = $resolved_room_id;
+      }
+
+      $update_fields = [
+        'position_q' => $q,
+        'position_r' => $r,
+        'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated' => time(),
+      ];
+      if ($resolved_room_id !== '') {
+        $update_fields['last_room_id'] = $resolved_room_id;
+        $update_fields['location_type'] = 'room';
+        $update_fields['location_ref'] = $resolved_room_id;
       }
 
       $database->update('dc_campaign_characters')
-        ->fields([
-          'position_q' => $q,
-          'position_r' => $r,
-          'last_room_id' => $room_id !== '' ? $room_id : NULL,
-          'state_data' => json_encode($state_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-          'updated' => time(),
-        ])
+        ->fields($update_fields)
         ->condition('campaign_id', $campaign_id)
         ->condition('instance_id', $actor_id)
         ->execute();
@@ -777,6 +814,7 @@ class EncounterActionExecutor {
       ]);
       return ['cast' => FALSE, 'error' => 'Caster not found.', 'mutations' => [], 'narration' => NULL];
     }
+    $target_participant = NULL;
     if ($target_id !== NULL) {
       $target_participant = $this->findEncounterParticipantByEntityId($enc_cs ?: [], $target_id);
       if (!$target_participant) {
@@ -954,10 +992,11 @@ class EncounterActionExecutor {
         || $requires_attack_roll
       );
 
+    $disposition_change = NULL;
     if ($is_cantrip) {
       $effective_level = $this->canonicalProjectionService->resolveEffectiveCantripLevel($canonical_state, $edata_cs);
       if ($should_trigger_negative_spell_disposition) {
-        $this->applyClassifiedDispositionMutation(
+        $classified_disposition_change = $this->applyClassifiedDispositionMutation(
           $campaign_id > 0 ? $campaign_id : NULL,
           'cast_spell',
           $actor_id,
@@ -979,6 +1018,9 @@ class EncounterActionExecutor {
             'requires_attack_roll' => $requires_attack_roll,
           ]
         );
+        if ($disposition_change === NULL && $classified_disposition_change !== NULL) {
+          $disposition_change = $classified_disposition_change;
+        }
       }
       return [
         'cast' => TRUE,
@@ -988,6 +1030,7 @@ class EncounterActionExecutor {
         'effective_level' => $effective_level,
         'spell_dc' => $spell_dc,
         'attack_result' => $attack_result,
+        'disposition_change' => $disposition_change,
         'narration' => NULL,
         'mutations' => [],
       ];
@@ -1042,7 +1085,7 @@ class EncounterActionExecutor {
       }
 
       if ($should_trigger_negative_spell_disposition) {
-        $this->applyClassifiedDispositionMutation(
+        $disposition_change = $this->applyClassifiedDispositionMutation(
           $campaign_id > 0 ? $campaign_id : NULL,
           'cast_spell',
           $actor_id,
@@ -1075,8 +1118,17 @@ class EncounterActionExecutor {
           (string) $spell_id,
           (string) $spell_name,
           (int) $slot_level,
-          (int) ($params['action_cost'] ?? 1)
+          (int) ($params['action_cost'] ?? 1),
+          $target_participant
         );
+        if (!empty($damage_resolution['error'])) {
+          return [
+            'cast' => FALSE,
+            'error' => (string) $damage_resolution['error'],
+            'mutations' => [],
+            'narration' => NULL,
+          ];
+        }
         if (is_numeric($damage_resolution['damage'] ?? NULL)) {
           $spell_damage = (int) $damage_resolution['damage'];
         }
@@ -1085,6 +1137,16 @@ class EncounterActionExecutor {
         $spell_damage_packet = is_array($damage_resolution['damage_packet'] ?? NULL) ? $damage_resolution['damage_packet'] : NULL;
         $target_defeated = !empty($damage_resolution['is_defeated']);
         $missiles_fired = is_numeric($damage_resolution['missiles_fired'] ?? NULL) ? (int) $damage_resolution['missiles_fired'] : NULL;
+        $damage_disposition_change = $this->applyDamageTriggeredHostilityConsequences(
+          $campaign_id > 0 ? $campaign_id : NULL,
+          $encounter_id,
+          $actor_id,
+          (string) $target_id,
+          $spell_damage_packet
+        );
+        if ($damage_disposition_change !== NULL) {
+          $disposition_change = $damage_disposition_change;
+        }
       }
 
       return [
@@ -1106,6 +1168,7 @@ class EncounterActionExecutor {
         'damage_packet' => $spell_damage_packet,
         'missiles_fired' => $missiles_fired,
         'is_defeated' => $target_defeated,
+        'disposition_change' => $disposition_change,
         'resolution_envelope' => $this->combatResolutionContractService->buildResolutionEnvelope(
           $this->combatResolutionContractService->buildCombatExecutionRequest(
             'cast_spell',
@@ -1215,6 +1278,14 @@ class EncounterActionExecutor {
         (int) $slot_level,
         (int) ($params['action_cost'] ?? 1)
       );
+      if (!empty($damage_resolution['error'])) {
+        return [
+          'cast' => FALSE,
+          'error' => (string) $damage_resolution['error'],
+          'mutations' => [],
+          'narration' => NULL,
+        ];
+      }
       if (is_numeric($damage_resolution['damage'] ?? NULL)) {
         $spell_damage = (int) $damage_resolution['damage'];
       }
@@ -1223,6 +1294,16 @@ class EncounterActionExecutor {
       $spell_damage_packet = is_array($damage_resolution['damage_packet'] ?? NULL) ? $damage_resolution['damage_packet'] : NULL;
       $target_defeated = !empty($damage_resolution['is_defeated']);
       $missiles_fired = is_numeric($damage_resolution['missiles_fired'] ?? NULL) ? (int) $damage_resolution['missiles_fired'] : NULL;
+      $damage_disposition_change = $this->applyDamageTriggeredHostilityConsequences(
+        $campaign_id > 0 ? $campaign_id : NULL,
+        $encounter_id,
+        $actor_id,
+        (string) $target_id,
+        $spell_damage_packet
+      );
+      if ($damage_disposition_change !== NULL) {
+        $disposition_change = $damage_disposition_change;
+      }
     }
 
     $incapacitation_note = NULL;
@@ -1249,7 +1330,7 @@ class EncounterActionExecutor {
     }
 
     if ($should_trigger_negative_spell_disposition) {
-      $this->applyClassifiedDispositionMutation(
+      $disposition_change = $this->applyClassifiedDispositionMutation(
         $campaign_id > 0 ? $campaign_id : NULL,
         'cast_spell',
         $actor_id,
@@ -1295,6 +1376,7 @@ class EncounterActionExecutor {
       'damage_packet' => $spell_damage_packet,
       'missiles_fired' => $missiles_fired,
       'is_defeated' => $target_defeated,
+      'disposition_change' => $disposition_change,
       'resolution_envelope' => $this->combatResolutionContractService->buildResolutionEnvelope(
         $this->combatResolutionContractService->buildCombatExecutionRequest(
           'cast_spell',
@@ -1329,7 +1411,8 @@ class EncounterActionExecutor {
     string $spell_id,
     string $spell_name,
     int $cast_rank,
-    int $action_cost
+    int $action_cost,
+    ?array $target_participant_hint = NULL
   ): array {
     return $this->unifiedDamageEngine->applySupportedSpellDamageToEncounterTarget(
       $encounter_id,
@@ -1338,18 +1421,86 @@ class EncounterActionExecutor {
       $spell_id,
       $spell_name,
       $cast_rank,
-      $action_cost
+      $action_cost,
+      $target_participant_hint
     );
   }
 
   protected function findEncounterParticipantByEntityId(array $encounter, string $entity_id): ?array {
+    $needle_raw = trim($entity_id);
+    if ($needle_raw === '') {
+      return NULL;
+    }
+    $needle_canonical = $this->normalizeEntityRefKey($needle_raw);
+
     foreach (($encounter['participants'] ?? []) as $participant) {
-      if ((string) ($participant['entity_id'] ?? '') === (string) $entity_id) {
-        return $participant;
+      if (!is_array($participant)) {
+        continue;
+      }
+      foreach ($this->collectParticipantEntityRefs($participant) as $candidate) {
+        if ($candidate === $needle_raw || $this->normalizeEntityRefKey($candidate) === $needle_canonical) {
+          return $participant;
+        }
       }
     }
 
     return NULL;
+  }
+
+  /**
+   * @return string[]
+   */
+  protected function collectParticipantEntityRefs(array $participant): array {
+    $candidates = [];
+    foreach (['entity_id', 'entity_ref'] as $key) {
+      $value = $participant[$key] ?? NULL;
+      if (is_scalar($value)) {
+        $normalized = trim((string) $value);
+        if ($normalized !== '') {
+          $candidates[] = $normalized;
+        }
+      }
+    }
+
+    $entity_ref = $participant['entity_ref'] ?? NULL;
+    if (is_scalar($entity_ref)) {
+      $decoded = json_decode((string) $entity_ref, TRUE);
+      if (is_array($decoded)) {
+        foreach (['entity_id', 'instance_id', 'entity_instance_id', 'content_id', 'id'] as $key) {
+          $value = $decoded[$key] ?? NULL;
+          if (is_scalar($value)) {
+            $normalized = trim((string) $value);
+            if ($normalized !== '') {
+              $candidates[] = $normalized;
+            }
+          }
+        }
+      }
+    }
+
+    $unique = [];
+    $seen = [];
+    foreach ($candidates as $candidate) {
+      if (!isset($seen[$candidate])) {
+        $seen[$candidate] = TRUE;
+        $unique[] = $candidate;
+      }
+    }
+
+    return $unique;
+  }
+
+  protected function normalizeEntityRefKey(string $value): string {
+    $value = strtolower(trim($value));
+    if ($value === '') {
+      return '';
+    }
+    $normalized = preg_replace('/[^a-z0-9]+/', '', $value);
+    if (is_string($normalized) && $normalized !== '') {
+      return $normalized;
+    }
+
+    return $value;
   }
 
   /**
@@ -1371,6 +1522,176 @@ class EncounterActionExecutor {
   }
 
   /**
+   * Apply immediate hostility consequences from authoritative damage packets.
+   */
+  protected function applyDamageTriggeredHostilityConsequences(
+    ?int $campaign_id,
+    int $encounter_id,
+    string $attacker_actor_ref,
+    string $victim_actor_ref,
+    ?array $damage_packet
+  ): ?array {
+    if (
+      $campaign_id === NULL
+      || $campaign_id <= 0
+      || $encounter_id <= 0
+      || $this->relationshipAttitudeService === NULL
+      || $this->relationshipsActorIdentityResolverService === NULL
+    ) {
+      return NULL;
+    }
+    $attacker_actor_ref = trim($attacker_actor_ref);
+    $victim_actor_ref = trim($victim_actor_ref);
+    if ($attacker_actor_ref === '' || $victim_actor_ref === '' || $attacker_actor_ref === $victim_actor_ref) {
+      return NULL;
+    }
+
+    $damage_amount = isset($damage_packet['amount']) && is_numeric($damage_packet['amount'])
+      ? (int) $damage_packet['amount']
+      : 0;
+    if ($damage_amount <= 0) {
+      return NULL;
+    }
+
+    $victim_identity = $this->relationshipsActorIdentityResolverService->resolveInstitutionActorIdentity($campaign_id, $victim_actor_ref);
+    $attacker_identity = $this->relationshipsActorIdentityResolverService->resolveInstitutionActorIdentity($campaign_id, $attacker_actor_ref);
+    if (!is_array($victim_identity) || !is_array($attacker_identity)) {
+      return NULL;
+    }
+
+    $victim_undead_membership_subject = $this->actorHasInstitutionMembership($campaign_id, $victim_identity, 'institution_ancestry_undead')
+      ? 'institution_ancestry_undead'
+      : '';
+    $witnesses = [];
+    $this->upsertDamageHostilityEdge(
+      $campaign_id,
+      $victim_identity,
+      $attacker_identity,
+      $encounter_id,
+      $damage_amount,
+      TRUE,
+      $victim_undead_membership_subject
+    );
+    $witnesses[] = $victim_actor_ref;
+
+    if ($victim_undead_membership_subject !== '') {
+      $encounter = $this->encounterStore->loadEncounter($encounter_id);
+      $participants = is_array($encounter['participants'] ?? NULL) ? $encounter['participants'] : [];
+      foreach ($participants as $participant) {
+        if (!is_array($participant)) {
+          continue;
+        }
+        $peer_ref = trim((string) ($participant['entity_id'] ?? ''));
+        if ($peer_ref === '' || $peer_ref === $victim_actor_ref || $peer_ref === $attacker_actor_ref) {
+          continue;
+        }
+        if (!empty($participant['is_defeated'])) {
+          continue;
+        }
+        $peer_identity = $this->relationshipsActorIdentityResolverService->resolveInstitutionActorIdentity($campaign_id, $peer_ref);
+        if (!is_array($peer_identity) || !$this->actorHasInstitutionMembership($campaign_id, $peer_identity, 'institution_ancestry_undead')) {
+          continue;
+        }
+        $this->upsertDamageHostilityEdge(
+          $campaign_id,
+          $peer_identity,
+          $attacker_identity,
+          $encounter_id,
+          $damage_amount,
+          FALSE,
+          $victim_undead_membership_subject
+        );
+        $witnesses[] = $peer_ref;
+      }
+    }
+
+    return [
+      'source_actor_ref' => $victim_actor_ref,
+      'target_actor_ref' => $attacker_actor_ref,
+      'event_type' => 'damage_application_hostility_override',
+      'reason' => 'Damage packet triggered immediate hostility for victim and undead peers.',
+      'changed' => TRUE,
+      'classification' => [
+        'matched' => TRUE,
+        'damage_amount' => $damage_amount,
+        'witnesses' => array_values(array_unique($witnesses)),
+      ],
+    ];
+  }
+
+  /**
+   * Persist one directed immediate-hostility edge after combat damage.
+   *
+   * @param array<string,string> $source_identity
+   * @param array<string,string> $target_identity
+   */
+  protected function upsertDamageHostilityEdge(
+    int $campaign_id,
+    array $source_identity,
+    array $target_identity,
+    int $encounter_id,
+    int $damage_amount,
+    bool $is_direct_victim,
+    string $witness_institution_subject_id = ''
+  ): void {
+    if ($this->relationshipAttitudeService === NULL) {
+      return;
+    }
+    $source_type = trim((string) ($source_identity['source_type'] ?? ''));
+    $source_id = trim((string) ($source_identity['source_id'] ?? ''));
+    $target_type = trim((string) ($target_identity['source_type'] ?? ''));
+    $target_id = trim((string) ($target_identity['source_id'] ?? ''));
+    if ($source_type === '' || $source_id === '' || $target_type === '' || $target_id === '') {
+      return;
+    }
+    $this->relationshipAttitudeService->upsertRelationshipAttitude(
+      $campaign_id,
+      $source_type,
+      $source_id,
+      $target_type,
+      $target_id,
+      DispositionAuthorityContract::LABEL_HOSTILE,
+      'combat',
+      'known',
+      [
+        'score' => -100,
+        'score_source' => 'relationship_state_score',
+        'trigger' => 'damage_application',
+        'encounter_id' => $encounter_id,
+        'damage_amount' => $damage_amount,
+        'peer_witness' => !$is_direct_victim,
+        'witness_institution_subject_id' => trim($witness_institution_subject_id),
+      ]
+    );
+  }
+
+  /**
+   * Resolve whether an actor identity carries a specific institution membership.
+   *
+   * @param array<string,string> $identity
+   */
+  protected function actorHasInstitutionMembership(int $campaign_id, array $identity, string $target_subject_id): bool {
+    if ($this->institutionMembershipService === NULL) {
+      return FALSE;
+    }
+    $source_type = trim((string) ($identity['source_type'] ?? ''));
+    $source_id = trim((string) ($identity['source_id'] ?? ''));
+    if ($campaign_id <= 0 || $source_type === '' || $source_id === '' || trim($target_subject_id) === '') {
+      return FALSE;
+    }
+    $memberships = $this->institutionMembershipService->listActorInstitutionMemberships($campaign_id, $source_type, $source_id);
+    foreach ($memberships as $membership) {
+      if (!is_array($membership)) {
+        continue;
+      }
+      if (trim((string) ($membership['target_id'] ?? '')) === $target_subject_id) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  /**
    * Apply a classifier-scoped mutation for one encounter action.
    */
   protected function applyClassifiedDispositionMutation(
@@ -1380,28 +1701,40 @@ class EncounterActionExecutor {
     ?string $target_actor_ref,
     string $event_description,
     array $context = []
-  ): void {
+  ): ?array {
     if ($campaign_id === NULL || $campaign_id <= 0 || $this->dispositionMutationClassifierService === NULL) {
-      return;
+      return NULL;
     }
+
+    $source_actor_ref = trim($source_actor_ref);
+    $target_actor_ref = trim((string) $target_actor_ref);
+    if ($source_actor_ref === '' || $target_actor_ref === '' || $this->actorDispositionService === NULL) {
+      return NULL;
+    }
+
+    $before_summary = $this->actorDispositionService->getDispositionSummary($campaign_id, $source_actor_ref, [], FALSE);
+    $before_attitude = strtolower(trim((string) ($before_summary['current_attitude'] ?? '')));
+    $before_score = isset($before_summary['current_score']) && is_numeric($before_summary['current_score'])
+      ? (int) round((float) $before_summary['current_score'])
+      : NULL;
 
     $classification = $this->dispositionMutationClassifierService->classifyActionMutationScope(
       $campaign_id,
       $action_type,
       $context + [
         'source_entity_ref' => $source_actor_ref,
-        'target_entity_ref' => (string) $target_actor_ref,
+        'target_entity_ref' => $target_actor_ref,
       ]
     );
     if (empty($classification['matched'])) {
-      return;
+      return NULL;
     }
     $event_type = trim((string) ($classification['event_type'] ?? ''));
     if ($event_type === '') {
-      return;
+      return NULL;
     }
 
-    $this->applyDispositionTriggerMutation(
+    $after_summary = $this->applyDispositionTriggerMutation(
       $campaign_id,
       $source_actor_ref,
       $target_actor_ref,
@@ -1409,6 +1742,31 @@ class EncounterActionExecutor {
       $event_description,
       $context + ['trigger_classification' => $classification]
     );
+    if (!is_array($after_summary)) {
+      return NULL;
+    }
+
+    $after_attitude = strtolower(trim((string) ($after_summary['current_attitude'] ?? '')));
+    $after_score = isset($after_summary['current_score']) && is_numeric($after_summary['current_score'])
+      ? (int) round((float) $after_summary['current_score'])
+      : NULL;
+
+    return [
+      'source_actor_ref' => $source_actor_ref,
+      'target_actor_ref' => $target_actor_ref,
+      'event_type' => $event_type,
+      'reason' => $event_description,
+      'changed' => $before_attitude !== $after_attitude || $before_score !== $after_score,
+      'before' => [
+        'attitude' => $before_attitude,
+        'score' => $before_score,
+      ],
+      'after' => [
+        'attitude' => $after_attitude,
+        'score' => $after_score,
+      ],
+      'classification' => $classification,
+    ];
   }
 
   /**
@@ -1421,17 +1779,17 @@ class EncounterActionExecutor {
     string $event_type,
     string $event_description,
     array $context = []
-  ): void {
+  ): ?array {
     if ($this->actorDispositionService === NULL || $campaign_id === NULL || $campaign_id <= 0) {
-      return;
+      return NULL;
     }
     $source_actor_ref = trim($source_actor_ref);
     $target_actor_ref = trim((string) $target_actor_ref);
     if ($source_actor_ref === '' || $target_actor_ref === '') {
-      return;
+      return NULL;
     }
 
-    $this->actorDispositionService->applyDispositionEvent(
+    return $this->actorDispositionService->applyDispositionEvent(
       $campaign_id,
       $source_actor_ref,
       $event_type,

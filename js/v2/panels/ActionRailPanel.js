@@ -9,7 +9,7 @@ import { getActionRailCost, formatActionRailCost, getActionRailRemainingActions 
 import { collectCharacterSkillEntries, buildActionRailEntrySummary } from '../utils/inventory-utils.js';
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr } from '../utils/dom-utils.js';
-import { buildActionRailContext } from '../services/action-rail-context-service.js';
+import { buildActionRailContext } from '../services/action-rail-context-service.js?v=20260819-v2-action-rail-api-authority-1';
 import { buildNavigateActionRailPanel } from '../services/action-rail-navigate-panel-service.js?v=20260723-v2-nav-exit-numbering-4';
 import {
   getActionRailDirectRoute,
@@ -111,6 +111,7 @@ export class ActionRailPanel {
     this.navigateActiveRoom = null;
     this._lastRoomTransitionId = '';
     this._actionRailRequestSequence = 0;
+    this._activeEncounterActionLock = null;
     this._actionRailRefreshRaf = null;
     this._actionRailRefreshTimer = null;
     this._actionRailDirtyDomains = new Set([ACTION_RAIL_DOMAIN_ALL]);
@@ -378,7 +379,27 @@ export class ActionRailPanel {
       this.bus.on('quest:progress-updated', () => this.invalidateActionRail(['quest'])),
       this.bus.on('navigation:capabilities-updated', () => this.invalidateActionRail(['navigation'])),
       this.bus.on('merchant:stock-loaded', () => this.invalidateActionRail(['merchant'])),
+      this.bus.on('encounter:action-lock-changed', (payload) => this.handleEncounterActionLockChanged(payload)),
     );
+  }
+
+  handleEncounterActionLockChanged(payload = {}) {
+    if (payload?.locked) {
+      this._activeEncounterActionLock = {
+        key: String(payload.key || '').trim(),
+        actorRef: String(payload.actorRef || '').trim(),
+        type: String(payload.type || '').trim(),
+      };
+      this.invalidateActionRail(['combat', 'turn']);
+      return;
+    }
+
+    const unlockKey = String(payload?.key || '').trim();
+    if (unlockKey && this._activeEncounterActionLock?.key && unlockKey !== this._activeEncounterActionLock.key) {
+      return;
+    }
+    this._activeEncounterActionLock = null;
+    this.invalidateActionRail(['combat', 'turn']);
   }
 
   handleRoomContextChanged(payload = {}, sourceEvent = '') {
@@ -1105,6 +1126,15 @@ export class ActionRailPanel {
     if (disabled) {
       return true;
     }
+    if (this.isEncounterActionLockedForContext(context)) {
+      return true;
+    }
+    if (context?.runtimeSync?.readOnlyDesynced) {
+      return true;
+    }
+    if (context?.runtimeSync?.degraded && context?.encounterActive && context?.awaitingHydration) {
+      return true;
+    }
 
     if (!context?.encounterActive || !this.shouldEnforceEncounterBudgets(context)) {
       return false;
@@ -1120,6 +1150,18 @@ export class ActionRailPanel {
     }
 
     return getActionRailCost(actionCost, 1) > remainingActions;
+  }
+
+  isEncounterActionLockedForContext(context) {
+    if (!this._activeEncounterActionLock || !context?.encounterActive) {
+      return false;
+    }
+    const lockActorRef = String(this._activeEncounterActionLock.actorRef || '').trim();
+    const contextActorRef = String(context?.actorRef || '').trim();
+    if (!lockActorRef || !contextActorRef) {
+      return true;
+    }
+    return lockActorRef === contextActorRef;
   }
 
   shouldEnforceEncounterBudgets(context) {
@@ -1229,6 +1271,12 @@ export class ActionRailPanel {
   }
 
   renderActionRailEmptyState(context) {
+    if (context?.runtimeSync?.readOnlyDesynced) {
+      return `<div class="action-rail__empty"><p>Runtime sync is desynced. Actions are blocked until authoritative state recovers.</p></div>`;
+    }
+    if (context?.runtimeSync?.degraded) {
+      return `<div class="action-rail__empty"><p>Runtime sync is degraded. Some actions may wait for hydration, but direct actions remain available when your turn data is loaded.</p></div>`;
+    }
     if (!context.characterId) {
       return `<div class="action-rail__empty"><p>Select or load a character to enable action tabs.</p></div>`;
     }
@@ -1622,6 +1670,7 @@ export class ActionRailPanel {
     if (!panelBody || !this.activeActionRailCategory) {
       return;
     }
+    const context = this.getActionRailContext();
     const category = this.resolveActionRailCategory(this.activeActionRailCategory);
     const entries = Array.from(panelBody.querySelectorAll('.action-rail__entry'));
     const groups = Array.from(panelBody.querySelectorAll('.action-rail__group'));
@@ -1707,6 +1756,78 @@ export class ActionRailPanel {
       panelBody.append(emptyState);
     }
     emptyState.hidden = !(activeFilter && entries.length > 0 && visibleEntries === 0);
+
+    this.syncActionRailDisabledWaitOverlays(context, panelBody);
+  }
+
+  syncActionRailDisabledWaitOverlays(context, panelBody) {
+    panelBody.querySelectorAll('.action-rail__entry').forEach((entry) => {
+      if (!(entry instanceof HTMLElement)) {
+        return;
+      }
+      const button = entry.querySelector('.action-rail__entry-action');
+      if (!(button instanceof HTMLButtonElement)) {
+        return;
+      }
+      const disabled = button.disabled || button.getAttribute('aria-disabled') === 'true';
+      let note = entry.querySelector('.action-rail__entry-disabled-note');
+      if (!disabled) {
+        button.removeAttribute('title');
+        if (note instanceof HTMLElement) {
+          note.remove();
+        }
+        return;
+      }
+      const waitMessage = this.resolveActionRailDisabledWaitMessage(context, button);
+      button.setAttribute('title', waitMessage);
+      if (!(note instanceof HTMLElement)) {
+        note = document.createElement('p');
+        note.className = 'action-rail__entry-disabled-note';
+        entry.append(note);
+      }
+      note.textContent = waitMessage;
+    });
+  }
+
+  resolveActionRailDisabledWaitMessage(context, button) {
+    if (!context?.actorRef) {
+      return 'Waiting on actor for character selection.';
+    }
+    if (context?.runtimeSync?.readOnlyDesynced) {
+      return 'Waiting on server for authoritative state resync.';
+    }
+    if (context?.runtimeSync?.degraded && context?.encounterActive && context?.awaitingHydration) {
+      return 'Waiting on server for encounter hydration sync.';
+    }
+    if (context?.automationState?.active) {
+      return 'Waiting on narrator for automation step completion.';
+    }
+    if (this.isEncounterActionLockedForContext(context)) {
+      return 'Waiting on narrator for previous action resolution.';
+    }
+    const actionType = String(button?.dataset?.actionType || button?.dataset?.actionRailExecute || '').trim();
+    if (actionType && !this.isServerActionAvailable(context, actionType)) {
+      return `Waiting on server for ${actionType.replace(/_/g, ' ')} availability.`;
+    }
+    const targetRequired = button?.dataset?.targetRequired === '1';
+    const hasTarget = Boolean(String(button?.dataset?.targetId || '').trim())
+      || Boolean(String(button?.dataset?.targetEntityId || '').trim())
+      || Boolean(String(button?.dataset?.targetRef || '').trim())
+      || (String(button?.dataset?.targeting || '').trim().toLowerCase() === 'hex'
+        && Number.isFinite(Number(button?.dataset?.targetQ))
+        && Number.isFinite(Number(button?.dataset?.targetR)));
+    if (targetRequired && !hasTarget) {
+      return 'Waiting on actor for map target selection.';
+    }
+    if (context?.encounterActive && context?.hasServerTurn && context?.isActorTurn === false) {
+      return 'Waiting on narrator for your initiative turn.';
+    }
+    const actionCost = getActionRailCost(button?.dataset?.actionCost, 1);
+    const remainingActions = getActionRailRemainingActions(context);
+    if (remainingActions !== null && actionCost > remainingActions) {
+      return `Waiting on actor for ${actionCost} available action${actionCost === 1 ? '' : 's'}.`;
+    }
+    return 'Waiting on server for action availability.';
   }
 
   normalizeActionRailSearchText(value = '') {
@@ -2149,6 +2270,31 @@ export class ActionRailPanel {
     if (!actionType) {
       return;
     }
+    const context = this.getActionRailContext();
+    if (context?.runtimeSync?.readOnlyDesynced) {
+      this.bus.emit('chat:system-message', {
+        text: 'Action blocked: runtime sync is desynced and currently read-only.',
+        speaker: 'System',
+        kind: 'error',
+        view: 'room',
+        channel: 'room',
+        source: 'action-rail-sync-guard',
+        authority: 'authoritative',
+      });
+      return;
+    }
+    if (context?.runtimeSync?.degraded && context?.encounterActive && context?.awaitingHydration) {
+      this.bus.emit('chat:system-message', {
+        text: 'Action temporarily blocked: encounter action hydration is still syncing.',
+        speaker: 'System',
+        kind: 'warning',
+        view: 'room',
+        channel: 'room',
+        source: 'action-rail-sync-guard',
+        authority: 'authoritative',
+      });
+      return;
+    }
 
     this.logActionRailDebug('action-clicked', {
       actionType,
@@ -2170,7 +2316,6 @@ export class ActionRailPanel {
 
     if (isActionRailSelectableAction(actionType)) {
       if (this.isActionRailTargetPickRequired(actionType, button)) {
-        const context = this.getActionRailContext();
         const actorRef = String(
           context?.actionContract?.actor_id
           || context?.phaseSnapshot?.turn?.entity

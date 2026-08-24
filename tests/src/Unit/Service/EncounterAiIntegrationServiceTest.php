@@ -124,9 +124,15 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
       'action_option_families',
       'actions_available_to_me_this_turn',
       'resolved_actor_context',
+      'current_actor_tactical_intent',
+      'resolved_actor_context_contract_version',
+      'resolved_actor_context_contract_hash',
       'disposition_summary',
       'aggression_summary',
       'stance_summary',
+      'process_flow_summary',
+      'combat_entry_summary',
+      'resolved_disposition_by_target',
       'relationship_attitudes',
       'context_built_at',
     ], array_keys($context));
@@ -500,6 +506,57 @@ class EncounterAiIntegrationServiceTest extends UnitTestCase {
     $this->assertSame('stub', $response['provider']);
     $this->assertSame('A measured tactical beat.', $response['narration']['narration']);
     $this->assertSame(1700000000, $response['requested_at']);
+  }
+
+  /**
+   * @covers ::resolveCurrentActorTacticalIntent
+   */
+  public function testResolveCurrentActorTacticalIntentReturnsPassForNonEncounterFlow(): void {
+    $reflection = new \ReflectionMethod(EncounterAiIntegrationService::class, 'resolveCurrentActorTacticalIntent');
+    $reflection->setAccessible(TRUE);
+
+    $result = $reflection->invoke(
+      $this->service,
+      [],
+      [
+        'process_flow' => [
+          'summary' => [
+            'active_flow' => 'room-scene-pass-flow',
+          ],
+        ],
+      ]
+    );
+
+    $this->assertSame('pass', $result['intent']);
+    $this->assertSame(['end_turn'], $result['action_sequence']);
+  }
+
+  /**
+   * @covers ::resolveCurrentActorTacticalIntent
+   */
+  public function testResolveCurrentActorTacticalIntentRespectsSelfPreserveStance(): void {
+    $reflection = new \ReflectionMethod(EncounterAiIntegrationService::class, 'resolveCurrentActorTacticalIntent');
+    $reflection->setAccessible(TRUE);
+
+    $result = $reflection->invoke(
+      $this->service,
+      [],
+      [
+        'process_flow' => [
+          'summary' => [
+            'active_flow' => 'encounter-turn-flow',
+          ],
+        ],
+        'stance' => [
+          'behavioral_stance' => [
+            'stance' => 'self_preserve',
+          ],
+        ],
+      ]
+    );
+
+    $this->assertSame('pass', $result['intent']);
+    $this->assertSame(['end_turn'], $result['action_sequence']);
   }
 
   protected function buildRecommendation(

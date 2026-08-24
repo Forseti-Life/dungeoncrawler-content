@@ -23,6 +23,7 @@ import { PhaseManager } from './PhaseManager.js';
 import { NarrationOverlay } from './NarrationOverlay.js';
 import { ExplorationPhaseHandler } from './phases/ExplorationPhaseHandler.js';
 import { EncounterPhaseHandler } from './phases/EncounterPhaseHandler.js';
+import { RuntimeStateStore } from './RuntimeStateStore.js';
 
 export class GameCoordinator {
   /**
@@ -41,6 +42,8 @@ export class GameCoordinator {
 
     /** @type {PhaseManager} */
     this.phaseManager = new PhaseManager();
+    /** @type {RuntimeStateStore} */
+    this.runtimeStateStore = new RuntimeStateStore();
 
     // Phase handlers (strategy pattern, keyed by active phase name).
     /** @type {Object<string, EncounterPhaseHandler>} */
@@ -60,6 +63,8 @@ export class GameCoordinator {
 
     /** @type {number} */
     this._eventPollMs = 5000;
+    /** @type {number} */
+    this._lastEventPollErrorAt = 0;
 
     /** @type {boolean} */
     this._initialized = false;
@@ -120,6 +125,16 @@ export class GameCoordinator {
       : [];
     const bootstrapActionContract = this.hexmap?.dungeonData?.action_contract || null;
     if (bootstrapState) {
+      this._commitRuntimeState({
+        game_state: bootstrapState,
+        available_actions: bootstrapAvailableActions,
+        action_contract: bootstrapActionContract || null,
+      }, 'bootstrap');
+      this._syncEncounterCacheFromAuthoritativeResult({
+        game_state: bootstrapState,
+        available_actions: bootstrapAvailableActions,
+        action_contract: bootstrapActionContract || null,
+      });
       this.phaseManager.applyServerState(
         bootstrapState,
         bootstrapAvailableActions.length > 0 ? bootstrapAvailableActions : (this.phaseManager.availableActions || []),
@@ -159,6 +174,8 @@ export class GameCoordinator {
               ? Object.entries(state.action_contract.action_option_families).map(([key, family]) => `${key}:${Number(family?.option_count ?? (Array.isArray(family?.options) ? family.options.length : 0))}`)
               : [],
           });
+          this._commitRuntimeState(state, 'initial-state');
+          this._syncEncounterCacheFromAuthoritativeResult(state);
           this.phaseManager.applyServerState(this._buildStatePayloadFromResponse(state), state.available_actions, state.action_contract || null);
           this.eventCursor = state.game_state?.event_log_cursor || 0;
           if (state.events?.length) {
@@ -170,9 +187,17 @@ export class GameCoordinator {
           }
           console.log('[GameCoordinator] Initial state loaded:', this.phaseManager.currentPhase, 'v' + this.phaseManager.stateVersion);
         } else {
+          this.runtimeStateStore.noteSyncFailure({
+            code: 'initial_state_failed',
+            error: state?.error || 'unknown',
+          });
           console.warn('[GameCoordinator] Failed to load initial state:', state?.error);
         }
       } catch (err) {
+        this.runtimeStateStore.noteSyncFailure({
+          code: 'initial_state_fetch_error',
+          error: err?.message || String(err || ''),
+        });
         console.warn('[GameCoordinator] Server state fetch failed, using defaults:', err.message);
       }
     }
@@ -340,6 +365,8 @@ export class GameCoordinator {
     }
 
     const normalizedResult = this._normalizeAuthoritativeResult(result);
+    this._commitRuntimeState(normalizedResult, 'authoritative-update');
+    this._syncEncounterCacheFromAuthoritativeResult(normalizedResult);
 
     if (normalizedResult.game_state) {
       this.phaseManager.applyServerState(
@@ -446,6 +473,105 @@ export class GameCoordinator {
       event_log_cursor: response.event_log_cursor ?? response.game_state.event_log_cursor,
       legal_intents: response.legal_intents ?? response.game_state.legal_intents,
     };
+  }
+
+  _commitRuntimeState(response = {}, source = 'unknown') {
+    try {
+      const { snapshot, integrityIssues } = this.runtimeStateStore.commitFromResponse(response, { source });
+      if (snapshot?.activeRoomId) {
+        this.phaseManager.activeRoomId = snapshot.activeRoomId;
+      }
+      this.hexmap?.stateManager?.set?.('runtimeSnapshotId', snapshot?.snapshotId || null);
+      this.hexmap?.stateManager?.set?.('runtimeSyncHealth', this.runtimeStateStore.getSyncHealth());
+      this.hexmap?.bus?.emit?.('runtime:state-committed', {
+        source,
+        snapshot,
+        integrityIssues,
+        syncHealth: this.runtimeStateStore.getSyncHealth(),
+      });
+    } catch (error) {
+      this.runtimeStateStore.noteSyncFailure({
+        code: 'runtime_snapshot_commit_failed',
+        source,
+        error: error?.message || String(error || ''),
+      });
+      this.hexmap?.stateManager?.set?.('runtimeSyncHealth', this.runtimeStateStore.getSyncHealth());
+      this.hexmap?.bus?.emit?.('runtime:sync-health-changed', {
+        syncHealth: this.runtimeStateStore.getSyncHealth(),
+        source,
+        error: error?.message || String(error || ''),
+      });
+      console.error('[GameCoordinator] runtime snapshot commit failed', { source, error });
+    }
+  }
+
+  _syncEncounterCacheFromAuthoritativeResult(response = {}) {
+    const encounterState = this._extractEncounterStateFromResponse(response);
+    if (!encounterState) {
+      return;
+    }
+    this.hexmap?.cacheEncounterServerState?.(encounterState);
+  }
+
+  _extractEncounterStateFromResponse(response = {}) {
+    if (!response || typeof response !== 'object') {
+      return null;
+    }
+
+    const directEncounterState = response?.encounter_state && typeof response.encounter_state === 'object'
+      ? response.encounter_state
+      : null;
+    if (directEncounterState && Number(directEncounterState?.encounter_id || 0) > 0) {
+      return directEncounterState;
+    }
+
+    const gameState = response?.game_state && typeof response.game_state === 'object'
+      ? response.game_state
+      : null;
+    const presentation = gameState?.encounter_presentation && typeof gameState.encounter_presentation === 'object'
+      ? gameState.encounter_presentation
+      : null;
+    const encounterId = Number(
+      response?.encounter_id
+      ?? gameState?.encounter_id
+      ?? presentation?.encounter_id
+      ?? 0
+    ) || 0;
+    if (encounterId <= 0) {
+      return null;
+    }
+
+    const currentRound = Number(
+      response?.round
+      ?? gameState?.round
+      ?? presentation?.current_round
+      ?? 0
+    ) || null;
+
+    return {
+      encounter_id: encounterId,
+      status: String(presentation?.status || 'active').trim().toLowerCase() || 'active',
+      current_round: currentRound,
+      version: Number(response?.state_version ?? gameState?.state_version ?? 0) || 0,
+      initiative_order: Array.isArray(gameState?.initiative_order)
+        ? gameState.initiative_order
+        : (Array.isArray(presentation?.initiative_order) ? presentation.initiative_order : []),
+      participants: Array.isArray(response?.participants)
+        ? response.participants
+        : (Array.isArray(gameState?.initiative_order)
+          ? gameState.initiative_order
+          : (Array.isArray(presentation?.initiative_order) ? presentation.initiative_order : [])),
+      encounter_presentation: presentation || {
+        encounter_id: encounterId,
+        status: 'active',
+        current_round: currentRound,
+        initiative_order: Array.isArray(gameState?.initiative_order) ? gameState.initiative_order : [],
+      },
+    };
+  }
+
+  getAuthoritativePhaseSnapshot() {
+    return this.runtimeStateStore.getSnapshot() || this.phaseManager.getSnapshot();
   }
 
   /**
@@ -581,12 +707,23 @@ export class GameCoordinator {
     this._eventPollInterval = setInterval(async () => {
       try {
         const result = await this.api.getEventsSince(this.eventCursor);
+        this.runtimeStateStore.noteSyncSuccess({
+          code: 'event_poll_ok',
+        });
         if (result?.events?.length > 0) {
           this._processNewEvents(result.events);
           this.eventCursor = result.latest_cursor || result.cursor || this.eventCursor;
         }
       } catch (err) {
-        // Silently ignore polling errors — server may be temporarily unavailable.
+        this.runtimeStateStore.noteSyncFailure({
+          code: 'event_poll_failed',
+          error: err?.message || String(err || ''),
+        });
+        const now = Date.now();
+        if ((now - this._lastEventPollErrorAt) > 15000) {
+          this._lastEventPollErrorAt = now;
+          console.warn('[GameCoordinator] event poll failed', err);
+        }
       }
     }, this._eventPollMs);
   }
@@ -797,6 +934,16 @@ export class GameCoordinator {
    * @private
    */
   _wirePhaseEvents() {
+    this._unsubscribers.push(
+      this.runtimeStateStore.onSyncHealthChanged(({ syncHealth, reason }) => {
+        this.hexmap?.stateManager?.set?.('runtimeSyncHealth', syncHealth);
+        this.hexmap?.bus?.emit?.('runtime:sync-health-changed', {
+          syncHealth,
+          reason: reason || null,
+        });
+      })
+    );
+
     // Phase change → update UI, toggle combat mode.
     this._unsubscribers.push(
       this.phaseManager.on('phaseChange', (data) => {
@@ -822,26 +969,31 @@ export class GameCoordinator {
           availableActions: Array.isArray(availableActions) ? availableActions : [],
           contractActorId: this.phaseManager.actionContract?.actor_id || null,
         });
+        const authoritativeSnapshot = this.getAuthoritativePhaseSnapshot();
         this.hexmap?.bus?.emit?.('game:state-refreshed', {
           availableActions: Array.isArray(availableActions) ? availableActions : [],
           actionContract: this.phaseManager.actionContract || null,
-          phaseSnapshot: this.phaseManager.getSnapshot(),
+          phaseSnapshot: authoritativeSnapshot,
+          runtimeSyncHealth: this.runtimeStateStore.getSyncHealth(),
         });
       })
     );
 
     this._unsubscribers.push(
       this.phaseManager.on('stateUpdate', (snapshot) => {
+        const authoritativeSnapshot = this.getAuthoritativePhaseSnapshot() || snapshot || null;
         console.info('[GameCoordinator] phaseManager stateUpdate', {
           phase: snapshot?.phase || null,
           actorId: snapshot?.actionContract?.actor_id || snapshot?.turn?.entity || null,
           availableActionCount: Array.isArray(snapshot?.availableActions) ? snapshot.availableActions.length : 0,
           contractActionCount: Array.isArray(snapshot?.actionContract?.actions) ? snapshot.actionContract.actions.length : 0,
+          runtimeSyncHealth: this.runtimeStateStore.getSyncHealth(),
         });
         this.hexmap?.bus?.emit?.('game:state-refreshed', {
-          availableActions: Array.isArray(snapshot?.availableActions) ? snapshot.availableActions : [],
-          actionContract: snapshot?.actionContract || null,
-          phaseSnapshot: snapshot || null,
+          availableActions: Array.isArray(authoritativeSnapshot?.availableActions) ? authoritativeSnapshot.availableActions : [],
+          actionContract: authoritativeSnapshot?.actionContract || null,
+          phaseSnapshot: authoritativeSnapshot,
+          runtimeSyncHealth: this.runtimeStateStore.getSyncHealth(),
         });
       })
     );

@@ -17,8 +17,9 @@ class InstitutionDispositionMatrixService {
   protected const DEFAULT_SEED_SOURCE = 'institution_matrix_default';
   protected const DEFAULT_SEED_PROFILE_KEY = 'known-neutral-default';
   protected const DEFAULT_SCORE = 0;
-  protected const UNIVERSAL_UNDEAD_BIAS_SCORE = -200;
+  protected const DEFAULT_UNDEAD_TARGET_BIAS_SCORE = -1000;
   protected const UNIVERSAL_UNDEAD_TARGET_LABEL = 'undead';
+  protected const DEFAULT_UNDEAD_SOURCE_OTHER_ANCESTRY_BIAS_SCORE = -1000;
 
   /**
    * Default profession-target sentiment priors keyed by normalized target label.
@@ -286,7 +287,7 @@ class InstitutionDispositionMatrixService {
           (string) $target_ancestry['normalized_label']
         );
         $seed_profile_key = self::DEFAULT_SEED_PROFILE_KEY;
-        if ($score === self::UNIVERSAL_UNDEAD_BIAS_SCORE) {
+        if ($this->isUndeadDirectedPair((string) $source_ancestry['normalized_label'], (string) $target_ancestry['normalized_label'])) {
           $seed_profile_key = 'ancestry-undead-bias-default';
         }
         elseif ($score !== 0) {
@@ -422,10 +423,50 @@ class InstitutionDispositionMatrixService {
    * Resolve directed ancestry bias score from normalized source/target labels.
    */
   protected function resolveAncestryDirectedBias(string $source_ancestry_label, string $target_ancestry_label): int {
+    [$undead_target_bias_score, $undead_source_other_bias_score] = $this->resolveUndeadBiasScores();
+    if ($source_ancestry_label === self::UNIVERSAL_UNDEAD_TARGET_LABEL) {
+      return $target_ancestry_label === self::UNIVERSAL_UNDEAD_TARGET_LABEL
+        ? 0
+        : $undead_source_other_bias_score;
+    }
     if ($target_ancestry_label === self::UNIVERSAL_UNDEAD_TARGET_LABEL) {
-      return self::UNIVERSAL_UNDEAD_BIAS_SCORE;
+      return $undead_target_bias_score;
     }
     return (int) (self::ANCESTRY_DIRECTED_BIAS[$source_ancestry_label][$target_ancestry_label] ?? 0);
+  }
+
+  /**
+   * Determine whether one source->target pair crosses undead directed bias lane.
+   */
+  protected function isUndeadDirectedPair(string $source_ancestry_label, string $target_ancestry_label): bool {
+    $source_is_undead = $source_ancestry_label === self::UNIVERSAL_UNDEAD_TARGET_LABEL;
+    $target_is_undead = $target_ancestry_label === self::UNIVERSAL_UNDEAD_TARGET_LABEL;
+    return ($source_is_undead && !$target_is_undead) || (!$source_is_undead && $target_is_undead);
+  }
+
+  /**
+   * Resolve undead bias scores from runtime config with sane defaults.
+   *
+   * @return array{0:int,1:int}
+   *   [target_is_undead_bias, source_is_undead_other_target_bias]
+   */
+  protected function resolveUndeadBiasScores(): array {
+    $target_is_undead_bias = self::DEFAULT_UNDEAD_TARGET_BIAS_SCORE;
+    $source_is_undead_other_target_bias = self::DEFAULT_UNDEAD_SOURCE_OTHER_ANCESTRY_BIAS_SCORE;
+    if (\Drupal::hasService('config.factory')) {
+      $config = \Drupal::config('dungeoncrawler_content.settings');
+      if ($config) {
+        $configured_target_bias = $config->get('institution_disposition.undead_target_bias_score');
+        $configured_source_bias = $config->get('institution_disposition.undead_source_other_ancestry_bias_score');
+        if (is_numeric($configured_target_bias)) {
+          $target_is_undead_bias = DispositionAuthorityContract::clampScore((int) round((float) $configured_target_bias));
+        }
+        if (is_numeric($configured_source_bias)) {
+          $source_is_undead_other_target_bias = DispositionAuthorityContract::clampScore((int) round((float) $configured_source_bias));
+        }
+      }
+    }
+    return [$target_is_undead_bias, $source_is_undead_other_target_bias];
   }
 
   /**

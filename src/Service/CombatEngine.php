@@ -460,6 +460,9 @@ class CombatEngine {
     ]);
 
     $encounter = $this->store->loadEncounter((int) $encounter_id);
+    if (is_array($encounter)) {
+      $this->reconcileInstitutionHostilityPersistence($encounter);
+    }
     $summary = [
       'encounter_id' => $encounter_id,
       'outcome' => $outcome,
@@ -470,6 +473,102 @@ class CombatEngine {
 
     // TODO: Compute XP awards based on defeated enemies (PF2e encounter XP tables) and attach to summary.
     return $summary;
+  }
+
+  /**
+   * Remove institutional damage-hostility memory when no witnesses survived.
+   *
+   * Survivor gate policy:
+   * - keep institutional hostility memory only when at least one member of the
+   *   witness institution survived the encounter.
+   * - otherwise delete the encounter-scoped damage-triggered hostility edges.
+   */
+  protected function reconcileInstitutionHostilityPersistence(array $encounter): void {
+    $campaign_id = isset($encounter['campaign_id']) && is_numeric($encounter['campaign_id']) ? (int) $encounter['campaign_id'] : 0;
+    $encounter_id = isset($encounter['id']) && is_numeric($encounter['id']) ? (int) $encounter['id'] : 0;
+    if ($campaign_id <= 0 || $encounter_id <= 0) {
+      return;
+    }
+
+    $alive_participant_refs = [];
+    $participants = is_array($encounter['participants'] ?? NULL) ? $encounter['participants'] : [];
+    foreach ($participants as $participant) {
+      if (!is_array($participant) || !empty($participant['is_defeated'])) {
+        continue;
+      }
+      $participant_ref = trim((string) ($participant['entity_id'] ?? ''));
+      if ($participant_ref !== '') {
+        $alive_participant_refs[$participant_ref] = TRUE;
+      }
+    }
+
+    $rows = $this->database->select('dc_campaign_relationships', 'r')
+      ->fields('r', ['relationship_id', 'relationship_state'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('relationship_type', 'combat')
+      ->execute()
+      ->fetchAllAssoc('relationship_id');
+    if (!is_array($rows) || $rows === []) {
+      return;
+    }
+
+    $survivor_gate_cache = [];
+    foreach ($rows as $relationship_id => $row) {
+      if (is_object($row)) {
+        $row = (array) $row;
+      }
+      if (!is_array($row)) {
+        continue;
+      }
+      $state = json_decode((string) ($row['relationship_state'] ?? '{}'), TRUE);
+      if (!is_array($state)) {
+        continue;
+      }
+      if (($state['trigger'] ?? '') !== 'damage_application') {
+        continue;
+      }
+      if ((int) ($state['encounter_id'] ?? 0) !== $encounter_id) {
+        continue;
+      }
+      $witness_institution = trim((string) ($state['witness_institution_subject_id'] ?? ''));
+      if ($witness_institution === '') {
+        continue;
+      }
+      if (!array_key_exists($witness_institution, $survivor_gate_cache)) {
+        $survivor_gate_cache[$witness_institution] = $this->hasLivingInstitutionWitness(
+          $campaign_id,
+          $witness_institution,
+          array_keys($alive_participant_refs)
+        );
+      }
+      if (!empty($survivor_gate_cache[$witness_institution])) {
+        continue;
+      }
+
+      $this->database->delete('dc_campaign_relationships')
+        ->condition('campaign_id', $campaign_id)
+        ->condition('relationship_id', (string) $relationship_id)
+        ->execute();
+    }
+  }
+
+  /**
+   * Returns TRUE when an active living participant is in the witness institution.
+   */
+  protected function hasLivingInstitutionWitness(int $campaign_id, string $institution_subject_id, array $alive_participant_refs): bool {
+    if ($campaign_id <= 0 || trim($institution_subject_id) === '' || $alive_participant_refs === []) {
+      return FALSE;
+    }
+    $count = $this->database->select('dc_campaign_relationships', 'r')
+      ->condition('campaign_id', $campaign_id)
+      ->condition('relationship_type', 'institution_member')
+      ->condition('target_id', trim($institution_subject_id))
+      ->condition('source_id', $alive_participant_refs, 'IN')
+      ->condition('status', 'active')
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    return (int) $count > 0;
   }
 
   /**
@@ -847,18 +946,16 @@ class CombatEngine {
         $damage_dealt = max(0, $damage_dealt - 5);
       }
 
-      $damage_result = $this->hpManager->applyDamage($target_id, $damage_dealt, $damage_type, ['attacker' => $participant_id], $encounter_id);
-
-      // REQ 2154: Crit hit applies dying 2 when target is defeated (not dead from massive damage).
-      // HPManager.applyDamage now applies dying internally, but crit needs dying 2.
-      if (($damage_result['new_status'] ?? '') === 'defeated' && $degree === 'critical_success') {
-        $this->hpManager->applyDyingCondition($target_id, 2, $encounter_id, TRUE);
-      }
-
-      // REQ 2153: Target dropped to 0 HP — shift initiative to just after attacker.
-      if (($damage_result['new_status'] ?? '') === 'defeated') {
-        $this->shiftInitiativeAfterAttacker($encounter_id, $target_id, $participant_id);
-      }
+      $is_nonlethal = !empty($weapon['is_nonlethal']) || !empty($weapon['nonlethal']) || !empty($weapon['traits']['nonlethal']);
+      $damage_result = $this->hpManager->applyDamage(
+        $target_id,
+        $damage_dealt,
+        $damage_type,
+        ['attacker' => $participant_id],
+        $encounter_id,
+        $is_nonlethal,
+        $degree === 'critical_success'
+      );
     }
     else {
       // Misses and other non-damaging outcomes still consume the declared attack.
@@ -1126,32 +1223,6 @@ class CombatEngine {
     }
     $roll = $this->numberGeneration->rollPathfinderDie(20);
     return ['auto' => FALSE, 'success' => $roll >= $dc, 'roll' => $roll, 'dc' => $dc];
-  }
-
-  /**
-   * REQ 2153/2288: Shift target's initiative to just after the attacker's initiative.
-   *
-   * When a character drops to 0 HP mid-combat, they move in the initiative order
-   * to just after the creature that reduced them to 0.
-   */
-  protected function shiftInitiativeAfterAttacker(int $encounter_id, int $target_id, int $attacker_id): void {
-    $attacker = $this->database->select('combat_participants', 'p')
-      ->fields('p', ['initiative'])
-      ->condition('id', $attacker_id)
-      ->execute()
-      ->fetchAssoc();
-
-    if (!$attacker) {
-      return;
-    }
-
-    // Place target at attacker_initiative − 0.5 (stored as integer: attacker_initiative − 1 with tie-break).
-    $new_initiative = max(0, (int) ($attacker['initiative'] ?? 0) - 1);
-
-    $this->database->update('combat_participants')
-      ->fields(['initiative' => $new_initiative])
-      ->condition('id', $target_id)
-      ->execute();
   }
 
 }

@@ -22,6 +22,7 @@ trait RoomChatServiceNpcDialogueAndQuestLeadTrait {
       'canonical_actions',
       'aggression_summary',
       'combat_entry_summary',
+      'process_flow_summary',
       'navigation',
       'turn_harness',
       'timing',

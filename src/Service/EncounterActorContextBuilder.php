@@ -117,6 +117,7 @@ class EncounterActorContextBuilder {
       'disposition_summary' => is_array($resolved_actor_context['disposition'] ?? NULL) ? $resolved_actor_context['disposition'] : NULL,
       'aggression_summary' => is_array($resolved_actor_context['aggression'] ?? NULL) ? $resolved_actor_context['aggression'] : NULL,
       'stance_summary' => is_array($resolved_actor_context['stance'] ?? NULL) ? $resolved_actor_context['stance'] : NULL,
+      'process_flow_summary' => is_array($resolved_actor_context['process_flow'] ?? NULL) ? $resolved_actor_context['process_flow'] : NULL,
       'resolved_disposition_by_target' => is_array($resolved_actor_context['resolved_disposition_by_target'] ?? NULL)
         ? $resolved_actor_context['resolved_disposition_by_target']
         : [],

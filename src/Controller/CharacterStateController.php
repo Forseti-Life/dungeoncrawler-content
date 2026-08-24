@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
+use Drupal\dungeoncrawler_content\Service\ActorStateService;
 use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -20,6 +21,7 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class CharacterStateController extends ControllerBase {
 
+  protected ActorStateService $actorStateService;
   protected CharacterStateService $characterStateService;
   protected Connection $database;
   protected CampaignCharacterRuntimeResolverService $runtimeResolver;
@@ -27,7 +29,13 @@ class CharacterStateController extends ControllerBase {
   /**
    * Constructor.
    */
-  public function __construct(CharacterStateService $character_state_service, Connection $database, CampaignCharacterRuntimeResolverService $runtime_resolver) {
+  public function __construct(
+    ActorStateService $actor_state_service,
+    CharacterStateService $character_state_service,
+    Connection $database,
+    CampaignCharacterRuntimeResolverService $runtime_resolver
+  ) {
+    $this->actorStateService = $actor_state_service;
     $this->characterStateService = $character_state_service;
     $this->database = $database;
     $this->runtimeResolver = $runtime_resolver;
@@ -38,6 +46,7 @@ class CharacterStateController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
+      $container->get('dungeoncrawler_content.actor_state_service'),
       $container->get('dungeoncrawler_content.character_state_service'),
       $container->get('database'),
       $container->get('dungeoncrawler_content.campaign_character_runtime_resolver'),
@@ -69,7 +78,7 @@ class CharacterStateController extends ControllerBase {
       $campaign_id = $request->query->getInt('campaignId') ?: NULL;
       $instance_id = $request->query->get('instanceId') ?: NULL;
       
-      $state = $this->characterStateService->getState($character_id, $campaign_id, $instance_id);
+      $state = $this->actorStateService->getState($character_id, $campaign_id, $instance_id);
       
       return new JsonResponse([
         'success' => TRUE,

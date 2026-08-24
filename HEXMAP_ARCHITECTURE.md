@@ -37,6 +37,18 @@ A procedurally-generated, AI-driven hex dungeon crawl system built on PF2e open 
 4. **AI-Driven NPCs** — Creatures aren't just stat blocks. They have personalities, goals, fears, memories, and social options.
 5. **Fog of War** — Players only see hexes they've explored. The map reveals as they move.
 
+## UI/API Ownership Rule
+
+Hexmap V2 UI elements are projections of authoritative runtime APIs.
+
+- **Bootstrap world state:** `GET /api/map/visual-state`
+- **Gameplay legality / turn authority:** `GET /api/game/{campaign_id}/state`
+- **Incremental encounter/system log:** `GET /api/game/{campaign_id}/events`
+- **Character sheet state:** `GET /api/character/{character_id}/state`
+- **Inventory state:** `GET /api/inventory/{owner_type}/{owner_id}`
+
+Panels may keep local UI state such as expanded sections, filters, and selected tabs. They may not use local shell state as a replacement for canonical actor identity, turn authority, or action legality when those already belong to runtime APIs.
+
 ## Coordinate System
 
 ```

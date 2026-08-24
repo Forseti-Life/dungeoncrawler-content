@@ -548,7 +548,7 @@ class GameCoordinatorService {
    */
   public function getFullState(int $campaign_id): array {
     $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
-    $context = $this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);
+    $context = $this->resolveCoordinatorFullStateContext($campaign_id, NULL);
     if ($context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
@@ -561,8 +561,9 @@ class GameCoordinatorService {
   /**
    * Get a materialized full game state for runtime bootstrap-compatible callers.
    *
-   * This path preserves legacy behavior by allowing initial room-entry
-   * bootstrap and cursor/materialization persistence during the read request.
+   * This path keeps bootstrap-compatible request semantics (actor/character
+   * scoped state read) but must remain read-only. Runtime bootstrap and
+   * mutation work are handled by explicit write/intention lanes, not GET state.
    */
   public function getMaterializedFullState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array {
     $actor_id = trim((string) $actor_id);
@@ -590,7 +591,7 @@ class GameCoordinatorService {
       }
     }
 
-    $context = $this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);
+    $context = $this->resolveCoordinatorFullStateContext($campaign_id, $actor_id !== '' ? $actor_id : NULL);
     if ($context === NULL) {
       return $this->errorResponse('Campaign dungeon data not found.');
     }
@@ -603,7 +604,7 @@ class GameCoordinatorService {
         $actor_id = $turn_actor_id;
       }
     }
-    return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, TRUE, $actor_id !== '' ? $actor_id : NULL);
+    return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, FALSE, $actor_id !== '' ? $actor_id : NULL);
   }
 
   /**
@@ -2850,6 +2851,56 @@ class GameCoordinatorService {
       ]
     );
     return TRUE;
+  }
+
+  /**
+   * Resolve full-state read context with actor-aware fallbacks.
+   *
+   * Primary path is the canonical side-effect-free full-state read context.
+   * When runtime payload hydration is still converging, fall back to
+   * actor-scoped/action-availability context and then mutation-read context so
+   * GET-state callers do not surface transient "dungeon data not found" errors.
+   *
+   * @return array{dungeon_data: array<string,mixed>, game_state: array<string,mixed>}|null
+   *   Runtime read context, or NULL when no authoritative payload is available.
+   */
+  protected function resolveCoordinatorFullStateContext(int $campaign_id, ?string $actor_id = NULL): ?array {
+    $actor_id = trim((string) ($actor_id ?? ''));
+    $context = $this->coordinatorRuntimeReadService->resolveFullStateReadContext($campaign_id);
+    if (is_array($context)) {
+      return $context;
+    }
+
+    if ($actor_id !== '') {
+      $fallback = $this->coordinatorRuntimeReadService->resolveActionAvailabilityContext(
+        $campaign_id,
+        $actor_id,
+        ['trace_id' => 'full_state_fallback', 'source' => 'full_state'],
+        TRUE
+      );
+      if (is_array($fallback)) {
+        $this->logger->warning('Full-state read fallback activated via action-availability context: campaign=@campaign actor=@actor', [
+          '@campaign' => $campaign_id,
+          '@actor' => $actor_id,
+        ]);
+        return $fallback;
+      }
+    }
+
+    $mutation_fallback = $this->coordinatorRuntimeReadService->resolveMutationExecutionContext(
+      $campaign_id,
+      $actor_id !== '' ? $actor_id : NULL,
+      NULL
+    );
+    if (is_array($mutation_fallback)) {
+      $this->logger->warning('Full-state read fallback activated via mutation-read context: campaign=@campaign actor=@actor', [
+        '@campaign' => $campaign_id,
+        '@actor' => $actor_id,
+      ]);
+      return $mutation_fallback;
+    }
+
+    return NULL;
   }
 
   /**

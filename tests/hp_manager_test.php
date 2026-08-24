@@ -259,8 +259,8 @@ echo "\n--- Test 12: Defeat below zero (negative HP) ---\n";
 $pid7 = create_participant($db, $test_encounter_id, 'Alchemist', 3, 20);
 $result = $hpManager->applyDamage($pid7, 10, 'fire', 'alchemist_fire', $test_encounter_id);
 
-assert_equals(-7, $result['new_hp'], 'Below zero: new HP = -7');
-assert_equals('defeated', $result['new_status'], 'Below zero: defeated (not dead, -7 > -20)');
+assert_equals(0, $result['new_hp'], 'Below zero: new HP clamped to 0');
+assert_equals('defeated', $result['new_status'], 'Below zero: defeated (not dead)');
 
 // ============================================================================
 echo "\n--- Test 13: Massive damage (instant death) ---\n";
@@ -268,20 +268,20 @@ echo "\n--- Test 13: Massive damage (instant death) ---\n";
 $pid8 = create_participant($db, $test_encounter_id, 'Commoner', 5, 20);
 $result = $hpManager->applyDamage($pid8, 30, 'force', 'disintegrate', $test_encounter_id);
 
-assert_equals(-25, $result['new_hp'], 'Massive damage: new HP = -25');
-assert_equals('dead', $result['new_status'], 'Massive damage: instant death (HP <= -max_hp)');
-assert_equals('hp_threshold', $result['death_reason'], 'Massive damage: reason = hp_threshold');
+assert_equals(0, $result['new_hp'], 'Massive damage: new HP clamped to 0');
+assert_equals('dead', $result['new_status'], 'Massive damage: instant death');
+assert_equals('massive_damage', $result['death_reason'], 'Massive damage: reason = massive_damage');
 
 // ============================================================================
 echo "\n--- Test 14: Defeat + temp HP (temp absorbs first, then HP drops to 0) ---\n";
 // ============================================================================
 $pid9 = create_participant($db, $test_encounter_id, 'Monk', 3, 20, 5);
-// 10 damage: 5 absorbed by temp → 5 to real HP → new HP = 3 - 5 = -2.
+// 10 damage: 5 absorbed by temp → 5 to real HP → new HP clamped to 0.
 $result = $hpManager->applyDamage($pid9, 10, 'bludgeoning', 'fist', $test_encounter_id);
 
 assert_equals(5, $result['temp_hp_used'], 'Temp+defeat: 5 temp absorbed');
 assert_equals(5, $result['hp_damage'], 'Temp+defeat: 5 to real HP');
-assert_equals(-2, $result['new_hp'], 'Temp+defeat: new HP = -2');
+assert_equals(0, $result['new_hp'], 'Temp+defeat: new HP clamped to 0');
 assert_equals('defeated', $result['new_status'], 'Temp+defeat: defeated');
 
 // ============================================================================
@@ -356,13 +356,14 @@ $result = $hpManager->stabilizeCharacter($pid12, $test_encounter_id);
 assert_equals(TRUE, $result, 'Stabilize: returns TRUE');
 
 $row = load_participant($db, $pid12);
-assert_equals('1', $row['hp'], 'Stabilize: HP set to 1');
-assert_equals('0', $row['is_defeated'], 'Stabilize: is_defeated cleared');
+assert_equals('0', $row['hp'], 'Stabilize: HP stays at 0');
+assert_equals('1', $row['is_defeated'], 'Stabilize: remains defeated at 0 HP');
 
 // Check wounded condition was applied (dying 2 → wounded 1).
 $active = $conditionManager->getActiveConditions($pid12, $test_encounter_id);
 $has_wounded = FALSE;
 $has_dying = FALSE;
+$has_unconscious = FALSE;
 foreach ($active as $cond) {
   if ($cond['condition_type'] === 'wounded') {
     $has_wounded = TRUE;
@@ -370,9 +371,13 @@ foreach ($active as $cond) {
   if ($cond['condition_type'] === 'dying') {
     $has_dying = TRUE;
   }
+  if ($cond['condition_type'] === 'unconscious') {
+    $has_unconscious = TRUE;
+  }
 }
 assert_equals(TRUE, $has_wounded, 'Stabilize: wounded condition applied');
 assert_equals(FALSE, $has_dying, 'Stabilize: dying condition removed');
+assert_equals(TRUE, $has_unconscious, 'Stabilize: unconscious condition remains at 0 HP');
 
 // ============================================================================
 echo "\n--- Test 23: checkDeathCondition (alive) ---\n";
@@ -384,10 +389,10 @@ assert_equals('', $death_check['death_reason'], 'Death check alive: no death_rea
 // ============================================================================
 echo "\n--- Test 24: checkDeathCondition (massive damage) ---\n";
 // ============================================================================
-// pid8 was at -25 HP (max 20), so -25 <= -20 → dead.
+// pid8 is marked dead from massive damage path.
 $death_check = $hpManager->checkDeathCondition($pid8, $test_encounter_id);
 assert_equals(TRUE, $death_check['is_dead'], 'Death check massive: is_dead = TRUE');
-assert_equals('hp_threshold', $death_check['death_reason'], 'Death check massive: hp_threshold');
+assert_equals('status_dead', $death_check['death_reason'], 'Death check massive: status_dead');
 
 // ============================================================================
 echo "\n--- Test 25: Full scenario — temp HP absorb + partial defeat ---\n";
@@ -416,7 +421,7 @@ $result = $hpManager->applyDamage($pid13, 12, 'acid', 'acid_splash', $test_encou
 
 assert_equals(5, $result['temp_hp_used'], 'Scenario2: 5 temp absorbed');
 assert_equals(7, $result['hp_damage'], 'Scenario2: 7 to real HP');
-assert_equals(-3, $result['new_hp'], 'Scenario2: new HP = -3');
+assert_equals(0, $result['new_hp'], 'Scenario2: new HP clamped to 0');
 assert_equals('defeated', $result['new_status'], 'Scenario2: defeated');
 
 // ============================================================================

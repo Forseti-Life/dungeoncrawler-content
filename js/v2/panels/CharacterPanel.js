@@ -9,6 +9,7 @@ import { collectCharacterSkillEntries, normalizeInventoryState } from '../utils/
 import { normalizeSpellcastingData, collectSpellRankGroups, normalizeDisplayedSpellSlots, formatSpellRankLabel } from '../utils/spell-utils.js';
 import { escapeQuestHtml } from '../utils/quest-utils.js';
 import { escapeTooltipAttr, flattenTooltipBuckets, formatTooltipActionCost, slugifyTooltipKey, tooltipSourceMatches, uniqueTooltipStrings } from '../utils/dom-utils.js';
+import { normalizeAuthoritativeStateActorRef, shouldRequestAuthoritativeStateForActorRef as shouldRequestAuthoritativeStateForActorRefShared } from '../utils/authoritative-state-utils.js';
 
 export class CharacterPanel {
   constructor(container, bus) {
@@ -296,6 +297,24 @@ export class CharacterPanel {
         if (tab.dataset.sidebarTab === 'quests') {
           this.bus.emit('quest:refresh-requested', this.buildQuestRefreshContext('character-sidebar-tab'));
         }
+        this.bus.emit('character:runtime-state-refresh-requested', {
+          reason: `character-sidebar-tab:${String(tab.dataset.sidebarTab || '').trim().toLowerCase() || 'unknown'}`,
+          context: {
+            ...(this.currentCharacterContext || {}),
+            characterId: Number(
+              this.currentCharacterContext?.runtimeCharacterId
+              || this.currentCharacterContext?.sheetCharacterId
+              || this.currentCharacterInventoryContext?.characterId
+              || 0
+            ) || null,
+            campaignId: Number(
+              this.currentCharacterContext?.campaignId
+              || this.currentCharacterInventoryContext?.campaignId
+              || this.stateManager?.hexmap?.resolveCampaignId?.()
+              || 0
+            ) || null,
+          },
+        });
         console.log('[CharacterPanel] sidebar tab clicked', { target: targetId, panelVisible: !!document.getElementById(targetId) && !document.getElementById(targetId).classList.contains('dc-is-hidden') });
       };
       tab.addEventListener('click', handler);
@@ -320,6 +339,24 @@ export class CharacterPanel {
           return;
         }
         this.focusActorFromSelector(partyActorSelect.value, { activateCharacterTab: false });
+        this.bus.emit('character:runtime-state-refresh-requested', {
+          reason: 'party-actor-selector-change',
+          context: {
+            ...(this.currentCharacterContext || {}),
+            characterId: Number(
+              this.currentCharacterContext?.runtimeCharacterId
+              || this.currentCharacterContext?.sheetCharacterId
+              || this.currentCharacterInventoryContext?.characterId
+              || 0
+            ) || null,
+            campaignId: Number(
+              this.currentCharacterContext?.campaignId
+              || this.currentCharacterInventoryContext?.campaignId
+              || this.stateManager?.hexmap?.resolveCampaignId?.()
+              || 0
+            ) || null,
+          },
+        });
         this.bus.emit('quest:refresh-requested', this.buildQuestRefreshContext('party-actor-selector-change'));
       };
       partyActorSelect.addEventListener('change', partyActorSelectHandler);
@@ -405,8 +442,30 @@ export class CharacterPanel {
       this.bus.on('room:changed', (payload) => this.handleRoomContextChanged(payload)),
       this.bus.on('room:actor-roster-changed', (payload) => this.handleRoomContextChanged(payload)),
       this.bus.on('room:occupants-membership-changed', (payload) => this.handleRoomContextChanged(payload)),
+      this.bus.on('game:state-refreshed', () => this.rehydrateSelectedEntityFromEncounterCache()),
       // Legacy compatibility event during bus migration.
       this.bus.on('room:occupants-changed', (payload) => this.handleRoomContextChanged(payload)),
+    );
+  }
+
+  rehydrateSelectedEntityFromEncounterCache() {
+    const selectedRef = String(this._el.partyActorSelect?.value || '').trim();
+    const selectedOption = this._el.partyActorSelect?.selectedOptions?.[0] || null;
+    const selectedActorKind = String(selectedOption?.dataset?.actorKind || '').trim().toLowerCase();
+    if (!selectedRef || selectedRef === '__primary__' || selectedActorKind === 'primary') {
+      return;
+    }
+
+    const selectedEntity = this.stateManager?.hexmap?._getStateValue?.('selectedEntity')
+      || this.resolveEntityByRef(selectedRef)
+      || null;
+    if (!selectedEntity) {
+      return;
+    }
+    this.refreshEncounterStateAndRerenderEntity(
+      selectedEntity,
+      selectedActorKind === 'actor' ? 'actor' : 'follower',
+      { preferredActorRef: selectedRef }
     );
   }
 
@@ -959,7 +1018,7 @@ export class CharacterPanel {
     }
     const metadata = this.resolveEntityMetadata(entity);
     const explicitKind = String(metadata?.follower_kind || metadata?.bond_contract?.follower_kind || '').trim().toLowerCase();
-    if (explicitKind) {
+    if (['familiar', 'companion', 'follower'].includes(explicitKind)) {
       return explicitKind;
     }
     const roleKind = String(
@@ -984,7 +1043,7 @@ export class CharacterPanel {
     if (roleKind.includes('follower')) {
       return 'follower';
     }
-    return roleKind;
+    return '';
   }
 
   resolveEntityOwnerCharacterId(entity = null) {
@@ -1644,6 +1703,19 @@ export class CharacterPanel {
       helpful: `${badgeBaseStyle}background:rgba(16,185,129,0.28);border-color:rgba(16,185,129,0.7);`,
       unknown: `${badgeBaseStyle}background:rgba(71,85,105,0.2);border-color:rgba(148,163,184,0.45);`,
     };
+    const stanceStyleByValue = {
+      aggressive_engage: `${badgeBaseStyle}background:rgba(239,68,68,0.24);border-color:rgba(239,68,68,0.6);`,
+      finish_weakest: `${badgeBaseStyle}background:rgba(239,68,68,0.32);border-color:rgba(239,68,68,0.72);`,
+      threaten: `${badgeBaseStyle}background:rgba(245,158,11,0.24);border-color:rgba(245,158,11,0.62);`,
+      warn: `${badgeBaseStyle}background:rgba(250,204,21,0.2);border-color:rgba(250,204,21,0.6);`,
+      engage_dialogue: `${badgeBaseStyle}background:rgba(16,185,129,0.24);border-color:rgba(16,185,129,0.62);`,
+      deescalate: `${badgeBaseStyle}background:rgba(34,197,94,0.2);border-color:rgba(34,197,94,0.6);`,
+      observe: `${badgeBaseStyle}background:rgba(148,163,184,0.2);border-color:rgba(148,163,184,0.6);`,
+      self_preserve: `${badgeBaseStyle}background:rgba(59,130,246,0.2);border-color:rgba(96,165,250,0.62);`,
+      flee: `${badgeBaseStyle}background:rgba(79,70,229,0.24);border-color:rgba(129,140,248,0.62);`,
+      pass: `${badgeBaseStyle}background:rgba(100,116,139,0.2);border-color:rgba(148,163,184,0.5);`,
+      unknown: `${badgeBaseStyle}background:rgba(71,85,105,0.2);border-color:rgba(148,163,184,0.45);`,
+    };
     const selectedSource = this.resolveSelectedRelationshipSourceRef(actors, selectedSourceRef);
     const selectedSourceActor = actors.find((actor) => actor.actorRef === selectedSource) || null;
     const selectedSourceLabel = String(selectedSourceActor?.displayName || selectedSource || '').trim() || 'Selected actor';
@@ -1674,6 +1746,25 @@ export class CharacterPanel {
         const finalScore = Number.isFinite(Number(calculation?.final_score))
           ? Number(calculation.final_score)
           : this.resolveAttitudeScore(finalAttitude);
+        const stance = this.normalizeStanceValue(String(calculation?.stance || this.deriveFallbackStanceFromDisposition(finalScore, finalAttitude)));
+        const stanceLabel = this.formatRelationshipAttitudeLabel(stance);
+        const stanceConfidence = Number.isFinite(Number(calculation?.stance_confidence))
+          ? Number(calculation.stance_confidence)
+          : 0;
+        const stanceMode = String(calculation?.stance_mode || 'combat_entry').trim() || 'combat_entry';
+        const stanceReason = String(calculation?.stance_reason || '').trim()
+          || (stance === 'threaten'
+            ? 'Hostile disposition signal exists against target.'
+            : 'No hostile trigger crossed for this target.');
+        const stanceFormula = String(calculation?.stance_formula || '').trim()
+          || `stance = if hostile_signal(${finalScore}) then threaten else observe`;
+        const stanceTargetRef = String(calculation?.stance_target_actor_ref || targetRef).trim() || targetRef;
+        const stancePolicyFlags = (calculation?.stance_policy_flags && typeof calculation.stance_policy_flags === 'object')
+          ? calculation.stance_policy_flags
+          : {};
+        const stancePolicyLine = Object.keys(stancePolicyFlags).length > 0
+          ? Object.entries(stancePolicyFlags).map(([key, value]) => `${key}=${value ? 'yes' : 'no'}`).join(', ')
+          : 'policy_flags unavailable';
         const institutionScore = Number.isFinite(Number(calculation?.institution_score))
           ? Number(calculation.institution_score)
           : 0;
@@ -1683,40 +1774,298 @@ export class CharacterPanel {
         const weights = (calculation?.weights && typeof calculation.weights === 'object')
           ? calculation.weights
           : {};
-        const wDefault = Number.isFinite(Number(weights?.default)) ? Number(weights.default) : 0;
-        const wEdge = Number.isFinite(Number(weights?.edge)) ? Number(weights.edge) : 0;
+        const wDefault = Number.isFinite(Number(weights?.default))
+          ? Number(weights.default)
+          : (Number.isFinite(Number(weights?.baseline)) ? Number(weights.baseline) : 0);
+        const wEdge = Number.isFinite(Number(weights?.edge))
+          ? Number(weights.edge)
+          : (Number.isFinite(Number(weights?.relationship)) ? Number(weights.relationship) : 0);
         const wInstitution = Number.isFinite(Number(weights?.institution)) ? Number(weights.institution) : 0;
-        const institutionBreakdown = Array.isArray(calculation?.institution_breakdown)
+        const institutionBreakdownRaw = (calculation?.institution_breakdown && typeof calculation.institution_breakdown === 'object')
           ? calculation.institution_breakdown
+          : null;
+        const actorSentimentBreakdown = Array.isArray(institutionBreakdownRaw?.actor_sentiment)
+          ? institutionBreakdownRaw.actor_sentiment
           : [];
+        const institutionMatrixBreakdown = Array.isArray(institutionBreakdownRaw?.institution_matrix)
+          ? institutionBreakdownRaw.institution_matrix
+          : [];
+        const legacyBreakdown = Array.isArray(institutionBreakdownRaw)
+          ? institutionBreakdownRaw
+          : [];
+        const institutionBreakdown = legacyBreakdown.length > 0
+          ? legacyBreakdown
+          : [...actorSentimentBreakdown, ...institutionMatrixBreakdown];
+        const hasInstitutionMembershipData = actorSentimentBreakdown.length > 0 || institutionMatrixBreakdown.length > 0;
+        const institutionSummaryLine = hasInstitutionMembershipData
+          ? `institution memberships: sentiment=${actorSentimentBreakdown.length}, matrix_edges=${institutionMatrixBreakdown.length}, net=${institutionScore}`
+          : '';
         const institutionBreakdownMarkup = institutionBreakdown.length > 0
-          ? institutionBreakdown.slice(0, 4).map((entry) => {
-            const instName = String(entry?.institution_name || entry?.institution_subject_id || 'Institution').trim();
-            const domain = String(entry?.domain || 'unknown').trim();
+          ? institutionBreakdown.slice(0, 8).map((entry) => {
+            const isMatrixEdge = String(entry?.source || '').trim() === 'institution_matrix_edge'
+              || (entry?.source_subject_id && entry?.target_subject_id);
+            const weightedComponent = Number.isFinite(Number(entry?.weighted_component)) ? Number(entry.weighted_component) : 0;
             const rawScore = Number.isFinite(Number(entry?.raw_score)) ? Number(entry.raw_score) : 0;
+            if (isMatrixEdge) {
+              const sourceSubject = String(entry?.source_subject_id || 'source').trim();
+              const targetSubject = String(entry?.target_subject_id || 'target').trim();
+              const sourceWeight = Number.isFinite(Number(entry?.source_weight)) ? Number(entry.source_weight) : 0;
+              const targetWeight = Number.isFinite(Number(entry?.target_weight)) ? Number(entry.target_weight) : 0;
+              const confidenceWeight = Number.isFinite(Number(entry?.matrix_confidence_weight)) ? Number(entry.matrix_confidence_weight) : 0;
+              return `<div style="color:#94a3b8;">matrix(${escapeQuestHtml(sourceSubject)} → ${escapeQuestHtml(targetSubject)}): ${rawScore} × ${sourceWeight.toFixed(2)} × ${targetWeight.toFixed(2)} × ${confidenceWeight.toFixed(2)} = ${weightedComponent}</div>`;
+            }
+            const instName = String(entry?.institution_name || entry?.institution_subject_id || 'Institution').trim();
+            const domain = String(entry?.sentiment_domain || entry?.domain || 'unknown').trim();
             const domainWeight = Number.isFinite(Number(entry?.domain_weight)) ? Number(entry.domain_weight) : 0;
             const knowledgeWeight = Number.isFinite(Number(entry?.knowledge_weight)) ? Number(entry.knowledge_weight) : 0;
-            const weightedComponent = Number.isFinite(Number(entry?.weighted_component)) ? Number(entry.weighted_component) : 0;
-            return `<div style="color:#94a3b8;">inst(${escapeQuestHtml(instName)}|${escapeQuestHtml(domain)}): ${rawScore} × ${domainWeight.toFixed(2)} × ${knowledgeWeight.toFixed(2)} = ${weightedComponent}</div>`;
+            return `<div style="color:#94a3b8;">sentiment(${escapeQuestHtml(instName)}|${escapeQuestHtml(domain)}): ${rawScore} × ${domainWeight.toFixed(2)} × ${knowledgeWeight.toFixed(2)} = ${weightedComponent}</div>`;
           }).join('')
           : '<div style="color:#94a3b8;">No institutional membership/sentiment adjustments found.</div>';
         const finalLabel = this.formatRelationshipAttitudeLabel(finalAttitude);
         const detailLabel = rule === 'relationship_edge_override'
           ? 'Edge override'
           : (rule === 'source_default' ? 'Source default' : (rule === 'inferred_from_sides' ? 'Side inference' : (rule === 'weighted_edge_plus_institutions' ? 'Weighted formula (edge + institutions)' : (rule === 'weighted_default_plus_institutions' ? 'Weighted formula (default + institutions)' : 'Computed'))));
-        const components = `default(${sourceDefault || 'unknown'}=${sourceDefaultScore}), edge(${edgeAttitude || 'none'}=${edgeScore === null ? 'n/a' : edgeScore}), institution=${institutionScore} (weighted ${institutionWeightedScore}), final(${finalAttitude || 'unknown'}=${finalScore})`;
-        const weightLine = `weights: w_default=${wDefault.toFixed(2)}, w_edge=${wEdge.toFixed(2)}, w_inst=${wInstitution.toFixed(2)}`;
+        const resolverSnapshot = (calculation?.resolver_snapshot && typeof calculation.resolver_snapshot === 'object')
+          ? calculation.resolver_snapshot
+          : {};
+        const resolverComponents = (resolverSnapshot?.components && typeof resolverSnapshot.components === 'object')
+          ? resolverSnapshot.components
+          : {};
+        const resolverWeights = (resolverSnapshot?.weights && typeof resolverSnapshot.weights === 'object')
+          ? resolverSnapshot.weights
+          : {};
+        const weightedItems = [
+          {
+            key: 'actor_baseline_score',
+            label: 'actor_baseline_score',
+            raw: Number.isFinite(Number(resolverComponents?.actor_baseline_score))
+              ? Number(resolverComponents.actor_baseline_score)
+              : sourceDefaultScore,
+            weight: Number.isFinite(Number(resolverWeights?.baseline))
+              ? Number(resolverWeights.baseline)
+              : wDefault,
+            source: 'ActorDispositionService current_score',
+          },
+          {
+            key: 'relationship_score',
+            label: 'relationship_score',
+            raw: Number.isFinite(Number(resolverComponents?.relationship_score))
+              ? Number(resolverComponents.relationship_score)
+              : (edgeScore ?? 0),
+            weight: Number.isFinite(Number(resolverWeights?.relationship))
+              ? Number(resolverWeights.relationship)
+              : wEdge,
+            source: `RelationshipAttitudeService edge_score (${calculation?.edge_score_source || 'none'})`,
+          },
+          {
+            key: 'situational_score',
+            label: 'situational_score',
+            raw: Number.isFinite(Number(resolverComponents?.situational_score))
+              ? Number(resolverComponents.situational_score)
+              : 0,
+            weight: Number.isFinite(Number(resolverWeights?.situational))
+              ? Number(resolverWeights.situational)
+              : 0,
+            source: 'DispositionSceneContextService',
+          },
+          {
+            key: 'institution_score',
+            label: 'institution_score',
+            raw: Number.isFinite(Number(resolverComponents?.institution_score))
+              ? Number(resolverComponents.institution_score)
+              : institutionScore,
+            weight: Number.isFinite(Number(resolverWeights?.institution))
+              ? Number(resolverWeights.institution)
+              : wInstitution,
+            source: 'InstitutionDispositionScoreAssemblerService',
+          },
+          {
+            key: 'recent_harm_score',
+            label: 'recent_harm_score',
+            raw: Number.isFinite(Number(resolverComponents?.recent_harm_score))
+              ? Number(resolverComponents.recent_harm_score)
+              : 0,
+            weight: Number.isFinite(Number(resolverWeights?.recent_harm))
+              ? Number(resolverWeights.recent_harm)
+              : 0,
+            source: 'DispositionSceneContextService',
+          },
+          {
+            key: 'recent_help_score',
+            label: 'recent_help_score',
+            raw: Number.isFinite(Number(resolverComponents?.recent_help_score))
+              ? Number(resolverComponents.recent_help_score)
+              : 0,
+            weight: Number.isFinite(Number(resolverWeights?.recent_help))
+              ? Number(resolverWeights.recent_help)
+              : 0,
+            source: 'DispositionSceneContextService',
+          },
+          {
+            key: 'coercion_score',
+            label: 'coercion_score',
+            raw: Number.isFinite(Number(resolverComponents?.coercion_score))
+              ? Number(resolverComponents.coercion_score)
+              : 0,
+            weight: Number.isFinite(Number(resolverWeights?.coercion))
+              ? Number(resolverWeights.coercion)
+              : 0,
+            source: 'DispositionSceneContextService',
+          },
+          {
+            key: 'recent_impulse_score',
+            label: 'recent_impulse_score',
+            raw: Number.isFinite(Number(resolverComponents?.recent_impulse_score))
+              ? Number(resolverComponents.recent_impulse_score)
+              : 0,
+            weight: Number.isFinite(Number(resolverWeights?.recent_impulse))
+              ? Number(resolverWeights.recent_impulse)
+              : 0,
+            source: 'DispositionSceneContextService',
+          },
+        ];
+        const weightedSum = weightedItems.reduce((sum, item) => sum + (Number(item.raw || 0) * Number(item.weight || 0)), 0);
+        const dispositionRowsMarkup = weightedItems.map((item) => {
+          const contribution = Number(item.raw || 0) * Number(item.weight || 0);
+          return `
+            <tr>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(item.label)}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(item.raw || 0)}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(item.weight || 0).toFixed(2)}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${contribution.toFixed(2)}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(item.source)}</td>
+            </tr>
+          `;
+        }).join('');
+        const dispositionMetaRowsMarkup = [
+          ['source_default_attitude', sourceDefault || 'unknown', 'ActorDispositionService current_attitude'],
+          ['edge_attitude', edgeAttitude || 'none', 'dc_campaign_relationships.attitude'],
+          ['relationship_type', String(calculation?.relationship_type || 'none'), 'dc_campaign_relationships.relationship_type'],
+          ['relationship_status', String(calculation?.relationship_status || 'none'), 'dc_campaign_relationships.status'],
+        ].map(([variable, value, source]) => `
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(variable)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${escapeQuestHtml(String(value))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#64748b;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#64748b;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(source)}</td>
+          </tr>
+        `).join('');
+        const stanceBasis = (calculation?.stance_basis && typeof calculation.stance_basis === 'object')
+          ? calculation.stance_basis
+          : {};
+        const stanceProfile = (stanceBasis?.profile && typeof stanceBasis.profile === 'object') ? stanceBasis.profile : {};
+        const stanceResolved = (stanceBasis?.resolved_disposition && typeof stanceBasis.resolved_disposition === 'object') ? stanceBasis.resolved_disposition : {};
+        const stanceAggression = (stanceBasis?.aggression && typeof stanceBasis.aggression === 'object') ? stanceBasis.aggression : {};
+        const stanceSurvival = (stanceBasis?.survival && typeof stanceBasis.survival === 'object') ? stanceBasis.survival : {};
+        const stanceNarrative = (stanceBasis?.narrative && typeof stanceBasis.narrative === 'object') ? stanceBasis.narrative : {};
+        const stanceRows = [
+          ['profile.attitude', String(stanceProfile?.attitude || sourceDefault || 'unknown'), 'ActorDispositionService current_attitude'],
+          ['profile.score', String(stanceProfile?.score ?? sourceDefaultScore), 'ActorDispositionService current_score'],
+          ['profile.score_source', String(stanceProfile?.score_source || 'unknown'), 'ActorDispositionService resolveScoreSource()'],
+          ['resolved.primary_target_score', String(stanceResolved?.primary_target_score ?? finalScore), 'DispositionResolverService effective_disposition_score'],
+          ['aggression.threat_score', String(stanceAggression?.threat_score ?? 0), 'ActorStanceResolverService context/basis'],
+          ['survival.hp_ratio', String(stanceSurvival?.hp_ratio ?? 1), 'ActorStanceResolverService context/basis'],
+          ['survival.danger_level', String(stanceSurvival?.danger_level || 'none'), 'ActorStanceResolverService context/basis'],
+          ['narrative.direct_addressed', String(stanceNarrative?.direct_addressed ?? false), 'ActorStanceResolverService context/basis'],
+          ['policy_flags', stancePolicyLine, 'ActorStanceResolverService derivePolicyFlags()'],
+          ['stance_total', `${stance || 'unknown'} (${stanceMode})`, 'ActorStanceResolverService evaluateStance()'],
+        ];
+        const stanceRowsMarkup = stanceRows.map(([variable, value, source]) => `
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(String(variable))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${escapeQuestHtml(String(value))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#64748b;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#64748b;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(String(source))}</td>
+          </tr>
+        `).join('');
+        const panelStyle = 'margin:4px 0;padding:6px 8px;border:1px solid rgba(148,163,184,0.25);border-radius:8px;background:rgba(15,23,42,0.35);';
+        const summaryStyle = 'cursor:pointer;font-weight:700;color:#cbd5e1;list-style:none;';
         return `
           <tr>
-            <th scope="row" style="${rowHeaderStyle}">${escapeQuestHtml(targetDisplay)}</th>
-            <td style="${tdBaseStyle}"><span style="${badgeStyleByAttitude[finalAttitude] || badgeStyleByAttitude.unknown}">${escapeQuestHtml(finalLabel)} (score ${finalScore})</span></td>
+            <th scope="row" rowspan="2" style="${rowHeaderStyle}vertical-align:top;">${escapeQuestHtml(targetDisplay)}</th>
             <td style="${tdBaseStyle}text-align:left;">
-              <div style="font-weight:700;color:#cbd5e1;">${escapeQuestHtml(detailLabel)}</div>
-              <div style="color:#cbd5e1;">${escapeQuestHtml(formula)}</div>
-              <div style="color:#cbd5e1;">${escapeQuestHtml(weightLine)}</div>
-              <div style="color:#cbd5e1;">${escapeQuestHtml(components)}</div>
-              <div style="color:#94a3b8;">${escapeQuestHtml(equation)}</div>
-              <div style="margin-top:4px;">${institutionBreakdownMarkup}</div>
+              <div style="font-weight:700;color:#cbd5e1;margin-bottom:4px;">Disposition</div>
+              <div><span style="${badgeStyleByAttitude[finalAttitude] || badgeStyleByAttitude.unknown}">${escapeQuestHtml(finalLabel)} (score ${finalScore})</span></div>
+              <details class="relationships-breakdown" data-breakdown-kind="disposition" style="${panelStyle}">
+                <summary style="${summaryStyle}">Show disposition breakdown</summary>
+                <div style="margin-top:6px;">
+                  <div style="font-weight:700;color:#cbd5e1;">${escapeQuestHtml(detailLabel)}</div>
+                  <div style="color:#cbd5e1;">${escapeQuestHtml(formula)}</div>
+                  <div style="color:#94a3b8;">${escapeQuestHtml(equation)}</div>
+                  <div style="overflow:auto;margin-top:6px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                      <thead>
+                        <tr>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Raw</th>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${dispositionRowsMarkup}
+                        ${dispositionMetaRowsMarkup}
+                        <tr>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">weighted_total</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${weightedSum.toFixed(2)}</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionResolverService weighted sum</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">final_score</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${finalScore}</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionResolverService effective_disposition_score</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">final_attitude</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${escapeQuestHtml(finalAttitude)}</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionAuthorityContract scoreToAttitude()</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  ${institutionSummaryLine ? `<div style="color:#94a3b8;">${escapeQuestHtml(institutionSummaryLine)}</div>` : ''}
+                  <div style="margin-top:4px;">${institutionBreakdownMarkup}</div>
+                </div>
+              </details>
+            </td>
+          </tr>
+          <tr>
+            <td style="${tdBaseStyle}text-align:left;">
+              <div style="font-weight:700;color:#cbd5e1;margin-bottom:4px;">Stance</div>
+              <div><span style="${stanceStyleByValue[stance] || stanceStyleByValue.unknown}">${escapeQuestHtml(stanceLabel)}${stanceConfidence > 0 ? ` (${stanceConfidence}%)` : ''}</span></div>
+              <details class="relationships-breakdown" data-breakdown-kind="stance" style="${panelStyle}">
+                <summary style="${summaryStyle}">Show stance breakdown</summary>
+                <div style="margin-top:6px;">
+                  <div style="color:#cbd5e1;">${escapeQuestHtml(stanceFormula)}</div>
+                  <div style="color:#cbd5e1;">${escapeQuestHtml(`stance=${stance || 'unknown'} | mode=${stanceMode} | target=${stanceTargetRef}`)}</div>
+                  <div style="color:#94a3b8;">${escapeQuestHtml(stanceReason)}</div>
+                  <div style="overflow:auto;margin-top:6px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                      <thead>
+                        <tr>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Value</th>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
+                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${stanceRowsMarkup}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </details>
             </td>
           </tr>
         `;
@@ -1726,17 +2075,20 @@ export class CharacterPanel {
       ? `
         <div class="relationships-calculation-summary" style="margin-top:10px;">
           <div style="font-size:12px;font-weight:700;color:#cbd5e1;margin-bottom:6px;">Disposition calculation: ${escapeQuestHtml(selectedSourceLabel)} → other room actors</div>
+          <div style="display:flex;gap:8px;align-items:center;margin:0 0 8px 0;">
+            <button type="button" data-relationships-breakdown-toggle="expand" style="padding:5px 8px;border-radius:6px;border:1px solid rgba(148,163,184,0.45);background:rgba(30,41,59,0.6);color:#e2e8f0;font-size:11px;font-weight:600;cursor:pointer;">Expand all breakdowns</button>
+            <button type="button" data-relationships-breakdown-toggle="collapse" style="padding:5px 8px;border-radius:6px;border:1px solid rgba(148,163,184,0.45);background:rgba(30,41,59,0.6);color:#e2e8f0;font-size:11px;font-weight:600;cursor:pointer;">Collapse all breakdowns</button>
+          </div>
           <div class="relationships-matrix-scroll" style="${scrollStyle}">
             <table class="relationships-matrix-table" style="${tableStyle}">
               <thead>
                 <tr>
                   <th scope="col" style="${thStyle}">Target Actor</th>
-                  <th scope="col" style="${thStyle}">Final Attitude</th>
                   <th scope="col" style="${thStyle}">Calculation</th>
                 </tr>
               </thead>
               <tbody>
-                ${calculationRows || `<tr><td colspan="3" style="${tdBaseStyle}text-align:left;color:#94a3b8;">No other visible actors available for calculation.</td></tr>`}
+                ${calculationRows || `<tr><td colspan="2" style="${tdBaseStyle}text-align:left;color:#94a3b8;">No other visible actors available for calculation.</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -1745,6 +2097,18 @@ export class CharacterPanel {
       : '<div class="relationships-calculation-summary" style="padding:8px 4px;color:#94a3b8;font-size:12px;">No selected actor available for relationship calculation.</div>';
 
     container.innerHTML = calculationSummaryMarkup;
+    const breakdownToggles = Array.from(container.querySelectorAll('[data-relationships-breakdown-toggle]'));
+    if (breakdownToggles.length > 0) {
+      breakdownToggles.forEach((toggle) => {
+        toggle.addEventListener('click', () => {
+          const mode = String(toggle.getAttribute('data-relationships-breakdown-toggle') || '').trim().toLowerCase();
+          const shouldOpen = mode === 'expand';
+          container.querySelectorAll('details.relationships-breakdown').forEach((node) => {
+            node.open = shouldOpen;
+          });
+        });
+      });
+    }
   }
 
   renderRelationshipsMatrixStatusTable(message = '') {
@@ -1776,6 +2140,35 @@ export class CharacterPanel {
       default:
         return 0;
     }
+  }
+
+  normalizeStanceValue(value = '') {
+    const normalized = String(value || '').trim().toLowerCase();
+    return [
+      'engage_dialogue',
+      'observe',
+      'warn',
+      'threaten',
+      'aggressive_engage',
+      'finish_weakest',
+      'self_preserve',
+      'flee',
+      'pass',
+      'deescalate',
+    ].includes(normalized)
+      ? normalized
+      : '';
+  }
+
+  deriveFallbackStanceFromDisposition(score = 0, attitude = '') {
+    const numericScore = Number.isFinite(Number(score)) ? Number(score) : this.resolveAttitudeScore(attitude);
+    if (numericScore <= -70 || this.normalizeAttitudeValue(attitude) === 'hostile') {
+      return 'threaten';
+    }
+    if (numericScore >= 50) {
+      return 'engage_dialogue';
+    }
+    return 'observe';
   }
 
   resolveDefaultAttitudeFromSide(actorSide = 'neutral') {
@@ -1929,6 +2322,14 @@ export class CharacterPanel {
             institution_breakdown: [],
             final_attitude: '',
             final_score: 0,
+            stance: '',
+            stance_confidence: 0,
+            stance_reason: '',
+            stance_mode: 'combat_entry',
+            stance_target_actor_ref: source.actorRef,
+            stance_policy_flags: {},
+            stance_basis: {},
+            stance_formula: 'self',
             equation: 'self',
           };
           return;
@@ -1977,6 +2378,21 @@ export class CharacterPanel {
           institution_breakdown: [],
           final_attitude: finalAttitude,
           final_score: finalScore,
+          stance: this.deriveFallbackStanceFromDisposition(finalScore, finalAttitude),
+          stance_confidence: 0,
+          stance_reason: edgeAttitude
+            ? 'Local fallback stance derived from direct relationship edge hostility.'
+            : 'Local fallback stance derived from disposition score when server stance payload is unavailable.',
+          stance_mode: 'combat_entry',
+          stance_target_actor_ref: target.actorRef,
+          stance_policy_flags: {},
+          stance_basis: {
+            fallback: true,
+            source_default_score: sourceDefaultScore,
+            edge_score: edgeScore,
+            final_score: finalScore,
+          },
+          stance_formula: `stance = if hostile_signal(${finalScore}) then threaten else observe`,
           equation,
         };
       });
@@ -2121,7 +2537,7 @@ export class CharacterPanel {
     }
     if (selectedActorKind === 'actor') {
       if (entity) {
-        this.showActorCharacterFromEntity(entity);
+        this.showActorCharacterFromEntity(entity, { preferredActorRef: normalizedRef });
       }
       this.syncSheetLinksForSelectedEntity(entity || null);
       this.togglePartyEmptyState(false);
@@ -2170,7 +2586,7 @@ export class CharacterPanel {
     if (selectedActorKind === 'actor') {
       const actorEntity = this.resolveEntityByRef(selectedRef);
       if (actorEntity) {
-        this.showActorCharacterFromEntity(actorEntity);
+        this.showActorCharacterFromEntity(actorEntity, { preferredActorRef: selectedRef });
       }
       this.syncSheetLinksForSelectedEntity(actorEntity);
       this.togglePartyEmptyState(false);
@@ -2221,25 +2637,255 @@ export class CharacterPanel {
   }
 
   showFollowerCharacterFromEntity(entity) {
-    const payload = this.buildFollowerLaunchCharacterPayload(entity);
-    if (!payload) {
-      return;
-    }
-    this.showLaunchCharacter(payload, { storeAsPrimary: false });
+    this.refreshEncounterStateAndRerenderEntity(entity, 'follower');
   }
 
-  showActorCharacterFromEntity(entity) {
-    const payload = this.buildActorLaunchCharacterPayload(entity);
-    if (!payload) {
-      return;
-    }
-    this.showLaunchCharacter(payload, { storeAsPrimary: false });
+  showActorCharacterFromEntity(entity, options = {}) {
+    this.refreshEncounterStateAndRerenderEntity(entity, 'actor', options);
   }
 
-  buildActorLaunchCharacterPayload(entity) {
+  async refreshEncounterStateAndRerenderEntity(entity, actorKind = 'actor', options = {}) {
+    if (!entity) {
+      return;
+    }
+    const preferredActorRef = String(options?.preferredActorRef || '').trim();
+    const targetRef = String(this.resolveEntityRef(entity) || preferredActorRef || '').trim();
+    const characterId = Number(this.resolveEntityCharacterId(entity) || 0) || 0;
+    const campaignId = Number(
+      this.currentCharacterContext?.campaignId
+      || this.stateManager?.hexmap?.resolveCampaignId?.()
+      || 0
+    ) || 0;
+    if (characterId <= 0 || campaignId <= 0 || !targetRef) {
+      const fallbackPayload = actorKind === 'follower'
+        ? this.buildFollowerLaunchCharacterPayload(entity)
+        : this.buildActorLaunchCharacterPayload(entity, { preferredActorRef: targetRef });
+      if (fallbackPayload) {
+        this.showLaunchCharacter(fallbackPayload, { storeAsPrimary: false });
+      }
+      return;
+    }
+    const requestRoomId = String(this.stateManager?.hexmap?.resolveActiveRoomId?.() || '').trim();
+    const requestToken = `${targetRef}|${characterId}|${Date.now()}`;
+    this._encounterStateRefreshToken = requestToken;
+
+    try {
+      const query = new URLSearchParams();
+      query.set('campaignId', String(campaignId));
+      query.set('instanceId', targetRef);
+      const response = await fetch(`/api/character/${encodeURIComponent(characterId)}/state?${query.toString()}`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success || !payload?.data) {
+        throw new Error(payload?.error || `Character state refresh failed (${response.status})`);
+      }
+      if (this._encounterStateRefreshToken !== requestToken) {
+        return;
+      }
+      const activeRoomId = String(this.stateManager?.hexmap?.resolveActiveRoomId?.() || '').trim();
+      if (requestRoomId && activeRoomId && requestRoomId !== activeRoomId) {
+        return;
+      }
+      const selectedEntity = this.stateManager?.hexmap?._getStateValue?.('selectedEntity') || entity;
+      if (targetRef && !this.entityMatchesActorRef(selectedEntity, targetRef)) {
+        return;
+      }
+      const refreshedPayload = payload.data;
+      this.showLaunchCharacter(refreshedPayload, { storeAsPrimary: false });
+    } catch (error) {
+      console.warn('[CharacterPanel] character-state runtime refresh failed', {
+        actorRef: targetRef || null,
+        characterId,
+        message: String(error?.message || error || ''),
+      });
+      return;
+    }
+  }
+
+  shouldRequestAuthoritativeStateForActorRef(actorRef = '', options = {}) {
+    return shouldRequestAuthoritativeStateForActorRefShared(actorRef, options);
+  }
+
+  isEncounterPhaseActive() {
+    const snapshot = this.stateManager?.hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || null;
+    const phase = String(snapshot?.phase || '').trim().toLowerCase();
+    const encounterId = Number(snapshot?.encounterId || 0);
+    return phase === 'encounter' && Number.isFinite(encounterId) && encounterId > 0;
+  }
+
+  resolveEncounterParticipantForEntity(entity, options = {}) {
+    if (!entity || typeof entity !== 'object') {
+      return null;
+    }
+
+    const encounterState = this.stateManager?.hexmap?.getEncounterServerState?.() || null;
+    const participants = Array.isArray(encounterState?.participants) ? encounterState.participants : [];
+    if (participants.length === 0) {
+      return null;
+    }
+
+    const preferredActorRef = String(options?.preferredActorRef || '').trim();
+    const metadata = this.resolveEntityMetadata(entity);
+    const contentId = String(
+      entity?.dcContentId
+      || entity?.dcStatePayload?.content_id
+      || entity?.dcStatePayload?.entity_ref?.content_id
+      || entity?.dcEntityPayload?.content_id
+      || entity?.dcEntityPayload?.entity_ref?.content_id
+      || metadata?.content_id
+      || metadata?.npc_template_id
+      || ''
+    ).trim();
+    const canonicalize = (value) => String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/^runtime:/, '')
+      .replace(/^content:/, '')
+      .replace(/^character:/, '')
+      .replace(/^campaign-character:/, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    const candidates = [
+      this.resolveEntityRef(entity),
+      preferredActorRef,
+      entity?.dcEntityRef,
+      entity?.dcEntityInstanceId,
+      entity?.dcCharacterId,
+      entity?.dcStatePayload?.metadata?.character_id,
+      entity?.dcStatePayload?.character_id,
+      entity?.dcEntityPayload?.character_id,
+      contentId,
+      contentId ? `npc_${contentId}` : '',
+      contentId ? `npc-${contentId}` : '',
+      this.resolveEntityLabel(entity),
+      metadata?.display_name,
+      metadata?.name,
+      entity?.id,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean);
+    if (candidates.length === 0) {
+      return null;
+    }
+    const uniqueCandidates = [...new Set(candidates)];
+    const canonicalCandidates = new Set(uniqueCandidates.map((value) => canonicalize(value)).filter(Boolean));
+
+    for (const participant of participants) {
+      if (!participant || typeof participant !== 'object') {
+        continue;
+      }
+      const participantCandidates = [
+        participant?.entity_ref,
+        participant?.entity_id,
+        participant?.id,
+        participant?.name,
+      ]
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean);
+      const entityRefRaw = String(participant?.entity_ref ?? '').trim();
+      if (entityRefRaw.startsWith('{')) {
+        try {
+          const decoded = JSON.parse(entityRefRaw);
+          const decodedContentId = String(decoded?.content_id ?? '').trim();
+          participantCandidates.push(
+            String(decoded?.entity_id ?? '').trim(),
+            String(decoded?.instance_id ?? '').trim(),
+            String(decoded?.entity_instance_id ?? '').trim(),
+            String(decoded?.character_id ?? '').trim(),
+            decodedContentId,
+            decodedContentId ? `npc_${decodedContentId}` : '',
+            decodedContentId ? `npc-${decodedContentId}` : '',
+            String(decoded?.id ?? '').trim()
+          );
+        } catch (_error) {
+          // Ignore malformed participant entity_ref payloads.
+        }
+      }
+      const participantCanonical = new Set(participantCandidates.map((value) => canonicalize(value)).filter(Boolean));
+      const directMatch = uniqueCandidates.some((candidate) => participantCandidates.includes(candidate));
+      const canonicalMatch = Array.from(canonicalCandidates).some((candidate) => participantCanonical.has(candidate));
+      if (directMatch || canonicalMatch) {
+        return participant;
+      }
+    }
+
+    return null;
+  }
+
+  resolveEncounterHpForEntity(entity, options = {}) {
+    const participant = this.resolveEncounterParticipantForEntity(entity, options);
+    if (!participant) {
+      return null;
+    }
+    const current = Number(participant?.hp);
+    if (!Number.isFinite(current)) {
+      return null;
+    }
+    const max = Number(participant?.max_hp);
+    return {
+      current: current,
+      max: Number.isFinite(max) && max > 0 ? max : current,
+    };
+  }
+
+  resolveEncounterConditionsForEntity(entity, options = {}) {
+    const participant = this.resolveEncounterParticipantForEntity(entity, options);
+    if (!participant || typeof participant !== 'object') {
+      return [];
+    }
+
+    const rawConditions = (
+      (Array.isArray(participant.conditions) ? participant.conditions : null)
+      || (Array.isArray(participant.active_conditions) ? participant.active_conditions : null)
+      || (Array.isArray(participant.condition_states) ? participant.condition_states : null)
+      || []
+    );
+    if (!Array.isArray(rawConditions) || rawConditions.length === 0) {
+      return [];
+    }
+
+    return rawConditions
+      .map((condition) => {
+        if (!condition || typeof condition !== 'object') {
+          const label = String(condition || '').trim();
+          if (!label) {
+            return null;
+          }
+          return {
+            condition_type: label.toLowerCase().replace(/\s+/g, '_'),
+            name: label,
+          };
+        }
+
+        const rawType = String(
+          condition.condition_type
+          || condition.type
+          || condition.id
+          || condition.name
+          || ''
+        ).trim();
+        if (!rawType) {
+          return null;
+        }
+
+        return {
+          condition_type: rawType.toLowerCase().replace(/\s+/g, '_'),
+          name: String(condition.name || rawType).trim() || rawType,
+          value: Number.isFinite(Number(condition.value)) ? Number(condition.value) : null,
+          source: String(condition.source || '').trim() || null,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  buildActorLaunchCharacterPayload(entity, options = {}) {
     if (!entity) {
       return null;
     }
+    const preferredActorRef = String(options?.preferredActorRef || '').trim();
 
     const identity = entity.getComponent?.('IdentityComponent') || null;
     const statsComponent = entity.getComponent?.('StatsComponent') || null;
@@ -2308,7 +2954,7 @@ export class CharacterPanel {
       || 1
     ) || 1;
     const metadataStats = (metadata && typeof metadata.stats === 'object' && metadata.stats !== null) ? metadata.stats : {};
-    const hpCurrent = Number(
+    let hpCurrent = Number(
       statsComponent?.currentHp
       ?? statsComponent?.current_hp
       ?? metadata.hp_current
@@ -2319,7 +2965,7 @@ export class CharacterPanel {
       ?? actorCalculatedStats.current_hp
       ?? 0
     ) || 0;
-    const hpMax = Number(
+    let hpMax = Number(
       statsComponent?.maxHp
       ?? statsComponent?.max_hp
       ?? metadata.hp_max
@@ -2330,6 +2976,11 @@ export class CharacterPanel {
       ?? actorCalculatedStats.max_hp
       ?? hpCurrent
     ) || hpCurrent;
+    const encounterHp = this.resolveEncounterHpForEntity(entity, { preferredActorRef });
+    if (encounterHp) {
+      hpCurrent = encounterHp.current;
+      hpMax = encounterHp.max;
+    }
     const armorClass = Number(
       statsComponent?.ac
       ?? metadata.armor_class
@@ -2587,6 +3238,7 @@ export class CharacterPanel {
         : ((actorCharacterData && typeof actorCharacterData.spellcasting === 'object' && actorCharacterData.spellcasting !== null) ? actorCharacterData.spellcasting
           : ((actorCharacterData && typeof actorCharacterData.spells === 'object' && actorCharacterData.spells !== null) ? actorCharacterData.spells : {}))
     );
+    const encounterConditions = this.resolveEncounterConditionsForEntity(entity, { preferredActorRef });
     const actorFeaturesPayload = (
       (actorCharacterData && typeof actorCharacterData.features === 'object' && actorCharacterData.features !== null) ? actorCharacterData.features
         : {}
@@ -2660,9 +3312,11 @@ export class CharacterPanel {
             ? actorFeaturesPayload.feats
             : (Array.isArray(actorCharacterData.feats) ? actorCharacterData.feats : []),
         },
-        conditions: Array.isArray(metadata.conditions)
-          ? metadata.conditions
-          : (Array.isArray(actorCharacterData.conditions) ? actorCharacterData.conditions : []),
+        conditions: encounterConditions.length > 0
+          ? encounterConditions
+          : (Array.isArray(metadata.conditions)
+            ? metadata.conditions
+            : (Array.isArray(actorCharacterData.conditions) ? actorCharacterData.conditions : [])),
         combat: {
           initiative: combatInitiative,
           team: String(combat?.team || metadata.team || '').trim(),
@@ -2702,8 +3356,13 @@ export class CharacterPanel {
     ).trim();
     const level = Number(metadata.level || metadata.stats?.level || 1) || 1;
     const stats = (metadata && typeof metadata.stats === 'object' && metadata.stats !== null) ? metadata.stats : {};
-    const hpCurrent = Number(stats.currentHp ?? stats.current_hp ?? metadata.hp_current ?? 0) || 0;
-    const hpMax = Number(stats.maxHp ?? stats.max_hp ?? metadata.hp_max ?? hpCurrent) || hpCurrent;
+    let hpCurrent = Number(stats.currentHp ?? stats.current_hp ?? metadata.hp_current ?? 0) || 0;
+    let hpMax = Number(stats.maxHp ?? stats.max_hp ?? metadata.hp_max ?? hpCurrent) || hpCurrent;
+    const encounterHp = this.resolveEncounterHpForEntity(entity);
+    if (encounterHp) {
+      hpCurrent = encounterHp.current;
+      hpMax = encounterHp.max;
+    }
     const armorClass = Number(stats.ac ?? metadata.armor_class ?? 0) || 0;
     const speed = Number(metadata.movement_speed ?? stats.speed ?? 25) || 25;
     const perception = Number(stats.perception ?? metadata.perception ?? 0) || 0;
@@ -2748,6 +3407,7 @@ export class CharacterPanel {
 
     const savesPayload = (metadata && typeof metadata.saves === 'object' && metadata.saves !== null) ? metadata.saves : {};
     const spellsPayload = (metadata && typeof metadata.spellcasting === 'object' && metadata.spellcasting !== null) ? metadata.spellcasting : {};
+    const encounterConditions = this.resolveEncounterConditionsForEntity(entity);
     const classFeatureOptions = Array.isArray(metadata.class_feature_options)
       ? metadata.class_feature_options
       : (Array.isArray(metadata.familiar_class_feature_options) ? metadata.familiar_class_feature_options : []);
@@ -2834,7 +3494,9 @@ export class CharacterPanel {
         skills,
         spells: spellsPayload,
         features,
-        conditions: Array.isArray(metadata.conditions) ? metadata.conditions : [],
+        conditions: encounterConditions.length > 0
+          ? encounterConditions
+          : (Array.isArray(metadata.conditions) ? metadata.conditions : []),
         personality: {
           personality: String(metadata.psychology_profile?.personality || '').trim(),
           backstory: String(metadata.description || '').trim(),

@@ -89,6 +89,7 @@ class GameEventLogger {
           $next_id = $persisted_id + 1;
         }
       }
+      $this->emitConditionTelemetryLogs($campaign_id, $record);
 
       $dungeon_data['event_log'][] = $record;
       $logged[] = $record;
@@ -351,6 +352,87 @@ class GameEventLogger {
       $normalized['timestamp'] = date('c', (int) ($row->created ?? time()));
     }
     return $normalized;
+  }
+
+  /**
+   * Emit structured application logs for condition state-effect changes.
+   */
+  protected function emitConditionTelemetryLogs(?int $campaign_id, array $record): void {
+    $event_data = is_array($record['data'] ?? NULL) ? $record['data'] : [];
+    foreach ($this->extractStateEffectPackets($event_data) as $packet) {
+      $effect_kind = strtolower(trim((string) ($packet['effect_kind'] ?? '')));
+      if ($effect_kind !== 'condition') {
+        continue;
+      }
+      $this->logger->notice(
+        'Condition change event: campaign=@campaign event_id=@event_id event_type=@event_type actor=@actor target=@target condition=@condition change_type=@change_type value=@value encounter=@encounter',
+        [
+          '@campaign' => $campaign_id !== NULL ? $campaign_id : 0,
+          '@event_id' => (int) ($record['id'] ?? 0),
+          '@event_type' => (string) ($record['type'] ?? ''),
+          '@actor' => (string) ($packet['actor_entity_ref'] ?? ''),
+          '@target' => (string) ($packet['target_entity_ref'] ?? ''),
+          '@condition' => (string) ($packet['effect_name'] ?? ''),
+          '@change_type' => (string) ($packet['change_type'] ?? ''),
+          '@value' => is_numeric($packet['value'] ?? NULL) ? (int) $packet['value'] : 'n/a',
+          '@encounter' => (string) (
+            $event_data['encounter_instance_id']
+            ?? $event_data['encounter_id']
+            ?? ($event_data['execution_request']['encounter_id'] ?? '')
+          ),
+        ]
+      );
+    }
+  }
+
+  /**
+   * Extract canonical state-effect packets from known event-data envelopes.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Normalized packet list.
+   */
+  protected function extractStateEffectPackets(array $event_data): array {
+    $packets = [];
+    $envelope_keys = [
+      'resolution_envelope',
+      'strike_resolution_envelope',
+      'spell_resolution_envelope',
+      'hazard_resolution_envelope',
+    ];
+    foreach ($envelope_keys as $envelope_key) {
+      $envelope = is_array($event_data[$envelope_key] ?? NULL) ? $event_data[$envelope_key] : NULL;
+      if (!is_array($envelope)) {
+        continue;
+      }
+      foreach ((array) ($envelope['packets'] ?? []) as $packet) {
+        if (!is_array($packet)) {
+          continue;
+        }
+        if (strtolower(trim((string) ($packet['kind'] ?? ''))) !== 'state_effect_change') {
+          continue;
+        }
+        $packets[] = $packet;
+      }
+    }
+
+    foreach ((array) ($event_data['state_effect_packets'] ?? []) as $packet) {
+      if (!is_array($packet)) {
+        continue;
+      }
+      if (strtolower(trim((string) ($packet['kind'] ?? ''))) !== 'state_effect_change') {
+        continue;
+      }
+      $packets[] = $packet;
+    }
+
+    if (is_array($event_data['state_effect_packet'] ?? NULL)) {
+      $packet = $event_data['state_effect_packet'];
+      if (strtolower(trim((string) ($packet['kind'] ?? ''))) === 'state_effect_change') {
+        $packets[] = $packet;
+      }
+    }
+
+    return array_values($packets);
   }
 
   /**

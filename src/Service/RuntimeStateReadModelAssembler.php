@@ -124,6 +124,7 @@ class RuntimeStateReadModelAssembler {
     $relationship_attitudes = [];
     $resolved_disposition_by_target = [];
     $stance_state = NULL;
+    $process_flow_state = NULL;
     $actor_id = trim((string) ($actor_id ?? ''));
     if ($actor_id !== '') {
       foreach ($dungeon_data['entities'] ?? [] as $entity) {
@@ -148,6 +149,7 @@ class RuntimeStateReadModelAssembler {
         $relationship_attitudes = $this->loadActorRelationshipAttitudes($campaign_id, $actor_entity, $actor_id, $visible_entities);
       }
       $stance_state = $this->loadActorStanceState($campaign_id, $actor_entity, $actor_id);
+      $process_flow_state = $this->loadActorProcessFlowState($campaign_id, $actor_entity, $actor_id);
     }
 
     return [
@@ -177,6 +179,7 @@ class RuntimeStateReadModelAssembler {
       'resolved_disposition_by_target' => $resolved_disposition_by_target,
       'relationship_attitudes' => $relationship_attitudes,
       'stance_state' => $stance_state,
+      'process_flow_state' => $process_flow_state,
     ];
   }
 
@@ -737,6 +740,86 @@ class RuntimeStateReadModelAssembler {
       ];
     }
 
+    return NULL;
+  }
+
+  /**
+   * Load latest persisted process-flow summary for current actor context.
+   */
+  protected function loadActorProcessFlowState(int $campaign_id, ?array $actor_entity, string $actor_id): ?array {
+    if ($campaign_id <= 0) {
+      return NULL;
+    }
+
+    $entity_ref_candidates = $this->buildDispositionEntityRefCandidates($actor_entity, $actor_id);
+    if ($entity_ref_candidates === []) {
+      return NULL;
+    }
+
+    if (\Drupal::hasService('dungeoncrawler_content.process_flow_state_store_service')) {
+      $store = \Drupal::service('dungeoncrawler_content.process_flow_state_store_service');
+      if ($store instanceof ProcessFlowStateStoreService) {
+        $primary_entity_ref = $entity_ref_candidates[0] ?? '';
+        if ($primary_entity_ref !== '') {
+          $stored = $store->loadLatestState($campaign_id, $primary_entity_ref);
+          if (is_array($stored)) {
+            return [
+              'entity_ref' => (string) ($stored['entity_ref'] ?? $primary_entity_ref),
+              'updated_at' => (int) ($stored['updated_at'] ?? 0),
+              'summary' => is_array($stored['summary'] ?? NULL) ? $stored['summary'] : [],
+              'meta' => is_array($stored['meta'] ?? NULL) ? $stored['meta'] : [],
+            ];
+          }
+        }
+      }
+    }
+
+    if ($this->database && $this->database->schema()->tableExists('dc_process_flow_state')) {
+      $rows = $this->database->select('dc_process_flow_state', 's')
+        ->fields('s', ['entity_ref', 'summary_json', 'meta_json', 'updated'])
+        ->condition('campaign_id', $campaign_id)
+        ->condition('entity_ref', $entity_ref_candidates, 'IN')
+        ->execute()
+        ->fetchAll(\PDO::FETCH_ASSOC);
+      $by_entity_ref = [];
+      foreach ($rows as $row) {
+        if (!is_array($row)) {
+          continue;
+        }
+        $by_entity_ref[trim((string) ($row['entity_ref'] ?? ''))] = $row;
+      }
+      foreach ($entity_ref_candidates as $candidate) {
+        $row = $by_entity_ref[$candidate] ?? NULL;
+        if (!is_array($row)) {
+          continue;
+        }
+        return [
+          'entity_ref' => (string) ($row['entity_ref'] ?? $candidate),
+          'updated_at' => (int) ($row['updated'] ?? 0),
+          'summary' => $this->decodeJsonObject($row['summary_json'] ?? '', []),
+          'meta' => $this->decodeJsonObject($row['meta_json'] ?? '', []),
+        ];
+      }
+    }
+
+    $state_row = $this->campaignStateService->getState($campaign_id);
+    $state = is_array($state_row['state'] ?? NULL) ? $state_row['state'] : [];
+    $registry = is_array($state['process_flow_state'] ?? NULL) ? $state['process_flow_state'] : [];
+    if ($registry === []) {
+      return NULL;
+    }
+    foreach ($entity_ref_candidates as $candidate) {
+      $entry = $registry[$candidate] ?? NULL;
+      if (!is_array($entry)) {
+        continue;
+      }
+      return [
+        'entity_ref' => (string) ($entry['entity_ref'] ?? $candidate),
+        'updated_at' => (int) ($entry['updated_at'] ?? 0),
+        'summary' => is_array($entry['summary'] ?? NULL) ? $entry['summary'] : [],
+        'meta' => is_array($entry['meta'] ?? NULL) ? $entry['meta'] : [],
+      ];
+    }
     return NULL;
   }
 

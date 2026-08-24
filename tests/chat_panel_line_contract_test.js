@@ -85,6 +85,11 @@ const buildEncounterEventChatLineSource = toFunction(
   '  buildEncounterEventChatLine(event = {}) {',
   'function buildEncounterEventChatLine(event = {}) {'
 );
+const buildEncounterEventFallbackMessageSource = toFunction(
+  source,
+  '  buildEncounterEventFallbackMessage(type = \'\', data = {}, actorName = \'Narrator\', event = {}) {',
+  'function buildEncounterEventFallbackMessage(type = \'\', data = {}, actorName = \'Narrator\', event = {}) {'
+);
 const renderChatLineRecordsSource = toFunction(
   source,
   '  renderChatLineRecords(lines = [], view = this.activeSessionView, options = {}) {',
@@ -102,8 +107,8 @@ const renderSessionViewDataSource = toFunction(
 );
 const handleGameEventsSource = toFunction(
   source,
-  '  handleGameEvents(event) {',
-  'function handleGameEvents(event) {'
+  '  handleGameEvents(event, options = {}) {',
+  'function handleGameEvents(event, options = {}) {'
 );
 const postSessionViewMessageSource = extractMethodSource(
   source,
@@ -120,6 +125,7 @@ ${resolveChatChannelKeySource}
 ${normalizeChatLineRecordSource}
 ${normalizeChatLineRecordsSource}
 ${buildEncounterEventChatLineSource}
+${buildEncounterEventFallbackMessageSource}
 ${renderChatLineRecordsSource}
 ${renderRoomChatHistorySource}
 ${renderSessionViewDataSource}
@@ -130,6 +136,7 @@ return {
   normalizeChatLineRecord,
   normalizeChatLineRecords,
   buildEncounterEventChatLine,
+  buildEncounterEventFallbackMessage,
   renderChatLineRecords,
   renderRoomChatHistory,
   renderSessionViewData,
@@ -143,6 +150,7 @@ const {
   normalizeChatLineRecord,
   normalizeChatLineRecords,
   buildEncounterEventChatLine,
+  buildEncounterEventFallbackMessage,
   renderChatLineRecords,
   renderRoomChatHistory,
   renderSessionViewData,
@@ -236,6 +244,80 @@ console.log('\n=== ChatPanel canonical line contract ===');
   });
 
   assert(chatLine === null, 'round_start narrator chatter is suppressed from encounter chat lines');
+}
+
+{
+  const panel = {
+    resolveEncounterActorName(actorId) {
+      if (String(actorId) === 'enemy-1') {
+        return 'Skeleton';
+      }
+      return '';
+    },
+  };
+  const message = buildEncounterEventFallbackMessage.call(
+    panel,
+    'strike',
+    {
+      action_cost: 1,
+      actions_remaining: 2,
+      resolution_envelope: {
+        packets: [{
+          kind: 'state_effect_change',
+          effect_name: 'frightened',
+          target_entity_ref: 'enemy-1',
+          change_type: 'applied',
+        }],
+      },
+    },
+    'Burasco',
+    { target: 'enemy-1' }
+  );
+
+  assert(
+    message.includes('frightened applied to Skeleton.'),
+    'encounter fallback narration includes applied condition details from state-effect packets'
+  );
+}
+
+{
+  const panel = {
+    resolveEncounterActorName(actorId) {
+      if (String(actorId) === 'enemy-1') {
+        return 'Skeleton';
+      }
+      return '';
+    },
+    extractActorNameFromNarration() {
+      return '';
+    },
+    buildEncounterEventFallbackMessage,
+  };
+  const chatLine = buildEncounterEventChatLine.call(panel, {
+    id: 87,
+    type: 'strike',
+    actor: 'hero-1',
+    target: 'enemy-1',
+    narration: '',
+    data: {
+      actor_name: 'Burasco',
+      action_cost: 1,
+      actions_remaining: 1,
+      resolution_envelope: {
+        packets: [{
+          kind: 'state_effect_change',
+          effect_name: 'off_guard',
+          target_entity_ref: 'enemy-1',
+          change_type: 'applied',
+        }],
+      },
+    },
+  });
+
+  assert(
+    String(chatLine?.message || '').includes('off guard applied to Skeleton.'),
+    'encounter event chat line mirrors condition application text into the map action log'
+  );
 }
 
 {

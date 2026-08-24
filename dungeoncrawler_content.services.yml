@@ -536,6 +536,10 @@ services:
     arguments:
       - '@database'
       - '@dungeoncrawler_content.condition_manager'
+      - '@dungeoncrawler_content.zero_hp_transition'
+
+  dungeoncrawler_content.zero_hp_transition:
+    class: Drupal\dungeoncrawler_content\Service\ZeroHpTransitionService
 
   dungeoncrawler_content.condition_manager:
     class: Drupal\dungeoncrawler_content\Service\ConditionManager
@@ -679,6 +683,7 @@ services:
       - '@dungeoncrawler_content.combat_encounter_store'
       - '@dungeoncrawler_content.number_generation'
       - '@dungeoncrawler_content.combat_resolution_contract'
+      - '@dungeoncrawler_content.hp_manager'
 
   dungeoncrawler_content.unified_movement_engine:
     class: Drupal\dungeoncrawler_content\Service\UnifiedMovementEngine
@@ -715,6 +720,9 @@ services:
       - '@dungeoncrawler_content.action_targeting'
       - '@dungeoncrawler_content.unified_damage_engine'
       - '@dungeoncrawler_content.unified_movement_engine'
+      - '@?dungeoncrawler_content.relationship_attitude_service'
+      - '@?dungeoncrawler_content.relationships_actor_identity_resolver'
+      - '@?dungeoncrawler_content.institution_membership'
 
   dungeoncrawler_content.encounter_intent_router:
     class: Drupal\dungeoncrawler_content\Service\EncounterIntentRouter
@@ -727,6 +735,70 @@ services:
   dungeoncrawler_content.campaign_state_service:
     class: Drupal\dungeoncrawler_content\Service\CampaignStateService
     arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.campaign_clock']
+
+  dungeoncrawler_content.actor_state:
+    class: Drupal\dungeoncrawler_content\Service\ActorStateService
+    arguments:
+      - '@dungeoncrawler_content.character_state'
+
+  dungeoncrawler_content.actor_state_service:
+    alias: dungeoncrawler_content.actor_state
+
+  dungeoncrawler_content.encounter_state:
+    class: Drupal\dungeoncrawler_content\Service\EncounterStateService
+    arguments:
+      - '@dungeoncrawler_content.combat_encounter_store'
+
+  dungeoncrawler_content.encounter_state_service:
+    alias: dungeoncrawler_content.encounter_state
+
+  dungeoncrawler_content.item_state:
+    class: Drupal\dungeoncrawler_content\Service\ItemStateService
+    arguments:
+      - '@dungeoncrawler_content.inventory_management'
+
+  dungeoncrawler_content.item_state_service:
+    alias: dungeoncrawler_content.item_state
+
+  dungeoncrawler_content.inventory_state:
+    class: Drupal\dungeoncrawler_content\Service\InventoryStateService
+    arguments:
+      - '@dungeoncrawler_content.inventory_management'
+
+  dungeoncrawler_content.inventory_state_service:
+    alias: dungeoncrawler_content.inventory_state
+
+  dungeoncrawler_content.quest_state:
+    class: Drupal\dungeoncrawler_content\Service\QuestStateService
+    arguments:
+      - '@dungeoncrawler_content.quest_tracker'
+
+  dungeoncrawler_content.quest_state_service:
+    alias: dungeoncrawler_content.quest_state
+
+  dungeoncrawler_content.effect_state:
+    class: Drupal\dungeoncrawler_content\Service\EffectStateService
+    arguments:
+      - '@dungeoncrawler_content.active_effect_store'
+
+  dungeoncrawler_content.effect_state_service:
+    alias: dungeoncrawler_content.effect_state
+
+  dungeoncrawler_content.object_state:
+    class: Drupal\dungeoncrawler_content\Service\ObjectStateService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@dungeoncrawler_content.dungeon_state_service'
+      - '@dungeoncrawler_content.room_state_service'
+      - '@dungeoncrawler_content.actor_state'
+      - '@dungeoncrawler_content.encounter_state'
+      - '@dungeoncrawler_content.item_state'
+      - '@dungeoncrawler_content.inventory_state'
+      - '@dungeoncrawler_content.quest_state'
+      - '@dungeoncrawler_content.effect_state'
+
+  dungeoncrawler_content.object_state_service:
+    alias: dungeoncrawler_content.object_state
 
   dungeoncrawler_content.campaign_clock:
     class: Drupal\dungeoncrawler_content\Service\CampaignClockService
@@ -766,6 +838,14 @@ services:
       - '@dungeoncrawler_content.actor_disposition_service'
       - '@dungeoncrawler_content.relationship_attitude_service'
       - '@dungeoncrawler_content.disposition_scene_context_service'
+
+  dungeoncrawler_content.actor_stance_resolver_service:
+    class: Drupal\dungeoncrawler_content\Service\ActorStanceResolverService
+    arguments:
+      - '@dungeoncrawler_content.actor_disposition_service'
+      - '@dungeoncrawler_content.disposition_resolver_service'
+      - '@?dungeoncrawler_content.stance_state_store_service'
+      - '@?dungeoncrawler_content.stance_event_store_service'
 
   dungeoncrawler_content.institution_disposition_score_assembler:
     class: Drupal\dungeoncrawler_content\Service\InstitutionDispositionScoreAssemblerService
@@ -920,6 +1000,24 @@ services:
     arguments:
       - '@dungeoncrawler_content.stance_event_store_service'
       - '@dungeoncrawler_content.stance_state_store_service'
+
+  dungeoncrawler_content.process_flow_state_store_service:
+    class: Drupal\dungeoncrawler_content\Service\ProcessFlowStateStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.process_flow_event_store_service:
+    class: Drupal\dungeoncrawler_content\Service\ProcessFlowEventStoreService
+    arguments:
+      - '@dungeoncrawler_content.campaign_state_service'
+      - '@database'
+
+  dungeoncrawler_content.actor_process_flow_coordinator_service:
+    class: Drupal\dungeoncrawler_content\Service\ActorProcessFlowCoordinatorService
+    arguments:
+      - '@?dungeoncrawler_content.process_flow_state_store_service'
+      - '@?dungeoncrawler_content.process_flow_event_store_service'
 
   dungeoncrawler_content.combat_entry_service:
     class: Drupal\dungeoncrawler_content\Service\CombatEntryService
@@ -1517,6 +1615,8 @@ services:
       - '@dungeoncrawler_content.unified_state_effect_engine'
       - '@dungeoncrawler_content.unified_reaction_engine'
       - '@dungeoncrawler_content.unified_damage_engine'
+      - '@dungeoncrawler_content.action_targeting'
+      - '@dungeoncrawler_content.combat_resolution_contract'
 
   dungeoncrawler_content.encounter_master:
     alias: dungeoncrawler_content.encounter_phase_handler

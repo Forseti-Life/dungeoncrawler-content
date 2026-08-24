@@ -6,9 +6,9 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeSyncService;
+use Drupal\dungeoncrawler_content\Service\ActorStateService;
 use Drupal\dungeoncrawler_content\Service\CampaignAuthorizationService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
-use Drupal\dungeoncrawler_content\Service\CharacterStateService;
 use Drupal\dungeoncrawler_content\Service\GeneratedImageRepository;
 use Drupal\dungeoncrawler_content\Service\MapVisualStateProjector;
 use Drupal\dungeoncrawler_content\Service\NavigationRuntimeService;
@@ -64,7 +64,7 @@ class HexMapController extends ControllerBase {
   protected RuntimeGraphAssemblerService $runtimeGraphAssembler;
   protected StateValidationService $stateValidationService;
   protected CharacterManager $characterManager;
-  protected CharacterStateService $characterStateService;
+  protected ActorStateService $actorStateService;
   protected H3ProjectionQueueService $h3ProjectionQueue;
 
   /**
@@ -75,7 +75,7 @@ class HexMapController extends ControllerBase {
    * @var array<string, array|null>
    */
   protected array $roomContentsCache = [];
-  public function __construct(RequestStack $request_stack, Connection $database, CampaignAuthorizationService $campaign_authorization, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, DungeonSnapshotRefresherService $dungeon_snapshot_refresher, GraphVersionService $graph_version_service, NavigationRuntimeService $navigation_runtime, NavigationService $navigation_service, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, RuntimeGraphAssemblerService $runtime_graph_assembler, StateValidationService $state_validation_service, CharacterManager $character_manager, CharacterStateService $character_state_service, H3ProjectionQueueService $h3_projection_queue) {
+  public function __construct(RequestStack $request_stack, Connection $database, CampaignAuthorizationService $campaign_authorization, CampaignCharacterRuntimeResolverService $campaign_character_runtime_resolver, CampaignCharacterRuntimeSyncService $campaign_character_runtime_sync, QuestTrackerService $quest_tracker, QuestGeneratorService $quest_generator, GeneratedImageRepository $image_repository, MapVisualStateProjector $map_visual_state_projector, DungeonSnapshotRefresherService $dungeon_snapshot_refresher, GraphVersionService $graph_version_service, NavigationRuntimeService $navigation_runtime, NavigationService $navigation_service, StorylineManagerService $storyline_manager, RelationshipManagerService $relationship_manager, RuntimeGraphAssemblerService $runtime_graph_assembler, StateValidationService $state_validation_service, CharacterManager $character_manager, ActorStateService $actor_state_service, H3ProjectionQueueService $h3_projection_queue) {
     $this->requestStack = $request_stack;
     $this->database = $database;
     $this->campaignAuthorization = $campaign_authorization;
@@ -94,7 +94,7 @@ class HexMapController extends ControllerBase {
     $this->runtimeGraphAssembler = $runtime_graph_assembler;
     $this->stateValidationService = $state_validation_service;
     $this->characterManager = $character_manager;
-    $this->characterStateService = $character_state_service;
+    $this->actorStateService = $actor_state_service;
     $this->h3ProjectionQueue = $h3_projection_queue;
   }
 
@@ -121,7 +121,7 @@ class HexMapController extends ControllerBase {
       $container->get('dungeoncrawler_content.runtime_graph_assembler'),
       $container->get('dungeoncrawler_content.state_validation_service'),
       $container->get('dungeoncrawler_content.character_manager'),
-      $container->get('dungeoncrawler_content.character_state'),
+      $container->get('dungeoncrawler_content.actor_state_service'),
       $container->get('dungeoncrawler_content.h3_projection_queue'),
     );
   }
@@ -864,19 +864,13 @@ class HexMapController extends ControllerBase {
       return $launch_context;
     }
 
-    if (!$room_explicit) {
-      $persisted_room_id = (string) ($record['last_room_id'] ?? $record['location_ref'] ?? '');
-      if ($persisted_room_id !== '') {
-        $launch_context['room_id'] = $persisted_room_id;
-      }
+    $persisted_room_id = (string) ($record['last_room_id'] ?? $record['location_ref'] ?? '');
+    if ($persisted_room_id !== '') {
+      $launch_context['room_id'] = $persisted_room_id;
     }
 
-    if (!$start_q_explicit) {
-      $launch_context['start_q'] = (int) ($record['position_q'] ?? $launch_context['start_q'] ?? 0);
-    }
-    if (!$start_r_explicit) {
-      $launch_context['start_r'] = (int) ($record['position_r'] ?? $launch_context['start_r'] ?? 0);
-    }
+    $launch_context['start_q'] = (int) ($record['position_q'] ?? $launch_context['start_q'] ?? 0);
+    $launch_context['start_r'] = (int) ($record['position_r'] ?? $launch_context['start_r'] ?? 0);
 
     return $launch_context;
   }
@@ -942,19 +936,13 @@ class HexMapController extends ControllerBase {
     $this->campaignCharacterRuntimeResolver->assertRuntimePcIdentityContract($record, $campaign_id);
     $launch_context['character_id'] = (int) ($record['id'] ?? $requested_character_id);
 
-    if (!$room_explicit) {
-      $persisted_room_id = (string) ($record['last_room_id'] ?? $record['location_ref'] ?? '');
-      if ($persisted_room_id !== '') {
-        $launch_context['room_id'] = $persisted_room_id;
-      }
+    $persisted_room_id = (string) ($record['last_room_id'] ?? $record['location_ref'] ?? '');
+    if ($persisted_room_id !== '') {
+      $launch_context['room_id'] = $persisted_room_id;
     }
 
-    if (!$start_q_explicit) {
-      $launch_context['start_q'] = (int) ($record['position_q'] ?? $launch_context['start_q'] ?? 0);
-    }
-    if (!$start_r_explicit) {
-      $launch_context['start_r'] = (int) ($record['position_r'] ?? $launch_context['start_r'] ?? 0);
-    }
+    $launch_context['start_q'] = (int) ($record['position_q'] ?? $launch_context['start_q'] ?? 0);
+    $launch_context['start_r'] = (int) ($record['position_r'] ?? $launch_context['start_r'] ?? 0);
 
     return $launch_context;
   }
@@ -1014,7 +1002,7 @@ class HexMapController extends ControllerBase {
     }
 
     $character_data = $this->decodeLaunchCharacterData($record);
-    $effective_state = $this->characterStateService->getState(
+    $effective_state = $this->actorStateService->getState(
       (string) ($record['id'] ?? $character_id),
       $campaign_id,
       (string) ($record['instance_id'] ?? '')
@@ -2852,6 +2840,9 @@ class HexMapController extends ControllerBase {
       }
 
       $name = (string) ($npc['name'] ?? 'Unknown NPC');
+      $role = (string) ($npc['role'] ?? 'neutral');
+      $resolved_team = $this->normalizeInjectedNpcTeam((string) ($npc['team'] ?? ''), $role);
+      $resolved_attitude = $this->normalizeInjectedNpcAttitude((string) ($npc['attitude'] ?? ''));
       $instance_id = 'npc-' . (preg_replace('/[^a-zA-Z0-9_\-]+/', '-', $content_id) ?: 'npc');
       $campaign_portrait_row = $this->findCampaignRoomNpcPortraitRow($campaign_portrait_rows, $content_id, $name);
 
@@ -2877,21 +2868,72 @@ class HexMapController extends ControllerBase {
         ],
         'state' => [
           'active' => TRUE,
+          'team' => $resolved_team,
+          'attitude' => $resolved_attitude,
           'metadata' => [
             'display_name' => $name,
             'name' => $name,
-            'role' => (string) ($npc['role'] ?? 'neutral'),
+            'role' => $role,
             'description' => (string) ($npc['description'] ?? ''),
-            'team' => 'neutral',
+            'team' => $resolved_team,
+            'attitude' => $resolved_attitude,
             'setting_state' => TRUE,
             'spawn_policy' => 'fixed_template',
             'character_id' => isset($campaign_portrait_row['id']) ? (int) $campaign_portrait_row['id'] : 0,
           ],
         ],
+        'role' => $role,
+        'attitude' => $resolved_attitude,
       ];
     }
 
     return $dungeon_payload;
+  }
+
+  /**
+   * Normalize authored NPC team strings to canonical runtime team labels.
+   */
+  protected function normalizeInjectedNpcTeam(string $raw_team, string $raw_role = ''): string {
+    $team = strtolower(trim($raw_team));
+    if (in_array($team, ['player', 'enemy', 'ally', 'neutral'], TRUE)) {
+      return $team;
+    }
+    if ($team === 'pc') {
+      return 'player';
+    }
+    if (in_array($team, ['hostile', 'undead_hostile', 'monster', 'opposition'], TRUE) || str_contains($team, 'hostile')) {
+      return 'enemy';
+    }
+    if (in_array($team, ['friendly', 'companion', 'familiar'], TRUE) || str_contains($team, 'ally')) {
+      return 'ally';
+    }
+
+    $role = strtolower(trim($raw_role));
+    if (in_array($role, ['enemy', 'hostile', 'villain'], TRUE)) {
+      return 'enemy';
+    }
+    if (in_array($role, ['ally', 'companion', 'familiar'], TRUE)) {
+      return 'ally';
+    }
+    if (in_array($role, ['player', 'pc'], TRUE)) {
+      return 'player';
+    }
+    return 'neutral';
+  }
+
+  /**
+   * Normalize authored NPC attitude strings for psychology/bootstrap seed use.
+   */
+  protected function normalizeInjectedNpcAttitude(string $raw_attitude): string {
+    $attitude = strtolower(trim($raw_attitude));
+    if (in_array($attitude, ['helpful', 'friendly', 'indifferent', 'unfriendly', 'hostile'], TRUE)) {
+      return $attitude;
+    }
+    return match ($attitude) {
+      'ally', 'allied', 'supportive' => 'friendly',
+      'enemy', 'aggressive', 'angry', 'threatening' => 'hostile',
+      default => 'indifferent',
+    };
   }
 
   /**

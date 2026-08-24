@@ -26,9 +26,20 @@ function read(relPath) {
   return fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
 }
 
+function readEncounterPhaseHandlerCompositeSource() {
+  const serviceDir = path.resolve(__dirname, '../src/Service');
+  const phaseHandlerSource = fs.readFileSync(path.join(serviceDir, 'EncounterPhaseHandler.php'), 'utf8');
+  const traitSource = fs.readdirSync(serviceDir)
+    .filter((name) => name.startsWith('EncounterPhaseHandler') && name.endsWith('Trait.php'))
+    .sort()
+    .map((name) => fs.readFileSync(path.join(serviceDir, name), 'utf8'))
+    .join('\n');
+  return `${phaseHandlerSource}\n${traitSource}`;
+}
+
 console.log('\n=== Combat final legacy lane envelope contract ===');
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = readEncounterPhaseHandlerCompositeSource();
 
 assert(
   phaseHandlerSource.includes("buildCombatExecutionRequest(\n      'activate_talisman'")

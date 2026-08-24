@@ -30,8 +30,15 @@ class ActionTargetingService {
       $intent_target,
       $params['target'] ?? NULL,
       $params['target_id'] ?? NULL,
+      $params['targetId'] ?? NULL,
       $params['target_ref'] ?? NULL,
+      $params['targetRef'] ?? NULL,
+      $params['target_entity_id'] ?? NULL,
+      $params['targetEntityId'] ?? NULL,
+      $params['entity_id'] ?? NULL,
+      $params['entityId'] ?? NULL,
       $params['target_instance_id'] ?? NULL,
+      $params['targetInstanceId'] ?? NULL,
       $params['primary_target_ref'] ?? NULL,
       $params['targeting']['primary_target_ref'] ?? NULL,
     ];
@@ -66,13 +73,29 @@ class ActionTargetingService {
         if (!is_array($row)) {
           continue;
         }
-        $target_ref = $row['target_ref'] ?? $row['targetRef'] ?? $row['ref'] ?? NULL;
-        if (!is_scalar($target_ref)) {
-          continue;
-        }
-        $normalized = trim((string) $target_ref);
-        if ($normalized !== '') {
+        $row_candidates = [
+          $row['target_ref'] ?? NULL,
+          $row['targetRef'] ?? NULL,
+          $row['ref'] ?? NULL,
+          $row['target_entity_id'] ?? NULL,
+          $row['targetEntityId'] ?? NULL,
+          $row['target_id'] ?? NULL,
+          $row['targetId'] ?? NULL,
+          $row['entity_id'] ?? NULL,
+          $row['entityId'] ?? NULL,
+          $row['target_instance_id'] ?? NULL,
+          $row['targetInstanceId'] ?? NULL,
+        ];
+        foreach ($row_candidates as $target_ref) {
+          if (!is_scalar($target_ref)) {
+            continue;
+          }
+          $normalized = trim((string) $target_ref);
+          if ($normalized === '') {
+            continue;
+          }
           $row_refs[] = $normalized;
+          break;
         }
       }
       if ($row_refs !== []) {

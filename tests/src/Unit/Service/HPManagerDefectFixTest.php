@@ -270,4 +270,91 @@ class HPManagerDefectFixTest extends UnitTestCase {
     $this->assertTrue($unconsciousFlag, 'REQ 2156: Nonlethal kill must apply unconscious.');
   }
 
+  /**
+   * @covers ::heroicRecovery
+   * @covers ::ensureUnconsciousAtZeroHp
+   * Losing dying at 0 HP must not clear unconscious without healing.
+   */
+  public function testHeroicRecoveryAtZeroHpDoesNotClearUnconscious(): void {
+    $participant = [
+      'id' => 1,
+      'hp' => 0,
+      'max_hp' => 30,
+      'temp_hp' => 0,
+      'is_defeated' => 1,
+      'status' => 'defeated',
+    ];
+    $this->wireSelect($participant);
+    $this->wireUpdates();
+
+    $this->conditionManager->method('getActiveConditions')->willReturn([
+      ['id' => 10, 'condition_type' => 'dying', 'value' => 1],
+      ['id' => 11, 'condition_type' => 'unconscious', 'value' => NULL],
+    ]);
+    $this->conditionManager->method('hasCondition')->willReturn(TRUE);
+
+    $removed = [];
+    $this->conditionManager->method('removeCondition')
+      ->willReturnCallback(function ($pid, $condition_id) use (&$removed) {
+        $removed[] = (int) $condition_id;
+        return TRUE;
+      });
+
+    $applied = [];
+    $this->conditionManager->method('applyCondition')
+      ->willReturnCallback(function ($pid, $type) use (&$applied) {
+        $applied[] = (string) $type;
+        return 1;
+      });
+
+    $result = $this->hpManager->heroicRecovery(1, 1, 0);
+
+    $this->assertTrue($result['heroic_recovery']);
+    $this->assertSame([10], $removed, 'Only dying should be removed; unconscious must remain at 0 HP.');
+    $this->assertSame([], $applied, 'No new unconscious row should be created when one already exists.');
+  }
+
+  /**
+   * @covers ::heroicRecoveryAllPoints
+   * @covers ::ensureUnconsciousAtZeroHp
+   * All-points recovery must leave actor unconscious at 0 HP.
+   */
+  public function testHeroicRecoveryAllPointsEnsuresUnconsciousAtZeroHp(): void {
+    $participant = [
+      'id' => 1,
+      'hp' => 0,
+      'max_hp' => 30,
+      'temp_hp' => 0,
+      'is_defeated' => 1,
+      'status' => 'defeated',
+    ];
+    $this->wireSelect($participant);
+    $this->wireUpdates();
+
+    $this->conditionManager->method('getActiveConditions')->willReturn([
+      ['id' => 10, 'condition_type' => 'dying', 'value' => 2],
+    ]);
+    $this->conditionManager->method('hasCondition')->willReturn(FALSE);
+
+    $removed = [];
+    $this->conditionManager->method('removeCondition')
+      ->willReturnCallback(function ($pid, $condition_id) use (&$removed) {
+        $removed[] = (int) $condition_id;
+        return TRUE;
+      });
+
+    $applied = [];
+    $this->conditionManager->method('applyCondition')
+      ->willReturnCallback(function ($pid, $type) use (&$applied) {
+        $applied[] = (string) $type;
+        return 1;
+      });
+
+    $result = $this->hpManager->heroicRecoveryAllPoints(1, 1);
+
+    $this->assertTrue($result['heroic_recovery_all_points']);
+    $this->assertSame([10], $removed, 'All-points recovery should remove dying.');
+    $this->assertSame(['unconscious'], $applied, 'All-points recovery should ensure unconscious at 0 HP.');
+  }
+
 }

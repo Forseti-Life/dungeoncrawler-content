@@ -14,6 +14,7 @@ class ConditionManager {
 
   protected $database;
   protected $numberGeneration;
+  protected ?HPManager $hpManager;
 
   /**
    * Full PF2E condition catalog.
@@ -69,9 +70,10 @@ class ConditionManager {
     'wounded'      => ['is_valued' => TRUE,  'max_value' => 3, 'end_trigger' => 'persistent',  'effects' => []],
   ];
 
-  public function __construct(Connection $database, NumberGenerationService $number_generation = NULL) {
+  public function __construct(Connection $database, NumberGenerationService $number_generation = NULL, ?HPManager $hp_manager = NULL) {
     $this->database = $database;
     $this->numberGeneration = $number_generation;
+    $this->hpManager = $hp_manager;
   }
 
   /**
@@ -129,6 +131,80 @@ class ConditionManager {
         'encounter_id'     => $encounter_id,
         'condition_type'   => $condition_type,
         'value'            => $insert_value,
+        'duration_type'    => $duration_type,
+        'duration_remaining' => $duration_remaining,
+        'source'           => is_string($source) ? $source : json_encode($source),
+        'applied_at_round' => $applied_at_round,
+        'removed_at_round' => NULL,
+        'created'          => $now,
+        'updated'          => $now,
+      ])
+      ->execute();
+  }
+
+  /**
+   * Set a valued condition to an exact value (non-additive).
+   *
+   * Creates the condition row if no active row exists.
+   *
+   * @return int|false
+   *   Condition row ID on insert/update, FALSE if non-valued already present.
+   */
+  public function setConditionValueExact($participant_id, $condition_type, $value, $duration, $source, $encounter_id) {
+    if (!array_key_exists($condition_type, self::CONDITIONS)) {
+      throw new \InvalidArgumentException("Unknown condition type: '{$condition_type}'. Must be one of: " . implode(', ', array_keys(self::CONDITIONS)));
+    }
+
+    $catalog = self::CONDITIONS[$condition_type];
+    $now = time();
+    [$duration_type, $duration_remaining] = $this->normalizeDuration($duration);
+    $applied_at_round = $this->getCurrentRound($encounter_id);
+
+    $existing = $this->database->select('combat_conditions', 'c')
+      ->fields('c', ['id'])
+      ->condition('participant_id', $participant_id)
+      ->condition('encounter_id', $encounter_id)
+      ->condition('condition_type', $condition_type)
+      ->isNull('removed_at_round')
+      ->execute()
+      ->fetchObject();
+
+    if (!$catalog['is_valued']) {
+      if ($existing) {
+        return FALSE;
+      }
+      return (int) $this->database->insert('combat_conditions')
+        ->fields([
+          'participant_id'   => $participant_id,
+          'encounter_id'     => $encounter_id,
+          'condition_type'   => $condition_type,
+          'value'            => NULL,
+          'duration_type'    => $duration_type,
+          'duration_remaining' => $duration_remaining,
+          'source'           => is_string($source) ? $source : json_encode($source),
+          'applied_at_round' => $applied_at_round,
+          'removed_at_round' => NULL,
+          'created'          => $now,
+          'updated'          => $now,
+        ])
+        ->execute();
+    }
+
+    $exact_value = min((int) $catalog['max_value'], max(1, (int) $value));
+    if ($existing) {
+      $this->database->update('combat_conditions')
+        ->fields(['value' => $exact_value, 'updated' => $now])
+        ->condition('id', $existing->id)
+        ->execute();
+      return (int) $existing->id;
+    }
+
+    return (int) $this->database->insert('combat_conditions')
+      ->fields([
+        'participant_id'   => $participant_id,
+        'encounter_id'     => $encounter_id,
+        'condition_type'   => $condition_type,
+        'value'            => $exact_value,
         'duration_type'    => $duration_type,
         'duration_remaining' => $duration_remaining,
         'source'           => is_string($source) ? $source : json_encode($source),
@@ -304,7 +380,7 @@ class ConditionManager {
    *   1          = critical failure → dying value +2
    *   2–9        = failure          → dying value +1
    *   10–19      = success          → dying value -1
-   *   20         = critical success → dying value -2 (0 or below → conscious, remove dying)
+   *   20         = critical success → dying value -2 (0 or below → remove dying)
    *   dying 4    = dead (regardless of doomed modifier — simplified)
    *
    * @param int $participant_id
@@ -316,7 +392,7 @@ class ConditionManager {
    *   'dying_before' => int,
    *   'dying_after'  => int,
    *   'dead'         => bool,
-   *   'conscious'    => bool,
+   *   'conscious'    => bool, TRUE only when HP > 0 after stabilization transition.
    * ]
    */
   public function processDying(int $participant_id, int $encounter_id): array {
@@ -377,15 +453,47 @@ class ConditionManager {
     $death_threshold = max(1, 4 - $doomed_value);
 
     if ($dying_after <= 0) {
-      // Participant stabilizes — remove the dying condition.
+      // Participant stabilizes — remove dying and apply wounded +1 exactly once.
       $this->database->update('combat_conditions')
         ->fields(['removed_at_round' => $current_round, 'updated' => $now])
         ->condition('id', $dying_row['id'])
         ->execute();
+
+      $current_wounded = 0;
+      $active_unconscious = [];
+      foreach ($conditions as $row) {
+        if ($row['condition_type'] === 'wounded') {
+          $current_wounded = max($current_wounded, (int) ($row['value'] ?? 0));
+        }
+        if ($row['condition_type'] === 'unconscious') {
+          $active_unconscious[] = (int) $row['id'];
+        }
+      }
+      $this->setConditionValueExact($participant_id, 'wounded', $current_wounded + 1, ['type' => 'persistent', 'remaining' => NULL], 'dying_recovery', $encounter_id);
+
+      $participant = $this->database->select('combat_participants', 'p')
+        ->fields('p', ['hp'])
+        ->condition('id', $participant_id)
+        ->execute()
+        ->fetchAssoc() ?: [];
+      $participant_hp = (int) ($participant['hp'] ?? 0);
+
+      // At 0 HP, losing dying does not automatically restore consciousness.
+      if ($participant_hp <= 0) {
+        if (empty($active_unconscious)) {
+          $this->applyCondition($participant_id, 'unconscious', 1, ['type' => 'encounter', 'remaining' => NULL], 'dying_recovery', $encounter_id);
+        }
+      }
+      else {
+        foreach ($active_unconscious as $condition_id) {
+          $this->removeCondition($participant_id, $condition_id, $encounter_id);
+        }
+      }
+
       return [
         'roll' => $roll, 'outcome' => $outcome,
         'dying_before' => $dying_before, 'dying_after' => 0,
-        'dead' => FALSE, 'conscious' => TRUE,
+        'dead' => FALSE, 'conscious' => $participant_hp > 0,
       ];
     }
 
@@ -395,6 +503,11 @@ class ConditionManager {
         ->fields(['removed_at_round' => $current_round, 'updated' => $now])
         ->condition('id', $dying_row['id'])
         ->execute();
+      foreach ($conditions as $row) {
+        if ($row['condition_type'] === 'unconscious') {
+          $this->removeCondition($participant_id, (int) $row['id'], $encounter_id);
+        }
+      }
       // Mark participant as removed from encounter (dead).
       $this->database->update('combat_participants')
         ->fields([
@@ -546,6 +659,13 @@ class ConditionManager {
     }
 
     $current_round = $this->getCurrentRound((int) $encounter_id);
+    $hp_manager = $this->resolveHpManager();
+    if (!$hp_manager) {
+      return [[
+        'error' => 'Persistent damage processing unavailable: hp_manager service missing.',
+        'participant_id' => (int) $participant_id,
+      ]];
+    }
     $results = [];
 
     foreach ($conditions as $cond_id => $condition) {
@@ -562,12 +682,26 @@ class ConditionManager {
         }
       }
 
-      // Apply damage directly via DB (HPManager creates circular dependency).
-      $new_hp = max(0, ((int) $participant['hp']) - $damage_value);
-      $this->database->update('combat_participants')
-        ->fields(['hp' => $new_hp])
-        ->condition('id', (int) $participant_id)
-        ->execute();
+      $damage_type = 'persistent';
+      if (preg_match('/^persistent_damage[_:\\-]?([a-z_]+)/i', (string) ($condition['condition_type'] ?? ''), $matches)) {
+        $resolved = strtolower(trim((string) ($matches[1] ?? '')));
+        if ($resolved !== '') {
+          $damage_type = $resolved;
+        }
+      }
+      $hp_before = (int) ($participant['hp'] ?? 0);
+      $hp_resolution = $hp_manager->applyDamage(
+        (int) $participant_id,
+        $damage_value,
+        $damage_type,
+        [
+          'source' => 'persistent_damage',
+          'condition_id' => (int) $cond_id,
+          'condition_type' => (string) ($condition['condition_type'] ?? ''),
+        ],
+        (int) $encounter_id
+      );
+      $new_hp = (int) ($hp_resolution['new_hp'] ?? $hp_before);
 
       // Log the damage.
       try {
@@ -583,7 +717,7 @@ class ConditionManager {
             ]),
             'result' => json_encode([
               'damage' => $damage_value,
-              'hp_before' => (int) $participant['hp'],
+              'hp_before' => $hp_before,
               'hp_after' => $new_hp,
             ]),
             'created' => time(),
@@ -611,10 +745,11 @@ class ConditionManager {
         'condition_id' => (int) $cond_id,
         'condition_type' => $condition['condition_type'],
         'damage' => $damage_value,
-        'hp_before' => (int) $participant['hp'],
+        'hp_before' => $hp_before,
         'hp_after' => $new_hp,
         'flat_check_roll' => $flat_check_roll,
         'ended' => $ended,
+        'new_status' => (string) ($hp_resolution['new_status'] ?? 'active'),
       ];
 
       // Update running HP for subsequent iterations.
@@ -688,6 +823,25 @@ class ConditionManager {
       'has_fortune'    => in_array('fortune', $types, TRUE),
       'has_misfortune' => in_array('misfortune', $types, TRUE),
     ];
+  }
+
+  protected function resolveHpManager(): ?HPManager {
+    if ($this->hpManager instanceof HPManager) {
+      return $this->hpManager;
+    }
+
+    try {
+      $service = \Drupal::service('dungeoncrawler_content.hp_manager');
+      if ($service instanceof HPManager) {
+        $this->hpManager = $service;
+        return $this->hpManager;
+      }
+    }
+    catch (\Throwable $e) {
+      return NULL;
+    }
+
+    return NULL;
   }
 
 }

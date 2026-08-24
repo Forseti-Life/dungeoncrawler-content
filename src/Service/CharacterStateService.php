@@ -230,6 +230,13 @@ class CharacterStateService {
       $state['portrait'] = $portrait_url;
     }
 
+    $state = $this->applyAuthoritativeRuntimeActorOverlay(
+      $state,
+      (int) ($campaign_row['campaign_id'] ?? $campaign_id ?? 0),
+      (string) ($campaign_row['instance_id'] ?? $instance_id ?? ''),
+      (int) $character_id
+    );
+
     $state = $this->applyDispositionAttitudeToDescriptors($state);
     $state = $this->applyStanceSummaryProjection($state);
 
@@ -1855,6 +1862,291 @@ class CharacterStateService {
 
     $decoded = json_decode((string) $source_default, TRUE);
     return is_array($decoded) ? $decoded : $default_data;
+  }
+
+  /**
+   * Overlay authoritative runtime actor vitals onto character state.
+   *
+   * Canonical dynamic vitals/conditions source is the runtime actor lane
+   * (dc_campaign_actor_runtime_state + dc_campaign_runtime_state.game_state).
+   * This keeps all actor reads aligned regardless of caller/UI surface.
+   */
+  private function applyAuthoritativeRuntimeActorOverlay(array $state, int $campaign_id, string $instance_id, int $character_id): array {
+    $instance_id = trim($instance_id);
+    if ($campaign_id <= 0 || !$this->database->schema()->tableExists('dc_campaign_actor_runtime_state')) {
+      return $state;
+    }
+
+    $query = $this->database->select('dc_campaign_actor_runtime_state', 'a')
+      ->fields('a', ['actor_instance_id', 'character_id', 'entity_payload', 'updated'])
+      ->condition('campaign_id', $campaign_id);
+
+    if ($instance_id !== '') {
+      $query->condition('actor_instance_id', $instance_id);
+    }
+    elseif ($character_id > 0) {
+      $query->condition('character_id', $character_id);
+    }
+    else {
+      return $state;
+    }
+
+    $runtime_actor_row = $query
+      ->orderBy('updated', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if (!is_array($runtime_actor_row)) {
+      return $state;
+    }
+
+    $runtime_actor_payload = json_decode((string) ($runtime_actor_row['entity_payload'] ?? '{}'), TRUE);
+    if (!is_array($runtime_actor_payload)) {
+      throw new \RuntimeException(sprintf(
+        'Character state contract violation: invalid runtime actor payload for campaign %d actor %s.',
+        $campaign_id,
+        (string) ($runtime_actor_row['actor_instance_id'] ?? '')
+      ));
+    }
+
+    $resolved_actor_ref = trim((string) (
+      $runtime_actor_row['actor_instance_id']
+      ?? $runtime_actor_payload['entity_instance_id']
+      ?? $runtime_actor_payload['instance_id']
+      ?? $runtime_actor_payload['id']
+      ?? $instance_id
+    ));
+
+    $runtime_hit_points = $this->extractRuntimeActorHitPoints($runtime_actor_payload);
+    $runtime_conditions = $this->extractRuntimeActorConditions($runtime_actor_payload);
+
+    if (
+      $this->database->schema()->tableExists('dc_campaign_runtime_state')
+      && $resolved_actor_ref !== ''
+    ) {
+      $runtime_state_row = $this->database->select('dc_campaign_runtime_state', 's')
+        ->fields('s', ['game_state'])
+        ->condition('campaign_id', $campaign_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+      if (is_array($runtime_state_row)) {
+        $game_state = json_decode((string) ($runtime_state_row['game_state'] ?? '{}'), TRUE);
+        if (!is_array($game_state)) {
+          throw new \RuntimeException(sprintf(
+            'Character state contract violation: invalid runtime game_state payload for campaign %d.',
+            $campaign_id
+          ));
+        }
+        $participant = $this->findRuntimeInitiativeParticipantForActor($game_state, $resolved_actor_ref, $runtime_actor_payload);
+        if (is_array($participant)) {
+          $participant_current_hp = array_key_exists('hp', $participant) ? (int) $participant['hp'] : NULL;
+          $participant_max_hp = array_key_exists('max_hp', $participant) ? (int) $participant['max_hp'] : NULL;
+          if ($participant_current_hp !== NULL) {
+            $runtime_hit_points['current'] = $participant_current_hp;
+            if (($runtime_hit_points['max'] ?? 0) <= 0) {
+              $runtime_hit_points['max'] = $participant_current_hp;
+            }
+          }
+          if ($participant_max_hp !== NULL && $participant_max_hp > 0) {
+            $runtime_hit_points['max'] = $participant_max_hp;
+          }
+          $runtime_conditions = $this->normalizeInitiativeParticipantConditions($participant);
+        }
+      }
+    }
+
+    if (!isset($state['resources']) || !is_array($state['resources'])) {
+      $state['resources'] = [];
+    }
+    $existing_hit_points = is_array($state['resources']['hitPoints'] ?? NULL)
+      ? $state['resources']['hitPoints']
+      : [];
+    $state['resources']['hitPoints'] = [
+      'current' => (int) ($runtime_hit_points['current'] ?? ($existing_hit_points['current'] ?? 0)),
+      'max' => (int) ($runtime_hit_points['max'] ?? ($existing_hit_points['max'] ?? 0)),
+      'temporary' => (int) ($existing_hit_points['temporary'] ?? 0),
+    ];
+    $state['hp_current'] = (int) $state['resources']['hitPoints']['current'];
+    $state['hp_max'] = (int) $state['resources']['hitPoints']['max'];
+    $state['conditions'] = is_array($runtime_conditions) ? $runtime_conditions : [];
+
+    return $state;
+  }
+
+  /**
+   * Extract baseline HP from runtime actor payload.
+   *
+   * @return array{current:int,max:int}
+   */
+  private function extractRuntimeActorHitPoints(array $runtime_actor_payload): array {
+    $stats = is_array($runtime_actor_payload['state']['stats'] ?? NULL)
+      ? $runtime_actor_payload['state']['stats']
+      : [];
+    $character_data = is_array($runtime_actor_payload['state']['character_data'] ?? NULL)
+      ? $runtime_actor_payload['state']['character_data']
+      : [];
+    $character_data_stats = is_array($character_data['stats'] ?? NULL)
+      ? $character_data['stats']
+      : [];
+
+    $current = (int) (
+      $stats['currentHp']
+      ?? $character_data_stats['currentHp']
+      ?? 0
+    );
+    $max = (int) (
+      $stats['maxHp']
+      ?? $character_data_stats['maxHp']
+      ?? $current
+    );
+    if ($max <= 0 && $current > 0) {
+      $max = $current;
+    }
+    return [
+      'current' => $current,
+      'max' => $max,
+    ];
+  }
+
+  /**
+   * Extract baseline conditions from runtime actor payload.
+   *
+   * @return array<int, array<string,mixed>>
+   */
+  private function extractRuntimeActorConditions(array $runtime_actor_payload): array {
+    $raw_conditions = $runtime_actor_payload['state']['conditions'] ?? [];
+    if (!is_array($raw_conditions)) {
+      $raw_conditions = [];
+    }
+    return $this->normalizeConditionEntries($raw_conditions);
+  }
+
+  /**
+   * Resolve initiative participant entry for actor runtime id.
+   */
+  private function findRuntimeInitiativeParticipantForActor(array $game_state, string $actor_ref, array $runtime_actor_payload): ?array {
+    $participants = is_array($game_state['initiative_order'] ?? NULL)
+      ? $game_state['initiative_order']
+      : [];
+    if ($participants === []) {
+      return NULL;
+    }
+
+    $entity_ref = $runtime_actor_payload['entity_ref'] ?? NULL;
+    $content_id = is_array($entity_ref) ? trim((string) ($entity_ref['content_id'] ?? '')) : '';
+    $candidates = array_values(array_unique(array_filter([
+      $actor_ref,
+      $content_id,
+      $content_id !== '' ? 'npc_' . $content_id : '',
+      $content_id !== '' ? 'npc-' . $content_id : '',
+    ], static fn($value): bool => trim((string) $value) !== '')));
+
+    foreach ($participants as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $participant_candidates = [
+        trim((string) ($participant['entity_id'] ?? '')),
+        trim((string) ($participant['id'] ?? '')),
+        trim((string) ($participant['entity_ref'] ?? '')),
+      ];
+      $entity_ref_raw = trim((string) ($participant['entity_ref'] ?? ''));
+      if ($entity_ref_raw !== '' && str_starts_with($entity_ref_raw, '{')) {
+        $decoded_ref = json_decode($entity_ref_raw, TRUE);
+        if (is_array($decoded_ref)) {
+          $decoded_content_id = trim((string) ($decoded_ref['content_id'] ?? ''));
+          $participant_candidates[] = trim((string) ($decoded_ref['entity_id'] ?? ''));
+          $participant_candidates[] = trim((string) ($decoded_ref['instance_id'] ?? ''));
+          $participant_candidates[] = trim((string) ($decoded_ref['entity_instance_id'] ?? ''));
+          $participant_candidates[] = trim((string) ($decoded_ref['id'] ?? ''));
+          $participant_candidates[] = $decoded_content_id;
+          if ($decoded_content_id !== '') {
+            $participant_candidates[] = 'npc_' . $decoded_content_id;
+            $participant_candidates[] = 'npc-' . $decoded_content_id;
+          }
+        }
+      }
+      $participant_candidates = array_values(array_unique(array_filter($participant_candidates, static fn($value): bool => trim((string) $value) !== '')));
+      foreach ($candidates as $candidate) {
+        if (in_array($candidate, $participant_candidates, TRUE)) {
+          return $participant;
+        }
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Normalize participant condition arrays into canonical state shape.
+   *
+   * @return array<int, array<string,mixed>>
+   */
+  private function normalizeInitiativeParticipantConditions(array $participant): array {
+    $raw_conditions = [];
+    if (is_array($participant['conditions'] ?? NULL)) {
+      $raw_conditions = $participant['conditions'];
+    }
+    elseif (is_array($participant['active_conditions'] ?? NULL)) {
+      $raw_conditions = $participant['active_conditions'];
+    }
+    elseif (is_array($participant['condition_states'] ?? NULL)) {
+      $raw_conditions = $participant['condition_states'];
+    }
+    return $this->normalizeConditionEntries($raw_conditions);
+  }
+
+  /**
+   * Normalize mixed condition payloads to canonical condition entries.
+   *
+   * @param array<int,mixed> $raw_conditions
+   *   Raw condition list.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Canonical condition list.
+   */
+  private function normalizeConditionEntries(array $raw_conditions): array {
+    $normalized = [];
+    foreach ($raw_conditions as $condition) {
+      if (is_string($condition)) {
+        $label = trim($condition);
+        if ($label === '') {
+          continue;
+        }
+        $normalized[] = [
+          'condition_type' => strtolower(str_replace(' ', '_', $label)),
+          'name' => $label,
+        ];
+        continue;
+      }
+      if (!is_array($condition)) {
+        continue;
+      }
+      $raw_type = trim((string) (
+        $condition['condition_type']
+        ?? $condition['type']
+        ?? $condition['id']
+        ?? $condition['name']
+        ?? ''
+      ));
+      if ($raw_type === '') {
+        continue;
+      }
+      $normalized_condition = [
+        'condition_type' => strtolower(str_replace(' ', '_', $raw_type)),
+        'name' => trim((string) ($condition['name'] ?? $raw_type)),
+      ];
+      if (array_key_exists('value', $condition) && is_numeric($condition['value'])) {
+        $normalized_condition['value'] = (int) $condition['value'];
+      }
+      if (array_key_exists('source', $condition) && trim((string) $condition['source']) !== '') {
+        $normalized_condition['source'] = trim((string) $condition['source']);
+      }
+      $normalized[] = $normalized_condition;
+    }
+    return $normalized;
   }
 
   /**

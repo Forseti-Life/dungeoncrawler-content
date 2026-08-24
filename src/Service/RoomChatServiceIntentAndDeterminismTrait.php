@@ -1908,6 +1908,7 @@ trait RoomChatServiceIntentAndDeterminismTrait {
       'runtime_snapshot',
       'aggression_summary',
       'combat_entry_summary',
+      'process_flow_summary',
       'navigation',
       'timing',
       'debug_trace',

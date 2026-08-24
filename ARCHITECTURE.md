@@ -81,6 +81,41 @@ Yes — the architecture includes a content generation system, and this section 
 - **NpcSheetGenerationService / NpcPsychologyService**: NPC sheet and psychology generation
 - **FactionGenerationService**: Narrative-need faction generation and campaign instantiation
 
+## Hexmap UI Runtime Ownership Contract
+
+Hexmap V2 is a projection client over server-owned runtime state.
+
+### Ownership rule
+
+Each panel must define:
+
+1. **read authority**
+2. **mutation authority**
+3. **owned DOM surface**
+4. **derived-only local state**
+
+### Required panel boundaries
+
+| Panel | Read authority | Must not own |
+|---|---|---|
+| Action Rail | `/api/map/visual-state`, `/api/game/{campaign_id}/state`, `/api/character/{character_id}/actions` | canonical actor identity, action legality, turn ownership |
+| Combat Panel | `/api/game/{campaign_id}/state`, `/api/game/{campaign_id}/events` | alternate round/turn/action truth |
+| Character Panel | `/api/character/{character_id}/state` | authoritative HP/conditions/resources separate from character state API |
+| Inventory Panel | `/api/inventory/{owner_type}/{owner_id}` | local inventory truth |
+| Chat Panel | room chat/channel/session APIs + `/api/game/{campaign_id}/events` | invented transcript or event ordering |
+| Room View Panel | `/api/campaign/{campaign_id}/room/{room_id}/view-image` | room scene/image truth |
+| Merchant Panel | merchant context/search/transaction APIs | local merchant stock truth |
+
+### Action Rail correction
+
+Action Rail actor identity is API-owned:
+
+- bootstrap owner: `/api/map/visual-state`
+- runtime turn owner: `/api/game/{campaign_id}/state`
+- action legality owner: `/api/character/{character_id}/actions`
+
+Local shell state may help with selection UX, but it may not override or null out the actor identity provided by those surfaces.
+
 ## GM Subsystem Authority Boundaries
 
 | Surface | Owner | Contract |
@@ -282,4 +317,6 @@ $generator->register('custom_race', new CustomRaceGenerator());
 
 - [GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md](GAMEPLAY_ORCHESTRATION_ARCHITECTURE.md) — authoritative runtime gameplay flow
 - [CHAT_AND_NARRATION_ARCHITECTURE.md](CHAT_AND_NARRATION_ARCHITECTURE.md) — session hierarchy and narration pipeline
+- [TAB_RUNTIME_CONSISTENCY_ARCHITECTURE.md](TAB_RUNTIME_CONSISTENCY_ARCHITECTURE.md) — current-state and target-state tab/runtime consistency design
+- [TAB_RUNTIME_CONSISTENCY_IMPLEMENTATION_PLAN.md](TAB_RUNTIME_CONSISTENCY_IMPLEMENTATION_PLAN.md) — implementation phases for single-store runtime convergence
 - [DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md](DETERMINISTIC_GM_ORCHESTRATION_ARCHITECTURE.md) — proposed deterministic broker architecture for room-chat GM orchestration

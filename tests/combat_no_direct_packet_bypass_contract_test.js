@@ -26,10 +26,20 @@ function read(relPath) {
   return fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
 }
 
+function readEncounterPhaseHandlerCompositeSource() {
+  const serviceDir = path.resolve(__dirname, '../src/Service');
+  const phaseHandlerSource = fs.readdirSync(serviceDir)
+    .filter((name) => name === 'EncounterPhaseHandler.php' || (name.startsWith('EncounterPhaseHandler') && name.endsWith('Trait.php')))
+    .sort()
+    .map((name) => fs.readFileSync(path.join(serviceDir, name), 'utf8'))
+    .join('\n');
+  return phaseHandlerSource;
+}
+
 console.log('\n=== Combat packet bypass guard ===');
 
 const executorSource = read('../src/Service/EncounterActionExecutor.php');
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = readEncounterPhaseHandlerCompositeSource();
 
 assert(
   !executorSource.includes('combatResolutionContractService->buildDamageApplicationPacket(')

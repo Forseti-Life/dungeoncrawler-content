@@ -38,6 +38,10 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
   protected function setUp(): void {
     parent::setUp();
 
+    if (!class_exists(AIApiService::class) || !class_exists(PromptManager::class)) {
+      $this->markTestSkipped('RoomChatService NPC resolution tests require ai_conversation service classes.');
+    }
+
     $this->database = $this->createMock(Connection::class);
     $this->psychologyService = $this->createMock(NpcPsychologyService::class);
 
@@ -1123,6 +1127,10 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       'turn_sequence' => $harnessPayload['turn_sequence'],
       'client_request_id' => 'client-123',
       'npc_interjections_deferred' => FALSE,
+      'process_flow_summary' => [
+        'active_flow' => 'room-dialogue-flow',
+        'selection_reason' => 'Flow-authorized interjection in room lane.',
+      ],
     ]);
 
     $this->assertSame('room-chat-response-v1', $roomChatPayload['schema_version']);
@@ -1130,6 +1138,7 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertSame('Game Master', $roomChatPayload['gm_response']['speaker']);
     $this->assertSame('client-123', $roomChatPayload['client_request_id']);
     $this->assertSame($harnessPayload, $roomChatPayload['turn_harness']);
+    $this->assertSame('room-dialogue-flow', $roomChatPayload['process_flow_summary']['active_flow'] ?? NULL);
 
     $queuedContinuationPayload = $service->publicBuildQueuedRoomContinuationPayload([
       'continued' => TRUE,
@@ -1146,6 +1155,10 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
       'npc_interjections' => $harnessPayload['messages'],
       'npc_interjections_deferred' => FALSE,
       'client_request_id' => 'client-queued-123',
+      'process_flow_summary' => [
+        'active_flow' => 'room-dialogue-flow',
+        'selection_reason' => 'Queued continuation keeps the same flow context.',
+      ],
     ]);
 
     $this->assertSame('queued-room-continuation-v1', $queuedContinuationPayload['schema_version']);
@@ -1155,6 +1168,34 @@ class RoomChatServiceNpcResolutionTest extends UnitTestCase {
     $this->assertSame($harnessPayload, $queuedContinuationPayload['turn_harness']);
     $this->assertCount(1, $queuedContinuationPayload['npc_interjections']);
     $this->assertFalse($queuedContinuationPayload['npc_interjections_deferred']);
+    $this->assertSame('room-dialogue-flow', $queuedContinuationPayload['process_flow_summary']['active_flow'] ?? NULL);
+  }
+
+  /**
+   * @covers ::applyCombatInitiationProjectionToRoomResult
+   */
+  public function testApplyCombatInitiationProjectionIncludesProcessFlowSummaryFromPolicyBasis(): void {
+    $result = [];
+    $canonical_actions = [
+      'combat_initiation' => [
+        'aggression_summary' => ['state' => 'hostile'],
+        'combat_entry_summary' => ['status' => 'entered'],
+        'policy' => [
+          'basis' => [
+            'actor_process_flow' => 'combat-entry-flow',
+            'actor_process_flow_reason' => 'Threshold gate satisfied for combat entry.',
+            'actor_process_flow_blockers' => ['no_valid_targets'],
+          ],
+        ],
+      ],
+    ];
+
+    $this->roomChatService->publicApplyCombatInitiationProjectionToRoomResult($result, $canonical_actions);
+
+    $this->assertSame('combat-entry-flow', $result['process_flow_summary']['active_flow'] ?? NULL);
+    $this->assertSame('Threshold gate satisfied for combat entry.', $result['process_flow_summary']['selection_reason'] ?? NULL);
+    $this->assertSame(['no_valid_targets'], $result['process_flow_summary']['blocking_conditions'] ?? NULL);
+    $this->assertSame('combat_entry_policy', $result['process_flow_summary']['source'] ?? NULL);
   }
 
   /**
@@ -3616,6 +3657,10 @@ class TestableRoomChatService extends RoomChatService {
 
   public function publicBuildQueuedRoomContinuationPayload(array $payload): array {
     return $this->buildQueuedRoomContinuationPayload($payload);
+  }
+
+  public function publicApplyCombatInitiationProjectionToRoomResult(array &$result, array $canonical_actions): void {
+    $this->applyCombatInitiationProjectionToRoomResult($result, $canonical_actions);
   }
 
   public function publicSelectBestMatchingQuestLeadCandidate(string $player_message, array $candidates, array $exclude_giver_npc_ids = []): ?array {

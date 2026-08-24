@@ -15457,12 +15457,58 @@ import { SpriteService } from './SpriteService.js';
       if (normalizedCandidates.length === 0) {
         return null;
       }
+      const canonicalize = (value) => String(value ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/^runtime:/, '')
+        .replace(/^content:/, '')
+        .replace(/^character:/, '')
+        .replace(/^campaign-character:/, '')
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      const candidateSet = new Set(normalizedCandidates);
+      const canonicalCandidateSet = new Set(normalizedCandidates.map((candidate) => canonicalize(candidate)).filter(Boolean));
 
-      return participants.find((entry) => normalizedCandidates.some((candidate) =>
-        candidate === String(entry?.entity_ref ?? '').trim()
-        || candidate === String(entry?.entity_id ?? '').trim()
-        || candidate === String(entry?.id ?? '').trim()
-      )) || null;
+      for (const entry of participants) {
+        if (!entry || typeof entry !== 'object') {
+          continue;
+        }
+        const entryCandidates = [
+          entry?.entity_ref,
+          entry?.entity_id,
+          entry?.id,
+          entry?.name,
+        ]
+          .map((value) => String(value ?? '').trim())
+          .filter(Boolean);
+        const entityRefRaw = String(entry?.entity_ref ?? '').trim();
+        if (entityRefRaw.startsWith('{')) {
+          try {
+            const decoded = JSON.parse(entityRefRaw);
+            const decodedContentId = String(decoded?.content_id ?? '').trim();
+            entryCandidates.push(
+              String(decoded?.entity_id ?? '').trim(),
+              String(decoded?.instance_id ?? '').trim(),
+              String(decoded?.entity_instance_id ?? '').trim(),
+              String(decoded?.character_id ?? '').trim(),
+              decodedContentId,
+              decodedContentId ? `npc_${decodedContentId}` : '',
+              decodedContentId ? `npc-${decodedContentId}` : '',
+              String(decoded?.id ?? '').trim()
+            );
+          } catch (_error) {
+            // Ignore malformed participant entity_ref payloads.
+          }
+        }
+        if (entryCandidates.some((candidate) => candidateSet.has(candidate))) {
+          return entry;
+        }
+        const canonicalEntrySet = new Set(entryCandidates.map((candidate) => canonicalize(candidate)).filter(Boolean));
+        if (Array.from(canonicalCandidateSet).some((candidate) => canonicalEntrySet.has(candidate))) {
+          return entry;
+        }
+      }
+      return null;
     },
 
     resolveEncounterParticipantReference: function (entityOrRef = null) {
