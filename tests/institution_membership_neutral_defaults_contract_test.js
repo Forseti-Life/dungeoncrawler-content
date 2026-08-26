@@ -49,8 +49,10 @@ assert(
   source.includes('$score = 0;')
     && source.includes("? 'known-neutral-default'")
     && source.includes(": 'unknown-neutral-default';")
-    && source.includes("in_array(($state['seed_profile_key'] ?? ''), ['membership-self-default', 'known-neutral-default', 'unknown-neutral-default'], TRUE);"),
-  'Seeded institution sentiment defaults to neutral for known/unknown peers and remains reconcilable'
+    && source.includes('STARTER_UNDEAD_HOSTILITY_PROFILE_KEY')
+    && source.includes('isHostileUndeadNpcSentimentSource(')
+    && source.includes("in_array(($state['seed_profile_key'] ?? ''), ['membership-self-default', 'known-neutral-default', 'unknown-neutral-default', self::STARTER_UNDEAD_HOSTILITY_PROFILE_KEY], TRUE);"),
+  'Seeded institution sentiment defaults to neutral for known/unknown peers, with explicit hostile-undead bootstrap override support'
 );
 
 console.log(`\nPassed: ${passed}`);

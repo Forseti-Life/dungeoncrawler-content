@@ -10,6 +10,8 @@ use Drupal\Core\Database\Connection;
 class InstitutionMembershipService {
   protected const DEFAULT_ANCESTRY_LABEL = 'Unknown Ancestry';
   protected const DEFAULT_PROFESSION_LABEL = 'Unknown Profession';
+  protected const STARTER_UNDEAD_HOSTILITY_SENTIMENT_SCORE = -100;
+  protected const STARTER_UNDEAD_HOSTILITY_PROFILE_KEY = 'starter-undead-hostility-default';
 
   /**
    * Generic NPC class labels that should not seed profession institutions.
@@ -691,6 +693,12 @@ class InstitutionMembershipService {
         $processed_domains[$domain] = TRUE;
       }
     }
+    $source_is_hostile_undead_npc = $this->isHostileUndeadNpcSentimentSource(
+      $campaign_id,
+      $source_type,
+      $source_id,
+      $resolved_memberships
+    );
     foreach ($primary_memberships as $sentiment_domain => $primary_membership) {
       $processed_domains[$sentiment_domain] = TRUE;
       $peer_subjects = $this->buildSentimentPeerSubjects($campaign_id, $sentiment_domain, $primary_membership, $resolved_memberships);
@@ -715,6 +723,14 @@ class InstitutionMembershipService {
         $profile_key = $is_known
           ? 'known-neutral-default'
           : 'unknown-neutral-default';
+        if (
+          $source_is_hostile_undead_npc
+          && $this->shouldApplyUndeadHostilitySeedBias($sentiment_domain, $target_id, $primary_membership)
+        ) {
+          $score = self::STARTER_UNDEAD_HOSTILITY_SENTIMENT_SCORE;
+          $knowledge_state = 'known';
+          $profile_key = self::STARTER_UNDEAD_HOSTILITY_PROFILE_KEY;
+        }
 
         $desired_edges[$relationship_id] = [
           'relationship_id' => $relationship_id,
@@ -971,7 +987,107 @@ class InstitutionMembershipService {
       && ($state['seed_source'] ?? '') === 'actor_creation'
       && ($state['mutation_state'] ?? 'seeded') === 'seeded'
       && empty($state['touched_at'])
-      && in_array(($state['seed_profile_key'] ?? ''), ['membership-self-default', 'known-neutral-default', 'unknown-neutral-default'], TRUE);
+      && in_array(($state['seed_profile_key'] ?? ''), ['membership-self-default', 'known-neutral-default', 'unknown-neutral-default', self::STARTER_UNDEAD_HOSTILITY_PROFILE_KEY], TRUE);
+  }
+
+  /**
+   * Determine whether this actor should seed hostile institutional sentiment.
+   *
+   * @param array<int, array<string, string>> $resolved_memberships
+   *   Actor membership rows resolved during sync.
+   */
+  protected function isHostileUndeadNpcSentimentSource(
+    int $campaign_id,
+    string $source_type,
+    string $source_id,
+    array $resolved_memberships
+  ): bool {
+    if ($campaign_id <= 0 || $source_type !== 'campaign_npc' || trim($source_id) === '') {
+      return FALSE;
+    }
+
+    $has_undead_membership = FALSE;
+    foreach ($resolved_memberships as $membership) {
+      $subject_id = trim((string) ($membership['subject_id'] ?? ''));
+      if ($subject_id === 'institution_ancestry_undead') {
+        $has_undead_membership = TRUE;
+        break;
+      }
+    }
+    if (!$has_undead_membership) {
+      return FALSE;
+    }
+
+    $source_hint = strtolower(trim($source_id));
+    if (
+      str_contains($source_hint, 'skeleton')
+      || str_contains($source_hint, 'zombie')
+      || str_contains($source_hint, 'undead')
+    ) {
+      return TRUE;
+    }
+
+    $row = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['name', 'ancestry', 'class', 'role', 'state_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', trim($source_id))
+      ->orderBy('id', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return FALSE;
+    }
+
+    $ancestry = strtolower(trim((string) ($row['ancestry'] ?? '')));
+    if (str_contains($ancestry, 'undead')) {
+      return TRUE;
+    }
+
+    $state = $this->decodeJsonColumn($row['state_data'] ?? NULL);
+    $team = strtolower(trim((string) ($state['metadata']['team'] ?? ($state['team'] ?? ''))));
+    if (in_array($team, ['hostile', 'enemy', 'monster'], TRUE)) {
+      return TRUE;
+    }
+
+    $attitude = strtolower(trim((string) ($state['metadata']['attitude'] ?? ($state['attitude'] ?? ''))));
+    if ($attitude === 'hostile') {
+      return TRUE;
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Determine whether one sentiment edge should get undead hostility defaults.
+   *
+   * @param array<string, string> $primary_membership
+   *   Domain primary membership for the actor.
+   */
+  protected function shouldApplyUndeadHostilitySeedBias(
+    string $sentiment_domain,
+    string $target_id,
+    array $primary_membership
+  ): bool {
+    $target_id = trim($target_id);
+    if ($target_id === '') {
+      return FALSE;
+    }
+
+    $primary_subject_id = trim((string) ($primary_membership['subject_id'] ?? ''));
+    if ($target_id === $primary_subject_id) {
+      return FALSE;
+    }
+
+    if ($sentiment_domain === 'ancestry') {
+      return $target_id !== 'institution_ancestry_undead';
+    }
+
+    if ($sentiment_domain === 'class') {
+      return str_starts_with($target_id, 'institution_profession_');
+    }
+
+    return FALSE;
   }
 
   /**

@@ -413,6 +413,16 @@ class GameCoordinatorService {
       $this->campaignTimeResolver->applyTimeEffects($game_state, $time_effects);
     }
 
+    $phase_transition = $action_result['phase_transition'] ?? NULL;
+    if ($phase_transition === NULL) {
+      $phase_transition = $this->buildRoomSceneHostilityEscalationTransition(
+        $action_result,
+        $game_state,
+        $dungeon_data,
+        $phase
+      );
+    }
+
     // 6. Log events.
     $events_to_log = $action_result['events'] ?? [];
     $logged_events = array_merge($bootstrap_events ?? [], $autoplay_events ?? []);
@@ -423,7 +433,6 @@ class GameCoordinatorService {
       );
     }
     // 7. Handle phase transitions.
-    $phase_transition = $action_result['phase_transition'] ?? NULL;
     $phase_transition_mutation_envelope = NULL;
     if ($phase_transition) {
       $transition_result = $this->executePhaseTransition(
@@ -440,6 +449,13 @@ class GameCoordinatorService {
         : NULL;
     }
     $this->synchronizeActiveRoomAuthority($game_state, $dungeon_data);
+    $this->emitRoomSceneHostilityDivergenceWarning(
+      $campaign_id,
+      $intent,
+      $game_state,
+      $action_result,
+      $logged_events
+    );
 
     // 8. Increment state version.
     $game_state['state_version'] = ($game_state['state_version'] ?? 0) + 1;
@@ -524,6 +540,198 @@ class GameCoordinatorService {
   }
 
   /**
+   * Auto-escalate room-scene encounters when hostility transitions to combat.
+   */
+  protected function buildRoomSceneHostilityEscalationTransition(
+    array $action_result,
+    array $game_state,
+    array $dungeon_data,
+    string $phase
+  ): ?array {
+    if (!($action_result['success'] ?? TRUE) || $phase !== self::DEFAULT_ACTIVE_PHASE) {
+      return NULL;
+    }
+
+    $mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
+    if ($mode !== 'room_scene') {
+      return NULL;
+    }
+
+    $disposition_change = NULL;
+    foreach ($this->collectDispositionChangesFromActionResult($action_result) as $candidate) {
+      if ($this->isRoomSceneHostilityEscalationTrigger($candidate)) {
+        $disposition_change = $candidate;
+        break;
+      }
+    }
+    if ($disposition_change === NULL) {
+      return NULL;
+    }
+
+    $room_id = trim((string) ($game_state['encounter_context']['room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
+    if ($room_id === '') {
+      return NULL;
+    }
+
+    $enemies = $this->collectCombatEscalationEnemiesForRoom($room_id, $dungeon_data);
+    if ($enemies === []) {
+      return NULL;
+    }
+
+    return [
+      'from' => self::DEFAULT_ACTIVE_PHASE,
+      'to' => self::DEFAULT_ACTIVE_PHASE,
+      'reason' => (string) ($disposition_change['reason'] ?? 'Hostility-triggered escalation from room-scene encounter.'),
+      'encounter_context' => [
+        'room_id' => $room_id,
+        'enemies' => $enemies,
+        'source_event_type' => (string) ($disposition_change['event_type'] ?? 'hostility_escalation'),
+        'hostility_trigger' => $disposition_change,
+      ],
+    ];
+  }
+
+  /**
+   * Resolve disposition-change payloads from action result or event payloads.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Disposition payload candidates.
+   */
+  protected function collectDispositionChangesFromActionResult(array $action_result): array {
+    $changes = [];
+    $result_disposition = $action_result['result']['disposition_change'] ?? NULL;
+    if (is_array($result_disposition)) {
+      $changes[] = $result_disposition;
+    }
+
+    foreach ((array) ($action_result['events'] ?? []) as $event) {
+      if (!is_array($event)) {
+        continue;
+      }
+      $event_disposition = $event['data']['disposition_change'] ?? NULL;
+      if (is_array($event_disposition)) {
+        $changes[] = $event_disposition;
+      }
+    }
+
+    return $changes;
+  }
+
+  /**
+   * Determine whether a disposition-change payload should escalate room-scene.
+   */
+  protected function isRoomSceneHostilityEscalationTrigger(array $disposition_change): bool {
+    if ((string) ($disposition_change['event_type'] ?? '') === 'damage_application_hostility_override') {
+      return TRUE;
+    }
+
+    $after_attitude = DispositionAuthorityContract::normalizeAttitudeLabel((string) ($disposition_change['after']['attitude'] ?? ''));
+    if ($after_attitude === DispositionAuthorityContract::LABEL_HOSTILE) {
+      return TRUE;
+    }
+
+    $after_score = $disposition_change['after']['score'] ?? NULL;
+    if (is_numeric($after_score) && DispositionAuthorityContract::isHostileScore(DispositionAuthorityContract::normalizeScore($after_score))) {
+      return TRUE;
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Emit explicit diagnostics when hostile edges coexist with room-scene mode.
+   *
+   * @param array<string,mixed> $intent
+   *   Incoming action intent.
+   * @param array<string,mixed> $game_state
+   *   Runtime game-state snapshot after transition handling.
+   * @param array<string,mixed> $action_result
+   *   Normalized phase-handler action result.
+   * @param array<int,array<string,mixed>> $logged_events
+   *   Events logged during this processAction cycle.
+   */
+  protected function emitRoomSceneHostilityDivergenceWarning(
+    int $campaign_id,
+    array $intent,
+    array $game_state,
+    array $action_result,
+    array $logged_events
+  ): void {
+    $mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
+    if ($mode !== 'room_scene') {
+      return;
+    }
+
+    $hostility_triggers = [];
+    foreach ($this->collectDispositionChangesFromActionResult($action_result) as $disposition_change) {
+      if ($this->isRoomSceneHostilityEscalationTrigger($disposition_change)) {
+        $hostility_triggers[] = $disposition_change;
+      }
+    }
+    if ($hostility_triggers === []) {
+      return;
+    }
+
+    $trigger = $hostility_triggers[0];
+    $event_ids = [];
+    foreach ($logged_events as $event) {
+      if (!is_array($event) || !is_numeric($event['id'] ?? NULL)) {
+        continue;
+      }
+      $event_ids[] = (int) $event['id'];
+    }
+    $event_ids = array_values(array_slice($event_ids, -8));
+
+    $this->logger->warning('Encounter integrity warning: hostile trigger persisted while mode remained room_scene.', [
+      'campaign_id' => $campaign_id,
+      'room_id' => (string) ($game_state['encounter_context']['room_id'] ?? ($game_state['active_room_id'] ?? '')),
+      'encounter_id' => (int) ($game_state['encounter_id'] ?? 0),
+      'mode' => $mode,
+      'source_actor_ref' => (string) ($trigger['source_actor_ref'] ?? ''),
+      'target_actor_ref' => (string) ($trigger['target_actor_ref'] ?? ''),
+      'triggering_action_type' => (string) ($intent['type'] ?? ''),
+      'source_event_type' => (string) ($trigger['event_type'] ?? ''),
+      'event_cursor' => (int) ($game_state['event_log_cursor'] ?? 0),
+      'recent_event_ids' => $event_ids,
+    ]);
+  }
+
+  /**
+   * Collect room entities that can participate as hostile combatants.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Enemy candidate runtime entities.
+   */
+  protected function collectCombatEscalationEnemiesForRoom(string $room_id, array $dungeon_data): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return [];
+    }
+
+    $enemy_candidates = [];
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      $content_type = strtolower(trim((string) (
+        $entity['entity_ref']['content_type']
+        ?? $entity['entity_type']
+        ?? ''
+      )));
+      if ($content_type === 'player_character') {
+        continue;
+      }
+      $team = strtolower(trim((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? ''))));
+      if (in_array($team, ['player', 'pc', 'ally', 'friendly', 'companion'], TRUE)) {
+        continue;
+      }
+      $enemy_candidates[] = $entity;
+    }
+
+    return $enemy_candidates;
+  }
+
+  /**
    * Return lightweight encounter progress state for read-mostly callers.
    *
    * This avoids runtime-graph assembly and only loads the mutable runtime slice.
@@ -559,13 +767,77 @@ class GameCoordinatorService {
   }
 
   /**
-   * Get a materialized full game state for runtime bootstrap-compatible callers.
+   * Get an authoritative launch-state payload for gameplay clients.
+   *
+   * This path keeps runtime bootstrap-compatible request semantics
+   * (actor/character scoped state read) while allowing the first gameplay
+   * state read to materialize canonical room-entry state when needed.
+   */
+  public function getAuthoritativeLaunchState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array {
+    $prepared = $this->prepareScopedFullStateContext($campaign_id, $actor_id, $character_id);
+    if ($prepared === NULL) {
+      return $this->errorResponse('Campaign dungeon data not found.');
+    }
+
+    $dungeon_data = $prepared['dungeon_data'];
+    $game_state = $prepared['game_state'];
+    $resolved_actor_id = $prepared['actor_id'];
+
+    $response = $this->buildFullStateResponse(
+      $campaign_id,
+      $dungeon_data,
+      $game_state,
+      TRUE,
+      $resolved_actor_id !== '' ? $resolved_actor_id : NULL
+    );
+
+    if (!$this->hasAuthoritativeLaunchState($dungeon_data, $game_state)) {
+      $this->logger->error(
+        'Authoritative launch-state materialization did not complete for campaign {campaign_id}.',
+        [
+          'campaign_id' => $campaign_id,
+          'active_room_id' => $dungeon_data['active_room_id'] ?? NULL,
+          'phase' => $game_state['phase'] ?? NULL,
+          'encounter_id' => $game_state['encounter_id'] ?? NULL,
+          'event_log_cursor' => $game_state['event_log_cursor'] ?? NULL,
+        ]
+      );
+      return $this->errorResponse('Failed to materialize authoritative launch state.', $game_state);
+    }
+
+    return $response;
+  }
+
+  /**
+   * Get a read-only full game state for runtime bootstrap-compatible callers.
    *
    * This path keeps bootstrap-compatible request semantics (actor/character
-   * scoped state read) but must remain read-only. Runtime bootstrap and
-   * mutation work are handled by explicit write/intention lanes, not GET state.
+   * scoped state read) but must remain side-effect-free. Runtime bootstrap and
+   * mutation work are handled by explicit launch/write lanes, not this reader.
    */
   public function getMaterializedFullState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array {
+    $prepared = $this->prepareScopedFullStateContext($campaign_id, $actor_id, $character_id);
+    if ($prepared === NULL) {
+      return $this->errorResponse('Campaign dungeon data not found.');
+    }
+
+    $dungeon_data = $prepared['dungeon_data'];
+    $game_state = $prepared['game_state'];
+    $resolved_actor_id = $prepared['actor_id'];
+
+    return $this->buildFullStateResponse(
+      $campaign_id,
+      $dungeon_data,
+      $game_state,
+      FALSE,
+      $resolved_actor_id !== '' ? $resolved_actor_id : NULL
+    );
+  }
+
+  /**
+   * Resolve scoped coordinator full-state context for launch/read callers.
+   */
+  protected function prepareScopedFullStateContext(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): ?array {
     $actor_id = trim((string) $actor_id);
     $character_id = (int) ($character_id ?? 0);
     if ($character_id > 0) {
@@ -593,7 +865,7 @@ class GameCoordinatorService {
 
     $context = $this->resolveCoordinatorFullStateContext($campaign_id, $actor_id !== '' ? $actor_id : NULL);
     if ($context === NULL) {
-      return $this->errorResponse('Campaign dungeon data not found.');
+      return NULL;
     }
 
     $dungeon_data = $context['dungeon_data'];
@@ -604,7 +876,28 @@ class GameCoordinatorService {
         $actor_id = $turn_actor_id;
       }
     }
-    return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, FALSE, $actor_id !== '' ? $actor_id : NULL);
+    return [
+      'dungeon_data' => $dungeon_data,
+      'game_state' => $game_state,
+      'actor_id' => $actor_id,
+    ];
+  }
+
+  /**
+   * Determine whether authoritative launch materialization completed.
+   */
+  protected function hasAuthoritativeLaunchState(array &$dungeon_data, array $game_state): bool {
+    $room_id = $this->resolveStartupRoomId($dungeon_data);
+    if ($room_id === NULL) {
+      return TRUE;
+    }
+
+    if ($this->hasActiveEncounterContextForRoom($game_state, $room_id)) {
+      return TRUE;
+    }
+
+    return trim((string) ($game_state['initial_room_entry_room_id'] ?? '')) === $room_id
+      && trim((string) ($game_state['initial_room_entry_completed_at'] ?? '')) !== '';
   }
 
   /**
@@ -1500,7 +1793,19 @@ class GameCoordinatorService {
       return [];
     }
 
-    if ($this->hasBootstrappedInitialRoomEntry($game_state, $room_id)) {
+    $repair_broken_encounter_shell = $this->hasBrokenEncounterPhaseShell($game_state, $room_id);
+    if ($repair_broken_encounter_shell) {
+      $this->logger->warning(
+        'Repairing broken encounter-phase shell before room bootstrap for campaign {campaign_id} room {room_id}.',
+        [
+          'campaign_id' => $campaign_id,
+          'room_id' => $room_id,
+        ]
+      );
+      $this->clearBrokenEncounterPhaseShell($game_state, $room_id);
+    }
+
+    if ($this->hasBootstrappedInitialRoomEntry($game_state, $room_id) && !$repair_broken_encounter_shell) {
       return [];
     }
 
@@ -1510,13 +1815,13 @@ class GameCoordinatorService {
     }
 
     $event_log_cursor = (int) ($game_state['event_log_cursor'] ?? 0);
-    if ($event_log_cursor > 0) {
+    if ($event_log_cursor > 0 && !$repair_broken_encounter_shell) {
       $this->markInitialRoomEntryBootstrapped($game_state, $room_id);
       return [];
     }
 
     $latest_event_cursor = $this->eventLogger->getLatestCursor($dungeon_data, $campaign_id);
-    if ($latest_event_cursor > 0) {
+    if ($latest_event_cursor > 0 && !$repair_broken_encounter_shell) {
       $game_state['event_log_cursor'] = max($event_log_cursor, $latest_event_cursor);
       $this->markInitialRoomEntryBootstrapped($game_state, $room_id);
       return [];
@@ -1588,6 +1893,48 @@ class GameCoordinatorService {
     }
 
     return !empty($game_state['initiative_order']) || !empty($game_state['turn']);
+  }
+
+  /**
+   * Detect a persisted encounter-phase shell with no canonical encounter state.
+   */
+  protected function hasBrokenEncounterPhaseShell(array $game_state, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    $phase = trim((string) ($game_state['phase'] ?? ''));
+    $context_room_id = trim((string) ($game_state['encounter_context']['room_id'] ?? ''));
+    if ($phase !== self::DEFAULT_ACTIVE_PHASE || $context_room_id !== $room_id) {
+      return FALSE;
+    }
+
+    $encounter_id = (int) ($game_state['encounter_id'] ?? 0);
+    $round = $game_state['round'] ?? NULL;
+    $turn = $game_state['turn'] ?? NULL;
+    $initiative_order = $game_state['initiative_order'] ?? NULL;
+    if ($encounter_id > 0 || is_numeric($round) || !empty($turn) || !empty($initiative_order)) {
+      return FALSE;
+    }
+
+    return (int) ($game_state['event_log_cursor'] ?? 0) > 0
+      || trim((string) ($game_state['initial_room_entry_completed_at'] ?? '')) !== '';
+  }
+
+  /**
+   * Clear the stale encounter-shell markers so room-scene bootstrap can repair.
+   */
+  protected function clearBrokenEncounterPhaseShell(array &$game_state, string $room_id): void {
+    $game_state['encounter_id'] = NULL;
+    $game_state['round'] = NULL;
+    $game_state['turn'] = NULL;
+    $game_state['initiative_order'] = NULL;
+    $game_state['encounter_context'] = [
+      'room_id' => $room_id,
+    ];
+    $game_state['initial_room_entry_room_id'] = NULL;
+    $game_state['initial_room_entry_completed_at'] = NULL;
   }
 
   /**

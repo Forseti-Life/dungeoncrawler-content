@@ -98,6 +98,17 @@ else
     echo -e "${GREEN}✓ PASS${NC} No RoomChat path changes in this push scope"
 fi
 
+# Check 5: 886 regression gate
+echo ""
+echo "Check 5: 886 Regression Gate"
+if ./scripts/qa-886-regression-gate.sh >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ PASS${NC} 886 regression suite passed"
+else
+    echo -e "${RED}✗ FAIL${NC} 886 regression suite failed"
+    ./scripts/qa-886-regression-gate.sh | sed 's/^/  /' || true
+    failures=$((failures + 1))
+fi
+
 # Summary
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
