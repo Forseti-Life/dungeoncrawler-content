@@ -822,7 +822,7 @@ export class HexCanvas {
       return;
     }
 
-    if (!this._hoverHexOutline) {
+    if (!this._hoverHexOutline || !this._hoverHexTooltip || !this._hoverHexTooltipBg || !this._hoverHexTooltipText) {
       const outline = new PIXI.Graphics();
       outline.name = 'hoverHexOutline';
       outline.visible = false;
@@ -885,9 +885,43 @@ export class HexCanvas {
     outline.y = pos.y;
     outline.visible = true;
 
-    if (this._hoverHexTooltip) {
-      this._hoverHexTooltip.visible = false;
-    }
+    const fallbackHexId = this.currentRoomId ? `${this.currentRoomId}:${qNum}:${rNum}` : `${qNum}:${rNum}`;
+    const hexId = String(roomHex?.hex_id || fallbackHexId);
+    const terrainType = String(roomHex?.terrain_type || 'unknown');
+    const lighting = String(roomHex?.lighting || 'unknown');
+    const elevation = Number.isFinite(Number(roomHex?.elevation_ft)) ? Number(roomHex.elevation_ft) : 0;
+    const flags = [
+      roomHex?.is_entry === true ? 'entry' : null,
+      roomHex?.is_visible === true ? 'visible' : null,
+      roomHex?.is_discovered === true ? 'discovered' : null,
+    ].filter(Boolean).join(', ');
+    const objectCount = Array.isArray(roomHex?.objects) ? roomHex.objects.length : 0;
+
+    const text = this._hoverHexTooltipText;
+    text.text = [
+      `hex: ${hexId}`,
+      `q=${qNum} r=${rNum}${flags ? ` (${flags})` : ''}`,
+      `terrain=${terrainType} | light=${lighting} | elev_ft=${elevation}`,
+      `objects=${objectCount}`,
+    ].join('\n');
+    text.x = 10;
+    text.y = 8;
+
+    const bg = this._hoverHexTooltipBg;
+    const paddingX = 12;
+    const paddingY = 10;
+    const width = Math.max(140, text.width + paddingX * 2);
+    const height = Math.max(44, text.height + paddingY * 2);
+    bg.clear();
+    bg.beginFill(0x0b1020, 0.86);
+    bg.lineStyle(1, 0xffffff, 0.18);
+    bg.drawRoundedRect(0, 0, width, height, 8);
+    bg.endFill();
+
+    const tooltip = this._hoverHexTooltip;
+    tooltip.x = pos.x + hexSize * 0.65;
+    tooltip.y = pos.y - hexSize * 0.75;
+    tooltip.visible = true;
   }
 
   _hideHexHoverInfo() {

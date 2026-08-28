@@ -10,6 +10,9 @@ use Drupal\dungeoncrawler_content\Service\Calculator;
 use Drupal\dungeoncrawler_content\Service\ConditionManager;
 use Drupal\dungeoncrawler_content\Service\MovementResolverService;
 use Drupal\dungeoncrawler_content\Service\AfflictionManager;
+use Drupal\dungeoncrawler_content\Service\RelationshipAttitudeService;
+use Drupal\dungeoncrawler_content\Service\InstitutionMembershipService;
+use Drupal\dungeoncrawler_content\Service\RelationshipsActorIdentityResolverService;
 
 /**
  * Combat Engine service - Main orchestrator for combat operations.
@@ -18,6 +21,11 @@ use Drupal\dungeoncrawler_content\Service\AfflictionManager;
  * @see /docs/dungeoncrawler/issues/issue-4-combat-encounter-system-design.md
  */
 class CombatEngine {
+
+  private const ENCOUNTER_SURVIVOR_PAIR_LIMIT = 20;
+  private const ENCOUNTER_SAME_SIDE_DELTA = 20;
+  private const ENCOUNTER_OPPOSITE_SIDE_DELTA = -20;
+  private const ENCOUNTER_INSTITUTION_DELTA = 12;
 
   // REQ 2276: Detection states per perceiver.
   const DETECTION_STATE_OBSERVED   = 'observed';
@@ -82,8 +90,11 @@ class CombatEngine {
    * @var \Drupal\dungeoncrawler_content\Service\AfflictionManager|null
    */
   protected ?AfflictionManager $afflictionManager;
+  protected ?RelationshipAttitudeService $relationshipAttitudeService;
+  protected ?InstitutionMembershipService $institutionMembershipService;
+  protected ?RelationshipsActorIdentityResolverService $relationshipsActorIdentityResolver;
 
-  public function __construct(Connection $database, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL) {
+  public function __construct(Connection $database, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL, ?RelationshipAttitudeService $relationship_attitude_service = NULL, ?InstitutionMembershipService $institution_membership_service = NULL, ?RelationshipsActorIdentityResolverService $relationships_actor_identity_resolver = NULL) {
     $this->database = $database;
     $this->store = $store;
     $this->hpManager = $hp_manager;
@@ -93,6 +104,9 @@ class CombatEngine {
     $this->conditionManager = $condition_manager;
     $this->movementResolver = $movement_resolver;
     $this->afflictionManager = $affliction_manager;
+    $this->relationshipAttitudeService = $relationship_attitude_service;
+    $this->institutionMembershipService = $institution_membership_service;
+    $this->relationshipsActorIdentityResolver = $relationships_actor_identity_resolver;
   }
 
   /**
@@ -462,6 +476,7 @@ class CombatEngine {
     $encounter = $this->store->loadEncounter((int) $encounter_id);
     if (is_array($encounter)) {
       $this->reconcileInstitutionHostilityPersistence($encounter);
+      $this->applyEncounterRelationshipResolution($encounter);
     }
     $summary = [
       'encounter_id' => $encounter_id,
@@ -473,6 +488,195 @@ class CombatEngine {
 
     // TODO: Compute XP awards based on defeated enemies (PF2e encounter XP tables) and attach to summary.
     return $summary;
+  }
+
+  /**
+   * Apply deterministic relationship/institution updates from encounter survivors.
+   *
+   * Small survivor groups (<20): mutate pairwise edges positive on same side and
+   * negative on opposing sides.
+   * Large survivor groups (>=20): avoid O(n^2) edge writes and instead improve
+   * each survivor's sentiment toward non-ancestry/non-profession institutions.
+   */
+  protected function applyEncounterRelationshipResolution(array $encounter): void {
+    if (
+      !$this->relationshipAttitudeService instanceof RelationshipAttitudeService
+      || !$this->institutionMembershipService instanceof InstitutionMembershipService
+      || !$this->relationshipsActorIdentityResolver instanceof RelationshipsActorIdentityResolverService
+    ) {
+      return;
+    }
+
+    $campaign_id = isset($encounter['campaign_id']) && is_numeric($encounter['campaign_id']) ? (int) $encounter['campaign_id'] : 0;
+    $encounter_id = isset($encounter['id']) && is_numeric($encounter['id']) ? (int) $encounter['id'] : 0;
+    if ($campaign_id <= 0 || $encounter_id <= 0) {
+      return;
+    }
+
+    $survivors = [];
+    foreach ((array) ($encounter['participants'] ?? []) as $participant) {
+      if (!is_array($participant) || !empty($participant['is_defeated'])) {
+        continue;
+      }
+      $entity_ref = trim((string) ($participant['entity_id'] ?? ''));
+      if ($entity_ref === '') {
+        continue;
+      }
+      $identity = $this->relationshipsActorIdentityResolver->resolveInstitutionActorIdentity($campaign_id, $entity_ref);
+      if (!is_array($identity)) {
+        continue;
+      }
+      $survivors[] = [
+        'entity_ref' => $entity_ref,
+        'team' => $this->normalizeEncounterParticipantTeam((string) ($participant['team'] ?? 'neutral')),
+        'identity' => $identity,
+      ];
+    }
+
+    if (count($survivors) < 2) {
+      return;
+    }
+
+    if (count($survivors) < self::ENCOUNTER_SURVIVOR_PAIR_LIMIT) {
+      $this->applyPairwiseSurvivorRelationshipResolution($campaign_id, $encounter_id, $survivors);
+      return;
+    }
+
+    $this->applyLargeEncounterInstitutionResolution($campaign_id, $encounter_id, $survivors);
+  }
+
+  /**
+   * Apply pairwise survivor edge adjustments for small encounters.
+   *
+   * @param array<int, array<string, mixed>> $survivors
+   *   Survivor records with entity_ref, team, and identity.
+   */
+  protected function applyPairwiseSurvivorRelationshipResolution(int $campaign_id, int $encounter_id, array $survivors): void {
+    foreach ($survivors as $source) {
+      $source_identity = is_array($source['identity'] ?? NULL) ? $source['identity'] : [];
+      $source_type = trim((string) ($source_identity['source_type'] ?? ''));
+      $source_id = trim((string) ($source_identity['source_id'] ?? ''));
+      if ($source_type === '' || $source_id === '') {
+        continue;
+      }
+      foreach ($survivors as $target) {
+        if (($source['entity_ref'] ?? '') === ($target['entity_ref'] ?? '')) {
+          continue;
+        }
+        $target_identity = is_array($target['identity'] ?? NULL) ? $target['identity'] : [];
+        $target_type = trim((string) ($target_identity['source_type'] ?? ''));
+        $target_id = trim((string) ($target_identity['source_id'] ?? ''));
+        if ($target_type === '' || $target_id === '') {
+          continue;
+        }
+        $same_side = (string) ($source['team'] ?? 'neutral') === (string) ($target['team'] ?? 'neutral');
+        $delta = $same_side ? self::ENCOUNTER_SAME_SIDE_DELTA : self::ENCOUNTER_OPPOSITE_SIDE_DELTA;
+        $reason = $same_side
+          ? 'Encounter survivors ended on the same side.'
+          : 'Encounter survivors ended on opposing sides.';
+        $this->relationshipAttitudeService->applyRelationshipDispositionDelta(
+          $campaign_id,
+          $source_type,
+          $source_id,
+          $target_type,
+          $target_id,
+          $delta,
+          $reason,
+          [
+            'relationship_type' => 'combat',
+            'status' => 'known',
+            'encounter_id' => $encounter_id,
+            'mutation_source' => 'encounter_survivor_resolution',
+            'idempotency_key' => sprintf('encounter_survivor_resolution:%d:%s:%s', $encounter_id, $source_id, $target_id),
+          ]
+        );
+      }
+    }
+  }
+
+  /**
+   * Apply institution-level positive sentiment updates for large encounters.
+   *
+   * @param array<int, array<string, mixed>> $survivors
+   *   Survivor records with entity_ref, team, and identity.
+   */
+  protected function applyLargeEncounterInstitutionResolution(int $campaign_id, int $encounter_id, array $survivors): void {
+    foreach ($survivors as $survivor) {
+      $identity = is_array($survivor['identity'] ?? NULL) ? $survivor['identity'] : [];
+      $source_type = trim((string) ($identity['source_type'] ?? ''));
+      $source_id = trim((string) ($identity['source_id'] ?? ''));
+      if ($source_type === '' || $source_id === '') {
+        continue;
+      }
+
+      $memberships = $this->institutionMembershipService->listActorInstitutionMemberships($campaign_id, $source_type, $source_id);
+      $sentiments = $this->institutionMembershipService->listActorInstitutionSentiments($campaign_id, $source_type, $source_id);
+      $sentiment_by_target = [];
+      foreach ($sentiments as $sentiment) {
+        if (!is_array($sentiment)) {
+          continue;
+        }
+        $sentiment_by_target[(string) ($sentiment['target_id'] ?? '')] = (int) ($sentiment['score'] ?? 0);
+      }
+
+      foreach ($memberships as $membership) {
+        if (!is_array($membership) || !$this->isPartyInstitutionMembership($membership)) {
+          continue;
+        }
+        $target_subject_id = trim((string) ($membership['target_id'] ?? ''));
+        if ($target_subject_id === '') {
+          continue;
+        }
+        $current_score = (int) ($sentiment_by_target[$target_subject_id] ?? 0);
+        $updated_score = DispositionAuthorityContract::clampScore($current_score + self::ENCOUNTER_INSTITUTION_DELTA);
+        $this->institutionMembershipService->mutateInstitutionSentiment(
+          $campaign_id,
+          $source_type,
+          $source_id,
+          $target_subject_id,
+          $updated_score,
+          'known',
+          [
+            'reason' => 'Large-encounter survivor institution cohesion adjustment.',
+            'mutation_source' => 'encounter_survivor_resolution',
+            'encounter_id' => $encounter_id,
+          ]
+        );
+      }
+    }
+  }
+
+  /**
+   * Normalize encounter participant team labels for survivor comparisons.
+   */
+  protected function normalizeEncounterParticipantTeam(string $team): string {
+    $team = strtolower(trim($team));
+    return match ($team) {
+      'player', 'player_character', 'pc', 'ally', 'friendly', 'companion' => 'ally',
+      'enemy', 'hostile', 'monster', 'monsters', 'aggressive' => 'hostile',
+      default => $team !== '' ? $team : 'neutral',
+    };
+  }
+
+  /**
+   * Determine whether a membership represents a party/faction-style institution.
+   *
+   * @param array<string, mixed> $membership
+   *   Membership row.
+   */
+  protected function isPartyInstitutionMembership(array $membership): bool {
+    $sentiment_domain = strtolower(trim((string) ($membership['sentiment_domain'] ?? '')));
+    $membership_domain = strtolower(trim((string) ($membership['membership_domain'] ?? '')));
+    $target_id = strtolower(trim((string) ($membership['target_id'] ?? '')));
+
+    if (in_array($sentiment_domain, ['ancestry', 'profession'], TRUE) || in_array($membership_domain, ['ancestry', 'profession'], TRUE)) {
+      return FALSE;
+    }
+    if (str_starts_with($target_id, 'institution_ancestry_') || str_starts_with($target_id, 'institution_profession_')) {
+      return FALSE;
+    }
+
+    return $target_id !== '';
   }
 
   /**

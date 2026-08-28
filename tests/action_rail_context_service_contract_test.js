@@ -72,7 +72,7 @@ assert(
 );
 
 assert(
-  panelSource.includes("import { buildActionRailContext } from '../services/action-rail-context-service.js?v=20260818-v2-action-rail-actor-identity-fix-1';")
+  /import \{ buildActionRailContext \} from '\.\.\/services\/action-rail-context-service\.js(\?v=[^']*)?';/.test(panelSource)
     && panelSource.includes('return buildActionRailContext(this.stateManager);')
     && !panelSource.includes('const phaseSnapshot = hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};'),
   'ActionRailPanel consumes the context service and no longer duplicates context assembly internals'

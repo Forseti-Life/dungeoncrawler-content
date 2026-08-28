@@ -69,10 +69,37 @@ class MovementResolverService {
     'deep_water', 'thick_mud', 'dense_rubble',
   ];
 
+  /**
+   * Terrain type strings that block movement entirely.
+   *
+   * Room geometry normally models walls by omitting the hex from the room hex
+   * set, so findHex() returning NULL is the primary impassability signal.
+   * These values cover payloads that represent blockers as present-but-solid.
+   */
+  const IMPASSABLE_TERRAIN_TYPES = [
+    'void', 'wall', 'solid_rock', 'chasm', 'pit',
+  ];
+
   protected HexUtilityService $hexUtility;
 
   public function __construct(HexUtilityService $hex_utility) {
     $this->hexUtility = $hex_utility;
+  }
+
+  /**
+   * Build a minimal movement scope from a full dungeon payload.
+   *
+   * @return array{
+   *   __scope_type:string,
+   *   active_room_id:string,
+   *   room_hexes:array<int,array<string,mixed>>,
+   *   hexes:array<int,array<string,mixed>>,
+   *   is_underwater:bool
+   * }
+   *   Minimal scope required for movement/terrain lookups.
+   */
+  public function buildMovementScope(array $dungeon_data): array {
+    return $this->normalizeMovementScope($dungeon_data);
   }
 
   /**
@@ -159,7 +186,7 @@ class MovementResolverService {
     if ($movement_type !== 'fly') {
       $hex_data = $this->findHex($to_hex, $dungeon_data);
       if ($hex_data) {
-        $terrain_type = $hex_data['terrain'] ?? 'normal';
+        $terrain_type = $this->resolveHexTerrainType($hex_data);
         if (in_array($terrain_type, self::GREATER_DIFFICULT_TERRAIN_TYPES)) {
           // REQ 2250: +10 ft per square (not doubled).
           $terrain_cost = $hex_distance * 10;
@@ -188,7 +215,7 @@ class MovementResolverService {
     if (!$hex_data) {
       return FALSE;
     }
-    return in_array($hex_data['terrain'] ?? '', self::DIFFICULT_TERRAIN_TYPES);
+    return in_array($this->resolveHexTerrainType($hex_data), self::DIFFICULT_TERRAIN_TYPES, TRUE);
   }
 
   /**
@@ -199,8 +226,13 @@ class MovementResolverService {
     if (!$hex_data) {
       return FALSE;
     }
-    // A hex is passable if explicitly marked passable, or terrain is not void.
-    return !empty($hex_data['passable']) || ($hex_data['terrain'] ?? 'void') !== 'void';
+    // A hex present in the room set is walkable unless its terrain explicitly
+    // blocks movement, or an explicit passable flag says otherwise.
+    if (array_key_exists('passable', $hex_data)) {
+      return !empty($hex_data['passable']);
+    }
+
+    return !in_array($this->resolveHexTerrainType($hex_data), self::IMPASSABLE_TERRAIN_TYPES, TRUE);
   }
 
   /**
@@ -322,8 +354,9 @@ class MovementResolverService {
     // Skip first (attacker) and last (defender) in the line.
     $mid = array_slice($line, 1, count($line) - 2);
     foreach ($mid as $hex) {
-      $hex_data = $this->findHex($hex, $dungeon_data);
-      if ($hex_data && empty($hex_data['passable']) && ($hex_data['terrain'] ?? '') !== 'void') {
+      // An obstacle is any hex that blocks movement: a solid terrain hex, or a
+      // hex absent from the room set (walls are modelled by hex omission).
+      if (!$this->isPassable($hex, $dungeon_data)) {
         $obstacles++;
       }
     }
@@ -435,16 +468,138 @@ class MovementResolverService {
   }
 
   /**
+   * Resolve the canonical terrain type string for a hex payload.
+   *
+   * Hex records produced by room layout data carry `terrain_type`. Older or
+   * externally sourced payloads may use `terrain`/`tile_type` as a scalar.
+   * A hex with no terrain identity at all is a data contract violation and is
+   * surfaced loudly rather than silently treated as open floor.
+   *
+   * @param array $hex_data
+   *   Hex payload as returned by findHex().
+   *
+   * @return string
+   *   Lowercased terrain type.
+   *
+   * @throws \RuntimeException
+   *   When the hex payload carries no terrain identity.
+   */
+  protected function resolveHexTerrainType(array $hex_data): string {
+    foreach (['terrain_type', 'terrain', 'tile_type'] as $key) {
+      $value = $hex_data[$key] ?? NULL;
+      if (is_string($value) && trim($value) !== '') {
+        return strtolower(trim($value));
+      }
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Movement contract violation: hex (q=%s,r=%s) carries no terrain identity. '
+      . 'Expected a non-empty "terrain_type" (or legacy "terrain"/"tile_type") string. Keys present: [%s]. '
+      . 'Producer: room layout_data hex generation; consumer: MovementResolverService.',
+      var_export($hex_data['q'] ?? NULL, TRUE),
+      var_export($hex_data['r'] ?? NULL, TRUE),
+      implode(', ', array_keys($hex_data))
+    ));
+  }
+
+  /**
    * Look up a hex by q,r coordinates in dungeon_data.
    */
-  protected function findHex(array $hex, array $dungeon_data): ?array {
-    $hexes = $dungeon_data['hexes'] ?? $dungeon_data['hexmap']['hexes'] ?? [];
+  protected function findHex(array $hex, array $dungeon_data): ?array {    $scope = $this->normalizeMovementScope($dungeon_data);
+    $hexes = $scope['room_hexes'] !== [] ? $scope['room_hexes'] : $scope['hexes'];
     foreach ($hexes as $h) {
       if ((int) $h['q'] === (int) $hex['q'] && (int) $h['r'] === (int) $hex['r']) {
         return $h;
       }
     }
     return NULL;
+  }
+
+  /**
+   * Resolve room-scoped hex definitions from keyed or list-shaped payloads.
+   *
+   * @return array<int,array<string,mixed>>
+   *   Room hex payloads.
+   */
+  protected function resolveRoomHexes(array $dungeon_data, string $room_id): array {
+    if ($room_id === '') {
+      return [];
+    }
+
+    if (is_array($dungeon_data['rooms'][$room_id]['hexes'] ?? NULL)) {
+      return $dungeon_data['rooms'][$room_id]['hexes'];
+    }
+    if (is_array($dungeon_data['hex_map']['rooms'][$room_id]['hexes'] ?? NULL)) {
+      return $dungeon_data['hex_map']['rooms'][$room_id]['hexes'];
+    }
+
+    foreach ([
+      (array) ($dungeon_data['rooms'] ?? []),
+      (array) ($dungeon_data['hex_map']['rooms'] ?? []),
+    ] as $rooms) {
+      foreach ($rooms as $room) {
+        if (($room['room_id'] ?? $room['id'] ?? '') !== $room_id || !is_array($room['hexes'] ?? NULL)) {
+          continue;
+        }
+        return $room['hexes'];
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Normalize either a full dungeon payload or a minimal movement scope.
+   *
+   * @return array{
+   *   __scope_type:string,
+   *   active_room_id:string,
+   *   room_hexes:array<int,array<string,mixed>>,
+   *   hexes:array<int,array<string,mixed>>,
+   *   is_underwater:bool
+   * }
+   *   Canonicalized movement lookup scope.
+   */
+  protected function normalizeMovementScope(array $payload): array {
+    if (
+      ($payload['__scope_type'] ?? '') === 'movement'
+      && is_array($payload['room_hexes'] ?? NULL)
+      && is_array($payload['hexes'] ?? NULL)
+    ) {
+      return [
+        '__scope_type' => 'movement',
+        'active_room_id' => (string) ($payload['active_room_id'] ?? ''),
+        'room_hexes' => $payload['room_hexes'],
+        'hexes' => $payload['hexes'],
+        'is_underwater' => !empty($payload['is_underwater']),
+      ];
+    }
+
+    $active_room_id = trim((string) (
+      $payload['active_room_id']
+      ?? $payload['current_room_id']
+      ?? $payload['game_state']['active_room_id']
+      ?? $payload['game_state']['encounter_context']['room_id']
+      ?? $payload['encounter_context']['room_id']
+      ?? ''
+    ));
+
+    $room_hexes = $active_room_id !== '' ? $this->resolveRoomHexes($payload, $active_room_id) : [];
+    $hexes = [];
+    if (is_array($payload['hexes'] ?? NULL)) {
+      $hexes = $payload['hexes'];
+    }
+    elseif (is_array($payload['hexmap']['hexes'] ?? NULL)) {
+      $hexes = $payload['hexmap']['hexes'];
+    }
+
+    return [
+      '__scope_type' => 'movement',
+      'active_room_id' => $active_room_id,
+      'room_hexes' => $room_hexes,
+      'hexes' => $hexes,
+      'is_underwater' => !empty($payload['is_underwater']),
+    ];
   }
 
 }

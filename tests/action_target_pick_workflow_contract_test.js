@@ -23,7 +23,7 @@ function assert(condition, message) {
 }
 
 const actionRailPanel = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
-const gameShell = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
+const gameShell = require('./helpers/js-source.js').readGameShellSource();
 const template = fs.readFileSync(path.resolve(__dirname, '../templates/hexmap-v2.html.twig'), 'utf8');
 const css = fs.readFileSync(path.resolve(__dirname, '../css/hexmap.css'), 'utf8');
 
@@ -54,14 +54,14 @@ assert(
   gameShell.includes("this.bus.on('user:target-pick-requested', (data) => this._beginTargetPickSession(data || {}));")
     && gameShell.includes('_beginTargetPickSession({ actionKey = \'\', button = null, promptLabel = \'\' } = {}) {')
     && gameShell.includes('activateGameShellTab(\'map\');')
-    && gameShell.includes("const targetActorRef = this._resolveTargetPickActorRef(executionButton);")
+    && gameShell.includes('const targetActorRef = this.resolveTargetPickActorRef(executionButton);')
     && gameShell.includes('canResyncCoordinatorForSelectedEntity(entity)')
-    && gameShell.includes('this._setTargetPickOverlay(true, prompt);'),
+    && gameShell.includes('this.setTargetPickOverlay(true, prompt);'),
   'GameShell starts a shared target-pick session and forces map-tab handoff'
 );
 
 assert(
-  gameShell.includes("if (key === 'feint' || key === 'point_out') {")
+  gameShell.includes("if (key === 'attack' || key === 'demoralize' || key === 'feint' || key === 'point_out') {")
     && gameShell.includes("if (key === 'cast_spell' || key === 'spell') {")
     && gameShell.includes("if (key === 'command_animal') {")
     && gameShell.includes("'aid_setup'")
@@ -81,7 +81,7 @@ assert(
     && gameShell.includes("const consumed = this._handleTargetPickHexClick(Number(q), Number(r), [entity]);")
     && gameShell.includes('suppressCoordinatorResync: Boolean(this._targetPickSession),')
     && gameShell.includes('button.dataset.targetsJson = JSON.stringify(session.selectedTargets || []);')
-    && gameShell.includes('this._appendTargetPickSelection(session, selection)')
+    && gameShell.includes('this.appendTargetPickSelection(session, selection)')
     && gameShell.includes('this.selectEntity(entity, { suppressCoordinatorResync: true });')
     && gameShell.includes("} else if (kinds.includes('area_origin')) {")
     && gameShell.includes("} else if (kinds.includes('connected_room')) {")
@@ -89,7 +89,7 @@ assert(
     && gameShell.includes("if (targetEntity && actor && actorRef && targetRef && actorRef === targetRef) {")
     && gameShell.includes('selection = chooseSelfTarget();')
     && gameShell.includes("} else if (kinds.includes('room_hazard') || kinds.includes('room')) {")
-    && gameShell.includes("this.bus.emit('user:action-selected', { actionKey, button });"),
+    && gameShell.includes("shell.bus.emit('user:action-selected', { actionKey, button });"),
   'Hex click handling resolves entity/room/area/self-or-target picks, records canonical targets, and replays canonical action execution'
 );
 

@@ -111,7 +111,7 @@ console.log('\n=== Hexmap V2 topology canvas helpers ===');
   assert(doorStyle.lineColor === 0xfbbf24, 'styles door hexes as interaction seams');
 
   const waterStyle = _resolveRoomHexStyle({
-    terrain: 'water',
+    terrain_type: 'water',
     objects: [],
   });
   assert(waterStyle.fillColor === 0x1d4ed8, 'styles water terrain distinctly from floor terrain');

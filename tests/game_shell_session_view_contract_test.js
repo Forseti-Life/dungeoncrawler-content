@@ -22,15 +22,17 @@ function assert(condition, message) {
   }
 }
 
-const source = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
+const source = require('./helpers/js-source.js').readGameShellSource();
 
 console.log('\n=== GameShell session-view contract ===');
 
 assert(
-  source.includes("this.bus.on('user:session-view-requested', ({ view, options } = {}) => {")
-    && source.includes('void this.fetchSessionViewData(view, options ?? {}).then((data) => {')
-    && source.includes("this.bus.emit('session:view-data', { view, data });"),
-  'session-view request relay uses fetchSessionViewData and emits canonical session:view-data payload'
+  source.includes('new SessionViewBridge(')
+    && source.includes('shell.fetchSessionViewData.bind(shell)')
+    && source.includes("this._off = this.bus.on('user:session-view-requested', ({ view, options, requestToken, context } = {}) => {")
+    && source.includes('void this.fetchSessionViewData(view, requestOptions).then((data) => {')
+    && source.includes("this.bus.emit('session:view-data', {"),
+  'session-view request relay is registered through the token-aware SessionViewBridge and emits canonical session:view-data payload'
 );
 
 assert(

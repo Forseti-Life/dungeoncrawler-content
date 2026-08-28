@@ -75,12 +75,17 @@ assert(
     && brokerSource.includes('$selected_edge = NULL;')
     && brokerSource.includes('$edge = $this->getRelationshipAttitudeService()->resolveEdgeDispositionDetails($source_entity_ref, $target_ref, $campaign_id);')
     && brokerSource.includes('? DispositionAuthorityContract::normalizeScore($edge[\'score\'])')
-    && brokerSource.includes('if ($edge_score < (int) ($selected_edge[\'score\'] ?? 0)) {')
+    && brokerSource.includes("DispositionAuthorityContract::attitudeToScore($edge_attitude) ?? 0")
+    && brokerSource.includes("if ($edge_score !== NULL && (($selected_edge['score'] ?? NULL) === NULL || $edge_score < (int) ($selected_edge['score'] ?? 0))) {")
     && brokerSource.includes('$relationship_attitude = (string) ($selected_edge[\'attitude\'] ?? \'\');')
-    && brokerSource.includes('$relationship_score = (int) ($selected_edge[\'score\'] ?? 0);')
+    && brokerSource.includes('$relationship_score = isset($selected_edge[\'score\']) && is_numeric($selected_edge[\'score\'])')
+    && brokerSource.includes('$disposition_resolver = $this->resolveDispositionResolverService();')
+    && brokerSource.includes('$institution_score_assembler = $this->resolveInstitutionDispositionScoreAssemblerService();')
+    && brokerSource.includes("$resolver_context['institution_score'] = (int) ($institution['score'] ?? 0);")
+    && brokerSource.includes("$relationship_attitude_source = 'resolved_disposition_fallback';")
     && brokerSource.includes("$relationship_attitude = trim((string) ($combat['relationship_attitude'] ?? ''));")
     && brokerSource.includes("'relationship_attitude_source' => $relationship_attitude_source"),
-  'Broker resolves relationship attitude and numeric score from the same most-hostile edge selection, with payload fallback'
+  'Broker resolves relationship attitude and numeric score from edge first, disposition fallback second, with payload fallback'
 );
 
 assert(
@@ -100,9 +105,12 @@ assert(
 assert(
   policySource.includes('$relationship_attitude = strtolower(trim((string) ($input[\'relationship_attitude\'] ?? \'\')));')
     && policySource.includes('$hostility_pressure = (int) round(')
+    && policySource.includes('public function buildHostilityPressureBreakdown(array $input): array')
+    && policySource.includes("'rows' => array_map(static function (array $row): array {")
     && policySource.includes('$entry_authorized = FALSE;')
     && policySource.includes('if ($hostility_pressure <= -65) {')
     && policySource.includes('elseif ($hostility_pressure <= -40 && ($explicit_attack_declared || in_array($state, [\'threatened\', \'hostile\', \'engaged\'], TRUE))) {')
+    && policySource.includes("'formula' => (string) ($hostility['formula'] ?? self::HOSTILITY_FORMULA)")
     && policySource.includes("'hostility_pressure' => $hostility_pressure")
     && policySource.includes("'actor_attitude_source' => $actor_attitude_source")
     && policySource.includes("'relationship_attitude_source' => $relationship_attitude_source"),

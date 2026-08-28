@@ -740,7 +740,7 @@ INSTRUCTIONS;
     $ctx = "\n=== LOCATION & WORLD AWARENESS ===\n";
 
     // --- Connected Rooms / Exits ---
-    $exits = $this->resolveRoomExits($dungeon_data, $current_room_id);
+    $exits = $this->resolveRoomExits($this->buildNavigationScope($dungeon_data), $current_room_id);
     if (!empty($exits)) {
       $ctx .= "\nExits from this location:\n";
       foreach ($exits as $exit) {
@@ -859,7 +859,7 @@ ENTRY_NARRATION_RULES;
    * Expose grounded room exits for other services that need deterministic answers.
    */
   public function getResolvedRoomExits(array $dungeon_data, string $current_room_id): array {
-    return $this->resolveRoomExits($dungeon_data, $current_room_id);
+    return $this->resolveRoomExits($this->buildNavigationScope($dungeon_data), $current_room_id);
   }
 
   /**
@@ -1029,6 +1029,22 @@ ENTRY_NARRATION_RULES;
     }
 
     return NULL;
+  }
+
+  /**
+   * Build minimal navigation scope for exit resolution.
+   *
+   * @return array{
+   *   rooms:array<int,array<string,mixed>>,
+   *   hex_map:array<string,mixed>
+   * }
+   *   Minimal data required for room-exit resolution.
+   */
+  protected function buildNavigationScope(array $dungeon_data): array {
+    return [
+      'rooms' => is_array($dungeon_data['rooms'] ?? NULL) ? array_values($dungeon_data['rooms']) : [],
+      'hex_map' => is_array($dungeon_data['hex_map'] ?? NULL) ? $dungeon_data['hex_map'] : [],
+    ];
   }
 
   /**

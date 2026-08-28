@@ -29,7 +29,7 @@ const contextServiceSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/s
 console.log('\n=== ActionRailPanel architecture contracts ===');
 
 assert(
-  panelSource.includes("import { buildActionRailContext } from '../services/action-rail-context-service.js?v=20260818-v2-action-rail-actor-identity-fix-1';")
+  /import \{ buildActionRailContext \} from '\.\.\/services\/action-rail-context-service\.js(\?v=[^']*)?';/.test(panelSource)
     && panelSource.includes('getActionRailContext() {')
     && panelSource.includes('return buildActionRailContext(this.stateManager);')
     && contextServiceSource.includes('const phaseSnapshot = selectRailPhaseSnapshot(hexmap);')
@@ -84,6 +84,32 @@ assert(
     && panelSource.includes('const directRoute = getActionRailDirectRoute(actionType, button);')
     && panelSource.includes('if (isActionRailSelectableAction(actionType)) {'),
   'ActionRailPanel dispatch boundaries are driven by shared routing contracts'
+);
+
+// Regression: the "Suggest move" button used to target `context.actorRef`,
+// which is intentionally turn-scoped (bound to whichever actor currently
+// holds the encounter turn) so that direct action buttons submit legal
+// intents. Because the suggestion endpoint is read-only and explicitly
+// supports a hypothetical plan for a non-active actor (`is_actor_turn:
+// false`), the request must instead prefer the player's map-selected actor,
+// then their own launch character, before ever falling back to the
+// turn-scoped ref. Without this, pressing Suggest during an enemy's turn
+// always returned a plan for that enemy instead of the selected player
+// character.
+assert(
+  panelSource.includes('resolveActionRailSuggestionActorRef(context = null) {')
+    && panelSource.includes('const selectedEntity = resolvedContext?.selectedEntity || this.stateManager?.get?.(\'selectedEntity\') || null;')
+    && panelSource.includes('if (selectedRef !== \'\') {\n      return selectedRef;\n    }')
+    && panelSource.includes('const launchActorRef = String(\n      resolvedContext?.runtimeContext?.instanceId\n      || resolvedContext?.runtimeContext?.instance_id\n      || \'\'\n    ).trim();')
+    && panelSource.includes('if (launchActorRef !== \'\') {\n      return launchActorRef;\n    }')
+    && panelSource.includes('return String(resolvedContext?.actorRef || \'\').trim();\n  }'),
+  'ActionRailPanel resolves suggestion targeting via selected actor, then launch character, before the turn-scoped ref'
+);
+
+assert(
+  panelSource.includes('async requestActionSuggestion(button) {')
+    && panelSource.includes('const actorRef = this.resolveActionRailSuggestionActorRef(context);'),
+  'requestActionSuggestion sources its actor param from the selection-first resolver, not the turn-scoped context.actorRef'
 );
 
 console.log('\n=============================================');

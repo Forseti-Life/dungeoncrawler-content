@@ -64,7 +64,7 @@ assert(
 assert(
   panelSource.includes('this.focusActorFromSelector(partyActorSelect.value, { activateCharacterTab: false });')
     && panelSource.includes("if (selectedActorKind === 'primary' || normalizedRef === '__primary__') {")
-    && panelSource.includes('this.showActorCharacterFromEntity(entity);')
+    && panelSource.includes('this.showActorCharacterFromEntity(entity, { preferredActorRef: normalizedRef });')
     && panelSource.includes('this.showFollowerCharacterFromEntity(entity);'),
   'Unified selector routes primary option to main sheet, runtime actors to actor rendering, and follower options to follower rendering'
 );
@@ -84,7 +84,7 @@ assert(
   panelSource.includes('buildFollowerLaunchCharacterPayload(entity) {')
     && panelSource.includes('if (ownerCharacterId > 0 && followerCharacterId === ownerCharacterId) {')
     && panelSource.includes('character_id: followerCharacterId || null,')
-    && panelSource.includes('this.showLaunchCharacter(payload, { storeAsPrimary: false });'),
+    && panelSource.includes('this.showLaunchCharacter(fallbackPayload, { storeAsPrimary: false });'),
   'Follower selections are transformed into launch-character payloads and rendered through existing Character tab logic'
 );
 

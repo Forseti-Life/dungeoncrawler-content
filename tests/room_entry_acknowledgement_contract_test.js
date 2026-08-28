@@ -25,7 +25,7 @@ function assert(condition, message) {
 const roomChatCoreSource = fs.readFileSync(path.resolve(__dirname, '../src/Service/RoomChatServiceCoreFlowTrait.php'), 'utf8');
 const controllerSource = fs.readFileSync(path.resolve(__dirname, '../src/Controller/RoomChatController.php'), 'utf8');
 const routingSource = fs.readFileSync(path.resolve(__dirname, '../dungeoncrawler_content.routing.yml'), 'utf8');
-const gameShellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
+const gameShellSource = require('./helpers/js-source.js').readGameShellSource();
 const entrypointSource = fs.readFileSync(path.resolve(__dirname, '../js/hexmap-v2.js'), 'utf8');
 
 console.log('\n=== Room entry acknowledgement contract ===');
@@ -54,7 +54,7 @@ assert(
 
 assert(
   gameShellSource.includes('this._pendingRoomEntryAcknowledgement = {')
-    && gameShellSource.includes('this.queueRoomEntryAcknowledgement({')
+    && gameShellSource.includes('shell.queueRoomEntryAcknowledgement({')
     && gameShellSource.includes('void this.requestRoomEntryAcknowledgement({')
     && gameShellSource.includes("/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat/entry-acknowledgement")
     && gameShellSource.includes('void this._loadChatHistory();'),

@@ -45,7 +45,7 @@ assert(
   'EncounterActionExecutor emits movement_packet and normalized from/to hex values'
 );
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 assert(
   phaseHandlerSource.includes("buildEvent('stride'")
     && phaseHandlerSource.includes("'movement_packet' => $movement_packet")

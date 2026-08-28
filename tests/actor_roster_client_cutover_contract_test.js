@@ -22,10 +22,7 @@ function assert(condition, message) {
   }
 }
 
-const shellSource = fs.readFileSync(
-  path.resolve(__dirname, '../js/v2/GameShell.js'),
-  'utf8',
-);
+const shellSource = require('./helpers/js-source.js').readGameShellSource();
 const panelSource = fs.readFileSync(
   path.resolve(__dirname, '../js/v2/panels/CharacterPanel.js'),
   'utf8',

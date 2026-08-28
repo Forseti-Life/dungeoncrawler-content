@@ -26,10 +26,7 @@ const pipelineSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/GmSubsystem/GmTranscriptPersistencePipeline.php'),
   'utf8'
 );
-const roomChatSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
-  'utf8'
-);
+const roomChatSource = require('./helpers/php-source.js').readGmPipelineSource();
 const servicesSource = fs.readFileSync(
   path.resolve(__dirname, '../dungeoncrawler_content.services.yml'),
   'utf8'
@@ -59,8 +56,8 @@ assert(
 );
 assert(
   roomChatSource.includes('$persistence_result = $this->gmTranscriptPersistencePipeline->persistVisibleReply(')
-    && roomChatSource.includes("[$this, 'buildGmRoomResponsePayload']")
-    && roomChatSource.includes("[$this, 'bridgeGmReplyToSessionSystem']"),
+    && roomChatSource.includes('$callbacks->buildGmRoomResponsePayload(')
+    && roomChatSource.includes('$callbacks->bridgeGmReplyToSessionSystem('),
   'generateGmReply delegates transcript persistence/session bridge through subsystem pipeline'
 );
 assert(

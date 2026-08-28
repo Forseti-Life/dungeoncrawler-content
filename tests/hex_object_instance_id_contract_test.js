@@ -22,7 +22,7 @@ function assert(condition, message) {
 }
 
 (function run() {
-  const srcPath = path.join(__dirname, '..', 'js', 'v2', 'GameShell.js');
+  const srcPath = path.join(__dirname, '..', 'js', 'v2', 'shell', 'GameShellProjectionHelpers.js');
   const src = fs.readFileSync(srcPath, 'utf8');
 
   console.log('\n=== Hex object instance_id contract ===');

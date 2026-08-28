@@ -22,8 +22,7 @@ function assert(condition, message) {
   }
 }
 
-const sourcePath = path.resolve(__dirname, '../js/v2/GameShell.js');
-const source = fs.readFileSync(sourcePath, 'utf8');
+const source = require('./helpers/js-source.js').readGameShellSource();
 
 console.log('\n=== Hex object stackable metadata contract ===');
 

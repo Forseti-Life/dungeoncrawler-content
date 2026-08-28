@@ -2450,6 +2450,17 @@ dungeoncrawler_content.api.game_state:
   options:
     _format: json
 
+dungeoncrawler_content.api.game_suggest_action:
+  path: '/api/game/{campaign_id}/suggest-action'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\GameCoordinatorController::suggestAction'
+  methods: [GET]
+  requirements:
+    _permission: 'access dungeoncrawler characters'
+    campaign_id: '\d+'
+  options:
+    _format: json
+
 dungeoncrawler_content.api.game_transition:
   path: '/api/game/{campaign_id}/transition'
   defaults:

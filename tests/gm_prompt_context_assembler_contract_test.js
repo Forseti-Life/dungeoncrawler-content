@@ -26,10 +26,7 @@ const assemblerSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/GmSubsystem/PromptContextAssembler.php'),
   'utf8'
 );
-const roomChatSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
-  'utf8'
-);
+const roomChatSource = require('./helpers/php-source.js').readGmPipelineSource();
 const servicesSource = fs.readFileSync(
   path.resolve(__dirname, '../dungeoncrawler_content.services.yml'),
   'utf8'
@@ -57,7 +54,7 @@ assert(
 );
 assert(
   roomChatSource.includes('$prompt_assembly = $this->promptContextAssembler->assemble([')
-    && roomChatSource.includes("$this->recordDebugStage('gm.user_prompt_assembly', $stage_started_at, $prompt_assembly['debug_meta'] ?? []);"),
+    && roomChatSource.includes("$this->recordDebugStage('gm.user_prompt_assembly', $stage_started_at, (array) ($prompt_artifact_payload['user_prompt_debug_meta'] ?? []));"),
   'generateGmReply uses assembled prompt payload for debug-stage metadata'
 );
 assert(

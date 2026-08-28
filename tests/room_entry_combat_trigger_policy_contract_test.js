@@ -22,23 +22,20 @@ function assert(condition, message) {
   }
 }
 
-const source = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
-  'utf8',
-);
+const source = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 console.log('\n=== Room entry combat trigger policy contract ===');
 
 assert(
-  source.includes('protected function buildCombatEncounterContext(string $room_id, array $dungeon_data, array $game_state, int $campaign_id): array')
-    && source.includes('if (!$this->hasHostileDispositionInRoom($room_id, $dungeon_data, $campaign_id)) {'),
+  source.includes('protected function buildCombatEncounterContext(')
+    && source.includes('if (!$this->hasHostileDispositionInRoom($room_id, $dungeon_data, $campaign_id, $room_entities)) {'),
   'Room-entry combat trigger is gated by hostile disposition check'
 );
 
 assert(
-  source.includes('protected function hasHostileDispositionInRoom(string $room_id, array $dungeon_data, int $campaign_id): bool')
+  source.includes('protected function hasHostileDispositionInRoom(')
     && source.includes('$disposition_resolver = $this->resolveDispositionResolverService();')
-    && source.includes('$resolved = $disposition_resolver->resolveDispositionMap($campaign_id, $source_ref, $targets, [')
+    && source.includes('$this->hasHostileDispositionBetweenActorRefs($campaign_id, $source_ref, $target_ref, $room_id)')
     && source.includes("$hostile_flag = (bool) ($dto['policy_flags']['hostile'] ?? FALSE);")
     && source.includes('if ($hostile_flag || $this->isHostileDispositionScore($effective_score)) {')
     && source.includes('$relationship_attitude->resolveEdgeDispositionDetails($source_ref, $target_ref, $campaign_id)')

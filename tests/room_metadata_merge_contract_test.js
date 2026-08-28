@@ -57,8 +57,14 @@ function extractFunctionSource(source, name) {
 }
 
 (function run() {
-  const srcPath = path.join(__dirname, '..', 'js', 'v2', 'GameShell.js');
-  const src = fs.readFileSync(srcPath, 'utf8');
+  // Projection helpers were extracted out of GameShell.js into
+  // shell/GameShellProjectionHelpers.js. Read both so source extraction keeps
+  // working regardless of which file currently hosts the function.
+  const srcPaths = [
+    path.join(__dirname, '..', 'js', 'v2', 'GameShell.js'),
+    path.join(__dirname, '..', 'js', 'v2', 'shell', 'GameShellProjectionHelpers.js'),
+  ];
+  const src = srcPaths.map((p) => fs.readFileSync(p, 'utf8')).join('\n\n');
 
   const fnNames = ['_isPlainObject', '_hasMeaningfulValue', '_mergeRoomMetadata'];
   const extracted = fnNames.map((n) => extractFunctionSource(src, n)).join('\n\n');

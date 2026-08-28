@@ -40,7 +40,7 @@ assert(
 );
 
 assert(
-  source.includes('Use resolved_actor_context as the canonical disposition/aggression/stance/relationship source'),
+  source.includes('Use resolved_actor_context as the canonical disposition/aggression/stance/process_flow/relationship source'),
   'Recommendation system prompt directs model to prefer resolved_actor_context'
 );
 

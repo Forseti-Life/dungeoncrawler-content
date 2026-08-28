@@ -36,7 +36,7 @@ assert(
   'UnifiedStateEffectEngine defines the shared state/effect packet seam'
 );
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 assert(
   phaseHandlerSource.includes('protected UnifiedStateEffectEngine $unifiedStateEffectEngine;')
     && phaseHandlerSource.includes('$this->unifiedStateEffectEngine = $unified_state_effect_engine ?? new UnifiedStateEffectEngine(')

@@ -179,7 +179,7 @@ class RoomViewImageServiceTest extends UnitTestCase {
 
     $this->assertFalse($result['success']);
     $this->assertFalse($result['available']);
-    $this->assertSame('pending', $result['status']);
+    $this->assertSame('unavailable', $result['status']);
     $this->assertSame('tavern_entrance', $result['room']['room_id']);
     $this->assertSame('The Gilded Tankard', $result['room']['name']);
     $this->assertSame([], $result['entries']);
@@ -389,6 +389,13 @@ class TestRoomViewImageService extends RoomViewImageService {
    * {@inheritdoc}
    */
   protected function loadLatestDungeonRecord(int $campaign_id): ?array {
+    return $this->latestDungeonRecord;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function loadDungeonRecordForRoom(int $campaign_id, string $room_id): ?array {
     return $this->latestDungeonRecord;
   }
 

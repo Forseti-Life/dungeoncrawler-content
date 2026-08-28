@@ -32,7 +32,7 @@ console.log('\n=== Room chat resolved disposition prompt contract ===');
 assert(
   source.includes('protected function buildResolvedDispositionPromptContext(')
     && source.includes("dungeoncrawler_content.disposition_resolver_service")
-    && source.includes('resolveActorTargetDisposition($campaign_id, $entity_ref, $target_ref')
+    && /resolveActorTargetDisposition\(\s*\$campaign_id,\s*\$entity_ref,\s*\$target_ref,/.test(source)
     && source.includes('Resolved disposition authority (use as canonical social state):')
     && source.includes('effective_score:')
     && source.includes('confidence:'),

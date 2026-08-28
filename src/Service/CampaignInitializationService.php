@@ -225,14 +225,6 @@ class CampaignInitializationService {
         (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
         (string) ($starter_room['description'] ?? '')
       );
-      $this->seedStarterRoomChatHistory(
-        $campaign_id,
-        $dungeon_id,
-        $starter_runtime_room_id,
-        (string) ($starter_room['name'] ?? 'The Gilded Tankard'),
-        (string) ($starter_room['description'] ?? ''),
-        $now
-      );
       if ($this->roomViewImageService) {
         $phase = 'warm_starter_room_view_image_cache';
         $this->roomViewImageService->warmRoomViewImageCache($starter_room, [
@@ -3141,28 +3133,11 @@ class CampaignInitializationService {
         );
 
         if ($room_id !== '') {
-          $room_session = $this->chatSessionManager->ensureRoomSession(
+          $this->chatSessionManager->ensureRoomSession(
             $campaign_id,
             $dungeon_id,
             $room_id,
             $room_name ?: $room_id,
-          );
-
-          // Post a welcome message into the room session so the room
-          // tab has something to show besides an empty state.
-          $seed_message = $this->buildStarterRoomSeedNarration($room_name, $room_description);
-
-          $this->chatSessionManager->postMessage(
-            (int) $room_session['id'],
-            $campaign_id,
-            'Narrator',
-            'narrator',
-            '',
-            $seed_message,
-            'narrative',
-            'all',
-            ['event' => 'room_enter', 'room_id' => $room_id],
-            TRUE
           );
         }
       }
@@ -3200,98 +3175,7 @@ class CampaignInitializationService {
   }
 
   /**
-   * Seed the starter room's visible runtime chat log for the hexmap frontend.
-   */
-  private function seedStarterRoomChatHistory(
-    int $campaign_id,
-    string $dungeon_id,
-    string $room_id,
-    string $room_name,
-    string $room_description,
-    int $now
-  ): void {
-    if ($room_id === '') {
-      return;
-    }
-
-    $record = $this->database->select('dc_campaign_dungeons', 'd')
-      ->fields('d', ['dungeon_data'])
-      ->condition('campaign_id', $campaign_id)
-      ->condition('dungeon_id', $dungeon_id)
-      ->range(0, 1)
-      ->execute()
-      ->fetchAssoc();
-    if (!$record) {
-      return;
-    }
-
-    $dungeon_data = json_decode((string) ($record['dungeon_data'] ?? '{}'), TRUE);
-    if (!is_array($dungeon_data) || !is_array($dungeon_data['rooms'] ?? NULL)) {
-      return;
-    }
-
-    foreach ($dungeon_data['rooms'] as &$room) {
-      if (!is_array($room)) {
-        continue;
-      }
-
-      $candidate_room_id = (string) ($room['room_id'] ?? $room['id'] ?? '');
-      if ($candidate_room_id !== $room_id) {
-        continue;
-      }
-
-      $room['chat'] = is_array($room['chat'] ?? NULL) ? $room['chat'] : [];
-      $resolved_room_name = trim((string) ($room['name'] ?? $room_name));
-      $resolved_room_description = trim((string) ($room['description'] ?? $room_description));
-      $seed_message = $this->buildStarterRoomSeedNarration($resolved_room_name, $resolved_room_description);
-
-      foreach ($room['chat'] as $message) {
-        $speaker = strtolower(trim((string) ($message['speaker'] ?? '')));
-        $existing_message = trim((string) ($message['message'] ?? ''));
-        if (in_array($speaker, ['narrator', 'game master'], TRUE)
-          && $existing_message === $seed_message) {
-          return;
-        }
-      }
-
-      $room['chat'][] = [
-        'speaker' => 'Narrator',
-        'message' => $seed_message,
-        'type' => 'narrator',
-        'channel' => 'room',
-        'timestamp' => date('c', $now),
-        'character_id' => NULL,
-        'user_id' => NULL,
-      ];
-
-      $this->database->update('dc_campaign_dungeons')
-        ->fields([
-          'dungeon_data' => json_encode($dungeon_data, JSON_UNESCAPED_UNICODE),
-          'updated' => $now,
-        ])
-        ->condition('campaign_id', $campaign_id)
-        ->condition('dungeon_id', $dungeon_id)
-        ->execute();
-      return;
-    }
-  }
-
-  private function prefixInitialEncounterNarration(string $speaker, string $message): string {
-    $message = trim($message);
-    if ($message === '') {
-      return $message;
-    }
-
-    if (\Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::isPrefixed($message)) {
-      return $message;
-    }
-
-    $speaker = trim($speaker) !== '' ? trim($speaker) : 'Narrator';
-    return \Drupal\dungeoncrawler_content\Service\EncounterTranscriptPrefix::formatPrefix(0, 1, $speaker) . $message;
-  }
-
-  /**
-   * Build the starter room opener text for GM narration.
+   * Build the starter room opener text for canonical room-entry narration.
    */
   private function buildStarterRoomIntroMessage(string $room_name, string $room_description): string {
     $room_name = trim($room_name);
@@ -3307,16 +3191,6 @@ class CampaignInitializationService {
     return $room_name !== ''
       ? "You arrive at {$room_name}. The adventure begins..."
       : 'You enter the room. The adventure begins...';
-  }
-
-  /**
-   * Build and prefix starter room narration for initial campaign room feeds.
-   */
-  private function buildStarterRoomSeedNarration(string $room_name, string $room_description): string {
-    return $this->prefixInitialEncounterNarration(
-      'Narrator',
-      $this->buildStarterRoomIntroMessage($room_name, $room_description)
-    );
   }
 
 }

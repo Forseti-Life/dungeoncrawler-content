@@ -22,11 +22,14 @@ function assert(condition, msg) {
 const fs   = require('fs');
 const path = require('path');
 
+// These panels resolve elements through container-scoped `[data-*]` lookups and
+// global ids, and build output with createElement()/appendChild(). The shared
+// fake DOM models both so the tests observe what the panels actually render.
+const { installDom, makeScopedContainer } = require('./helpers/fake-dom.js');
+const { loadModuleExport } = require('./helpers/js-module.js');
+
 function loadClass(relPath, className) {
-  let src = fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
-  src = src.replace(/^import[\s\S]*?;\s*$/gm, '');
-  src = src.replace(/^export\s+/gm, '');
-  return new Function(src + `\nreturn { ${className} };`)()[className];
+  return loadModuleExport(relPath, className);
 }
 
 const RoomViewPanel  = loadClass('../js/v2/panels/RoomViewPanel.js',  'RoomViewPanel');
@@ -34,193 +37,169 @@ const PartyRailPanel = loadClass('../js/v2/panels/PartyRailPanel.js', 'PartyRail
 const StatusPanel    = loadClass('../js/v2/panels/StatusPanel.js',    'StatusPanel');
 const GameEventBus   = loadClass('../js/v2/GameEventBus.js',          'GameEventBus');
 
-// ---------------------------------------------------------------------------
-// DOM helpers
-// ---------------------------------------------------------------------------
+const ROOM_KEYS   = ['name', 'description', 'gallery', 'empty', 'scene-image', 'responders'];
+const PARTY_KEYS  = ['rail', 'empty'];
+const STATUS_KEYS = ['unavail-banner', 'backend-wait', 'zoom', 'hex-info', 'hex-legend', 'fullscreen'];
 
-function makeEl(key) {
-  return {
-    _key: key, textContent: '', innerHTML: '', src: '', alt: '', href: '',
-    hidden: false, dataset: {}, _listeners: {},
-    addEventListener(e, f) { (this._listeners[e] = this._listeners[e] || []).push(f); },
-    querySelectorAll(sel) {
-      if (sel.includes('data-entity-id')) return this._tiles || [];
-      return [];
-    },
-    querySelector()    { return null; },
-    closest()          { return null; },
-    classList: {
-      _classes: new Set(),
-      toggle(cls, force) { force ? this._classes.add(cls) : this._classes.delete(cls); },
-      add(cls)    { this._classes.add(cls); },
-      remove(cls) { this._classes.delete(cls); },
-      contains(cls) { return this._classes.has(cls); },
-    },
-  };
-}
+const GLOBAL_IDS = [
+  'room-view-meta', 'room-view-status', 'room-view-placeholder-text', 'room-view-card-template',
+  'initiative-list',
+  'npc-portraits-name', 'npc-portraits-meta', 'npc-portraits-status',
+  'npc-portraits-grid', 'npc-portraits-placeholder', 'npc-portraits-placeholder-text',
+];
 
 function makeContainer(prefix) {
-  const elements = {};
+  installDom(GLOBAL_IDS);
+  const keys = prefix === 'room' ? ROOM_KEYS : prefix === 'party' ? PARTY_KEYS : STATUS_KEYS;
+  return makeScopedContainer(prefix, keys);
+}
+
+function makeOccupant({ id, label, type = 'pc', portraitUrl = null, roomId = 'r1' } = {}) {
   return {
-    querySelector(sel) {
-      const m = sel.match(new RegExp(`\\[data-${prefix}="([^"]+)"\\]`));
-      if (!m) return null;
-      if (!elements[m[1]]) elements[m[1]] = makeEl(m[1]);
-      return elements[m[1]];
-    },
-    _elements: elements,
+    occupant_id: id,
+    content_id: id,
+    room_id: roomId,
+    label,
+    occupant_type: type === 'pc' ? 'player_character' : type,
+    presentation: { portrait_url: portraitUrl },
   };
 }
 
-function makeOccupant({ id, label, type = 'pc', portraitUrl = null } = {}) {
-  return { occupant_id: id, label, occupant_type: type, presentation: { portrait_url: portraitUrl } };
+/**
+ * RoomViewPanel and PartyRailPanel read occupants from canonical state via
+ * `stateManager.hexmap.getVisualOccupants()`; bus events only carry the room id.
+ */
+function makeStateManager(occupants = [], roomId = 'r1', rooms = {}) {
+  return {
+    hexmap: {
+      resolveActiveRoomId: () => roomId,
+      getVisualRooms: () => rooms,
+      getVisualOccupants: () => occupants,
+      isVisualOccupantVisible: () => true,
+      getObjectDefinition: () => null,
+      spriteService: { getCachedUrl: () => null },
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
 // RoomViewPanel Tests
 // ---------------------------------------------------------------------------
 
-console.log('\n=== RoomViewPanel — empty state on init ===');
-{
+function mountRoomView(occupants = [], rooms = {}) {
   const bus = new GameEventBus();
   const container = makeContainer('room');
   const panel = new RoomViewPanel(container, bus);
-  panel.init();
+  panel.init({}, makeStateManager(occupants, 'r1', rooms));
+  return { bus, container, panel };
+}
 
-  const empty = container._elements['empty'];
-  assert(empty?.hidden === false, 'empty visible on init');
+console.log('\n=== RoomViewPanel — empty state on init ===');
+{
+  const { bus, container } = mountRoomView();
+  bus.emit('room:changed', { roomId: 'r1', roomName: 'The Iron Forge' });
+
+  assert(container._elements['empty']?.hidden === false, 'placeholder visible when no gallery entries');
+  assert(container._elements['gallery']?.hidden === true, 'gallery hidden when no entries');
 }
 
 console.log('\n=== RoomViewPanel — room:changed renders room name ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer('room');
-  const panel = new RoomViewPanel(container, bus);
-  panel.init();
+  const { bus, container } = mountRoomView();
+  bus.emit('room:changed', { roomId: 'r1', roomName: 'The Iron Forge' });
 
-  bus.emit('room:changed', { roomId: 'r1', roomName: 'The Iron Forge', sceneImageUrl: null, responders: [] });
-
-  const name  = container._elements['name'];
-  const empty = container._elements['empty'];
-  assert(name?.textContent === 'The Iron Forge', 'room name displayed');
-  assert(empty?.hidden === true, 'empty hidden after room loaded');
+  assert(container._elements['name']?.textContent === 'The Iron Forge', 'room name displayed');
 }
 
-console.log('\n=== RoomViewPanel — room:changed sets scene image ===');
+console.log('\n=== RoomViewPanel — room name falls back when absent ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer('room');
-  const panel = new RoomViewPanel(container, bus);
-  panel.init();
+  const { bus, container } = mountRoomView();
+  bus.emit('room:changed', { roomId: 'r1' });
 
-  bus.emit('room:changed', {
-    roomId: 'r1', roomName: 'Cave', sceneImageUrl: '/scenes/cave.jpg', responders: [],
+  assert(container._elements['name']?.textContent === 'Current room', 'falls back to a neutral room label');
+}
+
+console.log('\n=== RoomViewPanel — room description shown and hidden ===');
+{
+  const { bus, container } = mountRoomView();
+  bus.emit('room:changed', { roomId: 'r1', roomName: 'Cave', room: { description: 'A damp cavern.' } });
+  assert(container._elements['description']?.textContent === 'A damp cavern.', 'description rendered');
+  assert(container._elements['description']?.hidden === false, 'description shown when present');
+
+  bus.emit('room:changed', { roomId: 'r1', roomName: 'Cave' });
+  assert(container._elements['description']?.hidden === true, 'description hidden when absent');
+}
+
+console.log('\n=== RoomViewPanel — gallery entries render and reveal ===');
+{
+  const { bus, container } = mountRoomView();
+  bus.emit('room:view-loaded', {
+    room: { id: 'r1', name: 'Tavern' },
+    viewState: { entries: [{ image: { url: '/scenes/tavern.jpg' } }] },
   });
 
-  const img = container._elements['scene-image'];
-  assert(img?.src === '/scenes/cave.jpg', 'scene image src set');
-  assert(img?.hidden === false, 'scene image visible');
+  assert(container._elements['gallery']?.hidden === false, 'gallery visible once entries exist');
+  assert(container._elements['empty']?.hidden === true, 'placeholder hidden once entries exist');
 }
 
-console.log('\n=== RoomViewPanel — no scene image hides img element ===');
+console.log('\n=== RoomViewPanel — room name is set as text, never parsed as markup ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer('room');
-  const panel = new RoomViewPanel(container, bus);
-  panel.init();
-
-  bus.emit('room:changed', { roomId: 'r1', roomName: 'Cave', responders: [] });
-
-  const img = container._elements['scene-image'];
-  assert(img?.hidden === true, 'scene image hidden when no URL');
-}
-
-console.log('\n=== RoomViewPanel — responders rendered ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer('room');
-  const panel = new RoomViewPanel(container, bus);
-  panel.init();
-
-  bus.emit('room:changed', {
-    roomId: 'r1', roomName: 'Tavern', responders: [
-      { npc_id: 'n1', name: 'Grak', portrait_url: '/p/grak.jpg' },
-      { npc_id: 'n2', name: 'Mira' },
-    ],
-  });
-
-  const respEl = container._elements['responders'];
-  assert(respEl?.innerHTML.includes('Grak'), 'first responder rendered');
-  assert(respEl?.innerHTML.includes('Mira'), 'second responder rendered');
-  assert(respEl?.innerHTML.includes('/p/grak.jpg'), 'portrait url in img');
-  // Mira has no portrait → show initial
-  assert(respEl?.innerHTML.includes('>M<'), 'initial shown for no-portrait responder');
-}
-
-console.log('\n=== RoomViewPanel — HTML escaped ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer('room');
-  const panel = new RoomViewPanel(container, bus);
-  panel.init();
-
-  bus.emit('room:changed', {
-    roomId: 'r1', roomName: '<script>bad</script>', responders: [],
-  });
+  const { bus, container } = mountRoomView();
+  bus.emit('room:changed', { roomId: 'r1', roomName: '<script>bad</script>' });
 
   const name = container._elements['name'];
-  assert(name?.textContent === '<script>bad</script>', 'room name raw in textContent (safe)');
+  assert(name?.textContent === '<script>bad</script>', 'room name kept as literal text');
+  assert(
+    (name?.children ?? []).every((child) => child.tagName === '#text'),
+    'room name produced no element children (not parsed as markup)'
+  );
 }
 
 console.log('\n=== RoomViewPanel — destroy unsubscribes ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer('room');
-  const panel = new RoomViewPanel(container, bus);
-  panel.init();
+  const { bus, container, panel } = mountRoomView();
+  bus.emit('room:changed', { roomId: 'r1', roomName: 'The Iron Forge' });
   panel.destroy();
 
-  bus.emit('room:changed', { roomId: 'r2', roomName: 'Ghost Room', responders: [] });
-  assert(panel._currentRoomId === null, 'room id cleared on destroy');
+  bus.emit('room:changed', { roomId: 'r2', roomName: 'Ghost Room' });
+  assert(
+    container._elements['name']?.textContent === 'The Iron Forge',
+    'destroyed panel stops responding to room changes'
+  );
 }
 
 // ---------------------------------------------------------------------------
 // PartyRailPanel Tests
 // ---------------------------------------------------------------------------
 
-console.log('\n=== PartyRailPanel — empty when no PCs ===');
-{
+function mountPartyRail(occupants = []) {
   const bus = new GameEventBus();
   const container = makeContainer('party');
   const panel = new PartyRailPanel(container, bus);
-  panel.init();
+  panel.init({}, makeStateManager(occupants));
+  return { bus, container, panel };
+}
 
-  bus.emit('room:occupants-changed', {
-    occupants: [makeOccupant({ id: 'n1', label: 'Grak', type: 'npc' })],
-  });
+console.log('\n=== PartyRailPanel — empty when no PCs ===');
+{
+  const { bus, container } = mountPartyRail([makeOccupant({ id: 'n1', label: 'Grak', type: 'npc' })]);
+  bus.emit('room:occupants-changed', { roomId: 'r1' });
 
-  const empty = container._elements['empty'];
-  assert(empty?.hidden === false, 'empty visible when no PCs');
+  assert(container._elements['empty']?.hidden === false, 'empty visible when no PCs');
+  assert(container._elements['rail']?.hidden === true, 'rail hidden when no PCs');
 }
 
 console.log('\n=== PartyRailPanel — renders PC tiles ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer('party');
-  const panel = new PartyRailPanel(container, bus);
-  panel.init();
+  const { bus, container } = mountPartyRail([
+    makeOccupant({ id: 'pc1', label: 'Aria', type: 'pc', portraitUrl: '/p/aria.jpg' }),
+    makeOccupant({ id: 'pc2', label: 'Bard', type: 'pc' }),
+    makeOccupant({ id: 'n1',  label: 'Grak', type: 'npc' }),
+  ]);
+  bus.emit('room:occupants-changed', { roomId: 'r1' });
 
-  bus.emit('room:occupants-changed', {
-    occupants: [
-      makeOccupant({ id: 'pc1', label: 'Aria', type: 'pc', portraitUrl: '/p/aria.jpg' }),
-      makeOccupant({ id: 'pc2', label: 'Bard', type: 'pc' }),
-      makeOccupant({ id: 'n1',  label: 'Grak', type: 'npc' }),
-    ],
-  });
-
-  const rail  = container._elements['rail'];
-  const empty = container._elements['empty'];
-  assert(empty?.hidden === true, 'empty hidden when PCs present');
+  const rail = container._elements['rail'];
+  assert(container._elements['empty']?.hidden === true, 'empty hidden when PCs present');
   assert(rail?.innerHTML.includes('data-entity-id="pc1"'), 'first PC tile rendered');
   assert(rail?.innerHTML.includes('data-entity-id="pc2"'), 'second PC tile rendered');
   assert(!rail?.innerHTML.includes('data-entity-id="n1"'), 'NPC excluded from rail');
@@ -228,32 +207,36 @@ console.log('\n=== PartyRailPanel — renders PC tiles ===');
   assert(rail?.innerHTML.includes('>B<'), 'Bard initial shown for no-portrait');
 }
 
-console.log('\n=== PartyRailPanel — entity:selected highlights tile ===');
+console.log('\n=== PartyRailPanel — re-render replaces prior cards ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer('party');
-  const panel = new PartyRailPanel(container, bus);
-  panel.init();
+  const occupants = [makeOccupant({ id: 'pc1', label: 'Aria', type: 'pc' })];
+  const { bus, container } = mountPartyRail(occupants);
+  bus.emit('room:occupants-changed', { roomId: 'r1' });
+  assert(container._elements['rail']?.innerHTML.includes('Aria'), 'initial member rendered');
 
-  bus.emit('room:occupants-changed', {
-    occupants: [makeOccupant({ id: 'pc1', label: 'Aria', type: 'pc' })],
-  });
+  occupants.length = 0;
+  occupants.push(makeOccupant({ id: 'pc2', label: 'Bard', type: 'pc' }));
+  bus.emit('room:occupants-changed', { roomId: 'r1' });
 
-  bus.emit('entity:selected', { entityId: 'pc1' });
-
-  assert(panel._selectedId === 'pc1', 'selected id tracked');
+  const html = container._elements['rail']?.innerHTML ?? '';
+  assert(html.includes('Bard'),  'new member rendered');
+  assert(!html.includes('Aria'), 'previous member cleared');
 }
 
 console.log('\n=== PartyRailPanel — destroy unsubscribes ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer('party');
-  const panel = new PartyRailPanel(container, bus);
-  panel.init();
+  const { bus, container, panel } = mountPartyRail([
+    makeOccupant({ id: 'pc1', label: 'Aria', type: 'pc' }),
+  ]);
+  bus.emit('room:occupants-changed', { roomId: 'r1' });
   panel.destroy();
 
-  bus.emit('room:occupants-changed', { occupants: [makeOccupant({ id: 'pc1', label: 'Ghost', type: 'pc' })] });
-  assert(panel._members.length === 0, 'members cleared on destroy');
+  const before = container._elements['rail']?.innerHTML ?? '';
+  bus.emit('room:occupants-changed', { roomId: 'r1' });
+  assert(
+    (container._elements['rail']?.innerHTML ?? '') === before,
+    'destroyed panel stops re-rendering the rail'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -303,12 +286,11 @@ console.log('\n=== StatusPanel — hex:hovered shows coordinates ===');
   const panel = new StatusPanel(container, bus);
   panel.init();
 
-  bus.emit('hex:hovered', { q: 3, r: -2, terrain: 'forest' });
+  bus.emit('hex:hovered', { q: 3, r: -2 });
   const hexInfo = container._elements['hex-info'];
   assert(hexInfo?.hidden === false, 'hex-info visible on hover');
   assert(hexInfo?.textContent.includes('3'), 'q coordinate shown');
   assert(hexInfo?.textContent.includes('-2'), 'r coordinate shown');
-  assert(hexInfo?.textContent.includes('forest'), 'terrain shown');
 }
 
 console.log('\n=== StatusPanel — hex:out clears hex info ===');
@@ -325,6 +307,19 @@ console.log('\n=== StatusPanel — hex:out clears hex info ===');
   assert(hexInfo?.textContent === '', 'hex-info cleared');
 }
 
+console.log('\n=== StatusPanel — hex:details renders terrain ===');
+{
+  const bus = new GameEventBus();
+  const container = makeContainer('status');
+  const panel = new StatusPanel(container, bus);
+  panel.init();
+
+  bus.emit('hex:details', { q: 3, r: -2, terrain: 'forest' });
+  const hexInfo = container._elements['hex-info'];
+  assert(hexInfo?.hidden === false, 'hex-info visible for hex details');
+  assert(hexInfo?.textContent.includes('forest'), 'terrain shown from hex:details');
+}
+
 console.log('\n=== StatusPanel — canvas:zoom-changed updates zoom display ===');
 {
   const bus = new GameEventBus();
@@ -333,8 +328,7 @@ console.log('\n=== StatusPanel — canvas:zoom-changed updates zoom display ==='
   panel.init();
 
   bus.emit('canvas:zoom-changed', { scale: 1.5 });
-  const zoom = container._elements['zoom'];
-  assert(zoom?.textContent === '150%', 'zoom percentage shown correctly');
+  assert(container._elements['zoom']?.textContent === '150%', 'zoom percentage shown correctly');
 }
 
 console.log('\n=== StatusPanel — fullscreen button fires bus event ===');

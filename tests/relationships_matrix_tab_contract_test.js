@@ -95,12 +95,23 @@ assert(
     && matrixReadModelSource.includes("'relationship_edge_override' =>")
     && matrixReadModelSource.includes('resolveEdgeDispositionDetails($source_ref, $target_ref, $campaign_id)')
     && matrixReadModelSource.includes('getDispositionSummary($campaign_id, $source_ref, [], FALSE)')
+    && matrixReadModelSource.includes('actorStanceResolverService->projectStance(')
+    && matrixReadModelSource.includes('aggressionPolicyService->evaluateAggressionState([')
     && matrixReadModelSource.includes("'calculations' => $calculations")
     && matrixReadModelSource.includes("'institution_score' => (int) ($institution['score'] ?? 0),")
     && matrixReadModelSource.includes("'formula' => 'final_score = resolver(source_default_score, edge_score_or_0, institution_score, scene_components...)'")
     && matrixReadModelSource.includes("'institution_breakdown' =>")
     && matrixReadModelSource.includes("'stage_errors' =>"),
   'Read-model service resolves weighted calculations with stage error reporting'
+);
+
+assert(
+  panelSource.includes('const hostilityRows = Array.isArray(aggressionPolicy?.rows)')
+    && panelSource.includes('const hostilityPressureLabel = `Hostility pressure ${hostilityPressure.toFixed(0)}`;')
+    && panelSource.includes('<span style="${hostilityPressureStyle}">${escapeQuestHtml(hostilityPressureLabel)}</span>')
+    && panelSource.includes('Number(row.contribution || 0).toFixed(2)')
+    && !panelSource.includes("variable: 'relationship_score',"),
+  'Character panel renders hostility-pressure rows and summary badge from backend payload instead of recomputing them locally'
 );
 
 assert(

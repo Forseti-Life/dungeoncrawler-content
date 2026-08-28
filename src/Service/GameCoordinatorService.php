@@ -1104,6 +1104,62 @@ class GameCoordinatorService {
   }
 
   /**
+   * Build a read-only next-action suggestion for an actor.
+   *
+   * Runs the shared actor decision pipeline in dry-run mode. No state is
+   * mutated, no events are emitted and no intent is submitted, so this is
+   * safe to call for player-controlled actors to power "suggest next move".
+   *
+   * @param int $campaign_id
+   *   Campaign ID.
+   * @param string|null $actor_id
+   *   Actor to advise. Defaults to the current turn actor.
+   *
+   * @return array
+   *   Suggestion envelope with a success flag.
+   */
+  public function suggestNextAction(int $campaign_id, ?string $actor_id = NULL): array {
+    $this->runtimeBootstrap->assertCampaignRuntimeReady($campaign_id);
+
+    $context = $this->resolveActionAvailabilityContext(
+      $campaign_id,
+      $actor_id,
+      ['trace_id' => 'suggest_next_action'],
+      FALSE
+    );
+    if ($context === NULL) {
+      return $this->errorResponse('Campaign dungeon data not found.');
+    }
+
+    $game_state = $context['game_state'];
+    $dungeon_data = $context['dungeon_data'];
+    $handler = $context['handler'];
+
+    if (!$handler || !method_exists($handler, 'suggestActorAction')) {
+      return $this->errorResponse(
+        sprintf('Action suggestions are not supported for phase "%s".', (string) ($game_state['phase'] ?? '')),
+        $game_state
+      );
+    }
+
+    $resolved_actor_id = trim((string) $actor_id);
+    if ($resolved_actor_id === '') {
+      $resolved_actor_id = trim((string) ($game_state['turn']['entity'] ?? ''));
+    }
+
+    $suggestion = $handler->suggestActorAction($resolved_actor_id, $game_state, $dungeon_data, $campaign_id);
+    if (empty($suggestion['success'])) {
+      return $this->errorResponse(
+        (string) ($suggestion['error'] ?? 'Unable to build an action suggestion.'),
+        $game_state
+      );
+    }
+
+    $suggestion['state_version'] = (int) ($game_state['state_version'] ?? 0);
+    return $suggestion;
+  }
+
+  /**
    * Return explicit full runtime projection (heavy read lane).
    *
    * This is an opt-in compatibility/debug projection path and should not be
@@ -1815,28 +1871,29 @@ class GameCoordinatorService {
     }
 
     $event_log_cursor = (int) ($game_state['event_log_cursor'] ?? 0);
-    if ($event_log_cursor > 0 && !$repair_broken_encounter_shell) {
+    if ($event_log_cursor > 0 && !$repair_broken_encounter_shell && $this->hasActiveEncounterContextForRoom($game_state, $room_id)) {
       $this->markInitialRoomEntryBootstrapped($game_state, $room_id);
       return [];
     }
 
     $latest_event_cursor = $this->eventLogger->getLatestCursor($dungeon_data, $campaign_id);
-    if ($latest_event_cursor > 0 && !$repair_broken_encounter_shell) {
+    if ($latest_event_cursor > 0 && !$repair_broken_encounter_shell && $this->hasActiveEncounterContextForRoom($game_state, $room_id)) {
       $game_state['event_log_cursor'] = max($event_log_cursor, $latest_event_cursor);
       $this->markInitialRoomEntryBootstrapped($game_state, $room_id);
       return [];
     }
 
-    $room_data = $this->findRoomInDungeon($room_id, $dungeon_data);
+    $room_data = $this->ensureBootstrapRoomAvailable($campaign_id, $room_id, $dungeon_data);
     if ($room_data === NULL) {
       return [];
     }
 
     $handler = $this->getPhaseHandler(self::DEFAULT_ACTIVE_PHASE);
     if ($handler instanceof EncounterPhaseHandler) {
+      $preferred_actor_id = $this->resolveBootstrapPreferredActorId($campaign_id, $room_id, $game_state, $dungeon_data);
       $game_state['suppress_room_scene_narration'] = TRUE;
       try {
-        $result = $handler->bootstrapRoomSceneFramework($room_id, $game_state, $dungeon_data, $campaign_id);
+        $result = $handler->bootstrapRoomSceneFramework($room_id, $game_state, $dungeon_data, $campaign_id, $preferred_actor_id);
         $events = $result['events'] ?? [];
         $bootstrap_events = $events !== [] ? $this->eventLogger->logEvents($dungeon_data, $events) : [];
         $autoplay_events = $this->autoResolveRoomSceneNonPlayerTurns($campaign_id, $game_state, $dungeon_data, $handler);
@@ -1966,6 +2023,70 @@ class GameCoordinatorService {
       if (is_string($candidate) && $candidate !== '') {
         $dungeon_data['active_room_id'] = $candidate;
         return $candidate;
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Resolve the preferred player actor for room bootstrap combat wiring.
+   */
+  protected function resolveBootstrapPreferredActorId(int $campaign_id, string $room_id, array $game_state, array $dungeon_data): ?string {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return NULL;
+    }
+
+    $turn_entity = trim((string) ($game_state['turn']['entity'] ?? ''));
+    if ($turn_entity !== '') {
+      return $turn_entity;
+    }
+
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity) || trim((string) ($entity['placement']['room_id'] ?? '')) !== $room_id) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''))));
+      $team = strtolower(trim((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? ''))));
+      if (
+        $entity_type === 'player_character'
+        || in_array($team, ['player', 'player_character', 'pc', 'party', 'adventurer', 'hero', 'ally', 'friendly', 'companion'], TRUE)
+      ) {
+        $instance_id = trim((string) (
+          $entity['entity_instance_id']
+          ?? $entity['instance_id']
+          ?? $entity['id']
+          ?? ''
+        ));
+        if ($instance_id !== '') {
+          return $instance_id;
+        }
+      }
+    }
+
+    $campaign_payload = $dungeon_data['campaign_data'] ?? [];
+    if (is_string($campaign_payload) && $campaign_payload !== '') {
+      $decoded = json_decode($campaign_payload, TRUE);
+      $campaign_payload = is_array($decoded) ? $decoded : [];
+    }
+    elseif (!is_array($campaign_payload)) {
+      $campaign_payload = [];
+    }
+
+    $character_hints = [
+      $game_state['active_character_id'] ?? NULL,
+      $dungeon_data['active_character_id'] ?? NULL,
+      $campaign_payload['state']['active']['character_id'] ?? NULL,
+    ];
+    foreach ($character_hints as $hint) {
+      $character_id = (int) $hint;
+      if ($character_id <= 0) {
+        continue;
+      }
+      $resolved = $this->resolveActorIdForCharacterId($campaign_id, $character_id);
+      if (is_string($resolved) && trim($resolved) !== '') {
+        return trim($resolved);
       }
     }
 
@@ -2163,6 +2284,39 @@ class GameCoordinatorService {
     }
 
     return NULL;
+  }
+
+  /**
+   * Ensure one bootstrap room exists in the compatibility payload before use.
+   */
+  protected function ensureBootstrapRoomAvailable(int $campaign_id, string $room_id, array &$dungeon_data): ?array {
+    $room = $this->findRoomInDungeon($room_id, $dungeon_data);
+    if ($room !== NULL || $campaign_id <= 0) {
+      return $room;
+    }
+
+    $dungeon_id = trim((string) (
+      $dungeon_data['dungeon_id']
+      ?? $dungeon_data['hex_map']['map_id']
+      ?? $dungeon_data['map_id']
+      ?? ''
+    ));
+    if ($dungeon_id === '') {
+      return NULL;
+    }
+
+    $dungeon_data = $this->runtimeGraphAssembler->buildRuntimeGraph(
+      $campaign_id,
+      $dungeon_id,
+      $dungeon_data,
+      [
+        'active_room_id' => trim((string) ($dungeon_data['active_room_id'] ?? $room_id)),
+        'requested_room_id' => trim($room_id),
+        'room_scope_depth' => 1,
+      ]
+    );
+
+    return $this->findRoomInDungeon($room_id, $dungeon_data);
   }
 
   /**

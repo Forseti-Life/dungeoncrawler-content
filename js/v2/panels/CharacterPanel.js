@@ -32,6 +32,7 @@ export class CharacterPanel {
     this._lastRoomSyncTransitionId = '';
     this._relationshipsMatrixRequestToken = 0;
     this._relationshipsMatrixRemoteDisabledUntil = 0;
+    this._relationshipsMatrixRetryTimer = null;
     this.activeActorFilter = 'party';
     this.activeActorSort = 'alpha';
     this._actorFilterButtons = [];
@@ -400,6 +401,10 @@ export class CharacterPanel {
   }
 
   destroy() {
+    if (this._relationshipsMatrixRetryTimer) {
+      clearTimeout(this._relationshipsMatrixRetryTimer);
+      this._relationshipsMatrixRetryTimer = null;
+    }
     if (this._tabChangedHandler) {
       window.removeEventListener('dungeoncrawler:game-shell-tab-changed', this._tabChangedHandler);
       this._tabChangedHandler = null;
@@ -1684,11 +1689,13 @@ export class CharacterPanel {
     return normalized.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
-  renderRelationshipsMatrixTable(actors = [], matrix = {}, calculations = {}, selectedSourceRef = '') {
+  renderRelationshipsMatrixTable(actors = [], matrix = {}, calculations = {}, selectedSourceRef = '', options = {}) {
     const container = this._el.actorRelationshipsMatrix;
     if (!container) {
       return;
     }
+    const isFallback = Boolean(options?.isFallback);
+    const fallbackReason = String(options?.fallbackReason || '').trim();
     const scrollStyle = 'overflow:auto;border:1px solid rgba(148,163,184,0.35);border-radius:10px;background:rgba(15,23,42,0.35);';
     const tableStyle = 'width:100%;min-width:640px;border-collapse:collapse;table-layout:fixed;';
     const thStyle = 'border:1px solid rgba(148,163,184,0.35);padding:8px 10px;font-size:12px;text-align:center;background:rgba(148,163,184,0.15);font-weight:700;white-space:nowrap;';
@@ -1719,6 +1726,11 @@ export class CharacterPanel {
     const selectedSource = this.resolveSelectedRelationshipSourceRef(actors, selectedSourceRef);
     const selectedSourceActor = actors.find((actor) => actor.actorRef === selectedSource) || null;
     const selectedSourceLabel = String(selectedSourceActor?.displayName || selectedSource || '').trim() || 'Selected actor';
+    const fallbackBannerMarkup = isFallback
+      ? `<div style="margin:0 0 8px 0;padding:7px 9px;border:1px solid rgba(245,158,11,0.55);border-radius:8px;background:rgba(245,158,11,0.14);color:#fef3c7;font-size:12px;">
+          Showing local fallback calculations${fallbackReason ? `: ${escapeQuestHtml(fallbackReason)}` : '.'} Server matrix data (institution + resolver snapshot) may be temporarily unavailable.
+         </div>`
+      : '';
     const calculationRows = actors
       .filter(({ actorRef }) => actorRef !== selectedSource)
       .map(({ actorRef: targetRef, displayName: targetDisplay }) => {
@@ -1797,30 +1809,201 @@ export class CharacterPanel {
           ? legacyBreakdown
           : [...actorSentimentBreakdown, ...institutionMatrixBreakdown];
         const hasInstitutionMembershipData = actorSentimentBreakdown.length > 0 || institutionMatrixBreakdown.length > 0;
-        const institutionSummaryLine = hasInstitutionMembershipData
-          ? `institution memberships: sentiment=${actorSentimentBreakdown.length}, matrix_edges=${institutionMatrixBreakdown.length}, net=${institutionScore}`
-          : '';
-        const institutionBreakdownMarkup = institutionBreakdown.length > 0
-          ? institutionBreakdown.slice(0, 8).map((entry) => {
-            const isMatrixEdge = String(entry?.source || '').trim() === 'institution_matrix_edge'
-              || (entry?.source_subject_id && entry?.target_subject_id);
-            const weightedComponent = Number.isFinite(Number(entry?.weighted_component)) ? Number(entry.weighted_component) : 0;
-            const rawScore = Number.isFinite(Number(entry?.raw_score)) ? Number(entry.raw_score) : 0;
-            if (isMatrixEdge) {
-              const sourceSubject = String(entry?.source_subject_id || 'source').trim();
-              const targetSubject = String(entry?.target_subject_id || 'target').trim();
-              const sourceWeight = Number.isFinite(Number(entry?.source_weight)) ? Number(entry.source_weight) : 0;
-              const targetWeight = Number.isFinite(Number(entry?.target_weight)) ? Number(entry.target_weight) : 0;
-              const confidenceWeight = Number.isFinite(Number(entry?.matrix_confidence_weight)) ? Number(entry.matrix_confidence_weight) : 0;
-              return `<div style="color:#94a3b8;">matrix(${escapeQuestHtml(sourceSubject)} → ${escapeQuestHtml(targetSubject)}): ${rawScore} × ${sourceWeight.toFixed(2)} × ${targetWeight.toFixed(2)} × ${confidenceWeight.toFixed(2)} = ${weightedComponent}</div>`;
+        const toFiniteNumber = (value, fallback = 0) => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : fallback;
+        };
+        const actorSentimentWeightedSum = actorSentimentBreakdown.reduce((sum, entry) => {
+          const raw = toFiniteNumber(entry?.raw_score, 0);
+          const domainWeight = toFiniteNumber(entry?.domain_weight, 0);
+          const knowledgeWeight = toFiniteNumber(entry?.knowledge_weight, 0);
+          return sum + (raw * domainWeight * knowledgeWeight);
+        }, 0);
+        const actorSentimentWeightTotal = actorSentimentBreakdown.reduce((sum, entry) => {
+          const domainWeight = toFiniteNumber(entry?.domain_weight, 0);
+          const knowledgeWeight = toFiniteNumber(entry?.knowledge_weight, 0);
+          return sum + (domainWeight * knowledgeWeight);
+        }, 0);
+        const actorSentimentComponentScore = actorSentimentWeightTotal > 0
+          ? Math.round(actorSentimentWeightedSum / actorSentimentWeightTotal)
+          : 0;
+        const matrixWeightedSum = institutionMatrixBreakdown.reduce((sum, entry) => {
+          const raw = toFiniteNumber(entry?.raw_score, 0);
+          const sourceWeight = toFiniteNumber(entry?.source_weight, 0);
+          const targetWeight = toFiniteNumber(entry?.target_weight, 0);
+          const confidenceWeight = Number.isFinite(Number(entry?.matrix_confidence_weight)) ? Number(entry.matrix_confidence_weight) : 1;
+          return sum + (raw * sourceWeight * targetWeight * confidenceWeight);
+        }, 0);
+        const matrixWeightTotal = institutionMatrixBreakdown.reduce((sum, entry) => {
+          const sourceWeight = toFiniteNumber(entry?.source_weight, 0);
+          const targetWeight = toFiniteNumber(entry?.target_weight, 0);
+          const confidenceWeight = Number.isFinite(Number(entry?.matrix_confidence_weight)) ? Number(entry.matrix_confidence_weight) : 1;
+          return sum + (sourceWeight * targetWeight * confidenceWeight);
+        }, 0);
+        const matrixComponentScore = matrixWeightTotal > 0
+          ? Math.round(matrixWeightedSum / matrixWeightTotal)
+          : 0;
+        const institutionComponentWeights = (calculation?.institution_component_weights && typeof calculation.institution_component_weights === 'object')
+          ? calculation.institution_component_weights
+          : {};
+        const institutionComponents = (calculation?.institution_components && typeof calculation.institution_components === 'object')
+          ? calculation.institution_components
+          : {};
+        const institutionEquation = String(calculation?.institution_equation || '').trim();
+        const actorSentimentComponentFromPayload = Number.isFinite(Number(institutionComponents?.actor_sentiment_component))
+          ? Number(institutionComponents.actor_sentiment_component)
+          : null;
+        const matrixComponentFromPayload = Number.isFinite(Number(institutionComponents?.institution_matrix_component))
+          ? Number(institutionComponents.institution_matrix_component)
+          : null;
+        const actorSentimentComponent = actorSentimentComponentFromPayload !== null
+          ? actorSentimentComponentFromPayload
+          : actorSentimentComponentScore;
+        const institutionMatrixComponent = matrixComponentFromPayload !== null
+          ? matrixComponentFromPayload
+          : matrixComponentScore;
+        const actorComponentWeight = Number.isFinite(Number(institutionComponentWeights?.actor_sentiment_component))
+          ? Number(institutionComponentWeights.actor_sentiment_component)
+          : 0.65;
+        const matrixComponentWeight = Number.isFinite(Number(institutionComponentWeights?.institution_matrix_component))
+          ? Number(institutionComponentWeights.institution_matrix_component)
+          : 0.35;
+        const institutionBlendedScore = Math.max(-1000, Math.min(1000, Math.round(
+          (actorSentimentComponent * actorComponentWeight)
+          + (institutionMatrixComponent * matrixComponentWeight)
+        )));
+        const institutionRows = institutionBreakdown.map((entry) => {
+          const isMatrixEdge = String(entry?.source || '').trim() === 'institution_matrix_edge'
+            || (entry?.source_subject_id && entry?.target_subject_id);
+          const weightedComponent = Number.isFinite(Number(entry?.weighted_component)) ? Number(entry.weighted_component) : 0;
+          const rawScore = Number.isFinite(Number(entry?.raw_score)) ? Number(entry.raw_score) : 0;
+          if (isMatrixEdge) {
+            const sourceSubject = String(entry?.source_subject_id || 'source').trim();
+            const targetSubject = String(entry?.target_subject_id || 'target').trim();
+            const sourceWeight = Number.isFinite(Number(entry?.source_weight)) ? Number(entry.source_weight) : 0;
+            const targetWeight = Number.isFinite(Number(entry?.target_weight)) ? Number(entry.target_weight) : 0;
+            const confidenceWeight = Number.isFinite(Number(entry?.matrix_confidence_weight)) ? Number(entry.matrix_confidence_weight) : null;
+            const weightTerms = [sourceWeight.toFixed(2), targetWeight.toFixed(2)];
+            if (confidenceWeight !== null) {
+              weightTerms.push(confidenceWeight.toFixed(2));
             }
-            const instName = String(entry?.institution_name || entry?.institution_subject_id || 'Institution').trim();
-            const domain = String(entry?.sentiment_domain || entry?.domain || 'unknown').trim();
-            const domainWeight = Number.isFinite(Number(entry?.domain_weight)) ? Number(entry.domain_weight) : 0;
-            const knowledgeWeight = Number.isFinite(Number(entry?.knowledge_weight)) ? Number(entry.knowledge_weight) : 0;
-            return `<div style="color:#94a3b8;">sentiment(${escapeQuestHtml(instName)}|${escapeQuestHtml(domain)}): ${rawScore} × ${domainWeight.toFixed(2)} × ${knowledgeWeight.toFixed(2)} = ${weightedComponent}</div>`;
-          }).join('')
-          : '<div style="color:#94a3b8;">No institutional membership/sentiment adjustments found.</div>';
+            const effectiveWeight = sourceWeight * targetWeight * (confidenceWeight !== null ? confidenceWeight : 1);
+            const weightBreakdown = [
+              {
+                label: 'source_weight',
+                value: sourceWeight,
+                explanation: 'Source domain influence for this institutional edge.',
+              },
+              {
+                label: 'target_weight',
+                value: targetWeight,
+                explanation: 'Target domain influence for this institutional edge.',
+              },
+            ];
+            if (confidenceWeight !== null) {
+              weightBreakdown.push({
+                label: 'matrix_confidence_weight',
+                value: confidenceWeight,
+                explanation: 'Legacy confidence multiplier for this edge.',
+              });
+            }
+            return {
+              variable: `matrix:${sourceSubject}→${targetSubject}`,
+              raw: rawScore,
+              weight: weightTerms.join(' × '),
+              effectiveWeight,
+              contribution: weightedComponent,
+              source: 'InstitutionDispositionScoreAssemblerService institution_matrix_edge',
+              weightBreakdown,
+            };
+          }
+          const instName = String(entry?.institution_name || entry?.institution_subject_id || 'Institution').trim();
+          const domain = String(entry?.sentiment_domain || entry?.domain || 'unknown').trim();
+          const domainWeight = Number.isFinite(Number(entry?.domain_weight)) ? Number(entry.domain_weight) : 0;
+          const knowledgeWeight = Number.isFinite(Number(entry?.knowledge_weight)) ? Number(entry.knowledge_weight) : 0;
+          const effectiveWeight = domainWeight * knowledgeWeight;
+          return {
+            variable: `sentiment:${instName}|${domain}`,
+            raw: rawScore,
+            weight: `${domainWeight.toFixed(2)} × ${knowledgeWeight.toFixed(2)}`,
+            effectiveWeight,
+            contribution: weightedComponent,
+            source: 'InstitutionDispositionScoreAssemblerService actor_sentiment',
+            weightBreakdown: [
+              {
+                label: 'domain_weight',
+                value: domainWeight,
+                explanation: 'Importance of this sentiment domain (ancestry/class/etc).',
+              },
+              {
+                label: 'knowledge_weight',
+                value: knowledgeWeight,
+                explanation: 'Confidence in source actor knowledge of this institutional target.',
+              },
+            ],
+          };
+        });
+        const institutionRowWeightTotal = institutionRows.reduce((sum, row) => sum + Number(row?.effectiveWeight || 0), 0);
+        const institutionRowsMarkup = institutionRows.length > 0
+          ? institutionRows.map((row) => `
+            <tr>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#e2e8f0;vertical-align:top;">
+                <details class="relationships-breakdown" data-breakdown-kind="institution-variable" style="margin:0;border:0;border-radius:0;background:transparent;">
+                  <summary style="cursor:pointer;color:#e2e8f0;font-weight:600;list-style:none;">${escapeQuestHtml(String(row.variable))}</summary>
+                  <div style="margin-top:4px;padding:4px 6px;border:1px dashed rgba(148,163,184,0.28);border-radius:6px;background:rgba(15,23,42,0.22);">
+                    ${(Array.isArray(row.weightBreakdown) ? row.weightBreakdown : []).map((weightItem) => `
+                      <div style="display:flex;gap:8px;align-items:flex-start;padding:2px 0;">
+                        <div style="min-width:160px;color:#cbd5e1;font-weight:600;">${escapeQuestHtml(String(weightItem?.label || 'weight'))}: ${Number(weightItem?.value || 0).toFixed(2)}</div>
+                        <div style="color:#94a3b8;">${escapeQuestHtml(String(weightItem?.explanation || ''))}</div>
+                      </div>
+                    `).join('')}
+                    <div style="margin-top:4px;color:#cbd5e1;">
+                      <strong>rollup:</strong> ${Number(row.raw).toFixed(2)} × ${escapeQuestHtml(String(row.weight))} = ${Number(row.contribution).toFixed(2)}
+                    </div>
+                  </div>
+                </details>
+              </td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${Number(row.raw).toFixed(2)}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${escapeQuestHtml(String(row.weight))}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${institutionRowWeightTotal > 0 ? `${((Number(row?.effectiveWeight || 0) / institutionRowWeightTotal) * 100).toFixed(2)}%` : '0.00%'}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${Number(row.contribution).toFixed(2)}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">${escapeQuestHtml(String(row.source))}</td>
+            </tr>
+          `).join('')
+          : `
+            <tr>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#94a3b8;" colspan="6">No institutional membership/sentiment adjustments found.</td>
+            </tr>
+          `;
+        const institutionComponentWeightTotal = actorComponentWeight + matrixComponentWeight;
+        const actorComponentWeightShare = institutionComponentWeightTotal > 0 ? (actorComponentWeight / institutionComponentWeightTotal) * 100 : 0;
+        const matrixComponentWeightShare = institutionComponentWeightTotal > 0 ? (matrixComponentWeight / institutionComponentWeightTotal) * 100 : 0;
+        const institutionSummaryRowsMarkup = `
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">actor_sentiment_component</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${actorSentimentComponent.toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${actorComponentWeight.toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${actorComponentWeightShare.toFixed(2)}%</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${(actorSentimentComponent * actorComponentWeight).toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">round(actor_sentiment_weighted_sum / actor_sentiment_weight_total)</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">institution_matrix_component</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${institutionMatrixComponent.toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${matrixComponentWeight.toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${matrixComponentWeightShare.toFixed(2)}%</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${(institutionMatrixComponent * matrixComponentWeight).toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">round(matrix_weighted_sum / matrix_weight_total)</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">institution_blended_score</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#e2e8f0;">${institutionBlendedScore.toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">${escapeQuestHtml(institutionEquation || `clamp(round((actor_sentiment_component × ${actorComponentWeight.toFixed(2)}) + (institution_matrix_component × ${matrixComponentWeight.toFixed(2)})), -1000, 1000)`)}</td>
+          </tr>
+        `;
         const finalLabel = this.formatRelationshipAttitudeLabel(finalAttitude);
         const detailLabel = rule === 'relationship_edge_override'
           ? 'Edge override'
@@ -1925,30 +2108,36 @@ export class CharacterPanel {
           },
         ];
         const weightedSum = weightedItems.reduce((sum, item) => sum + (Number(item.raw || 0) * Number(item.weight || 0)), 0);
+        const dispositionWeightTotal = weightedItems.reduce((sum, item) => sum + Number(item.weight || 0), 0);
         const dispositionRowsMarkup = weightedItems.map((item) => {
           const contribution = Number(item.raw || 0) * Number(item.weight || 0);
+          const weightShare = dispositionWeightTotal > 0
+            ? (Number(item.weight || 0) / dispositionWeightTotal) * 100
+            : 0;
           return `
             <tr>
               <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(item.label)}</td>
               <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(item.raw || 0)}</td>
               <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(item.weight || 0).toFixed(2)}</td>
+              <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${weightShare.toFixed(2)}%</td>
               <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${contribution.toFixed(2)}</td>
               <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(item.source)}</td>
             </tr>
           `;
         }).join('');
-        const dispositionMetaRowsMarkup = [
-          ['source_default_attitude', sourceDefault || 'unknown', 'ActorDispositionService current_attitude'],
-          ['edge_attitude', edgeAttitude || 'none', 'dc_campaign_relationships.attitude'],
-          ['relationship_type', String(calculation?.relationship_type || 'none'), 'dc_campaign_relationships.relationship_type'],
-          ['relationship_status', String(calculation?.relationship_status || 'none'), 'dc_campaign_relationships.status'],
-        ].map(([variable, value, source]) => `
+        const dispositionMetaItems = [
+          ['source_default_attitude', sourceDefault || 'unknown', 'Used indirectly via source_default_score in weighted formula.', 'ActorDispositionService current_attitude'],
+          ['edge_attitude', edgeAttitude || 'none', 'Affects edge_score derivation; direct weighted impact only when edge score is present.', 'dc_campaign_relationships.attitude'],
+          ['relationship_type', String(calculation?.relationship_type || 'none'), 'No direct numeric weight; contextual classifier for edge interpretation.', 'dc_campaign_relationships.relationship_type'],
+          ['relationship_status', String(calculation?.relationship_status || 'none'), 'No direct numeric weight; indicates relationship state/availability.', 'dc_campaign_relationships.status'],
+          ['rule', detailLabel, 'Selects which scoring path is used (edge/default/inference flow).', 'RelationshipsMatrixReadModelService rule'],
+        ];
+        const dispositionMetaRowsMarkup = dispositionMetaItems.map(([variable, value, impact, source]) => `
           <tr>
-            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(variable)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(String(variable))}</td>
             <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${escapeQuestHtml(String(value))}</td>
-            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#64748b;">n/a</td>
-            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#64748b;">n/a</td>
-            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(source)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#cbd5e1;">${escapeQuestHtml(String(impact))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(String(source))}</td>
           </tr>
         `).join('');
         const stanceBasis = (calculation?.stance_basis && typeof calculation.stance_basis === 'object')
@@ -1959,111 +2148,550 @@ export class CharacterPanel {
         const stanceAggression = (stanceBasis?.aggression && typeof stanceBasis.aggression === 'object') ? stanceBasis.aggression : {};
         const stanceSurvival = (stanceBasis?.survival && typeof stanceBasis.survival === 'object') ? stanceBasis.survival : {};
         const stanceNarrative = (stanceBasis?.narrative && typeof stanceBasis.narrative === 'object') ? stanceBasis.narrative : {};
-        const stanceRows = [
+        const stanceIsHostileSignal = Number(finalScore) <= -70 || String(finalAttitude || '').toLowerCase() === 'hostile';
+        const stanceHasTargetSignal = stanceTargetRef && stanceTargetRef !== 'none';
+        const stanceExplicitAttackSignal = Boolean(stanceAggression?.explicit_attack_declared);
+        const stanceDirectAddressedSignal = Boolean(stanceNarrative?.direct_addressed);
+        const stanceScriptedSceneSignal = Boolean(stanceNarrative?.scripted_scene_required);
+        const stanceDangerLevel = String(stanceSurvival?.danger_level || 'none').trim().toLowerCase();
+        const stanceDangerHighSignal = ['high', 'critical', 'fatal'].includes(stanceDangerLevel);
+        const stancePrimaryTargetWeight = 0.20;
+        const stanceOtherSignalWeight = (1 - stancePrimaryTargetWeight) / 9;
+        const stanceSignalRows = [
+          {
+            variable: 'profile.score',
+            raw: Number.isFinite(Number(stanceProfile?.score)) ? Number(stanceProfile.score) : sourceDefaultScore,
+            weight: stanceOtherSignalWeight,
+            source: 'ActorDispositionService current_score',
+          },
+          {
+            variable: 'resolved.primary_target_score',
+            raw: Number.isFinite(Number(stanceResolved?.primary_target_score)) ? Number(stanceResolved.primary_target_score) : finalScore,
+            weight: stancePrimaryTargetWeight,
+            source: 'DispositionResolverService effective_disposition_score',
+          },
+          {
+            variable: 'aggression.threat_score',
+            raw: Number.isFinite(Number(stanceAggression?.threat_score)) ? Number(stanceAggression.threat_score) : 0,
+            weight: stanceOtherSignalWeight,
+            source: 'ActorStanceResolverService context/basis',
+          },
+          {
+            variable: 'survival.hp_ratio',
+            raw: Number.isFinite(Number(stanceSurvival?.hp_ratio)) ? Number(stanceSurvival.hp_ratio) : 1,
+            weight: stanceOtherSignalWeight,
+            source: 'ActorStanceResolverService context/basis',
+          },
+          {
+            variable: 'signal.is_hostile',
+            raw: stanceIsHostileSignal ? 1 : 0,
+            weight: stanceOtherSignalWeight,
+            source: 'DispositionAuthorityContract hostile threshold',
+          },
+          {
+            variable: 'signal.has_target',
+            raw: stanceHasTargetSignal ? 1 : 0,
+            weight: stanceOtherSignalWeight,
+            source: 'ActorStanceResolverService targeting basis',
+          },
+          {
+            variable: 'signal.explicit_attack_declared',
+            raw: stanceExplicitAttackSignal ? 1 : 0,
+            weight: stanceOtherSignalWeight,
+            source: 'ActorStanceResolverService aggression basis',
+          },
+          {
+            variable: 'signal.direct_addressed',
+            raw: stanceDirectAddressedSignal ? 1 : 0,
+            weight: stanceOtherSignalWeight,
+            source: 'ActorStanceResolverService narrative basis',
+          },
+          {
+            variable: 'signal.scripted_scene_required',
+            raw: stanceScriptedSceneSignal ? 1 : 0,
+            weight: stanceOtherSignalWeight,
+            source: 'ActorStanceResolverService narrative basis',
+          },
+          {
+            variable: 'signal.danger_level_high_or_worse',
+            raw: stanceDangerHighSignal ? 1 : 0,
+            weight: stanceOtherSignalWeight,
+            source: 'ActorStanceResolverService survival basis',
+          },
+        ];
+        const stanceWeightTotal = stanceSignalRows.reduce((sum, row) => sum + Number(row?.weight || 0), 0);
+        const stanceWeightedTotal = stanceSignalRows.reduce((sum, row) => sum + (Number(row?.raw || 0) * Number(row?.weight || 0)), 0);
+        const stanceRowsMarkup = stanceSignalRows.map((row) => `
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(String(row.variable))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(row.raw || 0).toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(row.weight || 0).toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${stanceWeightTotal > 0 ? `${((Number(row.weight || 0) / stanceWeightTotal) * 100).toFixed(2)}%` : '0.00%'}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${(Number(row.raw || 0) * Number(row.weight || 0)).toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(String(row.source || ''))}</td>
+          </tr>
+        `).join('');
+        const aggressionPolicy = (calculation?.aggression_policy && typeof calculation.aggression_policy === 'object')
+          ? calculation.aggression_policy
+          : {};
+        const hostilityRows = Array.isArray(aggressionPolicy?.rows)
+          ? aggressionPolicy.rows.filter((row) => row && typeof row === 'object')
+          : [];
+        const hostilityWeightTotal = hostilityRows.reduce((sum, row) => sum + Math.abs(Number(row?.weight || 0)), 0);
+        const hostilityPressure = Number.isFinite(Number(aggressionPolicy?.hostility_pressure))
+          ? Number(aggressionPolicy.hostility_pressure)
+          : hostilityRows.reduce((sum, row) => sum + Number(row?.contribution || 0), 0);
+        const hostilityCanInitiateCombat = Boolean(aggressionPolicy?.can_initiate_combat);
+        const hostilityEntryAuthorized = Boolean(aggressionPolicy?.entry_authorized);
+        const hostilityFormula = String(aggressionPolicy?.formula || '').trim()
+          || 'hostility pressure unavailable';
+        const hostilityPressureLabel = `Hostility pressure ${hostilityPressure.toFixed(0)}`;
+        const hostilityPressureStyle = hostilityCanInitiateCombat || hostilityEntryAuthorized
+          ? badgeStyleByAttitude.hostile
+          : (hostilityPressure <= -20
+            ? stanceStyleByValue.threaten
+            : badgeStyleByAttitude.unknown);
+        const hostilityRowsMarkup = hostilityRows.map((row) => `
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(String(row.variable))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(row.raw || 0).toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(row.weight || 0).toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${hostilityWeightTotal > 0 ? `${((Math.abs(Number(row.weight || 0)) / hostilityWeightTotal) * 100).toFixed(2)}%` : '0.00%'}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${Number(row.contribution || 0).toFixed(2)}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(String(row.source || ''))}</td>
+          </tr>
+        `).join('');
+        const stanceMetaRows = [
           ['profile.attitude', String(stanceProfile?.attitude || sourceDefault || 'unknown'), 'ActorDispositionService current_attitude'],
-          ['profile.score', String(stanceProfile?.score ?? sourceDefaultScore), 'ActorDispositionService current_score'],
           ['profile.score_source', String(stanceProfile?.score_source || 'unknown'), 'ActorDispositionService resolveScoreSource()'],
-          ['resolved.primary_target_score', String(stanceResolved?.primary_target_score ?? finalScore), 'DispositionResolverService effective_disposition_score'],
-          ['aggression.threat_score', String(stanceAggression?.threat_score ?? 0), 'ActorStanceResolverService context/basis'],
-          ['survival.hp_ratio', String(stanceSurvival?.hp_ratio ?? 1), 'ActorStanceResolverService context/basis'],
           ['survival.danger_level', String(stanceSurvival?.danger_level || 'none'), 'ActorStanceResolverService context/basis'],
           ['narrative.direct_addressed', String(stanceNarrative?.direct_addressed ?? false), 'ActorStanceResolverService context/basis'],
           ['policy_flags', stancePolicyLine, 'ActorStanceResolverService derivePolicyFlags()'],
           ['stance_total', `${stance || 'unknown'} (${stanceMode})`, 'ActorStanceResolverService evaluateStance()'],
         ];
-        const stanceRowsMarkup = stanceRows.map(([variable, value, source]) => `
+        const stanceMetaRowsMarkup = stanceMetaRows.map(([variable, value, source]) => `
           <tr>
             <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(String(variable))}</td>
             <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${escapeQuestHtml(String(value))}</td>
-            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#64748b;">n/a</td>
-            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#64748b;">n/a</td>
             <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(String(source))}</td>
           </tr>
         `).join('');
+        const stanceModeRoom = stanceMode === 'room';
+        const stanceModeCombatEntry = stanceMode === 'combat_entry';
+        const stanceModeEncounter = stanceMode === 'encounter';
+        const stanceTargetScore = Number.isFinite(Number(stanceResolved?.primary_target_score)) ? Number(stanceResolved.primary_target_score) : finalScore;
+        const stanceThreatScore = Number.isFinite(Number(stanceAggression?.threat_score)) ? Number(stanceAggression.threat_score) : 0;
+        const stanceHpRatio = Number.isFinite(Number(stanceSurvival?.hp_ratio)) ? Number(stanceSurvival.hp_ratio) : 1;
+        const stanceTargetVeryHostile = stanceTargetScore <= -250;
+        const stanceThreatAtLeast25 = stanceThreatScore >= 25;
+        const stanceHpCritical = stanceHpRatio <= 0.20;
+        const stanceHpHighPressure = stanceHpRatio <= 0.35;
+        const stanceDangerCriticalOrFatal = ['critical', 'fatal'].includes(stanceDangerLevel);
+        const stanceDangerHigh = stanceDangerLevel === 'high';
+        const stanceMissingSignalRows = [
+          {
+            variable: 'mode',
+            raw: stanceMode,
+            threshold: 'room | combat_entry | encounter | scripted_scene',
+            contribution: `Route selector (${stanceMode})`,
+            source: 'ActorStanceResolverService evaluateStance() mode branch',
+          },
+          {
+            variable: 'gate.target_score_lte_-250',
+            raw: stanceTargetScore.toFixed(2),
+            threshold: '<= -250',
+            contribution: stanceTargetVeryHostile ? 'true' : 'false',
+            source: 'ActorStanceResolverService encounter->finish_weakest gate',
+          },
+          {
+            variable: 'gate.threat_score_gte_25',
+            raw: stanceThreatScore.toFixed(2),
+            threshold: '>= 25',
+            contribution: stanceThreatAtLeast25 ? 'true' : 'false',
+            source: 'ActorStanceResolverService combat_entry->aggressive_engage gate',
+          },
+          {
+            variable: 'gate.hp_ratio_lte_0.20',
+            raw: stanceHpRatio.toFixed(2),
+            threshold: '<= 0.20',
+            contribution: stanceHpCritical ? 'true' : 'false',
+            source: 'ActorStanceResolverService survival override',
+          },
+          {
+            variable: 'gate.hp_ratio_lte_0.35',
+            raw: stanceHpRatio.toFixed(2),
+            threshold: '<= 0.35',
+            contribution: stanceHpHighPressure ? 'true' : 'false',
+            source: 'ActorStanceResolverService survival override',
+          },
+          {
+            variable: 'gate.danger_level_is_high',
+            raw: stanceDangerLevel,
+            threshold: 'high',
+            contribution: stanceDangerHigh ? 'true' : 'false',
+            source: 'ActorStanceResolverService survival override',
+          },
+          {
+            variable: 'gate.danger_level_is_critical_or_fatal',
+            raw: stanceDangerLevel,
+            threshold: 'critical | fatal',
+            contribution: stanceDangerCriticalOrFatal ? 'true' : 'false',
+            source: 'ActorStanceResolverService survival override',
+          },
+        ];
+        const stanceMissingSignalRowsMarkup = stanceMissingSignalRows.map((row) => `
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#e2e8f0;">${escapeQuestHtml(String(row.variable))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${escapeQuestHtml(String(row.raw))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">n/a</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:#cbd5e1;">${escapeQuestHtml(String(row.contribution))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(`${row.source} | threshold: ${row.threshold}`)}</td>
+          </tr>
+        `).join('');
+        const stanceScenarioRows = [
+          {
+            stanceId: 'engage_dialogue',
+            formula: 'scripted_scene_required=true',
+            calc: `scripted_scene_required=${String(stanceScriptedSceneSignal)}`,
+            variables: 'mode, scripted_scene_required',
+            matched: stanceScriptedSceneSignal,
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+          {
+            stanceId: 'flee',
+            formula: 'hp_ratio<=0.20 OR danger_level in {critical,fatal}',
+            calc: `hp_ratio=${stanceHpRatio.toFixed(2)}, danger_level=${stanceDangerLevel}`,
+            variables: 'hp_ratio, danger_level',
+            matched: stanceHpCritical || stanceDangerCriticalOrFatal,
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+          {
+            stanceId: 'self_preserve',
+            formula: 'hp_ratio<=0.35 OR danger_level=high',
+            calc: `hp_ratio=${stanceHpRatio.toFixed(2)}, danger_level=${stanceDangerLevel}`,
+            variables: 'hp_ratio, danger_level',
+            matched: stanceHpHighPressure || stanceDangerHigh,
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+          {
+            stanceId: 'finish_weakest',
+            formula: 'mode=encounter AND is_hostile AND has_target AND target_score<=-250',
+            calc: `mode=${stanceMode}, is_hostile=${String(stanceIsHostileSignal)}, has_target=${String(stanceHasTargetSignal)}, target_score=${stanceTargetScore.toFixed(2)}`,
+            variables: 'mode, is_hostile, has_target, target_score',
+            matched: stanceModeEncounter && stanceIsHostileSignal && stanceHasTargetSignal && stanceTargetVeryHostile,
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+          {
+            stanceId: 'aggressive_engage',
+            formula: '(mode=encounter AND is_hostile AND has_target) OR (mode=combat_entry AND explicit_attack_declared AND has_target) OR (mode=combat_entry AND is_hostile AND has_target AND threat_score>=25)',
+            calc: `mode=${stanceMode}, is_hostile=${String(stanceIsHostileSignal)}, has_target=${String(stanceHasTargetSignal)}, explicit_attack_declared=${String(stanceExplicitAttackSignal)}, threat_score=${stanceThreatScore.toFixed(2)}`,
+            variables: 'mode, is_hostile, has_target, explicit_attack_declared, threat_score',
+            matched: (stanceModeEncounter && stanceIsHostileSignal && stanceHasTargetSignal)
+              || (stanceModeCombatEntry && stanceExplicitAttackSignal && stanceHasTargetSignal)
+              || (stanceModeCombatEntry && stanceIsHostileSignal && stanceHasTargetSignal && stanceThreatAtLeast25),
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+          {
+            stanceId: 'pass',
+            formula: 'mode=encounter AND NOT(hostile+target aggressive commitment)',
+            calc: `mode=${stanceMode}, is_hostile=${String(stanceIsHostileSignal)}, has_target=${String(stanceHasTargetSignal)}`,
+            variables: 'mode, is_hostile, has_target',
+            matched: stanceModeEncounter && !(stanceIsHostileSignal && stanceHasTargetSignal),
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+          {
+            stanceId: 'threaten',
+            formula: 'mode=combat_entry AND is_hostile AND has_target AND threat_score<25 AND no explicit_attack_declared',
+            calc: `mode=${stanceMode}, is_hostile=${String(stanceIsHostileSignal)}, has_target=${String(stanceHasTargetSignal)}, threat_score=${stanceThreatScore.toFixed(2)}, explicit_attack_declared=${String(stanceExplicitAttackSignal)}`,
+            variables: 'mode, is_hostile, has_target, threat_score, explicit_attack_declared',
+            matched: stanceModeCombatEntry && stanceIsHostileSignal && stanceHasTargetSignal && !stanceThreatAtLeast25 && !stanceExplicitAttackSignal,
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+          {
+            stanceId: 'warn',
+            formula: '(mode=combat_entry AND direct_addressed AND no hostile-target gate match) OR (mode=room AND is_hostile AND has_target)',
+            calc: `mode=${stanceMode}, direct_addressed=${String(stanceDirectAddressedSignal)}, is_hostile=${String(stanceIsHostileSignal)}, has_target=${String(stanceHasTargetSignal)}`,
+            variables: 'mode, direct_addressed, is_hostile, has_target',
+            matched: (stanceModeCombatEntry && stanceDirectAddressedSignal && !(stanceIsHostileSignal && stanceHasTargetSignal))
+              || (stanceModeRoom && stanceIsHostileSignal && stanceHasTargetSignal),
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+          {
+            stanceId: 'observe',
+            formula: 'fallback when no higher-priority gate fires',
+            calc: `mode=${stanceMode}, fallback=true when all branch gates above are false`,
+            variables: 'mode + branch gate outcomes',
+            matched: true,
+            source: 'ActorStanceResolverService evaluateStance()',
+          },
+        ];
+        const stanceScenarioRowsMarkup = stanceScenarioRows.map((row) => {
+          const isActive = String(stance || '').trim().toLowerCase() === String(row.stanceId).toLowerCase();
+          const activeLabel = isActive ? 'active' : 'inactive';
+          return `
+          <tr>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:${isActive ? '#facc15' : '#e2e8f0'};font-weight:${isActive ? '700' : '500'};">${escapeQuestHtml(String(row.stanceId))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:${isActive ? '#facc15' : '#cbd5e1'};font-weight:${isActive ? '700' : '500'};">${activeLabel}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#cbd5e1;">${escapeQuestHtml(String(row.formula))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#cbd5e1;">${escapeQuestHtml(String(row.calc))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#cbd5e1;">${escapeQuestHtml(String(row.variables))}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);text-align:right;color:${row.matched ? '#22c55e' : '#94a3b8'};">${row.matched ? 'true' : 'false'}</td>
+            <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.25);color:#94a3b8;">${escapeQuestHtml(String(row.source))}</td>
+          </tr>
+        `;
+        }).join('');
         const panelStyle = 'margin:4px 0;padding:6px 8px;border:1px solid rgba(148,163,184,0.25);border-radius:8px;background:rgba(15,23,42,0.35);';
         const summaryStyle = 'cursor:pointer;font-weight:700;color:#cbd5e1;list-style:none;';
         return `
           <tr>
-            <th scope="row" rowspan="2" style="${rowHeaderStyle}vertical-align:top;">${escapeQuestHtml(targetDisplay)}</th>
+            <th scope="row" style="${rowHeaderStyle}width:20%;max-width:20%;min-width:140px;white-space:normal;word-break:break-word;vertical-align:top;">${escapeQuestHtml(targetDisplay)}</th>
             <td style="${tdBaseStyle}text-align:left;">
-              <div style="font-weight:700;color:#cbd5e1;margin-bottom:4px;">Disposition</div>
-              <div><span style="${badgeStyleByAttitude[finalAttitude] || badgeStyleByAttitude.unknown}">${escapeQuestHtml(finalLabel)} (score ${finalScore})</span></div>
-              <details class="relationships-breakdown" data-breakdown-kind="disposition" style="${panelStyle}">
-                <summary style="${summaryStyle}">Show disposition breakdown</summary>
+              <details class="relationships-breakdown" data-breakdown-kind="target-actor" style="${panelStyle}">
+                <summary style="${summaryStyle}display:flex;align-items:center;gap:8px;justify-content:space-between;">
+                  <span style="color:#cbd5e1;">Target analysis</span>
+                  <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span style="${badgeStyleByAttitude[finalAttitude] || badgeStyleByAttitude.unknown}">${escapeQuestHtml(finalLabel)} (score ${finalScore})</span>
+                    <span style="${stanceStyleByValue[stance] || stanceStyleByValue.unknown}">${escapeQuestHtml(stanceLabel)}${stanceConfidence > 0 ? ` (${stanceConfidence}%)` : ''}</span>
+                    <span style="${hostilityPressureStyle}">${escapeQuestHtml(hostilityPressureLabel)}</span>
+                  </span>
+                </summary>
                 <div style="margin-top:6px;">
-                  <div style="font-weight:700;color:#cbd5e1;">${escapeQuestHtml(detailLabel)}</div>
-                  <div style="color:#cbd5e1;">${escapeQuestHtml(formula)}</div>
-                  <div style="color:#94a3b8;">${escapeQuestHtml(equation)}</div>
-                  <div style="overflow:auto;margin-top:6px;">
-                    <table style="width:100%;border-collapse:collapse;font-size:11px;">
-                      <thead>
-                        <tr>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Raw</th>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${dispositionRowsMarkup}
-                        ${dispositionMetaRowsMarkup}
-                        <tr>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">weighted_total</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${weightedSum.toFixed(2)}</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionResolverService weighted sum</td>
-                        </tr>
-                        <tr>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">final_score</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${finalScore}</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionResolverService effective_disposition_score</td>
-                        </tr>
-                        <tr>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">final_attitude</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${escapeQuestHtml(finalAttitude)}</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
-                          <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionAuthorityContract scoreToAttitude()</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  ${institutionSummaryLine ? `<div style="color:#94a3b8;">${escapeQuestHtml(institutionSummaryLine)}</div>` : ''}
-                  <div style="margin-top:4px;">${institutionBreakdownMarkup}</div>
-                </div>
-              </details>
-            </td>
-          </tr>
-          <tr>
-            <td style="${tdBaseStyle}text-align:left;">
-              <div style="font-weight:700;color:#cbd5e1;margin-bottom:4px;">Stance</div>
-              <div><span style="${stanceStyleByValue[stance] || stanceStyleByValue.unknown}">${escapeQuestHtml(stanceLabel)}${stanceConfidence > 0 ? ` (${stanceConfidence}%)` : ''}</span></div>
-              <details class="relationships-breakdown" data-breakdown-kind="stance" style="${panelStyle}">
-                <summary style="${summaryStyle}">Show stance breakdown</summary>
-                <div style="margin-top:6px;">
-                  <div style="color:#cbd5e1;">${escapeQuestHtml(stanceFormula)}</div>
-                  <div style="color:#cbd5e1;">${escapeQuestHtml(`stance=${stance || 'unknown'} | mode=${stanceMode} | target=${stanceTargetRef}`)}</div>
-                  <div style="color:#94a3b8;">${escapeQuestHtml(stanceReason)}</div>
-                  <div style="overflow:auto;margin-top:6px;">
-                    <table style="width:100%;border-collapse:collapse;font-size:11px;">
-                      <thead>
-                        <tr>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Value</th>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
-                          <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${stanceRowsMarkup}
-                      </tbody>
-                    </table>
-                  </div>
+                  <div style="font-weight:700;color:#cbd5e1;margin-bottom:4px;">Disposition</div>
+                  <details class="relationships-breakdown" data-breakdown-kind="disposition" style="${panelStyle}">
+                    <summary style="${summaryStyle}">Show disposition breakdown</summary>
+                    <div style="margin-top:6px;">
+                      <div style="font-weight:700;color:#cbd5e1;">${escapeQuestHtml(detailLabel)}</div>
+                      <div style="color:#cbd5e1;">${escapeQuestHtml(formula)}</div>
+                      <div style="color:#94a3b8;">${escapeQuestHtml(equation)}</div>
+                      <div style="color:#94a3b8;">Only numeric component rows below participate in weighted_total; metadata is listed separately. Weight share column is normalized to 100% for this formula view.</div>
+                      <details class="relationships-breakdown" data-breakdown-kind="disposition-table" style="margin-top:6px;border:1px solid rgba(148,163,184,0.20);border-radius:6px;background:rgba(15,23,42,0.25);">
+                        <summary style="cursor:pointer;padding:4px 6px;color:#cbd5e1;font-size:11px;font-weight:600;list-style:none;">Disposition variable table</summary>
+                        <div style="overflow:auto;margin-top:6px;">
+                          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                              <tr>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Raw</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight share</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${dispositionRowsMarkup}
+                              <tr>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">weighted_total</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">100.00%</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${weightedSum.toFixed(2)}</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionResolverService weighted sum</td>
+                              </tr>
+                              <tr>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">final_score</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${finalScore}</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionResolverService effective_disposition_score</td>
+                              </tr>
+                              <tr>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">final_attitude</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${escapeQuestHtml(finalAttitude)}</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">DispositionAuthorityContract scoreToAttitude()</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                      <details class="relationships-breakdown" data-breakdown-kind="disposition-metadata" style="margin-top:6px;border:1px solid rgba(148,163,184,0.20);border-radius:6px;background:rgba(15,23,42,0.25);">
+                        <summary style="cursor:pointer;padding:4px 6px;color:#cbd5e1;font-size:11px;font-weight:600;list-style:none;">Disposition metadata (non-weighted)</summary>
+                        <div style="overflow:auto;margin-top:6px;">
+                          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                              <tr>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Field</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Value</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Calculation impact</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${dispositionMetaRowsMarkup}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                      ${hasInstitutionMembershipData ? `
+                        <div style="margin-top:8px;font-weight:700;color:#cbd5e1;">Institution score breakdown</div>
+                        <div style="color:#94a3b8;">sentiment_count=${actorSentimentBreakdown.length}, matrix_edge_count=${institutionMatrixBreakdown.length}, institution_score=${institutionScore} (row weights here are multipliers, not percentage shares; component blend weights are shown in summary rows)</div>
+                        <div style="margin-top:4px;padding:6px 8px;border:1px solid rgba(148,163,184,0.25);border-radius:6px;background:rgba(15,23,42,0.22);font-size:11px;line-height:1.4;">
+                          <div style="color:#cbd5e1;"><strong>sentiment:</strong> actor-specific institutional opinion (personal/character-level).</div>
+                          <div style="color:#cbd5e1;"><strong>matrix:</strong> world-level directed institution-to-institution prior (structural/system-level).</div>
+                        </div>
+                        <details class="relationships-breakdown" data-breakdown-kind="institution-table" style="margin-top:6px;border:1px solid rgba(148,163,184,0.20);border-radius:6px;background:rgba(15,23,42,0.25);">
+                          <summary style="cursor:pointer;padding:4px 6px;color:#cbd5e1;font-size:11px;font-weight:600;list-style:none;">Institution variable table</summary>
+                          <div style="overflow:auto;margin-top:6px;">
+                            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                              <tr>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Raw</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight share</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${institutionRowsMarkup}
+                              ${institutionSummaryRowsMarkup}
+                              <tr>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">institution_score_total</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${institutionScore.toFixed(2)}</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">InstitutionDispositionScoreAssemblerService (returned score)</td>
+                              </tr>
+                            </tbody>
+                            </table>
+                          </div>
+                        </details>
+                      ` : ''}
+                    </div>
+                  </details>
+                  <div style="font-weight:700;color:#cbd5e1;margin:8px 0 4px 0;">Stance</div>
+                  <details class="relationships-breakdown" data-breakdown-kind="stance" style="${panelStyle}">
+                    <summary style="${summaryStyle}">Show stance breakdown</summary>
+                    <div style="margin-top:6px;">
+                      <div style="color:#cbd5e1;">${escapeQuestHtml(stanceFormula)}</div>
+                      <div style="color:#cbd5e1;">${escapeQuestHtml(`stance=${stance || 'unknown'} | mode=${stanceMode} | target=${stanceTargetRef}`)}</div>
+                      <div style="color:#94a3b8;">${escapeQuestHtml(stanceReason)}</div>
+                      <div style="color:#94a3b8;">Signal rows below are shown in the same weighted table shape as disposition for debugging parity; stance selection is still rule/gate-based in ActorStanceResolverService.</div>
+                      <details class="relationships-breakdown" data-breakdown-kind="stance-table" style="margin-top:6px;border:1px solid rgba(148,163,184,0.20);border-radius:6px;background:rgba(15,23,42,0.25);">
+                        <summary style="cursor:pointer;padding:4px 6px;color:#cbd5e1;font-size:11px;font-weight:600;list-style:none;">Stance signal table</summary>
+                        <div style="overflow:auto;margin-top:6px;">
+                          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                              <tr>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Raw</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight share</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${stanceRowsMarkup}
+                              <tr>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">signal_weighted_total</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">100.00%</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${stanceWeightedTotal.toFixed(2)}</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">UI debug rollup (shape parity with disposition table)</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                      <details class="relationships-breakdown" data-breakdown-kind="stance-meta-table" style="margin-top:6px;border:1px solid rgba(148,163,184,0.20);border-radius:6px;background:rgba(15,23,42,0.25);">
+                        <summary style="cursor:pointer;padding:4px 6px;color:#cbd5e1;font-size:11px;font-weight:600;list-style:none;">Stance metadata table</summary>
+                        <div style="overflow:auto;margin-top:6px;">
+                          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                              <tr>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Value</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${stanceMetaRowsMarkup}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                      <details class="relationships-breakdown" data-breakdown-kind="hostility-pressure-table" style="margin-top:6px;border:1px solid rgba(148,163,184,0.20);border-radius:6px;background:rgba(15,23,42,0.25);">
+                        <summary style="cursor:pointer;padding:4px 6px;color:#cbd5e1;font-size:11px;font-weight:600;list-style:none;">Hostility pressure table</summary>
+                        <div style="margin-top:6px;color:#cbd5e1;">${escapeQuestHtml(hostilityFormula)}</div>
+                        <div style="margin-top:2px;color:#94a3b8;">entry_authorized=${hostilityEntryAuthorized ? 'true' : 'false'} | can_initiate_combat=${hostilityCanInitiateCombat ? 'true' : 'false'}</div>
+                        <div style="overflow:auto;margin-top:6px;">
+                          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                              <tr>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Raw</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight share</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${hostilityRowsMarkup}
+                              <tr>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);font-weight:700;color:#e2e8f0;">hostility_pressure</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#64748b;">n/a</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">100.00%</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;font-weight:700;color:#e2e8f0;">${hostilityPressure.toFixed(2)}</td>
+                                <td style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;">AggressionPolicyService weighted rollup</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                      <details class="relationships-breakdown" data-breakdown-kind="stance-missing-signals" style="margin-top:6px;border:1px solid rgba(148,163,184,0.20);border-radius:6px;background:rgba(15,23,42,0.25);">
+                        <summary style="cursor:pointer;padding:4px 6px;color:#cbd5e1;font-size:11px;font-weight:600;list-style:none;">Stance gate variables not in weighted signal table</summary>
+                        <div style="overflow:auto;margin-top:6px;">
+                          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                              <tr>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variable</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Raw</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Weight share</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Contribution</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${stanceMissingSignalRowsMarkup}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                      <details class="relationships-breakdown" data-breakdown-kind="stance-scenarios" style="margin-top:6px;border:1px solid rgba(148,163,184,0.20);border-radius:6px;background:rgba(15,23,42,0.25);">
+                        <summary style="cursor:pointer;padding:4px 6px;color:#cbd5e1;font-size:11px;font-weight:600;list-style:none;">Stance decision matrix (all stances)</summary>
+                        <div style="overflow:auto;margin-top:6px;">
+                          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                              <tr>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Stance</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Current</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Formula</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Calculation</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Variables</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:right;color:#cbd5e1;">Gate true?</th>
+                                <th style="padding:4px 6px;border:1px solid rgba(148,163,184,0.35);text-align:left;color:#cbd5e1;">Source</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${stanceScenarioRowsMarkup}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    </div>
+                  </details>
                 </div>
               </details>
             </td>
@@ -2075,6 +2703,7 @@ export class CharacterPanel {
       ? `
         <div class="relationships-calculation-summary" style="margin-top:10px;">
           <div style="font-size:12px;font-weight:700;color:#cbd5e1;margin-bottom:6px;">Disposition calculation: ${escapeQuestHtml(selectedSourceLabel)} → other room actors</div>
+          ${fallbackBannerMarkup}
           <div style="display:flex;gap:8px;align-items:center;margin:0 0 8px 0;">
             <button type="button" data-relationships-breakdown-toggle="expand" style="padding:5px 8px;border-radius:6px;border:1px solid rgba(148,163,184,0.45);background:rgba(30,41,59,0.6);color:#e2e8f0;font-size:11px;font-weight:600;cursor:pointer;">Expand all breakdowns</button>
             <button type="button" data-relationships-breakdown-toggle="collapse" style="padding:5px 8px;border-radius:6px;border:1px solid rgba(148,163,184,0.45);background:rgba(30,41,59,0.6);color:#e2e8f0;font-size:11px;font-weight:600;cursor:pointer;">Collapse all breakdowns</button>
@@ -2083,8 +2712,8 @@ export class CharacterPanel {
             <table class="relationships-matrix-table" style="${tableStyle}">
               <thead>
                 <tr>
-                  <th scope="col" style="${thStyle}">Target Actor</th>
-                  <th scope="col" style="${thStyle}">Calculation</th>
+                  <th scope="col" style="${thStyle}width:20%;">Target Actor</th>
+                  <th scope="col" style="${thStyle}width:80%;">Calculation</th>
                 </tr>
               </thead>
               <tbody>
@@ -2118,6 +2747,21 @@ export class CharacterPanel {
     }
     const text = String(message || '').trim() || 'Relationship matrix unavailable.';
     container.innerHTML = `<div class="relationships-calculation-summary" style="padding:8px 4px;color:#94a3b8;font-size:12px;">${escapeQuestHtml(text)}</div>`;
+  }
+
+  scheduleRelationshipsMatrixRetry(delayMs = 15000) {
+    if (this._relationshipsMatrixRetryTimer) {
+      clearTimeout(this._relationshipsMatrixRetryTimer);
+      this._relationshipsMatrixRetryTimer = null;
+    }
+    const waitMs = Math.max(1000, Number(delayMs) || 15000);
+    this._relationshipsMatrixRetryTimer = setTimeout(() => {
+      this._relationshipsMatrixRetryTimer = null;
+      if (!this.isRelationshipsTabActive()) {
+        return;
+      }
+      this.renderRelationshipsMatrix();
+    }, waitMs);
   }
 
   normalizeAttitudeValue(value = '') {
@@ -2420,11 +3064,21 @@ export class CharacterPanel {
       return;
     }
 
-    const requestToken = ++this._relationshipsMatrixRequestToken;
+    let requestToken = null;
+    const fallbackCooldownMs = 15000;
     if (Date.now() < this._relationshipsMatrixRemoteDisabledUntil) {
       const localMatrix = this.buildLocalRelationshipsMatrix(actors);
       const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
-      this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, this.resolveSelectedRelationshipSourceRef(actors));
+      const retryDelayMs = this._relationshipsMatrixRemoteDisabledUntil - Date.now();
+      const retryInSeconds = Math.max(1, Math.ceil(retryDelayMs / 1000));
+      this.scheduleRelationshipsMatrixRetry(retryDelayMs);
+      this.renderRelationshipsMatrixTable(
+        actors,
+        localMatrix,
+        localCalculations,
+        this.resolveSelectedRelationshipSourceRef(actors),
+        { isFallback: true, fallbackReason: `previous API error; retrying in ~${retryInSeconds}s` }
+      );
       return;
     }
 
@@ -2438,7 +3092,10 @@ export class CharacterPanel {
       if (serverActors.length <= 1) {
         const localMatrix = this.buildLocalRelationshipsMatrix(actors);
         const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
-        this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, selectedSourceRef);
+        this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, selectedSourceRef, {
+          isFallback: true,
+          fallbackReason: 'actor refs are not eligible for server matrix API',
+        });
         return;
       }
       const requestKey = `${campaignId}|${selectedSourceRef}|${serverActors.map(({ actorRef }) => String(actorRef || '').trim()).filter(Boolean).join(',')}`;
@@ -2449,28 +3106,45 @@ export class CharacterPanel {
       if (this._relationshipsMatrixLastCompletedKey === requestKey && (Date.now() - lastCompletedAt) < 2000) {
         return;
       }
+      requestToken = ++this._relationshipsMatrixRequestToken;
       this._relationshipsMatrixPendingKey = requestKey;
       this.renderRelationshipsMatrixStatusTable('Loading relationship matrix…');
       params.set('actor_refs', serverActors.map(({ actorRef }) => String(actorRef || '').trim()).filter(Boolean).join(','));
       try {
-        const response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/relationships/matrix?${params.toString()}`, {
-          method: 'GET',
-          headers: { Accept: 'application/json' },
-          credentials: 'same-origin',
-        });
+        const requestTimeoutMs = 8000;
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutHandle = setTimeout(() => {
+          try {
+            controller?.abort();
+          } catch (_) {}
+        }, requestTimeoutMs);
+        let response;
+        try {
+          response = await fetch(`/api/campaign/${encodeURIComponent(campaignId)}/relationships/matrix?${params.toString()}`, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+            ...(controller ? { signal: controller.signal } : {}),
+          });
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
         const payload = await response.json().catch(() => ({}));
-        if (requestToken !== this._relationshipsMatrixRequestToken) {
+        if (requestToken !== null && requestToken !== this._relationshipsMatrixRequestToken) {
           return;
         }
         if (!response.ok || !payload?.success || typeof payload?.matrix !== 'object') {
           if (response.status === 404) {
             const localMatrix = this.buildLocalRelationshipsMatrix(actors);
             const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
-            this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, selectedSourceRef);
+            this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, selectedSourceRef, {
+              isFallback: true,
+              fallbackReason: 'matrix API route unavailable (404)',
+            });
             return;
           }
           if (response.status >= 500) {
-            this._relationshipsMatrixRemoteDisabledUntil = Date.now() + 120000;
+            this._relationshipsMatrixRemoteDisabledUntil = Date.now() + fallbackCooldownMs;
           }
           throw new Error(payload?.error || `Unable to load relationship matrix (${response.status})`);
         }
@@ -2492,6 +3166,10 @@ export class CharacterPanel {
           localCalculations[sourceRef] = { ...(localCalculations[sourceRef] || {}), ...row };
         });
         const payloadSelectedSourceRef = this.resolveSelectedRelationshipSourceRef(actors, String(payload?.selected_actor_ref || selectedSourceRef));
+        if (this._relationshipsMatrixRetryTimer) {
+          clearTimeout(this._relationshipsMatrixRetryTimer);
+          this._relationshipsMatrixRetryTimer = null;
+        }
         this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, payloadSelectedSourceRef);
         this._relationshipsMatrixLastCompletedKey = requestKey;
         this._relationshipsMatrixLastCompletedAt = Date.now();
@@ -2502,13 +3180,23 @@ export class CharacterPanel {
       }
     } catch (error) {
       console.error('[CharacterPanel] renderRelationshipsMatrix failed', error);
-      this._relationshipsMatrixRemoteDisabledUntil = Date.now() + 120000;
-      if (requestToken !== this._relationshipsMatrixRequestToken) {
+      this._relationshipsMatrixRemoteDisabledUntil = Date.now() + fallbackCooldownMs;
+      if (requestToken !== null && requestToken !== this._relationshipsMatrixRequestToken) {
         return;
       }
       const localMatrix = this.buildLocalRelationshipsMatrix(actors);
       const localCalculations = this.buildLocalRelationshipCalculations(actors, localMatrix);
-      this.renderRelationshipsMatrixTable(actors, localMatrix, localCalculations, this.resolveSelectedRelationshipSourceRef(actors));
+      this.renderRelationshipsMatrixTable(
+        actors,
+        localMatrix,
+        localCalculations,
+        this.resolveSelectedRelationshipSourceRef(actors),
+        {
+          isFallback: true,
+          fallbackReason: error instanceof Error ? error.message : 'unknown API error',
+        }
+      );
+      this.scheduleRelationshipsMatrixRetry(fallbackCooldownMs);
     }
   }
 

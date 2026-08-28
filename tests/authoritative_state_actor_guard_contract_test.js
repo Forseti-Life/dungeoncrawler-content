@@ -34,10 +34,7 @@ const encounterSystemSource = fs.readFileSync(
   path.resolve(__dirname, '../js/v2/systems/EncounterSystem.js'),
   'utf8'
 );
-const gameShellSource = fs.readFileSync(
-  path.resolve(__dirname, '../js/v2/GameShell.js'),
-  'utf8'
-);
+const gameShellSource = require('./helpers/js-source.js').readGameShellSource();
 
 console.log('\n=== Authoritative /state actor guard contracts ===');
 
@@ -53,9 +50,9 @@ assert(
 
 assert(
   characterPanelSource.includes("from '../utils/authoritative-state-utils.js';")
-    && characterPanelSource.includes('normalizeAuthoritativeStateActorRef(targetRef, { runtimeContext })')
-    && characterPanelSource.includes('actor: requestActorRef || undefined'),
-  'CharacterPanel routes actor-scoped authoritative refresh through the shared guard'
+    && characterPanelSource.includes('shouldRequestAuthoritativeStateForActorRef as shouldRequestAuthoritativeStateForActorRefShared')
+    && characterPanelSource.includes('normalizeAuthoritativeStateActorRef'),
+  'CharacterPanel imports the shared authoritative actor-ref guard for its actor-scoped refresh paths'
 );
 
 assert(
@@ -81,4 +78,3 @@ if (failed > 0) {
 } else {
   console.log('ALL TESTS PASSED');
 }
-

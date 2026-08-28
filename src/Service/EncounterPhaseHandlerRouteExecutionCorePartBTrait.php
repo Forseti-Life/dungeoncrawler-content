@@ -3805,12 +3805,23 @@ trait EncounterPhaseHandlerRouteExecutionCorePartBTrait {
     $target_name = $this->resolveEntityName((string) $resolved_target_id, $game_state, $dungeon_data);
     $degree_text = $result['degree'] ?? 'unknown';
     $damage_val = $result['damage'] ?? 0;
+    $weapon_label = trim((string) ($result['weapon_name'] ?? ''));
+    $with_weapon = $weapon_label !== '' ? sprintf(' with %s', $weapon_label) : '';
+    $damage_type_label = trim((string) ($result['damage_type'] ?? ''));
+    $damage_clause = $damage_type_label !== ''
+      ? sprintf('%d %s damage', (int) $damage_val, $damage_type_label)
+      : sprintf('%d damage', (int) $damage_val);
+    $roll_suffix = (is_numeric($result['total'] ?? NULL) && is_numeric($result['ac'] ?? NULL))
+      ? (is_numeric($result['roll'] ?? NULL)
+        ? sprintf(' (attack %d vs AC %d, d20 %d)', (int) $result['total'], (int) $result['ac'], (int) $result['roll'])
+        : sprintf(' (attack %d vs AC %d)', (int) $result['total'], (int) $result['ac']))
+      : '';
     $strike_desc = match ($degree_text) {
-      'critical_success' => sprintf('%s critically strikes %s for %d damage!', $attacker_name, $target_name, $damage_val),
-      'success' => sprintf('%s strikes %s for %d damage.', $attacker_name, $target_name, $damage_val),
-      'failure' => sprintf('%s swings at %s but misses.', $attacker_name, $target_name),
-      'critical_failure' => sprintf('%s fumbles an attack at %s!', $attacker_name, $target_name),
-      default => sprintf('%s attacks %s.', $attacker_name, $target_name),
+      'critical_success' => sprintf('%s critically strikes %s%s for %s!%s', $attacker_name, $target_name, $with_weapon, $damage_clause, $roll_suffix),
+      'success' => sprintf('%s strikes %s%s for %s.%s', $attacker_name, $target_name, $with_weapon, $damage_clause, $roll_suffix),
+      'failure' => sprintf('%s swings at %s%s but misses.%s', $attacker_name, $target_name, $with_weapon, $roll_suffix),
+      'critical_failure' => sprintf('%s fumbles an attack at %s%s!%s', $attacker_name, $target_name, $with_weapon, $roll_suffix),
+      default => sprintf('%s attacks %s%s.%s', $attacker_name, $target_name, $with_weapon, $roll_suffix),
     };
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'action',

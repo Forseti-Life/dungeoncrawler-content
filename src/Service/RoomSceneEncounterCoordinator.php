@@ -6,6 +6,26 @@ namespace Drupal\dungeoncrawler_content\Service;
  * Coordinates room-scene encounter progression and reseed safeguards.
  */
 class RoomSceneEncounterCoordinator {
+  /**
+   * Normalize team labels so legacy aliases do not break turn routing.
+   */
+  protected function normalizeTeamLabel(?string $team): string {
+    $value = strtolower(trim((string) $team));
+    if (in_array($value, ['player', 'player_character', 'pc', 'party', 'adventurer', 'hero'], TRUE)) {
+      return 'player';
+    }
+    if (in_array($value, ['ally', 'friendly', 'companion'], TRUE)) {
+      return 'ally';
+    }
+    if (in_array($value, ['enemy', 'hostile', 'monster', 'monsters', 'npc', 'creature'], TRUE)) {
+      return 'enemy';
+    }
+    if (in_array($value, ['neutral', 'indifferent'], TRUE)) {
+      return 'neutral';
+    }
+    return $value;
+  }
+
 
   /**
    * Determine whether the current encounter context is room-scene mode.
@@ -262,7 +282,8 @@ class RoomSceneEncounterCoordinator {
       if (!is_array($participant)) {
         continue;
       }
-      if (strtolower(trim((string) ($participant['team'] ?? ''))) === 'player') {
+      $team = $this->normalizeTeamLabel((string) ($participant['team'] ?? ''));
+      if (in_array($team, ['player', 'ally'], TRUE)) {
         return TRUE;
       }
     }
@@ -284,7 +305,7 @@ class RoomSceneEncounterCoordinator {
       if ((string) ($participant['entity_id'] ?? '') !== $entity_id) {
         continue;
       }
-      return strtolower(trim((string) ($participant['team'] ?? '')));
+      return $this->normalizeTeamLabel((string) ($participant['team'] ?? ''));
     }
 
     return '';
@@ -398,9 +419,28 @@ class RoomSceneEncounterCoordinator {
       if (!$is_actor_type && !$has_actor_team) {
         continue;
       }
-      $team = $content_type === 'player_character' || in_array($raw_team, ['player', 'player_character', 'pc'], TRUE)
-        ? 'player'
-        : 'npc';
+      $team = 'neutral';
+      if (
+        in_array($raw_team, ['player', 'player_character', 'pc'], TRUE)
+        || (
+          in_array($content_type, ['player_character', 'player', 'character'], TRUE)
+          && !in_array($raw_team, ['enemy', 'hostile', 'monster', 'npc'], TRUE)
+        )
+      ) {
+        $team = 'player';
+      }
+      elseif (in_array($raw_team, ['ally', 'friendly', 'companion'], TRUE)) {
+        $team = 'ally';
+      }
+      elseif (
+        in_array($raw_team, ['enemy', 'hostile', 'monster', 'npc'], TRUE)
+        || in_array($content_type, ['creature', 'monster', 'hazard'], TRUE)
+      ) {
+        $team = 'enemy';
+      }
+      elseif (in_array($content_type, ['npc', 'character'], TRUE)) {
+        $team = 'ally';
+      }
       $perception = $this->resolveEntityPerceptionModifier($entity);
       $initiative_roll = (int) $roll_pathfinder_die(20);
       if ($initiative_roll <= 0) {

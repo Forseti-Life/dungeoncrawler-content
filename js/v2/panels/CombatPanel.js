@@ -36,6 +36,9 @@ export class CombatPanel {
     this.currentRoundNumber = 0;
     this.lastEncounterStatus = 'idle';
     this._lastAuthoritativeSnapshotKey = '';
+    this._pendingStatusRequests = new Map();
+    this._manualEncounterStatusLabel = '';
+    this._authoritativeGameEventsHandler = (event) => this.handleAuthoritativeGameEvents(event);
   }
 
   init(dungeonData = {}, stateManager = {}) {
@@ -75,6 +78,9 @@ export class CombatPanel {
     this._bindDom();
     this._bindMapInitiativeHandlers();
     this._subscribe();
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('dungeoncrawler:game-events', this._authoritativeGameEventsHandler);
+    }
     this.updateInitiativeTracker([]);
     this.renderEncounterSnapshot();
   }
@@ -82,6 +88,9 @@ export class CombatPanel {
   destroy() {
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+      window.removeEventListener('dungeoncrawler:game-events', this._authoritativeGameEventsHandler);
+    }
   }
 
   _bindDom() {
@@ -159,6 +168,8 @@ export class CombatPanel {
       this.bus.on('combat:state-changed', () => this.renderEncounterSnapshot()),
       this.bus.on('combat:order-changed', () => this.renderEncounterSnapshot()),
       this.bus.on('game:state-refreshed',  (d) => this.renderEncounterSnapshot({ phaseSnapshot: d?.phaseSnapshot || null })),
+      this.bus.on('game:backend-request-start', (d) => this.handleBackendStatusRequestStart(d)),
+      this.bus.on('game:backend-request-end', (d) => this.handleBackendStatusRequestEnd(d)),
     );
   }
 
@@ -373,10 +384,12 @@ export class CombatPanel {
       this._el.turnHud.classList.toggle('hud-inactive', isInactive);
     }
     if (this._el.turnOwner) {
-      this._el.turnOwner.textContent = this.formatEncounterStatusLabel(statusRaw, combatState);
+      const baseLabel = this.formatEncounterStatusLabel(statusRaw, combatState);
+      this._el.turnOwner.textContent = this._resolveEncounterStatusLabel(baseLabel, isInactive, statusRaw);
     }
     if (this._el.mapEncounterState) {
-      this._el.mapEncounterState.textContent = this.formatEncounterStatusLabel(statusRaw, combatState);
+      const baseLabel = this.formatEncounterStatusLabel(statusRaw, combatState);
+      this._el.mapEncounterState.textContent = this._resolveEncounterStatusLabel(baseLabel, isInactive, statusRaw);
     }
     if (this._el.mapTurnCounter) {
       this._el.mapTurnCounter.textContent = this.formatTurnCounter(payload?.turnIndex, payload?.totalTurns);
@@ -403,7 +416,108 @@ export class CombatPanel {
         this._el.actionInstruction.textContent = '';
       }
     }
+    if (!isInactive && statusRaw === 'active') {
+      this._manualEncounterStatusLabel = '';
+    }
 
+  }
+
+  handleBackendStatusRequestStart(data = {}) {
+    const requestId = String(data?.requestId || '').trim();
+    if (!requestId) {
+      return;
+    }
+    const source = String(data?.source || '').trim().toLowerCase();
+    const label = this.resolveBackendStatusLabel(source, data?.label);
+    this._pendingStatusRequests.set(requestId, {
+      source,
+      label,
+      startedAt: Date.now(),
+    });
+    this.applyPendingEncounterStatusLabel();
+  }
+
+  handleBackendStatusRequestEnd(data = {}) {
+    const requestId = String(data?.requestId || '').trim();
+    if (!requestId) {
+      return;
+    }
+    this._pendingStatusRequests.delete(requestId);
+    this.applyPendingEncounterStatusLabel();
+  }
+
+  resolveBackendStatusLabel(source = '', fallbackLabel = '') {
+    const normalized = String(source || '').trim().toLowerCase();
+    if (normalized === 'runtime-state') {
+      return 'Hydrating runtime state...';
+    }
+    if (normalized === 'chat-history') {
+      return 'Hydrating room transcript...';
+    }
+    if (normalized === 'encounter-bootstrap') {
+      return 'Initializing encounter system...';
+    }
+    if (normalized === 'room-view') {
+      return 'Loading room view...';
+    }
+    return String(fallbackLabel || '').trim() || 'Loading...';
+  }
+
+  applyPendingEncounterStatusLabel() {
+    if (!this._pendingStatusRequests.size) {
+      this._manualEncounterStatusLabel = '';
+      this.renderEncounterSnapshot();
+      return;
+    }
+    const next = Array.from(this._pendingStatusRequests.values())
+      .sort((left, right) => Number(left?.startedAt || 0) - Number(right?.startedAt || 0))[0];
+    this._manualEncounterStatusLabel = String(next?.label || '').trim();
+    this.renderEncounterSnapshot();
+  }
+
+  _resolveEncounterStatusLabel(baseLabel = '', isInactive = false, statusRaw = '') {
+    const status = String(statusRaw || '').trim().toLowerCase();
+    const canOverride = isInactive || status === 'setup' || status === 'rolling_initiative' || status === '';
+    if (canOverride && this._manualEncounterStatusLabel) {
+      return this._manualEncounterStatusLabel;
+    }
+    return baseLabel;
+  }
+
+  handleAuthoritativeGameEvents(customEvent = {}) {
+    const events = Array.isArray(customEvent?.detail?.events) ? customEvent.detail.events : [];
+    if (!events.length) {
+      return;
+    }
+    let sawEncounterStarted = false;
+    let sawRoundOrTurnStart = false;
+    let latestRound = null;
+    for (const gameEvent of events) {
+      const type = String(gameEvent?.type || '').trim().toLowerCase();
+      if (type === 'encounter_started') {
+        sawEncounterStarted = true;
+      }
+      if (type === 'round_start' || type === 'turn_start') {
+        sawRoundOrTurnStart = true;
+        const parsedRound = Number(gameEvent?.data?.round);
+        if (Number.isFinite(parsedRound) && parsedRound > 0) {
+          latestRound = parsedRound;
+        }
+      }
+    }
+
+    if (sawEncounterStarted) {
+      this._manualEncounterStatusLabel = 'Combat initiated. Rolling initiative...';
+    }
+    if (sawRoundOrTurnStart) {
+      this._manualEncounterStatusLabel = 'Active encounter';
+      if (Number.isFinite(latestRound) && latestRound > 0) {
+        this.updateRound(latestRound);
+      }
+    }
+    if (sawEncounterStarted || sawRoundOrTurnStart) {
+      this.renderEncounterSnapshot();
+    }
   }
 
   updateCurrentTurn(payload = {}) {

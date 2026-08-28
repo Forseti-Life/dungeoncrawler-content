@@ -95,10 +95,20 @@ const renderChatLineRecordsSource = toFunction(
   '  renderChatLineRecords(lines = [], view = this.activeSessionView, options = {}) {',
   'function renderChatLineRecords(lines = [], view = this.activeSessionView, options = {}) {'
 );
+const hasCanonicalTranscriptOrderSource = toFunction(
+  source,
+  '  hasCanonicalTranscriptOrder(line = {}) {',
+  'function hasCanonicalTranscriptOrder(line = {}) {'
+);
 const renderRoomChatHistorySource = toFunction(
   source,
   '  renderRoomChatHistory(result) {',
   'function renderRoomChatHistory(result) {'
+);
+const isEncounterTranscriptLikeLineSource = toFunction(
+  source,
+  '  isEncounterTranscriptLikeLine(line = {}) {',
+  'function isEncounterTranscriptLikeLine(line = {}) {'
 );
 const renderSessionViewDataSource = toFunction(
   source,
@@ -127,7 +137,9 @@ ${normalizeChatLineRecordsSource}
 ${buildEncounterEventChatLineSource}
 ${buildEncounterEventFallbackMessageSource}
 ${renderChatLineRecordsSource}
+${hasCanonicalTranscriptOrderSource}
 ${renderRoomChatHistorySource}
+${isEncounterTranscriptLikeLineSource}
 ${renderSessionViewDataSource}
 ${handleGameEventsSource}
 ${loadSessionViewMessagesSource}
@@ -138,7 +150,9 @@ return {
   buildEncounterEventChatLine,
   buildEncounterEventFallbackMessage,
   renderChatLineRecords,
+  hasCanonicalTranscriptOrder,
   renderRoomChatHistory,
+  isEncounterTranscriptLikeLine,
   renderSessionViewData,
   handleGameEvents,
   loadSessionViewMessages,
@@ -152,7 +166,9 @@ const {
   buildEncounterEventChatLine,
   buildEncounterEventFallbackMessage,
   renderChatLineRecords,
+  hasCanonicalTranscriptOrder,
   renderRoomChatHistory,
+  isEncounterTranscriptLikeLine,
   renderSessionViewData,
   handleGameEvents,
   loadSessionViewMessages,
@@ -243,7 +259,8 @@ console.log('\n=== ChatPanel canonical line contract ===');
     data: { round: 4 },
   });
 
-  assert(chatLine === null, 'round_start narrator chatter is suppressed from encounter chat lines');
+  assert(chatLine?.message === 'Round 4 begins.', 'round_start encounter events render authoritative round narration');
+  assert(chatLine?.speaker === 'Narrator', 'round_start encounter events render as narrator/system transcript');
 }
 
 {
@@ -332,6 +349,12 @@ console.log('\n=== ChatPanel canonical line contract ===');
     getChatContext() {
       return { campaignId: 1, roomId: 'room-1', characterId: 7 };
     },
+    shouldRenderEncounterEventForRoom() {
+      return true;
+    },
+    isCurrentTurnStartEvent() {
+      return true;
+    },
     buildEncounterEventChatLine(event) {
       return null;
     },
@@ -372,6 +395,12 @@ console.log('\n=== ChatPanel canonical line contract ===');
     getChatContext() {
       return { campaignId: 1, roomId: 'room-1', characterId: 7 };
     },
+    shouldRenderEncounterEventForRoom(gameEvent, roomId) {
+      return String(gameEvent?.data?.room_id || '') === String(roomId || '');
+    },
+    isCurrentTurnStartEvent() {
+      return true;
+    },
     buildEncounterEventChatLine(event) {
       const actorName = String(event?.data?.actor_name || '').trim() || 'Narrator';
       return {
@@ -403,7 +432,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
     },
   });
 
-  assert(appended.length === 4, 'encounter transcript rendering appends all authoritative turn_start events provided');
+  assert(appended.length === 2, 'encounter transcript rendering filters out off-room turn_start events and appends the active-room transcript plus prompt');
 }
 
 {
@@ -416,12 +445,14 @@ console.log('\n=== ChatPanel canonical line contract ===');
     resolveChatChannelKey,
     normalizeChatLineRecord,
     normalizeChatLineRecords,
+    hasCanonicalTranscriptOrder,
     appendChatLine(speaker, message, type, options) {
       appended.push({ speaker, message, type, options });
     },
     rememberChatLines(view, lines, options) {
       remembered = { view, lines, options };
     },
+    decorateSpeakerPortraitsInChatLog() {},
   };
 
   renderChatLineRecords.call(panel, [{
@@ -454,10 +485,12 @@ console.log('\n=== ChatPanel canonical line contract ===');
     resolveChatChannelKey,
     normalizeChatLineRecord,
     normalizeChatLineRecords,
+    hasCanonicalTranscriptOrder,
     appendChatLine(speaker, message) {
       appended.push({ speaker, message });
     },
     rememberChatLines() {},
+    decorateSpeakerPortraitsInChatLog() {},
   };
 
   renderChatLineRecords.call(panel, [
@@ -510,7 +543,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
   });
 
   const order = appended.map((line) => line.speaker).join(',');
-  assert(order === 'C,A,B,Local', 'renderChatLineRecords sorts by (created,eventId) with stable handling for missing timestamps');
+  assert(order === 'B,A,C,Local', 'renderChatLineRecords preserves canonical input order for authoritative and local lines');
 }
 
 {
@@ -522,10 +555,12 @@ console.log('\n=== ChatPanel canonical line contract ===');
     resolveChatChannelKey,
     normalizeChatLineRecord,
     normalizeChatLineRecords,
+    hasCanonicalTranscriptOrder,
     appendChatLine(speaker, message) {
       appended.push({ speaker, message });
     },
     rememberChatLines() {},
+    decorateSpeakerPortraitsInChatLog() {},
   };
 
   renderChatLineRecords.call(panel, [
@@ -568,7 +603,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
   });
 
   const order = appended.map((line) => line.speaker).join(',');
-  assert(order === 'T1,T2,T10', 'renderChatLineRecords uses numeric sourceMessageId tie-breaker for same-second room history lines');
+  assert(order === 'T10,T2,T1', 'renderChatLineRecords preserves canonical room-history input order');
 }
 
 {
@@ -578,13 +613,21 @@ console.log('\n=== ChatPanel canonical line contract ===');
   let persistedEncounterHistoryCalls = 0;
   let context = { campaignId: 22, roomId: 'room-9' };
   const panel = {
+    _occupantPresenceEntries: [],
+    _occupantPresenceRoomId: '',
+    _occupantPresenceHistoryRenderedRoomId: '',
     activeSessionView: 'room',
     activeChannel: 'room',
     resolveChatChannelKey,
+    normalizeChatLineRecord,
+    isEncounterTranscriptLikeLine,
     getChatContext() {
       return context;
     },
     rememberRoomTurnSequence() {},
+    clarifyLeadingQuestNarratorTiming(lines) {
+      return lines;
+    },
     rememberChatLines(view, lines) {
       remembered = { view, lines };
       return lines;
@@ -595,6 +638,10 @@ console.log('\n=== ChatPanel canonical line contract ===');
     updateChatSummary(lines) {
       summary = lines;
     },
+    hasRoomOccupantPresenceLines() {
+      return false;
+    },
+    renderCurrentRoomOccupantsAsPresent() {},
     renderPersistedEncounterEventHistory() {
       persistedEncounterHistoryCalls += 1;
     },
@@ -629,6 +676,7 @@ console.log('\n=== ChatPanel canonical line contract ===');
   assert(rendered?.lines[0]?.channel === 'room' && rendered?.lines[0]?.view === 'room', 'room history lines preserve the room view/channel metadata');
   assert(Array.isArray(summary) && summary.length === 1, 'room history summary still operates on the normalized lines');
   assert(persistedEncounterHistoryCalls === 0, 'room history rendering does not trigger persisted encounter transcript fetches directly');
+  assert(panel._roomHistoryHasEncounterTranscript === false, 'ordinary room dialogue does not mark room history as encounter transcript');
 
   renderRoomChatHistory.call(panel, {
     success: true,
@@ -667,13 +715,67 @@ console.log('\n=== ChatPanel canonical line contract ===');
     activeSessionView: 'room',
     activeChannel: 'room',
     resolveChatChannelKey,
+    normalizeChatLineRecord,
+  };
+
+  assert(
+    isEncounterTranscriptLikeLine.call(panel, {
+      speaker: 'Narrator',
+      message: 'Skeleton Guard Beta moves toward Mimi from (2,3) to (2,2).',
+      type: 'gm',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    }) === true,
+    'encounter transcript detection recognizes movement narration already present in room history'
+  );
+
+  assert(
+    isEncounterTranscriptLikeLine.call(panel, {
+      speaker: 'Narrator',
+      message: 'Round 2 begins.',
+      type: 'system',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    }) === true,
+    'encounter transcript detection recognizes round start narration already present in room history'
+  );
+
+  assert(
+    isEncounterTranscriptLikeLine.call(panel, {
+      speaker: 'Guide',
+      message: 'Stay close.',
+      type: 'npc',
+      authority: 'authoritative',
+      messageClass: 'authoritative_transcript',
+    }) === false,
+    'encounter transcript detection ignores ordinary room dialogue'
+  );
+}
+
+{
+  const panel = {
+    _occupantPresenceEntries: [],
+    _occupantPresenceRoomId: '',
+    _occupantPresenceHistoryRenderedRoomId: '',
+    activeSessionView: 'room',
+    activeChannel: 'room',
+    resolveChatChannelKey,
+    normalizeChatLineRecord,
+    isEncounterTranscriptLikeLine,
     getChatContext() {
       return { campaignId: 33, roomId: 'room-contract' };
     },
     rememberRoomTurnSequence() {},
+    clarifyLeadingQuestNarratorTiming(lines) {
+      return lines;
+    },
     rememberChatLines() {
       return [];
     },
+    hasRoomOccupantPresenceLines() {
+      return false;
+    },
+    renderCurrentRoomOccupantsAsPresent() {},
     renderChatLineRecords() {},
     updateChatSummary() {},
     renderPersistedEncounterEventHistory() {},
@@ -710,11 +812,19 @@ console.log('\n=== ChatPanel canonical line contract ===');
   let remembered = null;
   let rendered = false;
   const panel = {
+    _occupantPresenceEntries: [],
+    _occupantPresenceRoomId: '',
+    _occupantPresenceHistoryRenderedRoomId: '',
     activeSessionView: 'room',
     activeChannel: 'room',
     resolveChatChannelKey,
+    normalizeChatLineRecord,
+    isEncounterTranscriptLikeLine,
     getChatContext() {
       return { campaignId: 77, roomId: 'room-a' };
+    },
+    clarifyLeadingQuestNarratorTiming(lines) {
+      return lines;
     },
     rememberChatLines(view, lines, options) {
       remembered = { view, lines, options };
@@ -724,6 +834,10 @@ console.log('\n=== ChatPanel canonical line contract ===');
       rendered = true;
     },
     updateChatSummary() {},
+    hasRoomOccupantPresenceLines() {
+      return false;
+    },
+    renderCurrentRoomOccupantsAsPresent() {},
     renderPersistedEncounterEventHistory() {},
     scrollChatToBottom() {},
     syncChatTurnStatus() {},

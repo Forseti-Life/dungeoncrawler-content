@@ -41,7 +41,7 @@ assert(
 );
 
 assert(
-  matrixSource.includes('protected readonly DispositionResolverService $dispositionResolverService')
+  matrixSource.includes('protected DispositionResolverService $dispositionResolverService;')
     && matrixSource.includes('dispositionResolverService->resolveActorTargetDisposition(')
     && matrixSource.includes("'resolver_snapshot' => $resolver_dto"),
   'Relationships matrix read model resolves final score/label through canonical resolver snapshot'

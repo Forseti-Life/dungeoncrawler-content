@@ -28,7 +28,7 @@ function read(relPath) {
 
 console.log('\n=== Forced movement hazard contract ===');
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 assert(
   phaseHandlerSource.includes('routeShoveIntentExecution(')
     && phaseHandlerSource.includes('resolveForcedShoveDestinationHex(')
@@ -41,7 +41,7 @@ assert(
   phaseHandlerSource.includes('resolveEncounterTerrainHazardForMovement(')
     && phaseHandlerSource.includes("'instance_id' => 'terrain:lava'")
     && phaseHandlerSource.includes("$this->hpManager->applyDamage(")
-    && phaseHandlerSource.includes('$this->combatResolutionContractService->buildDamageApplicationPacket('),
+    && phaseHandlerSource.includes('$this->unifiedDamageEngine->buildDamageApplicationPacket('),
   'forced movement into lava resolves hazard damage through HP manager and emits damage packet contract'
 );
 

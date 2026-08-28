@@ -17,9 +17,11 @@ class InstitutionDispositionMatrixService {
   protected const DEFAULT_SEED_SOURCE = 'institution_matrix_default';
   protected const DEFAULT_SEED_PROFILE_KEY = 'known-neutral-default';
   protected const DEFAULT_SCORE = 0;
-  protected const DEFAULT_UNDEAD_TARGET_BIAS_SCORE = -1000;
+  protected const MATRIX_SCORE_MIN = -2000;
+  protected const MATRIX_SCORE_MAX = 2000;
+  protected const DEFAULT_UNDEAD_TARGET_BIAS_SCORE = -2000;
   protected const UNIVERSAL_UNDEAD_TARGET_LABEL = 'undead';
-  protected const DEFAULT_UNDEAD_SOURCE_OTHER_ANCESTRY_BIAS_SCORE = -1000;
+  protected const DEFAULT_UNDEAD_SOURCE_OTHER_ANCESTRY_BIAS_SCORE = -2000;
 
   /**
    * Default profession-target sentiment priors keyed by normalized target label.
@@ -121,7 +123,7 @@ class InstitutionDispositionMatrixService {
       return 0;
     }
 
-    $score = DispositionAuthorityContract::clampScore($score);
+    $score = $this->clampMatrixScore($score);
     $mutated = (bool) ($context['mutated'] ?? FALSE);
     $now = time();
     $seed_source = trim((string) ($context['seed_source'] ?? self::DEFAULT_SEED_SOURCE));
@@ -459,14 +461,21 @@ class InstitutionDispositionMatrixService {
         $configured_target_bias = $config->get('institution_disposition.undead_target_bias_score');
         $configured_source_bias = $config->get('institution_disposition.undead_source_other_ancestry_bias_score');
         if (is_numeric($configured_target_bias)) {
-          $target_is_undead_bias = DispositionAuthorityContract::clampScore((int) round((float) $configured_target_bias));
+          $target_is_undead_bias = $this->clampMatrixScore((int) round((float) $configured_target_bias));
         }
         if (is_numeric($configured_source_bias)) {
-          $source_is_undead_other_target_bias = DispositionAuthorityContract::clampScore((int) round((float) $configured_source_bias));
+          $source_is_undead_other_target_bias = $this->clampMatrixScore((int) round((float) $configured_source_bias));
         }
       }
     }
     return [$target_is_undead_bias, $source_is_undead_other_target_bias];
+  }
+
+  /**
+   * Clamp one institution-matrix score to matrix-safe bounds.
+   */
+  protected function clampMatrixScore(int $score): int {
+    return max(self::MATRIX_SCORE_MIN, min(self::MATRIX_SCORE_MAX, $score));
   }
 
   /**

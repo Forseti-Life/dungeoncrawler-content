@@ -17,18 +17,22 @@ class PlayerAgentHarnessService {
 
   protected ?RoomChatService $roomChatService;
 
+  protected ?ActorProcessFlowPlanner $actorProcessFlowPlanner;
+
   public function __construct(
     PlayerAgentRuntimeAdapterInterface $runtime_adapter,
     PlayerAgentExplorationPolicy $exploration_policy,
     PlayerAgentEncounterPolicy $encounter_policy,
     PlayerAgentProgressTracker $progress_tracker,
-    ?RoomChatService $room_chat_service = NULL
+    ?RoomChatService $room_chat_service = NULL,
+    ?ActorProcessFlowPlanner $actor_process_flow_planner = NULL
   ) {
     $this->runtimeAdapter = $runtime_adapter;
     $this->explorationPolicy = $exploration_policy;
     $this->encounterPolicy = $encounter_policy;
     $this->progressTracker = $progress_tracker;
     $this->roomChatService = $room_chat_service;
+    $this->actorProcessFlowPlanner = $actor_process_flow_planner;
   }
 
   /**
@@ -56,17 +60,15 @@ class PlayerAgentHarnessService {
       ];
     }
 
-    $policy = $this->resolvePolicy((string) ($snapshot['phase'] ?? 'exploration'));
-    if ($policy === NULL) {
+    $decision = $this->chooseDecision($profile, $snapshot, $run_state);
+    if (($decision['type'] ?? '') === 'wait' && !isset($decision['intent']) && str_starts_with((string) ($decision['reason'] ?? ''), 'No player-agent policy')) {
       return [
         'success' => FALSE,
-        'error' => 'No player-agent policy for phase ' . ($snapshot['phase'] ?? 'unknown') . '.',
+        'error' => (string) $decision['reason'],
         'snapshot' => $snapshot,
         'run_state' => $run_state,
       ];
     }
-
-    $decision = $policy->chooseAction($profile, $snapshot, $run_state);
     $decision = $this->maybeOverrideRestDecision($campaign_id, $profile, $snapshot, $run_state, $decision);
     $response = NULL;
     $this->logAutomationDecision($campaign_id, $profile, $snapshot, $run_state, $decision, 'pre_submit');
@@ -114,14 +116,21 @@ class PlayerAgentHarnessService {
   protected function logAutomationDecision(int $campaign_id, array $profile, array $snapshot, array $run_state, array $decision, string $stage): void {
     $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
     $params = is_array($intent['params'] ?? NULL) ? $intent['params'] : [];
+    $decision_meta = is_array($decision['decision_meta'] ?? NULL) ? $decision['decision_meta'] : [];
+    $flow_id = (string) ($decision_meta['flow_id'] ?? '');
+    $planner_mode = (string) ($decision_meta['planner_mode'] ?? '');
+    $lane = $this->resolveDecisionLane($decision_meta);
     \Drupal::logger('dungeoncrawler_player_agent')->info(
-      'Player-agent decision @stage: campaign @campaign actor @actor room @room phase @phase type @type intent @intent target @target goal @goal reason "@reason" talked=@talked pending=@pending active=@active',
+      'Player-agent decision @stage: campaign @campaign actor @actor room @room phase @phase lane @lane flow @flow planner_mode @planner_mode type @type intent @intent target @target goal @goal reason "@reason" talked=@talked pending=@pending active=@active',
       [
         '@stage' => $stage,
         '@campaign' => $campaign_id,
         '@actor' => (string) ($profile['actor_id'] ?? ''),
         '@room' => (string) ($snapshot['active_room_id'] ?? ''),
         '@phase' => (string) ($snapshot['phase'] ?? ''),
+        '@lane' => $lane,
+        '@flow' => $flow_id !== '' ? $flow_id : 'none',
+        '@planner_mode' => $planner_mode !== '' ? $planner_mode : 'none',
         '@type' => (string) ($decision['type'] ?? 'wait'),
         '@intent' => (string) ($intent['type'] ?? ''),
         '@target' => (string) ($intent['target'] ?? ''),
@@ -144,13 +153,20 @@ class PlayerAgentHarnessService {
   protected function logAutomationResponse(int $campaign_id, array $profile, array $snapshot, array $decision, ?array $response, string $stage): void {
     $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
     $result = is_array($response['result'] ?? NULL) ? $response['result'] : [];
+    $decision_meta = is_array($decision['decision_meta'] ?? NULL) ? $decision['decision_meta'] : [];
+    $flow_id = (string) ($decision_meta['flow_id'] ?? '');
+    $planner_mode = (string) ($decision_meta['planner_mode'] ?? '');
+    $lane = $this->resolveDecisionLane($decision_meta);
     \Drupal::logger('dungeoncrawler_player_agent')->info(
-      'Player-agent response @stage: campaign @campaign actor @actor room @room intent @intent target @target success @success talked @talked searched @searched rested @rested error "@error" message "@message" gm "@gm"',
+      'Player-agent response @stage: campaign @campaign actor @actor room @room lane @lane flow @flow planner_mode @planner_mode intent @intent target @target success @success talked @talked searched @searched rested @rested error "@error" message "@message" gm "@gm"',
       [
         '@stage' => $stage,
         '@campaign' => $campaign_id,
         '@actor' => (string) ($profile['actor_id'] ?? ''),
         '@room' => (string) ($snapshot['active_room_id'] ?? ''),
+        '@lane' => $lane,
+        '@flow' => $flow_id !== '' ? $flow_id : 'none',
+        '@planner_mode' => $planner_mode !== '' ? $planner_mode : 'none',
         '@intent' => (string) ($intent['type'] ?? ''),
         '@target' => (string) ($intent['target'] ?? ''),
         '@success' => !empty($response['success']) ? 'yes' : 'no',
@@ -257,6 +273,27 @@ class PlayerAgentHarnessService {
   }
 
   /**
+   * Choose one deterministic decision through the process-flow planner.
+   */
+  protected function chooseDecision(array $profile, array $snapshot, array $run_state): array {
+    if ($this->actorProcessFlowPlanner instanceof ActorProcessFlowPlanner) {
+      $planned = $this->actorProcessFlowPlanner->planDecision($profile, $snapshot, $run_state, [
+        'planner_mode' => 'harness',
+      ]);
+      if (is_array($planned) && $planned !== []) {
+        return $planned;
+      }
+    }
+
+    $policy = $this->resolvePolicy((string) ($snapshot['phase'] ?? 'exploration'));
+    if ($policy === NULL) {
+      return ['type' => 'wait', 'reason' => 'No player-agent policy for phase ' . ($snapshot['phase'] ?? 'unknown') . '.'];
+    }
+
+    return $policy->chooseAction($profile, $snapshot, $run_state);
+  }
+
+  /**
    * Replace deterministic rest selections with an analysis-backed decision.
    */
   protected function maybeOverrideRestDecision(int $campaign_id, array $profile, array $snapshot, array $run_state, array $decision): array {
@@ -294,6 +331,24 @@ class PlayerAgentHarnessService {
         ],
       ];
     }
+  }
+
+  /**
+   * Resolve a stable lane label for structured automation logging.
+   */
+  protected function resolveDecisionLane(array $decision_meta): string {
+    $flow_id = trim((string) ($decision_meta['flow_id'] ?? ''));
+    $deterministic = array_key_exists('deterministic', $decision_meta)
+      ? !empty($decision_meta['deterministic'])
+      : FALSE;
+
+    if ($flow_id === 'phase_policy_fallback') {
+      return 'policy_fallback';
+    }
+    if ($flow_id !== '' || $deterministic) {
+      return 'deterministic_process_flow';
+    }
+    return 'legacy_policy';
   }
 
 }

@@ -152,4 +152,42 @@ class ActorStanceResolverServiceTest extends UnitTestCase {
     ]);
   }
 
+  /**
+   * @covers ::projectStance
+   */
+  public function testProjectStanceDoesNotPersistBehavioralProjection(): void {
+    $actor_disposition = $this->createMock(ActorDispositionService::class);
+    $actor_disposition->method('getDispositionSummary')->willReturn([
+      'current_attitude' => 'hostile',
+      'current_score' => -100,
+      'score_source' => 'state_store',
+    ]);
+    $disposition_resolver = $this->createMock(DispositionResolverService::class);
+    $disposition_resolver->method('resolveDispositionMap')->willReturn([
+      'pc_1' => [
+        'effective_disposition_score' => -180,
+        'effective_disposition_label' => 'hostile',
+      ],
+    ]);
+
+    $stance_state_store = $this->createMock(StanceStateStoreService::class);
+    $stance_state_store->expects($this->never())->method('storeLatestState');
+    $stance_event_store = $this->createMock(StanceEventStoreService::class);
+    $stance_event_store->expects($this->never())->method('recordStanceEvent');
+
+    $service = new ActorStanceResolverService(
+      $actor_disposition,
+      $disposition_resolver,
+      $stance_state_store,
+      $stance_event_store
+    );
+    $result = $service->projectStance(77, 'npc_skeleton_2', [
+      'mode' => 'combat_entry',
+      'target_entity_refs' => ['pc_1'],
+      'threat_level' => 'major',
+    ]);
+
+    $this->assertSame('aggressive_engage', $result['stance']);
+  }
+
 }

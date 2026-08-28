@@ -50,7 +50,7 @@ assert(
   'EncounterActionExecutor attaches execution_request and resolution_envelope on primary combat actions'
 );
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 assert(
   phaseHandlerSource.includes('requireOptionalContractPayload(')
     && phaseHandlerSource.includes("'execution_request' => $execution_request")

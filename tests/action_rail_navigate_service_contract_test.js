@@ -26,7 +26,7 @@ const navigatePanelServiceSource = fs.readFileSync(path.resolve(__dirname, '../j
 const legacyHexmapSource = fs.readFileSync(path.resolve(__dirname, '../js/hexmap.js'), 'utf8');
 const panelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
 const navigationSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/NavigationSystem.js'), 'utf8');
-const gameShellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
+const gameShellSource = require('./helpers/js-source.js').readGameShellSource();
 
 console.log('\n=== Action rail navigate service contract ===');
 
@@ -72,7 +72,7 @@ assert(
     && gameShellSource.includes('await this.loadRuntimeStateBundle(')
     && gameShellSource.includes('this.buildRuntimeBundleQueryForRoom(authoritativeRoomId, {')
     && gameShellSource.includes('Coordinator bootstrap room sync failed; suppressing unsynchronized room activation')
-    && gameShellSource.includes('async syncCoordinatorStateFromServer(expectedRoomId = \'\') {')
+    && gameShellSource.includes('async syncCoordinatorStateFromServer(expectedRoomId = \'\', runtimeContext = {}) {')
     && gameShellSource.includes('Skipping stale coordinator resync snapshot after runtime bundle apply'),
   'GameShell synchronizes coordinator bootstrap room changes through canonical runtime bundle hydration and rejects stale coordinator snapshots'
 );

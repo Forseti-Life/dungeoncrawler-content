@@ -1,0 +1,12 @@
+{
+  "campaign_id": 887,
+  "mode": "room_scene",
+  "room_id": "undead_crypt_entry_hall",
+  "encounter_id": 99027,
+  "encounter_status": "ended",
+  "round": 2,
+  "turn_entity": "pc-887-1033",
+  "recent_event_count": 15,
+  "recent_event_types": {},
+  "hostile_relationship_count": 94
+}

@@ -34,10 +34,7 @@ const roomChatIntentSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/RoomChatServiceIntentAndDeterminismTrait.php'),
   'utf8',
 );
-const encounterPhaseSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
-  'utf8',
-);
+const encounterPhaseSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 const servicesSource = fs.readFileSync(
   path.resolve(__dirname, '../dungeoncrawler_content.services.yml'),
   'utf8',

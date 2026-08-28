@@ -26,10 +26,7 @@ const runtimeSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/StanceRuntimeService.php'),
   'utf8',
 );
-const encounterSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
-  'utf8',
-);
+const encounterSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 console.log('\n=== Stance forced termination on defeat contract ===');
 

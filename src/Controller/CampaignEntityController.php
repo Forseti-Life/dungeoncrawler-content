@@ -7,6 +7,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\dungeoncrawler_content\Access\CampaignAccessCheck;
 use Drupal\dungeoncrawler_content\Service\CampaignAuthorizationService;
+use Drupal\dungeoncrawler_content\Service\CampaignRuntimeStateStore;
 use Drupal\dungeoncrawler_content\Service\HazardService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -21,6 +22,7 @@ class CampaignEntityController extends ControllerBase {
   private CampaignAccessCheck $campaignAccessCheck;
   private CampaignAuthorizationService $campaignAuthorization;
   private HazardService $hazardService;
+  private CampaignRuntimeStateStore $runtimeStateStore;
   protected $currentUser;
 
   public function __construct(
@@ -28,12 +30,14 @@ class CampaignEntityController extends ControllerBase {
     CampaignAccessCheck $campaign_access_check,
     CampaignAuthorizationService $campaign_authorization,
     HazardService $hazard_service,
+    CampaignRuntimeStateStore $runtime_state_store,
     AccountInterface $current_user
   ) {
     $this->database = $database;
     $this->campaignAccessCheck = $campaign_access_check;
     $this->campaignAuthorization = $campaign_authorization;
     $this->hazardService = $hazard_service;
+    $this->runtimeStateStore = $runtime_state_store;
     $this->currentUser = $current_user;
   }
 
@@ -43,8 +47,45 @@ class CampaignEntityController extends ControllerBase {
       $container->get('dungeoncrawler_content.campaign_access_check'),
       $container->get('dungeoncrawler_content.campaign_authorization'),
       $container->get('dungeoncrawler_content.hazard_service'),
+      $container->get('dungeoncrawler_content.campaign_runtime_state_store'),
       $container->get('current_user')
     );
+  }
+
+  /**
+   * Determine whether an entity is a live combatant in an active encounter.
+   *
+   * Room-move (non-combat) requests must never be allowed to silently
+   * reposition an entity that the encounter's own initiative order is
+   * still authoritatively tracking; doing so desyncs the encounter state
+   * from the character's persisted placement without any error surfaced
+   * to the client, which previously manifested as drag/drop moves that
+   * appeared to succeed in the UI but never reached combat resolution.
+   */
+  private function isEntityInActiveEncounter(int $campaign_id, string $instance_id): bool {
+    $game_state = $this->runtimeStateStore->loadGameState($campaign_id);
+    if (!is_array($game_state)) {
+      return FALSE;
+    }
+
+    $phase = strtolower(trim((string) ($game_state['phase'] ?? '')));
+    $encounter_id = (int) ($game_state['encounter_id'] ?? 0);
+    if ($phase !== 'encounter' || $encounter_id <= 0) {
+      return FALSE;
+    }
+
+    foreach ((array) ($game_state['initiative_order'] ?? []) as $combatant) {
+      if (!is_array($combatant)) {
+        continue;
+      }
+      $entity_id = (string) ($combatant['entity_id'] ?? '');
+      $is_defeated = (bool) ($combatant['is_defeated'] ?? FALSE);
+      if ($entity_id === $instance_id && !$is_defeated) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
@@ -249,6 +290,13 @@ class CampaignEntityController extends ControllerBase {
         'success' => FALSE,
         'error' => 'You are not allowed to move this actor.',
       ], 403);
+    }
+
+    if ($location_type === 'room' && $this->isEntityInActiveEncounter($campaign_id, $instance_id)) {
+      return new JsonResponse([
+        'success' => FALSE,
+        'error' => 'This actor is an active combatant in an encounter and must move via the combat stride action, not a free room move.',
+      ], 409);
     }
 
     // Update location and hot columns.

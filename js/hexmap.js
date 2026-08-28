@@ -7,7 +7,7 @@
 import { EntityManager, PositionComponent, RenderComponent, IdentityComponent, EntityType, RenderSystem, MovementComponent, StatsComponent, MovementSystem, MovementMode, ActionsComponent, ActionType, ActionCost, CombatComponent, Team, TurnManagementSystem, CombatState, CombatSystem, AttackResult } from './ecs/index.js';
 import combatApi from './hexmap-api.js';
 import { HexmapStateSync } from './HexmapStateSync.js';
-import { GameCoordinator } from './game-coordinator/GameCoordinator.js?v=20260601-search-framework-2';
+import { GameCoordinator } from './game-coordinator/GameCoordinator.js?v=20260804-v2-action-bar-rca-logs-2';
 import { ChatSessionApi } from './ChatSessionApi.js';
 import { SpriteService } from './SpriteService.js';
 
@@ -2267,6 +2267,8 @@ import { SpriteService } from './SpriteService.js';
       this.roomViewRefreshCooldownMs = 2500;
       this.roomViewRetryDelayMs = 3000;
       this.roomViewRetryTimer = null;
+      this.roomViewRetryStartedAt = new Map();
+      this.roomViewRetryWindowMs = 180000;
       this.pendingChatRequests = new Map();
       this.lastChatTurnStatusKey = '';
       this.roomTurnSequenceCache = new Map();
@@ -3038,7 +3040,18 @@ import { SpriteService } from './SpriteService.js';
         });
 
         this.refreshActiveGameShellTab();
+        if (requestedTab === 'map') {
+          this.scheduleMapViewportResize();
+        }
       });
+    }
+
+    scheduleMapViewportResize() {
+      this.stateManager?.hexmap?.scheduleMapViewportResize?.();
+    }
+
+    resizeMapViewportToContainer() {
+      this.stateManager?.hexmap?.resizeMapViewportToContainer?.();
     }
 
     resolveInitialGameShellTab() {
@@ -6224,6 +6237,25 @@ import { SpriteService } from './SpriteService.js';
       }
     }
 
+    getRoomViewRetryDeadline(viewKey) {
+      const now = Date.now();
+      if (!this.roomViewRetryStartedAt.has(viewKey)) {
+        this.roomViewRetryStartedAt.set(viewKey, now);
+      }
+      return Number(this.roomViewRetryStartedAt.get(viewKey) || now) + this.roomViewRetryWindowMs;
+    }
+
+    clearRoomViewRetryWindow(viewKey) {
+      if (viewKey) {
+        this.roomViewRetryStartedAt.delete(viewKey);
+      }
+    }
+
+    getRoomViewRetryRemainingSeconds(viewKey) {
+      const remainingMs = Math.max(0, this.getRoomViewRetryDeadline(viewKey) - Date.now());
+      return Math.max(1, Math.ceil(remainingMs / 1000));
+    }
+
     scheduleRoomViewRetry(roomId, viewKey) {
       this.clearRoomViewRetry();
       this.roomViewRetryTimer = window.setTimeout(() => {
@@ -6334,21 +6366,30 @@ import { SpriteService } from './SpriteService.js';
           const src = entry?.image?.url || entry?.image?.data_uri || '';
           return Boolean(src);
         }) : [];
+        const generationAvailable = payload.available !== false;
+        const retryDeadline = this.getRoomViewRetryDeadline(viewKey);
+        const retryStillOpen = entries.length === 0 && Date.now() < retryDeadline;
         const statusLabel = entries.length > 0
           ? `${entries.length} Scene${entries.length === 1 ? '' : 's'}`
-          : (payload.available === false ? 'Unavailable' : 'Pending');
+          : (retryStillOpen ? 'Generating' : 'Unavailable');
         const placeholderText = entries.length > 0
           ? ''
-          : (payload.message || 'No room view image is available yet.');
+          : (retryStillOpen
+            ? `Room scene is not ready yet — retrying automatically for up to ${this.getRoomViewRetryRemainingSeconds(viewKey)} more seconds.`
+            : (payload.message || 'No room view image is available yet.'));
 
         this.updateRoomViewPanel(payloadRoom, {
           statusLabel,
           placeholderText,
           entries,
         });
-        if (entries.length === 0 && String(payload?.status || '').toLowerCase() === 'pending') {
+        if (entries.length > 0) {
+          this.clearRoomViewRetryWindow(viewKey);
+          this.clearRoomViewRetry();
+        } else if (Date.now() < retryDeadline && (generationAvailable || String(payload?.status || '').toLowerCase() === 'pending' || String(payload?.status || '').toLowerCase() === 'unavailable')) {
           this.scheduleRoomViewRetry(resolvedRoomId, viewKey);
         } else {
+          this.clearRoomViewRetryWindow(viewKey);
           this.clearRoomViewRetry();
         }
       } catch (error) {
@@ -11165,6 +11206,7 @@ import { SpriteService } from './SpriteService.js';
       const updateCallback = (delta) => this.update(delta);
       this.app.ticker.add(updateCallback);
       this.tickerCallbacks.push(updateCallback);
+      this.scheduleMapViewportResize();
     },
     
     /**
@@ -11336,6 +11378,55 @@ import { SpriteService } from './SpriteService.js';
           this.refreshFogOfWar();
         })
       );
+    },
+
+    scheduleMapViewportResize: function () {
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      const run = () => this.resizeMapViewportToContainer();
+      if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => {
+          run();
+          window.requestAnimationFrame(run);
+        });
+      } else {
+        window.setTimeout(run, 0);
+      }
+    },
+
+    resizeMapViewportToContainer: function () {
+      if (!this.app || !this.app.renderer) {
+        return;
+      }
+
+      const container = document.getElementById('hexmap-canvas-container');
+      if (!container) {
+        return;
+      }
+
+      const nextWidth = Math.max(0, Math.round(container.clientWidth || 0));
+      const nextHeight = Math.max(0, Math.round(container.clientHeight || 0));
+      if (nextWidth < 100 || nextHeight < 100) {
+        return;
+      }
+
+      const prevWidth = Number(this.app.screen?.width || 0);
+      const prevHeight = Number(this.app.screen?.height || 0);
+      if (prevWidth === nextWidth && prevHeight === nextHeight) {
+        return;
+      }
+
+      const currentX = Number(this.hexContainer?.x || 0);
+      const currentY = Number(this.hexContainer?.y || 0);
+      const offsetX = prevWidth > 0 ? currentX - (prevWidth / 2) : 0;
+      const offsetY = prevHeight > 0 ? currentY - (prevHeight / 2) : 0;
+
+      this.app.renderer.resize(nextWidth, nextHeight);
+      this.setWorldPosition((nextWidth / 2) + offsetX, (nextHeight / 2) + offsetY);
+      this.renderOrientationReferenceHex();
+      this.refreshFogOfWar();
     },
 
     /**
@@ -16228,6 +16319,12 @@ import { SpriteService } from './SpriteService.js';
       addTrackedListener(deselectBtn, 'click', function () {
         self.deselectEntity();
       });
+
+      const handleWindowResize = () => self.scheduleMapViewportResize();
+      addTrackedListener(window, 'resize', handleWindowResize);
+      if (window.visualViewport) {
+        addTrackedListener(window.visualViewport, 'resize', handleWindowResize);
+      }
       
       // Combat controls
       const startCombatBtn = document.getElementById('start-combat');
@@ -17184,6 +17281,7 @@ import { SpriteService } from './SpriteService.js';
         const contentId = entity?.entity_ref?.content_id;
         const objectDefinition = this.getObjectDefinition(contentId);
         const portraitUrl = metadata.portrait_url || metadata.portrait || null;
+        const metadataSpriteId = String(metadata.sprite_id || '').trim() || null;
         const launchCharacterId = Number(this.launchContext?.character_id || 0);
         const entityCharacterId = Number(metadata.character_id || entity?.character_id || 0);
         const entityName = metadata.display_name || metadata.name || entity?.display_name ||
@@ -17211,14 +17309,15 @@ import { SpriteService } from './SpriteService.js';
           }
         }
 
-        // Standardize portrait layering via object_definitions + sprite cache,
-        // matching the same pipeline used by tavern door/object sprites.
-        if (portraitUrl && contentId) {
+        const objectDefinitionSpriteId = String(objectDefinition?.visual?.sprite_id || '').trim() || null;
+        const portraitSpriteId = contentId ? `portrait_${String(contentId)}` : null;
+        const resolvedSpriteId = metadataSpriteId || objectDefinitionSpriteId || (portraitUrl ? portraitSpriteId : null);
+
+        if (contentId && resolvedSpriteId) {
           if (!this.dungeonData.object_definitions || typeof this.dungeonData.object_definitions !== 'object') {
             this.dungeonData.object_definitions = {};
           }
 
-          const portraitSpriteId = `portrait_${String(contentId)}`;
           const existingDef = this.dungeonData.object_definitions[contentId] || {};
           const existingVisual = existingDef.visual && typeof existingDef.visual === 'object' ? existingDef.visual : {};
 
@@ -17226,18 +17325,24 @@ import { SpriteService } from './SpriteService.js';
             ...existingDef,
             object_id: existingDef.object_id || contentId,
             label: existingDef.label || entityName,
-            category: existingDef.category || 'creature',
+            category: existingDef.category || options.objectCategory || 'creature',
             visual: {
               ...existingVisual,
-              sprite_id: portraitSpriteId
+              sprite_id: resolvedSpriteId
             }
           };
-
-          this.spriteService.preloadUrl(portraitSpriteId, portraitUrl);
-          options.objectCategory = options.objectCategory || 'creature';
         }
 
-        const created = this.createEntityObject(q, r, entityType, entityName, null, options);
+        if (portraitUrl && resolvedSpriteId) {
+          this.spriteService.preloadUrl(resolvedSpriteId, portraitUrl);
+        }
+
+        if ((entityType === EntityType.CREATURE || entityType === EntityType.NPC || entityType === EntityType.PLAYER_CHARACTER)
+          && !options.objectCategory) {
+          options.objectCategory = 'creature';
+        }
+
+        const created = this.createEntityObject(q, r, entityType, entityName, resolvedSpriteId, options);
         if (created) {
           created.dcEntityRef = entity?.instance_id || entity?.entity_ref?.content_id || null;
           created.dcContentId = contentId || null;

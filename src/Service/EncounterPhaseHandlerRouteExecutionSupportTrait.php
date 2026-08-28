@@ -6,6 +6,26 @@ namespace Drupal\dungeoncrawler_content\Service;
  * Support route execution methods split from EncounterPhaseHandlerRouteExecutionTrait.
  */
 trait EncounterPhaseHandlerRouteExecutionSupportTrait {
+  /**
+   * Normalize combat team aliases to canonical buckets.
+   */
+  protected function normalizeCombatTeam(?string $team): string {
+    $value = strtolower(trim((string) $team));
+    if (in_array($value, ['player', 'player_character', 'pc', 'party', 'adventurer', 'hero'], TRUE)) {
+      return 'player';
+    }
+    if (in_array($value, ['ally', 'friendly', 'companion'], TRUE)) {
+      return 'ally';
+    }
+    if (in_array($value, ['enemy', 'hostile', 'monster', 'monsters', 'npc', 'creature'], TRUE)) {
+      return 'enemy';
+    }
+    if (in_array($value, ['neutral', 'indifferent'], TRUE)) {
+      return 'neutral';
+    }
+    return $value;
+  }
+
   protected function initiativeOrderHasPlayer(array $initiative_order): bool {
     return $this->roomSceneEncounterCoordinator->initiativeOrderHasPlayer($initiative_order);
   }
@@ -55,21 +75,39 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
     $discipline = (int) ($axes['discipline'] ?? 5);
     $cunning = (int) ($axes['cunning'] ?? 5);
     $hp_ratio = $this->hpRatio($npc ?? []);
+    $team = strtolower(trim((string) (($npc['team'] ?? ''))));
     $nearest_player = $this->findNearestAlivePlayer($entity_id, $game_state);
     $has_adjacent_player = $this->hasAdjacentAlivePlayer($npc, $game_state);
+    $nearest_target = $this->findNearestAliveOpponent($entity_id, $game_state);
+    $has_adjacent_target = $this->hasAdjacentAliveOpponent($npc, $game_state);
 
     $intent = 'aggressive_engage';
-    $action_sequence = $has_adjacent_player
+    $action_sequence = $has_adjacent_target
       ? ['strike', 'strike', 'strike']
       : ['stride', 'strike', 'strike'];
     $target_strategy = 'nearest';
     $decision_reason = 'Default aggressive engagement: close distance and pressure the nearest threat.';
 
-    if ($nearest_player === NULL) {
+    if ($nearest_target === NULL) {
+      $team_counts = [];
+      foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+        if (!is_array($combatant) || !empty($combatant['is_defeated'])) {
+          continue;
+        }
+        $normalized_team = $this->normalizeCombatTeam((string) ($combatant['team'] ?? ''));
+        $bucket = $normalized_team !== '' ? $normalized_team : 'unknown';
+        $team_counts[$bucket] = (int) ($team_counts[$bucket] ?? 0) + 1;
+      }
+      $this->logger->warning('NPC autoplay resolved no nearest target; defaulting to no_targets intent. actor={actor} team={team} mode={mode} team_counts={team_counts}', [
+        'actor' => $entity_id,
+        'team' => $team,
+        'mode' => (string) ($game_state['encounter_context']['mode'] ?? ''),
+        'team_counts' => json_encode($team_counts),
+      ]);
       $intent = 'no_targets';
       $action_sequence = ['end_turn'];
       $target_strategy = 'none';
-      $decision_reason = 'No valid player target is available.';
+      $decision_reason = 'No valid hostile target is available.';
     }
     elseif (($boldness <= 4 || $this->motivationSignalsSelfPreservation($profile ?? [])) && $hp_ratio <= 0.35) {
       $intent = 'self_preserve';
@@ -77,7 +115,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       $target_strategy = 'nearest';
       $decision_reason = 'Wounded or survival-motivated profile favors retreat/reposition over direct engagement.';
     }
-    elseif (in_array($attitude, ['friendly', 'helpful'], TRUE) && $empathy >= 7 && $has_adjacent_player) {
+    elseif (in_array($attitude, ['friendly', 'helpful'], TRUE) && $empathy >= 7 && $has_adjacent_target) {
       $intent = 'deescalate';
       $action_sequence = ['talk', 'stride', 'talk'];
       $target_strategy = 'nearest';
@@ -89,7 +127,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       $target_strategy = 'weakest_adjacent';
       $decision_reason = 'High cunning/discipline profile prioritizes focused pressure on weak targets.';
     }
-    elseif ($profile_present && !$has_adjacent_player && $this->actorHasGoal($goals, 'gain treasure')) {
+    elseif ($profile_present && !$has_adjacent_target && $this->actorHasGoal($goals, 'gain treasure')) {
       $intent = 'treasure_seek';
       $action_sequence = ['interact', 'stride', 'interact'];
       $target_strategy = 'none';
@@ -103,6 +141,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       'decision_reason' => $decision_reason,
       'decision_basis' => [
         'attitude' => $attitude,
+        'team' => $team,
         'axes' => [
           'boldness' => $boldness,
           'empathy' => $empathy,
@@ -114,8 +153,140 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
         'profile_present' => $profile_present,
         'has_adjacent_player' => $has_adjacent_player,
         'nearest_player' => $nearest_player,
+        'has_adjacent_target' => $has_adjacent_target,
+        'nearest_target' => $nearest_target,
       ],
     ];
+  }
+
+  /**
+   * Build a read-only next-action recommendation for any actor.
+   *
+   * This is the dry-run lane of the shared actor decision pipeline. It reuses
+   * the same tactical intent contract, target selection and action
+   * availability envelope that drive autoplay, but never mutates game state,
+   * never emits events and never submits an intent. It is safe to call for
+   * player-controlled actors to power "suggest next move".
+   *
+   * @param string $entity_id
+   *   Actor to build a suggestion for. Defaults to the current turn actor.
+   * @param array $game_state
+   *   Canonical game state (passed by value; never mutated).
+   * @param array $dungeon_data
+   *   Dungeon data (passed by value; never mutated).
+   * @param int $campaign_id
+   *   Campaign ID.
+   *
+   * @return array
+   *   Suggestion envelope with success flag.
+   */
+  public function suggestActorAction(string $entity_id, array $game_state, array $dungeon_data, int $campaign_id): array {
+    $entity_id = trim($entity_id);
+    if ($entity_id === '') {
+      $entity_id = trim((string) ($game_state['turn']['entity'] ?? ''));
+    }
+    if ($entity_id === '') {
+      return [
+        'success' => FALSE,
+        'error' => 'No actor is available to build a suggestion for.',
+      ];
+    }
+
+    $combatant = $this->findCombatant($entity_id, $game_state);
+    if ($combatant === NULL) {
+      return [
+        'success' => FALSE,
+        'error' => sprintf('Actor "%s" is not part of the current initiative order.', $entity_id),
+      ];
+    }
+    if (!empty($combatant['is_defeated'])) {
+      return [
+        'success' => FALSE,
+        'error' => sprintf('Actor "%s" is defeated and cannot act.', $entity_id),
+      ];
+    }
+
+    // Local read-only projection. When it is not this actor's turn we still
+    // produce a hypothetical plan using a full action economy.
+    $turn_actor = trim((string) ($game_state['turn']['entity'] ?? ''));
+    $is_actor_turn = $turn_actor === $entity_id;
+    $projected_state = $game_state;
+    if (!is_array($projected_state['turn'] ?? NULL)) {
+      $projected_state['turn'] = [];
+    }
+    $projected_state['turn']['entity'] = $entity_id;
+    if (!$is_actor_turn || !is_numeric($projected_state['turn']['actions_remaining'] ?? NULL)) {
+      $projected_state['turn']['actions_remaining'] = 3;
+    }
+    $actions_remaining = max(0, (int) $projected_state['turn']['actions_remaining']);
+
+    $context = $this->buildNpcContext($entity_id, $projected_state, $dungeon_data);
+    $allowed_actions = is_array($context['allowed_actions'] ?? NULL)
+      ? array_values(array_filter(array_map('strval', $context['allowed_actions'])))
+      : [];
+
+    $plan = $this->buildNpcTurnPlan($entity_id, $projected_state, $campaign_id, NULL);
+    $intent_contract = is_array($plan['intent_contract'] ?? NULL) ? $plan['intent_contract'] : [];
+    $steps = is_array($plan['steps'] ?? NULL) ? $plan['steps'] : [];
+
+    $suggested_steps = [];
+    foreach ($steps as $step) {
+      if (!is_array($step)) {
+        continue;
+      }
+      $action_type = strtolower(trim((string) ($step['action_type'] ?? '')));
+      if ($action_type === '') {
+        continue;
+      }
+      // Never recommend an action the server would reject.
+      if ($allowed_actions !== [] && !in_array($action_type, $allowed_actions, TRUE)) {
+        continue;
+      }
+      $target_id = isset($step['target']) && is_scalar($step['target']) ? trim((string) $step['target']) : '';
+      $suggested_steps[] = [
+        'action_type' => $action_type,
+        'target_instance_id' => $target_id !== '' ? $target_id : NULL,
+        'target_name' => $target_id !== '' ? $this->resolveSuggestionTargetName($target_id, $game_state) : NULL,
+        'decision_reason' => (string) ($step['decision_reason'] ?? ''),
+        'decision_basis' => is_array($step['decision_basis'] ?? NULL) ? $step['decision_basis'] : [],
+      ];
+    }
+
+    $primary = $suggested_steps[0] ?? NULL;
+
+    return [
+      'success' => TRUE,
+      'campaign_id' => $campaign_id,
+      'encounter_id' => $game_state['encounter_id'] ?? NULL,
+      'round' => $game_state['round'] ?? NULL,
+      'actor_id' => $entity_id,
+      'actor_name' => (string) ($combatant['name'] ?? $entity_id),
+      'actor_team' => $this->normalizeCombatTeam((string) ($combatant['team'] ?? '')),
+      'is_actor_turn' => $is_actor_turn,
+      'actions_remaining' => $actions_remaining,
+      'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
+      'intent_reason' => (string) ($intent_contract['decision_reason'] ?? ''),
+      'target_strategy' => (string) ($intent_contract['target_strategy'] ?? 'nearest'),
+      'allowed_actions' => $allowed_actions,
+      'suggested_action' => $primary,
+      'suggested_plan' => $suggested_steps,
+      'has_suggestion' => $primary !== NULL,
+      'fallback_reason' => $primary === NULL
+        ? 'No legal tactical action is available; ending the turn is the recommended play.'
+        : NULL,
+    ];
+  }
+
+  /**
+   * Resolve a display name for a suggested target from initiative order.
+   */
+  protected function resolveSuggestionTargetName(string $target_id, array $game_state): ?string {
+    $target = $this->findCombatant($target_id, $game_state);
+    if ($target === NULL) {
+      return NULL;
+    }
+    $name = trim((string) ($target['name'] ?? ''));
+    return $name !== '' ? $name : NULL;
   }
 
   /**
@@ -136,7 +307,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
         $action_type,
         $contract,
         fn(string $fallback_actor_id, array $fallback_state, int $fallback_campaign_id, string $fallback_action_type): ?string => $this->chooseFallbackTarget($fallback_actor_id, $fallback_state, $fallback_campaign_id, $fallback_action_type),
-        fn(string $nearest_actor_id, array $nearest_state): ?string => $this->findNearestAlivePlayer($nearest_actor_id, $nearest_state)
+        fn(string $nearest_actor_id, array $nearest_state): ?string => $this->findNearestAliveOpponent($nearest_actor_id, $nearest_state)
       )
     );
   }
@@ -159,7 +330,36 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
     $npc_q = (int) ($npc['position_q'] ?? 0);
     $npc_r = (int) ($npc['position_r'] ?? 0);
     foreach (($game_state['initiative_order'] ?? []) as $combatant) {
-      if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
+      if ($this->normalizeCombatTeam((string) ($combatant['team'] ?? '')) !== 'player' || !empty($combatant['is_defeated'])) {
+        continue;
+      }
+      $pq = (int) ($combatant['position_q'] ?? 0);
+      $pr = (int) ($combatant['position_r'] ?? 0);
+      if ($this->hexDistance($npc_q, $npc_r, $pq, $pr) <= 1) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Returns true when at least one alive hostile opponent is adjacent.
+   */
+  protected function hasAdjacentAliveOpponent(?array $npc, array $game_state): bool {
+    if (!$npc) {
+      return FALSE;
+    }
+
+    $opposition_teams = $this->resolveNpcOpponentTeams($npc);
+    if ($opposition_teams === []) {
+      return FALSE;
+    }
+
+    $npc_q = (int) ($npc['position_q'] ?? 0);
+    $npc_r = (int) ($npc['position_r'] ?? 0);
+    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+      if (!$this->combatantMatchesAnyTeam($combatant, $opposition_teams) || !empty($combatant['is_defeated'])) {
         continue;
       }
       $pq = (int) ($combatant['position_q'] ?? 0);
@@ -177,11 +377,51 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
    */
   protected function hasActivePlayerParticipant(array $game_state): bool {
     foreach (($game_state['initiative_order'] ?? []) as $participant) {
-      if (($participant['team'] ?? '') === 'player' && empty($participant['is_defeated'])) {
+      if ($this->normalizeCombatTeam((string) ($participant['team'] ?? '')) === 'player' && empty($participant['is_defeated'])) {
         return TRUE;
       }
     }
     return FALSE;
+  }
+
+  /**
+   * Determines whether the encounter has been decided.
+   *
+   * An encounter is over once at most one normalized team still has a
+   * non-defeated combatant (mirrors PF2e "encounter ends when one side is
+   * wiped" rules, and matches the equivalent check that used to gate the
+   * turn-advance loop before it was lost in an earlier extraction refactor).
+   */
+  protected function isEncounterOver(array $game_state): bool {
+    $teams_alive = [];
+    foreach (($game_state['initiative_order'] ?? []) as $participant) {
+      if (!is_array($participant) || !empty($participant['is_defeated'])) {
+        continue;
+      }
+      $teams_alive[$this->normalizeCombatTeam((string) ($participant['team'] ?? ''))] = TRUE;
+    }
+    return count($teams_alive) <= 1;
+  }
+
+  /**
+   * Resolves the encounter outcome label ('victory'/'defeat'/'draw') once
+   * {@see isEncounterOver()} is true, based on which side (if any) survives.
+   */
+  protected function resolveEncounterOutcome(array $game_state): string {
+    $teams_alive = [];
+    foreach (($game_state['initiative_order'] ?? []) as $participant) {
+      if (!is_array($participant) || !empty($participant['is_defeated'])) {
+        continue;
+      }
+      $teams_alive[$this->normalizeCombatTeam((string) ($participant['team'] ?? ''))] = TRUE;
+    }
+    if (isset($teams_alive['player']) || isset($teams_alive['ally'])) {
+      return 'victory';
+    }
+    if (isset($teams_alive['enemy'])) {
+      return 'defeat';
+    }
+    return 'draw';
   }
 
   /**
@@ -202,7 +442,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       return NULL;
     }
 
-    $nearest = $this->findNearestAlivePlayer($entity_id, $game_state);
+    $nearest = $this->findNearestAliveOpponent($entity_id, $game_state);
     if ($nearest === NULL) {
       return NULL;
     }
@@ -229,8 +469,9 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
     $best_target = NULL;
     $best_ratio = 2.0;
     $best_distance = PHP_INT_MAX;
+    $opposition_teams = $this->resolveNpcOpponentTeams($npc);
     foreach (($game_state['initiative_order'] ?? []) as $combatant) {
-      if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
+      if (!$this->combatantMatchesAnyTeam($combatant, $opposition_teams) || !empty($combatant['is_defeated'])) {
         continue;
       }
 
@@ -287,7 +528,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
     $closest_dist = PHP_INT_MAX;
 
     foreach (($game_state['initiative_order'] ?? []) as $combatant) {
-      if (($combatant['team'] ?? '') !== 'player' || !empty($combatant['is_defeated'])) {
+      if ($this->normalizeCombatTeam((string) ($combatant['team'] ?? '')) !== 'player' || !empty($combatant['is_defeated'])) {
         continue;
       }
       $pq = (int) ($combatant['position_q'] ?? 0);
@@ -301,6 +542,136 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
     }
 
     return $closest;
+  }
+
+  /**
+   * Find the nearest alive hostile opponent for this combatant.
+   */
+  protected function findNearestAliveOpponent(string $entity_id, array $game_state): ?string {
+    $npc = $this->findCombatant($entity_id, $game_state);
+    if (!$npc) {
+      return $this->findNearestAlivePlayer($entity_id, $game_state);
+    }
+
+    $opposition_teams = $this->resolveNpcOpponentTeams($npc);
+    if ($opposition_teams === []) {
+      return NULL;
+    }
+
+    $npc_q = (int) ($npc['position_q'] ?? 0);
+    $npc_r = (int) ($npc['position_r'] ?? 0);
+    $closest = NULL;
+    $closest_dist = PHP_INT_MAX;
+
+    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+      if (!$this->combatantMatchesAnyTeam($combatant, $opposition_teams) || !empty($combatant['is_defeated'])) {
+        continue;
+      }
+      $pq = (int) ($combatant['position_q'] ?? 0);
+      $pr = (int) ($combatant['position_r'] ?? 0);
+      $dist = $this->hexDistance($npc_q, $npc_r, $pq, $pr);
+
+      if ($dist < $closest_dist) {
+        $closest_dist = $dist;
+        $closest = $combatant['entity_id'] ?? NULL;
+      }
+    }
+
+    if ($closest !== NULL) {
+      return $closest;
+    }
+
+    // Safety fallback: if team metadata is malformed, choose the nearest
+    // non-self, non-defeated combatant with a different normalized team.
+    $actor_team = $this->normalizeCombatTeam((string) ($npc['team'] ?? ''));
+    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+      $candidate_id = trim((string) ($combatant['entity_id'] ?? ''));
+      if ($candidate_id === '' || $candidate_id === $entity_id || !empty($combatant['is_defeated'])) {
+        continue;
+      }
+      $candidate_team = $this->normalizeCombatTeam((string) ($combatant['team'] ?? ''));
+      if ($candidate_team !== '' && $candidate_team === $actor_team) {
+        continue;
+      }
+      $pq = (int) ($combatant['position_q'] ?? 0);
+      $pr = (int) ($combatant['position_r'] ?? 0);
+      $dist = $this->hexDistance($npc_q, $npc_r, $pq, $pr);
+      if ($dist < $closest_dist) {
+        $closest_dist = $dist;
+        $closest = $candidate_id;
+      }
+    }
+
+    if ($closest !== NULL) {
+      return $closest;
+    }
+
+    // Contract enforcement: in a hostile encounter every combatant must have a
+    // resolvable opposing side. Reaching this point means participant team
+    // metadata collapsed at the bootstrap write path. Fail loudly instead of
+    // guessing a target, which would mask the originating defect and produce
+    // silent pass-turn loops.
+    $mode = strtolower(trim((string) ($game_state['encounter_context']['mode'] ?? '')));
+    if ($mode === 'hostile_combat') {
+      $team_census = [];
+      foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+        $candidate_id = trim((string) ($combatant['entity_id'] ?? ''));
+        if ($candidate_id === '' || !empty($combatant['is_defeated'])) {
+          continue;
+        }
+        $team_census[] = sprintf(
+          '%s=%s',
+          $candidate_id,
+          $this->normalizeCombatTeam((string) ($combatant['team'] ?? '')) ?: 'unresolved'
+        );
+      }
+
+      throw new \RuntimeException(sprintf(
+        'Encounter participant team contract violation: actor "%s" (team="%s") has no resolvable opposing combatant in hostile_combat encounter %d (campaign %d, round %s). Live team census: [%s]. Fix the participant classification write path (resolveEncounterParticipantTeam / buildRoomEncounterTurnOrder) rather than the target selector.',
+        $entity_id,
+        $actor_team !== '' ? $actor_team : 'unresolved',
+        (int) ($game_state['encounter_id'] ?? 0),
+        (int) ($game_state['campaign_id'] ?? 0),
+        (string) ($game_state['round'] ?? 'unknown'),
+        implode(', ', $team_census)
+      ));
+    }
+
+    return $closest;
+  }
+
+  /**
+   * Resolve opposing combat teams for one NPC combatant.
+   *
+   * @return array<int, string>
+   *   Normalized team names considered hostile to this combatant.
+   */
+  protected function resolveNpcOpponentTeams(array $npc): array {
+    $team = $this->normalizeCombatTeam((string) ($npc['team'] ?? ''));
+    if (in_array($team, ['player', 'ally'], TRUE)) {
+      return ['enemy'];
+    }
+    if ($team === 'enemy') {
+      return ['player', 'ally'];
+    }
+
+    return ['player', 'ally'];
+  }
+
+  /**
+   * Determine whether one combatant belongs to any normalized team name.
+   */
+  protected function combatantMatchesAnyTeam(array $combatant, array $teams): bool {
+    $combatant_team = $this->normalizeCombatTeam((string) ($combatant['team'] ?? ''));
+    if ($combatant_team === '') {
+      return FALSE;
+    }
+    foreach ($teams as $team) {
+      if ($this->normalizeCombatTeam((string) $team) === $combatant_team) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**
@@ -1039,7 +1410,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       $instance_id = $entity['entity_instance_id'] ?? ($entity['instance_id'] ?? ($entity['id'] ?? NULL));
       $team = $this->resolveEncounterParticipantTeam($entity, $content_type, (string) $instance_id, $enemy_instance_ids);
 
-      if ($content_type === 'player_character') {
+      if ($team === 'player') {
         $stats = $entity['state']['metadata']['stats'] ?? [];
         $perception = $stats['perception'] ?? ($entity['state']['perception'] ?? 0);
         $participants[] = [
@@ -1062,7 +1433,7 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
           'position_r' => $entity['placement']['hex']['r'] ?? 0,
         ];
       }
-      elseif (($content_type === 'creature' || $content_type === 'npc' || in_array((string) $instance_id, $enemy_instance_ids, TRUE)) && $team !== NULL) {
+      elseif ($team !== NULL) {
         $stats = $entity['state']['metadata']['stats'] ?? [];
         $perception = $stats['perception'] ?? ($entity['state']['perception'] ?? 0);
         $participants[] = [
@@ -2169,54 +2540,87 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
   /**
    * Builds combat encounter context if the room has untriggered hostile content.
    */
-  protected function buildCombatEncounterContext(string $room_id, array $dungeon_data, array $game_state, int $campaign_id): array {
-    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
-      if ((string) ($room['room_id'] ?? '') !== $room_id) {
-        continue;
-      }
-      $gameplay_state = is_array($room['gameplay_state'] ?? NULL) ? $room['gameplay_state'] : [];
-      $encounter_template = $gameplay_state['encounter_template'] ?? NULL;
-      if (!$this->hasHostileDispositionInRoom($room_id, $dungeon_data, $campaign_id)) {
-        return ['should_trigger' => FALSE];
-      }
-      $hostile_entities = [];
-      foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
-        if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
-          continue;
-        }
-        $entity_type = (string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''));
-        $team = strtolower((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? '')));
-        if (in_array($team, ['enemy', 'hostile', 'monster'], TRUE) || $entity_type === 'creature') {
-          $hostile_entities[] = $entity;
-        }
-      }
-      if ($hostile_entities === []) {
-        return ['should_trigger' => FALSE];
-      }
-      return [
-        'should_trigger' => TRUE,
-        'reason' => $encounter_template['reason'] ?? 'Hostile disposition detected between room actors.',
-        'encounter_context' => [
-          'template' => $encounter_template,
-          'enemies' => $hostile_entities,
-          'room_id' => $room_id,
-        ],
-      ];
+  protected function buildCombatEncounterContext(string $room_id, array &$dungeon_data, array $game_state, int $campaign_id, ?string $preferred_actor_id = NULL): array {
+    $room = $this->findRoomById($dungeon_data, $room_id);
+    $room_entities = $this->awaitBootstrapRoomEntityHydration($room_id, $dungeon_data, $campaign_id, $preferred_actor_id);
+    $gameplay_state = is_array($room['gameplay_state'] ?? NULL) ? $room['gameplay_state'] : [];
+    $encounter_template = $gameplay_state['encounter_template'] ?? NULL;
+    if (!$this->roomHasBootstrapPlayerCombatant($room_entities, $room_id)) {
+      $this->logger->warning('Encounter bootstrap deferred: no player combatant resolved for room {room_id}.', [
+        'room_id' => $room_id,
+      ]);
+      return ['should_trigger' => FALSE];
+    }
+    if (!$this->hasHostileDispositionInRoom($room_id, $dungeon_data, $campaign_id, $room_entities)) {
+      return ['should_trigger' => FALSE];
     }
 
-    return ['should_trigger' => FALSE];
+    $hostile_entities = [];
+    foreach ($room_entities as $entity) {
+      if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      if ($this->isBootstrapRoomHostileCombatant($entity, $room_entities, $campaign_id, $room_id)) {
+        $hostile_entities[] = $entity;
+      }
+    }
+    if ($hostile_entities === []) {
+      return ['should_trigger' => FALSE];
+    }
+
+    return [
+      'should_trigger' => TRUE,
+      'reason' => $encounter_template['reason'] ?? 'Hostile disposition detected between room actors.',
+      'encounter_context' => [
+        'template' => $encounter_template,
+        'enemies' => $hostile_entities,
+        'room_id' => $room_id,
+      ],
+    ];
+  }
+
+  /**
+   * Determine whether a room has at least one player-side combatant.
+   *
+   * @param array<int,array<string,mixed>> $room_entities
+   *   Room-scoped runtime entities.
+   */
+  protected function roomHasBootstrapPlayerCombatant(array $room_entities, string $room_id): bool {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return FALSE;
+    }
+
+    foreach ($room_entities as $entity) {
+      if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''))));
+      $team = strtolower(trim((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? ''))));
+      if (
+        $entity_type === 'player_character'
+        || in_array($team, ['player', 'player_character', 'pc', 'party', 'adventurer', 'hero', 'ally', 'friendly', 'companion'], TRUE)
+      ) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
   /**
    * Determine whether any actor in the room is hostile toward another actor.
    */
-  protected function hasHostileDispositionInRoom(string $room_id, array $dungeon_data, int $campaign_id): bool {
+  protected function hasHostileDispositionInRoom(string $room_id, array $dungeon_data, int $campaign_id, ?array $room_entities = NULL): bool {
     if ($campaign_id <= 0) {
       return FALSE;
     }
 
+    if (!is_array($room_entities)) {
+      $room_entities = $this->collectBootstrapRoomEntities($room_id, $dungeon_data, $campaign_id);
+    }
     $room_entity_refs = [];
-    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+    foreach ($room_entities as $entity) {
       if (!is_array($entity) || (string) ($entity['placement']['room_id'] ?? '') !== $room_id) {
         continue;
       }
@@ -2230,70 +2634,469 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       return FALSE;
     }
 
-    $actor_disposition = $this->resolveActorDispositionService();
-    $relationship_attitude = $this->resolveRelationshipAttitudeService();
-    $disposition_resolver = $this->resolveDispositionResolverService();
-    if (
-      !$disposition_resolver instanceof DispositionResolverService
-      && !$actor_disposition instanceof ActorDispositionService
-      && !$relationship_attitude instanceof RelationshipAttitudeService
-    ) {
-      return FALSE;
-    }
-
     foreach ($room_entity_refs as $source_ref) {
       $targets = array_values(array_filter($room_entity_refs, static fn(string $candidate): bool => $candidate !== $source_ref));
       if ($targets === []) {
         continue;
       }
 
-      if ($disposition_resolver instanceof DispositionResolverService) {
-        foreach ($targets as $target_ref) {
-          $dto = $disposition_resolver->resolveActorTargetDisposition(
-            $campaign_id,
-            $source_ref,
-            $target_ref,
-            $this->buildInstitutionAwareResolverContext($campaign_id, $source_ref, $target_ref, [
-              'room_id' => $room_id,
-            ])
-          );
-          if (!is_array($dto)) {
-            continue;
-          }
-          $hostile_flag = (bool) ($dto['policy_flags']['hostile'] ?? FALSE);
-          $effective_score = isset($dto['effective_disposition_score']) && is_numeric($dto['effective_disposition_score'])
-            ? DispositionAuthorityContract::clampScore((int) round((float) $dto['effective_disposition_score']))
-            : 0;
-          if ($hostile_flag || $this->isHostileDispositionScore($effective_score)) {
-            return TRUE;
-          }
-        }
-      }
-
-      if ($actor_disposition instanceof ActorDispositionService) {
-        $summary = $actor_disposition->getDispositionSummary($campaign_id, $source_ref);
-        $score = isset($summary['current_score']) && is_numeric($summary['current_score'])
-          ? DispositionAuthorityContract::clampScore((int) round((float) $summary['current_score']))
-          : (DispositionAuthorityContract::attitudeToScore((string) ($summary['current_attitude'] ?? '')) ?? 0);
-        if ($this->isHostileDispositionScore($score)) {
+      foreach ($targets as $target_ref) {
+        if ($this->hasHostileDispositionBetweenActorRefs($campaign_id, $source_ref, $target_ref, $room_id)) {
           return TRUE;
-        }
-      }
-
-      if ($relationship_attitude instanceof RelationshipAttitudeService) {
-        foreach ($targets as $target_ref) {
-          $edge = $relationship_attitude->resolveEdgeDispositionDetails($source_ref, $target_ref, $campaign_id);
-          $edge_score = isset($edge['score']) && is_numeric($edge['score'])
-            ? DispositionAuthorityContract::clampScore((int) round((float) $edge['score']))
-            : (DispositionAuthorityContract::attitudeToScore((string) ($edge['attitude'] ?? '')) ?? 0);
-          if ($this->isHostileDispositionScore($edge_score)) {
-            return TRUE;
-          }
         }
       }
     }
 
     return FALSE;
+  }
+
+  /**
+   * Determine whether one runtime entity should bootstrap onto the enemy team.
+   *
+   * @param array<int,array<string,mixed>> $room_entities
+   *   Room-scoped runtime entities.
+   */
+  protected function isBootstrapRoomHostileCombatant(array $entity, array $room_entities, int $campaign_id, string $room_id): bool {
+    $content_type = strtolower(trim((string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''))));
+    $team = strtolower(trim((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? ''))));
+    if ($content_type === 'player_character' || in_array($team, ['player', 'player_character', 'pc', 'ally', 'friendly', 'companion'], TRUE)) {
+      return FALSE;
+    }
+    if (in_array($team, ['enemy', 'hostile', 'monster'], TRUE) || $content_type === 'creature') {
+      return TRUE;
+    }
+
+    $source_ref = $this->resolveDispositionEntityRefFromRuntimeEntity($entity);
+    if ($source_ref === '') {
+      return FALSE;
+    }
+
+    foreach ($room_entities as $target_entity) {
+      if (!is_array($target_entity) || $target_entity === $entity) {
+        continue;
+      }
+      $target_content_type = strtolower(trim((string) ($target_entity['entity_type'] ?? ($target_entity['entity_ref']['content_type'] ?? ''))));
+      $target_team = strtolower(trim((string) ($target_entity['state']['metadata']['team'] ?? ($target_entity['state']['team'] ?? ''))));
+      if (
+        $target_content_type !== 'player_character'
+        && !in_array($target_team, ['player', 'player_character', 'pc', 'ally', 'friendly', 'companion'], TRUE)
+      ) {
+        continue;
+      }
+      $target_ref = $this->resolveDispositionEntityRefFromRuntimeEntity($target_entity);
+      if ($target_ref === '' || $target_ref === $source_ref) {
+        continue;
+      }
+      if (
+        $this->hasHostileDispositionBetweenActorRefs($campaign_id, $source_ref, $target_ref, $room_id)
+        || $this->hasHostileDispositionBetweenActorRefs($campaign_id, $target_ref, $source_ref, $room_id)
+      ) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Resolve whether one actor ref is hostile toward another in the same room.
+   */
+  protected function hasHostileDispositionBetweenActorRefs(int $campaign_id, string $source_ref, string $target_ref, string $room_id): bool {
+    $source_ref = trim($source_ref);
+    $target_ref = trim($target_ref);
+    if ($campaign_id <= 0 || $source_ref === '' || $target_ref === '' || $source_ref === $target_ref) {
+      return FALSE;
+    }
+
+    $disposition_resolver = $this->resolveDispositionResolverService();
+    if ($disposition_resolver instanceof DispositionResolverService) {
+      $dto = $disposition_resolver->resolveActorTargetDisposition(
+        $campaign_id,
+        $source_ref,
+        $target_ref,
+        $this->buildInstitutionAwareResolverContext($campaign_id, $source_ref, $target_ref, [
+          'room_id' => $room_id,
+        ])
+      );
+      if (is_array($dto)) {
+        $hostile_flag = (bool) ($dto['policy_flags']['hostile'] ?? FALSE);
+        $effective_score = isset($dto['effective_disposition_score']) && is_numeric($dto['effective_disposition_score'])
+          ? DispositionAuthorityContract::clampScore((int) round((float) $dto['effective_disposition_score']))
+          : 0;
+        if ($hostile_flag || $this->isHostileDispositionScore($effective_score)) {
+          return TRUE;
+        }
+      }
+    }
+
+    $relationship_attitude = $this->resolveRelationshipAttitudeService();
+    if ($relationship_attitude instanceof RelationshipAttitudeService) {
+      $edge = $relationship_attitude->resolveEdgeDispositionDetails($source_ref, $target_ref, $campaign_id);
+      $edge_score = isset($edge['score']) && is_numeric($edge['score'])
+        ? DispositionAuthorityContract::clampScore((int) round((float) $edge['score']))
+        : (DispositionAuthorityContract::attitudeToScore((string) ($edge['attitude'] ?? '')) ?? 0);
+      if ($this->isHostileDispositionScore($edge_score)) {
+        return TRUE;
+      }
+    }
+
+    $actor_disposition = $this->resolveActorDispositionService();
+    if ($actor_disposition instanceof ActorDispositionService) {
+      $summary = $actor_disposition->getDispositionSummary($campaign_id, $source_ref);
+      $score = isset($summary['current_score']) && is_numeric($summary['current_score'])
+        ? DispositionAuthorityContract::clampScore((int) round((float) $summary['current_score']))
+        : (DispositionAuthorityContract::attitudeToScore((string) ($summary['current_attitude'] ?? '')) ?? 0);
+      if ($this->isHostileDispositionScore($score)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  /**
+   * Wait for canonical room actor hydration before bootstrap mode selection.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Hydrated active-room entities.
+   */
+  protected function awaitBootstrapRoomEntityHydration(string $room_id, array &$dungeon_data, int $campaign_id, ?string $preferred_actor_id = NULL): array {
+    $room_id = trim($room_id);
+    if ($campaign_id <= 0 || $room_id === '') {
+      return [];
+    }
+
+    $room_hints = $this->collectRoomRuntimeEntityHints($room_id, $dungeon_data);
+    $max_attempts = 8;
+    $sleep_micros = 150000;
+    $last_readiness = [
+      'ready' => FALSE,
+      'player_present' => FALSE,
+      'expected_npc_count' => 0,
+      'resolved_npc_count' => 0,
+      'entities' => [],
+    ];
+
+    for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+      $this->synchronizeBootstrapRoomEntities($room_id, $dungeon_data, $campaign_id, $preferred_actor_id);
+      $room_entities = $this->collectBootstrapRoomEntities($room_id, $dungeon_data, $campaign_id, $preferred_actor_id);
+      $readiness = $this->evaluateBootstrapRoomEntityReadiness($room_entities, $room_hints);
+      $last_readiness = $readiness + ['entities' => $room_entities];
+      if (!empty($readiness['ready'])) {
+        return $room_entities;
+      }
+
+      if ($attempt < $max_attempts) {
+        $this->logger->notice(
+          'Encounter bootstrap hydration pending: campaign={campaign_id} room={room_id} attempt={attempt}/{max_attempts} player_present={player_present} expected_npc_count={expected_npc_count} resolved_npc_count={resolved_npc_count}',
+          [
+            'campaign_id' => $campaign_id,
+            'room_id' => $room_id,
+            'attempt' => $attempt,
+            'max_attempts' => $max_attempts,
+            'player_present' => !empty($readiness['player_present']) ? 'yes' : 'no',
+            'expected_npc_count' => (int) ($readiness['expected_npc_count'] ?? 0),
+            'resolved_npc_count' => (int) ($readiness['resolved_npc_count'] ?? 0),
+          ]
+        );
+        usleep($sleep_micros);
+      }
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Encounter bootstrap hydration contract violation: campaign %d room %s actor hydration did not converge (player_present=%s expected_npc_count=%d resolved_npc_count=%d attempts=%d).',
+      $campaign_id,
+      $room_id,
+      !empty($last_readiness['player_present']) ? 'yes' : 'no',
+      (int) ($last_readiness['expected_npc_count'] ?? 0),
+      (int) ($last_readiness['resolved_npc_count'] ?? 0),
+      $max_attempts
+    ));
+  }
+
+  /**
+   * Synchronize canonical room actors into the compatibility payload/runtime slice.
+   */
+  protected function synchronizeBootstrapRoomEntities(string $room_id, array &$dungeon_data, int $campaign_id, ?string $preferred_actor_id = NULL): void {
+    $room_id = trim($room_id);
+    if ($campaign_id <= 0 || $room_id === '') {
+      return;
+    }
+
+    $dungeon_data['active_room_id'] = $room_id;
+    $dungeon_data['current_room_id'] = $room_id;
+    $runtime_sync = $this->resolveCampaignCharacterRuntimeSyncService();
+    if ($runtime_sync instanceof CampaignCharacterRuntimeSyncService) {
+      $dungeon_data = $runtime_sync->syncActiveRoomPlayerEntities($dungeon_data, $campaign_id, $preferred_actor_id, [
+        'trace_id' => 'bootstrap_room_entity_hydration',
+      ]);
+    }
+
+    $actor_store = $this->resolveActorRuntimeStateStoreService();
+    if ($actor_store instanceof ActorRuntimeStateStore && is_array($dungeon_data['entities'] ?? NULL)) {
+      $actor_store->syncFromEntities($campaign_id, $dungeon_data['entities']);
+    }
+  }
+
+  /**
+   * Collect room runtime entities from canonical runtime APIs plus local payload.
+   *
+   * @return array<int, array<string,mixed>>
+   *   Unique runtime entities scoped to one room.
+   */
+  protected function collectBootstrapRoomEntities(string $room_id, array $dungeon_data, int $campaign_id, ?string $preferred_actor_id = NULL): array {
+    $room_id = trim($room_id);
+    if ($room_id === '') {
+      return [];
+    }
+
+    $indexed = [];
+    $actor_store = $this->resolveActorRuntimeStateStoreService();
+    if ($actor_store instanceof ActorRuntimeStateStore) {
+      foreach ($actor_store->loadActorEntities($campaign_id) as $entity) {
+        if (!is_array($entity) || trim((string) ($entity['placement']['room_id'] ?? '')) !== $room_id) {
+          continue;
+        }
+        $key = $this->buildBootstrapRoomEntityIdentityKey($entity);
+        if ($key !== '') {
+          $indexed[$key] = $entity;
+        }
+      }
+    }
+
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity) || trim((string) ($entity['placement']['room_id'] ?? '')) !== $room_id) {
+        continue;
+      }
+      $key = $this->buildBootstrapRoomEntityIdentityKey($entity);
+      if ($key !== '') {
+        $indexed[$key] = $entity;
+      }
+    }
+
+    $preferred_actor_id = trim((string) $preferred_actor_id);
+    if ($preferred_actor_id !== '') {
+      uasort($indexed, static function (array $left, array $right) use ($preferred_actor_id): int {
+        $left_id = trim((string) ($left['entity_instance_id'] ?? $left['instance_id'] ?? $left['id'] ?? ''));
+        $right_id = trim((string) ($right['entity_instance_id'] ?? $right['instance_id'] ?? $right['id'] ?? ''));
+        $left_score = $left_id === $preferred_actor_id ? 0 : 1;
+        $right_score = $right_id === $preferred_actor_id ? 0 : 1;
+        return $left_score <=> $right_score;
+      });
+    }
+
+    return array_values($indexed);
+  }
+
+  /**
+   * Evaluate whether room actor hydration is ready for bootstrap mode choice.
+   *
+   * @param array<int,array<string,mixed>> $room_entities
+   *   Candidate room entities.
+   * @param array<string,mixed> $room_hints
+   *   Expected actor hints derived from canonical room contents.
+   *
+   * @return array<string,mixed>
+   *   Readiness metadata.
+   */
+  protected function evaluateBootstrapRoomEntityReadiness(array $room_entities, array $room_hints): array {
+    $player_present = FALSE;
+    $resolved_npc_content_ids = [];
+
+    foreach ($room_entities as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $entity_type = strtolower(trim((string) ($entity['entity_type'] ?? ($entity['entity_ref']['content_type'] ?? ''))));
+      $team = strtolower(trim((string) ($entity['state']['metadata']['team'] ?? ($entity['state']['team'] ?? ''))));
+      if ($entity_type === 'player_character' || in_array($team, ['player', 'player_character', 'pc'], TRUE)) {
+        $player_present = TRUE;
+      }
+
+      $content_id = $this->normalizeBootstrapRoomActorContentId((string) (
+        $entity['entity_ref']['content_id']
+        ?? $entity['state']['metadata']['content_id']
+        ?? ''
+      ));
+      if ($content_id !== '') {
+        $resolved_npc_content_ids[$content_id] = TRUE;
+      }
+    }
+
+    $expected_npc_content_ids = [];
+    foreach ((array) ($room_hints['npc_content_ids'] ?? []) as $content_id) {
+      $normalized = $this->normalizeBootstrapRoomActorContentId((string) $content_id);
+      if ($normalized !== '') {
+        $expected_npc_content_ids[$normalized] = TRUE;
+      }
+    }
+
+    $expected_npc_count = count($expected_npc_content_ids);
+    $resolved_npc_count = 0;
+    foreach (array_keys($expected_npc_content_ids) as $content_id) {
+      if (isset($resolved_npc_content_ids[$content_id])) {
+        $resolved_npc_count++;
+      }
+    }
+
+    return [
+      'ready' => $player_present && $resolved_npc_count >= $expected_npc_count,
+      'player_present' => $player_present,
+      'expected_npc_count' => $expected_npc_count,
+      'resolved_npc_count' => $resolved_npc_count,
+    ];
+  }
+
+  /**
+   * Collect expected room actor hints from runtime payload or campaign room rows.
+   *
+   * @return array<string,mixed>
+   *   Room actor hint metadata.
+   */
+  protected function collectRoomRuntimeEntityHints(string $room_id, array $dungeon_data): array {
+    $room = $this->findRoomById($dungeon_data, $room_id);
+    $hints = is_array($room['runtime_entity_hints'] ?? NULL) ? $room['runtime_entity_hints'] : [];
+    if ($hints !== []) {
+      return $hints;
+    }
+
+    $row = $this->database->select('dc_campaign_rooms', 'r')
+      ->fields('r', ['contents_data'])
+      ->condition('campaign_id', (int) ($dungeon_data['campaign_id'] ?? 0))
+      ->condition('room_id', $room_id)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+    if (!is_array($row)) {
+      return [];
+    }
+
+    return $this->buildRuntimeEntityHintsFromContentsData(
+      json_decode((string) ($row['contents_data'] ?? '{}'), TRUE)
+    );
+  }
+
+  /**
+   * Build normalized room actor hints from canonical contents data.
+   *
+   * @param mixed $contents_data
+   *   Decoded contents payload.
+   *
+   * @return array<string,mixed>
+   *   Normalized hint payload.
+   */
+  protected function buildRuntimeEntityHintsFromContentsData($contents_data): array {
+    $contents_data = is_array($contents_data) ? $contents_data : [];
+    $hints = [
+      'npc_content_ids' => [],
+      'entity_count' => 0,
+      'creature_count' => 0,
+    ];
+
+    foreach ((array) ($contents_data['npcs'] ?? []) as $npc) {
+      if (!is_array($npc)) {
+        continue;
+      }
+      $content_id = trim((string) ($npc['content_id'] ?? ''));
+      if ($content_id !== '') {
+        $hints['npc_content_ids'][] = $content_id;
+      }
+      $hints['entity_count']++;
+    }
+    foreach ((array) ($contents_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $content_id = trim((string) (
+        $entity['entity_ref']['content_id']
+        ?? $entity['content_id']
+        ?? ''
+      ));
+      if ($content_id !== '') {
+        $hints['npc_content_ids'][] = $content_id;
+      }
+      $hints['entity_count']++;
+    }
+    foreach ((array) ($contents_data['creatures'] ?? []) as $creature) {
+      if (!is_array($creature)) {
+        continue;
+      }
+      $content_id = trim((string) (
+        $creature['entity_ref']['content_id']
+        ?? $creature['content_id']
+        ?? ''
+      ));
+      if ($content_id !== '') {
+        $hints['npc_content_ids'][] = $content_id;
+      }
+      $hints['creature_count']++;
+      $hints['entity_count']++;
+    }
+
+    $hints['npc_content_ids'] = array_values(array_unique(array_filter(array_map('strval', $hints['npc_content_ids']))));
+    return $hints;
+  }
+
+  /**
+   * Resolve a stable identity key for one bootstrap room entity.
+   */
+  protected function buildBootstrapRoomEntityIdentityKey(array $entity): string {
+    $instance_id = trim((string) (
+      $entity['entity_instance_id']
+      ?? $entity['instance_id']
+      ?? $entity['id']
+      ?? ''
+    ));
+    if ($instance_id !== '') {
+      return 'instance:' . $instance_id;
+    }
+
+    $content_id = $this->normalizeBootstrapRoomActorContentId((string) (
+      $entity['entity_ref']['content_id']
+      ?? $entity['state']['metadata']['content_id']
+      ?? ''
+    ));
+    if ($content_id !== '') {
+      return 'content:' . $content_id;
+    }
+
+    return '';
+  }
+
+  /**
+   * Normalize room actor content identifiers across runtime/canonical payloads.
+   */
+  protected function normalizeBootstrapRoomActorContentId(string $content_id): string {
+    $content_id = strtolower(trim($content_id));
+    if (str_starts_with($content_id, 'npc_') && strlen($content_id) > 4) {
+      return substr($content_id, 4);
+    }
+    if (str_starts_with($content_id, 'npc-') && strlen($content_id) > 4) {
+      return substr($content_id, 4);
+    }
+    return $content_id;
+  }
+
+  /**
+   * Resolve canonical runtime sync service when available.
+   */
+  protected function resolveCampaignCharacterRuntimeSyncService(): ?CampaignCharacterRuntimeSyncService {
+    if (!\Drupal::hasService('dungeoncrawler_content.campaign_character_runtime_sync')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.campaign_character_runtime_sync');
+    return $service instanceof CampaignCharacterRuntimeSyncService ? $service : NULL;
+  }
+
+  /**
+   * Resolve actor runtime state store when available.
+   */
+  protected function resolveActorRuntimeStateStoreService(): ?ActorRuntimeStateStore {
+    if (!\Drupal::hasService('dungeoncrawler_content.actor_runtime_state_store')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.actor_runtime_state_store');
+    return $service instanceof ActorRuntimeStateStore ? $service : NULL;
   }
 
   /**
@@ -2396,7 +3199,17 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
    * Resolves whether a room entity should participate in combat and on which team.
    */
   protected function resolveEncounterParticipantTeam(array $entity, string $content_type, string $instance_id, array $enemy_instance_ids): ?string {
-    if ($content_type === 'player_character') {
+    $content_type = strtolower(trim((string) $content_type));
+    $metadata = is_array($entity['state']['metadata'] ?? NULL) ? $entity['state']['metadata'] : [];
+    $role = strtolower(trim((string) ($metadata['role'] ?? $entity['state']['role'] ?? '')));
+    $follower_kind = strtolower(trim((string) ($metadata['follower_kind'] ?? ($metadata['bond_contract']['follower_kind'] ?? ''))));
+    $owner_character_id = (int) ($metadata['owner_character_id'] ?? ($metadata['bond_contract']['owner_character_id'] ?? 0));
+    $is_follower_companion = $follower_kind !== ''
+      || $owner_character_id > 0
+      || str_contains($role, 'familiar')
+      || str_contains($role, 'companion')
+      || str_contains($role, 'follower');
+    if (in_array($content_type, ['player_character', 'player'], TRUE)) {
       return 'player';
     }
 
@@ -2405,19 +3218,26 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
     }
 
     $raw_team = strtolower(trim((string) (
-      $entity['state']['metadata']['team']
+      $metadata['team']
       ?? $entity['state']['team']
       ?? ''
     )));
 
-    if (in_array($raw_team, ['enemy', 'hostile', 'monster'], TRUE)) {
+    if ($is_follower_companion && !in_array($raw_team, ['enemy', 'hostile', 'monster', 'monsters', 'npc', 'creature'], TRUE)) {
+      return 'ally';
+    }
+
+    if (in_array($raw_team, ['enemy', 'hostile', 'monster', 'monsters', 'npc', 'creature'], TRUE)) {
       return 'enemy';
     }
     if (in_array($raw_team, ['ally', 'friendly', 'companion'], TRUE)) {
       return 'ally';
     }
-    if (in_array($raw_team, ['player', 'player_character', 'pc'], TRUE)) {
+    if (in_array($raw_team, ['player', 'player_character', 'pc', 'party', 'adventurer', 'hero'], TRUE)) {
       return 'player';
+    }
+    if ($content_type === 'character') {
+      return $is_follower_companion ? 'ally' : 'player';
     }
     if (in_array($raw_team, ['neutral', 'indifferent', ''], TRUE)) {
       return $content_type === 'creature' ? 'enemy' : NULL;

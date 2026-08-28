@@ -884,8 +884,22 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     $current_index = $game_state['turn']['index'] ?? 0;
     $actions_remaining_before_end = $game_state['turn']['actions_remaining'] ?? NULL;
     $npc_events = [];
+    $npc_mutations = [];
     $new_round = NULL;
     $round_advances = 0;
+
+    // TEMPORARY STOPGAP (see restorePlayerPartyToFullHealth() doc comment):
+    // this encounter engine has no party-wipe recovery path yet, so a downed
+    // player would otherwise be skipped as "defeated" in initiative forever
+    // and the encounter would freeze. Run this at every turn boundary (not
+    // just player-initiated end_turn) so a defeated player is always healed
+    // and eligible again before the next-combatant lookup below runs.
+    if ($encounter_id) {
+      $recovery_events = $this->restorePlayerPartyToFullHealth((int) $encounter_id, $game_state, $dungeon_data, $campaign_id);
+      if ($recovery_events !== []) {
+        $npc_events = array_merge($npc_events, $recovery_events);
+      }
+    }
 
     // Tick end-of-turn conditions for the current combatant.
     if ($encounter_id && $actor_id) {
@@ -1012,7 +1026,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         'new_round' => $new_round,
         'round_advances' => $round_advances,
         'npc_events' => $npc_events,
-        'mutations' => [],
+        'mutations' => $npc_mutations,
         'actions_remaining_before_end' => $actions_remaining_before_end,
       ];
     }
@@ -1055,17 +1069,84 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
       $npc_events = array_merge($npc_events, $this->buildTurnStartSearchEvents((string) $next_entity, $game_state, $dungeon_data, $campaign_id));
     }
 
-    // If next combatant is NPC/enemy, auto-play or explicitly pass their turn.
+    if ($next_team !== 'player' && $this->isRoomSceneMode($game_state)) {
+      $room_id = trim((string) ($game_state['encounter_context']['room_id'] ?? ($dungeon_data['active_room_id'] ?? '')));
+      if ($room_id !== '') {
+        $bootstrap_context = $this->resolveBootstrapEncounterInitialization($room_id, $game_state, $dungeon_data, $campaign_id, (string) $next_entity);
+        if (!empty($bootstrap_context['combat_context']['should_trigger'])) {
+          $exit_result = $this->onExit($game_state, $dungeon_data, $campaign_id);
+          $npc_events = array_merge($npc_events, is_array($exit_result['events'] ?? NULL) ? $exit_result['events'] : []);
+          $enter_result = $this->onEnter($bootstrap_context['combat_context'], $game_state, $dungeon_data, $campaign_id);
+          $npc_events = array_merge($npc_events, is_array($enter_result['events'] ?? NULL) ? $enter_result['events'] : []);
+          $current_turn_entity = (string) ($game_state['turn']['entity'] ?? '');
+          return [
+            'turn_advanced' => TRUE,
+            'next_entity' => $current_turn_entity !== '' ? $current_turn_entity : $next_entity,
+            'next_team' => $current_turn_entity !== '' ? $this->resolveInitiativeParticipantTeam($current_turn_entity, $game_state) : $next_team,
+            'round' => $game_state['round'],
+            'new_round' => $new_round,
+            'round_advances' => $round_advances,
+            'npc_events' => $npc_events,
+            'mutations' => $npc_mutations,
+            'actions_remaining_before_end' => $actions_remaining_before_end,
+          ];
+        }
+      }
+    }
+
+    // If next combatant is non-player, auto-play hostile turns and pass room
+    // dialogue turns for neutral/friendly actors while in room-scene mode.
     if ($next_team !== 'player') {
-      $npc_result = ($encounter_id && !$this->isRoomSceneMode($game_state))
+      $normalized_next_team = $this->normalizeCombatTeam((string) $next_team);
+      $should_autoplay_in_room_scene = $this->isRoomSceneMode($game_state) && $normalized_next_team === 'enemy';
+      $npc_result = ($encounter_id && (!$this->isRoomSceneMode($game_state) || $should_autoplay_in_room_scene))
         ? $this->autoPlayNpcTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id)
         : $this->passRoomActorTurn((string) $next_entity, $game_state, $dungeon_data, $campaign_id);
+      if ($normalized_next_team === 'enemy') {
+        $npc_events_for_turn = is_array($npc_result['events'] ?? NULL) ? $npc_result['events'] : [];
+        $has_non_pass_action = FALSE;
+        foreach ($npc_events_for_turn as $npc_event) {
+          if (!is_array($npc_event)) {
+            continue;
+          }
+          $event_type = strtolower(trim((string) ($npc_event['type'] ?? '')));
+          if (!in_array($event_type, ['npc_choose_not_to_act', 'choose_not_to_act', 'auto_end_turn', 'end_turn'], TRUE)) {
+            $has_non_pass_action = TRUE;
+            break;
+          }
+        }
+        if (!$has_non_pass_action) {
+          $this->logger->warning('Enemy autoplay produced pass-only turn. actor={actor} mode={mode} encounter_id={encounter_id} round={round} team={team}', [
+            'actor' => (string) $next_entity,
+            'mode' => (string) ($game_state['encounter_context']['mode'] ?? ''),
+            'encounter_id' => (int) ($game_state['encounter_id'] ?? 0),
+            'round' => (int) ($game_state['round'] ?? 0),
+            'team' => $normalized_next_team,
+          ]);
+        }
+      }
       $npc_events = array_merge($npc_events, $npc_result['events'] ?? []);
+      if (is_array($npc_result['mutations'] ?? NULL) && $npc_result['mutations'] !== []) {
+        $npc_mutations = array_merge($npc_mutations, $npc_result['mutations']);
+      }
+
+      // TEMPORARY STOPGAP (see restorePlayerPartyToFullHealth() doc comment):
+      // the NPC turn that just ran may have downed the last active player,
+      // which would otherwise make hasActivePlayerParticipant() below false
+      // and permanently freeze the encounter (no path currently hands control
+      // back once the player party is defeated). Heal here, before that
+      // check, so the recursive advance always has somewhere to go.
+      if ($encounter_id) {
+        $npc_events = array_merge($npc_events, $this->restorePlayerPartyToFullHealth((int) $encounter_id, $game_state, $dungeon_data, $campaign_id));
+      }
 
       // After NPC turn, recursively advance until the next player actor.
       if ($this->hasActivePlayerParticipant($game_state)) {
         $further = $this->processEndTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
         $npc_events = array_merge($npc_events, $further['npc_events'] ?? []);
+        if (is_array($further['mutations'] ?? NULL) && $further['mutations'] !== []) {
+          $npc_mutations = array_merge($npc_mutations, $further['mutations']);
+        }
         if (!$new_round && !empty($further['new_round'])) {
           $new_round = $further['new_round'];
         }
@@ -1081,7 +1162,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
       'new_round' => $new_round,
       'round_advances' => $round_advances,
       'npc_events' => $npc_events,
-      'mutations' => [],
+      'mutations' => $npc_mutations,
       'actions_remaining_before_end' => $actions_remaining_before_end,
     ];
   }

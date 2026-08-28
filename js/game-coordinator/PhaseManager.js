@@ -246,6 +246,7 @@ export class PhaseManager {
       turn: this.turn ? { ...this.turn } : null,
       encounterId: this.encounterId,
       encounterContext: this.encounterContext ? { ...this.encounterContext } : null,
+      encounterPresentation: this.serverState?.encounter_presentation || null,
       activeRoomId: this.activeRoomId,
       initiativeOrder: this.initiativeOrder ? [...this.initiativeOrder] : null,
       availableActions: [...this.availableActions],

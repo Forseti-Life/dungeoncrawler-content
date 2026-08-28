@@ -26,23 +26,36 @@ const source = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/Characte
 
 console.log('\n=== CharacterPanel party follower selector contract ===');
 
+// The party selector was re-sourced from the launch-character `followers`
+// array onto the canonical server-side active-room actor roster
+// (hexmap.getActiveRoomActorRoster()). The launch-character roster is retained
+// only for resolving a selected ref back to its follower entry.
 assert(
   source.includes('resolvePrimaryFollowerRoster() {')
     && source.includes('resolveFollowerRosterEntryByRef(actorRef = \'\') {')
-    && source.includes('const followerRoster = this.resolvePrimaryFollowerRoster();'),
-  'Party selector is sourced from the launch-character follower roster'
+    && source.includes('buildActorOptionsFromCanonicalRoster() {')
+    && source.includes('const canonicalRosterOptions = this.buildActorOptionsFromCanonicalRoster();'),
+  'Party selector is sourced from the canonical active-room actor roster'
+);
+
+// The old contract threw on roster entries missing runtime_entity_id /
+// follower_kind / owner_character_id / follower_character_id. Those four
+// concerns are now carried by the canonical roster option builder: the runtime
+// ref is mandatory (entries without one are dropped, never emitted with a
+// fabricated value), and the three follower identity fields are derived from
+// the canonical sheet_ref rather than guessed.
+assert(
+  source.includes("const rosterEntries = Array.isArray(hexmap?.getActiveRoomActorRoster?.())")
+    && source.includes('      if (!runtimeRef) {\n        return null;\n      }')
+    && source.includes("entry?.sheet_ref?.sheet_type === 'follower'")
+    && source.includes("? (entry?.sheet_ref?.route_params?.follower_kind || '')")
+    && source.includes('const ownerCharacterId = Number(entry?.sheet_ref?.route_params?.character_id || 0) || 0;')
+    && source.includes("entry?.sheet_ref?.sheet_type === 'character'"),
+  'Canonical roster options require a runtime ref and derive follower identity from sheet_ref'
 );
 
 assert(
-  source.includes("throw new Error('Follower roster entry is missing runtime_entity_id.')")
-    && source.includes('is missing follower_kind.')
-    && source.includes('is missing owner_character_id.')
-    && source.includes('is missing follower_character_id.'),
-  'Party selector enforces hard follower roster contract requirements'
-);
-
-assert(
-  source.includes('const followerRoster = this.resolvePrimaryFollowerRoster();')
+  source.includes('const canonicalRosterOptions = this.buildActorOptionsFromCanonicalRoster();')
     && !source.includes('visibleOccupantsByRef')
     && !source.includes('const occupants = typeof hexmap.getVisualOccupants'),
   'Party selector is roster-only and does not depend on projected occupant filtering'

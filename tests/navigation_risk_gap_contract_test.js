@@ -30,10 +30,7 @@ const mapGeneratorSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/MapGeneratorService.php'),
   'utf8'
 );
-const roomChatSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
-  'utf8'
-);
+const roomChatSource = require('./helpers/php-source.js').readGmPipelineSource();
 const gmPipelineTraitSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/RoomChatServiceGmPipelineTrait.php'),
   'utf8'
@@ -46,10 +43,7 @@ const navigationSystemSource = fs.readFileSync(
   path.resolve(__dirname, '../js/v2/systems/NavigationSystem.js'),
   'utf8'
 );
-const gameShellSource = fs.readFileSync(
-  path.resolve(__dirname, '../js/v2/GameShell.js'),
-  'utf8'
-);
+const gameShellSource = require('./helpers/js-source.js').readGameShellSource();
 
 console.log('\n=== Navigation risk-gap contract ===');
 

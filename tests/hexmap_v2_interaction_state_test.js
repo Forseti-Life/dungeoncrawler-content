@@ -126,8 +126,7 @@ function extractNamedFunctionSource(source, functionName) {
   throw new Error(`Could not extract function: ${functionName}`);
 }
 
-const sourcePath = path.resolve(__dirname, '../js/v2/GameShell.js');
-const source = fs.readFileSync(sourcePath, 'utf8');
+const source = require('./helpers/js-source.js').readGameShellSource();
 const bindInteractionSource = extractMethodSource(source, '  _bindInteractionEvents() {')
   .replace('  _bindInteractionEvents() {', 'function _bindInteractionEvents() {');
 const setSelectedHexSource = extractMethodSource(source, '  setSelectedHex(q, r, options = {}) {')
@@ -148,8 +147,12 @@ const describeConnectionAtHexSource = extractMethodSource(source, '  describeCon
   .replace('  describeConnectionAtHex(q, r) {', 'function describeConnectionAtHex(q, r) {');
 const getHexDetailSource = extractMethodSource(source, '  getHexDetail(q, r) {')
   .replace('  getHexDetail(q, r) {', 'function getHexDetail(q, r) {');
-const setActiveRoomSource = extractMethodSource(source, '  setActiveRoom(roomId) {')
-  .replace('  setActiveRoom(roomId) {', 'function setActiveRoom(roomId) {');
+const setActiveRoomSource = extractMethodSource(source, '  setActiveRoom(roomId, options = {}) {')
+  .replace('  setActiveRoom(roomId, options = {}) {', 'function setActiveRoom(roomId, options = {}) {');
+const syncPartyOccupantsSource = extractMethodSource(source, '  _synchronizePartyOccupantsToRoom(roomId) {')
+  .replace('  _synchronizePartyOccupantsToRoom(roomId) {', 'function _synchronizePartyOccupantsToRoom(roomId) {');
+const emitCanonicalRoomChangedSource = extractMethodSource(source, '  _emitCanonicalRoomChanged({')
+  .replace('  _emitCanonicalRoomChanged({', 'function _emitCanonicalRoomChanged({');
 const getStateValueSource = extractMethodSource(source, '  _getStateValue(key) {')
   .replace('  _getStateValue(key) {', 'function _getStateValue(key) {');
 const resolveActiveRoomIdSource = extractMethodSource(source, '  resolveActiveRoomId() {')
@@ -179,13 +182,15 @@ ${getObjectIdAtHexSource}
 ${describeObjectsAtHexSource}
 ${describeConnectionAtHexSource}
 ${getHexDetailSource}
+${syncPartyOccupantsSource}
+${emitCanonicalRoomChangedSource}
 ${setActiveRoomSource}
 ${getStateValueSource}
 ${resolveActiveRoomIdSource}
-return { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom, _getStateValue, resolveActiveRoomId };
+return { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom, _emitCanonicalRoomChanged, _synchronizePartyOccupantsToRoom, _getStateValue, resolveActiveRoomId };
 `);
 
-const { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom, _getStateValue, resolveActiveRoomId } = factory();
+const { _bindInteractionEvents, setSelectedHex, resolveTerrainKey, describePassability, describeEntitiesAtHex, getObjectLabelAtHex, getObjectIdAtHex, describeObjectsAtHex, describeConnectionAtHex, getHexDetail, setActiveRoom, _emitCanonicalRoomChanged, _synchronizePartyOccupantsToRoom, _getStateValue, resolveActiveRoomId } = factory();
 
 console.log('\n=== Hexmap V2 interaction state ===');
 
@@ -194,6 +199,7 @@ console.log('\n=== Hexmap V2 interaction state ===');
   const state = {};
   const shell = {
     bus,
+    _hideHexContextMenu() {},
     _busUnsubs: [],
     _setStateValue(key, value) {
       state[key] = value;
@@ -242,6 +248,7 @@ console.log('\n=== Hexmap V2 interaction state ===');
 
   const shell = {
     bus,
+    _hideHexContextMenu() {},
     _busUnsubs: [],
     _setStateValue(key, value) {
       state[key] = value;
@@ -288,6 +295,7 @@ console.log('\n=== Hexmap V2 interaction state ===');
   const state = {};
   const shell = {
     bus,
+    _hideHexContextMenu() {},
     _setStateValue(key, value) {
       state[key] = value;
     },
@@ -320,7 +328,7 @@ console.log('\n=== Hexmap V2 interaction state ===');
       };
     },
     getActiveRoomData() {
-      return { name: 'Hallway', terrain: ['stone'], lighting: 'dim' };
+      return { name: 'Hallway', terrain: { type: 'stone' }, lighting: 'dim' };
     },
     getEntitiesAtHex() {
       return [{
@@ -378,6 +386,14 @@ console.log('\n=== Hexmap V2 interaction state ===');
   const calls = [];
   const shell = {
     bus,
+    _hideHexContextMenu() {},
+    _emitCanonicalRoomChanged,
+    _synchronizePartyOccupantsToRoom,
+    _nextRoomTransitionId: () => 'transition-test-1',
+    getActiveRoomActorRoster: () => [],
+    _loadChatHistory() {},
+    _loadRoomView() {},
+    _clearRoomViewRetry() {},
     mapVisualState: {
       marker: 'test-connection',
       occupants: {
@@ -395,7 +411,7 @@ console.log('\n=== Hexmap V2 interaction state ===');
         target_room: {
           name: 'Target Room',
           image_url: '/room.png',
-          terrain: ['stone_floor'],
+          terrain: { type: 'stone_floor' },
           lighting: 'dim',
           size_category: 'large',
         },
@@ -444,7 +460,7 @@ console.log('\n=== Hexmap V2 interaction state ===');
   };
 
   const roomId = _getStateValue.call(shell, 'activeRoomId');
-  assert(roomId === 'state_room', 'state manager activeRoomId lookup resolves without recursive overflow');
+  assert(roomId === 'visual_room', 'state manager activeRoomId lookup resolves via authoritative map_meta without recursive overflow');
 }
 
 console.log(`\nPassed: ${passed}`);

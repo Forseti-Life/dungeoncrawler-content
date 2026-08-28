@@ -606,6 +606,9 @@ trait EncounterPhaseHandlerRuntimeTrait {
     $no_auto_end_types = ['end_turn', 'choose_not_to_act', 'delay', 'delay_reenter', 'release', 'aid'];
     if (!in_array($type, $no_auto_end_types, TRUE) && $this->shouldAutoEndTurn($game_state)) {
       $auto_end = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
+      if (is_array($auto_end['mutations'] ?? NULL) && $auto_end['mutations'] !== []) {
+        $mutations = array_merge($mutations, $auto_end['mutations']);
+      }
       $time_effects = array_merge($time_effects, $this->buildRoundElapsedTimeEffects($auto_end, $actor_id, $dungeon_data));
       $events[] = GameEventLogger::buildEvent('auto_end_turn', 'encounter', $actor_id, [
         'round' => $game_state['round'] ?? NULL,

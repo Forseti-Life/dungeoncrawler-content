@@ -365,6 +365,10 @@ class RuntimeGraphAssemblerService {
     if (!is_array($layout_data)) {
       $layout_data = [];
     }
+    $contents_data = json_decode((string) ($room_row['contents_data'] ?? '{}'), TRUE);
+    if (!is_array($contents_data)) {
+      $contents_data = [];
+    }
     $exit_payloads = $this->applyAuthoredExitMetadata($exit_payloads, $layout_data);
 
     $payload = [
@@ -380,6 +384,7 @@ class RuntimeGraphAssemblerService {
       'room_type' => (string) ($layout_data['room_type'] ?? 'unknown'),
       'size_category' => (string) ($layout_data['size_category'] ?? 'medium'),
       'gameplay_state' => is_array($snapshot_room['gameplay_state'] ?? NULL) ? $snapshot_room['gameplay_state'] : [],
+      'runtime_entity_hints' => $this->buildRuntimeEntityHints($contents_data),
     ];
 
     if (isset($snapshot_room['chat']) && is_array($snapshot_room['chat'])) {
@@ -387,6 +392,42 @@ class RuntimeGraphAssemblerService {
     }
 
     return $payload;
+  }
+
+  /**
+   * Build lightweight runtime actor hints from canonical room contents data.
+   *
+   * @param array<string,mixed> $contents_data
+   *   Canonical contents payload.
+   *
+   * @return array<string,mixed>
+   *   Compatibility hint payload for hydration contracts.
+   */
+  protected function buildRuntimeEntityHints(array $contents_data): array {
+    $npc_content_ids = [];
+    foreach (['npcs', 'entities', 'creatures'] as $bucket) {
+      foreach ((array) ($contents_data[$bucket] ?? []) as $entity) {
+        if (!is_array($entity)) {
+          continue;
+        }
+        $content_id = trim((string) (
+          $entity['content_id']
+          ?? $entity['entity_ref']['content_id']
+          ?? ''
+        ));
+        if ($content_id !== '') {
+          $npc_content_ids[$content_id] = TRUE;
+        }
+      }
+    }
+
+    return [
+      'npc_content_ids' => array_keys($npc_content_ids),
+      'entity_count' => count((array) ($contents_data['npcs'] ?? []))
+        + count((array) ($contents_data['entities'] ?? []))
+        + count((array) ($contents_data['creatures'] ?? [])),
+      'creature_count' => count((array) ($contents_data['creatures'] ?? [])),
+    ];
   }
 
   /**

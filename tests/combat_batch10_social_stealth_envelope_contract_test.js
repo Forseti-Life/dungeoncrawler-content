@@ -28,7 +28,7 @@ function read(relPath) {
 
 console.log('\n=== Combat batch-10 social/stealth envelope contract ===');
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 assert(
   phaseHandlerSource.includes("buildCombatExecutionRequest(\n      'feint'")

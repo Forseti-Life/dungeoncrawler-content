@@ -54,8 +54,9 @@ assert(
     && assemblerSource.includes('loadMatrixEdgeCached(')
     && assemblerSource.includes("'actor_sentiment_component' =>")
     && assemblerSource.includes("'institution_matrix_component' =>")
-    && assemblerSource.includes("'actor_sentiment_component' => self::ACTOR_COMPONENT_WEIGHT")
-    && assemblerSource.includes("'institution_matrix_component' => self::MATRIX_COMPONENT_WEIGHT"),
+    && assemblerSource.includes("[$actor_component_weight, $matrix_component_weight] = $this->resolveComponentBlendWeights();")
+    && assemblerSource.includes("'actor_sentiment_component' => $actor_component_weight")
+    && assemblerSource.includes("'institution_matrix_component' => $matrix_component_weight"),
   'Assembler computes explicit actor-sentiment and institution-matrix components with stable weights and request-scope caching'
 );
 

@@ -1635,6 +1635,18 @@ def node_decide(state: HarnessState) -> HarnessState:
         next_state["gm_clue_requested"] = True
         return next_state
 
+    deterministic_actor_decision = snapshot.get("deterministic_actor_decision")
+    if isinstance(deterministic_actor_decision, dict):
+        contract_error = validate_tool_decision_contract(state, deterministic_actor_decision)
+        if contract_error is not None:
+            next_state = dict(state)
+            next_state["run_status"] = "blocked"
+            next_state["stop_reason"] = f"invalid_deterministic_actor_decision_contract:{contract_error}"
+            return next_state
+        next_state = dict(state)
+        next_state["decision"] = stamp_decision_metadata(state, deterministic_actor_decision)
+        return next_state
+
     try:
         decision = normalize_decision_for_harness_actor(state, call_routed_decider(state))
     except RuntimeError as exc:

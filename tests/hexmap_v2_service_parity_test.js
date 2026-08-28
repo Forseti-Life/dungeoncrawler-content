@@ -62,8 +62,14 @@ function extractNamedFunctionSource(source, functionName) {
   throw new Error(`Could not find closing brace for function: ${functionName}`);
 }
 
-const sourcePath = path.resolve(__dirname, '../js/v2/GameShell.js');
-const source = fs.readFileSync(sourcePath, 'utf8');
+// Projection helpers were extracted out of GameShell.js into
+// shell/GameShellProjectionHelpers.js. Read both so source extraction keeps
+// working regardless of which file currently hosts the function.
+const sourcePaths = [
+  path.resolve(__dirname, '../js/v2/GameShell.js'),
+  path.resolve(__dirname, '../js/v2/shell/GameShellProjectionHelpers.js'),
+];
+const source = sourcePaths.map((p) => fs.readFileSync(p, 'utf8')).join('\n\n');
 
 const helperNames = [
   '_getPresentationObjectDefinitions',

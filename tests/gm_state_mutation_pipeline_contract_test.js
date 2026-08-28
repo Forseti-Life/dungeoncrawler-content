@@ -26,10 +26,7 @@ const pipelineSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/GmSubsystem/StateMutationPipeline.php'),
   'utf8'
 );
-const roomChatSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
-  'utf8'
-);
+const roomChatSource = require('./helpers/php-source.js').readGmPipelineSource();
 const servicesSource = fs.readFileSync(
   path.resolve(__dirname, '../dungeoncrawler_content.services.yml'),
   'utf8'

@@ -22,15 +22,12 @@ function assert(condition, message) {
   }
 }
 
-const source = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
-  'utf8'
-);
+const source = require('./helpers/php-source.js').readGmPipelineSource();
 
 console.log('\n=== Room GM label vs narrator role contract ===');
 
 assert(
-  source.includes("$this->buildEncounterPrefixForSpeaker($dungeon_data, 'Narrator')"),
+  source.includes("$build_encounter_prefix_for_speaker($dungeon_data, 'Narrator')"),
   'visible room narration still uses the Narrator encounter-role prefix'
 );
 assert(

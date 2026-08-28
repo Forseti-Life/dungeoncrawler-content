@@ -8,6 +8,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\Query\ConditionInterface;
 use Drupal\Core\Database\Query\SelectInterface;
 use Drupal\Core\Extension\ModuleExtensionList;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
@@ -82,11 +83,23 @@ class CampaignInitializationServiceTest extends UnitTestCase {
       $this->createMock(ChatSessionManager::class),
       $this->createMock(NpcSheetGenerationService::class),
       $this->createMock(RoomViewImageService::class),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      $this->createMock(ConfigFactoryInterface::class),
     );
 
     $method = new \ReflectionMethod(CampaignInitializationService::class, 'loadStarterRoomSeed');
     $method->setAccessible(TRUE);
-    $room = $method->invoke($service);
+    $room = $method->invoke($service, [
+      'source_room_id' => 'tavern_entrance',
+      'runtime_room_id' => 'tavern_entrance',
+      'room_tags_default' => ['indoor', 'tavern'],
+      'theme' => 'classic_dungeon',
+    ]);
 
     $this->assertIsArray($room);
     $this->assertSame('tavern_entrance', $room['room_id']);
@@ -99,12 +112,12 @@ class CampaignInitializationServiceTest extends UnitTestCase {
   }
 
   /**
-   * @covers ::buildStarterRoomSeedNarration
+   * @covers ::buildStarterRoomIntroMessage
    */
-  public function testBuildStarterRoomSeedNarrationPrefixesCanonicalEncounterEnvelope(): void {
+  public function testBuildStarterRoomIntroMessageUsesRoomDescriptionWhenProvided(): void {
     $service = (new \ReflectionClass(CampaignInitializationService::class))
       ->newInstanceWithoutConstructor();
-    $method = new \ReflectionMethod(CampaignInitializationService::class, 'buildStarterRoomSeedNarration');
+    $method = new \ReflectionMethod(CampaignInitializationService::class, 'buildStarterRoomIntroMessage');
     $method->setAccessible(TRUE);
 
     $message = $method->invoke(
@@ -113,22 +126,21 @@ class CampaignInitializationServiceTest extends UnitTestCase {
       'Warm light and low voices fill the tavern.'
     );
 
-    $this->assertStringStartsWith('Round 0: Turn 1: Actor Narrator: ', $message);
+    $this->assertStringStartsWith('The Gilded Tankard', $message);
     $this->assertStringContainsString('Warm light and low voices fill the tavern.', $message);
   }
 
   /**
-   * @covers ::buildStarterRoomSeedNarration
+   * @covers ::buildStarterRoomIntroMessage
    */
-  public function testBuildStarterRoomSeedNarrationFallsBackToRoomArrivalTextWhenDescriptionMissing(): void {
+  public function testBuildStarterRoomIntroMessageFallsBackToRoomArrivalTextWhenDescriptionMissing(): void {
     $service = (new \ReflectionClass(CampaignInitializationService::class))
       ->newInstanceWithoutConstructor();
-    $method = new \ReflectionMethod(CampaignInitializationService::class, 'buildStarterRoomSeedNarration');
+    $method = new \ReflectionMethod(CampaignInitializationService::class, 'buildStarterRoomIntroMessage');
     $method->setAccessible(TRUE);
 
     $message = $method->invoke($service, 'The Gilded Tankard', '');
 
-    $this->assertStringStartsWith('Round 0: Turn 1: Actor Narrator: ', $message);
     $this->assertStringContainsString('You arrive at The Gilded Tankard. The adventure begins...', $message);
   }
 

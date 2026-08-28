@@ -112,13 +112,40 @@ class GameCoordinatorController extends ControllerBase {
   public function getState(Request $request, int $campaign_id): JsonResponse {
     $actor_id = trim((string) $request->query->get('actor', ''));
     $character_id = (int) $request->query->get('character_id', 0);
-    $result = $this->gameCoordinator->getMaterializedFullState(
+    $result = $this->gameCoordinator->getAuthoritativeLaunchState(
       $campaign_id,
       $actor_id !== '' ? $actor_id : NULL,
       $character_id > 0 ? $character_id : NULL
     );
 
     $status = ($result['success'] ?? FALSE) ? 200 : 404;
+    return new JsonResponse($result, $status);
+  }
+
+  /**
+   * Get a read-only next-action suggestion for an actor.
+   *
+   * GET /api/game/{campaign_id}/suggest-action?actor=...
+   *
+   * Runs the shared actor decision pipeline in dry-run mode. This endpoint
+   * never mutates state and never submits an intent.
+   *
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   The HTTP request.
+   * @param int $campaign_id
+   *   The campaign ID.
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse
+   *   Suggestion payload.
+   */
+  public function suggestAction(Request $request, int $campaign_id): JsonResponse {
+    $actor_id = trim((string) $request->query->get('actor', ''));
+    $result = $this->gameCoordinator->suggestNextAction(
+      $campaign_id,
+      $actor_id !== '' ? $actor_id : NULL
+    );
+
+    $status = ($result['success'] ?? FALSE) ? 200 : 422;
     return new JsonResponse($result, $status);
   }
 

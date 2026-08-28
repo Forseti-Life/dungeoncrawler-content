@@ -498,6 +498,38 @@ services:
   dungeoncrawler_content.player_agent_encounter_policy:
     class: Drupal\dungeoncrawler_content\Service\PlayerAgentEncounterPolicy
 
+  dungeoncrawler_content.actor_process_flow_archetype_resolver:
+    class: Drupal\dungeoncrawler_content\Service\ActorProcessFlowArchetypeResolver
+
+  dungeoncrawler_content.actor_process_flow_intent_helper:
+    class: Drupal\dungeoncrawler_content\Service\ActorProcessFlowIntentHelper
+
+  dungeoncrawler_content.actor_process_flow.default_fighter_encounter:
+    class: Drupal\dungeoncrawler_content\Service\DefaultFighterEncounterActorProcessFlow
+    arguments:
+      - '@dungeoncrawler_content.actor_process_flow_intent_helper'
+
+  dungeoncrawler_content.actor_process_flow.commoner_encounter:
+    class: Drupal\dungeoncrawler_content\Service\CommonerEncounterActorProcessFlow
+    arguments:
+      - '@dungeoncrawler_content.actor_process_flow_intent_helper'
+
+  dungeoncrawler_content.actor_process_flow.phase_policy_fallback:
+    class: Drupal\dungeoncrawler_content\Service\PhasePolicyFallbackActorProcessFlow
+    arguments:
+      - '@dungeoncrawler_content.player_agent_exploration_policy'
+      - '@dungeoncrawler_content.player_agent_encounter_policy'
+
+  dungeoncrawler_content.actor_process_flow_planner:
+    class: Drupal\dungeoncrawler_content\Service\ActorProcessFlowPlanner
+    arguments:
+      - '@dungeoncrawler_content.actor_process_flow_archetype_resolver'
+      -
+        - '@dungeoncrawler_content.actor_process_flow.default_fighter_encounter'
+        - '@dungeoncrawler_content.actor_process_flow.commoner_encounter'
+        - '@dungeoncrawler_content.actor_process_flow.phase_policy_fallback'
+      - '@?dungeoncrawler_content.process_flow_state_store_service'
+
   dungeoncrawler_content.player_agent_progress_tracker:
     class: Drupal\dungeoncrawler_content\Service\PlayerAgentProgressTracker
     arguments:
@@ -511,6 +543,7 @@ services:
       - '@dungeoncrawler_content.player_agent_encounter_policy'
       - '@dungeoncrawler_content.player_agent_progress_tracker'
       - '@?dungeoncrawler_content.room_chat_service'
+      - '@?dungeoncrawler_content.actor_process_flow_planner'
 
   dungeoncrawler_content.sprite_generator:
     class: Drupal\dungeoncrawler_content\Service\SpriteGenerationService
@@ -605,6 +638,9 @@ services:
       - '@dungeoncrawler_content.condition_manager'
       - '@dungeoncrawler_content.movement_resolver'
       - '@dungeoncrawler_content.affliction_manager'
+      - '@?dungeoncrawler_content.relationship_attitude_service'
+      - '@?dungeoncrawler_content.institution_membership'
+      - '@?dungeoncrawler_content.relationships_actor_identity_resolver'
 
   dungeoncrawler_content.encounter_ai_provider.stub:
     class: Drupal\dungeoncrawler_content\Service\StubEncounterAiProvider
@@ -656,6 +692,7 @@ services:
       - '@dungeoncrawler_content.room_chat_service'
       - '@config.factory'
       - '@logger.factory'
+      - '@dungeoncrawler_content.movement_resolver'
 
   dungeoncrawler_content.room_scene_encounter_coordinator:
     class: Drupal\dungeoncrawler_content\Service\RoomSceneEncounterCoordinator
@@ -863,6 +900,8 @@ services:
       - '@dungeoncrawler_content.relationships_actor_identity_resolver'
       - '@dungeoncrawler_content.disposition_resolver_service'
       - '@logger.factory'
+      - '@dungeoncrawler_content.actor_stance_resolver_service'
+      - '@dungeoncrawler_content.aggression_policy_service'
 
   dungeoncrawler_content.relationship_attitude_event_store_service:
     class: Drupal\dungeoncrawler_content\Service\RelationshipAttitudeEventStoreService

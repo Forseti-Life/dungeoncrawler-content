@@ -22,8 +22,10 @@ function assert(condition, message) {
   }
 }
 
+// Encounter progress lookup/fallback moved out of RoomChatController into the
+// dedicated RoomChat/RoomChatEncounterProgressService collaborator.
 const source = fs.readFileSync(
-  path.resolve(__dirname, '../src/Controller/RoomChatController.php'),
+  path.resolve(__dirname, '../src/Service/RoomChat/RoomChatEncounterProgressService.php'),
   'utf8'
 );
 

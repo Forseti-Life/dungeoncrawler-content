@@ -48,6 +48,27 @@ assert(
   'move endpoint allows GM any-actor moves and player-mode playable PC or controlled follower moves'
 );
 
+assert(
+  source.includes('use Drupal\\dungeoncrawler_content\\Service\\CampaignRuntimeStateStore;')
+    && source.includes('private CampaignRuntimeStateStore $runtimeStateStore;')
+    && source.includes("$container->get('dungeoncrawler_content.campaign_runtime_state_store')"),
+  'CampaignEntityController receives campaign runtime state store service'
+);
+
+assert(
+  source.includes("if ($location_type === 'room' && $this->isEntityInActiveEncounter($campaign_id, $instance_id)) {")
+    && source.includes("'error' => 'This actor is an active combatant in an encounter and must move via the combat stride action, not a free room move.'"),
+  'move endpoint rejects free room moves for entities that are live combatants in an active encounter'
+);
+
+assert(
+  source.includes('private function isEntityInActiveEncounter(int $campaign_id, string $instance_id): bool {')
+    && source.includes("$phase = strtolower(trim((string) ($game_state['phase'] ?? '')));")
+    && source.includes("$phase !== 'encounter' || $encounter_id <= 0")
+    && source.includes("$entity_id === $instance_id && !$is_defeated"),
+  'active-encounter check inspects game_state phase, encounter id, and live (non-defeated) initiative order membership'
+);
+
 console.log('\n===============================================');
 console.log(`Passed: ${passed}`);
 console.log(`Failed: ${failed}`);

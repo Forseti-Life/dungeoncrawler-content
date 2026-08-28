@@ -32,7 +32,7 @@ console.log('\n=== Room chat hostile-resolution cutover contract ===');
 
 assert(
   source.includes("if (\\Drupal::hasService('dungeoncrawler_content.disposition_resolver_service'))")
-    && source.includes('$resolved = $disposition_resolver->resolveDispositionMap($campaign_id, $source_ref, $targets, [')
+    && /\$targets = array_values\(array_filter\(\$room_entity_refs[\s\S]{0,600}?\$dto = \$disposition_resolver->resolveActorTargetDisposition\(\s*\$campaign_id,\s*\$source_ref,\s*\$target_ref,/.test(source)
     && source.includes("$hostile_flag = (bool) ($dto['policy_flags']['hostile'] ?? FALSE);")
     && source.includes('if ($hostile_flag || $this->isHostileDispositionScore($effective_score)) {'),
   'Room chat classifies hostility from canonical resolved disposition policy flags/scores'

@@ -35,6 +35,7 @@ export class StatusPanel {
     };
     this._el.unavailBanner = this._el.unavailBanner || this._ensureUnavailableBannerElement();
     this._el.backendWait = this._el.backendWait || this._ensureBackendWaitElement();
+    this._el.chatBackendWait = this._resolveChatBackendWaitElement() || this._ensureChatBackendWaitElement();
     this._dockBackendWaitIntoInitiativeStatus();
     const nullKeys = Object.entries(this._el).filter(([,v]) => !v).map(([k]) => k);
     console.log('[StatusPanel] init', { container: !!this.container, nullEl: nullKeys.length, nullKeys: nullKeys.join(',') || 'none' });
@@ -42,6 +43,7 @@ export class StatusPanel {
     this._subscribe();
     if (this._el.unavailBanner) this._el.unavailBanner.hidden = true;
     if (this._el.backendWait)    this._el.backendWait.hidden = true;
+    if (this._el.chatBackendWait) this._el.chatBackendWait.hidden = true;
     if (this._el.hexInfo)       this._el.hexInfo.hidden = true;
     if (this._el.hexLegend)     this._el.hexLegend.hidden = true;
   }
@@ -108,6 +110,62 @@ export class StatusPanel {
     } else {
       this.container.prepend(element);
     }
+    return element;
+  }
+
+  /**
+   * Resolve the chat tab's backend-wait banner.
+   *
+   * The chat tab mirrors the map tab's backend-wait banner so a user reading
+   * the transcript sees the same "Hydrating encounter state..." progress and
+   * the same slow-backend escalation without switching tabs.
+   */
+  _resolveChatBackendWaitElement() {
+    return this.container?.querySelector?.('[data-status="chat-backend-wait"]')
+      || (typeof document !== 'undefined' ? document.querySelector('[data-status="chat-backend-wait"]') : null)
+      || null;
+  }
+
+  _ensureChatStatusHost() {
+    const existing = this.container?.querySelector?.('.chat-panel-status')
+      || (typeof document !== 'undefined' ? document.querySelector('.chat-panel-status') : null)
+      || null;
+    if (existing) {
+      return existing;
+    }
+
+    const chatBody = this.container?.querySelector?.('#hexmap-chat-body')
+      || (typeof document !== 'undefined' ? document.getElementById('hexmap-chat-body') : null)
+      || null;
+    if (!(chatBody instanceof HTMLElement)) {
+      return null;
+    }
+
+    const host = document.createElement('div');
+    host.className = 'chat-panel-status';
+    const log = chatBody.querySelector('#chat-log');
+    if (log?.parentNode === chatBody) {
+      chatBody.insertBefore(host, log);
+    } else {
+      chatBody.appendChild(host);
+    }
+    return host;
+  }
+
+  _ensureChatBackendWaitElement() {
+    const statusHost = this._ensureChatStatusHost();
+    if (!(statusHost instanceof HTMLElement)) {
+      return null;
+    }
+
+    const element = document.createElement('div');
+    element.dataset.status = 'chat-backend-wait';
+    element.className = 'backend-wait-banner';
+    element.setAttribute('role', 'status');
+    element.setAttribute('aria-live', 'polite');
+    element.hidden = true;
+    element.innerHTML = '<span class="backend-wait-banner__spinner" aria-hidden="true"></span><span data-backend-wait-label>Waiting for backend response...</span>';
+    statusHost.appendChild(element);
     return element;
   }
 
@@ -215,19 +273,35 @@ export class StatusPanel {
     this._renderBackendWait();
   }
 
+  /**
+   * All backend-wait banners driven by the single backend-wait state machine.
+   *
+   * Both the map tab banner and the chat tab banner render identical text and
+   * slow-backend escalation so the notification is visible from either tab.
+   */
+  _collectBackendWaitElements() {
+    this._el.chatBackendWait = (this._el.chatBackendWait?.isConnected ? this._el.chatBackendWait : null)
+      || this._resolveChatBackendWaitElement()
+      || this._ensureChatBackendWaitElement();
+    return [this._el.backendWait, this._el.chatBackendWait].filter((element) => element instanceof HTMLElement);
+  }
+
   _renderBackendWait() {
-    const element = this._el.backendWait;
-    if (!element) {
+    this._dockBackendWaitIntoInitiativeStatus();
+    const elements = this._collectBackendWaitElements();
+    if (!elements.length) {
       return;
     }
-    this._dockBackendWaitIntoInitiativeStatus();
-    element.style.position = 'static';
-    element.style.top = 'auto';
-    element.style.left = 'auto';
-    element.style.transform = 'none';
-    element.style.maxWidth = '100%';
-    element.style.width = '100%';
-    element.style.zIndex = 'auto';
+    const mapElement = this._el.backendWait;
+    if (mapElement instanceof HTMLElement) {
+      mapElement.style.position = 'static';
+      mapElement.style.top = 'auto';
+      mapElement.style.left = 'auto';
+      mapElement.style.transform = 'none';
+      mapElement.style.maxWidth = '100%';
+      mapElement.style.width = '100%';
+      mapElement.style.zIndex = 'auto';
+    }
 
     if (this._backendWaitTimer) {
       window.clearTimeout(this._backendWaitTimer);
@@ -236,8 +310,10 @@ export class StatusPanel {
 
     const active = Array.from(this._backendRequests.values());
     if (!active.length) {
-      element.hidden = true;
-      element.classList.remove('backend-wait-banner--slow');
+      elements.forEach((element) => {
+        element.hidden = true;
+        element.classList.remove('backend-wait-banner--slow');
+      });
       return;
     }
 
@@ -246,12 +322,15 @@ export class StatusPanel {
     ), null);
     const elapsed = Date.now() - oldest.startedAt;
     const isSlow = elapsed >= this._backendWaitThresholdMs;
-    const label = element.querySelector('[data-backend-wait-label]') || element;
-    label.textContent = isSlow
+    const text = isSlow
       ? `${oldest.label} Still waiting; the backend may be busy.`
       : oldest.label;
-    element.hidden = false;
-    element.classList.toggle('backend-wait-banner--slow', isSlow);
+    elements.forEach((element) => {
+      const label = element.querySelector('[data-backend-wait-label]') || element;
+      label.textContent = text;
+      element.hidden = false;
+      element.classList.toggle('backend-wait-banner--slow', isSlow);
+    });
 
     if (!isSlow) {
       this._backendWaitTimer = window.setTimeout(() => {
@@ -326,6 +405,13 @@ export class StatusPanel {
     }
     if (q === null || r === null) {
       this._syncHexInfoElement(null);
+      return;
+    }
+    // The v2 template ships `[data-status="hex-info"]` but no dedicated
+    // hoveredHex element, so without this branch hover coordinates were only
+    // ever cleared and never displayed.
+    if (!this._el.hoveredHex) {
+      this._syncHexInfoElement(`Hex (${q}, ${r})`);
     }
   }
 

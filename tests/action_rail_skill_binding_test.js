@@ -25,7 +25,7 @@ function assert(condition, message) {
 const actionRailPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
 const actionRailContractSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/contracts/action-rail-contract.js'), 'utf8');
 const encounterSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/EncounterSystem.js'), 'utf8');
-const encounterPhaseSource = fs.readFileSync(path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'), 'utf8');
+const encounterPhaseSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 console.log('\n=== Action rail Skill bindings ===');
 
@@ -54,7 +54,7 @@ assert(
 
 assert(
   encounterSystemSource.includes("actionType: 'skill'")
-    && encounterSystemSource.includes('context.hexmap?.loadCharacterFromApi(characterId);'),
+    && encounterSystemSource.includes('context.hexmap?.loadCharacterFromApi?.(characterId);'),
   'skill handler preserves non-encounter fallback parity and refreshes character state'
 );
 

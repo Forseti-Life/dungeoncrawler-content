@@ -12,7 +12,7 @@ This module is the game runtime for DungeonCrawler: campaign orchestration, room
 The current implementation is an **encounter-first runtime** with a unified coordinator entry point:
 
 - Gameplay actions are orchestrated through `GameCoordinatorService`.
-- Active runtime phase is `encounter`; `exploration` is not an active runtime phase.
+- Active runtime phase is `encounter`; `exploration` is not an active runtime phase. The exploration phase is deprecated and disabled for active runtime routing; room entry immediately uses the encounter framework.
 - Room chat + canonical action execution are server-authoritative for state mutation.
 - Campaign/runtime records are persisted to campaign tables (`dc_campaign_*`) and canonical content tables (`dungeoncrawler_content_*`).
 
@@ -28,6 +28,7 @@ Hexmap V2 panels must map directly to authoritative read/write API families.
 
 | UI surface | Read authority | Mutation authority |
 |---|---|---|
+| Map canvas / token positions | `/api/map/visual-state` bootstrap + `/api/game/{campaign_id}/state` snapshot + `/api/game/{campaign_id}/events` movement stream | canonical room/combat movement routes |
 | Action Rail | `/api/map/visual-state`, `/api/game/{campaign_id}/state`, `/api/character/{character_id}/actions` | `/api/game/{campaign_id}/action`, `/api/character/{character_id}/cast-spell` |
 | Combat HUD / initiative | `/api/game/{campaign_id}/state`, `/api/game/{campaign_id}/events` | `/api/game/{campaign_id}/action` |
 | Character sheet | `/api/character/{character_id}/state`, `/api/campaign/{campaign_id}/relationships/matrix` | character-specific mutation endpoints |
@@ -374,6 +375,10 @@ The repository now includes a LangGraph-driven actor harness runner that uses ex
     - `campaign_id`, `character_id`, `actor_id`, `room_id`, `started_quest_id`
 - `dc:actor-harness-snapshot <campaign_id> <actor_id> --character-id=<id>`
   - Returns runtime snapshot + quest tracking context.
+  - Also emits portable deterministic actor-process-flow context when a shared server-side flow can decide without an LLM:
+    - `actor_process_flow_archetypes`
+    - `deterministic_actor_process_flow`
+    - `deterministic_actor_decision`
 - `dc:actor-harness-action <campaign_id> --payload='<json>'`
   - Submits one canonical gameplay intent to `GameCoordinatorService::processAction()`.
 
@@ -383,17 +388,19 @@ The repository now includes a LangGraph-driven actor harness runner that uses ex
 - Flow:
   1. bootstrap (optional if campaign context not pre-supplied)
   2. snapshot
-  3. deterministic wayfinding check from active objective destination metadata
-  4. LLM decision (`action` or `chat` or `stop`) when deterministic routing is not required
-  5. strict action-intent contract validation (`available_actions` + `action_contract`) before execution
-  6. execute action/chat
-  7. assess completion vs block after every turn
-  8. on block: notify GM and log enhancement issue
+  3. graph-local deterministic checks (scripted testing, storyline seed, wayfinding)
+  4. shared server-side deterministic actor process-flow decision when a reusable flow can decide
+  5. LLM decision (`action` or `chat` or `stop`) only when deterministic routing is still unresolved
+  6. strict action-intent contract validation (`available_actions` + `action_contract`) before execution
+  7. execute action/chat
+  8. assess completion vs block after every turn
+  9. on block: notify GM and log enhancement issue
 
 Deterministic waypoint contract:
 
 - `dc:actor-harness-snapshot` now emits `deterministic_wayfinding` when an active objective references a destination.
 - Snapshot includes actor tool availability context (`available_actions`) plus structured action contract (`action_contract`) for explicit decision constraints.
+- Snapshot also exposes reusable server-side deterministic actor-process-flow output for obvious encounter lanes such as default fighter/commoner decisions, so LangGraph can reuse the same no-LLM decision framework as the in-process player harness.
 - If that objective destination exists but no canonical navigation capability can resolve it, the graph hard-fails with `objective_wayfinding_unresolved` and escalates (no silent fallback path).
 - If the decider emits an action intent outside the current actor contract, the harness hard-stops with `invalid_action_intent_contract:*` and escalates.
 - If no open quest objectives are present but Eldric is visible, the harness seeds a default storyline objective and deterministically interacts with Eldric (or chats if interact is unavailable) to request a new lead.

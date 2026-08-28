@@ -28,7 +28,7 @@ function read(relPath) {
 
 console.log('\n=== Combat shove forced-movement contract ===');
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 assert(
   phaseHandlerSource.includes("requireOptionalContractPayload(\n              $forced_result['execution_request'] ?? NULL,")

@@ -34,10 +34,7 @@ const settingsControllerSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Controller/CampaignSettingsController.php'),
   'utf8',
 );
-const gameShellSource = fs.readFileSync(
-  path.resolve(__dirname, '../js/v2/GameShell.js'),
-  'utf8',
-);
+const gameShellSource = require('./helpers/js-source.js').readGameShellSource();
 const playSessionControllerSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Controller/PlaySessionController.php'),
   'utf8',

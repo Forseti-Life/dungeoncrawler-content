@@ -7,7 +7,7 @@ const controller = fs.readFileSync(path.join(root, 'src/Controller/GameCoordinat
 const browserCoordinator = fs.readFileSync(path.join(root, 'js/game-coordinator/GameCoordinator.js'), 'utf8');
 const phaseManager = fs.readFileSync(path.join(root, 'js/game-coordinator/PhaseManager.js'), 'utf8');
 const coordinatorApi = fs.readFileSync(path.join(root, 'js/game-coordinator/GameCoordinatorApi.js'), 'utf8');
-const encounterHandler = fs.readFileSync(path.join(root, 'src/Service/EncounterPhaseHandler.php'), 'utf8');
+const encounterHandler = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 const campaignClock = fs.readFileSync(path.join(root, 'src/Service/CampaignClockService.php'), 'utf8');
 const campaignTimeResolver = fs.readFileSync(path.join(root, 'src/Service/CampaignTimeResolverService.php'), 'utf8');
 const explorationHandler = fs.readFileSync(path.join(root, 'js/game-coordinator/phases/ExplorationPhaseHandler.js'), 'utf8');
@@ -120,7 +120,7 @@ assert(
     && !explorationHandler.includes('"room_transition"')
     && explorationHandler.includes("_notifyServer('transition'")
     && navigationSystem.includes("sendAction('transition'")
-    && navigationSystem.includes('hexmap.setActiveRoom(nextRoomId)')
+    && navigationSystem.includes('hexmap.setActiveRoom(nextRoomId, {')
     && !navigationSystem.includes('tryTransitionAtHex?.(')
     && !navigationSystem.includes('navigateToVisitedRoom?.('),
   'reachable browser room navigation sends canonical transition and syncs the new room back into the shell'
@@ -133,23 +133,34 @@ assert(
   'chat context now prefers the live active room over the URL pin'
 );
 
+// Location labels are no longer merged from a separate "server" vs "live"
+// source: they are derived directly from the canonical visual-state snapshot,
+// which is the server projection.
 assert(
-  navigatePanel.includes('const serverCurrentLocationLabel = resolveServerCurrentLocationLabel(panel);')
-    && navigatePanel.includes('const currentLocationLabel = serverCurrentLocationLabel || liveCurrentLocationLabel;')
-    && navigatePanel.includes('if (!dungeonName && !roomName) {')
+  navigatePanel.includes('const currentLocationLabel = resolveCurrentLocationLabel(context, panel);')
+    && navigatePanel.includes("const activeRoomId = String(hexmap?.resolveActiveRoomId?.() || '').trim();")
+    && navigatePanel.includes("const visualRooms = typeof hexmap?.getVisualRooms === 'function' ? hexmap.getVisualRooms() : {};")
+    && navigatePanel.includes('return formatNavigationLocationTitle(dungeonName, roomName);')
     && actionRailPanel.includes('this.navigateLocationsCampaignId = null;'),
   'navigation labels refresh from the server snapshot after room changes'
 );
 
+// The round/actor prefix is now authored server-side; the client recognizes it
+// and renders the transcript body, rather than composing the prefix itself.
 assert(
   chatPanel.includes("window.addEventListener('dungeoncrawler:game-events'")
     && chatPanel.includes('formatEncounterChatMessage')
-  && chatPanel.includes('Round ${context.round}: Turn ${context.turn}: Actor ${context.actorName}:')
+    && chatPanel.includes('const encounterPrefixRegex = /^Round\\s+(?:\\d+|\\?)\\s*:\\s*Turn\\s+(?:\\d+|\\?)\\s*:\\s*(?:Actor\\s+)?[^:]+:/i;')
+    && chatPanel.includes('const transcript = this.extractEncounterTranscriptBody(text);')
     && chatPanel.includes('renderPersistedEncounterEventHistory')
-    && chatPanel.includes('/api/game/${encodeURIComponent(context.campaignId)}/events?since=0')
-    && chatPanel.includes("result.data?.navigation?.target_room_id")
-    && chatPanel.includes('this.handleNavigationResult(result.data.navigation)')
-    && chatPanel.includes("['round_start', 'turn_start', 'choose_not_to_act', 'npc_choose_not_to_act', 'end_turn'].includes(type)"),
+    && chatPanel.includes('/api/game/${encodeURIComponent(context.campaignId)}/events?since=${encodeURIComponent(String(sinceCursor))}')
+    && chatPanel.includes('responseData?.navigation?.target_room_id')
+    && chatPanel.includes('this.handleNavigationResult(responseData.navigation);')
+    && chatPanel.includes("case 'round_start':")
+    && chatPanel.includes("case 'turn_start':")
+    && chatPanel.includes("case 'choose_not_to_act':")
+    && chatPanel.includes("case 'npc_choose_not_to_act':")
+    && chatPanel.includes("case 'end_turn':"),
     'chat transcript renders visible round/actor prefixes and persisted encounter turn events'
 );
 

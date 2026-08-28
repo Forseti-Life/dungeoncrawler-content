@@ -45,10 +45,11 @@ class NavigationService {
     if ($room_id === '') {
       return [];
     }
+    $navigation_scope = $this->normalizeNavigationScope($dungeon_data);
 
     $capabilities = [];
-    foreach ($this->extractConnections($dungeon_data) as $connection) {
-      $capability = $this->buildCapabilityFromConnection($connection, $room_id, $dungeon_data);
+    foreach ($this->extractConnections($navigation_scope) as $connection) {
+      $capability = $this->buildCapabilityFromConnection($connection, $room_id, $navigation_scope);
       if ($capability !== NULL) {
         $capabilities[] = $capability;
       }
@@ -380,7 +381,8 @@ class NavigationService {
     if ($room_id === '') {
       return NULL;
     }
-    foreach ((array) ($dungeon_data['rooms'] ?? []) as $room) {
+    $navigation_scope = $this->normalizeNavigationScope($dungeon_data);
+    foreach ((array) ($navigation_scope['rooms'] ?? []) as $room) {
       if (
         is_array($room)
         && (
@@ -1113,6 +1115,59 @@ class NavigationService {
   }
 
   /**
+   * Normalize full payloads to minimal navigation scope.
+   *
+   * @return array{
+   *   __scope_type:string,
+   *   rooms:array<int,array<string,mixed>>,
+   *   hex_map:array<string,mixed>,
+   *   room_road_anchors:array<int,array<string,mixed>>,
+   *   road_anchors:array<int,array<string,mixed>>,
+   *   dungeon_id:string,
+   *   campaign_id:int,
+   *   quest_summary:array<string,mixed>,
+   *   active_quests:array<int,array<string,mixed>>
+   * }
+   *   Canonical navigation scope payload.
+   */
+  protected function normalizeNavigationScope(array $payload): array {
+    if (
+      ($payload['__scope_type'] ?? '') === 'navigation'
+      && is_array($payload['rooms'] ?? NULL)
+      && is_array($payload['hex_map'] ?? NULL)
+    ) {
+      return [
+        '__scope_type' => 'navigation',
+        'rooms' => array_values($payload['rooms']),
+        'hex_map' => $payload['hex_map'],
+        'room_road_anchors' => is_array($payload['room_road_anchors'] ?? NULL) ? array_values($payload['room_road_anchors']) : [],
+        'road_anchors' => is_array($payload['road_anchors'] ?? NULL) ? array_values($payload['road_anchors']) : [],
+        'dungeon_id' => trim((string) ($payload['dungeon_id'] ?? '')),
+        'campaign_id' => is_numeric($payload['campaign_id'] ?? NULL) ? (int) $payload['campaign_id'] : 0,
+        'quest_summary' => is_array($payload['quest_summary'] ?? NULL) ? $payload['quest_summary'] : [],
+        'active_quests' => is_array($payload['active_quests'] ?? NULL) ? array_values($payload['active_quests']) : [],
+      ];
+    }
+
+    return [
+      '__scope_type' => 'navigation',
+      'rooms' => is_array($payload['rooms'] ?? NULL) ? array_values($payload['rooms']) : [],
+      'hex_map' => is_array($payload['hex_map'] ?? NULL) ? $payload['hex_map'] : [],
+      'room_road_anchors' => is_array($payload['room_road_anchors'] ?? NULL) ? array_values($payload['room_road_anchors']) : [],
+      'road_anchors' => is_array($payload['road_anchors'] ?? NULL) ? array_values($payload['road_anchors']) : [],
+      'dungeon_id' => trim((string) (
+        $payload['dungeon_id']
+        ?? $payload['hex_map']['map_id']
+        ?? $payload['level_id']
+        ?? ''
+      )),
+      'campaign_id' => is_numeric($payload['campaign_id'] ?? NULL) ? (int) $payload['campaign_id'] : 0,
+      'quest_summary' => is_array($payload['quest_summary'] ?? NULL) ? $payload['quest_summary'] : [],
+      'active_quests' => is_array($payload['active_quests'] ?? NULL) ? array_values($payload['active_quests']) : [],
+    ];
+  }
+
+  /**
    * Build navigation capabilities + quest destination targets.
    *
    * Enhances navigation with quest objectives that specify destinations.
@@ -1465,7 +1520,7 @@ class NavigationService {
       return NULL;
     }
 
-    $rooms = (array) ($dungeon_data['rooms'] ?? []);
+    $rooms = (array) ($this->normalizeNavigationScope($dungeon_data)['rooms'] ?? []);
 
     // Try exact match on runtime/canonical room identifiers first.
     foreach ($rooms as $room) {
@@ -1543,10 +1598,11 @@ class NavigationService {
     string $room_id,
     ?array $quest_entries = NULL
   ): array {
+    $navigation_scope = $this->normalizeNavigationScope($dungeon_data);
     $timing_started_at = microtime(TRUE);
     $capability_build_started_at = microtime(TRUE);
     // Start with normal capabilities
-    $capabilities = $this->buildNavigationCapabilities($dungeon_data, $room_id);
+    $capabilities = $this->buildNavigationCapabilities($navigation_scope, $room_id);
     $base_capability_build_ms = (microtime(TRUE) - $capability_build_started_at) * 1000.0;
 
     $target_set_started_at = microtime(TRUE);
@@ -1554,23 +1610,23 @@ class NavigationService {
     $target_set_ms = (microtime(TRUE) - $target_set_started_at) * 1000.0;
 
     $road_source_started_at = microtime(TRUE);
-    $road_source_rooms = $this->collectRoadConnectedSourceRooms($dungeon_data);
+    $road_source_rooms = $this->collectRoadConnectedSourceRooms($navigation_scope);
     $road_source_ms = (microtime(TRUE) - $road_source_started_at) * 1000.0;
 
     // Check if current room has any road connection
     $road_expand_started_at = microtime(TRUE);
-    $current_room_has_road = $this->hasRoadConnection($dungeon_data, $room_id, $road_source_rooms);
+    $current_room_has_road = $this->hasRoadConnection($navigation_scope, $room_id, $road_source_rooms);
     $road_candidates = 0;
     $road_added = 0;
     if ($current_room_has_road) {
       // Current room has road access — add all other road-connected rooms.
-      $road_network_rooms = $this->extractRoadNetworkRooms($dungeon_data, $room_id, $road_source_rooms);
+      $road_network_rooms = $this->extractRoadNetworkRooms($navigation_scope, $room_id, $road_source_rooms);
       $road_candidates = count($road_network_rooms);
 
       foreach ($road_network_rooms as $target_room_id) {
         if (!isset($target_room_ids[$target_room_id])) {
           // Add synthetic road network capability.
-          $capability = $this->synthesizeRoadCapability($dungeon_data, $room_id, $target_room_id);
+          $capability = $this->synthesizeRoadCapability($navigation_scope, $room_id, $target_room_id);
           if ($capability !== NULL) {
             $capabilities[] = $capability;
             $target_room_ids[$target_room_id] = TRUE;
@@ -1582,7 +1638,7 @@ class NavigationService {
     $road_expand_ms = (microtime(TRUE) - $road_expand_started_at) * 1000.0;
 
     $quest_append_started_at = microtime(TRUE);
-    $capabilities = $this->appendQuestDestinationCapabilities($capabilities, $dungeon_data, $room_id, $quest_entries);
+    $capabilities = $this->appendQuestDestinationCapabilities($capabilities, $navigation_scope, $room_id, $quest_entries);
     $quest_append_ms = (microtime(TRUE) - $quest_append_started_at) * 1000.0;
 
     $sort_started_at = microtime(TRUE);
@@ -1684,8 +1740,9 @@ class NavigationService {
    *   Keyed set of source room IDs.
    */
   protected function collectRoadConnectedSourceRooms(array $dungeon_data): array {
+    $navigation_scope = $this->normalizeNavigationScope($dungeon_data);
     $road_source_rooms = [];
-    foreach ($this->extractConnections($dungeon_data) as $connection) {
+    foreach ($this->extractConnections($navigation_scope) as $connection) {
       $from = trim((string) ($connection['from_room'] ?? ''));
       if ($from === '') {
         continue;

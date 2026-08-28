@@ -4,6 +4,7 @@ namespace Drupal\dungeoncrawler_content\Commands;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\dungeoncrawler_content\Service\ActorProcessFlowPlanner;
 use Drupal\dungeoncrawler_content\Service\CampaignCharacterRuntimeResolverService;
 use Drupal\dungeoncrawler_content\Service\CampaignInitializationService;
 use Drupal\dungeoncrawler_content\Service\CharacterManager;
@@ -25,6 +26,7 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
     protected QuestTrackerService $questTracker,
     protected NavigationService $navigationService,
     protected PlayerAgentRuntimeAdapterInterface $runtimeAdapter,
+    protected ?ActorProcessFlowPlanner $actorProcessFlowPlanner,
     protected RuntimeBootstrapService $runtimeBootstrap,
     protected Connection $database,
     protected AccountProxyInterface $currentUser,
@@ -183,6 +185,13 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
       );
     }
 
+    $snapshot = $this->appendDeterministicActorPlannerContext(
+      $snapshot,
+      $campaign_id,
+      trim($actor_id),
+      $character_id
+    );
+
     $this->io()->writeln(json_encode($snapshot, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     return self::EXIT_SUCCESS;
   }
@@ -266,6 +275,89 @@ class ActorHarnessLangGraphCommands extends DrushCommands {
     $character_data = json_decode((string) ($record->character_data ?? '{}'), TRUE);
     $step = (int) ($character_data['step'] ?? 8);
     return $step >= 8;
+  }
+
+  /**
+   * Append reusable deterministic actor-process-flow planner output.
+   *
+   * @param array<string,mixed> $snapshot
+   *
+   * @return array<string,mixed>
+   *   Snapshot enriched with portable deterministic planner context.
+   */
+  protected function appendDeterministicActorPlannerContext(array $snapshot, int $campaign_id, string $actor_id, int $character_id): array {
+    if (!$this->actorProcessFlowPlanner instanceof ActorProcessFlowPlanner || empty($snapshot['success'])) {
+      return $snapshot;
+    }
+
+    $profile = $this->buildPlannerProfile($snapshot, $campaign_id, $actor_id, $character_id);
+    $archetypes = $this->actorProcessFlowPlanner->resolveArchetypes($profile, $snapshot);
+    $snapshot['actor_process_flow_archetypes'] = $archetypes;
+
+    $decision = $this->actorProcessFlowPlanner->planDecision($profile, $snapshot, [], [
+      'planner_mode' => 'langgraph',
+    ]);
+    if (is_array($decision) && ($decision['type'] ?? '') === 'intent') {
+      $portable = $this->convertHarnessDecisionToRunnerDecision($decision);
+      if ($portable !== NULL) {
+        $snapshot['deterministic_actor_decision'] = $portable;
+        $snapshot['deterministic_actor_process_flow'] = [
+          'flow_id' => (string) ($decision['decision_meta']['flow_id'] ?? ''),
+          'archetypes' => $archetypes,
+          'reason' => (string) ($decision['reason'] ?? ''),
+        ];
+      }
+    }
+
+    return $snapshot;
+  }
+
+  /**
+   * Build the smallest useful planner profile for read-only snapshot planning.
+   *
+   * @param array<string,mixed> $snapshot
+   *
+   * @return array<string,mixed>
+   *   Planner profile.
+   */
+  protected function buildPlannerProfile(array $snapshot, int $campaign_id, string $actor_id, int $character_id): array {
+    $actor_entity = is_array($snapshot['actor_entity'] ?? NULL) ? $snapshot['actor_entity'] : [];
+    $metadata = is_array($actor_entity['state']['metadata'] ?? NULL) ? $actor_entity['state']['metadata'] : [];
+    $display_name = trim((string) ($metadata['display_name'] ?? $metadata['name'] ?? $actor_entity['name'] ?? $actor_id));
+
+    return [
+      'campaign_id' => $campaign_id,
+      'actor_id' => $actor_id,
+      'character_id' => $character_id > 0 ? $character_id : NULL,
+      'character_name' => $display_name,
+      'persona' => [
+        'tone' => 'curious',
+      ],
+    ];
+  }
+
+  /**
+   * Convert a harness decision into the runner's tool-decision envelope.
+   *
+   * @param array<string,mixed> $decision
+   *
+   * @return array<string,mixed>|null
+   *   Runner decision envelope or NULL.
+   */
+  protected function convertHarnessDecisionToRunnerDecision(array $decision): ?array {
+    $intent = is_array($decision['intent'] ?? NULL) ? $decision['intent'] : [];
+    $tool_name = trim((string) ($intent['type'] ?? ''));
+    if ($tool_name === '') {
+      return NULL;
+    }
+
+    return [
+      'decision_type' => 'tool',
+      'tool_name' => $tool_name,
+      'tool_payload' => $intent,
+      'reason' => (string) ($decision['reason'] ?? 'deterministic_actor_process_flow'),
+      'decision_meta' => is_array($decision['decision_meta'] ?? NULL) ? $decision['decision_meta'] : [],
+    ];
   }
 
   /**

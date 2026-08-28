@@ -52,7 +52,7 @@ class DispositionResolverService {
     $threat_level = (string) ($scene['factors']['threat_level'] ?? 'none');
 
     $weights = [
-      'baseline' => 0.24,
+      'baseline' => 0.20,
       'relationship' => 0.40,
       'situational' => 0.12,
       'institution' => 0.10,
@@ -62,7 +62,6 @@ class DispositionResolverService {
       'recent_impulse' => 0.06,
     ];
     if (!is_numeric($edge['score'] ?? NULL)) {
-      $weights['baseline'] = 0.64;
       $weights['relationship'] = 0.00;
     }
 

@@ -22,8 +22,9 @@ function assert(condition, message) {
   }
 }
 
+// JSON POST diagnostics moved out of the controller into the response mapper.
 const controllerSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Controller/RoomChatController.php'),
+  path.resolve(__dirname, '../src/Service/RoomChat/RoomChatResponseMapper.php'),
   'utf8'
 );
 const panelSource = fs.readFileSync(
@@ -52,7 +53,7 @@ assert(
   'ChatPanel reads JSON POST debug ids from the response payload'
 );
 assert(
-  panelSource.includes("console.error('[RoomChat] JSON POST debug'"),
+  panelSource.includes('console.error(`[RoomChat] JSON POST debug ${debugClass || \'Error\'}: ${debugMessage || \'(no message)\'}`,'),
   'ChatPanel logs the JSON POST debug payload when server diagnostics are returned'
 );
 assert(

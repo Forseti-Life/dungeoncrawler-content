@@ -34,10 +34,10 @@ assert(
 );
 
 assert(
-  source.includes("->fields([")
+  source.includes('$update_fields = [')
     && source.includes("'position_q' => $q")
     && source.includes("'position_r' => $r")
-    && source.includes("'last_room_id' => $room_id !== '' ? $room_id : NULL")
+    && source.includes("$update_fields['last_room_id'] = $resolved_room_id;")
     && source.includes("$state_data['placement']['hex'] = ["),
   'dc_campaign_characters hot columns and state_data placement are updated together'
 );

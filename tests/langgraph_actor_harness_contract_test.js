@@ -58,10 +58,14 @@ const dungeonPayloadPersistenceSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/DungeonPayloadStatePersistenceService.php'),
   'utf8'
 );
-const encounterPhaseHandlerSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
-  'utf8'
-);
+const encounterPhaseHandlerSource = [
+  '../src/Service/EncounterPhaseHandler.php',
+  '../src/Service/EncounterPhaseHandlerRouteExecutionSupportTrait.php',
+  '../src/Service/EncounterPhaseHandlerRouteExecutionCorePartATrait.php',
+  '../src/Service/GameEventLogger.php',
+]
+  .map((filePath) => fs.readFileSync(path.resolve(__dirname, filePath), 'utf8'))
+  .join('\n');
 const drushServices = fs.readFileSync(
   path.resolve(__dirname, '../drush.services.yml'),
   'utf8'
@@ -78,8 +82,10 @@ assert(
 assert(
   commandSource.includes("deterministic_wayfinding")
     && commandSource.includes("resolveDeterministicWayfinding(")
-    && commandSource.includes("buildNavigationCapabilitiesWithRoadNetwork("),
-  'Snapshot command emits deterministic wayfinding from canonical navigation capabilities'
+    && commandSource.includes("buildNavigationCapabilitiesWithRoadNetwork(")
+    && commandSource.includes("deterministic_actor_decision")
+    && commandSource.includes("deterministic_actor_process_flow"),
+  'Snapshot command emits deterministic wayfinding plus portable deterministic actor-process-flow decisions'
 );
 
 assert(
@@ -92,6 +98,13 @@ assert(
   runnerSource.includes("deterministic_wayfinding_transition")
     && runnerSource.includes("objective_wayfinding_unresolved"),
   'LangGraph runner prioritizes deterministic transition and hard-fails unresolved waypoint objectives'
+);
+
+assert(
+  runnerSource.includes("deterministic_actor_decision")
+    && runnerSource.includes("invalid_deterministic_actor_decision_contract:")
+    && runnerSource.includes('stamp_decision_metadata(state, deterministic_actor_decision)'),
+  'LangGraph runner consumes portable deterministic actor-process-flow decisions before LLM fallback'
 );
 
 assert(

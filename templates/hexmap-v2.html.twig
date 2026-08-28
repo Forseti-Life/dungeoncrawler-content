@@ -229,6 +229,12 @@
               <span class="channel-indicator__label" id="chat-channel-label">{{ 'Room — Everyone can hear'|t }}</span>
             </div>
             <div class="hexmap-chat__summary" id="chat-summary">{{ 'Quick summary: Jumping to the latest part of the conversation.'|t }}</div>
+            <div class="chat-panel-status">
+              <div data-status="chat-backend-wait" class="backend-wait-banner" role="status" aria-live="polite" hidden>
+                <span class="backend-wait-banner__spinner" aria-hidden="true"></span>
+                <span data-backend-wait-label>{{ 'Waiting for backend response...'|t }}</span>
+              </div>
+            </div>
             <div class="hexmap-chat__log" id="chat-log" data-chat="log" aria-live="polite" data-channel-type="room">
               <div class="chat-line chat-line--system">{{ 'You are in a quiet room. Try saying hello.'|t }}</div>
             </div>

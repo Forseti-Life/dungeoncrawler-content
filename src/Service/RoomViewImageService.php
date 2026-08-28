@@ -1612,7 +1612,7 @@ class RoomViewImageService {
     return [
       'success' => FALSE,
       'available' => FALSE,
-      'status' => 'pending',
+      'status' => 'unavailable',
       'provider' => 'unavailable',
       'mode' => 'establishing',
       'message' => $message,

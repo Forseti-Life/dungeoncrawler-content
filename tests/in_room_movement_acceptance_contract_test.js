@@ -22,7 +22,7 @@ function assert(condition, message) {
   }
 }
 
-const shellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
+const shellSource = require('./helpers/js-source.js').readGameShellSource();
 const mapArtifactsSource = fs.readFileSync(path.resolve(__dirname, './hexmap_v2_map_artifacts_test.js'), 'utf8');
 const bootstrapSource = fs.readFileSync(path.resolve(__dirname, './game_coordinator_bootstrap_state_contract_test.js'), 'utf8');
 
@@ -30,10 +30,11 @@ console.log('\n=== In-room movement acceptance closeout contracts ===');
 
 assert(
   shellSource.includes('resolveLaunchCharacterRuntimeContext() {')
-    && shellSource.includes('const selectedIsControlledFollower = selectedEntity ? this.isControlledFollowerEntity(selectedEntity) : false;')
-    && shellSource.includes('characterId: (selectedIsLaunchActor || selectedIsControlledFollower)')
-    && shellSource.includes('instanceId: (selectedIsLaunchActor || selectedIsControlledFollower)'),
-  'controlled followers participate in actor-scoped runtime context resolution'
+    && shellSource.includes('const selectedIsLaunchActor = launchCharacterId > 0 && selectedCharacterId === launchCharacterId;')
+    && shellSource.includes('characterId: selectedIsLaunchActor')
+    && shellSource.includes('instanceId: selectedIsLaunchActor')
+    && shellSource.includes('return matchesLaunchCharacter;'),
+  'PC character-state refresh remains isolated from controlled-follower action routing'
 );
 
 assert(

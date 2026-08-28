@@ -127,6 +127,7 @@ export class ActionRailPanel {
     this._lastActionRailBodyCategory = '';
     this._lastActionRailTelemetry = null;
     this._domListeners = [];
+    this._backendRequests = new Map();
   }
 
   buildRestActionRailPanel(context) {
@@ -380,7 +381,49 @@ export class ActionRailPanel {
       this.bus.on('navigation:capabilities-updated', () => this.invalidateActionRail(['navigation'])),
       this.bus.on('merchant:stock-loaded', () => this.invalidateActionRail(['merchant'])),
       this.bus.on('encounter:action-lock-changed', (payload) => this.handleEncounterActionLockChanged(payload)),
+      this.bus.on('game:backend-request-start', (payload) => this.handleBackendRequestStart(payload)),
+      this.bus.on('game:backend-request-end', (payload) => this.handleBackendRequestEnd(payload)),
     );
+  }
+
+  handleBackendRequestStart(payload = {}) {
+    const requestId = String(payload?.requestId || '').trim();
+    if (!requestId) {
+      return;
+    }
+    this._backendRequests.set(requestId, {
+      source: String(payload?.source || '').trim().toLowerCase(),
+      label: String(payload?.label || '').trim(),
+      startedAt: Date.now(),
+    });
+    this.invalidateActionRail(['clock', 'header']);
+    this.updateActionRailClocks();
+  }
+
+  handleBackendRequestEnd(payload = {}) {
+    const requestId = String(payload?.requestId || '').trim();
+    if (!requestId) {
+      return;
+    }
+    this._backendRequests.delete(requestId);
+    this.invalidateActionRail(['clock', 'header']);
+    this.updateActionRailClocks();
+  }
+
+  resolveCampaignClockFallbackStatus() {
+    if (!this._backendRequests.size) {
+      return {
+        value: 'Unavailable',
+        meta: 'Advances when actions consume time',
+      };
+    }
+    const oldest = Array.from(this._backendRequests.values())
+      .sort((left, right) => Number(left?.startedAt || 0) - Number(right?.startedAt || 0))[0];
+    const baseLabel = String(oldest?.label || '').trim() || 'Loading campaign time...';
+    return {
+      value: 'Loading...',
+      meta: baseLabel,
+    };
   }
 
   handleEncounterActionLockChanged(payload = {}) {
@@ -539,6 +582,13 @@ export class ActionRailPanel {
         if (toggle instanceof HTMLButtonElement) {
           this.actionRailDescriptionsCollapsed = !this.actionRailDescriptionsCollapsed;
           this.syncActionRailPanelState();
+          return;
+        }
+        const suggestButton = event.target instanceof HTMLElement
+          ? event.target.closest('[data-action-rail-suggest]')
+          : null;
+        if (suggestButton instanceof HTMLButtonElement) {
+          this.requestActionSuggestion(suggestButton);
           return;
         }
         const button = event.target instanceof HTMLElement
@@ -1044,6 +1094,170 @@ export class ActionRailPanel {
     return buildActionRailContext(this.stateManager);
   }
 
+  /**
+   * Resolve which actor the read-only suggestion request should target.
+   *
+   * `context.actorRef` is intentionally turn-scoped (it must match the
+   * current turn holder so direct action buttons submit legal intents).
+   * The suggestion endpoint is read-only and explicitly supports building a
+   * hypothetical plan for an actor who does not currently have the turn
+   * (see `is_actor_turn: false` in the response). It must therefore prefer
+   * whichever actor the player has selected on the map, then their own
+   * launch character, and only fall back to the turn-scoped ref (e.g. an
+   * enemy mid-turn) when nothing else can be resolved.
+   */
+  resolveActionRailSuggestionActorRef(context = null) {
+    const resolvedContext = context || this.getActionRailContext();
+    const selectedEntity = resolvedContext?.selectedEntity || this.stateManager?.get?.('selectedEntity') || null;
+    const selectedRef = String(
+      selectedEntity?.dcEntityRef
+      || selectedEntity?.dcEntityInstanceId
+      || selectedEntity?.instanceId
+      || selectedEntity?.id
+      || ''
+    ).trim();
+    if (selectedRef !== '') {
+      return selectedRef;
+    }
+
+    const launchActorRef = String(
+      resolvedContext?.runtimeContext?.instanceId
+      || resolvedContext?.runtimeContext?.instance_id
+      || ''
+    ).trim();
+    if (launchActorRef !== '') {
+      return launchActorRef;
+    }
+
+    return String(resolvedContext?.actorRef || '').trim();
+  }
+
+  /**
+   * Fetch a read-only next-action suggestion from the shared actor pipeline.
+   *
+   * This never submits an intent; it only renders advice.
+   */
+  async requestActionSuggestion(button) {
+    const context = this.getActionRailContext();
+    const campaignId = String(context?.runtimeContext?.campaignId || '').trim();
+    if (campaignId === '') {
+      this.renderActionSuggestion({ error: 'No active campaign is available for suggestions.' });
+      return;
+    }
+
+    const actorRef = this.resolveActionRailSuggestionActorRef(context);
+    const params = new URLSearchParams();
+    if (actorRef !== '') {
+      params.set('actor', actorRef);
+    }
+    const query = params.toString();
+    const url = `/api/game/${encodeURIComponent(campaignId)}/suggest-action${query ? `?${query}` : ''}`;
+
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = 'Thinking...';
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload || payload.success !== true) {
+        this.renderActionSuggestion({
+          error: (payload && (payload.error || payload.message)) || `Suggestion request failed (${response.status}).`,
+        });
+        return;
+      }
+      this.renderActionSuggestion({ suggestion: payload });
+    } catch (error) {
+      this.renderActionSuggestion({ error: `Suggestion request failed: ${error?.message || error}` });
+    } finally {
+      if (button instanceof HTMLButtonElement) {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        button.textContent = 'Suggest move';
+      }
+    }
+  }
+
+  /**
+   * Render the suggestion banner inside the action rail toolbar area.
+   */
+  renderActionSuggestion({ suggestion = null, error = '' } = {}) {
+    const panelBody = this._el?.actionRailPanelBody;
+    if (!(panelBody instanceof HTMLElement)) {
+      return;
+    }
+
+    let banner = panelBody.querySelector('[data-action-rail-suggestion]');
+    if (!(banner instanceof HTMLElement)) {
+      banner = document.createElement('div');
+      banner.dataset.actionRailSuggestion = 'true';
+      banner.className = 'action-rail__suggestion';
+      banner.setAttribute('role', 'status');
+      banner.setAttribute('aria-live', 'polite');
+      const toolbar = panelBody.querySelector('[data-action-rail-toolbar]');
+      if (toolbar instanceof HTMLElement) {
+        toolbar.insertAdjacentElement('afterend', banner);
+      } else {
+        panelBody.prepend(banner);
+      }
+    }
+
+    if (error) {
+      banner.classList.add('action-rail__suggestion--error');
+      banner.textContent = error;
+      banner.hidden = false;
+      return;
+    }
+    banner.classList.remove('action-rail__suggestion--error');
+
+    if (!suggestion || suggestion.has_suggestion !== true || !suggestion.suggested_action) {
+      const reason = String(suggestion?.fallback_reason || 'No recommended action is available right now.');
+      banner.textContent = reason;
+      banner.hidden = false;
+      return;
+    }
+
+    const action = suggestion.suggested_action;
+    const actionType = String(action.action_type || 'act');
+    const targetLabel = String(action.target_name || action.target_instance_id || '').trim();
+    const actorLabel = String(suggestion.actor_name || suggestion.actor_id || 'This actor');
+    const headline = targetLabel !== ''
+      ? `Suggested: ${actionType} → ${targetLabel}`
+      : `Suggested: ${actionType}`;
+    const reason = String(action.decision_reason || suggestion.intent_reason || '').trim();
+    const intent = String(suggestion.intent || '').trim();
+
+    const details = [];
+    if (intent !== '') {
+      details.push(`Intent: ${intent}`);
+    }
+    if (suggestion.is_actor_turn === false) {
+      details.push(`Not ${actorLabel}'s turn — hypothetical plan.`);
+    }
+    if (reason !== '') {
+      details.push(reason);
+    }
+
+    banner.textContent = '';
+    const strong = document.createElement('strong');
+    strong.className = 'action-rail__suggestion-headline';
+    strong.textContent = headline;
+    banner.append(strong);
+    if (details.length > 0) {
+      const meta = document.createElement('span');
+      meta.className = 'action-rail__suggestion-meta';
+      meta.textContent = details.join(' · ');
+      banner.append(meta);
+    }
+    banner.hidden = false;
+  }
+
   formatRealWorldClock(now = new Date()) {
     const localLabel = new Intl.DateTimeFormat(undefined, {
       dateStyle: 'medium',
@@ -1061,10 +1275,7 @@ export class ActionRailPanel {
 
   formatCampaignClock(clock) {
     if (!clock || typeof clock !== 'object') {
-      return {
-        value: 'Unavailable',
-        meta: 'Advances when actions consume time',
-      };
+      return this.resolveCampaignClockFallbackStatus();
     }
 
     const timezone = typeof clock.timezone === 'string' && clock.timezone.trim() !== ''
@@ -1080,7 +1291,7 @@ export class ActionRailPanel {
         timeStyle: 'medium',
         timeZone: timezone,
       }).format(parsedDate)
-      : (fallbackValue || 'Unavailable');
+      : (fallbackValue || this.resolveCampaignClockFallbackStatus().value);
     const metaParts = [clock.weekday, clock.season, timezone].filter(Boolean);
 
     return {
@@ -1699,6 +1910,11 @@ export class ActionRailPanel {
           data-action-rail-toggle-descriptions="true"
           aria-pressed="false"
         >Hide descriptions</button>
+        <button
+          type="button"
+          class="action-rail__suggest"
+          data-action-rail-suggest="true"
+        >Suggest move</button>
       `;
       panelBody.prepend(toolbar);
     }

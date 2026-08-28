@@ -68,7 +68,8 @@ assert(
 );
 
 assert(
-  source.includes("protected const UNIVERSAL_UNDEAD_BIAS_SCORE = -200;")
+  source.includes("protected const DEFAULT_UNDEAD_TARGET_BIAS_SCORE = -2000;")
+    && source.includes("protected const DEFAULT_UNDEAD_SOURCE_OTHER_ANCESTRY_BIAS_SCORE = -2000;")
     && source.includes("protected const PROFESSION_TARGET_BIAS = [")
     && source.includes("'rogue' => -5")
     && source.includes("'witch' => -5")

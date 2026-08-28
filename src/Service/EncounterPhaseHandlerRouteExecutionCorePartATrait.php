@@ -96,6 +96,108 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
   }
 
   /**
+   * TEMPORARY STOPGAP: heal the player party to full HP at end-of-turn.
+   *
+   * The encounter engine currently has no path to recover from a full player
+   * party wipe (see the orphaned "checks if the encounter should end" doc
+   * comment and the missing isEncounterOver()/checkEncounterEnd() pair this
+   * codebase used to have) — once every player-team combatant is defeated,
+   * the turn-advance loop has nothing to hand control back to and the
+   * encounter freezes forever. Until proper death/recovery handling is
+   * rebuilt, every end_turn/choose_not_to_act restores all player- and
+   * ally-team combatants to full HP and clears their defeated/dying/
+   * unconscious/prone conditions so the fight can keep going.
+   *
+   * Remove this once a real party-wipe resolution path exists.
+   *
+   * @return array
+   *   Narration events describing the recovery, or [] if nobody needed it.
+   */
+  protected function restorePlayerPartyToFullHealth(?int $encounter_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    if (!$encounter_id || !$this->hpManager || !$this->conditionManager || !$this->encounterStore) {
+      return [];
+    }
+
+    $encounter = $this->encounterStore->loadEncounter((int) $encounter_id);
+    if (!$encounter) {
+      return [];
+    }
+
+    $healed_names = [];
+    foreach (($game_state['initiative_order'] ?? []) as &$participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $team = $this->normalizeCombatTeam((string) ($participant['team'] ?? ''));
+      if (!in_array($team, ['player', 'ally'], TRUE)) {
+        continue;
+      }
+
+      $entity_id = trim((string) ($participant['entity_id'] ?? ''));
+      if ($entity_id === '') {
+        continue;
+      }
+
+      $row = $this->findEncounterParticipantByEntityId($encounter, $entity_id);
+      $participant_id = (int) ($row['id'] ?? 0);
+      $max_hp = (int) ($row['max_hp'] ?? $participant['max_hp'] ?? 0);
+      if ($participant_id <= 0 || $max_hp <= 0) {
+        continue;
+      }
+
+      $current_hp = (int) ($row['hp'] ?? $participant['hp'] ?? 0);
+      $was_defeated = !empty($row['is_defeated']) || !empty($participant['is_defeated']);
+      if ($current_hp >= $max_hp && !$was_defeated) {
+        // Already at full health and standing — nothing to recover.
+        continue;
+      }
+
+      // applyHealing() refuses to touch a participant already marked
+      // 'dead'; this stopgap explicitly overrides that so a wipe is always
+      // recoverable until real recovery handling exists.
+      if ((string) ($row['status'] ?? 'active') === 'dead') {
+        $this->encounterStore->updateParticipant($participant_id, ['status' => 'active']);
+      }
+
+      $this->hpManager->applyHealing($participant_id, $max_hp, 'party_recovery_end_turn_stopgap', (int) $encounter_id);
+      foreach ($this->conditionManager->getActiveConditions($participant_id, (int) $encounter_id) as $condition_id => $condition_row) {
+        $this->conditionManager->removeCondition($participant_id, (int) $condition_id, (int) $encounter_id);
+      }
+      // is_defeated may still be set if applyHealing's own internal reload
+      // predates our status override above; make sure it's cleared explicitly.
+      $this->encounterStore->updateParticipant($participant_id, ['is_defeated' => 0]);
+
+      $participant['hp'] = $max_hp;
+      $participant['is_defeated'] = FALSE;
+      $participant['status'] = 'active';
+      $healed_names[] = (string) ($participant['name'] ?? $entity_id);
+    }
+    unset($participant);
+
+    if ($healed_names === []) {
+      return [];
+    }
+
+    $narration = sprintf('%s recover to full health.', implode(' and ', $healed_names));
+    $room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'party_recovery',
+      'speaker' => 'Narrator',
+      'speaker_type' => 'narrator',
+      'speaker_ref' => '',
+      'content' => $narration,
+      'visibility' => 'public',
+    ], $room_id);
+
+    return [
+      GameEventLogger::buildEvent('party_recovery', 'encounter', NULL, [
+        'healed' => $healed_names,
+        'reason' => 'temporary_end_turn_party_recovery_stopgap',
+      ], $narration),
+    ];
+  }
+
+  /**
    * Router seam: execute delay intent block with legacy side effects.
    */
   protected function routeDelayIntentExecution(
@@ -183,7 +285,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
         'execution_request' => $execution_request,
         'resolution_envelope' => $resolution_envelope,
       ]),
-      'mutations' => [],
+      'mutations' => is_array($advance['mutations'] ?? NULL) ? $advance['mutations'] : [],
       'events' => $events,
       'narration' => NULL,
       'time_effects' => $time_effects,

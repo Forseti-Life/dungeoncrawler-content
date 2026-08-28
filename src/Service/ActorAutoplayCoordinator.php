@@ -14,6 +14,7 @@ class ActorAutoplayCoordinator {
   protected EncounterAiIntegrationService $encounterAiService;
   protected HazardService $hazardService;
   protected ?RoomChatService $roomChatService;
+  protected ?MovementResolverService $movementResolver;
   protected ConfigFactoryInterface $configFactory;
   protected LoggerInterface $logger;
 
@@ -22,11 +23,13 @@ class ActorAutoplayCoordinator {
     HazardService $hazard_service,
     ?RoomChatService $room_chat_service,
     ConfigFactoryInterface $config_factory,
-    LoggerChannelFactoryInterface $logger_factory
+    LoggerChannelFactoryInterface $logger_factory,
+    ?MovementResolverService $movement_resolver = NULL
   ) {
     $this->encounterAiService = $encounter_ai_service;
     $this->hazardService = $hazard_service;
     $this->roomChatService = $room_chat_service;
+    $this->movementResolver = $movement_resolver;
     $this->configFactory = $config_factory;
     $this->logger = $logger_factory->get('dungeoncrawler');
   }
@@ -40,6 +43,8 @@ class ActorAutoplayCoordinator {
    *   fn(string $entity_id, array $game_state, int $campaign_id, ?array $ai_seed_action): array
    * @param callable $process_strike
    *   fn(int $encounter_id, string $entity_id, string $target, array &$game_state, array &$dungeon_data, int $campaign_id): array
+   * @param callable $process_stride
+   *   fn(int $encounter_id, string $entity_id, array $to_hex, array &$game_state, array &$dungeon_data, int $campaign_id): array
    * @param callable $check_entity_defeated
    *   fn(string $target, string $entity_id, array &$game_state, array &$events, array $dungeon_data, int $campaign_id): void
    * @param callable $find_nearest_alive_player
@@ -58,12 +63,14 @@ class ActorAutoplayCoordinator {
     callable $build_actor_context,
     callable $build_turn_plan,
     callable $process_strike,
+    callable $process_stride,
     callable $check_entity_defeated,
     callable $find_nearest_alive_player,
     callable $build_choose_not_to_act_events,
     callable $resolve_pending_dialogue_turn
   ): array {
     $events = [];
+    $mutations = [];
     $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
     $pending_dialogue = ($resolved_room_id && $this->roomChatService)
       ? $this->roomChatService->consumePendingEncounterRoomDialogue($campaign_id, (string) $resolved_room_id, $entity_id, $dungeon_data)
@@ -89,7 +96,7 @@ class ActorAutoplayCoordinator {
           'round' => $game_state['round'] ?? NULL,
         ]);
       }
-      return ['events' => $events];
+      return ['events' => $events, 'mutations' => []];
     }
 
     $context = $build_actor_context($entity_id, $game_state, $dungeon_data);
@@ -123,8 +130,8 @@ class ActorAutoplayCoordinator {
     $plan_steps = is_array($turn_plan['steps'] ?? NULL) ? $turn_plan['steps'] : [];
 
     foreach ($plan_steps as $plan_step) {
-      $action_type = (string) ($plan_step['action_type'] ?? '');
-      if ($action_type === '') {
+      $planned_action_type = (string) ($plan_step['action_type'] ?? '');
+      if ($planned_action_type === '') {
         continue;
       }
       $target = is_scalar($plan_step['target'] ?? NULL) ? trim((string) $plan_step['target']) : '';
@@ -135,30 +142,126 @@ class ActorAutoplayCoordinator {
       $decision_basis += [
         'intent' => (string) ($intent_contract['intent'] ?? 'unknown'),
       ];
+      $action_type = $this->resolveGoalAlignedActionType(
+        $planned_action_type,
+        $entity_id,
+        $target,
+        $game_state,
+        $dungeon_data,
+        $intent_contract
+      );
+      if ($action_type !== $planned_action_type) {
+        $decision_basis['goal_replanned_from'] = $planned_action_type;
+        $decision_basis['goal_replanned_to'] = $action_type;
+      }
 
       switch ($action_type) {
         case 'strike':
           if ($target) {
             $strike_result = $process_strike($encounter_id, $entity_id, $target, $game_state, $dungeon_data, $campaign_id);
+            $resolved_degree = is_string($strike_result['degree'] ?? NULL) ? strtolower((string) $strike_result['degree']) : '';
+            $resolved_hit = $strike_result['hit'] ?? NULL;
+            if (!is_bool($resolved_hit) && $resolved_degree !== '') {
+              $resolved_hit = in_array($resolved_degree, ['success', 'critical_success'], TRUE);
+            }
+            if (is_string($strike_result['error'] ?? NULL) && trim((string) $strike_result['error']) !== '') {
+              $decision_basis['strike_error'] = trim((string) $strike_result['error']);
+              $this->logger->warning('NPC strike execution failed for {actor}: {error}', [
+                'actor' => $entity_id,
+                'error' => $decision_basis['strike_error'],
+              ]);
+            }
+            $event_narration = $this->resolveAutoplayActionNarration(
+              'strike',
+              $entity_id,
+              $target,
+              $game_state,
+              $dungeon_data,
+              $narration,
+              [
+                'roll' => $strike_result['roll'] ?? NULL,
+                'total' => $strike_result['total'] ?? NULL,
+                'ac' => $strike_result['ac'] ?? NULL,
+                'degree' => $strike_result['degree'] ?? NULL,
+                'damage' => $strike_result['damage'] ?? NULL,
+                'damage_type' => $strike_result['damage_type'] ?? NULL,
+                'weapon_name' => $strike_result['weapon_name'] ?? NULL,
+              ]
+            );
             $events[] = GameEventLogger::buildEvent('npc_strike', 'encounter', $entity_id, [
               'target' => $target,
               'roll' => $strike_result['roll'] ?? NULL,
+              'total' => $strike_result['total'] ?? NULL,
+              'ac' => $strike_result['ac'] ?? NULL,
+              'hit' => is_bool($resolved_hit) ? $resolved_hit : NULL,
               'degree' => $strike_result['degree'] ?? NULL,
               'damage' => $strike_result['damage'] ?? NULL,
               'decision_reason' => $decision_reason,
               'decision_basis' => $decision_basis,
-            ], $narration, $target);
+            ], $event_narration, $target);
             $check_entity_defeated($target, $entity_id, $game_state, $events, $dungeon_data, $campaign_id);
           }
           break;
 
         case 'stride':
-          $nearest = $find_nearest_alive_player($entity_id, $game_state);
-          $events[] = GameEventLogger::buildEvent('npc_stride', 'encounter', $entity_id, [
-            'toward' => $nearest,
-            'decision_reason' => $decision_reason,
-            'decision_basis' => $decision_basis,
-          ], $narration);
+          $movement_target = $target ?? $find_nearest_alive_player($entity_id, $game_state);
+          $stride_to_hex = $this->resolveStrideDestinationHex($entity_id, $movement_target, $game_state, $dungeon_data, $intent_contract);
+          $stride_succeeded = FALSE;
+          if (is_array($stride_to_hex)) {
+            $stride_result = $process_stride($encounter_id, $entity_id, $stride_to_hex, $game_state, $dungeon_data, $campaign_id);
+            if (is_string($stride_result['error'] ?? NULL) && trim((string) $stride_result['error']) !== '') {
+              $decision_basis['stride_error'] = trim((string) $stride_result['error']);
+              $this->logger->warning('NPC stride execution failed for {actor}: {error}', [
+                'actor' => $entity_id,
+                'error' => $decision_basis['stride_error'],
+              ]);
+            }
+            else {
+              $resolved_to_hex = is_array($stride_result['to_hex'] ?? NULL) ? $stride_result['to_hex'] : $stride_to_hex;
+              $decision_basis['stride_to_hex'] = [
+                'q' => (int) ($resolved_to_hex['q'] ?? 0),
+                'r' => (int) ($resolved_to_hex['r'] ?? 0),
+              ];
+              if (is_array($stride_result['from_hex'] ?? NULL)) {
+                $decision_basis['stride_from_hex'] = [
+                  'q' => (int) ($stride_result['from_hex']['q'] ?? 0),
+                  'r' => (int) ($stride_result['from_hex']['r'] ?? 0),
+                ];
+              }
+              if (is_array($stride_result['mutations'] ?? NULL) && $stride_result['mutations'] !== []) {
+                $mutations = array_merge($mutations, $stride_result['mutations']);
+              }
+              $stride_succeeded = !$this->hexesEqual(
+                $decision_basis['stride_from_hex'] ?? NULL,
+                $decision_basis['stride_to_hex'] ?? NULL
+              );
+            }
+          }
+          else {
+            $decision_basis['stride_error'] = 'no_destination';
+          }
+          if ($stride_succeeded) {
+            $event_narration = $this->resolveAutoplayActionNarration(
+              'stride',
+              $entity_id,
+              $movement_target,
+              $game_state,
+              $dungeon_data,
+              $narration,
+              [
+                'from_hex' => $decision_basis['stride_from_hex'] ?? NULL,
+                'to_hex' => $decision_basis['stride_to_hex'] ?? NULL,
+              ]
+            );
+            $events[] = GameEventLogger::buildEvent('npc_stride', 'encounter', $entity_id, [
+              'toward' => $movement_target,
+              'from' => $decision_basis['stride_from_hex'] ?? NULL,
+              'to' => $decision_basis['stride_to_hex'] ?? NULL,
+              'to_hex' => $decision_basis['stride_to_hex'] ?? NULL,
+              'decision_reason' => $decision_reason,
+              'decision_basis' => $decision_basis,
+            ], $event_narration);
+          }
           break;
 
         case 'interact':
@@ -211,6 +314,7 @@ class ActorAutoplayCoordinator {
           $campaign_id
         )
       ),
+      'mutations' => $mutations,
     ];
   }
 
@@ -518,7 +622,7 @@ class ActorAutoplayCoordinator {
     callable $choose_fallback_target,
     callable $find_nearest_alive_player
   ): ?string {
-    if (!in_array($action_type, ['strike', 'talk'], TRUE)) {
+    if (!in_array($action_type, ['strike', 'talk', 'stride'], TRUE)) {
       return NULL;
     }
 
@@ -528,6 +632,553 @@ class ActorAutoplayCoordinator {
     }
 
     return $find_nearest_alive_player($entity_id, $game_state);
+  }
+
+  protected function resolveAutoplayActionNarration(
+    string $action_type,
+    string $entity_id,
+    ?string $target_id,
+    array $game_state,
+    array $dungeon_data,
+    ?string $fallback_narration = NULL,
+    array $action_context = []
+  ): ?string {
+    $fallback_narration = is_string($fallback_narration) ? trim($fallback_narration) : '';
+    if ($fallback_narration !== '') {
+      return $fallback_narration;
+    }
+
+    $actor_name = $this->resolveAutoplayEntityName($entity_id, $game_state, $dungeon_data);
+    $target_name = $target_id !== NULL
+      ? $this->resolveAutoplayEntityName($target_id, $game_state, $dungeon_data)
+      : '';
+
+    return match ($action_type) {
+      'strike' => $this->buildAutoplayStrikeNarration($actor_name, $target_name, $action_context),
+      'stride' => $this->buildAutoplayStrideNarration($actor_name, $target_name, $action_context),
+      default => NULL,
+    };
+  }
+
+  /**
+   * Build strike narration including the resolved roll, weapon and damage.
+   *
+   * The mechanical detail comes from the authoritative strike result, so the
+   * transcript reports what actually happened rather than a generic
+   * "X attacks Y." line.
+   */
+  protected function buildAutoplayStrikeNarration(string $actor_name, string $target_name, array $action_context = []): string {
+    $subject = $target_name !== '' ? $target_name : 'a nearby foe';
+    $weapon_name = trim((string) ($action_context['weapon_name'] ?? ''));
+    $with_weapon = $weapon_name !== '' ? sprintf(' with %s', $weapon_name) : '';
+
+    $total = $action_context['total'] ?? NULL;
+    $ac = $action_context['ac'] ?? NULL;
+    $roll = $action_context['roll'] ?? NULL;
+    $roll_suffix = '';
+    if (is_numeric($total) && is_numeric($ac)) {
+      $roll_suffix = is_numeric($roll)
+        ? sprintf(' (attack %d vs AC %d, d20 %d)', (int) $total, (int) $ac, (int) $roll)
+        : sprintf(' (attack %d vs AC %d)', (int) $total, (int) $ac);
+    }
+
+    $degree = strtolower(trim((string) ($action_context['degree'] ?? '')));
+    $damage = $action_context['damage'] ?? NULL;
+    $damage_type = trim((string) ($action_context['damage_type'] ?? ''));
+    $damage_text = '';
+    if (is_numeric($damage) && (int) $damage > 0) {
+      $damage_text = $damage_type !== ''
+        ? sprintf(' for %d %s damage', (int) $damage, $damage_type)
+        : sprintf(' for %d damage', (int) $damage);
+    }
+
+    return match ($degree) {
+      'critical_success' => sprintf('%s critically strikes %s%s%s!%s', $actor_name, $subject, $with_weapon, $damage_text, $roll_suffix),
+      'success' => sprintf('%s strikes %s%s%s.%s', $actor_name, $subject, $with_weapon, $damage_text, $roll_suffix),
+      'failure' => sprintf('%s swings at %s%s and misses.%s', $actor_name, $subject, $with_weapon, $roll_suffix),
+      'critical_failure' => sprintf('%s fumbles an attack at %s%s!%s', $actor_name, $subject, $with_weapon, $roll_suffix),
+      default => $target_name !== ''
+        ? sprintf('%s attacks %s%s.%s', $actor_name, $target_name, $with_weapon, $roll_suffix)
+        : sprintf('%s attacks%s.%s', $actor_name, $with_weapon, $roll_suffix),
+    };
+  }
+
+  protected function buildAutoplayStrideNarration(string $actor_name, string $target_name, array $action_context = []): string {
+    $from_hex = $this->formatAutoplayHexLabel(is_array($action_context['from_hex'] ?? NULL) ? $action_context['from_hex'] : NULL);
+    $to_hex = $this->formatAutoplayHexLabel(is_array($action_context['to_hex'] ?? NULL) ? $action_context['to_hex'] : NULL);
+    $movement_suffix = ($from_hex !== '' && $to_hex !== '')
+      ? sprintf(' from %s to %s', $from_hex, $to_hex)
+      : '';
+
+    if ($target_name !== '') {
+      return sprintf('%s moves toward %s%s.', $actor_name, $target_name, $movement_suffix);
+    }
+
+    return sprintf('%s repositions%s.', $actor_name, $movement_suffix);
+  }
+
+  protected function formatAutoplayHexLabel(?array $hex): string {
+    if (!is_array($hex)) {
+      return '';
+    }
+
+    $q = $hex['q'] ?? NULL;
+    $r = $hex['r'] ?? NULL;
+    if (!is_numeric($q) || !is_numeric($r)) {
+      return '';
+    }
+
+    return sprintf('(%d,%d)', (int) $q, (int) $r);
+  }
+
+  protected function resolveAutoplayEntityName(string $entity_id, array $game_state, array $dungeon_data): string {
+    $entity_id = trim($entity_id);
+    if ($entity_id === '') {
+      return 'Unknown';
+    }
+
+    foreach ((array) ($game_state['initiative_order'] ?? []) as $combatant) {
+      if (!is_array($combatant) || trim((string) ($combatant['entity_id'] ?? '')) !== $entity_id) {
+        continue;
+      }
+      $name = trim((string) ($combatant['name'] ?? $combatant['display_name'] ?? ''));
+      if ($name !== '') {
+        return $name;
+      }
+    }
+
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $candidate_id = trim((string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? ''));
+      if ($candidate_id !== $entity_id) {
+        continue;
+      }
+      $name = trim((string) (
+        $entity['state']['metadata']['display_name']
+        ?? $entity['entity_ref']['content_id']
+        ?? ''
+      ));
+      if ($name !== '') {
+        return $name;
+      }
+    }
+
+    return $entity_id;
+  }
+
+  protected function resolveStrideDestinationHex(
+    string $entity_id,
+    ?string $target_id,
+    array $game_state,
+    array $dungeon_data = [],
+    array $intent_contract = []
+  ): ?array {
+    $target_id = is_string($target_id) ? trim($target_id) : '';
+    if ($target_id === '') {
+      return NULL;
+    }
+
+    $actor = $this->findCombatantByEntityId($entity_id, $game_state);
+    $target = $this->findCombatantByEntityId($target_id, $game_state);
+    if (!$actor || !$target) {
+      return NULL;
+    }
+
+    $origin_hex = $this->resolveCombatantHex($entity_id, $actor, $dungeon_data);
+    $target_hex = $this->resolveCombatantHex($target_id, $target, $dungeon_data);
+    if ($origin_hex === NULL || $target_hex === NULL) {
+      return NULL;
+    }
+    $intent = strtolower(trim((string) ($intent_contract['intent'] ?? 'aggressive_engage')));
+    $movement_budget = $this->resolveStrideBudgetFeet($actor);
+    if ($movement_budget <= 0) {
+      return NULL;
+    }
+    $movement_scope = $this->buildMovementScope($dungeon_data);
+
+    $reachable_hexes = $this->collectReachableStrideHexes($entity_id, $origin_hex, $movement_budget, $game_state, $dungeon_data, $movement_scope);
+    if ($reachable_hexes === []) {
+      return NULL;
+    }
+
+    return $this->selectBestStrideGoalHex($reachable_hexes, $origin_hex, $target_hex, $intent);
+  }
+
+  protected function findCombatantByEntityId(string $entity_id, array $game_state): ?array {
+    $entity_id = trim($entity_id);
+    if ($entity_id === '') {
+      return NULL;
+    }
+
+    foreach ((array) ($game_state['initiative_order'] ?? []) as $combatant) {
+      if (!is_array($combatant)) {
+        continue;
+      }
+      if (trim((string) ($combatant['entity_id'] ?? '')) === $entity_id) {
+        return $combatant;
+      }
+    }
+
+    return NULL;
+  }
+
+  protected function hexDistance(int $q1, int $r1, int $q2, int $r2): int {
+    $x1 = $q1;
+    $z1 = $r1;
+    $y1 = -$x1 - $z1;
+    $x2 = $q2;
+    $z2 = $r2;
+    $y2 = -$x2 - $z2;
+    return max(abs($x1 - $x2), abs($y1 - $y2), abs($z1 - $z2));
+  }
+
+  /**
+   * Resolve the current stride budget in feet for one actor.
+   */
+  protected function resolveStrideBudgetFeet(array $actor): int {
+    if ($this->movementResolver instanceof MovementResolverService) {
+      $resolved_speed = $this->movementResolver->getCreatureSpeed($actor, 'land');
+      if ($resolved_speed > 0) {
+        return $resolved_speed;
+      }
+    }
+
+    $fallback_speed = (int) ($actor['speed'] ?? 25);
+    return $fallback_speed > 0 ? $fallback_speed : 25;
+  }
+
+  /**
+   * Collect all reachable unoccupied stride destinations within the move budget.
+   *
+   * @return array<int,array{hex:array{q:int,r:int},cost:int}>
+   *   Reachable candidate destinations with path cost.
+   */
+  protected function collectReachableStrideHexes(
+    string $entity_id,
+    array $origin_hex,
+    int $movement_budget,
+    array $game_state,
+    array $dungeon_data,
+    array $movement_scope = []
+  ): array {
+    if ($movement_budget < 5) {
+      return [];
+    }
+
+    $occupied = $this->buildOccupiedHexIndex($entity_id, $game_state, $dungeon_data);
+    $best_cost_by_hex = [
+      $origin_hex['q'] . ':' . $origin_hex['r'] => 0,
+    ];
+    $queue = [
+      ['hex' => $origin_hex, 'cost' => 0],
+    ];
+    $reachable = [];
+
+    while ($queue !== []) {
+      $current = array_shift($queue);
+      if (!is_array($current)) {
+        continue;
+      }
+
+      $current_hex = is_array($current['hex'] ?? NULL) ? $current['hex'] : NULL;
+      $current_cost = (int) ($current['cost'] ?? 0);
+      if ($current_hex === NULL) {
+        continue;
+      }
+
+      foreach ($this->buildAdjacentHexes($current_hex['q'], $current_hex['r']) as $candidate_hex) {
+        $candidate_key = $candidate_hex['q'] . ':' . $candidate_hex['r'];
+        if (!empty($occupied[$candidate_key])) {
+          continue;
+        }
+        if (!$this->isStrideHexPassable($candidate_hex, $movement_scope)) {
+          continue;
+        }
+
+        $step_cost = $this->resolveStrideStepCost($current_hex, $candidate_hex, $movement_scope);
+        $candidate_cost = $current_cost + $step_cost;
+        if ($step_cost <= 0 || $candidate_cost > $movement_budget) {
+          continue;
+        }
+
+        $known_cost = $best_cost_by_hex[$candidate_key] ?? NULL;
+        if ($known_cost !== NULL && $candidate_cost >= $known_cost) {
+          continue;
+        }
+
+        $best_cost_by_hex[$candidate_key] = $candidate_cost;
+        $queue[] = [
+          'hex' => $candidate_hex,
+          'cost' => $candidate_cost,
+        ];
+        $reachable[$candidate_key] = [
+          'hex' => $candidate_hex,
+          'cost' => $candidate_cost,
+        ];
+      }
+    }
+
+    return array_values($reachable);
+  }
+
+  /**
+   * Select the best reachable stride destination for the current movement goal.
+   */
+  protected function selectBestStrideGoalHex(
+    array $reachable_hexes,
+    array $origin_hex,
+    array $target_hex,
+    string $intent
+  ): ?array {
+    $best = NULL;
+    $best_score = NULL;
+
+    foreach ($reachable_hexes as $candidate) {
+      $candidate_hex = is_array($candidate['hex'] ?? NULL) ? $candidate['hex'] : NULL;
+      if ($candidate_hex === NULL) {
+        continue;
+      }
+
+      $distance_to_target = $this->hexDistance($candidate_hex['q'], $candidate_hex['r'], $target_hex['q'], $target_hex['r']);
+      $distance_from_origin = $this->hexDistance($origin_hex['q'], $origin_hex['r'], $candidate_hex['q'], $candidate_hex['r']);
+      $path_cost = (int) ($candidate['cost'] ?? 0);
+
+      $score = match ($intent) {
+        'self_preserve', 'flee', 'deescalate' => [
+          $distance_to_target,
+          $distance_from_origin,
+          $path_cost,
+          -abs((int) $candidate_hex['q']),
+          -abs((int) $candidate_hex['r']),
+        ],
+        default => [
+          $distance_to_target <= 1 ? 1 : 0,
+          -$distance_to_target,
+          $distance_from_origin,
+          $path_cost,
+          -abs((int) $candidate_hex['q']),
+          -abs((int) $candidate_hex['r']),
+        ],
+      };
+
+      if ($best_score === NULL || $score > $best_score) {
+        $best = $candidate_hex;
+        $best_score = $score;
+      }
+    }
+
+    return $best;
+  }
+
+  /**
+   * Resolve the best action type for the current state and turn goal.
+   */
+  protected function resolveGoalAlignedActionType(
+    string $planned_action_type,
+    string $entity_id,
+    ?string $target_id,
+    array $game_state,
+    array $dungeon_data,
+    array $intent_contract
+  ): string {
+    $intent = strtolower(trim((string) ($intent_contract['intent'] ?? '')));
+    $aggressive_intents = ['aggressive_engage', 'finish_weakest'];
+    if (!in_array($intent, $aggressive_intents, TRUE) || $target_id === NULL || $target_id === '') {
+      return $planned_action_type;
+    }
+
+    $can_reach_target = $this->isTargetWithinDefaultStrikeRange($entity_id, $target_id, $game_state, $dungeon_data);
+    $can_stride_closer = $this->resolveStrideDestinationHex($entity_id, $target_id, $game_state, $dungeon_data, $intent_contract) !== NULL;
+
+    if ($can_reach_target) {
+      return 'strike';
+    }
+
+    if ($can_stride_closer) {
+      return 'stride';
+    }
+
+    return $planned_action_type;
+  }
+
+  /**
+   * Build adjacent axial hexes for one origin hex.
+   *
+   * @return array<int,array{q:int,r:int}>
+   *   Neighboring axial coordinates.
+   */
+  protected function buildAdjacentHexes(int $q, int $r): array {
+    return [
+      ['q' => $q + 1, 'r' => $r],
+      ['q' => $q + 1, 'r' => $r - 1],
+      ['q' => $q, 'r' => $r - 1],
+      ['q' => $q - 1, 'r' => $r],
+      ['q' => $q - 1, 'r' => $r + 1],
+      ['q' => $q, 'r' => $r + 1],
+    ];
+  }
+
+  /**
+   * Build occupied hex index from live encounter participants.
+   *
+   * Defeated combatants are included: a downed body still occupies its hex and
+   * must not be treated as a free stride destination, otherwise two tokens end
+   * up rendered on the same hex.
+   *
+   * @return array<string,bool>
+   *   Occupancy keyed by "q:r".
+   */
+  protected function buildOccupiedHexIndex(string $entity_id, array $game_state, array $dungeon_data = []): array {
+    $occupied = [];
+    foreach ((array) ($game_state['initiative_order'] ?? []) as $combatant) {
+      if (!is_array($combatant)) {
+        continue;
+      }
+
+      $combatant_id = trim((string) ($combatant['entity_id'] ?? ''));
+      if ($combatant_id === '' || $combatant_id === $entity_id) {
+        continue;
+      }
+
+      $hex = $this->resolveCombatantHex($combatant_id, $combatant, $dungeon_data);
+      if ($hex === NULL) {
+        continue;
+      }
+      $occupied[$hex['q'] . ':' . $hex['r']] = TRUE;
+    }
+    return $occupied;
+  }
+
+  /**
+   * Resolve one stride step cost between adjacent hexes.
+   */
+  protected function resolveStrideStepCost(array $from_hex, array $to_hex, array $movement_scope): int {
+    if ($this->movementResolver instanceof MovementResolverService) {
+      $cost_info = $this->movementResolver->calculateMovementCost($from_hex, $to_hex, $movement_scope, 0, 'land');
+      $resolved_cost = (int) ($cost_info['cost'] ?? 0);
+      if ($resolved_cost > 0) {
+        return $resolved_cost;
+      }
+    }
+
+    return 5;
+  }
+
+  /**
+   * Whether a candidate stride hex is passable when map metadata exists.
+   */
+  protected function isStrideHexPassable(array $hex, array $movement_scope): bool {
+    if (!($this->movementResolver instanceof MovementResolverService)) {
+      // Treating every hex as passable here silently diverges from the
+      // authoritative movement validator used by stride execution, which then
+      // rejects the chosen destination and burns the actor's whole turn with
+      // no events. Fail loudly instead of masking the missing dependency.
+      throw new \RuntimeException(
+        'Actor autoplay movement contract violation: MovementResolverService is not injected into ActorAutoplayCoordinator, so stride destinations cannot be validated against room bounds. Wire "@dungeoncrawler_content.movement_resolver" into dungeoncrawler_content.actor_autoplay_coordinator.'
+      );
+    }
+    return $this->movementResolver->isPassable($hex, $movement_scope);
+  }
+
+  /**
+   * Determine whether a target is already in default melee strike range.
+   */
+  protected function isTargetWithinDefaultStrikeRange(string $entity_id, string $target_id, array $game_state, array $dungeon_data = []): bool {
+    $actor = $this->findCombatantByEntityId($entity_id, $game_state);
+    $target = $this->findCombatantByEntityId($target_id, $game_state);
+    if (!$actor || !$target || !empty($target['is_defeated'])) {
+      return FALSE;
+    }
+
+    $actor_hex = $this->resolveCombatantHex($entity_id, $actor, $dungeon_data);
+    $target_hex = $this->resolveCombatantHex($target_id, $target, $dungeon_data);
+    if ($actor_hex === NULL || $target_hex === NULL) {
+      return FALSE;
+    }
+
+    return $this->hexDistance(
+      $actor_hex['q'],
+      $actor_hex['r'],
+      $target_hex['q'],
+      $target_hex['r']
+    ) <= 1;
+  }
+
+  protected function resolveCombatantHex(string $entity_id, ?array $combatant, array $dungeon_data): ?array {
+    $initiative_hex = $this->normalizeAutoplayHex([
+      'q' => $combatant['position_q'] ?? NULL,
+      'r' => $combatant['position_r'] ?? NULL,
+    ]);
+    if ($initiative_hex !== NULL) {
+      return $initiative_hex;
+    }
+
+    $entity_id = trim($entity_id);
+    if ($entity_id === '') {
+      return NULL;
+    }
+
+    foreach ((array) ($dungeon_data['entities'] ?? []) as $entity) {
+      if (!is_array($entity)) {
+        continue;
+      }
+      $candidate_id = trim((string) ($entity['entity_instance_id'] ?? $entity['instance_id'] ?? $entity['id'] ?? ''));
+      if ($candidate_id !== $entity_id) {
+        continue;
+      }
+
+      $entity_hex = $this->normalizeAutoplayHex($entity['placement']['hex'] ?? NULL);
+      if ($entity_hex !== NULL) {
+        return $entity_hex;
+      }
+    }
+
+    return NULL;
+  }
+
+  protected function normalizeAutoplayHex(?array $hex): ?array {
+    if (!is_array($hex)) {
+      return NULL;
+    }
+
+    $q = $hex['q'] ?? NULL;
+    $r = $hex['r'] ?? NULL;
+    if (!is_numeric($q) || !is_numeric($r)) {
+      return NULL;
+    }
+
+    return [
+      'q' => (int) $q,
+      'r' => (int) $r,
+    ];
+  }
+
+  protected function hexesEqual(?array $left, ?array $right): bool {
+    if (!is_array($left) || !is_array($right)) {
+      return FALSE;
+    }
+
+    return (int) ($left['q'] ?? PHP_INT_MIN) === (int) ($right['q'] ?? PHP_INT_MAX)
+      && (int) ($left['r'] ?? PHP_INT_MIN) === (int) ($right['r'] ?? PHP_INT_MAX);
+  }
+
+  /**
+   * Build minimal movement lookup scope from runtime dungeon payload.
+   */
+  protected function buildMovementScope(array $dungeon_data): array {
+    if ($this->movementResolver instanceof MovementResolverService) {
+      return $this->movementResolver->buildMovementScope($dungeon_data);
+    }
+
+    return [
+      '__scope_type' => 'movement',
+      'active_room_id' => (string) ($dungeon_data['active_room_id'] ?? $dungeon_data['current_room_id'] ?? ''),
+      'room_hexes' => [],
+      'hexes' => is_array($dungeon_data['hexes'] ?? NULL) ? $dungeon_data['hexes'] : [],
+      'is_underwater' => !empty($dungeon_data['is_underwater']),
+    ];
   }
 
 }

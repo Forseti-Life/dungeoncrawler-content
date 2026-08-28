@@ -23,7 +23,7 @@ function assert(condition, message) {
 }
 
 const actionRailPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
-const gameShellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
+const gameShellSource = require('./helpers/js-source.js').readGameShellSource();
 const merchantPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/MerchantPanel.js'), 'utf8');
 
 console.log('\n=== Action rail event decomposition contract ===');
@@ -37,8 +37,8 @@ assert(
 
 assert(
   gameShellSource.includes("this.bus.emit('room:occupants-membership-changed', {")
-    && gameShellSource.includes("this.bus.emit('room:occupants-decoration-changed', {")
-    && gameShellSource.includes("this.bus.emit('merchant:stock-loaded', {")
+    && gameShellSource.includes("shell.bus.emit('room:occupants-decoration-changed', {")
+    && gameShellSource.includes("shell.bus.emit('merchant:stock-loaded', {")
     && gameShellSource.includes('occupants: updatedOccupants,'),
   'GameShell emits explicit membership/decoration/merchant events and includes occupants in merchant payloads'
 );
@@ -57,4 +57,3 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log('ALL TESTS PASSED');
-

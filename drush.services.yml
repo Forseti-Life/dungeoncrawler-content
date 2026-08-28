@@ -75,6 +75,7 @@ services:
       - '@dungeoncrawler_content.quest_tracker'
       - '@dungeoncrawler_content.navigation_service'
       - '@dungeoncrawler_content.player_agent_runtime_adapter'
+      - '@?dungeoncrawler_content.actor_process_flow_planner'
       - '@dungeoncrawler_content.runtime_bootstrap'
       - '@database'
       - '@current_user'

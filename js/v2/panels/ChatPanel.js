@@ -118,6 +118,7 @@ export class ChatPanel {
     this._speakerPortraitByName = new Map();
     this._roomHistoryRequestSequence = 0;
     this._roomHistoryLastShellRequestToken = 0;
+    this._roomHistoryHasEncounterTranscript = false;
     this._roomEncounterEventCursorByRoom = new Map();
     this._mapInitiativeFeedPlaceholderText = 'Narrative and action updates appear here.';
     this._handleGameEvents = (event) => this.handleGameEvents(event);
@@ -1459,9 +1460,7 @@ export class ChatPanel {
       };
     });
     const clarifiedIncoming = this.clarifyLeadingQuestNarratorTiming(incoming);
-
-    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*(?:Actor\s+)?[^:]+:/i;
-    this._roomHistoryHasEncounterTranscript = clarifiedIncoming.some((line) => encounterPrefixRegex.test(String(line?.message || '').trim()));
+    this._roomHistoryHasEncounterTranscript = clarifiedIncoming.some((line) => this.isEncounterTranscriptLikeLine(line));
 
     const merged = this.rememberChatLines('room', clarifiedIncoming, {
       context,
@@ -2485,9 +2484,44 @@ export class ChatPanel {
       || lineRecord?.lineId
       || ''
     ).trim();
+    const displayMessage = this.formatEncounterChatMessage(
+      lineRecord?.speaker || '',
+      lineRecord?.message || '',
+      lineRecord?.type || 'system',
+      lineRecord
+    );
+    const normalizedMessage = this.normalizeChatComparableText(displayMessage);
+    if (!normalizedMessage) {
+      return;
+    }
+    const semanticKey = [
+      this.normalizeChatComparableText(lineRecord?.speaker || ''),
+      String(lineRecord?.type || 'system').trim().toLowerCase(),
+      normalizedMessage,
+    ].join('|');
+    const incomingSource = String(lineRecord?.source || '').trim().toLowerCase();
+    const isAuthoritativeTranscript = String(lineRecord?.authority || '').trim() === 'authoritative'
+      && String(lineRecord?.messageClass || '').trim() === 'authoritative_transcript';
     if (feedKey) {
       const hasDuplicate = Array.from(mapLog.children || []).some((node) => String(node?.dataset?.mapFeedKey || '') === feedKey);
       if (hasDuplicate) {
+        return;
+      }
+    }
+    if (semanticKey) {
+      const recentLines = Array.from(mapLog.querySelectorAll('.chat-line')).slice(-3);
+      const hasSemanticDuplicate = recentLines.some((node) => {
+        if (String(node?.dataset?.mapFeedSemanticKey || '') !== semanticKey) {
+          return false;
+        }
+        if (!isAuthoritativeTranscript) {
+          return true;
+        }
+        const existingSource = String(node?.dataset?.mapFeedSource || '').trim().toLowerCase();
+        const dualIngestSources = new Set(['room-history', 'encounter-event']);
+        return dualIngestSources.has(existingSource) && dualIngestSources.has(incomingSource);
+      });
+      if (hasSemanticDuplicate) {
         return;
       }
     }
@@ -2497,6 +2531,12 @@ export class ChatPanel {
     if (feedKey) {
       line.dataset.mapFeedKey = feedKey;
     }
+    if (semanticKey) {
+      line.dataset.mapFeedSemanticKey = semanticKey;
+    }
+    if (incomingSource) {
+      line.dataset.mapFeedSource = incomingSource;
+    }
     if (lineRecord?.speaker) {
       const speakerEl = document.createElement('span');
       speakerEl.className = 'chat-line__speaker';
@@ -2505,10 +2545,7 @@ export class ChatPanel {
     }
     const textEl = document.createElement('span');
     textEl.className = 'chat-line__message';
-    textEl.textContent = String(lineRecord?.message || '').trim();
-    if (textEl.textContent === '') {
-      return;
-    }
+    textEl.textContent = displayMessage;
     line.appendChild(textEl);
     const firstLine = mapLog.firstElementChild;
     if (
@@ -2549,7 +2586,7 @@ export class ChatPanel {
     });
     const displayMessage = this.formatEncounterChatMessage(lineRecord.speaker, lineRecord.message, lineRecord.type, lineRecord);
     const localPlayerEcho = this.findMatchingLocalPlayerEchoLine(log, lineRecord, displayMessage);
-    const resolvedOptions = localPlayerEcho
+    let resolvedOptions = localPlayerEcho
       ? {
           ...options,
           replaceLine: localPlayerEcho,
@@ -2575,6 +2612,28 @@ export class ChatPanel {
     }
     const isAuthoritativeTranscript = lineRecord.authority === 'authoritative'
       && lineRecord.messageClass === 'authoritative_transcript';
+    const shouldMergeEncounterEventIntoRoomHistory = isAuthoritativeTranscript
+      && lineRecord.source === 'encounter-event'
+      && !resolvedOptions.replaceLine;
+    if (shouldMergeEncounterEventIntoRoomHistory) {
+      const existingRoomHistoryTranscript = Array.from(log.querySelectorAll('.chat-line'))
+        .reverse()
+        .find((candidate) => (
+          candidate?.dataset?.transient !== '1'
+          && String(candidate?.dataset?.source || '') === 'room-history'
+          && String(candidate?.dataset?.speaker || '') === (lineRecord.speaker || '')
+          && String(candidate?.dataset?.message || '') === (displayMessage || '')
+          && String(candidate?.dataset?.type || 'npc') === (lineRecord.type || 'npc')
+          && String(candidate?.dataset?.authority || '') === 'authoritative'
+          && String(candidate?.dataset?.messageClass || '') === 'authoritative_transcript'
+        ));
+      if (existingRoomHistoryTranscript) {
+        resolvedOptions = {
+          ...options,
+          replaceLine: existingRoomHistoryTranscript,
+        };
+      }
+    }
     if (!resolvedOptions.replaceLine && !hasAuthoritativeIdentity && !lineRecord.lineId && isAuthoritativeTranscript) {
       const existingByTranscriptContent = Array.from(log.querySelectorAll('.chat-line'))
         .reverse()
@@ -2985,6 +3044,34 @@ export class ChatPanel {
       return false;
     }
     return true;
+  }
+
+  isEncounterTranscriptLikeLine(line = {}) {
+    const normalizedLine = this.normalizeChatLineRecord(line);
+    if (normalizedLine.authority !== 'authoritative') {
+      return false;
+    }
+
+    const message = String(normalizedLine.message || '').trim();
+    if (message === '') {
+      return false;
+    }
+
+    const encounterPrefixRegex = /^Round\s+(?:\d+|\?)\s*:\s*Turn\s+(?:\d+|\?)\s*:\s*(?:Actor\s+)?[^:]+:/i;
+    if (encounterPrefixRegex.test(message)) {
+      return true;
+    }
+
+    return [
+      /^A cold .+\bchamber\b/i,
+      /^Round\s+\d+\s+begins\.$/i,
+      /^[^.]+['’]s turn begins\.$/i,
+      /^[^.]+\s+moves toward\s+[^.]+(?:\s+from\s+\(-?\d+,\s*-?\d+\)\s+to\s+\(-?\d+,\s*-?\d+\))?\.$/i,
+      /^[^.]+\s+repositions(?:\s+from\s+\(-?\d+,\s*-?\d+\)\s+to\s+\(-?\d+,\s*-?\d+\))?\.$/i,
+      /^[^.]+\s+attacks(?:\s+[^.]+)?\.$/i,
+      /^[^.]+\s+chooses not to act\.$/i,
+      /^[^.]+\s+chooses not to take any further actions\.$/i,
+    ].some((pattern) => pattern.test(message));
   }
 
   handleGameEvents(event, options = {}) {
@@ -4295,7 +4382,18 @@ export class ChatPanel {
       if (result?.success && result.data?.messages) {
         this.renderRoomChatHistory(result);
         if ((this.activeChannel || 'room') === 'room') {
-          await this.renderPersistedEncounterEventHistory();
+          const snapshot = this.stateManager?.hexmap?.gameCoordinator?.phaseManager?.getSnapshot?.() || {};
+          const snapshotCursor = Number(snapshot?.eventCursor ?? 0);
+          if (Number.isFinite(snapshotCursor) && snapshotCursor > 0) {
+            this.setEncounterEventCursor({
+              campaignId: context.campaignId,
+              roomId: context.roomId,
+            }, snapshotCursor);
+          }
+
+          if (!this._roomHistoryHasEncounterTranscript) {
+            await this.renderPersistedEncounterEventHistory();
+          }
         }
         this.prefetchSessionViews();
         this.prefetchConnectedRoomContext();
@@ -4405,65 +4503,6 @@ export class ChatPanel {
       const events = Array.isArray(result?.events) ? result.events : [];
       this.advanceEncounterEventCursor(eventContext, result, events);
       if (events.length === 0) {
-        return;
-      }
-
-      // If the server-provided room history already contains encounter-prefixed transcript
-      // lines, avoid appending the encounter-event transcript again (double-render risk).
-      if (this._roomHistoryHasEncounterTranscript) {
-        const characterData = this.stateManager?.hexmap?.characterData || {};
-        const activeCharacterName = String(characterData?.name || '').trim();
-        const normalizeName = (value) => String(value || '').trim().toLowerCase();
-
-        if (!activeCharacterName) {
-          return;
-        }
-        const activeRoomId = String(context?.roomId || '').trim();
-
-        for (const gameEvent of events) {
-          if (String(gameEvent?.type || '').trim().toLowerCase() !== 'turn_start') {
-            continue;
-          }
-          if (!this.shouldRenderEncounterEventForRoom(gameEvent, activeRoomId)) {
-            continue;
-          }
-          if (!this.isCurrentTurnStartEvent(gameEvent, activeCharacterName)) {
-            continue;
-          }
-
-          const chatLine = this.buildEncounterEventChatLine(gameEvent);
-          if (!chatLine || normalizeName(chatLine.actorName) !== normalizeName(activeCharacterName)) {
-            continue;
-          }
-
-          const rawRound = Number(gameEvent?.data?.round);
-          const fallbackRound = Number.isFinite(rawRound) ? rawRound : (Number.isFinite(chatLine.round) ? chatLine.round : NaN);
-          const promptLineId = gameEvent.id
-            ? `turn-prompt-${gameEvent.id}`
-            : `turn-prompt-${Number.isFinite(fallbackRound) ? fallbackRound : 'unknown'}-${normalizeName(activeCharacterName)}`;
-
-          this.appendChatLineToTarget(
-            { view: 'room', channelKey: this.activeChannel || 'room', context: this.getChatContext() },
-            'System',
-            `It's your turn, ${activeCharacterName}.`,
-            'system',
-            {
-              lineId: promptLineId,
-              source: 'encounter-event',
-              authority: 'authoritative',
-              messageClass: 'authoritative_transcript',
-              encounterEvent: true,
-              event: gameEvent,
-              round: Number.isFinite(fallbackRound) ? fallbackRound : undefined,
-              actorName: 'System',
-              turn_prompt: true,
-              turn_role: 'player',
-              turn_name: activeCharacterName,
-              eventId: String(gameEvent.id || ''),
-            }
-          );
-        }
-
         return;
       }
 

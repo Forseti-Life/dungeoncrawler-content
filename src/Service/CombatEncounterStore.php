@@ -119,6 +119,14 @@ class CombatEncounterStore {
       return (int) ($a['id'] ?? 0) - (int) ($b['id'] ?? 0);
     });
 
+    foreach ($participants as &$participant) {
+      $participant_id = (int) ($participant['id'] ?? 0);
+      $participant['conditions'] = $participant_id > 0
+        ? array_values($this->listActiveConditions($participant_id))
+        : [];
+    }
+    unset($participant);
+
     $encounter['participants'] = $participants;
     $encounter['encounter_id'] = $encounter['id'];
     return $encounter;

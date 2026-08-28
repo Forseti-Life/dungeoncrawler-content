@@ -26,10 +26,7 @@ const processorSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/GmSubsystem/GmNarrativePostProcessor.php'),
   'utf8'
 );
-const roomChatSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
-  'utf8'
-);
+const roomChatSource = require('./helpers/php-source.js').readGmPipelineSource();
 const servicesSource = fs.readFileSync(
   path.resolve(__dirname, '../dungeoncrawler_content.services.yml'),
   'utf8'
@@ -59,8 +56,8 @@ assert(
 );
 assert(
   roomChatSource.includes('$post_process_result = $this->gmNarrativePostProcessor->process(')
-    && roomChatSource.includes("[$this, 'stripPlayerVisibleActionBlocks']")
-    && roomChatSource.includes("[$this, 'sanitizePlayerVisibleNarrative']"),
+    && roomChatSource.includes('$callbacks->stripPlayerVisibleActionBlocks(')
+    && roomChatSource.includes('$callbacks->sanitizePlayerVisibleNarrative('),
   'generateGmReply delegates narrative post-processing to subsystem service'
 );
 assert(

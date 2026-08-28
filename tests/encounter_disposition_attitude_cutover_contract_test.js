@@ -23,10 +23,7 @@ function assert(condition, message) {
   }
 }
 
-const source = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
-  'utf8',
-);
+const source = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 console.log('\n=== Encounter disposition attitude cutover contract ===');
 

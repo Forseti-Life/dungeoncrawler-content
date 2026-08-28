@@ -496,11 +496,11 @@ class GmOrchestrationBrokerService {
           continue;
         }
         $edge = $this->getRelationshipAttitudeService()->resolveEdgeDispositionDetails($source_entity_ref, $target_ref, $campaign_id);
+        $edge_attitude = trim((string) ($edge['attitude'] ?? ''));
         $edge_score = isset($edge['score']) && is_numeric($edge['score'])
           ? DispositionAuthorityContract::normalizeScore($edge['score'])
-          : (DispositionAuthorityContract::attitudeToScore((string) ($edge['attitude'] ?? '')) ?? 0);
-        $edge_attitude = trim((string) ($edge['attitude'] ?? ''));
-        if ($edge_attitude === '') {
+          : ($edge_attitude !== '' ? (DispositionAuthorityContract::attitudeToScore($edge_attitude) ?? 0) : NULL);
+        if ($edge_attitude === '' && $edge_score !== NULL) {
           $edge_attitude = DispositionAuthorityContract::scoreToAttitude($edge_score);
         }
 
@@ -514,7 +514,7 @@ class GmOrchestrationBrokerService {
         }
 
         // Use the most hostile target edge (lowest score) as canonical combat policy input.
-        if ($edge_score < (int) ($selected_edge['score'] ?? 0)) {
+        if ($edge_score !== NULL && (($selected_edge['score'] ?? NULL) === NULL || $edge_score < (int) ($selected_edge['score'] ?? 0))) {
           $selected_edge = [
             'target_ref' => $target_ref,
             'attitude' => $edge_attitude,
@@ -524,7 +524,55 @@ class GmOrchestrationBrokerService {
       }
       if (is_array($selected_edge)) {
         $relationship_attitude = (string) ($selected_edge['attitude'] ?? '');
-        $relationship_score = (int) ($selected_edge['score'] ?? 0);
+        $relationship_score = isset($selected_edge['score']) && is_numeric($selected_edge['score'])
+          ? (int) $selected_edge['score']
+          : NULL;
+      }
+    }
+    if (($relationship_score === NULL || $relationship_attitude === '') && $source_entity_ref !== '' && $target_ids !== []) {
+      $disposition_resolver = $this->resolveDispositionResolverService();
+      $institution_score_assembler = $this->resolveInstitutionDispositionScoreAssemblerService();
+      $selected_resolved = NULL;
+      if ($disposition_resolver instanceof DispositionResolverService) {
+        foreach ($target_ids as $target_ref) {
+          $target_ref = trim((string) $target_ref);
+          if ($target_ref === '') {
+            continue;
+          }
+          $resolver_context = [];
+          if ($institution_score_assembler instanceof InstitutionDispositionScoreAssemblerService) {
+            $institution = $institution_score_assembler->buildActorTargetInstitutionAdjustment($campaign_id, $source_entity_ref, $target_ref);
+            $resolver_context['institution_score'] = (int) ($institution['score'] ?? 0);
+          }
+          $resolved = $disposition_resolver->resolveActorTargetDisposition($campaign_id, $source_entity_ref, $target_ref, $resolver_context);
+          $resolved_score = isset($resolved['effective_disposition_score']) && is_numeric($resolved['effective_disposition_score'])
+            ? DispositionAuthorityContract::normalizeScore($resolved['effective_disposition_score'])
+            : NULL;
+          $resolved_attitude = trim((string) ($resolved['effective_disposition_label'] ?? ''));
+          if ($resolved_attitude === '' && $resolved_score !== NULL) {
+            $resolved_attitude = DispositionAuthorityContract::scoreToAttitude($resolved_score);
+          }
+          if ($resolved_score === NULL && $resolved_attitude === '') {
+            continue;
+          }
+          if (!is_array($selected_resolved) || ($resolved_score ?? 0) < (int) ($selected_resolved['score'] ?? 0)) {
+            $selected_resolved = [
+              'attitude' => $resolved_attitude,
+              'score' => $resolved_score,
+            ];
+          }
+        }
+      }
+      if (is_array($selected_resolved)) {
+        if ($relationship_score === NULL && isset($selected_resolved['score']) && is_numeric($selected_resolved['score'])) {
+          $relationship_score = (int) $selected_resolved['score'];
+        }
+        if ($relationship_attitude === '') {
+          $relationship_attitude = (string) ($selected_resolved['attitude'] ?? '');
+        }
+        if ($relationship_attitude_source === 'relationship_edge') {
+          $relationship_attitude_source = 'resolved_disposition_fallback';
+        }
       }
     }
     if ($relationship_attitude === '') {
@@ -693,6 +741,28 @@ class GmOrchestrationBrokerService {
     }
     $service = \Drupal::service('dungeoncrawler_content.actor_process_flow_coordinator_service');
     return $service instanceof ActorProcessFlowCoordinatorService ? $service : NULL;
+  }
+
+  /**
+   * Resolve disposition resolver only when available.
+   */
+  protected function resolveDispositionResolverService(): ?DispositionResolverService {
+    if (!\Drupal::hasService('dungeoncrawler_content.disposition_resolver_service')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.disposition_resolver_service');
+    return $service instanceof DispositionResolverService ? $service : NULL;
+  }
+
+  /**
+   * Resolve institution disposition score assembler only when available.
+   */
+  protected function resolveInstitutionDispositionScoreAssemblerService(): ?InstitutionDispositionScoreAssemblerService {
+    if (!\Drupal::hasService('dungeoncrawler_content.institution_disposition_score_assembler')) {
+      return NULL;
+    }
+    $service = \Drupal::service('dungeoncrawler_content.institution_disposition_score_assembler');
+    return $service instanceof InstitutionDispositionScoreAssemblerService ? $service : NULL;
   }
 
   /**

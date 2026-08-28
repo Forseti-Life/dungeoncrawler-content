@@ -6,8 +6,7 @@
  *   node tests/mutation_descriptor_schema_contract_test.js
  */
 
-const fs = require('fs');
-const path = require('path');
+const { readComposedSource } = require('./helpers/php-source.js');
 
 const files = [
   'src/Service/EncounterPhaseHandler.php',
@@ -39,8 +38,8 @@ function between(source, startNeedle, endNeedle) {
 console.log('\n=== Mutation descriptor schema contract ===');
 
 for (const rel of files) {
-  const source = fs.readFileSync(path.resolve(__dirname, '..', rel), 'utf8');
   const label = rel.split('/').pop();
+  const source = readComposedSource(label);
 
   const extractBody = between(
     source,
@@ -73,8 +72,13 @@ for (const rel of files) {
       && normalizeBody.includes("$mutation['room_id'] = $normalized_room_id;"),
     `${label} normalizes defaults using canonical keys only`
   );
+  // EncounterPhaseHandler intentionally canonicalises the `entity` key emitted
+  // by EncounterActionExecutor stride mutations into `entity_id`. That is the
+  // canonicalisation step itself, not a legacy alias passthrough, so only the
+  // remaining aliases are forbidden there.
+  const forbidsEntityAlias = label !== 'EncounterPhaseHandler.php';
   assert(
-    !normalizeBody.includes("$mutation['entity'] ?? NULL")
+    (!forbidsEntityAlias || !normalizeBody.includes("$mutation['entity'] ?? NULL"))
       && !normalizeBody.includes("$mutation['actor'] ?? NULL")
       && !normalizeBody.includes("$mutation['target_id'] ?? NULL")
       && !normalizeBody.includes("$mutation['target_room_id'] ?? NULL")

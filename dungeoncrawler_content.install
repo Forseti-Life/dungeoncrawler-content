@@ -4231,3 +4231,39 @@ function dungeoncrawler_content_install() {
 function dungeoncrawler_content_uninstall() {
   \Drupal::messenger()->addMessage(t('Dungeon Crawler Content module has been uninstalled.'));
 }
+
+/**
+ * Add canonical persistence tables for disposition, aggression, and stance.
+ */
+function dungeoncrawler_content_update_10188() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $target_tables = [
+    'dc_aggression_events',
+    'dc_aggression_state',
+    'dc_disposition_events',
+    'dc_disposition_state',
+    'dc_relationship_attitude_events',
+    'dc_relationship_attitude_state',
+    'dc_stance_events',
+    'dc_stance_state',
+  ];
+
+  $created_tables = 0;
+  foreach ($target_tables as $table_name) {
+    if ($schema_handler->tableExists($table_name)) {
+      continue;
+    }
+    if (!isset($schema[$table_name]) || !is_array($schema[$table_name])) {
+      throw new \RuntimeException(sprintf('Canonical persistence migration failed: schema definition missing for %s.', $table_name));
+    }
+    $schema_handler->createTable($table_name, $schema[$table_name]);
+    $created_tables++;
+  }
+
+  return t(
+    'Canonical persistence table migration complete. Created @count missing table(s).',
+    ['@count' => (string) $created_tables]
+  );
+}

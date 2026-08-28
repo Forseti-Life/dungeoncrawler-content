@@ -215,9 +215,11 @@ console.log('\n=== Hexmap room chat context ===');
     resolveActiveChatCharacterId: methods.resolveActiveChatCharacterId.bind(context),
   });
 
-  assert(roomId === 'room-pinned', 'Pinned URL room wins over active room');
-  assert(roomTarget === 'room-pinned', 'Pinned room target helper prefers pinned room over fallback');
-  assert(chatContext.roomId === 'room-pinned', 'Chat context uses pinned URL room');
+  // Precedence is now canonical-first: the authoritative active room outranks
+  // the launch context, which outranks the URL room_id bootstrap hint.
+  assert(roomId === 'room-active', 'Active room wins over the URL room hint');
+  assert(roomTarget === 'room-active', 'Pinned room target helper prefers the resolved room over fallback');
+  assert(chatContext.roomId === 'room-active', 'Chat context uses the authoritative active room');
   assert(chatContext.campaignId === 28, 'Chat context keeps campaign id');
   assert(chatContext.characterId === 122, 'Chat context keeps character id');
 }
@@ -255,17 +257,34 @@ console.log('\n=== Hexmap room chat context ===');
       search: '?campaign_id=28',
     },
   };
+  // Launch context is the second tier: used only when there is no
+  // authoritative active room.
   const context = {
     stateManager: {
       hexmap: {
         launchContext: { room_id: 'room-launch' },
-        resolveActiveRoomId: () => 'room-active',
+        resolveActiveRoomId: () => '',
       },
     },
   };
 
   const roomId = methods.resolvePinnedChatRoomId.call(context);
-  assert(roomId === 'room-launch', 'Launch context room wins when URL room is absent');
+  assert(roomId === 'room-launch', 'Launch context room wins when there is no active room');
+
+  // URL room_id is the last-resort bootstrap hint.
+  global.window = { location: { search: '?campaign_id=28&room_id=room-pinned' } };
+  const urlOnlyContext = {
+    stateManager: {
+      hexmap: {
+        launchContext: {},
+        resolveActiveRoomId: () => '',
+      },
+    },
+  };
+  assert(
+    methods.resolvePinnedChatRoomId.call(urlOnlyContext) === 'room-pinned',
+    'URL room hint is used when neither active nor launch room is available'
+  );
 }
 
 {
@@ -341,7 +360,10 @@ console.log('\n=== Hexmap room chat context ===');
   assert(context.elements.chatTurnName.textContent === 'You', 'Idle room chat names the current player explicitly');
   assert(context.elements.chatTurnMeta.textContent.includes('Player turn:'), 'Idle room chat explains that it is the player turn');
   assert(context.elements.chatTurnCurrentRoundOrder.textContent.includes('Turn 1: Narrator'), 'Idle room chat shows the response round starting with the narrator');
-  assert(context.elements.chatTurnCurrentRoundOrder.textContent.includes('Turn 3: Eldric (initiative 17)'), 'Idle room chat lists explicit NPC initiative order');
+  // The listed round is the *response* round (Narrator + NPCs); the player is
+  // not a member of it, so NPC turns start at position 2.
+  assert(context.elements.chatTurnCurrentRoundOrder.textContent.includes('Turn 2: Eldric (initiative 17)'), 'Idle room chat lists explicit NPC initiative order');
+  assert(context.elements.chatTurnCurrentRoundOrder.textContent.includes('Turn 3: Captain Hadrik (initiative 14)'), 'Idle room chat lists NPC turns in initiative order');
   assert(context.elements.chatTurnNextRoundOrder.textContent.includes('Turn 1: Narrator'), 'Idle room chat previews the next response round starting with the narrator');
   assert(infoLogs.length === 1, 'Idle room chat logs the visible turn state once');
 }
@@ -400,7 +422,8 @@ console.log('\n=== Hexmap room chat context ===');
   assert(context.elements.chatTurnName.textContent === 'Narrator', 'Pending room chat names the narrator explicitly');
   assert(context.elements.chatTurnMeta.textContent.includes('preparing the scene'), 'Pending room chat explains the live narrator turn work');
   assert(context.elements.chatTurnCurrentRoundOrder.textContent.includes('Turn 1: Narrator - current'), 'Pending room chat marks the narrator as the active first turn of the current round');
-  assert(context.elements.chatTurnCurrentRoundOrder.textContent.includes('Turn 3: Eldric (initiative 17)'), 'Pending room chat preserves initiative order detail for NPC turns');
+  assert(context.elements.chatTurnCurrentRoundOrder.textContent.includes('Turn 2: Eldric (initiative 17)'), 'Pending room chat preserves initiative order detail for NPC turns');
+  assert(context.elements.chatTurnCurrentRoundOrder.textContent.includes('Turn 3: Captain Hadrik (initiative 14)'), 'Pending room chat preserves NPC initiative ordering');
   assert(context.elements.chatTurnNextRoundOrder.textContent.includes('Turn 1: Narrator'), 'Pending room chat previews the next response round starting with the narrator');
 }
 

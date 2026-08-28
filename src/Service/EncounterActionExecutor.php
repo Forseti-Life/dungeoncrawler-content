@@ -412,6 +412,8 @@ class EncounterActionExecutor {
         'degree' => $attack_result['degree'] ?? NULL,
         'damage' => $attack_result['damage_dealt'] ?? NULL,
         'damage_type' => $weapon['damage_type'] ?? 'physical',
+        'weapon_name' => $weapon['weapon_name'] ?? NULL,
+        'damage_dice' => $weapon['damage_dice'] ?? NULL,
         'damage_packet' => $damage_packet,
         'resolution_envelope' => $this->combatResolutionContractService->buildResolutionEnvelope(
           $execution_request,
@@ -452,6 +454,7 @@ class EncounterActionExecutor {
     $actor_participant = NULL;
 
     if ($this->movementResolver && !$is_forced) {
+      $movement_scope = $this->movementResolver->buildMovementScope($dungeon_data);
       $encounter_for_actor = $this->encounterStore->loadEncounter($encounter_id);
       $actor_participant = $encounter_for_actor ? $this->findEncounterParticipantByEntityId($encounter_for_actor, $actor_id) : NULL;
 
@@ -459,6 +462,9 @@ class EncounterActionExecutor {
         $speed = $this->movementResolver->getCreatureSpeed($actor_participant, $movement_type);
         if ($speed <= 0) {
           return ['error' => "No {$movement_type} speed.", 'mutations' => []];
+        }
+        if (!$this->movementResolver->isPassable($to_hex, $movement_scope)) {
+          return ['error' => 'Destination hex is outside the active room or impassable.', 'mutations' => []];
         }
 
         $action_cost = max(1, min(3, (int) ($params['action_cost'] ?? 1)));
@@ -472,7 +478,7 @@ class EncounterActionExecutor {
         $cost_info = $this->movementResolver->calculateMovementCost(
           $from_hex_calc,
           $to_hex,
-          $dungeon_data,
+          $movement_scope,
           $diagonal_count,
           $movement_type
         );
@@ -505,7 +511,6 @@ class EncounterActionExecutor {
     $from_hex = NULL;
     if ($entity) {
       $from_hex = $entity['placement']['hex'] ?? NULL;
-      $entity['placement']['hex'] = ['q' => (int) $to_hex['q'], 'r' => (int) $to_hex['r']];
     }
 
     try {
@@ -514,6 +519,35 @@ class EncounterActionExecutor {
       }
       if ($actor_participant === NULL && $encounter_for_actor) {
         $actor_participant = $this->findEncounterParticipantByEntityId($encounter_for_actor, $actor_id);
+      }
+
+      if ($encounter_for_actor && !$is_forced) {
+        // A defeated combatant still physically occupies its hex, so it remains
+        // a blocking occupant for stride destinations. Only the moving actor is
+        // exempt. Without this, an actor can finish a stride standing on top of
+        // a downed creature and two tokens render on the same hex.
+        foreach ((array) ($encounter_for_actor['participants'] ?? []) as $candidate_participant) {
+          if (!is_array($candidate_participant)) {
+            continue;
+          }
+          if ((string) ($candidate_participant['entity_id'] ?? '') === $actor_id) {
+            continue;
+          }
+          $candidate_hex = $this->resolveParticipantHex($candidate_participant);
+          if (
+            $candidate_hex !== NULL
+            && (int) $candidate_hex['q'] === (int) $to_hex['q']
+            && (int) $candidate_hex['r'] === (int) $to_hex['r']
+          ) {
+            $blocker_name = trim((string) ($candidate_participant['name'] ?? ''));
+            return [
+              'error' => $blocker_name !== ''
+                ? sprintf('Destination hex is occupied by %s.', $blocker_name)
+                : 'Destination hex is occupied.',
+              'mutations' => [],
+            ];
+          }
+        }
       }
 
       $participant_id = (int) ($actor_participant['id'] ?? 0);
@@ -546,6 +580,20 @@ class EncounterActionExecutor {
       ? ['q' => (int) ($from_hex['q'] ?? 0), 'r' => (int) ($from_hex['r'] ?? 0)]
       : ['q' => (int) ($to_hex['q'] ?? 0), 'r' => (int) ($to_hex['r'] ?? 0)];
     $resolved_to_hex = ['q' => (int) ($to_hex['q'] ?? 0), 'r' => (int) ($to_hex['r'] ?? 0)];
+    if ($entity) {
+      $entity['placement']['hex'] = $resolved_to_hex;
+    }
+    if (is_array($game_state['initiative_order'] ?? NULL)) {
+      foreach ($game_state['initiative_order'] as &$participant) {
+        if (!is_array($participant) || (string) ($participant['entity_id'] ?? '') !== $actor_id) {
+          continue;
+        }
+        $participant['position_q'] = $resolved_to_hex['q'];
+        $participant['position_r'] = $resolved_to_hex['r'];
+        break;
+      }
+      unset($participant);
+    }
     $distance_ft = (int) ($params['distance_ft'] ?? 0);
     $resolved_action_cost = max(0, (int) ($params['action_cost'] ?? 1));
     $movement_packet = $this->unifiedMovementEngine->buildMovementResolutionPacket(

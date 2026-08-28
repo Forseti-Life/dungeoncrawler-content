@@ -103,9 +103,15 @@ export class GameShellFetchBridge {
     }
 
     const requestToken = ++shell._chatHistoryRequestToken;
+    const backendRequestId = `chat-history-${campaignId}:${requestRoomId}:${requestToken}`;
     console.log('[GameShell] _loadChatHistory', { campaignId, roomId, requestToken });
 
     const request = (async () => {
+      shell.bus.emit('game:backend-request-start', {
+        requestId: backendRequestId,
+        label: 'Hydrating room transcript...',
+        source: 'chat-history',
+      });
       try {
         let url = `/api/campaign/${encodeURIComponent(campaignId)}/room/${encodeURIComponent(roomId)}/chat`;
         const params = new URLSearchParams();
@@ -171,6 +177,7 @@ export class GameShellFetchBridge {
         if (shell._chatHistoryInflight.get(requestKey) === request) {
           shell._chatHistoryInflight.delete(requestKey);
         }
+        shell.bus.emit('game:backend-request-end', { requestId: backendRequestId, source: 'chat-history' });
       }
     })();
 
@@ -248,15 +255,18 @@ export class GameShellFetchBridge {
       const payloadRoom = shell._mergeRoomMetadata(visualRoom, apiRoom, roomId);
 
       const dataStatus = String(result.data.status || '').toLowerCase();
+      const generationAvailable = result.data.available !== false;
+      const retryDeadline = this.getRoomViewRetryDeadline(viewKey);
+      const retryStillOpen = entries.length === 0 && Date.now() < retryDeadline;
       shell._roomViewHasContent = entries.length > 0;
 
       const statusLabel = entries.length > 0
         ? `${entries.length} Scene${entries.length === 1 ? '' : 's'}`
-        : (dataStatus === 'pending' ? 'Generating' : (result.data.available === false ? 'Unavailable' : 'Pending'));
+        : (retryStillOpen ? 'Generating' : 'Unavailable');
       const placeholderText = entries.length > 0
         ? ''
-        : (dataStatus === 'pending'
-          ? 'Room scene is being generated — checking again shortly...'
+        : (retryStillOpen
+          ? `Room scene is not ready yet — retrying automatically for up to ${this.getRoomViewRetryRemainingSeconds(viewKey)} more seconds.`
           : (result.data.message || 'No room view image is available yet.'));
 
       console.log('[GameShell] _loadRoomView: result', {
@@ -273,9 +283,13 @@ export class GameShellFetchBridge {
       });
 
       shell.bus.emit('room:view-loaded', { room: payloadRoom, viewState: { statusLabel, placeholderText, entries } });
-      if (entries.length === 0 && dataStatus === 'pending') {
+      if (entries.length > 0) {
+        this.clearRoomViewRetryWindow(viewKey);
+        this.clearRoomViewRetry();
+      } else if (Date.now() < retryDeadline && (generationAvailable || dataStatus === 'pending' || dataStatus === 'unavailable')) {
         this.scheduleRoomViewRetry(roomId, viewKey);
       } else {
+        this.clearRoomViewRetryWindow(viewKey);
         this.clearRoomViewRetry();
       }
     })();
@@ -312,6 +326,32 @@ export class GameShellFetchBridge {
       window.clearTimeout(shell._roomViewRetryTimer);
       shell._roomViewRetryTimer = null;
     }
+  }
+
+  getRoomViewRetryDeadline(viewKey) {
+    const shell = this.shell;
+    const now = Date.now();
+    if (!(shell._roomViewRetryStartedAt instanceof Map)) {
+      shell._roomViewRetryStartedAt = new Map();
+    }
+    if (!shell._roomViewRetryStartedAt.has(viewKey)) {
+      shell._roomViewRetryStartedAt.set(viewKey, now);
+    }
+    const startedAt = Number(shell._roomViewRetryStartedAt.get(viewKey) || now);
+    const retryWindowMs = Number(shell._roomViewRetryWindowMs || 180000);
+    return startedAt + retryWindowMs;
+  }
+
+  clearRoomViewRetryWindow(viewKey) {
+    const shell = this.shell;
+    if (shell._roomViewRetryStartedAt instanceof Map && viewKey) {
+      shell._roomViewRetryStartedAt.delete(viewKey);
+    }
+  }
+
+  getRoomViewRetryRemainingSeconds(viewKey) {
+    const remainingMs = Math.max(0, this.getRoomViewRetryDeadline(viewKey) - Date.now());
+    return Math.max(1, Math.ceil(remainingMs / 1000));
   }
 
   async loadMerchantStock() {

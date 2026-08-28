@@ -24,14 +24,18 @@ function assert(condition, message) {
 
 const hexmapSource = fs.readFileSync(path.resolve(__dirname, '../js/hexmap.js'), 'utf8');
 const hexmapV2Source = fs.readFileSync(path.resolve(__dirname, '../js/hexmap-v2.js'), 'utf8');
-const gameShellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
+const gameShellSource = require('./helpers/js-source.js').readGameShellSource();
 const actionRailPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ActionRailPanel.js'), 'utf8');
+// actorRef/turn resolution was extracted out of the panel into a shared service.
+const actionRailContextServiceSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/services/action-rail-context-service.js'), 'utf8');
+// Direct-action routing now lives in a declarative contract module.
+const actionRailContractSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/contracts/action-rail-contract.js'), 'utf8');
 const encounterSystemSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/systems/EncounterSystem.js'), 'utf8');
 const statusPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/StatusPanel.js'), 'utf8');
 const chatPanelSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/panels/ChatPanel.js'), 'utf8');
 const coordinatorApiSource = fs.readFileSync(path.resolve(__dirname, '../js/game-coordinator/GameCoordinatorApi.js'), 'utf8');
 const explorationPhaseSource = fs.readFileSync(path.resolve(__dirname, '../src/Service/ExplorationPhaseHandler.php'), 'utf8');
-const encounterPhaseSource = fs.readFileSync(path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'), 'utf8');
+const encounterPhaseSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 console.log('\n=== Action rail Search bindings ===');
 assert(
@@ -39,11 +43,19 @@ assert(
     && hexmapSource.includes("if (actionKey === 'search') {\n        this.executeDirectSearch(button);"),
   'legacy action rail Search direct action executes the shared search handler'
 );
-assert(
-  hexmapSource.includes("./game-coordinator/GameCoordinator.js?v=20260601-search-framework-2")
-    && fs.readFileSync(path.resolve(__dirname, '../js/game-coordinator/GameCoordinator.js'), 'utf8').includes("./GameCoordinatorApi.js?v=20260601-search-framework-2"),
-  'legacy nested coordinator imports are cache-busted when Search contracts change'
-);
+// Pinning literal tokens made this assertion break on every legitimate bump.
+// The durable invariant is ordering: a browser that has GameCoordinator.js
+// cached under a stale token never observes a newer nested import token, so the
+// outer token must never be older than the nested one it carries.
+{
+  const coordinatorSource = fs.readFileSync(path.resolve(__dirname, '../js/game-coordinator/GameCoordinator.js'), 'utf8');
+  const outerToken = (hexmapSource.match(/\.\/game-coordinator\/GameCoordinator\.js\?v=([0-9a-z-]+)/) || [])[1] || '';
+  const innerToken = (coordinatorSource.match(/\.\/GameCoordinatorApi\.js\?v=([0-9a-z-]+)/) || [])[1] || '';
+  assert(
+    outerToken !== '' && innerToken !== '' && outerToken >= innerToken,
+    'legacy nested coordinator imports are cache-busted when Search contracts change'
+  );
+}
 assert(
   hexmapSource.includes("search_mode: 'explicit'")
     && hexmapSource.includes('character_id: characterId')
@@ -78,11 +90,11 @@ assert(
   'legacy runtime context resolves campaign/room ids from canonical fallback sources'
 );
 assert(
-  actionRailPanelSource.includes("const contractActorRef = String(phaseSnapshot?.actionContract?.actor_id || '').trim();")
-    && actionRailPanelSource.includes('const hasTurnScopedAction = availableActions.some((entry) => [')
-    && actionRailPanelSource.includes("|| ((hasServerTurn && hasTurnScopedAction && serverTurnEntity) ? serverTurnEntity : '')")
-    && actionRailPanelSource.includes('|| (Boolean(actorRef) && serverTurnEntity === actorRef);')
-    && !actionRailPanelSource.includes('|| !actorRef'),
+  actionRailContextServiceSource.includes("const contractActorRef = String(phaseSnapshot?.actionContract?.actor_id || '').trim();")
+    && actionRailContextServiceSource.includes('const hasTurnScopedAction = availableActions.some((entry) => [')
+    && actionRailContextServiceSource.includes("|| ((turnEnvelope.hasServerTurn && actionState.hasTurnScopedAction && turnEnvelope.serverTurnEntity) ? turnEnvelope.serverTurnEntity : '')")
+    && actionRailContextServiceSource.includes('|| (Boolean(actorRef) && turnEnvelope.serverTurnEntity === actorRef);')
+    && !actionRailContextServiceSource.includes('|| !actorRef'),
   'v2 action rail resolves actorRef from canonical contract/turn context and does not mark missing actorRef as active turn'
 );
 assert(
@@ -94,7 +106,8 @@ assert(
 assert(
   gameShellSource.includes('resolveLaunchCharacterRuntimeContext: () => shell.resolveLaunchCharacterRuntimeContext(),')
     && gameShellSource.includes('resolveLaunchCharacterRuntimeContext() {')
-    && gameShellSource.includes('instanceId: launchCharacterId > 0 && selectedCharacterId === launchCharacterId')
+    && gameShellSource.includes('const selectedIsLaunchActor = launchCharacterId > 0 && selectedCharacterId === launchCharacterId;')
+    && gameShellSource.includes('instanceId: selectedIsLaunchActor')
     && gameShellSource.includes('roomId: this.resolveActiveRoomId(),'),
   'v2 hexmap shim exposes runtime actor context so exploration Search can unlock without ECS combat state'
 );
@@ -110,10 +123,10 @@ assert(
 assert(
   gameShellSource.includes('applyQuestUpdates: (questUpdates = []) => shell.applyQuestUpdates(questUpdates),')
     && gameShellSource.includes('refreshQuestJournalFromApi: () => shell.refreshQuestJournalFromApi(),')
-    && gameShellSource.includes('async refreshQuestJournalFromApi() {')
+    && gameShellSource.includes('async refreshQuestJournalFromApi(context = {}) {')
     && gameShellSource.includes('async applyQuestUpdates(questUpdates = []) {')
     && gameShellSource.includes('await this.applyQuestUpdates(questUpdates);')
-    && chatPanelSource.includes('await questHexmap?.applyQuestUpdates?.(result.data.quest_updates);')
+    && chatPanelSource.includes('await questHexmap?.applyQuestUpdates?.(completeResult.data.quest_updates);')
     && chatPanelSource.includes('await questHexmap.refreshQuestJournalFromApi();'),
   'v2 quest tab refresh flows through hexmap shim quest-journal methods for authoritative updates'
 );
@@ -128,7 +141,7 @@ assert(
 assert(
   encounterSystemSource.includes("search_mode: 'explicit'")
     && encounterSystemSource.includes('character_id: characterId')
-    && encounterSystemSource.includes("coordinator.api.sendAction('search', actorRef, {")
+    && encounterSystemSource.includes("this._sendCoordinatorActionWithResync(coordinator, 'search', actorRef, {")
     && encounterSystemSource.includes('|| phaseSnapshot?.actionContract?.actor_id')
     && encounterSystemSource.includes('|| phaseSnapshot?.turn?.entity')
     && encounterSystemSource.includes('await hexmap.loadCharacterFromApi?.(context.characterId);')
@@ -159,7 +172,7 @@ assert(
 );
 assert(
   encounterPhaseSource.includes('$public_discoveries !== [] || (is_string($narration) && trim($narration) !== \'\')')
-    && encounterPhaseSource.includes('$result = $this->buildPublicSearchResult($result);')
+    && encounterPhaseSource.includes('$public_result = $this->buildPublicSearchResult($search_result);')
     && encounterPhaseSource.includes('protected function buildPublicSearchResult(array $result): array')
     && !encounterPhaseSource.includes("'roll' => $result['roll'] ?? NULL,\n          'dc' => $result['dc'] ?? NULL,\n          'degree' => $result['degree'] ?? NULL")
     && !encounterPhaseSource.includes('content\' => trim($narration)')
@@ -167,15 +180,20 @@ assert(
     && !encounterPhaseSource.includes('searches the area (Perception %d vs DC %d: %s).'),
   'Search emits only sanitized discovery events and does not queue duplicate session narration'
 );
+// The search-specific narration branch was generalized: every encounter event
+// (search included) renders server narration verbatim, falling back to a typed
+// message only when the server supplied none. No-discovery feedback therefore
+// still reaches chat, via the same path.
 assert(
-  chatPanelSource.includes("if (type === 'search' && typeof event.narration === 'string' && event.narration.trim())")
-    && chatPanelSource.includes('message: event.narration.trim()'),
+  chatPanelSource.includes("const narration = typeof event.narration === 'string' ? event.narration.trim() : '';")
+    && chatPanelSource.includes('const message = narration || this.buildEncounterEventFallbackMessage(type, data, actorName, event);')
+    && chatPanelSource.includes("if (eventType === 'search') {"),
   'v2 chat renders Search narration events, including explicit no-discovery feedback'
 );
 assert(
-  chatPanelSource.includes("window.addEventListener('dungeoncrawler:game-events', onGameEvents)")
-    && chatPanelSource.includes("window.removeEventListener('dungeoncrawler:game-events', onGameEvents)")
-    && chatPanelSource.includes('this._encounterTranscriptRoomKey')
+  chatPanelSource.includes("window.addEventListener('dungeoncrawler:game-events', this._handleGameEvents);")
+    && chatPanelSource.includes("window.removeEventListener('dungeoncrawler:game-events', this._handleGameEvents);")
+    && chatPanelSource.includes('this._roomHistoryHasEncounterTranscript')
     && chatPanelSource.includes('this.renderPersistedEncounterEventHistory();'),
   'v2 chat consumes authoritative encounter event stream and seeds persisted transcript once per room'
 );
@@ -194,7 +212,10 @@ assert(
     && statusPanelSource.includes('Still waiting; the backend may be busy.')
     && statusPanelSource.includes("this.container?.querySelector?.(`.map-initiative-status [data-status=\"${statusKey}\"]`)")
     && statusPanelSource.includes('this._dockBackendWaitIntoInitiativeStatus();')
-    && statusPanelSource.includes("const statusHost = this.container?.querySelector('.map-initiative-status') || null;"),
+    && statusPanelSource.includes("const existing = this.container?.querySelector?.('.map-initiative-status')")
+    && statusPanelSource.includes("host.className = 'map-initiative-status';")
+    && statusPanelSource.includes("const list = tracker.querySelector('.initiative-list');")
+    && statusPanelSource.includes('tracker.insertBefore(host, list);'),
   'v2 status panel shows backend wait cues and docks the wait banner under the initiative status block'
 );
 assert(
@@ -207,8 +228,9 @@ assert(
 );
 assert(
   actionRailPanelSource.includes('getActionRailDirectRoute(actionType, button)')
-    && actionRailPanelSource.includes("return { event: 'user:end-turn', payload: { button, actionType } };")
-    && actionRailPanelSource.includes('const directRoute = this.getActionRailDirectRoute(actionType, button);')
+    && actionRailContractSource.includes("end_turn: (button, actionType) => ({ event: 'user:end-turn', payload: { button, actionType } }),")
+    && actionRailContractSource.includes("choose_not_to_act: (button, actionType) => ({ event: 'user:end-turn', payload: { button, actionType } }),")
+    && actionRailPanelSource.includes('const directRoute = getActionRailDirectRoute(actionType, button);')
     && encounterSystemSource.includes("this.bus.on('user:end-turn',     (d) => this.endCurrentTurn(d))")
     && encounterSystemSource.includes("const requestedActionType = String(data?.actionType || '').trim().toLowerCase();")
     && encounterSystemSource.includes("actionType = availableActions.includes('choose_not_to_act') ? 'choose_not_to_act' : 'end_turn';")

@@ -25,6 +25,52 @@ class EncounterActorContextBuilder {
   }
 
   /**
+   * Normalizes a combatant team label to a canonical side.
+   *
+   * Unrecognized values are a data-contract violation and fail loudly rather
+   * than being coerced to a guessed side, which would silently invert ally and
+   * threat classification for the actor decision pipeline.
+   */
+  protected function normalizeContextTeam(?string $team, string $entity_id = ''): string {
+    $normalized = strtolower(trim((string) $team));
+    if ($normalized === 'player' || $normalized === 'party' || $normalized === 'pc') {
+      return 'player';
+    }
+    if ($normalized === 'ally' || $normalized === 'allied' || $normalized === 'companion' || $normalized === 'follower') {
+      return 'ally';
+    }
+    if ($normalized === 'enemy' || $normalized === 'hostile' || $normalized === 'foe') {
+      return 'enemy';
+    }
+    if ($normalized === 'neutral') {
+      return 'neutral';
+    }
+
+    throw new \RuntimeException(sprintf(
+      'Actor context team contract violation: combatant "%s" has unresolvable team "%s". Initiative order entries must carry a canonical team (player|ally|enemy|neutral). Fix the participant classification write path rather than defaulting a side here.',
+      $entity_id !== '' ? $entity_id : 'unknown',
+      (string) $team
+    ));
+  }
+
+  /**
+   * Determines whether $other is hostile relative to $actor_team.
+   */
+  protected function isOpposingContextTeam(string $actor_team, string $other_team): bool {
+    $party_side = ['player', 'ally'];
+    $actor_on_party_side = in_array($actor_team, $party_side, TRUE);
+    $other_on_party_side = in_array($other_team, $party_side, TRUE);
+
+    if ($actor_on_party_side) {
+      return !$other_on_party_side && $other_team !== 'neutral';
+    }
+    if ($actor_team === 'neutral') {
+      return FALSE;
+    }
+    return $other_on_party_side;
+  }
+
+  /**
    * Build canonical actor context for encounter action recommendation.
    */
   public function buildActorContext(string $entity_id, array $game_state, array $dungeon_data, array $current_actor_tactical_intent): array {
@@ -32,6 +78,21 @@ class EncounterActorContextBuilder {
     $actor = NULL;
     $allies = [];
     $threats = [];
+
+    $actor_team = NULL;
+    foreach ($initiative_order as $combatant) {
+      if (($combatant['entity_id'] ?? '') === $entity_id) {
+        $actor_team = $this->normalizeContextTeam($combatant['team'] ?? NULL, $entity_id);
+        break;
+      }
+    }
+    if ($actor_team === NULL) {
+      throw new \RuntimeException(sprintf(
+        'Actor context contract violation: actor "%s" is not present in the initiative order for encounter %s.',
+        $entity_id,
+        (string) ($game_state['encounter_id'] ?? 'unknown')
+      ));
+    }
 
     foreach ($initiative_order as $combatant) {
       $cid = $combatant['entity_id'] ?? '';
@@ -42,8 +103,8 @@ class EncounterActorContextBuilder {
       if (!empty($combatant['is_defeated'])) {
         continue;
       }
-      $team = $combatant['team'] ?? 'enemy';
-      if ($team === 'player') {
+      $team = $this->normalizeContextTeam($combatant['team'] ?? NULL, (string) $cid);
+      if ($this->isOpposingContextTeam($actor_team, $team)) {
         $threats[] = [
           'entity_id' => $cid,
           'name' => $combatant['name'] ?? $cid,
@@ -94,7 +155,7 @@ class EncounterActorContextBuilder {
         'entity_id' => $entity_id,
         'entity_ref' => $resolved_entity_ref,
         'name' => $actor['name'] ?? $entity_id,
-        'team' => $actor['team'] ?? 'enemy',
+        'team' => $actor_team,
         'hp' => (int) ($actor['hp'] ?? 0),
         'max_hp' => (int) ($actor['max_hp'] ?? 0),
         'hp_ratio' => $this->hpRatio($actor ?? []),

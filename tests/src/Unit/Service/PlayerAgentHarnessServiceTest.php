@@ -2,7 +2,10 @@
 
 namespace Drupal\Tests\dungeoncrawler_content\Unit\Service;
 
+use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Tests\UnitTestCase;
+use Drupal\dungeoncrawler_content\Service\ActorProcessFlowPlanner;
 use Drupal\dungeoncrawler_content\Service\PlayerAgentEncounterPolicy;
 use Drupal\dungeoncrawler_content\Service\PlayerAgentExplorationPolicy;
 use Drupal\dungeoncrawler_content\Service\PlayerAgentHarnessService;
@@ -10,6 +13,7 @@ use Drupal\dungeoncrawler_content\Service\PlayerAgentProgressTracker;
 use Drupal\dungeoncrawler_content\Service\PlayerAgentRuntimeAdapterInterface;
 use Drupal\dungeoncrawler_content\Service\RoomChatService;
 use Drupal\dungeoncrawler_content\Service\SessionService;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 
 /**
  * @coversDefaultClass \Drupal\dungeoncrawler_content\Service\PlayerAgentHarnessService
@@ -17,6 +21,18 @@ use Drupal\dungeoncrawler_content\Service\SessionService;
  * @group ai
  */
 class PlayerAgentHarnessServiceTest extends UnitTestCase {
+
+  protected function setUp(): void {
+    parent::setUp();
+
+    $logger = $this->createMock(LoggerChannelInterface::class);
+    $logger_factory = $this->createMock(LoggerChannelFactoryInterface::class);
+    $logger_factory->method('get')->willReturn($logger);
+
+    $container = new ContainerBuilder();
+    $container->set('logger.factory', $logger_factory);
+    \Drupal::setContainer($container);
+  }
 
   /**
    * @covers ::runStep
@@ -186,6 +202,75 @@ class PlayerAgentHarnessServiceTest extends UnitTestCase {
     $this->assertTrue($result['success']);
     $this->assertSame('stop', $result['decision']['type']);
     $this->assertSame('The best choice is still to rest, so automation should pause.', $result['stop_reason']);
+  }
+
+  /**
+   * @covers ::runStep
+   */
+  public function testRunStepUsesDeterministicProcessFlowPlannerBeforePolicyFallback(): void {
+    $adapter = $this->createMock(PlayerAgentRuntimeAdapterInterface::class);
+    $session_service = $this->createMock(SessionService::class);
+    $session_service->method('getCampaignCharacterXp')->willReturn(450);
+    $planner = $this->getMockBuilder(ActorProcessFlowPlanner::class)
+      ->disableOriginalConstructor()
+      ->onlyMethods(['planDecision'])
+      ->getMock();
+
+    $adapter->method('buildSnapshot')->willReturn([
+      'success' => TRUE,
+      'campaign_id' => 12,
+      'phase' => 'encounter',
+      'state_version' => 9,
+      'active_room_id' => 'room-a',
+      'available_actions' => ['talk', 'end_turn'],
+      'visible_npcs' => [],
+      'hostile_targets' => [],
+      'game_state' => ['phase' => 'encounter', 'turn' => ['entity' => 'pc-1']],
+    ]);
+    $planner->expects($this->once())
+      ->method('planDecision')
+      ->with(
+        $this->arrayHasKey('actor_id'),
+        $this->arrayHasKey('phase'),
+        $this->isType('array'),
+        ['planner_mode' => 'harness']
+      )
+      ->willReturn([
+        'type' => 'intent',
+        'reason' => 'Planner selected a deterministic warning line.',
+        'intent' => [
+          'type' => 'talk',
+          'actor' => 'pc-1',
+          'params' => ['message' => 'Hold the line!'],
+        ],
+      ]);
+    $adapter->expects($this->once())
+      ->method('submitIntent')
+      ->with(12, $this->callback(function (array $intent): bool {
+        return $intent['type'] === 'talk'
+          && $intent['params']['message'] === 'Hold the line!'
+          && $intent['client_state_version'] === 9;
+      }))
+      ->willReturn([
+        'success' => TRUE,
+        'game_state' => ['phase' => 'encounter'],
+        'events' => [],
+      ]);
+
+    $harness = new PlayerAgentHarnessService(
+      $adapter,
+      new PlayerAgentExplorationPolicy(),
+      new PlayerAgentEncounterPolicy(),
+      new PlayerAgentProgressTracker($session_service),
+      NULL,
+      $planner
+    );
+
+    $result = $harness->runStep(12, ['actor_id' => 'pc-1', 'character_id' => 77], []);
+
+    $this->assertTrue($result['success']);
+    $this->assertSame('talk', $result['decision']['intent']['type']);
+    $this->assertSame('Hold the line!', $result['decision']['intent']['params']['message']);
   }
 
 }

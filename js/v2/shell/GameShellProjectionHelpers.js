@@ -64,6 +64,13 @@ export function _isVisualOccupantVisible(occupant, activeRoomId = '') {
     return true;
   }
 
+  // Occupants standing in the active room are authoritative over the legacy
+  // `visible` flag, which goes stale once the projection moves an actor into
+  // the current room. Hidden-and-undetected still wins so stealth works.
+  if (inActiveRoom) {
+    return !(hidden && !detected);
+  }
+
   if (occupant.visible === false) {
     return false;
   }
@@ -489,6 +496,29 @@ export function _findLaunchPlayerEntity(entityManager, launchContext = {}, launc
   return onStartHex || launchCandidates[0] || null;
 }
 
+/**
+ * Derive a stable sprite key for an actor whose only art is a portrait URL.
+ *
+ * Map tokens render from `PIXI.utils.TextureCache[spriteKey]`, while chat renders
+ * straight from `metadata.portrait_url`. Actors without an authored `sprite_id`
+ * therefore had no key to render under and fell back to colored circles even
+ * though the server had already resolved a portrait for them. Deriving a key
+ * here lets the existing preload → texture-cache → token pipeline supply the
+ * same art the chat tab uses.
+ */
+export function _buildActorPortraitSpriteId(entityType, metadata = {}, instanceId = '') {
+  const portraitUrl = String(metadata?.portrait_url || metadata?.portrait || '').trim();
+  if (!portraitUrl) {
+    return '';
+  }
+  const actorType = String(entityType || '').trim().toLowerCase();
+  if (!['player_character', 'npc', 'creature'].includes(actorType)) {
+    return '';
+  }
+  const ref = String(instanceId || '').trim();
+  return ref ? `portrait__${ref}` : '';
+}
+
 export function _preloadSpriteUrls(spriteService, blueprints = [], objectDefinitions = {}, launchCharacter = null) {
   if (!spriteService?.preloadUrl) {
     return;
@@ -502,7 +532,10 @@ export function _preloadSpriteUrls(spriteService, blueprints = [], objectDefinit
 
     const definition = objectDefinitions?.[blueprint?.contentId] || {};
     const url = String(
-      definition?.visual?.image_url
+      // A server-resolved actor portrait is the same art the chat tab renders,
+      // so it takes precedence over generic object-definition artwork.
+      blueprint?.render?.portraitUrl
+      || definition?.visual?.image_url
       || definition?.visual?.portrait_url
       || definition?.visual?.url
       || '',
@@ -740,6 +773,12 @@ export function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId 
           || definition?.visual?.sprite_id
           || visual?.presentation?.sprite_id
           || (isLaunchPlayerEntity ? launchPortraitSpriteId : '')
+          || _buildActorPortraitSpriteId(entityType, metadata, instanceId)
+          || '',
+        ).trim() || null,
+        portraitUrl: String(
+          metadata?.portrait_url
+          || metadata?.portrait
           || '',
         ).trim() || null,
         scale: Number(metadata?.render_scale ?? (entityType === 'item' ? 0.55 : 1)) || (entityType === 'item' ? 0.55 : 1),

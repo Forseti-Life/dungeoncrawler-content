@@ -22,17 +22,23 @@ function assert(condition, message) {
   }
 }
 
-const roomChatSource = fs.readFileSync(path.resolve(__dirname, '../src/Service/RoomChatService.php'), 'utf8');
+const roomChatSource = require('./helpers/php-source.js').readGmPipelineSource();
+// Lead-to-offered promotion and quest start moved out of the GM pipeline into
+// the dedicated quest touchpoint service.
+const questTouchpointSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/QuestTouchpointService.php'),
+  'utf8'
+);
 const questTemplates = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../content/quest_templates.json'), 'utf8'));
 const roomTemplates = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config/examples/templates/dungeoncrawler_content_rooms/default_room_templates.json'), 'utf8'));
 
 console.log('\n=== Questgiver activation contract ===');
 
 assert(
-  roomChatSource.includes("if ($status === 'lead') {")
-    && roomChatSource.includes("->fields(['status' => 'offered'])")
-    && roomChatSource.includes("if ($status === 'offered') {")
-    && roomChatSource.includes("$this->questTracker->startQuest($campaign_id, $quest_id, $character_id);"),
+  questTouchpointSource.includes("if (in_array($status, ['lead', 'available'], TRUE)) {")
+    && questTouchpointSource.includes("'offered',")
+    && questTouchpointSource.includes('$this->storylineQuestLifecycleService->setQuestStatusByQuestId(')
+    && questTouchpointSource.includes('if ($this->questTracker->startQuest($campaign_id, $quest_id, $character_id)) {'),
   'Direct questgiver talk promotes lead quests to offered and then starts them'
 );
 assert(
@@ -41,8 +47,8 @@ assert(
   'Dialogue surfacing checks whether the speaking NPC is the quest giver before auto-starting the quest'
 );
 assert(
-  roomChatSource.indexOf('buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data)') <
-    roomChatSource.indexOf('buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message)'),
+  roomChatSource.indexOf('buildAvailableQuestgiverQuestDialogue($campaign_id, $entity_ref, $display_name, $room_id, $dungeon_data, $character_id)') <
+    roomChatSource.indexOf('buildBrokeredStorylineLeadDialogue($campaign_id, $entity_ref, $display_name, $player_message, $room_id, $dungeon_data, $character_id)'),
   'Direct authored questgiver offers are prioritized before brokered storyline lead chatter'
 );
 
@@ -59,11 +65,33 @@ assert(Array.isArray(collectSpellbooks?.rewards_schema?.items) && collectSpellbo
 
 const tavernRoom = (roomTemplates.rows || []).find((room) => room.room_id === 'tavern_entrance') || {};
 const martaQuest = (tavernRoom.contents_data?.npcs || []).flatMap((npc) => npc.quests || []).find((quest) => quest.quest_id === 'collect_spellbooks') || {};
-assert(martaQuest.title === "Recover Marta's Journal", 'Marta offers the journal-specific quest title');
+// The single-journal seed was deliberately expanded back into a multi-candidate
+// spellbook hunt (commit b266af217ad, "Expand Marta and Gribbles default starter
+// seeds"). target_count stays 1, so any one candidate completes the quest.
+assert(martaQuest.title === 'Recover Lost Spellbook', 'Marta offers the spellbook recovery quest');
 
-const journalItems = (tavernRoom.contents_data?.items || []).filter((item) => item.quest_association === 'collect_spellbooks');
-assert(journalItems.length === 1, 'Only one tavern item remains associated to the collect_spellbooks quest');
-assert(journalItems[0]?.name === "Marta's Journal", 'The associated tavern quest item is Marta\'s Journal');
+const spellbookItems = (tavernRoom.contents_data?.items || []).filter((item) => item.quest_association === 'collect_spellbooks');
+assert(spellbookItems.length > 0, 'Tavern seeds at least one item associated to the collect_spellbooks quest');
+assert(
+  spellbookItems.some((item) => item.name === "Marta's Journal"),
+  "Marta's Journal remains one of the collect_spellbooks candidates"
+);
+assert(
+  spellbookItems.every((item) => item.type === 'collectible_item'),
+  'Every collect_spellbooks candidate is a collectible item'
+);
+assert(
+  spellbookItems.every((item) => (item.tags || []).includes('collect_spellbooks')),
+  'Every collect_spellbooks candidate carries the quest tag'
+);
+assert(
+  new Set(spellbookItems.map((item) => item.content_id)).size === spellbookItems.length,
+  'collect_spellbooks candidates have unique content ids'
+);
+assert(
+  spellbookItems.every((item) => Number.isFinite(Number(item.position?.q)) && Number.isFinite(Number(item.position?.r))),
+  'Every collect_spellbooks candidate is placed on a hex'
+);
 
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);

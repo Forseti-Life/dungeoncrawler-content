@@ -35,7 +35,8 @@ assert(
   'Deterministic/action-backed room chat routes through authoritative processAction lane'
 );
 assert(
-  gmSubsystemSource.includes('return $this->applyActorResponseProjection(')
+  gmSubsystemSource.includes('$projected = $this->applyActorResponseProjection(')
+    && gmSubsystemSource.includes("return $this->appendInvocationTiming($projected, 'gm_subsystem', $timings, $overall_started_at);")
     && gmSubsystemSource.includes('protected function applyActorResponseProjection('),
   'Deterministic lane responses are projected through actor-scoped response seam before returning'
 );

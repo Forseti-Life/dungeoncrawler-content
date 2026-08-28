@@ -47,7 +47,7 @@ assert(
   'Strike and supported spell damage paths route through UnifiedDamageEngine and preserve canonical packet metadata'
 );
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 assert(
   phaseHandlerSource.includes("buildEvent('strike'")
     && phaseHandlerSource.includes("'damage_packet' => $damage_packet")

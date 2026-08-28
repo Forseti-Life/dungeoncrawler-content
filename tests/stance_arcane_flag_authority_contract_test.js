@@ -27,10 +27,7 @@ const stanceRuntimeSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/StanceRuntimeService.php'),
   'utf8',
 );
-const encounterSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
-  'utf8',
-);
+const encounterSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 const somSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Controller/SomController.php'),
   'utf8',

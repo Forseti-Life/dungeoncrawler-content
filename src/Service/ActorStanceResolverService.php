@@ -24,6 +24,29 @@ class ActorStanceResolverService {
    *   Canonical actor stance envelope.
    */
   public function resolveStance(int $campaign_id, string $actor_ref, array $context = []): array {
+    return $this->buildStanceEnvelope($campaign_id, $actor_ref, $context, TRUE);
+  }
+
+  /**
+   * Project stance without persisting behavioral state.
+   *
+   * @param array<string, mixed> $context
+   *   Runtime evaluation context.
+   *
+   * @return array<string, mixed>
+   *   Canonical actor stance envelope.
+   */
+  public function projectStance(int $campaign_id, string $actor_ref, array $context = []): array {
+    return $this->buildStanceEnvelope($campaign_id, $actor_ref, $context, FALSE);
+  }
+
+  /**
+   * Build one actor stance envelope.
+   *
+   * @param array<string, mixed> $context
+   *   Runtime evaluation context.
+   */
+  protected function buildStanceEnvelope(int $campaign_id, string $actor_ref, array $context, bool $persist): array {
     $actor_ref = trim($actor_ref);
     $mode = $this->normalizeMode((string) ($context['mode'] ?? 'room'));
     $target_refs = $this->normalizeTargetRefs(
@@ -119,7 +142,9 @@ class ActorStanceResolverService {
       ],
       'resolved_at' => gmdate('c'),
     ];
-    $this->persistBehavioralStance($campaign_id, $actor_ref, $envelope);
+    if ($persist) {
+      $this->persistBehavioralStance($campaign_id, $actor_ref, $envelope);
+    }
     return $envelope;
   }
 

@@ -29,33 +29,32 @@ const source = fs.readFileSync(
 
 console.log('\n=== RoomChatController lazy GM contract ===');
 
+// The controller no longer carries GM-subsystem or coordinator dependencies at
+// all: the work moved behind orchestrators, and the only remaining coordinator
+// use is resolved on demand inside the room-chat NPC dialogue trait. That is a
+// stronger form of the original "never build them during construction" intent,
+// so it is asserted at both ends rather than dropped.
+const dialogueTraitSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/RoomChatServiceNpcDialogueAndQuestLeadTrait.php'),
+  'utf8'
+);
+
 assert(
-  source.includes('protected ?GameMasterSubsystemService $gmSubsystem;'),
-  'controller stores the GM subsystem as a nullable dependency'
+  !source.includes('GameMasterSubsystemService') && !source.includes('GameCoordinatorService'),
+  'controller carries no GM subsystem or game coordinator dependency'
 );
 assert(
-  source.includes('protected ?GameCoordinatorService $coordinator;'),
-  'controller stores the game coordinator as a nullable dependency'
-);
-assert(
-  source.includes('protected function getGmSubsystem(): GameMasterSubsystemService {'),
-  'controller exposes a lazy GM subsystem accessor'
-);
-assert(
-  source.includes('protected function getCoordinator(): GameCoordinatorService {'),
-  'controller exposes a lazy coordinator accessor'
-);
-assert(
-  source.includes("\\Drupal::service('dungeoncrawler_content.game_master_subsystem')"),
-  'lazy accessor resolves the GM subsystem service only on demand'
-);
-assert(
-  source.includes("\\Drupal::service('dungeoncrawler_content.game_coordinator')"),
-  'lazy accessor resolves the game coordinator service only on demand'
-);
-assert(
-  source.includes("return new static(\n      $container->get('dungeoncrawler_content.room_chat_service'),\n      NULL,\n      NULL,"),
+  !source.includes("dungeoncrawler_content.game_master_subsystem")
+    && !source.includes("dungeoncrawler_content.game_coordinator"),
   'controller factory no longer instantiates the GM subsystem or coordinator during creation'
+);
+assert(
+  dialogueTraitSource.includes("\\Drupal::service('dungeoncrawler_content.game_coordinator')"),
+  'the game coordinator is resolved only on demand, at its point of use'
+);
+assert(
+  dialogueTraitSource.includes("!\\Drupal::hasService('dungeoncrawler_content.game_coordinator')"),
+  'on-demand coordinator resolution guards service availability before resolving'
 );
 
 console.log(`\nPassed: ${passed}`);

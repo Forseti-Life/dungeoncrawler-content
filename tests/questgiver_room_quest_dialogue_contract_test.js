@@ -21,13 +21,13 @@ function assert(condition, message) {
   }
 }
 
-const source = fs.readFileSync(path.resolve(__dirname, '../src/Service/RoomChatService.php'), 'utf8');
+const source = require('./helpers/php-source.js').readGmPipelineSource();
 
 console.log('\n=== Questgiver room quest dialogue contract ===');
 
 assert(
   source.includes('$lines = [];') &&
-  source.includes("return '\"' . $speaker . implode(' ', $lines) . '\"';"),
+  source.includes("return '\"' . implode(' ', $lines) . '\"';"),
   'Questgiver room quest dialogue aggregates multiple authored quest lines into one response'
 );
 

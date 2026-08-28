@@ -149,7 +149,8 @@ trait EncounterNavigationTransitionCoordinatorTrait {
     $room_scene_events_started_at = microtime(TRUE);
     $events = [];
     if (!empty($game_state['encounter_id']) && $from_room !== NULL && (string) $from_room !== $target_room_id) {
-      $events = array_merge($events, $this->onExit($game_state, $dungeon_data, $campaign_id));
+      $exit_result = $this->onExit($game_state, $dungeon_data, $campaign_id);
+      $events = array_merge($events, is_array($exit_result['events'] ?? NULL) ? $exit_result['events'] : []);
     }
 
     $events[] = GameEventLogger::buildEvent('room_entered', 'encounter', $actor_id, [
@@ -158,14 +159,15 @@ trait EncounterNavigationTransitionCoordinatorTrait {
     ], (string) ($room['description'] ?? $room['name'] ?? ''));
     $events = array_values($events);
 
-    $combat_context = $this->buildCombatEncounterContext($target_room_id, $dungeon_data, $game_state, $campaign_id);
-    if (!empty($combat_context['should_trigger'])) {
-      $events = array_merge($events, $this->onEnter($combat_context, $game_state, $dungeon_data, $campaign_id));
+    $bootstrap_context = $this->resolveBootstrapEncounterInitialization($target_room_id, $game_state, $dungeon_data, $campaign_id, $actor_id);
+    if (!empty($bootstrap_context['combat_context']['should_trigger'])) {
+      $enter_result = $this->onEnter($bootstrap_context['combat_context'], $game_state, $dungeon_data, $campaign_id);
+      $events = array_merge($events, is_array($enter_result['events'] ?? NULL) ? $enter_result['events'] : []);
     }
     else {
       $events = array_merge(
         $events,
-        $this->startRoomSceneEncounter($actor_id, $target_room_id, $game_state, $dungeon_data, $campaign_id, $room)
+        $this->startRoomSceneEncounter($actor_id, $target_room_id, $game_state, $dungeon_data, $campaign_id, $bootstrap_context['room'] ?? $room)
       );
     }
     $timing_breakdown['room_scene_events_ms'] = (microtime(TRUE) - $room_scene_events_started_at) * 1000.0;
@@ -244,14 +246,15 @@ trait EncounterNavigationTransitionCoordinatorTrait {
    * transition validation, graph mutation/materialization, and launch-slice
    * provisioning while still establishing the room-scene encounter framework.
    */
-  public function bootstrapRoomSceneFramework(string $room_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+  public function bootstrapRoomSceneFramework(string $room_id, array &$game_state, array &$dungeon_data, int $campaign_id, ?string $preferred_actor_id = NULL): array {
     $room_id = trim($room_id);
     if ($room_id === '') {
       return ['error' => 'No room specified for room-scene bootstrap.'];
     }
 
-    $room = $this->findRoomById($dungeon_data, $room_id);
-    if ($room === NULL) {
+    $bootstrap_context = $this->resolveBootstrapEncounterInitialization($room_id, $game_state, $dungeon_data, $campaign_id, $preferred_actor_id);
+    $room = $bootstrap_context['room'] ?? NULL;
+    if (!is_array($room)) {
       return ['error' => sprintf("Room '%s' does not exist.", $room_id)];
     }
 
@@ -272,12 +275,17 @@ trait EncounterNavigationTransitionCoordinatorTrait {
       ], (string) ($room['description'] ?? $room['name'] ?? '')),
     ];
 
-    $events = array_merge(
-      $events,
-      $this->startRoomSceneEncounter(NULL, $room_id, $game_state, $dungeon_data, $campaign_id, $room)
-    );
-
-    $this->roomChatService->injectRoomSceneNarratorIntroIfNeeded($dungeon_data, $room_id);
+    if (!empty($bootstrap_context['combat_context']['should_trigger'])) {
+      $enter_result = $this->onEnter($bootstrap_context['combat_context'], $game_state, $dungeon_data, $campaign_id);
+      $events = array_merge($events, is_array($enter_result['events'] ?? NULL) ? $enter_result['events'] : []);
+    }
+    else {
+      $events = array_merge(
+        $events,
+        $this->startRoomSceneEncounter(NULL, $room_id, $game_state, $dungeon_data, $campaign_id, $room)
+      );
+      $this->roomChatService->injectRoomSceneNarratorIntroIfNeeded($dungeon_data, $room_id);
+    }
 
     return [
       'success' => TRUE,
@@ -286,6 +294,26 @@ trait EncounterNavigationTransitionCoordinatorTrait {
       'time_effects' => [],
       'phase_transition' => NULL,
       'narration' => NULL,
+    ];
+  }
+
+  /**
+   * Resolve unified bootstrap initialization for room entry and cold start.
+   *
+   * @return array{room:?array,combat_context:array<string,mixed>}
+   *   Shared bootstrap context.
+   */
+  protected function resolveBootstrapEncounterInitialization(string $room_id, array &$game_state, array &$dungeon_data, int $campaign_id, ?string $actor_id = NULL): array {
+    $room_id = trim($room_id);
+    $room = $room_id !== '' ? $this->findRoomById($dungeon_data, $room_id) : NULL;
+    if ($room === NULL && $campaign_id > 0 && $room_id !== '') {
+      $dungeon_data = $this->rebuildAuthoritativeRuntimeGraph($campaign_id, $dungeon_data, $room_id);
+      $room = $this->findRoomById($dungeon_data, $room_id);
+    }
+
+    return [
+      'room' => $room,
+      'combat_context' => $this->buildCombatEncounterContext($room_id, $dungeon_data, $game_state, $campaign_id, $actor_id),
     ];
   }
 
@@ -998,6 +1026,7 @@ trait EncounterNavigationTransitionCoordinatorTrait {
    * {@inheritdoc}
    */
   public function onEnter(array $context, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    $lifecycle_snapshot = $this->captureEncounterLifecycleSnapshot($game_state);
     $game_state['phase'] = 'encounter';
     $events = [];
 
@@ -1013,15 +1042,44 @@ trait EncounterNavigationTransitionCoordinatorTrait {
     try {
       // Build participant list from entities in the room.
       $participants = $this->buildParticipantList($dungeon_data, $room_id, $enemies);
+      $has_player_side = FALSE;
+      $has_hostile_side = FALSE;
+      foreach ($participants as $participant) {
+        if (!is_array($participant)) {
+          continue;
+        }
+        $team = $this->normalizeCombatTeam((string) ($participant['team'] ?? ''));
+        if (in_array($team, ['player', 'ally'], TRUE)) {
+          $has_player_side = TRUE;
+        }
+        if ($team === 'enemy') {
+          $has_hostile_side = TRUE;
+        }
+      }
+      if (!$has_player_side || !$has_hostile_side) {
+        throw new \RuntimeException(sprintf(
+          'Combat bootstrap participant contract violation for room %s (players=%s, hostiles=%s, participants=%d).',
+          $room_id,
+          $has_player_side ? 'yes' : 'no',
+          $has_hostile_side ? 'yes' : 'no',
+          count($participants)
+        ));
+      }
 
       // Create encounter in the combat_encounters table.
       $encounter_id = $this->combatEngine->createEncounter($campaign_id, $room_id, $participants, [
         'room_id' => $room_id,
       ]);
+      if (!$encounter_id) {
+        throw new \RuntimeException('Combat engine did not return an encounter id.');
+      }
 
       if ($encounter_id) {
         // Start the encounter (rolls initiative, sorts order, starts round 1).
         $start_result = $this->combatEngine->startEncounter($encounter_id);
+        if (($start_result['status'] ?? 'error') !== 'ok' || !is_array($start_result['encounter'] ?? NULL)) {
+          throw new \RuntimeException((string) ($start_result['message'] ?? 'Combat engine failed to start encounter.'));
+        }
 
         $game_state['encounter_id'] = $encounter_id;
         $game_state['round'] = 1;
@@ -1031,18 +1089,20 @@ trait EncounterNavigationTransitionCoordinatorTrait {
         $initiative_order = $start_result['encounter']['participants'] ?? [];
         if (!empty($initiative_order)) {
           $first = $initiative_order[0];
+          $first_entity_id = trim((string) ($first['entity_id'] ?? ''));
+          if ($first_entity_id === '') {
+            throw new \RuntimeException('Combat bootstrap produced invalid first-turn actor.');
+          }
           $game_state['turn'] = [
-            'entity' => $first['entity_id'] ?? NULL,
+            'entity' => $first_entity_id,
             'index' => 0,
             'actions_remaining' => 3,
             'attacks_this_turn' => 0,
             'reaction_available' => TRUE,
             'delayed' => FALSE,
           ];
-          if (!empty($first['entity_id'])) {
-            $events = array_merge($events, $this->buildTurnStartEvents((string) $first['entity_id'], $game_state, $dungeon_data, $campaign_id, $room_id));
-            $events = array_merge($events, $this->buildTurnStartSearchEvents((string) $first['entity_id'], $game_state, $dungeon_data, $campaign_id));
-          }
+          $events = array_merge($events, $this->buildTurnStartEvents($first_entity_id, $game_state, $dungeon_data, $campaign_id, $room_id));
+          $events = array_merge($events, $this->buildTurnStartSearchEvents($first_entity_id, $game_state, $dungeon_data, $campaign_id));
         }
 
         $game_state['initiative_order'] = $initiative_order;
@@ -1051,9 +1111,16 @@ trait EncounterNavigationTransitionCoordinatorTrait {
         if (!empty($initiative_order)) {
           $first = $initiative_order[0];
           $first_entity = $first['entity_id'] ?? NULL;
-          $first_team = $first['team'] ?? 'enemy';
+          $first_team = $this->normalizeCombatTeam((string) ($first['team'] ?? 'enemy'));
+          // Any non-player actor winning initiative must be driven by the actor
+          // harness, otherwise the encounter deadlocks on turn 1 waiting for
+          // input that no human will ever supply. This mirrors the turn
+          // advancement gate in processEndTurn().
           if ($first_entity && $first_team !== 'player') {
-            $npc_result = $this->autoPlayNpcTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id);
+            $should_autoplay_in_room_scene = $this->isRoomSceneMode($game_state) && $first_team === 'enemy';
+            $npc_result = (!$this->isRoomSceneMode($game_state) || $should_autoplay_in_room_scene)
+              ? $this->autoPlayNpcTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id)
+              : $this->passRoomActorTurn((string) $first_entity, $game_state, $dungeon_data, $campaign_id);
             $initial_turn_events = $npc_result['events'] ?? [];
 
             $initial_advance = $this->processEndTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id);
@@ -1133,6 +1200,7 @@ trait EncounterNavigationTransitionCoordinatorTrait {
       }
     }
     catch (\Throwable $e) {
+      $this->restoreEncounterLifecycleSnapshot($game_state, $lifecycle_snapshot);
       $this->logger->error('Failed to create encounter: @error', ['@error' => $e->getMessage()]);
       $events[] = GameEventLogger::buildEvent('encounter_start_failed', 'encounter', NULL, [
         'error' => $e->getMessage(),
@@ -1153,6 +1221,33 @@ trait EncounterNavigationTransitionCoordinatorTrait {
       'events' => $events,
       'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, $lifecycle_mutations),
     ];
+  }
+
+  /**
+   * Capture the encounter-lifecycle keys that hostile combat startup may mutate.
+   */
+  protected function captureEncounterLifecycleSnapshot(array $game_state): array {
+    $snapshot = [];
+    foreach (['phase', 'encounter_context', 'encounter_id', 'round', 'turn', 'initiative_order'] as $key) {
+      $snapshot[$key] = [
+        'exists' => array_key_exists($key, $game_state),
+        'value' => $game_state[$key] ?? NULL,
+      ];
+    }
+    return $snapshot;
+  }
+
+  /**
+   * Restore encounter-lifecycle keys after a failed hostile combat startup.
+   */
+  protected function restoreEncounterLifecycleSnapshot(array &$game_state, array $snapshot): void {
+    foreach ($snapshot as $key => $entry) {
+      if (!is_array($entry) || empty($entry['exists'])) {
+        unset($game_state[$key]);
+        continue;
+      }
+      $game_state[$key] = $entry['value'] ?? NULL;
+    }
   }
 
   /**

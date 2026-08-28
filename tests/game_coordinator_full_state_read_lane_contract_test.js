@@ -42,16 +42,40 @@ assert(
   'full-state read paths resolve context through coordinator runtime-read service'
 );
 assert(
+  coordinatorSource.includes('public function getAuthoritativeLaunchState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array'),
+  'authoritative launch-state entrypoint exists for gameplay bootstrap callers'
+);
+assert(
+  coordinatorSource.includes('return $this->buildFullStateResponse(')
+    && coordinatorSource.includes('TRUE,')
+    && coordinatorSource.includes('$resolved_actor_id !== \'\' ? $resolved_actor_id : NULL'),
+  'authoritative launch-state path allows room-entry materialization when GET gameplay state is requested'
+);
+assert(
+  coordinatorSource.includes('if (!$this->hasAuthoritativeLaunchState($dungeon_data, $game_state)) {')
+    && coordinatorSource.includes("return $this->errorResponse('Failed to materialize authoritative launch state.', $game_state);"),
+  'authoritative launch-state path fails closed when launch materialization still has not completed'
+);
+assert(
   coordinatorSource.includes('public function getMaterializedFullState(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): array'),
-  'materialized full-state entrypoint exists for bootstrap-compatible callers with actor/character scope'
+  'read-only compatibility entrypoint still exists for scoped bootstrap/runtime callers'
 );
 assert(
-  coordinatorSource.includes('return $this->buildFullStateResponse($campaign_id, $dungeon_data, $game_state, FALSE, $actor_id !== \'\' ? $actor_id : NULL);'),
-  'materialized full-state path remains read-only and does not persist/bootstrap on GET state'
+  coordinatorSource.includes('protected function prepareScopedFullStateContext(int $campaign_id, ?string $actor_id = NULL, ?int $character_id = NULL): ?array'),
+  'scoped full-state preparation is shared between launch and read-only coordinator paths'
 );
 assert(
-  controllerSource.includes('getMaterializedFullState('),
-  'controller state endpoint uses the materialized compatibility entrypoint'
+  coordinatorSource.includes('protected function hasAuthoritativeLaunchState(array &$dungeon_data, array $game_state): bool'),
+  'authoritative launch-state invariant helper exists'
+);
+assert(
+  coordinatorSource.includes('FALSE,')
+    && coordinatorSource.includes('mutation work are handled by explicit launch/write lanes, not this reader.'),
+  'read-only compatibility path remains side-effect-free'
+);
+assert(
+  controllerSource.includes('getAuthoritativeLaunchState('),
+  'controller state endpoint uses the authoritative launch-state entrypoint'
 );
 
 console.log(`\nPassed: ${passed}`);

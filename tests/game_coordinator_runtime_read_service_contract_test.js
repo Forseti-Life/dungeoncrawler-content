@@ -66,7 +66,10 @@ assert(
   'game coordinator has coordinator runtime-read service dependency'
 );
 assert(
-  coordinatorSource.includes('$this->coordinatorRuntimeReadService->resolveActionAvailabilityContext($campaign_id, $actor_id);'),
+  coordinatorSource.includes('$this->coordinatorRuntimeReadService->resolveActionAvailabilityContext(')
+    && coordinatorSource.includes('      $campaign_id,')
+    && coordinatorSource.includes('      $actor_id,')
+    && coordinatorSource.includes('      $diagnostic_context,'),
   'game coordinator resolves action-availability read context through runtime-read service'
 );
 assert(

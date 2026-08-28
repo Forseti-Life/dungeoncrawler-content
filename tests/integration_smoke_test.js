@@ -44,16 +44,12 @@ function loadModule(relPath) {
   return new Function(stripped + '\nreturn { PlayerAutomation, QuestSystem, GameEventBus, clearChildren, createElement, setVisible, scrollToBottom, debounce, esc, buildObjectiveTree, isQuestComplete, getQuestProgress, flattenObjectiveTree, getAvailableSpells, getSpellActionCost, getSpellRanks, canCast };')();
 }
 
-// We load each file separately so undefined names don't throw
+// Resolve each module's relative import graph so shared helpers stay defined;
+// stripping imports outright silently removed real dependencies.
+const { loadModuleScope } = require('./helpers/js-module.js');
+
 function loadSrc(relPath, exportNames) {
-  const src = fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
-  const stripped = src.replace(/^export\s+(?:default\s+)?/gm, '');
-  const ret = exportNames.map(n => `typeof ${n} !== 'undefined' ? ${n} : undefined`).join(', ');
-  // eslint-disable-next-line no-new-func
-  const result = new Function(stripped + `\nreturn [${ret}];`)();
-  const obj = {};
-  exportNames.forEach((n, i) => { obj[n] = result[i]; });
-  return obj;
+  return loadModuleScope(relPath, exportNames);
 }
 
 const { GameEventBus } = loadSrc('../js/v2/GameEventBus.js', ['GameEventBus']);
@@ -66,76 +62,57 @@ function makeBus() { return new GameEventBus(); }
 
 console.log('\n=== dom-utils ===');
 {
+  // dom-utils was narrowed to tooltip helpers in the v2 migration; the former
+  // generic helpers (clearChildren/createElement/setVisible/scrollToBottom/
+  // debounce/esc) were removed as dead code and have no remaining callers.
   const {
-    clearChildren, createElement, setVisible, scrollToBottom, debounce, esc,
+    escapeTooltipAttr, slugifyTooltipKey, uniqueTooltipStrings,
+    flattenTooltipBuckets, tooltipSourceMatches, formatTooltipActionCost,
   } = loadSrc('../js/v2/utils/dom-utils.js', [
-    'clearChildren', 'createElement', 'setVisible', 'scrollToBottom', 'debounce', 'esc',
+    'escapeTooltipAttr', 'slugifyTooltipKey', 'uniqueTooltipStrings',
+    'flattenTooltipBuckets', 'tooltipSourceMatches', 'formatTooltipActionCost',
   ]);
 
-  // Mock minimal DOM for Node.js
-  function makeEl(tag = 'div') {
-    return {
-      tag, children: [], firstChild: null, hidden: false, scrollTop: 0, scrollHeight: 200,
-      className: '', dataset: {},
-      setAttribute(k, v) { this[k] = v; },
-      removeChild(c) { this.children = this.children.filter(x => x !== c); this._sync(); },
-      _sync() { this.firstChild = this.children[0] ?? null; },
-    };
-  }
-
-  // Stub document.createElement
-  global.document = {
-    createElement(tag) {
-      const el = makeEl(tag);
-      el.textContent = '';
-      return el;
-    }
-  };
-
   {
-    const el = makeEl();
-    el.children = [makeEl('span'), makeEl('span')];
-    el._sync();
-    clearChildren(el);
-    assert(el.firstChild === null, 'clearChildren removes all children');
+    const escaped = escapeTooltipAttr('<b>"x"</b>');
+    assert(!escaped.includes('<b>'), 'escapeTooltipAttr escapes angle brackets');
+    assert(!escaped.includes('"'), 'escapeTooltipAttr escapes double quotes');
   }
 
   {
-    const el = createElement('div', { className: 'foo' }, 'hello');
-    assert(el.className === 'foo', 'createElement sets className');
-    assert(el.textContent === 'hello', 'createElement sets textContent');
+    assert(slugifyTooltipKey('Iron Sword!') === 'iron-sword', 'slugifyTooltipKey slugifies');
+    assert(slugifyTooltipKey('  --Mixed CASE--  ') === 'mixed-case', 'slugifyTooltipKey trims separators');
+    assert(slugifyTooltipKey(null) === '', 'slugifyTooltipKey handles null');
   }
 
   {
-    const el = makeEl();
-    setVisible(el, false);
-    assert(el.hidden === true, 'setVisible(el, false) sets hidden=true');
-    setVisible(el, true);
-    assert(el.hidden === false, 'setVisible(el, true) sets hidden=false');
+    const out = uniqueTooltipStrings(['a', ' a ', 'b', '', null]);
+    assert(out.length === 2, 'uniqueTooltipStrings dedupes and drops empties');
+    assert(out[0] === 'a' && out[1] === 'b', 'uniqueTooltipStrings trims values');
+    assert(uniqueTooltipStrings('nope').length === 0, 'uniqueTooltipStrings handles non-arrays');
   }
 
   {
-    const el = makeEl();
-    el.scrollHeight = 500;
-    scrollToBottom(el);
-    assert(el.scrollTop === 500, 'scrollToBottom sets scrollTop to scrollHeight');
+    assert(flattenTooltipBuckets([1, 2]).length === 2, 'flattenTooltipBuckets passes arrays through');
+    assert(flattenTooltipBuckets({ a: [1], b: [2, 3] }).length === 3, 'flattenTooltipBuckets flattens buckets');
+    assert(flattenTooltipBuckets(null).length === 0, 'flattenTooltipBuckets handles null');
   }
 
   {
-    assert(esc('<script>') === '&lt;script&gt;', 'esc escapes < and >');
-    assert(esc('"hello"') === '&quot;hello&quot;', 'esc escapes double quotes');
-    assert(esc('a & b') === 'a &amp; b', 'esc escapes ampersand');
-    assert(esc(null) === '', 'esc handles null → empty string');
+    assert(tooltipSourceMatches('feat-1', 'feat') === true, 'tooltipSourceMatches matches prefixed ids');
+    assert(tooltipSourceMatches('feat', 'feat') === true, 'tooltipSourceMatches matches exact ids');
+    assert(tooltipSourceMatches('feature-1', 'feat') === false, 'tooltipSourceMatches requires a separator');
+    assert(tooltipSourceMatches(null, 'feat') === false, 'tooltipSourceMatches handles null');
   }
 
   {
-    let count = 0;
-    const fn = debounce(() => count++, 50);
-    fn(); fn(); fn();
-    // synchronous calls should not have fired yet
-    assert(count === 0, 'debounce suppresses rapid calls synchronously');
+    assert(formatTooltipActionCost(1) === '1 action', 'formatTooltipActionCost singular');
+    assert(formatTooltipActionCost(2) === '2 actions', 'formatTooltipActionCost plural');
+    assert(formatTooltipActionCost('free_action') === 'free action', 'formatTooltipActionCost humanises strings');
+    assert(formatTooltipActionCost(null) === '', 'formatTooltipActionCost handles null');
   }
 }
+
 
 // ============================================================================
 // quest-utils
@@ -143,42 +120,45 @@ console.log('\n=== dom-utils ===');
 
 console.log('\n=== quest-utils ===');
 {
+  // The v2 migration replaced the old objective-tree helpers
+  // (buildObjectiveTree/isQuestComplete/getQuestProgress/flattenObjectiveTree)
+  // with normalization + flattening helpers; these cover the current exports.
   const {
-    buildObjectiveTree, isQuestComplete, getQuestProgress, flattenObjectiveTree,
+    resolveQuestTitle, escapeQuestHtml, extractQuestPhases, flattenQuestObjectives,
   } = loadSrc('../js/v2/utils/quest-utils.js', [
-    'buildObjectiveTree', 'isQuestComplete', 'getQuestProgress', 'flattenObjectiveTree',
+    'resolveQuestTitle', 'escapeQuestHtml', 'extractQuestPhases', 'flattenQuestObjectives',
   ]);
 
-  const flat = [
-    { objective_id: 'o1', title: 'Root', status: 'complete' },
-    { objective_id: 'o2', title: 'Child', parent_id: 'o1', status: 'complete' },
-    { objective_id: 'o3', title: 'Root2', status: 'incomplete' },
-  ];
-
   {
-    const tree = buildObjectiveTree(flat);
-    assert(tree.length === 2, 'buildObjectiveTree: 2 top-level roots');
-    assert(tree[0].children.length === 1, 'buildObjectiveTree: child nested under parent');
+    assert(resolveQuestTitle({ title: 'Rescue' }) === 'Rescue', 'resolveQuestTitle prefers title');
+    assert(resolveQuestTitle({ quest_name: 'Fallback' }) === 'Fallback', 'resolveQuestTitle falls back to quest_name');
+    assert(resolveQuestTitle(null) === 'Unknown Quest', 'resolveQuestTitle handles null');
   }
 
   {
-    const quest = { objectives: flat };
-    assert(!isQuestComplete(quest), 'isQuestComplete → false when one objective incomplete');
-    const completeQuest = { objectives: flat.map(o => ({ ...o, status: 'complete' })) };
-    assert(isQuestComplete(completeQuest), 'isQuestComplete → true when all complete');
+    const escaped = escapeQuestHtml('<img src=x onerror=1>');
+    assert(!escaped.includes('<img'), 'escapeQuestHtml escapes markup');
   }
 
   {
-    const progress = getQuestProgress({ objectives: flat });
-    assert(progress.total === 3, 'getQuestProgress total = 3');
-    assert(progress.completed === 2, 'getQuestProgress completed = 2');
-    assert(progress.percent === 67, 'getQuestProgress percent ≈ 67');
+    assert(extractQuestPhases({ generated_objectives: [{ a: 1 }] }).length === 1, 'extractQuestPhases prefers generated_objectives');
+    assert(extractQuestPhases({ objective_states: [{ objectives: [] }] }).length === 1, 'extractQuestPhases falls back to objective_states');
+    assert(extractQuestPhases(null).length === 0, 'extractQuestPhases handles null');
   }
 
   {
-    const tree  = buildObjectiveTree(flat);
-    const nodes = flattenObjectiveTree(tree);
-    assert(nodes.length === 3, 'flattenObjectiveTree returns all nodes');
+    const objectives = [
+      { objective_id: 'o1', completed: false },
+      { objective_id: 'o2', completed: true },
+      { objective_id: 'o3', children: [{ objective_id: 'o4', completed: false }] },
+    ];
+    const open = flattenQuestObjectives(objectives);
+    assert(open.length === 2, 'flattenQuestObjectives omits completed leaves by default');
+    assert(open.some(o => o.objective_id === 'o4'), 'flattenQuestObjectives descends into children');
+
+    const all = flattenQuestObjectives(objectives, { includeCompleted: true });
+    assert(all.length === 3, 'flattenQuestObjectives can include completed leaves');
+    assert(flattenQuestObjectives(null).length === 0, 'flattenQuestObjectives handles null');
   }
 }
 
@@ -188,129 +168,123 @@ console.log('\n=== quest-utils ===');
 
 console.log('\n=== spell-utils ===');
 {
+  // getAvailableSpells/getSpellActionCost/getSpellRanks/canCast were removed in
+  // the v2 migration; rank formatting is the surviving public surface.
   const {
-    getSpellActionCost, canCast, getAvailableSpells, getSpellRanks,
+    getSpellRankNumber, formatOrdinalRank, formatSpellRankLabel,
   } = loadSrc('../js/v2/utils/spell-utils.js', [
-    'getSpellActionCost', 'canCast', 'getAvailableSpells', 'getSpellRanks',
+    'getSpellRankNumber', 'formatOrdinalRank', 'formatSpellRankLabel',
   ]);
 
   {
-    assert(getSpellActionCost({ action_cost: 1 }) === 1, 'getSpellActionCost 1');
-    assert(getSpellActionCost({ action_cost: 3 }) === 3, 'getSpellActionCost 3');
-    assert(getSpellActionCost({}) === 2, 'getSpellActionCost default 2');
-  }
-
-  const char = { spell_slots: { 1: 2, 2: 1 }, spells: [
-    { spell_id: 's1', name: 'Magic Missile', action_cost: 1, rank: 1 },
-    { spell_id: 's2', name: 'Fireball',      action_cost: 2, rank: 3 },
-  ]};
-
-  {
-    const r = canCast(char, { rank: 1 }, 1);
-    assert(r.canCast === true, 'canCast rank 1 with slots available');
-    const r2 = canCast(char, { rank: 1 }, 3);
-    assert(r2.canCast === false, 'canCast rank 3 with no slots');
+    assert(getSpellRankNumber('cantrip') === 0, 'getSpellRankNumber maps cantrip to 0');
+    assert(getSpellRankNumber('third_level') === 3, 'getSpellRankNumber maps named ranks');
+    assert(getSpellRankNumber('First') === 1, 'getSpellRankNumber is case-insensitive');
   }
 
   {
-    const spells = getAvailableSpells(char);
-    // Magic Missile rank 1 → slot available; Fireball rank 3 → no slot
-    assert(spells.length === 1, 'getAvailableSpells returns spells with available slots');
-    assert(spells[0].spell_id === 's1', 'getAvailableSpells returns Magic Missile');
+    assert(formatOrdinalRank(1) === '1st', 'formatOrdinalRank 1st');
+    assert(formatOrdinalRank(2) === '2nd', 'formatOrdinalRank 2nd');
+    assert(formatOrdinalRank(3) === '3rd', 'formatOrdinalRank 3rd');
+    assert(formatOrdinalRank(4) === '4th', 'formatOrdinalRank 4th');
+    assert(formatOrdinalRank(11) === '11th', 'formatOrdinalRank handles the teens');
   }
 
   {
-    const ranks = getSpellRanks(char, { rank: 1 });
-    assert(ranks.includes(1) && ranks.includes(2), 'getSpellRanks returns ranks with slots >= base');
+    assert(formatSpellRankLabel(0) === 'Cantrips', 'formatSpellRankLabel labels cantrips');
+    assert(formatSpellRankLabel(3) === '3rd', 'formatSpellRankLabel short form');
+    assert(formatSpellRankLabel(3, { longForm: true }) === '3rd Level', 'formatSpellRankLabel long form');
+    assert(formatSpellRankLabel('second') === '2nd', 'formatSpellRankLabel accepts rank keys');
   }
 }
 
-// ============================================================================
-// PlayerAutomation
-// ============================================================================
 
 console.log('\n=== PlayerAutomation ===');
 {
   const { PlayerAutomation } = loadSrc('../js/v2/systems/PlayerAutomation.js', ['PlayerAutomation']);
+  const { installDom } = require('./helpers/fake-dom.js');
 
-  let timerFired = false;
-  global.setTimeout  = (fn, ms) => { timerFired = true; return 42; };
-  global.clearTimeout = () => {};
+  // The ECS start/stop turn-stepping API (start/stop, automation:started,
+  // automation:step-queued, combat:turn-changed) was removed in the v2
+  // migration; PlayerAutomation now owns footer section state and the
+  // deferred room-chat queue.
 
   {
-    const bus    = makeBus();
-    const shell  = {};
-    const pa     = new PlayerAutomation(shell, bus);
-    pa.init();
+    const dom = installDom();
+    global.window = { matchMedia: () => ({ matches: true }) };
 
-    const events = [];
-    bus.on('automation:started', (d) => events.push({ e: 'started', ...d }));
-    bus.on('automation:stopped', (d) => events.push({ e: 'stopped', ...d }));
+    const footer = dom.document.createElement('div');
+    const section = dom.document.createElement('div');
+    const chevron = dom.document.createElement('span');
+    chevron.classList.add('action-section__chevron');
+    chevron.textContent = '▾';
+    section.appendChild(chevron);
 
-    bus.emit('user:automation-start');
-    assert(events.some(e => e.e === 'started'), 'user:automation-start fires automation:started');
+    const pa = new PlayerAutomation({}, makeBus());
+    pa.applyInitialSectionState(footer, [section]);
 
-    bus.emit('user:automation-stop');
-    assert(events.some(e => e.e === 'stopped'), 'user:automation-stop fires automation:stopped');
+    assert(section.classList.contains('collapsed'), 'mobile viewport collapses action sections');
+    assert(chevron.textContent === '▸', 'collapsed section shows the collapsed chevron');
+    assert(footer.dataset.initialStateApplied === 'true', 'footer is marked so initial state applies once');
+
+    // Second call must be a no-op even if the section was re-expanded.
+    section.classList.remove('collapsed');
+    pa.applyInitialSectionState(footer, [section]);
+    assert(!section.classList.contains('collapsed'), 'initial section state is applied only once');
   }
 
   {
-    const bus    = makeBus();
-    const pa     = new PlayerAutomation({}, bus);
-    pa.init();
+    global.window = { matchMedia: () => ({ matches: false }) };
+    const dom = installDom();
+    const footer = dom.document.createElement('div');
+    const section = dom.document.createElement('div');
 
-    const queued = [];
-    bus.on('automation:step-queued', (d) => queued.push(d));
-
-    // Simulate automated entity
-    const entity = {
-      id: 'e1',
-      getComponent(name) {
-        if (name === 'CombatComponent')  return { isPlayerTeam: () => true };
-        if (name === 'IdentityComponent') return { entityId: 'e1' };
-        return null;
-      },
-    };
-
-    pa.start();
-    timerFired = false;
-    bus.emit('combat:turn-changed', { entity });
-    assert(timerFired, 'automation step timer is set on player-team turn');
-    assert(queued.length === 1 && queued[0].entityId === 'e1', 'automation:step-queued emitted with entityId');
+    const pa = new PlayerAutomation({}, makeBus());
+    pa.applyInitialSectionState(footer, [section]);
+    assert(!section.classList.contains('collapsed'), 'desktop viewport leaves action sections expanded');
   }
 
   {
     const bus = makeBus();
-    const pa  = new PlayerAutomation({}, bus);
-    pa.init();
-    // Not started — turn-changed should NOT queue
-    const queued = [];
-    bus.on('automation:step-queued', (d) => queued.push(d));
-    const entity = { id: 'e2', getComponent(name) {
-      if (name === 'CombatComponent') return { isPlayerTeam: () => true };
-      return null;
-    }};
-    timerFired = false;
-    bus.emit('combat:turn-changed', { entity });
-    assert(!timerFired && queued.length === 0, 'automation inactive → no step queued on turn-changed');
+    const messages = [];
+    bus.on('chat:system-message', (d) => messages.push(d));
+
+    const pa = new PlayerAutomation({ panels: {} }, bus);
+    pa._appendChatLine('System', 'queued turn failed', 'system');
+
+    assert(messages.length === 1, '_appendChatLine emits a chat:system-message');
+    assert(messages[0].text === 'queued turn failed', 'chat:system-message carries the message text');
+    assert(messages[0].speaker === 'System', 'chat:system-message carries the speaker');
+    assert(messages[0].authority === 'authoritative', 'automation chat lines are authoritative');
+    assert(messages[0].source === 'player-automation', 'chat:system-message is attributed to player-automation');
   }
 
   {
-    const bus = makeBus();
-    const pa  = new PlayerAutomation({}, bus);
-    pa.init();
-    pa.start();
+    // Deferred queue: nothing to flush must not touch the chat panel.
+    const statusUpdates = [];
+    const shell = { panels: { chat: { updateQueuedChatStatus: (n) => statusUpdates.push(n) } } };
+    const pa = new PlayerAutomation(shell, makeBus());
+    pa.roomChatBusy = false;
+    pa.roomChatDeferredMessages = [];
+    void pa.flushDeferredRoomMessages(1, 'room-1');
+    assert(statusUpdates.length === 0, 'empty deferred queue does not post a status update');
 
-    // NPC entity → should NOT queue
-    const queued = [];
-    bus.on('automation:step-queued', (d) => queued.push(d));
-    const npc = { id: 'npc1', getComponent(name) {
-      if (name === 'CombatComponent') return { isPlayerTeam: () => false };
-      return null;
-    }};
-    timerFired = false;
-    bus.emit('combat:turn-changed', { entity: npc });
-    assert(!timerFired, 'NPC turn does not trigger automation step');
+    // A busy pipeline must not drain the queue concurrently.
+    pa.roomChatBusy = true;
+    pa.roomChatDeferredMessages = [{ message: 'hi' }];
+    void pa.flushDeferredRoomMessages(1, 'room-1');
+    assert(pa.roomChatDeferredMessages.length === 1, 'busy pipeline leaves the deferred queue intact');
+    assert(statusUpdates.length === 0, 'busy pipeline does not post a status update');
+  }
+
+  {
+    // destroy() must release every bus subscription it took out.
+    const pa = new PlayerAutomation({}, makeBus());
+    let released = 0;
+    pa._unsubs = [() => { released += 1; }, () => { released += 1; }];
+    pa.destroy();
+    assert(released === 2, 'destroy() releases all subscriptions');
+    assert(pa._unsubs.length === 0, 'destroy() clears the subscription list');
   }
 }
 

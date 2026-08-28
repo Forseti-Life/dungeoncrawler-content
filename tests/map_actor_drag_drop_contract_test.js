@@ -24,7 +24,7 @@ function assert(condition, message) {
 
 const canvasSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/canvas/HexCanvas.js'), 'utf8');
 const tokenSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/canvas/HexTokenRenderer.js'), 'utf8');
-const shellSource = fs.readFileSync(path.resolve(__dirname, '../js/v2/GameShell.js'), 'utf8');
+const shellSource = require('./helpers/js-source.js').readGameShellSource();
 
 console.log('\n=== Map actor drag/drop contracts ===');
 
@@ -67,10 +67,10 @@ assert(
 
 assert(
   shellSource.includes('resolveLaunchCharacterRuntimeContext() {')
-    && shellSource.includes('const selectedIsControlledFollower = selectedEntity ? this.isControlledFollowerEntity(selectedEntity) : false;')
-    && shellSource.includes('characterId: (selectedIsLaunchActor || selectedIsControlledFollower)')
-    && shellSource.includes('instanceId: (selectedIsLaunchActor || selectedIsControlledFollower)'),
-  'runtime context resolves actor/instance ids from controlled follower selection so authoritative refresh tracks the moved actor'
+    && shellSource.includes('this.isControlledFollowerEntity(entity)')
+    && shellSource.includes('const canResyncAsEntity = this.canResyncCoordinatorForSelectedEntity(entity);')
+    && shellSource.includes('return matchesLaunchCharacter;'),
+  'controlled followers are eligible for movement while PC character-state refresh remains actor-guarded'
 );
 
 assert(

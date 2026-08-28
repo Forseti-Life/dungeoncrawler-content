@@ -22,8 +22,14 @@ function assert(condition, message) {
   }
 }
 
+// JSON/NDJSON encoding moved out of the controller into dedicated RoomChat
+// response/stream services.
 const source = fs.readFileSync(
-  path.resolve(__dirname, '../src/Controller/RoomChatController.php'),
+  path.resolve(__dirname, '../src/Service/RoomChat/RoomChatResponseMapper.php'),
+  'utf8'
+);
+const streamSource = fs.readFileSync(
+  path.resolve(__dirname, '../src/Service/RoomChat/RoomChatStreamEnvelopeEmitter.php'),
   'utf8'
 );
 
@@ -34,7 +40,7 @@ assert(
   'room chat controller enables invalid UTF-8 substitution for JSON encoding'
 );
 assert(
-  source.includes('json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)'),
+  streamSource.includes('json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)'),
   'streamed NDJSON payloads are emitted with UTF-8 substitution enabled'
 );
 assert(

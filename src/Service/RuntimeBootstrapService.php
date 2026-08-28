@@ -298,14 +298,15 @@ class RuntimeBootstrapService {
         $campaign_id
       ));
     }
-    $runtime_active_room_id = trim((string) (
-      $dungeon_data['active_room_id']
-      ?? $dungeon_data['current_room_id']
-      ?? $init['runtime_active_room_id']
-      ?? $init['context']['runtime_active_room_id']
-      ?? $init['context']['starter_room_id']
-      ?? ''
-    ));
+    $runtime_active_room_id = trim((string) ($dungeon_data['active_room_id'] ?? $dungeon_data['current_room_id'] ?? ''));
+    if ($runtime_active_room_id === '') {
+      $runtime_active_room_id = trim((string) (
+        $init['runtime_active_room_id']
+        ?? $init['context']['runtime_active_room_id']
+        ?? $init['context']['starter_room_id']
+        ?? ''
+      ));
+    }
     if ($runtime_active_room_id === '') {
       $rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
       foreach ($rooms as $room) {
@@ -468,7 +469,42 @@ class RuntimeBootstrapService {
     if (trim((string) ($state['encounter_context']['room_id'] ?? '')) === '' && $active_room_id !== '') {
       $state['encounter_context']['room_id'] = $active_room_id;
     }
+    if ($this->hasBrokenEncounterPhaseShell($state, $active_room_id)) {
+      $this->logger->warning(
+        'Runtime bootstrap detected broken encounter-phase shell for room {room_id}; clearing bootstrap markers for repair.',
+        ['room_id' => $active_room_id]
+      );
+      $state['initial_room_entry_room_id'] = NULL;
+      $state['initial_room_entry_completed_at'] = NULL;
+    }
     return $state;
+  }
+
+  /**
+   * Detect a persisted encounter-phase shell with no encounter lifecycle state.
+   */
+  protected function hasBrokenEncounterPhaseShell(array $state, string $active_room_id): bool {
+    $active_room_id = trim($active_room_id);
+    if ($active_room_id === '') {
+      return FALSE;
+    }
+
+    $phase = trim((string) ($state['phase'] ?? ''));
+    $context_room_id = trim((string) ($state['encounter_context']['room_id'] ?? ''));
+    if ($phase !== 'encounter' || $context_room_id !== $active_room_id) {
+      return FALSE;
+    }
+
+    $encounter_id = (int) ($state['encounter_id'] ?? 0);
+    $round = $state['round'] ?? NULL;
+    $turn = $state['turn'] ?? NULL;
+    $initiative_order = $state['initiative_order'] ?? NULL;
+    if ($encounter_id > 0 || is_numeric($round) || !empty($turn) || !empty($initiative_order)) {
+      return FALSE;
+    }
+
+    return (int) ($state['event_log_cursor'] ?? 0) > 0
+      || trim((string) ($state['initial_room_entry_completed_at'] ?? '')) !== '';
   }
 
   protected function assertActivePlayerParticipant(array $dungeon_data, string $active_room_id, string $instance_id, int $campaign_id, int $runtime_character_id): void {

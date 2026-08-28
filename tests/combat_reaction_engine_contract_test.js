@@ -36,7 +36,7 @@ assert(
   'UnifiedReactionEngine defines the shared reaction packet seam'
 );
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 assert(
   phaseHandlerSource.includes('protected UnifiedReactionEngine $unifiedReactionEngine;')
     && phaseHandlerSource.includes('$this->unifiedReactionEngine = $unified_reaction_engine ?? new UnifiedReactionEngine(')

@@ -29,19 +29,19 @@ import { HexCanvas } from './canvas/HexCanvas.js';
 import { HexTokenRenderer } from './canvas/HexTokenRenderer.js';
 import { HexFogOfWar } from './canvas/HexFogOfWar.js';
 import { HexInputHandler } from './canvas/HexInputHandler.js';
-import { EncounterSystem } from './systems/EncounterSystem.js?v=20260818-v2-authoritative-actor-guard-2';
+import { EncounterSystem } from './systems/EncounterSystem.js?v=20260828-v4-combat-drag-routing-1';
 import { NavigationSystem } from './systems/NavigationSystem.js?v=20260728-v2-nav-transition-receipt-4';
 import { PlayerAutomation } from './systems/PlayerAutomation.js?v=20260608-v2-chat-persistence-dev-1';
 import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summary-merge-2';
 import { MerchantPanel } from './panels/MerchantPanel.js';
-import { CombatPanel } from './panels/CombatPanel.js?v=20260811-v2-turn-sync-ui-11';
-import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260819-v2-action-rail-api-authority-1';
+import { CombatPanel } from './panels/CombatPanel.js?v=20260827-v2-bootstrap-status-12';
+import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260828-v3-suggest-next-move-1';
 import { ChatPanel } from './panels/ChatPanel.js?v=20260812-v2-map-status-centralization-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
 import { InventoryPanel } from './panels/InventoryPanel.js';
-import { CharacterPanel } from './panels/CharacterPanel.js?v=20260818-v2-authoritative-actor-guard-2';
+import { CharacterPanel } from './panels/CharacterPanel.js?v=20260828-v4-combat-drag-routing-1';
 import { RoomViewPanel } from './panels/RoomViewPanel.js';
-import { StatusPanel } from './panels/StatusPanel.js?v=20260812-v2-map-status-centralization-1';
+import { StatusPanel } from './panels/StatusPanel.js?v=20260828-v4-chat-backend-wait-1';
 import { normalizeInventoryState } from './utils/inventory-utils.js';
 import { normalizeQuestSummaryPayload } from './utils/quest-utils.js?v=20260607-quest-summary-const-4';
 import { normalizeAuthoritativeStateActorRef } from './utils/authoritative-state-utils.js';
@@ -50,7 +50,7 @@ import { GameShellCampaignSettingsCoordinator } from './shell/GameShellCampaignS
 import { GameShellTargetPickController } from './shell/GameShellTargetPickController.js';
 import { GameShellQuestCoordinator } from './shell/GameShellQuestCoordinator.js';
 import { GameShellRoomGenerationCoordinator } from './shell/GameShellRoomGenerationCoordinator.js';
-import { SpriteService } from '../SpriteService.js';
+import { SpriteService } from '../SpriteService.js?v=20260828-v5-map-actor-portraits-1';
 import { GameCoordinator } from '../game-coordinator/GameCoordinator.js?v=20260811-v2-target-pick-hardening-15';
 import {
   EntityManager,
@@ -103,7 +103,7 @@ import {
   _buildRenderableProjectionKey,
   _buildLogicalActorIdentityKey,
   _buildRuntimeBundleQueryForRoom,
-} from './shell/GameShellProjectionHelpers.js';
+} from './shell/GameShellProjectionHelpers.js?v=20260828-v5-map-actor-portraits-1';
 /** Canvas config defaults — matches old hexmap behavior.config */
 const DEFAULT_CANVAS_CONFIG = {
   hexSize: 30,
@@ -115,7 +115,7 @@ const DEFAULT_CANVAS_CONFIG = {
   backgroundColor: 0x1a1a2e,
   serverStateSyncIntervalMs: 3000,
 };
-const HEXMAP_UI_BUILD_VERSION = '20260819-v2-action-rail-api-authority-1';
+const HEXMAP_UI_BUILD_VERSION = '20260827-v2-bootstrap-status-1';
 export class GameShell {
   /**
    * @param {HTMLElement} container - Root DOM container for hexmap-v2
@@ -203,6 +203,10 @@ export class GameShell {
     this._roomViewHasContent = false;
     /** @type {number|null} pending retry timer */
     this._roomViewRetryTimer = null;
+    /** @type {Map<string, number>} room-view key -> retry window start ms */
+    this._roomViewRetryStartedAt = new Map();
+    /** @type {number} total room-view retry window before hard failure */
+    this._roomViewRetryWindowMs = 180000;
     /** @type {boolean} chat history already loaded for this session */
     this._chatHistoryLoaded = false;
     /** @type {number} monotonic chat-history request sequence */
@@ -242,6 +246,8 @@ export class GameShell {
     this._targetPickSession = null;
     /** @type {HTMLElement|null} */
     this._targetPickPromptEl = null;
+    /** @type {Function|null} */
+    this._authoritativeGameEventsHandler = null;
   }
 
   /**
@@ -279,6 +285,21 @@ export class GameShell {
     this._bindMapControls();
     this._bindInteractionEvents();
     this.setupFullscreenToggle();
+    // Portrait textures load asynchronously, often after the token layer has
+    // already rendered. Re-emit the entity set when one lands so map tokens
+    // pick up the same art the chat tab shows instead of keeping placeholders.
+    if (!this._spriteTextureReadyUnsub) {
+      this._spriteTextureReadyUnsub = this.spriteService?.onTextureReady?.(() => {
+        this._scheduleTokenSpriteRefresh();
+      }) || null;
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !this._authoritativeGameEventsHandler) {
+      this._authoritativeGameEventsHandler = (customEvent = {}) => {
+        const events = Array.isArray(customEvent?.detail?.events) ? customEvent.detail.events : [];
+        this._projectAuthoritativeMovementEvents(events);
+      };
+      window.addEventListener('dungeoncrawler:game-events', this._authoritativeGameEventsHandler);
+    }
 
     // Build flat quests array with objectives flattened from phases
     const allQuests = [
@@ -365,6 +386,12 @@ export class GameShell {
 
     const hexmapShim = this._buildHexmapShim();
     this.gameCoordinator = new GameCoordinator(campaignId, hexmapShim);
+    const coordinatorRequestId = `encounter-bootstrap-${campaignId}-${Date.now()}`;
+    this.bus?.emit?.('game:backend-request-start', {
+      requestId: coordinatorRequestId,
+      label: 'Hydrating encounter state...',
+      source: 'encounter-bootstrap',
+    });
     if (this.bootstrapPerf && typeof console !== 'undefined' && typeof console.info === 'function') {
       console.info('[GameShell] hexmap bootstrap timings (ms)', this.bootstrapPerf);
     }
@@ -397,6 +424,12 @@ export class GameShell {
         console.warn('GameCoordinator init failed; coordinator-driven action dispatch disabled:', error?.message || error);
         this.gameCoordinator = null;
         this.panels?.actionRail?.refreshActionRail?.();
+      })
+      .finally(() => {
+        this.bus?.emit?.('game:backend-request-end', {
+          requestId: coordinatorRequestId,
+          source: 'encounter-bootstrap',
+        });
       });
   }
 
@@ -1485,6 +1518,10 @@ export class GameShell {
     this._busUnsubs = [];
 
     this._busUnsubs.push(
+      this.bus.on('runtime:state-committed', ({ snapshot } = {}) => {
+        this._syncEncounterPlacementsFromRuntimeSnapshot(snapshot);
+      }),
+
       this.bus.on('hex:hovered', ({ q, r } = {}) => {
         this._setStateValue('hoveredHex', Number.isFinite(Number(q)) && Number.isFinite(Number(r)) ? { q: Number(q), r: Number(r) } : null);
         this.bus.emit('hex:details', this.getHexDetail(q, r));
@@ -1836,6 +1873,10 @@ export class GameShell {
       window.removeEventListener('dungeoncrawler:game-shell-tab-changed', this._tabChangedHandler);
       this._tabChangedHandler = null;
     }
+    if (this._authoritativeGameEventsHandler) {
+      window.removeEventListener('dungeoncrawler:game-events', this._authoritativeGameEventsHandler);
+      this._authoritativeGameEventsHandler = null;
+    }
 
     this.fetchBridge?.destroy?.();
     this.fetchBridge = null;
@@ -1861,6 +1902,14 @@ export class GameShell {
 
     this._currentOccupants = [];
     this._merchantRequestTokens.clear();
+    if (typeof this._spriteTextureReadyUnsub === 'function') {
+      this._spriteTextureReadyUnsub();
+      this._spriteTextureReadyUnsub = null;
+    }
+    if (this._tokenSpriteRefreshHandle) {
+      window.clearTimeout(this._tokenSpriteRefreshHandle);
+      this._tokenSpriteRefreshHandle = null;
+    }
     this.entityManager = null;
     this.canvas = null;
     this.systems = {};
@@ -2231,26 +2280,36 @@ export class GameShell {
     params.set('start_q', String(startQ));
     params.set('start_r', String(startR));
 
-    const response = await fetch(`/api/map/visual-state?${params.toString()}`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      credentials: 'include',
+    const requestId = `runtime-state-${numericCampaignId}:${roomId || this.activeRoomId || 'current'}:${Date.now()}`;
+    this.bus?.emit?.('game:backend-request-start', {
+      requestId,
+      label: 'Hydrating runtime state...',
+      source: 'runtime-state',
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload?.success) {
-      const error = new Error(payload?.error || 'Unable to load runtime state.');
-      error.status = Number(response.status || 0);
-      error.code = String(payload?.error || '').trim().toLowerCase();
-      error.retryAfter = Number(payload?.retry_after || response.headers.get('Retry-After') || 0) || 0;
-      error.payload = payload;
-      throw error;
-    }
+    try {
+      const response = await fetch(`/api/map/visual-state?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        credentials: 'include',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) {
+        const error = new Error(payload?.error || 'Unable to load runtime state.');
+        error.status = Number(response.status || 0);
+        error.code = String(payload?.error || '').trim().toLowerCase();
+        error.retryAfter = Number(payload?.retry_after || response.headers.get('Retry-After') || 0) || 0;
+        error.payload = payload;
+        throw error;
+      }
 
-    this.applyRuntimeStateBundle(payload);
-    return payload;
+      this.applyRuntimeStateBundle(payload);
+      return payload;
+    } finally {
+      this.bus?.emit?.('game:backend-request-end', { requestId, source: 'runtime-state' });
+    }
   }
 
   applyRuntimeStateBundle(bundle = {}) {
@@ -2982,10 +3041,15 @@ export class GameShell {
     ) || 0;
     const phase = String(snapshot?.phase || '').trim().toLowerCase();
     const encounterState = this.getEncounterServerState?.() || {};
+    // Only server-provided encounter state may declare an encounter non-live.
+    // The legacy ECS TurnManagementSystem defaults to 'idle' and is never fed
+    // server state in the v2 shell, so consulting it here would let a stale
+    // client-side default silently veto an authoritative coordinator snapshot
+    // and misroute combat moves down the non-combat room-move path.
     const presentationStatus = String(
-      encounterState?.encounter_presentation?.status
+      snapshot?.encounterPresentation?.status
+      ?? encounterState?.encounter_presentation?.status
       ?? encounterState?.status
-      ?? this.turnManagementSystem?.getEncounterStatus?.()
       ?? ''
     ).trim().toLowerCase();
 
@@ -3119,6 +3183,145 @@ export class GameShell {
     this.setSelectedHex(Number(q), Number(r), { emitDetails: false });
     if (this.getEntityCharacterId(entity) === this.resolveLaunchCharacterStateId()) {
       this.updateLaunchLocationContext(roomId, Number(q), Number(r));
+    }
+  }
+
+  _resolveEntityForAuthoritativeRef(actorRef = '') {
+    const normalizedRef = String(actorRef || '').trim();
+    if (!normalizedRef || !this.entityManager) {
+      return null;
+    }
+
+    const turnResolved = this.turnManagementSystem?.resolveEntityFromServerId?.(normalizedRef) || null;
+    if (turnResolved) {
+      return turnResolved;
+    }
+
+    return this.entityManager.getEntitiesWith('PositionComponent').find((entity) => (
+      String(this.getEntityInstanceRef(entity) || '').trim() === normalizedRef
+      || String(entity?.dcEntityInstanceId || '').trim() === normalizedRef
+      || String(entity?.id || '').trim() === normalizedRef
+    )) || null;
+  }
+
+  _emitActiveRoomEntitiesChanged() {
+    if (!this.bus || !this.entityManager) {
+      return;
+    }
+
+    this.bus.emit('room:entities-changed', {
+      roomId: String(this.resolveActiveRoomId() || this.activeRoomId || '').trim() || null,
+      entities: this.entityManager.getEntitiesWith('PositionComponent', 'RenderComponent'),
+    });
+  }
+
+  _syncEncounterPlacementsFromRuntimeSnapshot(snapshot = null) {
+    const gameState = snapshot?.gameState && typeof snapshot.gameState === 'object'
+      ? snapshot.gameState
+      : null;
+    const initiativeOrder = Array.isArray(gameState?.initiative_order) ? gameState.initiative_order : [];
+    if (!this.entityManager || initiativeOrder.length === 0) {
+      return;
+    }
+
+    let applied = false;
+    for (const participant of initiativeOrder) {
+      if (!participant || typeof participant !== 'object') {
+        continue;
+      }
+
+      const actorRef = String(participant.entity_id || '').trim();
+      const roomId = String(
+        participant.room_id
+        || gameState?.active_room_id
+        || snapshot?.activeRoomId
+        || this.resolveActiveRoomId()
+        || this.activeRoomId
+        || ''
+      ).trim();
+      const q = Number(participant.position_q);
+      const r = Number(participant.position_r);
+      if (!actorRef || !roomId || !Number.isFinite(q) || !Number.isFinite(r)) {
+        continue;
+      }
+
+      const entity = this._resolveEntityForAuthoritativeRef(actorRef);
+      if (!entity) {
+        continue;
+      }
+
+      const position = entity.getComponent?.('PositionComponent') || null;
+      const currentRoomId = String(entity?.placement?.room_id || position?.roomId || '').trim();
+      if (currentRoomId === roomId && Number(position?.q) === q && Number(position?.r) === r) {
+        continue;
+      }
+
+      this.applyLocalEntityPlacement(entity, roomId, q, r);
+      applied = true;
+    }
+
+    if (applied) {
+      this._emitActiveRoomEntitiesChanged();
+    }
+  }
+
+  _projectAuthoritativeMovementEvents(events = []) {
+    if (!Array.isArray(events) || events.length === 0 || !this.entityManager) {
+      return;
+    }
+
+    const movementTypes = new Set(['stride', 'step', 'crawl', 'climb', 'swim', 'fly', 'leap', 'sneak', 'burrow', 'forced_movement']);
+    let applied = false;
+    for (const event of events) {
+      if (!event || typeof event !== 'object') {
+        continue;
+      }
+
+      const rawType = String(event.type || '').trim().toLowerCase();
+      const normalizedType = rawType.startsWith('npc_') ? rawType.slice(4) : rawType;
+      if (!movementTypes.has(normalizedType)) {
+        continue;
+      }
+
+      const data = event.data && typeof event.data === 'object' ? event.data : {};
+      const resolutionEnvelope = data?.resolution_envelope && typeof data.resolution_envelope === 'object'
+        ? data.resolution_envelope
+        : null;
+      const resolutionPackets = Array.isArray(resolutionEnvelope?.packets)
+        ? resolutionEnvelope.packets.filter((packet) => packet && typeof packet === 'object')
+        : [];
+      const movementPacket = resolutionPackets.find((packet) => String(packet?.kind || '').trim().toLowerCase() === 'movement_resolution')
+        || (data?.movement_packet && typeof data.movement_packet === 'object' ? data.movement_packet : null);
+      const actorRef = String(movementPacket?.actor_entity_ref || event.actor || '').trim();
+      const toHex = movementPacket?.to_hex && typeof movementPacket.to_hex === 'object'
+        ? movementPacket.to_hex
+        : (data?.to_hex && typeof data.to_hex === 'object'
+          ? data.to_hex
+          : (data?.to && typeof data.to === 'object' ? data.to : null));
+      const roomId = String(
+        data?.room_id
+        || movementPacket?.metadata?.room_id
+        || this.resolveActiveRoomId()
+        || this.activeRoomId
+        || ''
+      ).trim();
+      const q = Number(toHex?.q);
+      const r = Number(toHex?.r);
+      if (!actorRef || !roomId || !Number.isFinite(q) || !Number.isFinite(r)) {
+        continue;
+      }
+
+      const entity = this._resolveEntityForAuthoritativeRef(actorRef);
+      if (!entity) {
+        continue;
+      }
+
+      this.applyLocalEntityPlacement(entity, roomId, q, r);
+      applied = true;
+    }
+
+    if (applied) {
+      this._emitActiveRoomEntitiesChanged();
     }
   }
 
@@ -3301,6 +3504,11 @@ export class GameShell {
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.success) {
         console.warn('[GameShell] room move rejected', { status: response.status, payload });
+        this.bus?.emit?.('chat:system-message', {
+          speaker: 'System',
+          kind: 'error',
+          text: String(payload?.error || '').trim() || 'Move rejected by the server.',
+        });
         return false;
       }
       this.applyLocalEntityPlacement(entity, roomId, q, r);
@@ -3413,13 +3621,27 @@ export class GameShell {
   }
 
   async handleMapActorDrop({ entity = null, sourceQ = 0, sourceR = 0, targetQ = 0, targetR = 0 } = {}) {
-    if (!this.canDragEntityOnMap(entity)) {
+    const rejectDrop = (reason) => {
+      console.warn('[GameShell] map actor drop rejected', { reason, targetQ, targetR });
+      this.bus?.emit?.('chat:system-message', {
+        speaker: 'System',
+        kind: 'error',
+        text: String(reason || '').trim() || 'That move is not allowed.',
+      });
       return false;
+    };
+
+    if (!this.canDragEntityOnMap(entity)) {
+      return rejectDrop(
+        this.isLiveCombatEncounterActive() && !this.isCombatDragActorTurn(entity)
+          ? 'You can only move an actor on its own turn.'
+          : 'You are not allowed to move this actor.'
+      );
     }
 
     const validation = this.resolveMapDragDropValidation(entity, targetQ, targetR);
     if (!validation.valid) {
-      return false;
+      return rejectDrop(validation.reason);
     }
 
     if (Number(sourceQ) === Number(targetQ) && Number(sourceR) === Number(targetR)) {
@@ -3429,7 +3651,7 @@ export class GameShell {
     if (this.isLiveCombatEncounterActive()) {
       const combatPlan = this.buildCombatDragMovementPlan(entity, targetQ, targetR);
       if (!combatPlan.valid) {
-        return false;
+        return rejectDrop(combatPlan.reason);
       }
       if (combatPlan.noop) {
         return true;
@@ -3442,7 +3664,10 @@ export class GameShell {
         actionCost: combatPlan.actionCost,
         distanceFt: combatPlan.distanceFt,
       });
-      return Boolean(result?.success);
+      if (!result?.success) {
+        return rejectDrop('The server rejected that combat movement.');
+      }
+      return true;
     }
 
     return this.moveEntityWithinRoom(entity, String(this.resolveActiveRoomId() || ''), Number(targetQ), Number(targetR));
@@ -3684,6 +3909,30 @@ export class GameShell {
       };
       this.characterData = this.launchCharacter;
     }
+  }
+
+  /**
+   * Re-emit the current entity set so token sprites pick up newly loaded
+   * textures. Coalesced because a room's portraits resolve independently and
+   * would otherwise trigger one full token rebuild per image.
+   */
+  _scheduleTokenSpriteRefresh() {
+    if (this._tokenSpriteRefreshHandle) {
+      return;
+    }
+    const schedule = (typeof window !== 'undefined' && typeof window.setTimeout === 'function')
+      ? window.setTimeout
+      : setTimeout;
+    this._tokenSpriteRefreshHandle = schedule(() => {
+      this._tokenSpriteRefreshHandle = null;
+      if (!this.bus || !this.entityManager) {
+        return;
+      }
+      this.bus.emit('room:entities-changed', {
+        roomId: this.resolveActiveRoomId(),
+        entities: this.entityManager.getEntitiesWith('PositionComponent', 'RenderComponent'),
+      });
+    }, 0);
   }
 
   // --- ported from hexmap.js ---

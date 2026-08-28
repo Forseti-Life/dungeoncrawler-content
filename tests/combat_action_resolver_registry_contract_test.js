@@ -36,7 +36,7 @@ assert(
   'ActionResolverRegistry defines register/resolve seam with by-reference argument support'
 );
 
-const phaseHandlerSource = read('../src/Service/EncounterPhaseHandler.php');
+const phaseHandlerSource = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 assert(
   phaseHandlerSource.includes("$this->actionResolverRegistry->register('strike'")
     && phaseHandlerSource.includes("$this->actionResolverRegistry->register('cast_spell'")

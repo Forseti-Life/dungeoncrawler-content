@@ -377,7 +377,8 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       $this->hazardService,
       $this->roomChatService,
       $this->configFactory,
-      $logger_factory
+      $logger_factory,
+      $this->movementResolver
     );
     $this->roomSceneEncounterCoordinator = $room_scene_encounter_coordinator ?? new RoomSceneEncounterCoordinator();
     $this->canonicalProjectionService = $canonical_projection_service ?? new CanonicalProjectionService(
@@ -1231,7 +1232,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
         $mutation['field'] = $mutation['path'];
       }
 
-      $has_actor_target = trim((string) ($mutation['entity_id'] ?? '')) !== '';
+      $resolved_entity_target = $this->normalizeMutationTargetId($mutation['entity_id'] ?? NULL);
+      if ($resolved_entity_target === NULL) {
+        $resolved_entity_target = $this->normalizeMutationTargetId($mutation['entity'] ?? NULL);
+      }
+      if ($resolved_entity_target !== NULL) {
+        $mutation['entity_id'] = $resolved_entity_target;
+      }
+      $has_actor_target = $resolved_entity_target !== NULL;
       $has_room_target = trim((string) ($mutation['room_id'] ?? '')) !== '';
 
       if (

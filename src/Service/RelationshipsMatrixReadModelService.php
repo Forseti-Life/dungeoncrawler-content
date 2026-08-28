@@ -14,6 +14,8 @@ class RelationshipsMatrixReadModelService {
   protected InstitutionDispositionScoreAssemblerService $institutionDispositionScoreAssemblerService;
   protected RelationshipsActorIdentityResolverService $relationshipsActorIdentityResolver;
   protected DispositionResolverService $dispositionResolverService;
+  protected ActorStanceResolverService $actorStanceResolverService;
+  protected AggressionPolicyService $aggressionPolicyService;
   protected LoggerChannelFactoryInterface $loggerFactory;
 
   public function __construct(
@@ -23,6 +25,8 @@ class RelationshipsMatrixReadModelService {
     RelationshipsActorIdentityResolverService|InstitutionDispositionMatrixService|null $relationships_actor_identity_resolver = NULL,
     DispositionResolverService|RelationshipsActorIdentityResolverService|null $disposition_resolver_service = NULL,
     LoggerChannelFactoryInterface|DispositionResolverService|null $logger_factory = NULL,
+    ?ActorStanceResolverService $actor_stance_resolver_service = NULL,
+    ?AggressionPolicyService $aggression_policy_service = NULL,
     ?LoggerChannelFactoryInterface $logger_factory_fallback = NULL,
   ) {
     $identity_resolver = NULL;
@@ -91,13 +95,28 @@ class RelationshipsMatrixReadModelService {
       }
     }
 
-    if (!$institution_score_assembler instanceof InstitutionDispositionScoreAssemblerService || !$identity_resolver instanceof RelationshipsActorIdentityResolverService || !$disposition_resolver instanceof DispositionResolverService || !$resolved_logger_factory instanceof LoggerChannelFactoryInterface) {
+    if (!$actor_stance_resolver_service instanceof ActorStanceResolverService && \Drupal::hasService('dungeoncrawler_content.actor_stance_resolver_service')) {
+      $service = \Drupal::service('dungeoncrawler_content.actor_stance_resolver_service');
+      if ($service instanceof ActorStanceResolverService) {
+        $actor_stance_resolver_service = $service;
+      }
+    }
+    if (!$aggression_policy_service instanceof AggressionPolicyService && \Drupal::hasService('dungeoncrawler_content.aggression_policy_service')) {
+      $service = \Drupal::service('dungeoncrawler_content.aggression_policy_service');
+      if ($service instanceof AggressionPolicyService) {
+        $aggression_policy_service = $service;
+      }
+    }
+
+    if (!$institution_score_assembler instanceof InstitutionDispositionScoreAssemblerService || !$identity_resolver instanceof RelationshipsActorIdentityResolverService || !$disposition_resolver instanceof DispositionResolverService || !$resolved_logger_factory instanceof LoggerChannelFactoryInterface || !$actor_stance_resolver_service instanceof ActorStanceResolverService || !$aggression_policy_service instanceof AggressionPolicyService) {
       throw new \InvalidArgumentException(sprintf(
-        'RelationshipsMatrixReadModelService dependency resolution failed (assembler=%s, identity=%s, resolver=%s, logger=%s).',
+        'RelationshipsMatrixReadModelService dependency resolution failed (assembler=%s, identity=%s, resolver=%s, logger=%s, stance=%s, aggression=%s).',
         is_object($institution_score_assembler) ? get_class($institution_score_assembler) : gettype($institution_score_assembler),
         is_object($identity_resolver) ? get_class($identity_resolver) : gettype($identity_resolver),
         is_object($disposition_resolver) ? get_class($disposition_resolver) : gettype($disposition_resolver),
         is_object($resolved_logger_factory) ? get_class($resolved_logger_factory) : gettype($resolved_logger_factory),
+        is_object($actor_stance_resolver_service) ? get_class($actor_stance_resolver_service) : gettype($actor_stance_resolver_service),
+        is_object($aggression_policy_service) ? get_class($aggression_policy_service) : gettype($aggression_policy_service),
       ));
     }
 
@@ -106,6 +125,8 @@ class RelationshipsMatrixReadModelService {
     $this->institutionDispositionScoreAssemblerService = $institution_score_assembler;
     $this->relationshipsActorIdentityResolver = $identity_resolver;
     $this->dispositionResolverService = $disposition_resolver;
+    $this->actorStanceResolverService = $actor_stance_resolver_service;
+    $this->aggressionPolicyService = $aggression_policy_service;
     $this->loggerFactory = $resolved_logger_factory;
   }
 
@@ -330,6 +351,9 @@ class RelationshipsMatrixReadModelService {
             'institution_score' => (int) ($institution['score'] ?? 0),
             'institution_weighted_score' => $weighted_institution,
             'institution_breakdown' => is_array($institution['breakdown'] ?? NULL) ? $institution['breakdown'] : [],
+            'institution_components' => is_array($institution['components'] ?? NULL) ? $institution['components'] : [],
+            'institution_component_weights' => is_array($institution['weights'] ?? NULL) ? $institution['weights'] : [],
+            'institution_equation' => (string) ($institution['equation'] ?? ''),
             'final_attitude' => $final_attitude,
             'final_score' => $final_score,
             'stance' => $stance_details['stance'],
@@ -340,6 +364,7 @@ class RelationshipsMatrixReadModelService {
             'stance_policy_flags' => $stance_details['policy_flags'],
             'stance_basis' => $stance_details['basis'],
             'stance_formula' => $stance_details['formula'],
+            'aggression_policy' => is_array($stance_details['aggression_policy'] ?? NULL) ? $stance_details['aggression_policy'] : [],
             'equation' => (string) ($resolver_dto['equation'] ?? sprintf(
               'clamp((%.2f*%d) + (%.2f*%d) + (%d), %d, %d) = %d',
               (float) ($weights['baseline'] ?? $weights['default'] ?? 0),
@@ -454,146 +479,68 @@ class RelationshipsMatrixReadModelService {
     ?int $edge_score = NULL,
     string $edge_attitude = ''
   ): array {
-    $is_hostile = $this->isHostileSignal(
-      $source_default_score,
-      $final_score,
-      $final_attitude,
-      $resolver_hostile_flag,
-      $edge_score,
-      $edge_attitude
-    );
-    $threat_score = ($edge_score !== NULL && DispositionAuthorityContract::isHostileScore($edge_score)) ? 50 : 0;
-    $explicit_attack_declared = FALSE;
-    $direct_addressed = FALSE;
-    $scripted_scene_required = FALSE;
-    $hp_ratio = 1.0;
-    $danger_level = 'none';
-    $mode = 'combat_entry';
-    $has_target = $target_ref !== '';
-    if ($scripted_scene_required) {
-      $stance = 'engage_dialogue';
-      $reason = 'Scripted-scene obligation overrides lower-order posture heuristics.';
-    }
-    elseif ($hp_ratio <= 0.20 || in_array($danger_level, ['critical', 'fatal'], TRUE)) {
-      $stance = 'flee';
-      $reason = 'Survival pressure is critical; actor should break contact.';
-    }
-    elseif ($hp_ratio <= 0.35 || $danger_level === 'high') {
-      $stance = 'self_preserve';
-      $reason = 'Survival pressure is high; actor should prioritize defensive behavior.';
-    }
-    elseif ($explicit_attack_declared && $has_target) {
-      $stance = 'aggressive_engage';
-      $reason = 'Combat-entry declaration with a valid target signals aggressive engagement.';
-    }
-    elseif ($is_hostile && $has_target && $threat_score >= 25) {
-      $stance = 'aggressive_engage';
-      $reason = 'Hostility and elevated threat make combat entry behaviorally plausible.';
-    }
-    elseif ($is_hostile && $has_target) {
-      $stance = 'threaten';
-      $reason = 'Hostility is elevated but does not yet cross aggressive-entry threshold.';
-    }
-    elseif ($direct_addressed) {
-      $stance = 'warn';
-      $reason = 'Direct-address room pressure indicates guarded response posture.';
-    }
-    else {
-      $stance = 'observe';
-      $reason = 'No combat-entry trigger exceeded; continue observing.';
-    }
-    $confidence = 80;
-    $policy_flags = [
-      'chat_allowed' => in_array($stance, ['engage_dialogue', 'deescalate', 'warn', 'threaten', 'observe'], TRUE),
-      'combat_entry_candidate' => in_array($stance, ['threaten', 'aggressive_engage', 'finish_weakest'], TRUE),
-      'aggressive_action_allowed' => in_array($stance, ['aggressive_engage', 'finish_weakest'], TRUE),
-      'turn_action_required' => FALSE,
-      'room_silence_allowed' => in_array($stance, ['observe', 'self_preserve', 'flee', 'pass'], TRUE),
-    ];
-    $basis = [
-      'mode' => [
-        'mode' => $mode,
-        'scripted_scene_required' => $scripted_scene_required,
-      ],
-      'profile' => [
-        'attitude' => $this->scoreToAttitude($source_default_score),
-        'score' => $source_default_score,
-        'score_source' => 'relationships_matrix_source_default_score',
-      ],
-      'resolved_disposition' => [
-        'target_count' => $has_target ? 1 : 0,
-        'primary_target_ref' => $target_ref,
-        'primary_target_score' => $final_score,
-        'primary_target_label' => $this->scoreToAttitude($final_score),
-      ],
-      'aggression' => [
-        'explicit_attack_declared' => $explicit_attack_declared,
-        'threat_score' => $threat_score,
-      ],
-      'survival' => [
-        'hp_ratio' => $hp_ratio,
-        'danger_level' => $danger_level,
-      ],
-      'narrative' => [
-        'direct_addressed' => $direct_addressed,
-        'scripted_scene_required' => $scripted_scene_required,
-      ],
-      'targeting' => [
-        'candidate_targets' => $has_target ? [$target_ref] : [],
-        'primary_target_ref' => $target_ref,
-      ],
-    ];
-    $details = [
-      'stance' => $stance,
-      'confidence' => $confidence,
-      'reason' => $reason,
-      'mode' => $mode,
+    $threat_level = ($edge_score !== NULL && DispositionAuthorityContract::isHostileScore($edge_score)) ? 'major' : 'none';
+    $stance = $this->actorStanceResolverService->projectStance($campaign_id, $source_ref, [
+      'mode' => 'combat_entry',
+      'target_entity_refs' => $target_ref !== '' ? [$target_ref] : [],
       'target_actor_ref' => $target_ref,
-      'policy_flags' => $policy_flags,
-      'basis' => $basis,
-      'formula' => sprintf(
-        'stance = evaluate(mode=%s, is_hostile=%s, has_target=%s, threat_score=%d, explicit_attack=%s, direct_addressed=%s, hp_ratio=%s, danger=%s) => %s',
-        $mode,
-        $is_hostile ? 'true' : 'false',
-        $has_target ? 'true' : 'false',
-        $threat_score,
-        $explicit_attack_declared ? 'true' : 'false',
-        $direct_addressed ? 'true' : 'false',
-        (string) $hp_ratio,
-        $danger_level,
-        $stance
-      ),
-    ];
-    return $details;
-  }
+      'threat_level' => $threat_level,
+      'explicit_attack_declared' => FALSE,
+      'direct_addressed' => FALSE,
+      'scripted_scene_required' => FALSE,
+      'hp_ratio' => 1.0,
+      'danger_level' => 'none',
+      'disposition_context' => [
+        'source_summary_override' => [
+          'current_attitude' => $this->scoreToAttitude($source_default_score),
+          'current_score' => $source_default_score,
+        ],
+      ],
+    ]);
+    $policy = $this->aggressionPolicyService->evaluateAggressionState([
+      'current_state' => 'threatened',
+      'actor_attitude' => $this->scoreToAttitude($source_default_score),
+      'actor_score' => $source_default_score,
+      'actor_attitude_source' => 'relationships_matrix_source_default_score',
+      'relationship_attitude' => $edge_attitude !== '' ? $edge_attitude : $this->scoreToAttitude($final_score),
+      'relationship_score' => $edge_score ?? $final_score,
+      'relationship_attitude_source' => $edge_score !== NULL || $edge_attitude !== '' ? 'relationship_edge' : 'resolved_disposition_fallback',
+      'aggression_signal' => 'none',
+      'threat_level' => $threat_level,
+      'explicit_attack_declared' => FALSE,
+      'valid_target_ids' => $target_ref !== '' ? [$target_ref] : [],
+      'actor_stance' => (string) ($stance['stance'] ?? ''),
+      'actor_stance_confidence' => isset($stance['confidence']) && is_numeric($stance['confidence']) ? (int) $stance['confidence'] : 0,
+      'actor_stance_reason' => (string) ($stance['reason'] ?? ''),
+    ]);
 
-  /**
-   * Resolve whether disposition signals are hostile.
-   */
-  protected function isHostileSignal(
-    int $source_default_score,
-    int $final_score,
-    string $final_attitude,
-    string $resolver_hostile_flag,
-    ?int $edge_score = NULL,
-    string $edge_attitude = ''
-  ): bool {
-    if (in_array(strtolower(trim($resolver_hostile_flag)), ['1', 'true', 'yes', 'hostile'], TRUE)) {
-      return TRUE;
-    }
-    if ($edge_score !== NULL && DispositionAuthorityContract::isHostileScore($edge_score)) {
-      return TRUE;
-    }
-    if ($this->normalizeAttitude($edge_attitude) === DispositionAuthorityContract::LABEL_HOSTILE) {
-      return TRUE;
-    }
-    if (DispositionAuthorityContract::isHostileScore($final_score)) {
-      return TRUE;
-    }
-    if (DispositionAuthorityContract::isHostileScore($source_default_score)) {
-      return TRUE;
-    }
-    return $this->normalizeAttitude($final_attitude) === DispositionAuthorityContract::LABEL_HOSTILE;
+    return [
+      'stance' => (string) ($stance['stance'] ?? 'observe'),
+      'confidence' => isset($stance['confidence']) && is_numeric($stance['confidence']) ? (int) $stance['confidence'] : 0,
+      'reason' => (string) ($stance['reason'] ?? ''),
+      'mode' => (string) ($stance['mode'] ?? 'combat_entry'),
+      'target_actor_ref' => (string) ($stance['target_actor_ref'] ?? $target_ref),
+      'policy_flags' => is_array($stance['policy_flags'] ?? NULL) ? $stance['policy_flags'] : [],
+      'basis' => is_array($stance['basis'] ?? NULL) ? $stance['basis'] : [],
+      'formula' => sprintf(
+        'stance = ActorStanceResolverService(mode=%s, target=%s, threat_level=%s) => %s',
+        (string) ($stance['mode'] ?? 'combat_entry'),
+        $target_ref,
+        $threat_level,
+        (string) ($stance['stance'] ?? 'observe')
+      ),
+      'aggression_policy' => [
+        'formula' => (string) ($policy['formula'] ?? ''),
+        'rows' => is_array($policy['rows'] ?? NULL) ? $policy['rows'] : [],
+        'hostility_pressure' => isset($policy['basis']['hostility_pressure']) && is_numeric($policy['basis']['hostility_pressure'])
+          ? (int) $policy['basis']['hostility_pressure']
+          : 0,
+        'can_initiate_combat' => !empty($policy['can_initiate_combat']),
+        'entry_authorized' => !empty($policy['entry_authorized']),
+        'basis' => is_array($policy['basis'] ?? NULL) ? $policy['basis'] : [],
+        'reason' => (string) ($policy['reason'] ?? ''),
+      ],
+    ];
   }
 
 }

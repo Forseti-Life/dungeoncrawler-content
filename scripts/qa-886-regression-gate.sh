@@ -9,6 +9,8 @@ NODE_BIN="${NODE_BIN:-node}"
 
 TESTS=(
   "tests/room_scene_damage_hostility_escalation_contract_test.js"
+  "tests/room_scene_bootstrap_hydration_contract_test.js"
+  "tests/room_scene_stale_encounter_repair_contract_test.js"
   "tests/room_scene_spell_legality_contract_test.js"
   "tests/undead_startup_hostility_seed_contract_test.js"
   "tests/room_scene_hostility_drift_warning_contract_test.js"

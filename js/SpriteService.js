@@ -22,6 +22,39 @@ export class SpriteService {
 
     /** @type {Object<string, Promise<string|null>>} In-flight single lookups. */
     this._pendingLookups = {};
+
+    /**
+     * @type {Set<Function>} Listeners notified when a texture finishes loading.
+     * Renderers that build sprites straight from PIXI.utils.TextureCache (the v2
+     * map token renderer) need this because texture loads complete asynchronously
+     * after the entity set has already been rendered; without it a token keeps its
+     * placeholder primitive even though the portrait art is now available.
+     */
+    this._textureReadyListeners = new Set();
+  }
+
+  /**
+   * Subscribe to texture-ready notifications.
+   *
+   * @param {Function} listener Called with (spriteId, texture).
+   * @returns {Function} Unsubscribe function.
+   */
+  onTextureReady(listener) {
+    if (typeof listener !== 'function') {
+      return () => {};
+    }
+    this._textureReadyListeners.add(listener);
+    return () => this._textureReadyListeners.delete(listener);
+  }
+
+  _notifyTextureReady(spriteId, texture) {
+    this._textureReadyListeners.forEach((listener) => {
+      try {
+        listener(spriteId, texture);
+      } catch (error) {
+        console.warn('SpriteService: texture-ready listener failed', error);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -182,8 +215,10 @@ export class SpriteService {
     // Check PixiJS texture cache first (instant swap).
     const cacheKey = 'gen_' + spriteId;
     if (PIXI.utils.TextureCache[cacheKey]) {
-      renderSystem.replaceEntitySprite(entity, PIXI.utils.TextureCache[cacheKey]);
+      PIXI.utils.TextureCache[spriteId] = PIXI.utils.TextureCache[cacheKey];
+      renderSystem?.replaceEntitySprite?.(entity, PIXI.utils.TextureCache[cacheKey]);
       render._generatedSpriteApplied = true;
+      this._notifyTextureReady(spriteId, PIXI.utils.TextureCache[cacheKey]);
       return;
     }
 
@@ -199,11 +234,17 @@ export class SpriteService {
 
         // Verify entity still exists and hasn't been cleared.
         const currentRender = entity.getComponent('RenderComponent');
-        if (currentRender && currentRender.sprite && !currentRender._generatedSpriteApplied) {
-          renderSystem.replaceEntitySprite(entity, texture);
+        if (currentRender && !currentRender._generatedSpriteApplied) {
+          if (currentRender.sprite) {
+            renderSystem?.replaceEntitySprite?.(entity, texture);
+          }
           currentRender._generatedSpriteApplied = true;
           console.log(`SpriteService: applied texture for ${spriteId}`);
         }
+        // Always announce availability: renderers that read the texture cache
+        // directly must be able to re-render even when this entity had no
+        // legacy placeholder sprite to replace.
+        this._notifyTextureReady(spriteId, texture);
       } catch (err) {
         console.warn(`SpriteService: texture creation failed for ${spriteId}:`, err);
       }
@@ -228,11 +269,22 @@ export class SpriteService {
     if (!entityManager || !renderSystem) return;
 
     const allEntities = entityManager.getEntitiesWith('RenderComponent');
-    const definitions = dungeonData?.object_definitions;
-    if (!definitions) return;
+    // Object definitions only drive the content-id fallback below; actor
+    // portraits resolve straight from the entity's own sprite key, so a room
+    // without furniture definitions must not skip sprite application entirely.
+    const definitions = dungeonData?.object_definitions || {};
     const dungeonEntities = Array.isArray(dungeonData?.entities) ? dungeonData.entities : [];
 
     allEntities.forEach((entity) => {
+      const render = entity.getComponent('RenderComponent');
+      if (!render || render._generatedSpriteApplied) return;
+
+      const directSpriteId = String(render.spriteKey || '').trim();
+      if (directSpriteId && this._cache[directSpriteId]) {
+        this.loadAndApplyTexture(entity, this._cache[directSpriteId], directSpriteId, renderSystem);
+        return;
+      }
+
       const dcRef = entity.dcEntityRef;
       const contentId = String(
         entity.dcContentId
@@ -244,9 +296,6 @@ export class SpriteService {
 
       const spriteId = definitions[contentId]?.visual?.sprite_id;
       if (!spriteId || !this._cache[spriteId]) return;
-
-      const render = entity.getComponent('RenderComponent');
-      if (!render || render._generatedSpriteApplied) return;
 
       this.loadAndApplyTexture(entity, this._cache[spriteId], spriteId, renderSystem);
     });
@@ -272,15 +321,24 @@ export class SpriteService {
   async resolveAndApply(entityManager, renderSystem, dungeonData, activeRoomId, campaignId) {
     if (this._resolveInFlight) return;
 
-    const definitions = dungeonData?.object_definitions;
-    if (!definitions || typeof definitions !== 'object') return;
+    // Missing object definitions only means there is no furniture to batch
+    // resolve; pre-seeded actor portraits must still be applied.
+    const definitions = (dungeonData?.object_definitions && typeof dungeonData.object_definitions === 'object')
+      ? dungeonData.object_definitions
+      : {};
 
     // Collect definitions used by entities in this room that are not yet cached.
     const entities = Array.isArray(dungeonData?.entities) ? dungeonData.entities : [];
+    const metadataSpriteIds = new Set();
     const neededDefs = {};
     entities.forEach((entity) => {
       const placement = entity?.placement;
       if (!placement || placement.room_id !== activeRoomId) return;
+
+      const metadataSpriteId = String(entity?.state?.metadata?.sprite_id || '').trim();
+      if (metadataSpriteId && !this._cache[metadataSpriteId]) {
+        metadataSpriteIds.add(metadataSpriteId);
+      }
 
       const contentId = entity?.entity_ref?.content_id;
       if (!contentId || !definitions[contentId]) return;
@@ -291,7 +349,7 @@ export class SpriteService {
       neededDefs[contentId] = definitions[contentId];
     });
 
-    if (Object.keys(neededDefs).length === 0) {
+    if (Object.keys(neededDefs).length === 0 && metadataSpriteIds.size === 0) {
       // All sprites already cached — just apply from cache.
       this.applyFromCache(entityManager, renderSystem, dungeonData);
       return;
@@ -299,7 +357,13 @@ export class SpriteService {
 
     this._resolveInFlight = true;
     try {
-      await this.fetchBatch(neededDefs, campaignId);
+      if (Object.keys(neededDefs).length > 0) {
+        await this.fetchBatch(neededDefs, campaignId);
+      }
+
+      if (metadataSpriteIds.size > 0) {
+        await Promise.all(Array.from(metadataSpriteIds).map((spriteId) => this.fetchOne(spriteId, campaignId)));
+      }
     } finally {
       // Always apply cached sprites (including pre-cached portrait URLs)
       // regardless of whether furniture sprite resolution succeeded.

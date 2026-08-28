@@ -9,10 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const source = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
-  'utf8'
-);
+const source = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 let passed = 0;
 let failed = 0;

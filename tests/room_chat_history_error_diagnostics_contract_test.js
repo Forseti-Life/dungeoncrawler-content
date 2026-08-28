@@ -22,14 +22,13 @@ function assert(condition, message) {
   }
 }
 
+// Room chat history error logging moved out of RoomChatController into the
+// dedicated RoomChat/RoomChatResponseMapper collaborator.
 const controllerSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Controller/RoomChatController.php'),
+  path.resolve(__dirname, '../src/Service/RoomChat/RoomChatResponseMapper.php'),
   'utf8'
 );
-const shellSource = fs.readFileSync(
-  path.resolve(__dirname, '../js/v2/GameShell.js'),
-  'utf8'
-);
+const shellSource = require('./helpers/js-source.js').readGameShellSource();
 
 console.log('\n=== Room chat history diagnostics contract ===');
 

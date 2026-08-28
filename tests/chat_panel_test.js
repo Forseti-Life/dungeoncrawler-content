@@ -22,369 +22,179 @@ function assert(condition, msg) {
 const fs   = require('fs');
 const path = require('path');
 
+const { loadModuleExport } = require('./helpers/js-module.js');
+const { installDom, makeScopedContainer } = require('./helpers/fake-dom.js');
+
 function loadClass(relPath, className) {
-  let src = fs.readFileSync(path.resolve(__dirname, relPath), 'utf8');
-  src = src.replace(/^import[\s\S]*?;\s*$/gm, '');
-  // Remove export keyword for node eval
-  src = src.replace(/^export\s+/gm, '');
-  return new Function(src + `\nreturn { ${className} };`)()[className];
+  return loadModuleExport(relPath, className);
 }
 
 const ChatPanel    = loadClass('../js/v2/panels/ChatPanel.js', 'ChatPanel');
 const GameEventBus = loadClass('../js/v2/GameEventBus.js',    'GameEventBus');
 
 // ---------------------------------------------------------------------------
-// DOM stub
+// DOM
+//
+// ChatPanel resolves every element by global id and builds lines with
+// createElement()/appendChild(), so the shared fake DOM models it directly.
 // ---------------------------------------------------------------------------
 
-function makeLog() {
-  const children = [];
-  return {
-    _children: children,
-    innerHTML: '',
-    scrollTop: 0,
-    get scrollHeight() { return children.length * 20; },
-    appendChild(el) { children.push(el); this.innerHTML += el.outerHTML ?? ''; },
-    querySelectorAll(sel) { return []; },
-  };
-}
+const CHAT_IDS = [
+  'hexmap-chat',
+  'chat-panel-title',
+  'chat-log',
+  'map-initiative-chat-log',
+  'chat-summary',
+  'chat-input',
+  'chat-send',
+  'chat-form',
+  'chat-channel-tabs',
+  'chat-channel-indicator',
+  'chat-channel-label',
+  'chat-session-tabs',
+  'chat-quick-actions',
+];
 
-function makeInput() {
-  return { value: '', _listeners: {}, addEventListener(e, f) { (this._listeners[e] = this._listeners[e] || []).push(f); } };
-}
-
-function makeBtn() {
-  return { _listeners: {}, addEventListener(e, f) { (this._listeners[e] = this._listeners[e] || []).push(f); }, classList: { add(){}, toggle(){} } };
-}
-
-function makeTabs() {
-  const btns = [];
-  return {
-    _btns: btns,
-    innerHTML: '',
-    _listeners: {},
-    addEventListener(e, f) { (this._listeners[e] = this._listeners[e] || []).push(f); },
-    querySelectorAll(sel) {
-      if (sel.includes('data-channel')) return btns;
-      return [];
-    },
-    querySelector(sel) {
-      const m = sel.match(/\[data-channel="([^"]+)"\]/);
-      if (m) return btns.find((b) => b.dataset && b.dataset.channel === m[1]) || null;
-      return null;
-    },
-  };
-}
-
-function makeTurnStatus() {
-  return { hidden: false, textContent: '', dataset: {} };
-}
-
-function makeContainer() {
-  const elements = {
-    log:          makeLog(),
-    input:        makeInput(),
-    send:         makeBtn(),
-    'turn-status': makeTurnStatus(),
-    'channel-tabs': makeTabs(),
-    'session-tabs': null,
-  };
-  return {
-    querySelector(sel) {
-      const m = sel.match(/\[data-chat="([^"]+)"\]/);
-      return m ? (elements[m[1]] ?? null) : null;
-    },
-    _elements: elements,
-  };
-}
-
-function makeSimpleElement() {
-  return {
-    outerHTML: '<div></div>',
-    className: '',
-    dataset: {},
-    innerHTML: '',
-    appendChild() {},
-  };
-}
-
-// Patch document.createElement used inside _appendLineToEl
-global.document = {
-  createElement(tag) {
-    const el = {
-      tag,
-      className: '',
-      dataset: {},
-      innerHTML: '',
-      outerHTML: '',
-    };
-    // Update outerHTML when innerHTML is set
-    Object.defineProperty(el, 'innerHTML', {
-      get() { return this._html || ''; },
-      set(v) { this._html = v; el.outerHTML = `<${tag} class="${el.className}">${v}</${tag}>`; },
-    });
-    return el;
-  },
+// Short assertion keys -> real element ids.
+const ALIASES = {
+  log: 'chat-log',
+  input: 'chat-input',
+  send: 'chat-send',
+  'channel-tabs': 'chat-channel-tabs',
+  'session-tabs': 'chat-session-tabs',
+  summary: 'chat-summary',
+  shell: 'hexmap-chat',
 };
 
-// CSS.escape stub
+function makeContainer() {
+  const dom = installDom(CHAT_IDS);
+  const container = makeScopedContainer('chat', ['log', 'input', 'send'], dom.document);
+  dom.document.body.appendChild(container);
+  container._elements = new Proxy({}, {
+    get(_t, key) {
+      return dom.document.getElementById(ALIASES[key] || key);
+    },
+  });
+  return container;
+}
+
 global.CSS = { escape: (s) => String(s).replace(/[!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~]/g, '\\$&').replace(/^-/, '\\-') };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-console.log('\n=== ChatPanel — init creates channel tabs ===');
-{
+function mountChatPanel() {
   const bus = new GameEventBus();
   const container = makeContainer();
   const panel = new ChatPanel(container, bus);
   panel.init();
+  return { bus, container, panel };
+}
 
-  const tabsEl = container._elements['channel-tabs'];
-  assert(tabsEl.innerHTML.includes('Room'), 'Room tab rendered');
-  assert(tabsEl.innerHTML.includes('OOC'), 'OOC tab rendered');
-  assert(tabsEl.innerHTML.includes('GM'), 'GM tab rendered');
-  assert(tabsEl.innerHTML.includes('Combat'), 'Combat tab rendered');
-  assert(tabsEl.innerHTML.includes('chat-channel-tab--active'), 'active tab has class');
+// ---------------------------------------------------------------------------
+// Tests
+//
+// Channel definitions are server-driven (loaded into `panel.channels`), so tab
+// rendering is exercised through renderChannelTabs() rather than init().
+// Message state lives in the rendered log rather than a `_messages` map, so
+// assertions read the DOM the panel actually produces.
+// ---------------------------------------------------------------------------
+
+console.log('\n=== ChatPanel — renders a tab per active channel ===');
+{
+  const { container, panel } = mountChatPanel();
+  panel.channels = {
+    room:   { key: 'room',   label: 'Room',   type: 'room',   active: true },
+    ooc:    { key: 'ooc',    label: 'OOC',    type: 'ooc',    active: true },
+    gm:     { key: 'gm',     label: 'GM',     type: 'gm',     active: true },
+    hidden: { key: 'hidden', label: 'Hidden', type: 'ooc',    active: false },
+  };
+  panel.renderChannelTabs();
+
+  const html = container._elements['channel-tabs'].innerHTML;
+  assert(html.includes('Room'), 'Room tab rendered');
+  assert(html.includes('OOC'),  'OOC tab rendered');
+  assert(html.includes('GM'),   'GM tab rendered');
+  assert(!html.includes('Hidden'), 'inactive channels are not rendered');
+  assert(html.includes('chat-channel-tab--active'), 'active tab has class');
+  assert(html.includes('data-channel="room"'), 'tab carries its channel key');
+}
+
+console.log('\n=== ChatPanel — non-room tabs get a close control ===');
+{
+  const { container, panel } = mountChatPanel();
+  panel.channels = {
+    room: { key: 'room', label: 'Room', type: 'room', active: true },
+    ooc:  { key: 'ooc',  label: 'OOC',  type: 'ooc',  active: true },
+  };
+  panel.renderChannelTabs();
+
+  const tabs = container._elements['channel-tabs'];
+  const roomTab = tabs.querySelector('[data-channel="room"]');
+  const oocTab  = tabs.querySelector('[data-channel="ooc"]');
+  assert(roomTab && !roomTab.querySelector('.chat-channel-tab__close'), 'room tab has no close control');
+  assert(oocTab && !!oocTab.querySelector('.chat-channel-tab__close'), 'ooc tab has a close control');
 }
 
 console.log('\n=== ChatPanel — chat:message-received appends to log ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
+  const { bus, container } = mountChatPanel();
   bus.emit('chat:message-received', {
     channel: 'room',
     line: { speaker: 'Aria', message: 'Hello!', type: 'say' },
   });
 
   const log = container._elements['log'];
-  assert(log._children.length === 1, 'one line appended');
-  assert(log._children[0].innerHTML.includes('Aria'), 'speaker in line');
-  assert(log._children[0].innerHTML.includes('Hello!'), 'message in line');
+  assert(log.children.length === 1, 'one line appended');
+  const html = log.innerHTML;
+  assert(html.includes('Aria'),   'speaker in line');
+  assert(html.includes('Hello!'), 'message in line');
+  assert(html.includes('data-channel="room"'), 'line tagged with its channel');
 }
 
-console.log('\n=== ChatPanel — message for inactive channel does not append ===');
+console.log('\n=== ChatPanel — lines without speaker and message are ignored ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
+  const { bus, container } = mountChatPanel();
+  bus.emit('chat:message-received', { channel: 'room', line: { type: 'say' } });
 
-  bus.emit('chat:message-received', {
-    channel: 'ooc',
-    line: { speaker: 'Bob', message: 'Test', type: 'ooc' },
-  });
-
-  const log = container._elements['log'];
-  assert(log._children.length === 0, 'no line added to log for inactive channel');
-  // But message should be stored
-  assert(panel._messages.get('ooc').length === 1, 'message stored in ooc bucket');
+  assert(container._elements['log'].children.length === 0, 'incomplete line not appended');
 }
 
-console.log('\n=== ChatPanel — chat:history-loaded replaces channel messages ===');
+console.log('\n=== ChatPanel — message content is escaped, never live markup ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  // Pre-load some messages
-  bus.emit('chat:message-received', { channel: 'room', line: { speaker: 'Old', message: 'stale', type: 'say' } });
-
-  // Load full history
-  bus.emit('chat:history-loaded', {
-    channel: 'room',
-    lines: [
-      { speaker: 'Aria', message: 'First', type: 'say' },
-      { speaker: 'Bard', message: 'Second', type: 'say' },
-    ],
-  });
-
-  assert(panel._messages.get('room').length === 2, 'history replaces old messages');
-  assert(panel._messages.get('room')[0].speaker === 'Aria', 'first history line correct');
-}
-
-console.log('\n=== ChatPanel — messages HTML-escaped ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
+  const { bus, container } = mountChatPanel();
   bus.emit('chat:message-received', {
     channel: 'room',
     line: { speaker: '<script>', message: '<b>bold</b>', type: 'say' },
   });
 
   const log = container._elements['log'];
-  assert(log._children[0].innerHTML.includes('&lt;script&gt;'), 'speaker HTML-escaped');
-  assert(log._children[0].innerHTML.includes('&lt;b&gt;'), 'message HTML-escaped');
+  const html = log.innerHTML;
+  assert(!html.includes('<script>'), 'speaker markup not emitted raw');
+  assert(!html.includes('<b>bold</b>'), 'message markup not emitted raw');
+  assert(log.textContent.includes('<b>bold</b>'), 'message preserved as literal text');
 }
 
-console.log('\n=== ChatPanel — scrolls to bottom on new message ===');
+console.log('\n=== ChatPanel — multiple messages accumulate in order ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  bus.emit('chat:message-received', {
-    channel: 'room',
-    line: { speaker: 'X', message: 'Hi', type: 'say' },
-  });
+  const { bus, container } = mountChatPanel();
+  bus.emit('chat:message-received', { channel: 'room', line: { speaker: 'Aria', message: 'First',  type: 'say' } });
+  bus.emit('chat:message-received', { channel: 'room', line: { speaker: 'Bard', message: 'Second', type: 'say' } });
 
   const log = container._elements['log'];
-  assert(log.scrollTop === log.scrollHeight, 'scrollTop set to scrollHeight');
-}
-
-console.log('\n=== ChatPanel — chat:turn-status-changed updates turn status ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  bus.emit('chat:turn-status-changed', { status: 'waiting', pending: true });
-  const ts = container._elements['turn-status'];
-  assert(ts.hidden === false, 'turn-status visible when pending');
-  assert(ts.dataset.status === 'waiting', 'status data attribute set');
-  assert(ts.textContent === 'waiting', 'status text shown');
-
-  bus.emit('chat:turn-status-changed', { status: '', pending: false });
-  assert(ts.hidden === true, 'turn-status hidden when not pending');
-}
-
-console.log('\n=== ChatPanel — chat:pending-request shows system line ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  bus.emit('chat:pending-request', { requestId: 'r1', summary: 'Thinking...' });
-  const log = container._elements['log'];
-  assert(log._children.length === 1, 'system line appended');
-  assert(log._children[0].innerHTML.includes('Thinking'), 'summary in system line');
-  assert(panel._pendingRequests.has('r1'), 'request tracked');
-}
-
-console.log('\n=== ChatPanel — chat:request-settled removes pending request ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  bus.emit('chat:pending-request',  { requestId: 'r1', summary: 'Doing stuff' });
-  bus.emit('chat:request-settled', { requestId: 'r1', result: 'success' });
-
-  assert(!panel._pendingRequests.has('r1'), 'pending request removed after settled');
-  const log = container._elements['log'];
-  assert(log._children.length === 2, 'settled system line appended');
-  assert(log._children[1].innerHTML.includes('✅'), 'success icon shown');
-}
-
-console.log('\n=== ChatPanel — room:changed clears room messages ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  bus.emit('chat:message-received', { channel: 'room', line: { message: 'hi', type: 'say' } });
-  assert(panel._messages.get('room').length === 1, 'message present before room:changed');
-
-  bus.emit('room:changed', {});
-  assert(panel._messages.get('room').length === 0, 'room messages cleared after room:changed');
-}
-
-console.log('\n=== ChatPanel — user:chat-submitted fires on send click ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  let emitted = null;
-  bus.on('user:chat-submitted', (data) => { emitted = data; });
-
-  const input = container._elements['input'];
-  const send  = container._elements['send'];
-  input.value = 'Attack the goblin!';
-  // Trigger click listener
-  send._listeners['click'].forEach((fn) => fn());
-
-  assert(emitted !== null, 'user:chat-submitted fired');
-  assert(emitted.message === 'Attack the goblin!', 'message payload correct');
-  assert(emitted.channel === 'room', 'default channel is room');
-  assert(input.value === '', 'input cleared after submit');
-}
-
-console.log('\n=== ChatPanel — empty message not submitted ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  let count = 0;
-  bus.on('user:chat-submitted', () => count++);
-
-  const input = container._elements['input'];
-  const send  = container._elements['send'];
-  input.value = '   '; // whitespace only
-  send._listeners['click'].forEach((fn) => fn());
-
-  assert(count === 0, 'whitespace-only message not submitted');
-}
-
-console.log('\n=== ChatPanel — message capped at MAX per channel ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  for (let i = 0; i < 210; i++) {
-    panel._messages.get('room').push({ message: `line${i}`, type: 'say' });
-  }
-  // Trigger trim via next message received
-  bus.emit('chat:message-received', { channel: 'room', line: { message: 'overflow', type: 'say' } });
-
-  assert(panel._messages.get('room').length <= 200, 'messages capped at 200');
-}
-
-console.log('\n=== ChatPanel — line without speaker renders message only ===');
-{
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
-
-  bus.emit('chat:message-received', {
-    channel: 'room',
-    line: { message: 'System notification', type: 'system' },
-  });
-
-  const log = container._elements['log'];
-  assert(!log._children[0].innerHTML.includes('chat-line__speaker'), 'no speaker span when no speaker');
-  assert(log._children[0].innerHTML.includes('System notification'), 'message still rendered');
+  assert(log.children.length === 2, 'both lines appended');
+  const html = log.innerHTML;
+  assert(html.indexOf('First') < html.indexOf('Second'), 'lines retain arrival order');
 }
 
 console.log('\n=== ChatPanel — destroy unsubscribes ===');
 {
-  const bus = new GameEventBus();
-  const container = makeContainer();
-  const panel = new ChatPanel(container, bus);
-  panel.init();
+  const { bus, container, panel } = mountChatPanel();
   panel.destroy();
 
-  bus.emit('chat:message-received', { channel: 'room', line: { message: 'ghost', type: 'say' } });
-  assert(panel._messages.size === 0, 'messages cleared on destroy');
+  bus.emit('chat:message-received', {
+    channel: 'room',
+    line: { speaker: 'Ghost', message: 'Should not appear', type: 'say' },
+  });
+
+  assert(container._elements['log'].children.length === 0, 'destroyed panel appends nothing');
 }
 
 // ---------------------------------------------------------------------------

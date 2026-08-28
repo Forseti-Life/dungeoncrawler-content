@@ -23,17 +23,15 @@ function assert(condition, message) {
   }
 }
 
-const source = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/EncounterPhaseHandler.php'),
-  'utf8',
-);
+const source = require('./helpers/php-source.js').readEncounterPhaseHandlerSource();
 
 console.log('\n=== Generic feat stance runtime migration contract ===');
 
 assert(
   source.includes('protected ?StanceRuntimeService $stanceRuntimeService;')
-    && source.includes("$this->stanceRuntimeService = $stance_runtime_service ?? (\\Drupal::hasService('dungeoncrawler_content.stance_runtime_service')"),
-  'EncounterPhaseHandler resolves stance runtime service dependency'
+    && source.includes('?StanceRuntimeService $stance_runtime_service')
+    && source.includes('$this->stanceRuntimeService = $stance_runtime_service;'),
+  'EncounterPhaseHandler resolves stance runtime service dependency via constructor injection'
 );
 
 assert(

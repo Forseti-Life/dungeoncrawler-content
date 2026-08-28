@@ -685,6 +685,48 @@
   background: color-mix(in srgb, var(--panel) 78%, black);
 }
 
+.action-rail__suggest {
+  min-height: 42px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--panel-border) 60%, var(--accent));
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  color: var(--text-bright);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.action-rail__suggest:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.action-rail__suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--panel-border) 60%, var(--accent));
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--text-bright);
+}
+
+.action-rail__suggestion--error {
+  border-color: color-mix(in srgb, var(--panel-border) 50%, red);
+  background: color-mix(in srgb, red 10%, var(--panel));
+}
+
+.action-rail__suggestion-headline {
+  font-weight: 700;
+}
+
+.action-rail__suggestion-meta {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
 .action-rail__group {
   display: flex;
   flex-direction: column;
@@ -871,11 +913,17 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  min-height: 1200px;
+  height: 1200px;
+  max-height: none;
+  overflow: hidden;
 }
 
+.game-shell__map-panel,
 .game-shell__chat-panel,
 .game-shell__view-panel,
 .game-shell__character-panel {
+  width: 100%;
   max-width: 1280px;
   margin: 0;
 }
@@ -1415,7 +1463,10 @@
 /* Canvas Container */
 .hexmap-canvas-wrapper {
   width: 100%;
-  height: 600px;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
   background: var(--canvas-bg);
   border: 3px solid var(--gray-600);
   border-radius: var(--radius-lg);
@@ -1546,6 +1597,10 @@
 
 .hexmap-stage {
   position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   padding-bottom: 0; /* overlay footer upward into map */
 }
 
@@ -4732,7 +4787,7 @@
   }
 
   .hexmap-canvas-wrapper {
-    height: 400px;
+    height: 100%;
   }
 
   .hexmap-info {
@@ -4968,6 +5023,38 @@
 
 .map-initiative-status .backend-wait-banner {
   background: var(--overlay-black-35);
+}
+
+.chat-panel-status {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-1);
+}
+
+.chat-panel-status:empty {
+  display: none;
+}
+
+.chat-panel-status .backend-wait-banner {
+  position: static;
+  top: auto;
+  left: auto;
+  transform: none;
+  z-index: auto;
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-lg);
+  justify-content: flex-start;
+  display: flex;
+  padding: var(--space-1) var(--space-2);
+  box-shadow: none;
+  pointer-events: none;
+  background: var(--overlay-black-35);
+}
+
+.chat-panel-status .backend-wait-banner[hidden] {
+  display: none;
 }
 
 .hexmap-container[data-hexmap-v2] .backend-wait-banner {

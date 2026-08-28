@@ -26,10 +26,7 @@ const projectorSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/GmSubsystem/GmTranscriptProjector.php'),
   'utf8'
 );
-const roomChatSource = fs.readFileSync(
-  path.resolve(__dirname, '../src/Service/RoomChatService.php'),
-  'utf8'
-);
+const roomChatSource = require('./helpers/php-source.js').readGmPipelineSource();
 const servicesSource = fs.readFileSync(
   path.resolve(__dirname, '../dungeoncrawler_content.services.yml'),
   'utf8'
@@ -59,9 +56,9 @@ assert(
 );
 assert(
   roomChatSource.includes('$projection_result = $this->gmTranscriptProjector->project(')
-    && roomChatSource.includes("[$this, 'buildVisibleGmNarrative']")
-    && roomChatSource.includes("[$this, 'buildEncounterPrefixForSpeaker']")
-    && roomChatSource.includes("[$this, 'prefixEncounterChatText']"),
+    && roomChatSource.includes('$callbacks->buildVisibleGmNarrative(')
+    && roomChatSource.includes('$build_encounter_prefix_for_speaker($dungeon_data, ')
+    && roomChatSource.includes('$this->encounterTranscriptPrefixService->prefixChatText('),
   'generateGmReply delegates transcript projection to subsystem projector'
 );
 assert(

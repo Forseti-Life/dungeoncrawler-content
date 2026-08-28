@@ -15,10 +15,7 @@ const path = require('path');
     path.join(__dirname, '..', 'src', 'Service', 'QuestTrackerService.php'),
     'utf8'
   );
-  const roomChatSource = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'Service', 'RoomChatService.php'),
-    'utf8'
-  );
+  const roomChatSource = require('./helpers/php-source.js').readGmPipelineSource();
   const roomChatTraitSource = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'Service', 'RoomChatServiceChannelAndSessionTrait.php'),
     'utf8'
@@ -60,35 +57,52 @@ const path = require('path');
     'service container should register graph version and dungeon payload state persistence services',
   );
 
+  // QuestTrackerService no longer rewrites dungeon snapshots itself (quest
+  // state lives in dedicated dc_campaign_quest* tables). The lane contract is
+  // therefore asserted as: never write the snapshot directly, and if a
+  // snapshot mutation is ever reintroduced it must go through the service.
   assert(
-    questTrackerSource.includes('DungeonPayloadStatePersistenceService')
-      && questTrackerSource.includes("return $this->dungeonPayloadStatePersistence->mutateByRowId("),
-    'QuestTrackerService should route mutable snapshot writes through DungeonPayloadStatePersistenceService',
+    questTrackerSource.includes('DungeonPayloadStatePersistenceService'),
+    'QuestTrackerService should depend on DungeonPayloadStatePersistenceService for snapshot writes',
   );
 
   assert(
-    roomChatSource.includes('DungeonPayloadStatePersistenceService')
-      && roomChatTraitSource.includes('persistRoomChatSnapshotState(int $campaign_id, string $dungeon_id, array $dungeon_data): bool')
-      && roomChatTraitSource.includes("return $this->dungeonPayloadStatePersistence->mutateByDungeonId("),
-    'RoomChatService should route mutable snapshot writes through DungeonPayloadStatePersistenceService',
+    !/->update\(\s*'dungeoncrawler_content_dungeons'/.test(questTrackerSource)
+      && !/'dungeon_data'\s*=>/.test(questTrackerSource),
+    'QuestTrackerService must not bypass the state lane with direct dungeon snapshot writes',
+  );
+
+  // Room chat snapshot state was migrated off the dungeon payload blob onto the
+  // normalized RoomRuntimeStateStore lane; the single funnel method remains.
+  assert(
+    roomChatTraitSource.includes('persistRoomChatSnapshotState(int $campaign_id, string $dungeon_id, array $dungeon_data): bool')
+      && roomChatTraitSource.includes('$room_runtime_state_store->syncFromRooms($campaign_id, $rooms);'),
+    'RoomChatService should route mutable snapshot writes through the room runtime state store',
+  );
+
+  assert(
+    roomChatTraitSource.includes("throw new \\RuntimeException('room runtime state store unavailable');"),
+    'RoomChatService snapshot persistence must hard-fail when the runtime state store is unavailable',
   );
 
   assert(
     roomChatCoreFlowTraitSource.includes('persistRoomChatSnapshotState($campaign_id, (string) $dungeon_id, $dungeon_data)')
       && roomChatNpcInterjectionTraitSource.includes('persistRoomChatSnapshotState($campaign_id, (string) $dungeon_id, $dungeon_data)'),
-    'RoomChatService core flow and NPC interjections should persist snapshot state through DungeonPayloadStatePersistenceService',
+    'RoomChatService core flow and NPC interjections should persist snapshot state through the shared funnel',
   );
 
   assert(
     runtimeBootstrapSource.includes('DungeonPayloadStatePersistenceService')
-      && runtimeBootstrapSource.includes("->mutateByRowId("),
+      && runtimeBootstrapSource.includes("->mutateStateByRowId("),
     'RuntimeBootstrapService should route mutable snapshot writes through DungeonPayloadStatePersistenceService',
   );
 
+  // Coordinator runtime state now lives in the campaign runtime-state slice,
+  // written through a single funnel rather than the dungeon payload blob.
   assert(
-    gameCoordinatorSource.includes('DungeonPayloadStatePersistenceService')
-      && gameCoordinatorSource.includes("return $this->dungeonPayloadStatePersistence->mutateByRowId("),
-    'GameCoordinatorService should route mutable snapshot writes through DungeonPayloadStatePersistenceService',
+    gameCoordinatorSource.includes('protected function persistGameStateSlice(int $campaign_id, array $game_state, ?string $active_room_id = NULL): bool')
+      && gameCoordinatorSource.includes('return $this->campaignRuntimeMutationService->persistGameState($campaign_id, $game_state, $active_room_id);'),
+    'GameCoordinatorService should route mutable runtime-state writes through a single campaign runtime mutation funnel',
   );
 
   assert(
@@ -110,7 +124,7 @@ const path = require('path');
 
   assert(
     explorationSource.includes('DungeonPayloadStatePersistenceService')
-      && explorationSource.includes("$updated = $this->dungeonPayloadStatePersistence->mutateByDungeonId("),
+      && explorationSource.includes("$updated = $this->dungeonPayloadStatePersistence->mutateStateByDungeonId("),
     'ExplorationPhaseHandler should route mutable snapshot writes through DungeonPayloadStatePersistenceService',
   );
 
