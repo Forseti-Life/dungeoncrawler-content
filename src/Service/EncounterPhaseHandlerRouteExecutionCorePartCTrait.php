@@ -157,6 +157,21 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
       }
     }
 
+    // Unlike processStrike() (which refreshes game_state['initiative_order']
+    // from the DB immediately after resolveAttack()), spell damage is applied
+    // deep inside the unified damage engine with no equivalent refresh. Do it
+    // here so a spell that defeats its target (e.g. magic-missile finishing
+    // off a skeleton) is reflected in the in-memory initiative order before
+    // processEndTurn() decides who goes next — otherwise the turn-advance
+    // loop can land on/stall on an entity that the DB already marked
+    // defeated, freezing the encounter.
+    if ($encounter_id) {
+      $enc_for_initiative = $enc_after ?? $this->encounterStore->loadEncounter((int) $encounter_id);
+      if ($enc_for_initiative) {
+        $game_state['initiative_order'] = $enc_for_initiative['participants'] ?? ($game_state['initiative_order'] ?? []);
+      }
+    }
+
     $resolved_damage = is_numeric($result['damage'] ?? NULL) ? (int) $result['damage'] : NULL;
     if ($resolved_damage === NULL && is_numeric($target_hp_before) && is_numeric($target_hp_after)) {
       $hp_delta = (int) $target_hp_before - (int) $target_hp_after;
