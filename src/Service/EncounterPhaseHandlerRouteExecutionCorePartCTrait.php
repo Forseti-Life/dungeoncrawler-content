@@ -157,21 +157,6 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
       }
     }
 
-    // Unlike processStrike() (which refreshes game_state['initiative_order']
-    // from the DB immediately after resolveAttack()), spell damage is applied
-    // deep inside the unified damage engine with no equivalent refresh. Do it
-    // here so a spell that defeats its target (e.g. magic-missile finishing
-    // off a skeleton) is reflected in the in-memory initiative order before
-    // processEndTurn() decides who goes next — otherwise the turn-advance
-    // loop can land on/stall on an entity that the DB already marked
-    // defeated, freezing the encounter.
-    if ($encounter_id) {
-      $enc_for_initiative = $enc_after ?? $this->encounterStore->loadEncounter((int) $encounter_id);
-      if ($enc_for_initiative) {
-        $game_state['initiative_order'] = $enc_for_initiative['participants'] ?? ($game_state['initiative_order'] ?? []);
-      }
-    }
-
     $resolved_damage = is_numeric($result['damage'] ?? NULL) ? (int) $result['damage'] : NULL;
     if ($resolved_damage === NULL && is_numeric($target_hp_before) && is_numeric($target_hp_after)) {
       $hp_delta = (int) $target_hp_before - (int) $target_hp_after;
@@ -924,6 +909,25 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
   }
 
   protected function processEndTurn(?int $encounter_id, ?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
+    // processEndTurn() is the single universal entry point for turn-advance
+    // logic — called from the auto-end-turn tail of processIntentCore()
+    // (after ANY action type: strike, cast_spell, feat, hazard attack,
+    // disarm/trip/shove, etc.), from routeEndTurnIntentExecution() for an
+    // explicit end-turn, and recursively from itself after NPC autoplay.
+    // Refresh the in-memory initiative order from the DB here, once, rather
+    // than duplicating a refresh inside every individual action handler —
+    // that was the bug: only processStrike() refreshed it, so a spell (or
+    // any other non-strike action) that defeated the last combatant on a
+    // team left is_defeated stale in game_state, and this function's
+    // turn-advance loop kept selecting the (actually dead) combatant as
+    // "next", freezing the encounter.
+    if ($encounter_id) {
+      $encounter_for_turn_refresh = $this->encounterStore->loadEncounter((int) $encounter_id);
+      if ($encounter_for_turn_refresh) {
+        $game_state['initiative_order'] = $encounter_for_turn_refresh['participants'] ?? ($game_state['initiative_order'] ?? []);
+      }
+    }
+
     $initiative_order = $game_state['initiative_order'] ?? [];
     if (empty($initiative_order)) {
       return [
