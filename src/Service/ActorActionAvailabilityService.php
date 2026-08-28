@@ -231,6 +231,13 @@ class ActorActionAvailabilityService {
       'requires_turn' => TRUE,
       'targeting' => 'none',
     ],
+    'party_recovery' => [
+      'label' => 'Recover Party',
+      'cost' => 0,
+      'category' => 'turn',
+      'requires_turn' => TRUE,
+      'targeting' => 'none',
+    ],
     'reaction' => [
       'label' => 'Reaction',
       'cost' => 'reaction',
@@ -428,6 +435,7 @@ class ActorActionAvailabilityService {
 
     $actions[] = 'end_turn';
     $actions[] = 'choose_not_to_act';
+    $actions[] = 'party_recovery';
 
     if ($reaction_available) {
       $actions[] = 'reaction';

@@ -552,7 +552,8 @@ class EncounterIntentRouter {
     int $campaign_id,
     callable $handle_end_turn,
     callable $handle_delay,
-    callable $handle_delay_reenter
+    callable $handle_delay_reenter,
+    ?callable $handle_party_recovery = NULL
   ): array {
     return match ($type) {
       'end_turn', 'choose_not_to_act' => [
@@ -567,6 +568,10 @@ class EncounterIntentRouter {
         'handled' => TRUE,
         'payload' => $handle_delay_reenter($actor_id, $game_state),
       ],
+      'party_recovery' => $handle_party_recovery !== NULL ? [
+        'handled' => TRUE,
+        'payload' => $handle_party_recovery($encounter_id, $actor_id, $params, $game_state, $dungeon_data, $campaign_id),
+      ] : ['handled' => FALSE, 'payload' => []],
       default => ['handled' => FALSE, 'payload' => []],
     };
   }
@@ -1610,7 +1615,8 @@ class EncounterIntentRouter {
     array &$mutations,
     array &$events,
     mixed &$narration,
-    array &$time_effects
+    array &$time_effects,
+    ?callable $handle_party_recovery = NULL
   ): array|bool|null {
     $route = $this->routeTurnFlowAction(
       $type,
@@ -1622,7 +1628,8 @@ class EncounterIntentRouter {
       $campaign_id,
       $handle_end_turn,
       $handle_delay,
-      $handle_delay_reenter
+      $handle_delay_reenter,
+      $handle_party_recovery
     );
     if (empty($route['handled'])) {
       return FALSE;

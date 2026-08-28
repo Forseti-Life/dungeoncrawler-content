@@ -96,19 +96,14 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
   }
 
   /**
-   * TEMPORARY STOPGAP: heal the player party to full HP at end-of-turn.
+   * Core logic for the player-triggered "Recover Party" action.
    *
-   * The encounter engine currently has no path to recover from a full player
-   * party wipe (see the orphaned "checks if the encounter should end" doc
-   * comment and the missing isEncounterOver()/checkEncounterEnd() pair this
-   * codebase used to have) — once every player-team combatant is defeated,
-   * the turn-advance loop has nothing to hand control back to and the
-   * encounter freezes forever. Until proper death/recovery handling is
-   * rebuilt, every end_turn/choose_not_to_act restores all player- and
-   * ally-team combatants to full HP and clears their defeated/dying/
-   * unconscious/prone conditions so the fight can keep going.
-   *
-   * Remove this once a real party-wipe resolution path exists.
+   * This heals all player- and ally-team combatants to full HP and clears
+   * their defeated/dying/unconscious/prone conditions. It is intentionally
+   * NOT automatic — it must be explicitly invoked by the player via the
+   * `party_recovery` intent (see routePartyRecoveryIntentExecution()) so the
+   * player chooses when to spend the action rather than it firing silently
+   * on every turn boundary.
    *
    * @return array
    *   Narration events describing the recovery, or [] if nobody needed it.
@@ -192,8 +187,54 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
     return [
       GameEventLogger::buildEvent('party_recovery', 'encounter', NULL, [
         'healed' => $healed_names,
-        'reason' => 'temporary_end_turn_party_recovery_stopgap',
+        'reason' => 'player_triggered_party_recovery_action',
       ], $narration),
+    ];
+  }
+
+  /**
+   * Router seam: execute the player-triggered "Recover Party" action.
+   *
+   * Zero-cost, does not end the actor's turn (mirrors 'delay' in that
+   * respect) — it simply heals the player party to full HP on demand.
+   */
+  protected function routePartyRecoveryIntentExecution(
+    ?int $encounter_id,
+    ?string $actor_id,
+    array $params,
+    array &$game_state,
+    array &$dungeon_data,
+    int $campaign_id
+  ): array {
+    $turn_ctx = $this->captureEncounterTurnContext($game_state, $dungeon_data, $actor_id);
+    $recovery_events = $this->restorePlayerPartyToFullHealth($encounter_id, $game_state, $dungeon_data, $campaign_id);
+
+    $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
+    $resolved_narration = $recovery_events !== []
+      ? (string) ($recovery_events[0]['narration'] ?? sprintf('%s calls for the party to recover.', $actor_name))
+      : sprintf('%s calls for the party to recover, but nobody needs healing.', $actor_name);
+    $resolved_narration = $this->prefixEncounterChatLine($turn_ctx, $resolved_narration);
+
+    $events = [
+      GameEventLogger::buildEvent('party_recovery_action', 'encounter', $actor_id, [
+        'round' => $turn_ctx['round'] ?? ($game_state['round'] ?? NULL),
+        'actor_name' => $actor_name,
+        'healed' => $recovery_events !== [] ? ($recovery_events[0]['data']['healed'] ?? []) : [],
+      ], $resolved_narration),
+    ];
+    if ($recovery_events !== []) {
+      $events = array_merge($events, $recovery_events);
+    }
+
+    return [
+      'result' => [
+        'action' => 'party_recovery',
+        'healed' => $recovery_events !== [] ? ($recovery_events[0]['data']['healed'] ?? []) : [],
+      ],
+      'mutations' => [],
+      'events' => $events,
+      'narration' => $resolved_narration,
+      'time_effects' => [],
     ];
   }
 

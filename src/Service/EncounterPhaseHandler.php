@@ -241,6 +241,13 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'requires_turn' => TRUE,
       'targeting' => 'none',
     ],
+    'party_recovery' => [
+      'label' => 'Recover Party',
+      'cost' => 0,
+      'category' => 'turn',
+      'requires_turn' => TRUE,
+      'targeting' => 'none',
+    ],
     'delay' => [
       'label' => 'Delay',
       'cost' => 0,
@@ -495,6 +502,7 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       'transition',
       'end_turn',
       'choose_not_to_act',
+      'party_recovery',
       'delay',
       'delay_reenter',
       'ready',

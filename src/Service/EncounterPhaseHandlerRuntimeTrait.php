@@ -184,7 +184,8 @@ trait EncounterPhaseHandlerRuntimeTrait {
         $mutations,
         $events,
         $narration,
-        $time_effects
+        $time_effects,
+        $this->routePartyRecoveryIntentExecution(...)
       );
       if ($turn_flow_response !== FALSE) {
         if ($turn_flow_response !== NULL) {
@@ -603,7 +604,7 @@ trait EncounterPhaseHandlerRuntimeTrait {
 
     // Check for auto-end-turn (actions depleted + no movement remaining).
     // Delay is intentional initiative exit — do NOT auto-end-turn for it.
-    $no_auto_end_types = ['end_turn', 'choose_not_to_act', 'delay', 'delay_reenter', 'release', 'aid'];
+    $no_auto_end_types = ['end_turn', 'choose_not_to_act', 'delay', 'delay_reenter', 'release', 'aid', 'party_recovery'];
     if (!in_array($type, $no_auto_end_types, TRUE) && $this->shouldAutoEndTurn($game_state)) {
       $auto_end = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
       if (is_array($auto_end['mutations'] ?? NULL) && $auto_end['mutations'] !== []) {

@@ -1547,6 +1547,16 @@ export class ActionRailPanel {
         actionLabel: 'Delay',
       }));
     }
+    if (this.isServerActionAvailable(context, 'party_recovery')) {
+      controlEntries.push(this.renderActionRailEntry({
+        execute: 'party_recovery',
+        title: 'Recover party',
+        summary: buildActionRailEntrySummary(['Turn control']),
+        meta: 'Manually heal the player party to full HP and clear conditions. Does not end your turn.',
+        disabled: this.isActionRailExecutionDisabled(0, context, !context.actorRef),
+        actionLabel: 'Recover party',
+      }));
+    }
 
     const combatEntries = this.buildContractAtomicActionEntries(context);
 

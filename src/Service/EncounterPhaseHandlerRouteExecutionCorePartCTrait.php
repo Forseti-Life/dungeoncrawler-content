@@ -888,19 +888,6 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     $new_round = NULL;
     $round_advances = 0;
 
-    // TEMPORARY STOPGAP (see restorePlayerPartyToFullHealth() doc comment):
-    // this encounter engine has no party-wipe recovery path yet, so a downed
-    // player would otherwise be skipped as "defeated" in initiative forever
-    // and the encounter would freeze. Run this at every turn boundary (not
-    // just player-initiated end_turn) so a defeated player is always healed
-    // and eligible again before the next-combatant lookup below runs.
-    if ($encounter_id) {
-      $recovery_events = $this->restorePlayerPartyToFullHealth((int) $encounter_id, $game_state, $dungeon_data, $campaign_id);
-      if ($recovery_events !== []) {
-        $npc_events = array_merge($npc_events, $recovery_events);
-      }
-    }
-
     // Tick end-of-turn conditions for the current combatant.
     if ($encounter_id && $actor_id) {
       try {
@@ -1130,18 +1117,41 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         $npc_mutations = array_merge($npc_mutations, $npc_result['mutations']);
       }
 
-      // TEMPORARY STOPGAP (see restorePlayerPartyToFullHealth() doc comment):
-      // the NPC turn that just ran may have downed the last active player,
-      // which would otherwise make hasActivePlayerParticipant() below false
-      // and permanently freeze the encounter (no path currently hands control
-      // back once the player party is defeated). Heal here, before that
-      // check, so the recursive advance always has somewhere to go.
-      if ($encounter_id) {
-        $npc_events = array_merge($npc_events, $this->restorePlayerPartyToFullHealth((int) $encounter_id, $game_state, $dungeon_data, $campaign_id));
+      // Determine whether the fight has been decided (all combatants on all
+      // but one team defeated) before deciding whether to keep recursively
+      // advancing. This replaces a prior gate that only checked for an
+      // active player and silently froze the turn pointer forever once the
+      // player party was wiped (no path ever handed control back). Now we
+      // always keep advancing through remaining living combatants — a
+      // defeated player is simply skipped like any other defeated
+      // combatant by the skip-loop above — and only stop to conclude the
+      // encounter once one side has actually won or lost.
+      if ($this->isEncounterOver($game_state)) {
+        if ($encounter_id) {
+          $encounter_row = $this->encounterStore->loadEncounter((int) $encounter_id);
+          if (is_array($encounter_row) && (string) ($encounter_row['status'] ?? '') === 'active') {
+            $outcome = $this->resolveEncounterOutcome($game_state);
+            $this->combatEngine->endEncounter((int) $encounter_id, $outcome, 'all_but_one_team_defeated');
+            $narration = $outcome === 'victory'
+              ? 'The party is victorious! The encounter has ended.'
+              : ($outcome === 'defeat' ? 'The party has been defeated. The encounter has ended.' : 'The encounter has ended in a draw.');
+            $room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+            $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+              'type' => 'encounter_end',
+              'speaker' => 'Narrator',
+              'speaker_type' => 'narrator',
+              'speaker_ref' => '',
+              'content' => $narration,
+              'visibility' => 'public',
+            ], $room_id);
+            $npc_events[] = GameEventLogger::buildEvent('encounter_end', 'encounter', NULL, [
+              'outcome' => $outcome,
+            ], $narration);
+          }
+        }
       }
-
-      // After NPC turn, recursively advance until the next player actor.
-      if ($this->hasActivePlayerParticipant($game_state)) {
+      else {
+        // After NPC turn, recursively advance until the next player actor.
         $further = $this->processEndTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
         $npc_events = array_merge($npc_events, $further['npc_events'] ?? []);
         if (is_array($further['mutations'] ?? NULL) && $further['mutations'] !== []) {
