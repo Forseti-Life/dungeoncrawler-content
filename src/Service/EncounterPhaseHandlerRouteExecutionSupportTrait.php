@@ -425,6 +425,65 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
   }
 
   /**
+   * Builds a per-combatant status/state summary once the encounter has
+   * ended, for logging to the action log (game_event data payload) and the
+   * chat narration, so a party wipe or full enemy defeat is always
+   * accompanied by a clear record of who's standing and who's down.
+   *
+   * @return array{outcome: string, narration: string, participants: array}
+   */
+  protected function buildEncounterOutcomeSummary(array $game_state, string $outcome): array {
+    $defeated_names = [];
+    $standing_names = [];
+    $participants_summary = [];
+
+    foreach (($game_state['initiative_order'] ?? []) as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $name = trim((string) ($participant['name'] ?? ($participant['entity_id'] ?? 'Unknown')));
+      $team = $this->normalizeCombatTeam((string) ($participant['team'] ?? ''));
+      $is_defeated = !empty($participant['is_defeated']);
+      $hp = is_numeric($participant['hp'] ?? NULL) ? (int) $participant['hp'] : NULL;
+      $max_hp = is_numeric($participant['max_hp'] ?? NULL) ? (int) $participant['max_hp'] : NULL;
+
+      $participants_summary[] = [
+        'entity_id' => (string) ($participant['entity_id'] ?? ''),
+        'name' => $name,
+        'team' => $team,
+        'status' => $is_defeated ? 'defeated' : 'active',
+        'hp' => $hp,
+        'max_hp' => $max_hp,
+      ];
+
+      if ($is_defeated) {
+        $defeated_names[] = $name;
+      }
+      else {
+        $standing_names[] = $name;
+      }
+    }
+
+    $outcome_label = $outcome === 'victory'
+      ? 'The party is victorious!'
+      : ($outcome === 'defeat' ? 'The party has been defeated.' : 'The encounter has ended in a draw.');
+
+    $status_lines = [$outcome_label . ' The encounter has ended.'];
+    if ($standing_names !== []) {
+      $status_lines[] = sprintf('Standing: %s.', implode(', ', $standing_names));
+    }
+    if ($defeated_names !== []) {
+      $status_lines[] = sprintf('Defeated: %s.', implode(', ', $defeated_names));
+    }
+
+    return [
+      'outcome' => $outcome,
+      'narration' => implode(' ', $status_lines),
+      'participants' => $participants_summary,
+    ];
+  }
+
+  /**
    * Choose a fallback action for NPC without AI.
    *
    * Basic tactical heuristic: if adjacent to player → strike; otherwise → stride.

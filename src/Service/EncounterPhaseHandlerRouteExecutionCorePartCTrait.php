@@ -866,6 +866,48 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
 
     return $quest_touchpoint_service->ingestEvent($campaign_id, $payload);
   }
+  /**
+   * Concludes the encounter (if not already ended) and emits a chat
+   * narration + action-log event describing the final party/enemy
+   * status so a full party wipe or full enemy defeat is always clearly
+   * recorded, not just silently transitioned.
+   *
+   * @return array
+   *   Event list to merge into the caller's npc_events (empty if the
+   *   encounter was already concluded or there's no encounter to end).
+   */
+  protected function concludeEncounterWithOutcomeLog(?int $encounter_id, array &$game_state, array &$dungeon_data, int $campaign_id, mixed &$narration): array {
+    if (!$encounter_id) {
+      return [];
+    }
+    $encounter_row = $this->encounterStore->loadEncounter((int) $encounter_id);
+    if (!is_array($encounter_row) || (string) ($encounter_row['status'] ?? '') !== 'active') {
+      return [];
+    }
+
+    $outcome = $this->resolveEncounterOutcome($game_state);
+    $this->combatEngine->endEncounter((int) $encounter_id, $outcome, 'all_but_one_team_defeated');
+
+    $summary = $this->buildEncounterOutcomeSummary($game_state, $outcome);
+    $narration = $summary['narration'];
+    $room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+    $this->queueNarrationEvent($campaign_id, $dungeon_data, [
+      'type' => 'encounter_end',
+      'speaker' => 'Narrator',
+      'speaker_type' => 'narrator',
+      'speaker_ref' => '',
+      'content' => $summary['narration'],
+      'visibility' => 'public',
+    ], $room_id);
+
+    return [
+      GameEventLogger::buildEvent('encounter_end', 'encounter', NULL, [
+        'outcome' => $outcome,
+        'participants' => $summary['participants'],
+      ], $summary['narration']),
+    ];
+  }
+
   protected function processEndTurn(?int $encounter_id, ?string $actor_id, array &$game_state, array &$dungeon_data, int $campaign_id): array {
     $initiative_order = $game_state['initiative_order'] ?? [];
     if (empty($initiative_order)) {
@@ -887,6 +929,29 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     $npc_mutations = [];
     $new_round = NULL;
     $round_advances = 0;
+    $narration = NULL;
+
+    // The action that just completed (a player strike/spell, or an NPC's
+    // autoplayed attack from a prior recursive call) may already have
+    // defeated the last combatant on an opposing team. Check for that
+    // before doing any further turn-advance work so a party wipe or full
+    // enemy defeat is concluded and logged immediately, rather than
+    // waiting for (or silently skipping) a future turn transition.
+    if ($this->isEncounterOver($game_state)) {
+      $conclusion_events = $this->concludeEncounterWithOutcomeLog($encounter_id, $game_state, $dungeon_data, $campaign_id, $narration);
+      return [
+        'turn_advanced' => FALSE,
+        'next_entity' => NULL,
+        'next_team' => NULL,
+        'round' => $game_state['round'] ?? NULL,
+        'new_round' => NULL,
+        'round_advances' => 0,
+        'npc_events' => $conclusion_events,
+        'mutations' => [],
+        'actions_remaining_before_end' => $actions_remaining_before_end,
+        'narration' => $narration,
+      ];
+    }
 
     // Tick end-of-turn conditions for the current combatant.
     if ($encounter_id && $actor_id) {
@@ -1117,50 +1182,21 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         $npc_mutations = array_merge($npc_mutations, $npc_result['mutations']);
       }
 
-      // Determine whether the fight has been decided (all combatants on all
-      // but one team defeated) before deciding whether to keep recursively
-      // advancing. This replaces a prior gate that only checked for an
-      // active player and silently froze the turn pointer forever once the
-      // player party was wiped (no path ever handed control back). Now we
-      // always keep advancing through remaining living combatants — a
-      // defeated player is simply skipped like any other defeated
-      // combatant by the skip-loop above — and only stop to conclude the
-      // encounter once one side has actually won or lost.
-      if ($this->isEncounterOver($game_state)) {
-        if ($encounter_id) {
-          $encounter_row = $this->encounterStore->loadEncounter((int) $encounter_id);
-          if (is_array($encounter_row) && (string) ($encounter_row['status'] ?? '') === 'active') {
-            $outcome = $this->resolveEncounterOutcome($game_state);
-            $this->combatEngine->endEncounter((int) $encounter_id, $outcome, 'all_but_one_team_defeated');
-            $narration = $outcome === 'victory'
-              ? 'The party is victorious! The encounter has ended.'
-              : ($outcome === 'defeat' ? 'The party has been defeated. The encounter has ended.' : 'The encounter has ended in a draw.');
-            $room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
-            $this->queueNarrationEvent($campaign_id, $dungeon_data, [
-              'type' => 'encounter_end',
-              'speaker' => 'Narrator',
-              'speaker_type' => 'narrator',
-              'speaker_ref' => '',
-              'content' => $narration,
-              'visibility' => 'public',
-            ], $room_id);
-            $npc_events[] = GameEventLogger::buildEvent('encounter_end', 'encounter', NULL, [
-              'outcome' => $outcome,
-            ], $narration);
-          }
-        }
+      // After NPC turn, recursively advance. The recursive call's own
+      // isEncounterOver() guard at the top of the function will conclude
+      // and log the encounter outcome the moment one side is fully wiped,
+      // rather than needing a duplicate check here.
+      $further = $this->processEndTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
+      $npc_events = array_merge($npc_events, $further['npc_events'] ?? []);
+      if (is_array($further['mutations'] ?? NULL) && $further['mutations'] !== []) {
+        $npc_mutations = array_merge($npc_mutations, $further['mutations']);
       }
-      else {
-        // After NPC turn, recursively advance until the next player actor.
-        $further = $this->processEndTurn($encounter_id, $next_entity, $game_state, $dungeon_data, $campaign_id);
-        $npc_events = array_merge($npc_events, $further['npc_events'] ?? []);
-        if (is_array($further['mutations'] ?? NULL) && $further['mutations'] !== []) {
-          $npc_mutations = array_merge($npc_mutations, $further['mutations']);
-        }
-        if (!$new_round && !empty($further['new_round'])) {
-          $new_round = $further['new_round'];
-        }
-        $round_advances += (int) ($further['round_advances'] ?? 0);
+      if (!$new_round && !empty($further['new_round'])) {
+        $new_round = $further['new_round'];
+      }
+      $round_advances += (int) ($further['round_advances'] ?? 0);
+      if ($narration === NULL && !empty($further['narration'])) {
+        $narration = $further['narration'];
       }
     }
 
@@ -1174,6 +1210,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
       'npc_events' => $npc_events,
       'mutations' => $npc_mutations,
       'actions_remaining_before_end' => $actions_remaining_before_end,
+      'narration' => $narration,
     ];
   }
 
