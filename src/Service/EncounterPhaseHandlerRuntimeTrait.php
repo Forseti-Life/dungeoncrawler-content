@@ -185,7 +185,8 @@ trait EncounterPhaseHandlerRuntimeTrait {
         $events,
         $narration,
         $time_effects,
-        $this->routePartyRecoveryIntentExecution(...)
+        $this->routePartyRecoveryIntentExecution(...),
+        $phase_transition
       );
       if ($turn_flow_response !== FALSE) {
         if ($turn_flow_response !== NULL) {
@@ -602,10 +603,33 @@ trait EncounterPhaseHandlerRuntimeTrait {
       'game_state' => $game_state,
     ]);
 
+    // Check whether this action just concluded the encounter (e.g. a
+    // strike or spell that dropped the last hostile/ally while the actor
+    // still had actions remaining). Do this immediately, BEFORE the
+    // auto-end-turn check below, so a decisive kill concludes the fight
+    // the instant it happens rather than waiting for (or silently
+    // skipping, if actions remain) a later turn boundary.
+    $encounter_just_concluded = FALSE;
+    if ($encounter_id && $this->isEncounterOver($game_state)) {
+      $encounter_row_for_conclusion = $this->encounterStore->loadEncounter((int) $encounter_id);
+      if (is_array($encounter_row_for_conclusion) && (string) ($encounter_row_for_conclusion['status'] ?? '') === 'active') {
+        $conclusion_narration = NULL;
+        $conclusion_events = $this->concludeEncounterWithOutcomeLog($encounter_id, $game_state, $dungeon_data, $campaign_id, $conclusion_narration);
+        if ($conclusion_events !== []) {
+          $events = array_merge($events, $conclusion_events);
+          if ($narration === NULL && $conclusion_narration !== NULL) {
+            $narration = $conclusion_narration;
+          }
+          $phase_transition = ['from' => 'encounter', 'to' => 'exploration', 'reason' => 'Encounter concluded.'];
+          $encounter_just_concluded = TRUE;
+        }
+      }
+    }
+
     // Check for auto-end-turn (actions depleted + no movement remaining).
     // Delay is intentional initiative exit — do NOT auto-end-turn for it.
     $no_auto_end_types = ['end_turn', 'choose_not_to_act', 'delay', 'delay_reenter', 'release', 'aid', 'party_recovery'];
-    if (!in_array($type, $no_auto_end_types, TRUE) && $this->shouldAutoEndTurn($game_state)) {
+    if (!$encounter_just_concluded && !in_array($type, $no_auto_end_types, TRUE) && $this->shouldAutoEndTurn($game_state)) {
       $auto_end = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
       if (is_array($auto_end['mutations'] ?? NULL) && $auto_end['mutations'] !== []) {
         $mutations = array_merge($mutations, $auto_end['mutations']);
@@ -616,6 +640,9 @@ trait EncounterPhaseHandlerRuntimeTrait {
       ]);
       if (!empty($auto_end['npc_events'])) {
         $events = array_merge($events, $auto_end['npc_events']);
+      }
+      if ($phase_transition === NULL && !empty($auto_end['phase_transition'])) {
+        $phase_transition = $auto_end['phase_transition'];
       }
     }
 

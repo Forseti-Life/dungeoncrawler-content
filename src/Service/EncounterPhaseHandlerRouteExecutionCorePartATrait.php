@@ -92,6 +92,13 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
       'events' => $events,
       'narration' => $narration,
       'time_effects' => $time_effects,
+      // Bubble up any phase_transition produced by processEndTurn()'s own
+      // isEncounterOver() conclusion check (e.g. an explicit end_turn that
+      // exhausted the last combatant's team). Without this, the top-level
+      // 'phase_transition' key that GameCoordinatorService::processAction()
+      // looks for was silently dropped in transit — it only lived nested
+      // inside 'result', which is never read for that purpose.
+      'phase_transition' => $result['phase_transition'] ?? NULL,
     ];
   }
 
@@ -330,6 +337,12 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
       'events' => $events,
       'narration' => NULL,
       'time_effects' => $time_effects,
+      // Delaying gives up remaining actions and immediately advances the
+      // turn via processEndTurn() above -- bubble up any phase_transition
+      // that advance produced (e.g. delaying happened to be the action
+      // that finally exhausted the last combatant's team) the same way
+      // routeEndTurnIntentExecution() does.
+      'phase_transition' => $advance['phase_transition'] ?? NULL,
     ];
   }
 

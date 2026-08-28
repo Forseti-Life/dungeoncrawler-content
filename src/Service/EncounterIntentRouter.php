@@ -1616,7 +1616,8 @@ class EncounterIntentRouter {
     array &$events,
     mixed &$narration,
     array &$time_effects,
-    ?callable $handle_party_recovery = NULL
+    ?callable $handle_party_recovery = NULL,
+    mixed &$phase_transition = NULL
   ): array|bool|null {
     $route = $this->routeTurnFlowAction(
       $type,
@@ -1640,7 +1641,7 @@ class EncounterIntentRouter {
       $result,
       $mutations,
       $events,
-      ['time_effects', 'narration'],
+      ['time_effects', 'narration', 'phase_transition'],
       $captures
     );
     if ($abort_response !== NULL) {
@@ -1649,6 +1650,9 @@ class EncounterIntentRouter {
     $time_effects = array_merge($time_effects, (array) ($captures['time_effects'] ?? []));
     if (array_key_exists('narration', $captures)) {
       $narration = $captures['narration'];
+    }
+    if (array_key_exists('phase_transition', $captures) && $captures['phase_transition'] !== NULL) {
+      $phase_transition = $captures['phase_transition'];
     }
     return NULL;
   }

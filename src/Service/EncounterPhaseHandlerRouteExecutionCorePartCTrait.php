@@ -949,6 +949,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     $new_round = NULL;
     $round_advances = 0;
     $narration = NULL;
+    $phase_transition = NULL;
 
     // The action that just completed (a player strike/spell, or an NPC's
     // autoplayed attack from a prior recursive call) may already have
@@ -969,6 +970,15 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         'mutations' => [],
         'actions_remaining_before_end' => $actions_remaining_before_end,
         'narration' => $narration,
+        // Concluding the encounter must also move the campaign out of
+        // 'encounter' phase — otherwise game_state['phase'] stays stuck
+        // at 'encounter' forever (verified against every historically
+        // "ended" encounter in the DB), which in turn keeps any
+        // phase==='encounter'-gated logic (e.g. EncounterTurnGuard for
+        // chat) permanently active even though the fight is over.
+        'phase_transition' => $conclusion_events !== []
+          ? ['from' => 'encounter', 'to' => 'exploration', 'reason' => 'Encounter concluded.']
+          : NULL,
       ];
     }
 
@@ -1217,6 +1227,9 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
       if ($narration === NULL && !empty($further['narration'])) {
         $narration = $further['narration'];
       }
+      if ($phase_transition === NULL && !empty($further['phase_transition'])) {
+        $phase_transition = $further['phase_transition'];
+      }
     }
 
     return [
@@ -1230,6 +1243,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
       'mutations' => $npc_mutations,
       'actions_remaining_before_end' => $actions_remaining_before_end,
       'narration' => $narration,
+      'phase_transition' => $phase_transition,
     ];
   }
 
