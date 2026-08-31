@@ -2091,7 +2091,8 @@ export class ActionRailPanel {
       return this.buildPendingActionOptionsPanel('Spell actions');
     }
     const spellActionAvailable = !context.encounterActive || this.isServerActionAvailable(context, 'cast_spell');
-    const entries = options.map((option) => {
+    const entriesByLevel = new Map();
+    options.forEach((option) => {
       const metadata = option?.metadata && typeof option.metadata === 'object' ? option.metadata : {};
       const spellId = String(metadata?.spell_id || option?.id || '').trim();
       const spellName = String(metadata?.spell_name || option?.label || spellId || 'Spell').trim();
@@ -2139,11 +2140,12 @@ export class ActionRailPanel {
         : (maxTargets > 1 ? maxTargets : 1);
       const selectionMode = maxTargets > 1 ? 'multi' : 'single';
       const completionPolicy = maxTargets > 1 ? 'max_targets' : 'auto';
-      return this.renderActionRailEntry({
+      const normalizedLevel = Number.isFinite(spellLevel) ? Math.max(0, Math.trunc(spellLevel)) : 0;
+      const entryHtml = this.renderActionRailEntry({
         execute: 'cast_spell',
         title: spellName || 'Spell',
         summary: buildActionRailEntrySummary([
-          Number.isFinite(spellLevel) && spellLevel === 0 ? 'Cantrip' : (Number.isFinite(spellLevel) ? `Rank ${spellLevel}` : ''),
+          normalizedLevel === 0 ? 'Cantrip' : `Rank ${normalizedLevel}`,
           isFocusSpell ? 'Focus spell' : '',
           targeting ? `Targeting: ${targeting}` : '',
           formatActionRailCost(actionCost),
@@ -2156,7 +2158,7 @@ export class ActionRailPanel {
         dataset: {
           spellId,
           spellName,
-          spellLevel: String(Number.isFinite(spellLevel) ? spellLevel : 0),
+          spellLevel: String(normalizedLevel),
           isFocusSpell: isFocusSpell ? '1' : '0',
           actionCost: String(actionCost),
           targeting,
@@ -2169,13 +2171,26 @@ export class ActionRailPanel {
           rangeFt: rangeFt > 0 ? String(rangeFt) : '',
         },
       });
+      if (!entriesByLevel.has(normalizedLevel)) {
+        entriesByLevel.set(normalizedLevel, []);
+      }
+      entriesByLevel.get(normalizedLevel).push(entryHtml);
     });
+
+    const totalEntries = Array.from(entriesByLevel.values()).reduce((sum, group) => sum + group.length, 0);
+    const sortedLevels = Array.from(entriesByLevel.keys()).sort((a, b) => a - b);
+    const groupsHtml = sortedLevels
+      .map((level) => this.renderActionRailGroup(
+        level === 0 ? 'Cantrips' : `Rank ${level}`,
+        entriesByLevel.get(level).join('')
+      ))
+      .join('');
 
     return {
       title: 'Spell actions',
-      chip: `${entries.length} loaded`,
-      html: entries.length
-        ? entries.join('')
+      chip: `${totalEntries} loaded`,
+      html: totalEntries
+        ? groupsHtml
         : `<div class="action-rail__empty"><p>No spell actions are available for this character.</p></div>`,
     };
   }
