@@ -99,6 +99,39 @@ class ActorAutoplayCoordinator {
       return ['events' => $events, 'mutations' => []];
     }
 
+    // REQ (2026-08-31 RCA, campaign 919): a combatant that is defeated (dead,
+    // dying/unconscious, or otherwise incapacitated) can never legally act.
+    // Previously this function fell straight through into AI recommendation
+    // request / turn-plan construction for ANY non-player entity_id whose
+    // turn came up, with no is_defeated short-circuit. Since applyDamage()'s
+    // zero-HP handling can mark a combatant (including a non-enemy ally like
+    // a familiar) is_defeated in the same request that later advances the
+    // turn pointer onto them, autoplay ended up trying to plan/execute a
+    // turn for an incapacitated actor. When that attempt failed (AI
+    // recommendation contract violation, missing valid target, etc.) the
+    // resulting exception aborted before the recursive processEndTurn()
+    // call that would otherwise have advanced past them, permanently
+    // freezing game_state['turn']['entity'] on the defeated combatant with
+    // no client able to ever act on their behalf again. Short-circuit here
+    // with the same "chooses not to take any further actions" closeout used
+    // for a genuinely voluntary pass, so the caller's turn-advance loop
+    // immediately recurses past this actor instead of getting stuck.
+    $current_combatant = $this->findCombatantByEntityId($entity_id, $game_state);
+    if ($current_combatant !== NULL && !empty($current_combatant['is_defeated'])) {
+      $game_state['turn']['actions_remaining'] = 0;
+      return [
+        'events' => $build_choose_not_to_act_events(
+          $entity_id,
+          'Actor is defeated/incapacitated and cannot act.',
+          ['intent' => 'incapacitated_pass'],
+          $game_state,
+          $dungeon_data,
+          $campaign_id
+        ),
+        'mutations' => [],
+      ];
+    }
+
     $context = $build_actor_context($entity_id, $game_state, $dungeon_data);
 
     $ai_enabled = (bool) $this->configFactory->get('dungeoncrawler_content.settings')
