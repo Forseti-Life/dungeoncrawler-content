@@ -1042,10 +1042,25 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     // team left is_defeated stale in game_state, and this function's
     // turn-advance loop kept selecting the (actually dead) combatant as
     // "next", freezing the encounter.
+    // NOTE: loadEncounter() always re-sorts combat_participants by the DB
+    // 'initiative' column (descending), and combat_participants has no
+    // column for the in-memory-only 'delayed'/'delayed_actions_remaining'/
+    // 'delay_until_actor_id' markers that buildDelayedInitiativePlan() sets
+    // on $game_state['initiative_order'] entries. A wholesale replacement
+    // here would silently discard BOTH the delay reorder AND the delayed
+    // flag itself on every single call (this function runs after every
+    // action), so a delayed actor's turn always reverted straight back to
+    // its original initiative-order slot instead of resuming after its
+    // chosen target. Merge fresh DB fields (hp/is_defeated/status/etc.)
+    // into the existing in-memory order/positions instead, so any pending
+    // delay reorder and its flags survive the refresh.
     if ($encounter_id) {
       $encounter_for_turn_refresh = $this->encounterStore->loadEncounter((int) $encounter_id);
-      if ($encounter_for_turn_refresh) {
-        $game_state['initiative_order'] = $encounter_for_turn_refresh['participants'] ?? ($game_state['initiative_order'] ?? []);
+      if ($encounter_for_turn_refresh && is_array($encounter_for_turn_refresh['participants'] ?? NULL)) {
+        $game_state['initiative_order'] = $this->mergeRefreshedParticipantsPreservingOrder(
+          $game_state['initiative_order'] ?? [],
+          $encounter_for_turn_refresh['participants']
+        );
       }
     }
 
@@ -1369,6 +1384,71 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
   }
 
   /**
+   * Refresh combatant fields from freshly loaded DB rows without discarding
+   * the current in-memory ordering or any in-memory-only annotations (e.g.
+   * the delay-turn 'delayed'/'delayed_actions_remaining'/
+   * 'delay_until_actor_id' markers, which have no backing DB column).
+   *
+   * combat_participants has no persisted "turn order" concept beyond the
+   * 'initiative' column, so loadEncounter() always re-sorts by initiative.
+   * A delayed actor's reordering therefore only exists in
+   * $game_state['initiative_order'] — this merge keeps that array's order
+   * and annotations intact while still picking up authoritative HP/
+   * is_defeated/status/position/conditions updates from the DB.
+   *
+   * @param array $current_order
+   *   The in-memory initiative order (authoritative for ordering/flags).
+   * @param array $refreshed_participants
+   *   Freshly loaded DB participant rows (authoritative for live combat state).
+   *
+   * @return array<int, array>
+   */
+  protected function mergeRefreshedParticipantsPreservingOrder(array $current_order, array $refreshed_participants): array {
+    if ($current_order === []) {
+      return array_values($refreshed_participants);
+    }
+
+    $refreshed_by_entity_id = [];
+    foreach ($refreshed_participants as $refreshed_row) {
+      $entity_id = trim((string) ($refreshed_row['entity_id'] ?? ''));
+      if ($entity_id !== '') {
+        $refreshed_by_entity_id[$entity_id] = $refreshed_row;
+      }
+    }
+
+    $merged = [];
+    $seen_entity_ids = [];
+    foreach ($current_order as $existing_entry) {
+      if (!is_array($existing_entry)) {
+        continue;
+      }
+      $entity_id = trim((string) ($existing_entry['entity_id'] ?? ''));
+      if ($entity_id !== '' && isset($refreshed_by_entity_id[$entity_id])) {
+        // DB fields win for live combat state; in-memory-only annotations
+        // (delayed/delayed_actions_remaining/delay_until_actor_id, or any
+        // other key the DB row doesn't carry) are preserved from the
+        // existing entry since array_merge() only overwrites matching keys.
+        $merged[] = array_merge($existing_entry, $refreshed_by_entity_id[$entity_id]);
+        $seen_entity_ids[$entity_id] = TRUE;
+      }
+      else {
+        $merged[] = $existing_entry;
+      }
+    }
+
+    // Append any DB participant not already represented in-memory (e.g. a
+    // reinforcement added mid-encounter after the in-memory order was built).
+    foreach ($refreshed_participants as $refreshed_row) {
+      $entity_id = trim((string) ($refreshed_row['entity_id'] ?? ''));
+      if ($entity_id !== '' && !isset($seen_entity_ids[$entity_id])) {
+        $merged[] = $refreshed_row;
+      }
+    }
+
+    return $merged;
+  }
+
+  /**
    * Reorder initiative for a delayed actor and determine the next turn anchor.
    */
   protected function buildDelayedInitiativePlan(
@@ -1393,7 +1473,13 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
 
     array_splice($original_order, $actor_index, 1);
 
-    $insert_at = count($original_order);
+    // Default (no explicit delay-until target): delay only until immediately
+    // after the very next actor in turn order, not until the end of the
+    // round. After splicing the delayed actor out, the actor who was next
+    // shifted down to $actor_index, so inserting at $actor_index + 1 places
+    // the delayed actor right behind them -- matching PF2e-style delay
+    // semantics of "step aside for one actor, then resume your turn."
+    $insert_at = min($actor_index + 1, count($original_order));
     if ($delay_after_actor_id !== NULL && $delay_after_actor_id !== '') {
       $target_original_index = $this->findInitiativeActorIndex($initiative_order, $delay_after_actor_id);
       if ($target_original_index !== NULL && $target_original_index > $actor_index) {

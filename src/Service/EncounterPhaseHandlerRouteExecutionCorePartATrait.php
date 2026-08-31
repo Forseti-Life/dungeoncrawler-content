@@ -271,6 +271,10 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
 
     $resolved_room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
     $actor_name = (string) ($turn_ctx['actor_name'] ?? ($actor_id ? $this->resolveEntityName($actor_id, $game_state, $dungeon_data) : 'Narrator'));
+    $delay_after_actor_id = trim((string) ($params['delay_until_actor_id'] ?? ''));
+    $delay_narration = $delay_after_actor_id !== ''
+      ? sprintf('%s delays their turn until after %s acts.', $actor_name, $this->resolveEntityName($delay_after_actor_id, $game_state, $dungeon_data))
+      : sprintf('%s steps aside, delaying their turn until immediately after the next combatant acts.', $actor_name);
     $resolution_envelope = $this->combatResolutionContractService->buildResolutionEnvelope(
       $execution_request,
       [],
@@ -286,10 +290,9 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
         'resolution_envelope' => $resolution_envelope,
         'remaining_actions' => $delay_remaining,
         'round' => $game_state['round'] ?? NULL,
-      ], $this->prefixEncounterChatLine($turn_ctx, sprintf('%s delays until the end of the round.', $actor_name))),
+      ], $this->prefixEncounterChatLine($turn_ctx, $delay_narration)),
     ];
 
-    $delay_after_actor_id = trim((string) ($params['delay_until_actor_id'] ?? ''));
     if ($actor_id && is_array($game_state['initiative_order'] ?? NULL) && $game_state['initiative_order'] !== []) {
       $delay_plan = $this->buildDelayedInitiativePlan(
         $game_state['initiative_order'],
