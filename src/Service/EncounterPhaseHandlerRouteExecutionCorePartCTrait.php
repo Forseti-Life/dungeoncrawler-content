@@ -891,20 +891,141 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     $summary = $this->buildEncounterOutcomeSummary($game_state, $outcome);
     $narration = $summary['narration'];
     $room_id = $dungeon_data['active_room_id'] ?? ($game_state['encounter_context']['room_id'] ?? NULL);
+
+    $reward_events = [];
+    if ($outcome === 'victory') {
+      $rewards = $this->awardEncounterVictoryRewards($game_state, $campaign_id);
+      if ($rewards !== NULL) {
+        $narration .= ' ' . $rewards['narration'];
+        $reward_events[] = GameEventLogger::buildEvent('encounter_rewards', 'encounter', NULL, [
+          'xp_awarded' => $rewards['xp_awarded'],
+          'currency_gp_awarded' => $rewards['currency_gp_awarded'],
+          'recipients' => $rewards['recipients'],
+        ], $rewards['narration']);
+      }
+    }
+
     $this->queueNarrationEvent($campaign_id, $dungeon_data, [
       'type' => 'encounter_end',
       'speaker' => 'Narrator',
       'speaker_type' => 'narrator',
       'speaker_ref' => '',
-      'content' => $summary['narration'],
+      'content' => $narration,
       'visibility' => 'public',
     ], $room_id);
 
-    return [
+    return array_merge([
       GameEventLogger::buildEvent('encounter_end', 'encounter', NULL, [
         'outcome' => $outcome,
         'participants' => $summary['participants'],
-      ], $summary['narration']),
+      ], $narration),
+    ], $reward_events);
+  }
+
+  /**
+   * Awards PF2e-standard encounter-victory XP and currency to every
+   * surviving player-team character once an encounter concludes in
+   * victory. Familiars/companions do not receive XP independently in
+   * core rules (they scale with their master's level), so only 'player'
+   * team combatants are rewarded.
+   *
+   * XP per defeated enemy uses the same delta-based table already used
+   * to budget encounter difficulty ({@see CharacterManager::computeCreatureXp()}).
+   * Currency uses the same per-encounter GP budget already used for
+   * wealth-by-level ({@see TreasureByLevelService::getLevelBudget()}),
+   * split evenly across the surviving player characters.
+   *
+   * @return array{narration:string,xp_awarded:int,currency_gp_awarded:float,recipients:array}|null
+   *   NULL if there's nothing to award (no defeated enemies or no
+   *   resolvable player characters).
+   */
+  protected function awardEncounterVictoryRewards(array $game_state, int $campaign_id): ?array {
+    $defeated_enemy_ids = [];
+    $player_ids = [];
+    foreach (($game_state['initiative_order'] ?? []) as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      $entity_id = trim((string) ($participant['entity_id'] ?? ''));
+      if ($entity_id === '') {
+        continue;
+      }
+      $team = $this->normalizeCombatTeam((string) ($participant['team'] ?? ''));
+      if ($team === 'enemy' && !empty($participant['is_defeated'])) {
+        $defeated_enemy_ids[] = $entity_id;
+      }
+      elseif ($team === 'player') {
+        $player_ids[] = $entity_id;
+      }
+    }
+    if ($defeated_enemy_ids === [] || $player_ids === []) {
+      return NULL;
+    }
+
+    $rows = $this->database->select('dc_campaign_characters', 'c')
+      ->fields('c', ['id', 'instance_id', 'level', 'experience_points', 'character_data'])
+      ->condition('campaign_id', $campaign_id)
+      ->condition('instance_id', array_merge($defeated_enemy_ids, $player_ids), 'IN')
+      ->execute()
+      ->fetchAllAssoc('instance_id', \PDO::FETCH_ASSOC);
+
+    $player_rows = array_intersect_key($rows, array_flip($player_ids));
+    if ($player_rows === []) {
+      return NULL;
+    }
+
+    $player_levels = array_map(static fn(array $row): int => max(1, (int) ($row['level'] ?? 1)), $player_rows);
+    $party_level = (int) round(array_sum($player_levels) / count($player_levels));
+    $party_size = count($player_rows);
+
+    $total_xp = 0;
+    foreach ($defeated_enemy_ids as $enemy_id) {
+      $enemy_level = max(1, (int) ($rows[$enemy_id]['level'] ?? 1));
+      $total_xp += CharacterManager::computeCreatureXp($enemy_level, $party_level) ?? 0;
+    }
+
+    $treasure_service = \Drupal::service('dungeoncrawler_content.treasure_by_level');
+    $budget = $treasure_service->getLevelBudget($party_level, $party_size);
+    $currency_gp_total = (float) $budget['per_encounter_gp'];
+    $currency_gp_share = $party_size > 0 ? round($currency_gp_total / $party_size, 2) : 0.0;
+
+    $character_manager = \Drupal::service('dungeoncrawler_content.character_manager');
+    $recipients = [];
+    foreach ($player_rows as $instance_id => $row) {
+      $character_data = json_decode((string) ($row['character_data'] ?? '{}'), TRUE);
+      if (!is_array($character_data)) {
+        $character_data = [];
+      }
+      $new_xp = (int) ($row['experience_points'] ?? 0) + $total_xp;
+      $character_data['basicInfo']['experiencePoints'] = $new_xp;
+      $current_gp = (float) ($character_data['currency']['gp'] ?? 0);
+      $character_data['currency']['gp'] = $current_gp + $currency_gp_share;
+
+      $character_manager->updateCharacter((int) $row['id'], [
+        'experience_points' => $new_xp,
+        'character_data' => $character_data,
+      ]);
+      $recipients[] = [
+        'entity_id' => $instance_id,
+        'xp_awarded' => $total_xp,
+        'currency_gp_awarded' => $currency_gp_share,
+      ];
+    }
+
+    $narration = $total_xp > 0 || $currency_gp_total > 0
+      ? sprintf(
+        'The party gains %d XP and recovers %s gp (%s gp each).',
+        $total_xp,
+        rtrim(rtrim(number_format($currency_gp_total, 2, '.', ''), '0'), '.'),
+        rtrim(rtrim(number_format($currency_gp_share, 2, '.', ''), '0'), '.')
+      )
+      : '';
+
+    return [
+      'narration' => $narration,
+      'xp_awarded' => $total_xp,
+      'currency_gp_awarded' => $currency_gp_total,
+      'recipients' => $recipients,
     ];
   }
 
