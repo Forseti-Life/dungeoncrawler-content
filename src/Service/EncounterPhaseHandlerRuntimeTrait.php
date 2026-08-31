@@ -628,8 +628,23 @@ trait EncounterPhaseHandlerRuntimeTrait {
 
     // Check for auto-end-turn (actions depleted + no movement remaining).
     // Delay is intentional initiative exit — do NOT auto-end-turn for it.
+    // REQ (2026-08-31 RCA, campaign 916): shouldAutoEndTurn() only inspects
+    // $game_state['turn']['actions_remaining'], which belongs to whichever
+    // entity is the CURRENT active turn-holder -- not necessarily $actor_id.
+    // When an off-turn actor (e.g. a reaction spell fired by a PC/ally
+    // during another combatant's turn -- the only intent type exempted
+    // from the turn-ownership check in validateIntent()) defeats that
+    // current turn-holder, its own actions_remaining budget is untouched
+    // and still > 0, so shouldAutoEndTurn() stays FALSE and processEndTurn()
+    // -- the only code path that skips a defeated combatant's turn -- never
+    // runs. The turn pointer then freezes on the now-dead entity forever,
+    // since nothing else re-drives its turn once it is no longer alive to
+    // act, and no living actor can ever again satisfy
+    // is_active_turn_actor === (actor_id === game_state.turn.entity).
+    // Force the auto-end-turn path whenever the CURRENT turn-holder is
+    // already defeated, regardless of its own stale actions_remaining.
     $no_auto_end_types = ['end_turn', 'choose_not_to_act', 'delay', 'delay_reenter', 'release', 'aid', 'party_recovery'];
-    if (!$encounter_just_concluded && !in_array($type, $no_auto_end_types, TRUE) && $this->shouldAutoEndTurn($game_state)) {
+    if (!$encounter_just_concluded && !in_array($type, $no_auto_end_types, TRUE) && ($this->shouldAutoEndTurn($game_state) || $this->isCurrentTurnHolderDefeated($game_state))) {
       $auto_end = $this->processEndTurn($encounter_id, $actor_id, $game_state, $dungeon_data, $campaign_id);
       if (is_array($auto_end['mutations'] ?? NULL) && $auto_end['mutations'] !== []) {
         $mutations = array_merge($mutations, $auto_end['mutations']);

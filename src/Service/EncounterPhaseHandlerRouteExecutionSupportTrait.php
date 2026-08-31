@@ -1404,6 +1404,30 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
   }
 
   /**
+   * Whether the entity currently holding the active turn is already
+   * defeated -- e.g. killed by an off-turn reaction from another combatant
+   * mid-turn. Inspects the in-memory initiative_order (already updated by
+   * checkEntityDefeated() for whichever action just resolved) so no extra
+   * DB round-trip is needed. Used to force an immediate processEndTurn()
+   * skip past a dead current turn-holder even when its own
+   * actions_remaining budget hasn't been exhausted (see RCA note at the
+   * shouldAutoEndTurn() call site in processIntentCore()).
+   */
+  protected function isCurrentTurnHolderDefeated(array $game_state): bool {
+    $current_entity = trim((string) ($game_state['turn']['entity'] ?? ''));
+    if ($current_entity === '') {
+      return FALSE;
+    }
+    foreach (($game_state['initiative_order'] ?? []) as $combatant) {
+      if (!is_array($combatant) || (string) ($combatant['entity_id'] ?? '') !== $current_entity) {
+        continue;
+      }
+      return !empty($combatant['is_defeated']);
+    }
+    return FALSE;
+  }
+
+  /**
    * Build the follow-up system prompt for partial room-scene turns.
    */
   protected function buildRemainingRoomSceneActionPrompt(?string $actor_id, array $game_state, array $dungeon_data): ?array {
