@@ -64,6 +64,7 @@ export const ACTION_SELECTION_HANDLERS = Object.freeze({
   demoralize: 'executeDirectDemoralize',
   raise_shield: 'executeDirectRaiseShield',
   delay: 'executeDirectDelay',
+  party_recovery: 'executeDirectPartyRecovery',
   feint: 'executeDirectFeint',
   point_out: 'executeDirectPointOut',
   command_animal: 'executeDirectCommandAnimal',

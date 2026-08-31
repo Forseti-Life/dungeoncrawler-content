@@ -872,6 +872,10 @@ export class EncounterSystem {
     await this.executeDirectAtomicAction('delay', button);
   }
 
+  async executeDirectPartyRecovery(button) {
+    await this.executeDirectAtomicAction('party_recovery', button);
+  }
+
   async executeDirectAtomicAction(actionType, button) {
     if (!this._beginActionRailRequest(button)) {
       return;
