@@ -126,7 +126,17 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
     }
 
     $healed_names = [];
-    foreach (($game_state['initiative_order'] ?? []) as &$participant) {
+    // NOTE: must reference $game_state['initiative_order'] directly (not
+    // via `?? []`, which evaluates to a disposable temporary array) so
+    // `&$participant` mutations below actually persist into $game_state.
+    // Without this, is_defeated/hp changes only ever applied to a throwaway
+    // copy, leaving the caller's isEncounterOver() check still seeing the
+    // party as wiped and incorrectly re-conclude/re-bootstrap a brand new
+    // encounter (resetting enemy HP) instead of resuming the healed one.
+    if (!isset($game_state['initiative_order']) || !is_array($game_state['initiative_order'])) {
+      $game_state['initiative_order'] = [];
+    }
+    foreach ($game_state['initiative_order'] as &$participant) {
       if (!is_array($participant)) {
         continue;
       }
@@ -178,6 +188,16 @@ trait EncounterPhaseHandlerRouteExecutionCorePartATrait {
 
     if ($healed_names === []) {
       return [];
+    }
+
+    // If the encounter had already been concluded/ended (e.g. a full party
+    // wipe, which no longer auto-transitions out of 'encounter' phase so
+    // this recovery action stays reachable), reactivate it so play — and
+    // future encounter-conclusion checks (victory/defeat/rewards) — resume
+    // working normally instead of being silently skipped because status
+    // is still 'ended'.
+    if ((string) ($encounter['status'] ?? 'active') !== 'active') {
+      $this->encounterStore->updateEncounter((int) $encounter_id, ['status' => 'active']);
     }
 
     $narration = sprintf('%s recover to full health.', implode(' and ', $healed_names));

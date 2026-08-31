@@ -70,10 +70,144 @@ class ConditionManager {
     'wounded'      => ['is_valued' => TRUE,  'max_value' => 3, 'end_trigger' => 'persistent',  'effects' => []],
   ];
 
+  /**
+   * Buffered condition-change descriptors awaiting drain into game events.
+   *
+   * ConditionManager has no access to $game_state/$dungeon_data (it operates
+   * purely on participant_id/encounter_id), so it cannot log events itself.
+   * Instead every real condition state change (add / value change / remove)
+   * is queued here and later drained by GameEventLogger::logEvents() (which
+   * holds an optional reference to this service) so that condition changes
+   * are always logged to the action log/chat, regardless of which of the
+   * ~40 call sites across the codebase triggered them.
+   *
+   * @see GameEventLogger::logEvents()
+   * @see drainPendingConditionEvents()
+   */
+  protected array $pendingConditionEvents = [];
+
   public function __construct(Connection $database, NumberGenerationService $number_generation = NULL, ?HPManager $hp_manager = NULL) {
     $this->database = $database;
     $this->numberGeneration = $number_generation;
     $this->hpManager = $hp_manager;
+  }
+
+  /**
+   * Resolve a participant's entity_id/display name for condition-event logging.
+   *
+   * @return array{entity_id: string, name: string}
+   */
+  protected function resolveParticipantDisplay(int $participant_id): array {
+    if ($participant_id <= 0) {
+      return ['entity_id' => '', 'name' => ''];
+    }
+    try {
+      $row = $this->database->select('combat_participants', 'p')
+        ->fields('p', ['entity_id', 'name'])
+        ->condition('id', $participant_id)
+        ->range(0, 1)
+        ->execute()
+        ->fetchAssoc();
+    }
+    catch (\Throwable $e) {
+      return ['entity_id' => '', 'name' => ''];
+    }
+    if (!is_array($row)) {
+      return ['entity_id' => '', 'name' => ''];
+    }
+    return [
+      'entity_id' => (string) ($row['entity_id'] ?? ''),
+      'name' => trim((string) ($row['name'] ?? '')) !== '' ? (string) $row['name'] : (string) ($row['entity_id'] ?? 'Unknown'),
+    ];
+  }
+
+  /**
+   * Queue a condition-change descriptor to be drained into a game event.
+   *
+   * @param string $action
+   *   One of: 'applied', 'updated', 'removed'.
+   */
+  protected function queueConditionEvent(
+    string $action,
+    int $participant_id,
+    string $condition_type,
+    ?int $value,
+    $source,
+    ?int $encounter_id
+  ): void {
+    $display = $this->resolveParticipantDisplay($participant_id);
+    if ($display['entity_id'] === '') {
+      // Nothing sensible to log without a resolvable actor — skip silently
+      // rather than emit an event with no actor reference.
+      return;
+    }
+    $this->pendingConditionEvents[] = [
+      'action' => $action,
+      'participant_id' => $participant_id,
+      'entity_id' => $display['entity_id'],
+      'name' => $display['name'],
+      'condition_type' => $condition_type,
+      'value' => $value,
+      'source' => is_string($source) ? $source : json_encode($source),
+      'encounter_id' => $encounter_id,
+    ];
+  }
+
+  /**
+   * Drain and clear all buffered condition-change events, converting each
+   * into a GameEventLogger-compatible event array.
+   *
+   * @return array<int, array<string, mixed>>
+   */
+  public function drainPendingConditionEvents(): array {
+    if ($this->pendingConditionEvents === []) {
+      return [];
+    }
+    $pending = $this->pendingConditionEvents;
+    $this->pendingConditionEvents = [];
+
+    $events = [];
+    foreach ($pending as $item) {
+      $condition_label = str_replace('_', ' ', (string) $item['condition_type']);
+      $value = $item['value'];
+      $name = $item['name'] !== '' ? $item['name'] : $item['entity_id'];
+      switch ($item['action']) {
+        case 'removed':
+          $narration = sprintf('%s is no longer %s.', $name, $condition_label);
+          break;
+
+        case 'updated':
+          $narration = $value !== NULL
+            ? sprintf('%s\'s %s increases to %d.', $name, $condition_label, $value)
+            : sprintf('%s\'s %s is refreshed.', $name, $condition_label);
+          break;
+
+        case 'applied':
+        default:
+          $narration = $value !== NULL
+            ? sprintf('%s becomes %s %d.', $name, $condition_label, $value)
+            : sprintf('%s becomes %s.', $name, $condition_label);
+          break;
+      }
+
+      $events[] = GameEventLogger::buildEvent(
+        $item['action'] === 'removed' ? 'condition_removed' : 'condition_applied',
+        'encounter',
+        $item['entity_id'],
+        [
+          'condition_type' => $item['condition_type'],
+          'value' => $item['value'],
+          'change_type' => $item['action'],
+          'source' => $item['source'],
+          'encounter_id' => $item['encounter_id'],
+          'participant_id' => $item['participant_id'],
+        ],
+        $narration,
+        $item['entity_id']
+      );
+    }
+
+    return $events;
   }
 
   /**
@@ -118,6 +252,9 @@ class ConditionManager {
         ->fields(['value' => $new_value, 'updated' => $now])
         ->condition('id', $existing->id)
         ->execute();
+      if ($new_value !== (int) $existing->value) {
+        $this->queueConditionEvent('updated', (int) $participant_id, $condition_type, $new_value, $source, $encounter_id !== NULL ? (int) $encounter_id : NULL);
+      }
       return (int) $existing->id;
     }
 
@@ -125,7 +262,7 @@ class ConditionManager {
       ? min((int) $catalog['max_value'], max(1, (int) $value))
       : NULL;
 
-    return (int) $this->database->insert('combat_conditions')
+    $condition_id = (int) $this->database->insert('combat_conditions')
       ->fields([
         'participant_id'   => $participant_id,
         'encounter_id'     => $encounter_id,
@@ -140,6 +277,8 @@ class ConditionManager {
         'updated'          => $now,
       ])
       ->execute();
+    $this->queueConditionEvent('applied', (int) $participant_id, $condition_type, $insert_value, $source, $encounter_id !== NULL ? (int) $encounter_id : NULL);
+    return $condition_id;
   }
 
   /**
@@ -161,7 +300,7 @@ class ConditionManager {
     $applied_at_round = $this->getCurrentRound($encounter_id);
 
     $existing = $this->database->select('combat_conditions', 'c')
-      ->fields('c', ['id'])
+      ->fields('c', ['id', 'value'])
       ->condition('participant_id', $participant_id)
       ->condition('encounter_id', $encounter_id)
       ->condition('condition_type', $condition_type)
@@ -173,7 +312,7 @@ class ConditionManager {
       if ($existing) {
         return FALSE;
       }
-      return (int) $this->database->insert('combat_conditions')
+      $condition_id = (int) $this->database->insert('combat_conditions')
         ->fields([
           'participant_id'   => $participant_id,
           'encounter_id'     => $encounter_id,
@@ -188,6 +327,8 @@ class ConditionManager {
           'updated'          => $now,
         ])
         ->execute();
+      $this->queueConditionEvent('applied', (int) $participant_id, $condition_type, NULL, $source, $encounter_id !== NULL ? (int) $encounter_id : NULL);
+      return $condition_id;
     }
 
     $exact_value = min((int) $catalog['max_value'], max(1, (int) $value));
@@ -196,10 +337,13 @@ class ConditionManager {
         ->fields(['value' => $exact_value, 'updated' => $now])
         ->condition('id', $existing->id)
         ->execute();
+      if ($exact_value !== (int) $existing->value) {
+        $this->queueConditionEvent('updated', (int) $participant_id, $condition_type, $exact_value, $source, $encounter_id !== NULL ? (int) $encounter_id : NULL);
+      }
       return (int) $existing->id;
     }
 
-    return (int) $this->database->insert('combat_conditions')
+    $condition_id = (int) $this->database->insert('combat_conditions')
       ->fields([
         'participant_id'   => $participant_id,
         'encounter_id'     => $encounter_id,
@@ -214,6 +358,8 @@ class ConditionManager {
         'updated'          => $now,
       ])
       ->execute();
+    $this->queueConditionEvent('applied', (int) $participant_id, $condition_type, $exact_value, $source, $encounter_id !== NULL ? (int) $encounter_id : NULL);
+    return $condition_id;
   }
 
   /**
@@ -226,6 +372,16 @@ class ConditionManager {
     $now = time();
     $removed_at_round = $this->getCurrentRound($encounter_id);
 
+    $condition_row = $this->database->select('combat_conditions', 'c')
+      ->fields('c', ['condition_type', 'value', 'source'])
+      ->condition('id', $condition_id)
+      ->condition('participant_id', $participant_id)
+      ->condition('encounter_id', $encounter_id)
+      ->isNull('removed_at_round')
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
     $count = $this->database->update('combat_conditions')
       ->fields([
         'removed_at_round' => $removed_at_round,
@@ -236,6 +392,17 @@ class ConditionManager {
       ->condition('encounter_id', $encounter_id)
       ->isNull('removed_at_round')
       ->execute();
+
+    if ($count > 0 && is_array($condition_row)) {
+      $this->queueConditionEvent(
+        'removed',
+        (int) $participant_id,
+        (string) $condition_row['condition_type'],
+        isset($condition_row['value']) ? (int) $condition_row['value'] : NULL,
+        $condition_row['source'] ?? 'condition_removed',
+        $encounter_id !== NULL ? (int) $encounter_id : NULL
+      );
+    }
 
     return $count > 0;
   }
@@ -303,12 +470,14 @@ class ConditionManager {
           ->fields(['removed_at_round' => $removed_at_round, 'updated' => $now])
           ->condition('id', $row['id'])
           ->execute();
+        $this->queueConditionEvent('removed', $participant_id, $condition_type, (int) $row['value'], $row['source'] ?? 'condition_tick', $encounter_id);
       }
       else {
         $this->database->update('combat_conditions')
           ->fields(['value' => $new_value, 'updated' => $now])
           ->condition('id', $row['id'])
           ->execute();
+        $this->queueConditionEvent('updated', $participant_id, $condition_type, $new_value, $row['source'] ?? 'condition_tick', $encounter_id);
       }
       break;
     }

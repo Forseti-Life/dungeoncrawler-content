@@ -424,14 +424,17 @@ class GameCoordinatorService {
     }
 
     // 6. Log events.
+    // Always call logEvents() (even with an empty $events_to_log) so that
+    // GameEventLogger can drain any condition_applied/condition_removed
+    // events ConditionManager buffered while resolving this action -
+    // otherwise purely condition-driven changes (e.g. an end-of-turn tick
+    // that removes a condition with no other event) would never be logged.
     $events_to_log = $action_result['events'] ?? [];
     $logged_events = array_merge($bootstrap_events ?? [], $autoplay_events ?? []);
-    if (!empty($events_to_log)) {
-      $logged_events = array_merge(
-        $logged_events,
-        $this->eventLogger->logEvents($dungeon_data, $events_to_log)
-      );
-    }
+    $logged_events = array_merge(
+      $logged_events,
+      $this->eventLogger->logEvents($dungeon_data, $events_to_log)
+    );
     // 7. Handle phase transitions.
     $phase_transition_mutation_envelope = NULL;
     if ($phase_transition) {

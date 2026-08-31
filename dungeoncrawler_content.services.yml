@@ -1601,6 +1601,7 @@ services:
     arguments:
       - '@logger.factory'
       - '@database'
+      - '@dungeoncrawler_content.condition_manager'
 
   dungeoncrawler_content.exploration_phase_handler:
     class: Drupal\dungeoncrawler_content\Service\ExplorationPhaseHandler

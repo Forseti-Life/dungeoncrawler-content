@@ -35,19 +35,33 @@ class GameEventLogger {
   protected ?Connection $database;
 
   /**
+   * Optional ConditionManager reference used to drain buffered
+   * condition-change events (applied/updated/removed) so they are always
+   * logged to the action log/chat, regardless of which call site in the
+   * codebase actually triggered the condition change.
+   *
+   * @see ConditionManager::drainPendingConditionEvents()
+   */
+  protected ?ConditionManager $conditionManager;
+
+  /**
    * Constructs a GameEventLogger.
    *
    * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
    *   The logger channel factory.
    * @param \Drupal\Core\Database\Connection|null $database
    *   Optional database connection for dc_campaign_log writes/reads.
+   * @param \Drupal\dungeoncrawler_content\Service\ConditionManager|null $condition_manager
+   *   Optional condition manager to drain pending condition-change events from.
    */
   public function __construct(
     LoggerChannelFactoryInterface $logger_factory,
-    ?Connection $database = NULL
+    ?Connection $database = NULL,
+    ?ConditionManager $condition_manager = NULL
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler');
     $this->database = $database;
+    $this->conditionManager = $condition_manager;
   }
 
   /**
@@ -70,6 +84,18 @@ class GameEventLogger {
   public function logEvents(array &$dungeon_data, array $events): array {
     if (!isset($dungeon_data['event_log'])) {
       $dungeon_data['event_log'] = [];
+    }
+
+    // Always drain any condition-change events (applied/updated/removed)
+    // that ConditionManager queued while resolving this action, regardless
+    // of which of its ~40 call sites across the codebase triggered them.
+    // Appended after the action's own events so they read as a consequence
+    // of it (e.g. "...strikes for 6 damage. Skeleton becomes frightened 2.").
+    if ($this->conditionManager) {
+      $condition_events = $this->conditionManager->drainPendingConditionEvents();
+      if ($condition_events !== []) {
+        $events = array_merge($events, $condition_events);
+      }
     }
 
     $logged = [];

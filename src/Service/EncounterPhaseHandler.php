@@ -725,7 +725,10 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       }
 
       $actor_id = $intent['actor'] ?? NULL;
-      if ($actor_id && $current_entity && $actor_id !== $current_entity) {
+      if (
+        $actor_id && $current_entity && $actor_id !== $current_entity
+        && !($type === 'party_recovery' && $this->isPlayerPartyDefeated($game_state))
+      ) {
         return [
           'valid' => FALSE,
           'reason' => "It is not $actor_id's turn. Current turn: $current_entity.",
@@ -764,8 +767,14 @@ class EncounterPhaseHandler implements EncounterMasterInterface, MutationContext
       ];
     }
 
-    // Validate it's the actor's turn (except for reactions).
-    if (!in_array($type, ['reaction'], TRUE)) {
+    // Validate it's the actor's turn (except for reactions, and
+    // party_recovery once the whole player party has been wiped -- no
+    // player-controlled combatant will ever naturally receive a turn again
+    // in that state, so this exemption is what makes recovery reachable).
+    if (
+      !in_array($type, ['reaction'], TRUE)
+      && !($type === 'party_recovery' && $this->isPlayerPartyDefeated($game_state))
+    ) {
       $actor_id = $intent['actor'] ?? NULL;
 
       if ($actor_id && $current_entity && $actor_id !== $current_entity) {

@@ -385,6 +385,37 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
   }
 
   /**
+   * Whether every player/ally combatant in the current initiative order is
+   * defeated (the whole player party has been wiped).
+   *
+   * Used to unlock the 'party_recovery' action out-of-turn: once the party
+   * is wiped, no player-controlled combatant will ever naturally receive a
+   * turn again (only hostiles remain in the initiative order), so the
+   * normal "must be your turn" gate would otherwise make recovery
+   * permanently unreachable. See routePartyRecoveryIntentExecution().
+   */
+  protected function isPlayerPartyDefeated(array $game_state): bool {
+    $initiative_order = $game_state['initiative_order'] ?? [];
+    if (!is_array($initiative_order) || $initiative_order === []) {
+      return FALSE;
+    }
+    $has_player_party_member = FALSE;
+    foreach ($initiative_order as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      if (!in_array($this->normalizeCombatTeam((string) ($participant['team'] ?? '')), ['player', 'ally'], TRUE)) {
+        continue;
+      }
+      $has_player_party_member = TRUE;
+      if (empty($participant['is_defeated'])) {
+        return FALSE;
+      }
+    }
+    return $has_player_party_member;
+  }
+
+  /**
    * Determines whether the encounter has been decided.
    *
    * An encounter is over once at most one normalized SIDE still has a

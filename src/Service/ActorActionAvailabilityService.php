@@ -325,6 +325,22 @@ class ActorActionAvailabilityService {
       $heritage,
       $safe_rest_available
     );
+    // Once the whole player party is wiped, no player-controlled combatant
+    // will ever naturally receive a turn again (only hostiles remain in the
+    // initiative order), so 'party_recovery' would otherwise be
+    // permanently unreachable via the normal "must be your turn" gate
+    // baked into resolveAvailableActionsFromTurnState(). Force it into the
+    // available-actions list out-of-turn in that specific state; the
+    // matching validateIntent() exemption in EncounterPhaseHandler allows
+    // the intent itself to actually execute.
+    if (
+      $effective_actor_id !== NULL
+      && $effective_actor_id !== ''
+      && $this->isPlayerPartyDefeated($game_state)
+      && !in_array('party_recovery', $available_actions, TRUE)
+    ) {
+      $available_actions[] = 'party_recovery';
+    }
     $available_actions = $this->mergeHighOptionAvailability(
       $available_actions,
       $high_option_families,
@@ -661,6 +677,55 @@ class ActorActionAvailabilityService {
     }
     ksort($normalized);
     return $normalized;
+  }
+
+  /**
+   * Whether every player/ally combatant in the current initiative order is
+   * defeated (the whole player party has been wiped).
+   *
+   * Mirrors EncounterPhaseHandlerRouteExecutionSupportTrait::isPlayerPartyDefeated()
+   * (this service is a standalone class, not part of that trait chain, so
+   * the team-normalization synonyms are duplicated here rather than shared).
+   */
+  protected function isPlayerPartyDefeated(array $game_state): bool {
+    $initiative_order = $game_state['initiative_order'] ?? [];
+    if (!is_array($initiative_order) || $initiative_order === []) {
+      return FALSE;
+    }
+    $has_player_party_member = FALSE;
+    foreach ($initiative_order as $participant) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      if (!in_array($this->normalizePartyTeam((string) ($participant['team'] ?? '')), ['player', 'ally'], TRUE)) {
+        continue;
+      }
+      $has_player_party_member = TRUE;
+      if (empty($participant['is_defeated'])) {
+        return FALSE;
+      }
+    }
+    return $has_player_party_member;
+  }
+
+  /**
+   * Normalize a raw team string to one of: player, ally, enemy, neutral.
+   */
+  protected function normalizePartyTeam(?string $team): string {
+    $value = strtolower(trim((string) $team));
+    if (in_array($value, ['player', 'player_character', 'pc', 'party', 'adventurer', 'hero'], TRUE)) {
+      return 'player';
+    }
+    if (in_array($value, ['ally', 'friendly', 'companion'], TRUE)) {
+      return 'ally';
+    }
+    if (in_array($value, ['enemy', 'hostile', 'monster', 'monsters', 'npc', 'creature'], TRUE)) {
+      return 'enemy';
+    }
+    if (in_array($value, ['neutral', 'indifferent'], TRUE)) {
+      return 'neutral';
+    }
+    return $value;
   }
 
   /**

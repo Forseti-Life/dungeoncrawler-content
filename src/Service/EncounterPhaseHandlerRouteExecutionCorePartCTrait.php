@@ -1101,6 +1101,15 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
     // waiting for (or silently skipping) a future turn transition.
     if ($this->isEncounterOver($game_state)) {
       $conclusion_events = $this->concludeEncounterWithOutcomeLog($encounter_id, $game_state, $dungeon_data, $campaign_id, $narration);
+      // A full party wipe intentionally does NOT auto-transition back to
+      // 'exploration' -- there is no living player-controlled combatant to
+      // hand control back to, so this leaves the game in a frozen-but-
+      // recoverable 'encounter' phase where the only reachable action is
+      // the out-of-turn 'party_recovery' intent (see
+      // EncounterPhaseHandler::validateIntent() and
+      // ActorActionAvailabilityService::isPlayerPartyDefeated()). Victory
+      // (and draw) still transition out immediately as before.
+      $outcome = $this->resolveEncounterOutcome($game_state);
       return [
         'turn_advanced' => FALSE,
         'next_entity' => NULL,
@@ -1118,7 +1127,7 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
         // "ended" encounter in the DB), which in turn keeps any
         // phase==='encounter'-gated logic (e.g. EncounterTurnGuard for
         // chat) permanently active even though the fight is over.
-        'phase_transition' => $conclusion_events !== []
+        'phase_transition' => ($conclusion_events !== [] && $outcome !== 'defeat')
           ? ['from' => 'encounter', 'to' => 'exploration', 'reason' => 'Encounter concluded.']
           : NULL,
       ];
