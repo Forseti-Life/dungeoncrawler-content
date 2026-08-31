@@ -1735,6 +1735,7 @@ services:
       - '@dungeoncrawler_content.campaign_runtime_state_store'
       - '@dungeoncrawler_content.actor_runtime_state_store'
       - '@dungeoncrawler_content.campaign_character_runtime_sync'
+      - '@dungeoncrawler_content.room_runtime_state_store'
       - '@logger.factory'
 
   dungeoncrawler_content.ai_session_manager:

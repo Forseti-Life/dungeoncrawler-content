@@ -1685,7 +1685,8 @@ class GameCoordinatorService {
     array $context,
     array &$game_state,
     array &$dungeon_data,
-    int $campaign_id
+    int $campaign_id,
+    int $depth = 0
   ): array {
     $all_events = [];
     $transition_mutation_envelope = NULL;
@@ -1752,6 +1753,7 @@ class GameCoordinatorService {
 
     // 3. Enter the new phase.
     $to_handler = $this->getPhaseHandler($to_phase);
+    $chained_phase_transition = NULL;
     if ($to_handler) {
       $enter_result = $this->normalizePhaseLifecycleResult(
         $this->runHandlerOnEnter($to_handler, $context, $game_state, $dungeon_data, $campaign_id),
@@ -1763,6 +1765,7 @@ class GameCoordinatorService {
       if (is_array($enter_result['mutation_envelope'])) {
         $transition_mutation_envelope = $enter_result['mutation_envelope'];
       }
+      $chained_phase_transition = $enter_result['phase_transition'] ?? NULL;
     }
 
     // 4. Log all transition events.
@@ -1775,6 +1778,34 @@ class GameCoordinatorService {
       '@to' => $to_phase,
       '@id' => $campaign_id,
     ]);
+
+    // REQ (2026-08-31 RCA, campaign 916): entering the "encounter" phase can
+    // immediately bootstrap-autoplay NPC turns (e.g. hostile NPCs winning
+    // initiative over every player), and that bootstrap autoplay can
+    // conclude the fight (full party wipe, or a lone surviving hostile)
+    // before any player ever acts. When that happens, the onEnter() handler
+    // signals it via a nested "phase_transition" key so the encounter phase
+    // is not left permanently stuck -- follow it here (bounded recursion)
+    // so onExit()/onEnter() run for the concluding transition exactly like
+    // any normal player-triggered transition would.
+    if (is_array($chained_phase_transition) && $depth < 3) {
+      $chained_to = trim((string) ($chained_phase_transition['to'] ?? ''));
+      if ($chained_to !== '' && $chained_to !== $to_phase) {
+        $chained_result = $this->executePhaseTransition(
+          $to_phase,
+          $chained_to,
+          $chained_phase_transition,
+          $game_state,
+          $dungeon_data,
+          $campaign_id,
+          $depth + 1
+        );
+        $all_events = array_merge($all_events, $chained_result['events']);
+        if (is_array($chained_result['mutation_envelope'])) {
+          $transition_mutation_envelope = $chained_result['mutation_envelope'];
+        }
+      }
+    }
 
     return [
       'events' => $all_events,
@@ -2940,6 +2971,7 @@ class GameCoordinatorService {
       ? (is_array($raw_result['events'] ?? NULL) ? $raw_result['events'] : [])
       : $raw_result;
     $mutation_envelope = $has_structured_keys ? ($raw_result['mutation_envelope'] ?? NULL) : NULL;
+    $phase_transition = $has_structured_keys ? ($raw_result['phase_transition'] ?? NULL) : NULL;
 
     if ($has_structured_keys && array_key_exists('events', $raw_result) && !is_array($raw_result['events'])) {
       throw new \RuntimeException(sprintf(
@@ -2952,6 +2984,14 @@ class GameCoordinatorService {
     if ($mutation_envelope !== NULL && !is_array($mutation_envelope)) {
       throw new \RuntimeException(sprintf(
         'Phase lifecycle contract violation: %s::%s key "mutation_envelope" must be an array or null (campaign=%d).',
+        $phase,
+        $hook,
+        $campaign_id
+      ));
+    }
+    if ($phase_transition !== NULL && !is_array($phase_transition)) {
+      throw new \RuntimeException(sprintf(
+        'Phase lifecycle contract violation: %s::%s key "phase_transition" must be an array or null (campaign=%d).',
         $phase,
         $hook,
         $campaign_id
@@ -2973,6 +3013,7 @@ class GameCoordinatorService {
     return [
       'events' => array_values($events),
       'mutation_envelope' => is_array($mutation_envelope) ? $mutation_envelope : NULL,
+      'phase_transition' => is_array($phase_transition) ? $phase_transition : NULL,
     ];
   }
 

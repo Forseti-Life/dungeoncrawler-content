@@ -115,6 +115,23 @@ class RuntimeBootstrapService {
         $dungeon_data['current_room_id'] = $runtime_active_room_id;
       }
     }
+    // REQ (2026-08-31 RCA, campaign 916): merge durably-persisted room
+    // gameplay_state (e.g. encounter_triggered) into the snapshot rooms the
+    // runtime graph assembler consults, since dc_campaign_dungeons.dungeon_data
+    // itself carries no "rooms" slice. Without this, per-room flags written
+    // via RoomRuntimeStateStore::syncFromRooms() are never read back, and
+    // cleared encounters re-trigger on every room re-entry.
+    $persisted_room_states = $this->roomRuntimeStateStore->loadRoomStates($campaign_id);
+    if ($persisted_room_states !== []) {
+      $existing_rooms = is_array($dungeon_data['rooms'] ?? NULL) ? $dungeon_data['rooms'] : [];
+      $indexed_existing_rooms = [];
+      foreach ($existing_rooms as $room) {
+        if (is_array($room) && trim((string) ($room['room_id'] ?? '')) !== '') {
+          $indexed_existing_rooms[trim((string) $room['room_id'])] = $room;
+        }
+      }
+      $dungeon_data['rooms'] = array_values($persisted_room_states + $indexed_existing_rooms);
+    }
     $dungeon_data = $this->runtimeGraphAssembler->buildRuntimeGraph(
       $campaign_id,
       $dungeon_id,

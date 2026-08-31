@@ -1029,6 +1029,7 @@ trait EncounterNavigationTransitionCoordinatorTrait {
     $lifecycle_snapshot = $this->captureEncounterLifecycleSnapshot($game_state);
     $game_state['phase'] = 'encounter';
     $events = [];
+    $bootstrap_conclusion_phase_transition = NULL;
 
     $encounter_context = $context['encounter_context'] ?? [];
     $room_id = $encounter_context['room_id'] ?? ($dungeon_data['active_room_id'] ?? NULL);
@@ -1125,6 +1126,17 @@ trait EncounterNavigationTransitionCoordinatorTrait {
 
             $initial_advance = $this->processEndTurn($encounter_id, (string) $first_entity, $game_state, $dungeon_data, $campaign_id);
             $initial_turn_events = array_merge($initial_turn_events, $initial_advance['npc_events'] ?? []);
+            // REQ (2026-08-31 RCA, campaign 916): when hostile NPCs win
+            // initiative over every player, this bootstrap autoplay can
+            // conclude the whole encounter (e.g. a full party wipe) before
+            // any player ever takes a turn. processEndTurn() already
+            // detects that and signals it via 'phase_transition' -- capture
+            // it here so the caller (GameCoordinatorService::executePhaseTransition())
+            // can follow it, instead of leaving game_state['phase'] stuck
+            // on 'encounter' forever with no path back to 'exploration'.
+            if (!empty($initial_advance['phase_transition'])) {
+              $bootstrap_conclusion_phase_transition = $initial_advance['phase_transition'];
+            }
           }
         }
 
@@ -1220,6 +1232,7 @@ trait EncounterNavigationTransitionCoordinatorTrait {
     return [
       'events' => $events,
       'mutation_envelope' => $this->buildMutationEnvelopeFromRuntimeContext($campaign_id, $game_state, $dungeon_data, $lifecycle_mutations),
+      'phase_transition' => $bootstrap_conclusion_phase_transition,
     ];
   }
 

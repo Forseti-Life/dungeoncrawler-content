@@ -42,6 +42,7 @@ class CoordinatorRuntimeReadService {
     protected readonly CampaignRuntimeStateStore $campaignRuntimeStateStore,
     protected readonly ActorRuntimeStateStore $actorRuntimeStateStore,
     protected readonly CampaignCharacterRuntimeSyncService $campaignCharacterRuntimeSync,
+    protected readonly RoomRuntimeStateStore $roomRuntimeStateStore,
     LoggerChannelFactoryInterface $logger_factory,
   ) {
     $this->logger = $logger_factory->get('dungeoncrawler');
@@ -281,6 +282,24 @@ class CoordinatorRuntimeReadService {
       $build_runtime_graph_ms = 0.0;
       if ($rebuild_runtime_graph && $resolved_dungeon_id !== '') {
         $resolved_requested_room_id = trim((string) ($requested_room_id ?? ''));
+        // REQ (2026-08-31 RCA, campaign 916): merge durably-persisted room
+        // gameplay_state (e.g. encounter_triggered) into the snapshot rooms
+        // consulted by the runtime graph assembler, since the raw dungeon
+        // payload row itself carries no "rooms" slice. Without this, per-room
+        // flags written via RoomRuntimeStateStore::syncFromRooms() are never
+        // read back, and cleared encounters re-trigger on every room
+        // re-entry.
+        $persisted_room_states = $this->roomRuntimeStateStore->loadRoomStates($campaign_id);
+        if ($persisted_room_states !== []) {
+          $existing_rooms = is_array($decoded['rooms'] ?? NULL) ? $decoded['rooms'] : [];
+          $indexed_existing_rooms = [];
+          foreach ($existing_rooms as $room) {
+            if (is_array($room) && trim((string) ($room['room_id'] ?? '')) !== '') {
+              $indexed_existing_rooms[trim((string) $room['room_id'])] = $room;
+            }
+          }
+          $decoded['rooms'] = array_values($persisted_room_states + $indexed_existing_rooms);
+        }
         $stage_started_at = hrtime(true);
         $decoded = $this->runtimeGraphAssembler->buildRuntimeGraph(
           $campaign_id,
