@@ -387,20 +387,31 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
   /**
    * Determines whether the encounter has been decided.
    *
-   * An encounter is over once at most one normalized team still has a
+   * An encounter is over once at most one normalized SIDE still has a
    * non-defeated combatant (mirrors PF2e "encounter ends when one side is
    * wiped" rules, and matches the equivalent check that used to gate the
    * turn-advance loop before it was lost in an earlier extraction refactor).
+   *
+   * Uses {@see normalizeEncounterSide()} (not the finer-grained
+   * normalizeCombatTeam()) so that 'player' and 'ally' collapse onto the
+   * same "heroes" side -- otherwise a party with a surviving ally/familiar
+   * (the common case) would never register as "over" even after every
+   * hostile is defeated, since 'player' and 'ally' would count as two
+   * separate still-alive teams. This mirrors the already-correct grouping
+   * CombatEngine::evaluateEncounterOutcome()/normalizeCombatSide() uses.
    */
   protected function isEncounterOver(array $game_state): bool {
-    $teams_alive = [];
+    $sides_alive = [];
     foreach (($game_state['initiative_order'] ?? []) as $participant) {
       if (!is_array($participant) || !empty($participant['is_defeated'])) {
         continue;
       }
-      $teams_alive[$this->normalizeCombatTeam((string) ($participant['team'] ?? ''))] = TRUE;
+      $side = $this->normalizeEncounterSide((string) ($participant['team'] ?? ''));
+      if ($side !== NULL) {
+        $sides_alive[$side] = TRUE;
+      }
     }
-    return count($teams_alive) <= 1;
+    return count($sides_alive) <= 1;
   }
 
   /**
@@ -408,20 +419,38 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
    * {@see isEncounterOver()} is true, based on which side (if any) survives.
    */
   protected function resolveEncounterOutcome(array $game_state): string {
-    $teams_alive = [];
+    $sides_alive = [];
     foreach (($game_state['initiative_order'] ?? []) as $participant) {
       if (!is_array($participant) || !empty($participant['is_defeated'])) {
         continue;
       }
-      $teams_alive[$this->normalizeCombatTeam((string) ($participant['team'] ?? ''))] = TRUE;
+      $side = $this->normalizeEncounterSide((string) ($participant['team'] ?? ''));
+      if ($side !== NULL) {
+        $sides_alive[$side] = TRUE;
+      }
     }
-    if (isset($teams_alive['player']) || isset($teams_alive['ally'])) {
+    if (isset($sides_alive['heroes'])) {
       return 'victory';
     }
-    if (isset($teams_alive['enemy'])) {
+    if (isset($sides_alive['enemies'])) {
       return 'defeat';
     }
     return 'draw';
+  }
+
+  /**
+   * Normalizes a raw combat team label into a broad encounter-outcome SIDE
+   * ('heroes'/'enemies'), collapsing 'player'/'ally'/'friendly'/'party' into
+   * a single side the way {@see \Drupal\dungeoncrawler_content\Service\CombatEngine::normalizeCombatSide()}
+   * already does. Neutral/unrecognized teams return NULL so they never
+   * factor into "is the encounter over" side-counting.
+   */
+  protected function normalizeEncounterSide(string $team): ?string {
+    return match ($this->normalizeCombatTeam($team)) {
+      'player', 'ally' => 'heroes',
+      'enemy' => 'enemies',
+      default => NULL,
+    };
   }
 
   /**
@@ -2491,8 +2520,17 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
         'q' => (int) ($hex['q'] ?? 0),
         'r' => (int) ($hex['r'] ?? 0),
       ];
-      $entity['placement']['facing'] = $this->normalizeFacingDirection($facing);
+      $normalized_facing = $this->normalizeFacingDirection($facing);
+      $entity['placement']['facing'] = $normalized_facing;
+      $entity['placement']['orientation'] = $this->facingToOrientationToken($normalized_facing);
       $entity['placement']['h3_index_res14'] = $h3_index_res14;
+      if (!isset($entity['state']) || !is_array($entity['state'])) {
+        $entity['state'] = [];
+      }
+      if (!isset($entity['state']['metadata']) || !is_array($entity['state']['metadata'])) {
+        $entity['state']['metadata'] = [];
+      }
+      $entity['state']['metadata']['orientation'] = $entity['placement']['orientation'];
       break;
     }
     unset($entity);
@@ -2508,6 +2546,21 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
     }
 
     return $facing;
+  }
+
+  /**
+   * Convert canonical numeric facing [0..5] to visual orientation token.
+   */
+  protected function facingToOrientationToken(int $facing): string {
+    return match ($this->normalizeFacingDirection($facing)) {
+      0 => 'n',
+      1 => 'ne',
+      2 => 'se',
+      3 => 's',
+      4 => 'sw',
+      5 => 'nw',
+      default => 'n',
+    };
   }
 
   /**
