@@ -1160,11 +1160,7 @@ class MapVisualStateProjector {
       $object_id = $content_id !== '' ? $content_id : $object_instance_id;
       $hex_id = $this->deriveHexId($room_id, $q, $r);
 
-      $orientation = trim((string) ($placement['orientation'] ?? $metadata['orientation'] ?? $definition['visual']['orientation'] ?? 'n'));
-      if ($orientation === '') {
-        $orientation = 'n';
-      }
-      $orientation = strtolower($orientation);
+      $orientation = $this->resolveOrientationFromPlacement($placement, $metadata, $definition['visual']['orientation'] ?? 'n');
 
       $movement = is_array($definition['movement'] ?? NULL) ? $definition['movement'] : [];
       $passable = array_key_exists('passable', $movement) ? (bool) $movement['passable'] : TRUE;
@@ -1316,11 +1312,7 @@ class MapVisualStateProjector {
           }
         }
       }
-      $orientation = trim((string) ($placement['orientation'] ?? $metadata['orientation'] ?? $definition['visual']['orientation'] ?? 'n'));
-      if ($orientation === '') {
-        $orientation = 'n';
-      }
-      $orientation = strtolower($orientation);
+      $orientation = $this->resolveOrientationFromPlacement($placement, $metadata, $definition['visual']['orientation'] ?? 'n');
 
       $character_id = (int) ($metadata['character_id'] ?? $entity['character_id'] ?? 0);
       if ($character_id <= 0) {
@@ -1838,6 +1830,40 @@ class MapVisualStateProjector {
   protected function normalizeTileType(array $hex): string {
     $value = (string) ($hex['terrain_type'] ?? 'floor');
     return $value !== '' ? $value : 'floor';
+  }
+
+  /**
+   * Resolve orientation token from placement/metadata, then fall back to facing.
+   */
+  protected function resolveOrientationFromPlacement(array $placement, array $metadata, string $default = 'n'): string {
+    $orientation = strtolower(trim((string) ($placement['orientation'] ?? $metadata['orientation'] ?? '')));
+    if ($orientation !== '') {
+      return $orientation;
+    }
+    if (isset($placement['facing']) && is_numeric($placement['facing'])) {
+      return $this->facingToOrientationToken((int) $placement['facing']);
+    }
+    $fallback = strtolower(trim($default));
+    return $fallback !== '' ? $fallback : 'n';
+  }
+
+  /**
+   * Convert canonical numeric facing [0..5] to visual orientation token.
+   */
+  protected function facingToOrientationToken(int $facing): string {
+    $facing = $facing % 6;
+    if ($facing < 0) {
+      $facing += 6;
+    }
+    return match ($facing) {
+      0 => 'n',
+      1 => 'ne',
+      2 => 'se',
+      3 => 's',
+      4 => 'sw',
+      5 => 'nw',
+      default => 'n',
+    };
   }
 
   /**

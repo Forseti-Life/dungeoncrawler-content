@@ -596,6 +596,13 @@ services:
       - '@dungeoncrawler_content.combat_encounter_store'
       - '@dungeoncrawler_content.number_generation'
       - '@dungeoncrawler_content.condition_manager'
+      - '@dungeoncrawler_content.attack_modifier_resolver'
+
+  dungeoncrawler_content.attack_modifier_resolver:
+    class: Drupal\dungeoncrawler_content\Service\AttackModifierResolverService
+    arguments:
+      - '@dungeoncrawler_content.movement_resolver'
+      - '@dungeoncrawler_content.condition_manager'
 
   dungeoncrawler_content.equipment_catalog:
     class: Drupal\dungeoncrawler_content\Service\EquipmentCatalogService
@@ -641,6 +648,7 @@ services:
       - '@?dungeoncrawler_content.relationship_attitude_service'
       - '@?dungeoncrawler_content.institution_membership'
       - '@?dungeoncrawler_content.relationships_actor_identity_resolver'
+      - '@dungeoncrawler_content.attack_modifier_resolver'
 
   dungeoncrawler_content.encounter_ai_provider.stub:
     class: Drupal\dungeoncrawler_content\Service\StubEncounterAiProvider

@@ -93,8 +93,9 @@ class CombatEngine {
   protected ?RelationshipAttitudeService $relationshipAttitudeService;
   protected ?InstitutionMembershipService $institutionMembershipService;
   protected ?RelationshipsActorIdentityResolverService $relationshipsActorIdentityResolver;
+  protected ?AttackModifierResolverService $attackModifierResolver;
 
-  public function __construct(Connection $database, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL, ?RelationshipAttitudeService $relationship_attitude_service = NULL, ?InstitutionMembershipService $institution_membership_service = NULL, ?RelationshipsActorIdentityResolverService $relationships_actor_identity_resolver = NULL) {
+  public function __construct(Connection $database, CombatEncounterStore $store, HPManager $hp_manager, NumberGenerationService $number_generation, CombatCalculator $combat_calculator = NULL, Calculator $calculator = NULL, ConditionManager $condition_manager = NULL, MovementResolverService $movement_resolver = NULL, AfflictionManager $affliction_manager = NULL, ?RelationshipAttitudeService $relationship_attitude_service = NULL, ?InstitutionMembershipService $institution_membership_service = NULL, ?RelationshipsActorIdentityResolverService $relationships_actor_identity_resolver = NULL, ?AttackModifierResolverService $attack_modifier_resolver = NULL) {
     $this->database = $database;
     $this->store = $store;
     $this->hpManager = $hp_manager;
@@ -107,6 +108,7 @@ class CombatEngine {
     $this->relationshipAttitudeService = $relationship_attitude_service;
     $this->institutionMembershipService = $institution_membership_service;
     $this->relationshipsActorIdentityResolver = $relationships_actor_identity_resolver;
+    $this->attackModifierResolver = $attack_modifier_resolver ?? new AttackModifierResolverService($movement_resolver, $condition_manager);
   }
 
   /**
@@ -915,73 +917,35 @@ class CombatEngine {
     $flanking = FALSE;
     $cover = ['tier' => 'none', 'ac_bonus' => 0];
     $aquatic_info = ['is_underwater' => FALSE, 'attack_blocked' => FALSE];
+    $target_aquatic = ['is_underwater' => FALSE];
+    $attacker_hex = ['q' => (int) ($attacker['position_q'] ?? 0), 'r' => (int) ($attacker['position_r'] ?? 0)];
 
-    if ($this->movementResolver) {
-      $attacker_hex = ['q' => (int) ($attacker['position_q'] ?? 0), 'r' => (int) ($attacker['position_r'] ?? 0)];
-      $target_hex   = ['q' => (int) ($target['position_q'] ?? 0),   'r' => (int) ($target['position_r'] ?? 0)];
+    $allies = $this->database->select('combat_participants', 'p')
+      ->fields('p', ['id', 'team', 'position_q', 'position_r', 'is_defeated', 'entity_ref'])
+      ->condition('encounter_id', $encounter_id)
+      ->condition('is_defeated', 0)
+      ->condition('id', [$participant_id, $target_id], 'NOT IN')
+      ->execute()
+      ->fetchAll(\PDO::FETCH_ASSOC);
 
-      // REQ 2253-2254: Flanking — target is flat-footed to flanking melee attacks.
-      $weapon_type = strtolower($weapon['type'] ?? 'melee');
-      if ($weapon_type === 'melee') {
-        $allies = $this->database->select('combat_participants', 'p')
-          ->fields('p', ['id', 'team', 'position_q', 'position_r'])
-          ->condition('encounter_id', $encounter_id)
-          ->condition('is_defeated', 0)
-          ->condition('id', [$participant_id, $target_id], 'NOT IN')
-          ->execute()
-          ->fetchAll(\PDO::FETCH_ASSOC);
-
-        foreach ($allies as $ally) {
-          if (($ally['team'] ?? '') === ($attacker['team'] ?? '')) {
-            $ally_hex = ['q' => (int) $ally['position_q'], 'r' => (int) $ally['position_r']];
-            if ($this->movementResolver->isFlanking($attacker_hex, $target_hex, $ally_hex)) {
-              $flanking = TRUE;
-              break;
-            }
-          }
-        }
-      }
-
-      // REQ 2255-2257: Cover — apply circumstance bonus to target AC.
-      if (!empty($dungeon_data)) {
-        $cover = $this->movementResolver->calculateCover($attacker_hex, $target_hex, $dungeon_data);
-        $target_ac += $cover['ac_bonus'];
-      }
-
-      // REQ 2262-2264: Aquatic combat modifiers.
-      $attacker_aquatic = $this->movementResolver->getAquaticModifiers($attacker, $dungeon_data);
-      $target_aquatic   = $this->movementResolver->getAquaticModifiers($target, $dungeon_data);
-
-      $damage_type_str = strtolower($weapon['damage_type'] ?? '');
-      $is_ranged = $weapon_type !== 'melee';
-
-      // REQ 2263: Ranged bludgeoning/slashing auto-misses if either is underwater.
-      if ($is_ranged && ($attacker_aquatic['is_underwater'] || $target_aquatic['is_underwater'])) {
-        if (in_array($damage_type_str, ['bludgeoning', 'slashing'])) {
-          $aquatic_info['attack_blocked'] = TRUE;
-        }
-      }
-
-      // REQ 2262: Flat-footed if underwater without swim speed.
-      if ($target_aquatic['flat_footed']) {
-        $target_ac -= 2;
-      }
-
-      // REQ 2262: Slashing circumstance penalty underwater.
-      if ($attacker_aquatic['is_underwater'] && $damage_type_str === 'slashing') {
-        $attack_bonus += $attacker_aquatic['slashing_penalty'];
-        $total = $natural_roll + $attack_bonus + $map_penalty;
-      }
-
-      $aquatic_info = array_merge($aquatic_info, [
-        'attacker_underwater' => $attacker_aquatic['is_underwater'],
-        'target_underwater'   => $target_aquatic['is_underwater'],
-      ]);
-    }
-
-    // REQ 2254: Flanked target is flat-footed (–2 circumstance to AC).
-    if ($flanking) {
-      $target_ac -= 2;
+    if ($this->attackModifierResolver) {
+      $tactical = $this->attackModifierResolver->resolveStrikeContext(
+        $attacker,
+        $target,
+        $weapon,
+        $encounter_id,
+        $allies,
+        $dungeon_data
+      );
+      $attack_bonus += (int) ($tactical['attack_bonus_adjustment'] ?? 0);
+      $target_ac += (int) ($tactical['target_ac_adjustment'] ?? 0);
+      $flanking = !empty($tactical['flanking']);
+      $cover = is_array($tactical['cover'] ?? NULL) ? $tactical['cover'] : $cover;
+      $aquatic_info = is_array($tactical['aquatic'] ?? NULL) ? $tactical['aquatic'] : $aquatic_info;
+      $target_aquatic = [
+        'is_underwater' => !empty($aquatic_info['target_underwater']),
+      ];
+      $total = $natural_roll + $attack_bonus + $map_penalty;
     }
 
     // Block attack if aquatic rules prevent it.

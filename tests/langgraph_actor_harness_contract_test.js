@@ -30,6 +30,24 @@ const runnerSource = fs.readFileSync(
   path.resolve(__dirname, '../scripts/langgraph-actor-harness-run.py'),
   'utf8'
 );
+const scriptedSequenceSource = fs.readFileSync(
+  path.resolve(__dirname, '../scripts/langgraph_actor_harness/scripted_sequence.py'),
+  'utf8'
+);
+const securityBoundarySource = fs.readFileSync(
+  path.resolve(__dirname, '../scripts/langgraph_actor_harness/security_boundary.py'),
+  'utf8'
+);
+const burascoScriptConfigRaw = fs.readFileSync(
+  path.resolve(__dirname, '../config/harness/burasco-script-v1.json'),
+  'utf8'
+);
+const burascoScriptConfig = JSON.parse(burascoScriptConfigRaw);
+const harnessDecisionSchemaRaw = fs.readFileSync(
+  path.resolve(__dirname, '../config/schemas/harness_decision.schema.json'),
+  'utf8'
+);
+const combinedHarnessSource = [runnerSource, scriptedSequenceSource, securityBoundarySource].join('\n');
 const runtimeAdapterSource = fs.readFileSync(
   path.resolve(__dirname, '../src/Service/PlayerAgentRuntimeAdapter.php'),
   'utf8'
@@ -142,26 +160,36 @@ assert(
 );
 
 assert(
-  runnerSource.includes('ask_eldric_any_work_or_quests')
-    && runnerSource.includes('ask_marta_any_work')
-    && runnerSource.includes('ask_gribbles_any_work')
-    && runnerSource.includes('search_room_for_items')
-    && runnerSource.includes('ask_gribbles_your_stuff')
-    && runnerSource.includes('ask_marta_your_stuff')
-    && runnerSource.includes('ask_eldric_your_stuff')
-    && runnerSource.includes('ask_eldric_any_other_quests')
-    && runnerSource.includes('navigate_to_absalom_streets')
-    && runnerSource.includes('navigate_to_grandmas_parlor')
-    && runnerSource.includes('ask_grandma_any_work_for_me')
-    && runnerSource.includes('navigate_back_to_absalom_streets')
-    && runnerSource.includes('navigate_to_graveyard')
-    && runnerSource.includes('navigate_to_crypt_entrance')
-    && runnerSource.includes('ask_what_are_we_doing_here')
-    && !runnerSource.includes('chat_eldric_more_work')
-    && !runnerSource.includes('chat_eldric_storyline_lead')
-    && !runnerSource.includes('chat_gribbles_jobs')
-    && !runnerSource.includes('chat_eldric_jobs'),
-  'Runner hardcodes the Burasco scripted action sequence in the requested order'
+  harnessDecisionSchemaRaw.includes('"title": "Harness Decision Contract"')
+    && harnessDecisionSchemaRaw.includes('"decision_type"')
+    && harnessDecisionSchemaRaw.includes('"tool_payload"'),
+  'Shared harness decision schema is present for cross-language contract alignment'
+);
+
+assert(
+  runnerSource.includes('load_scripted_testing_steps(REPO_ROOT)')
+    && scriptedSequenceSource.includes('burasco-script-v1.json')
+    && Array.isArray(burascoScriptConfig.steps)
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_eldric_any_work_or_quests')
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_marta_any_work')
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_gribbles_any_work')
+    && burascoScriptConfig.steps.some((step) => step.id === 'search_room_for_items')
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_gribbles_your_stuff')
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_marta_your_stuff')
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_eldric_your_stuff')
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_eldric_any_other_quests')
+    && burascoScriptConfig.steps.some((step) => step.id === 'navigate_to_absalom_streets')
+    && burascoScriptConfig.steps.some((step) => step.id === 'navigate_to_grandmas_parlor')
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_grandma_any_work_for_me')
+    && burascoScriptConfig.steps.some((step) => step.id === 'navigate_back_to_absalom_streets')
+    && burascoScriptConfig.steps.some((step) => step.id === 'navigate_to_graveyard')
+    && burascoScriptConfig.steps.some((step) => step.id === 'navigate_to_crypt_entrance')
+    && burascoScriptConfig.steps.some((step) => step.id === 'ask_what_are_we_doing_here')
+    && !burascoScriptConfigRaw.includes('chat_eldric_more_work')
+    && !burascoScriptConfigRaw.includes('chat_eldric_storyline_lead')
+    && !burascoScriptConfigRaw.includes('chat_gribbles_jobs')
+    && !burascoScriptConfigRaw.includes('chat_eldric_jobs'),
+  'Runner externalizes the Burasco scripted action sequence into versioned config with the requested order'
 );
 
 assert(
@@ -241,14 +269,14 @@ assert(
 );
 
 assert(
-  runnerSource.includes('FORBIDDEN_ACTOR_RUNTIME_ENV_VARS')
-    && runnerSource.includes('ALLOWED_ACTOR_RUNTIME_ENV_VARS')
+  combinedHarnessSource.includes('FORBIDDEN_ACTOR_RUNTIME_ENV_VARS')
+    && combinedHarnessSource.includes('ALLOWED_ACTOR_RUNTIME_ENV_VARS')
     && runnerSource.includes('enforce_actor_runtime_secret_boundary()')
     && runnerSource.includes('build_actor_runtime_env()')
     && runnerSource.includes('env=build_actor_runtime_env()')
-    && runnerSource.includes('actor_runtime_secret_boundary_violation:')
-    && !runnerSource.includes('shell=True'),
-  'Runner enforces actor runtime secret boundary and runs subprocesses with a sanitized allowlisted environment'
+    && combinedHarnessSource.includes('actor_runtime_secret_boundary_violation:')
+    && !combinedHarnessSource.includes('shell=True'),
+  'Runner and shared security module enforce actor runtime secret boundary with a sanitized allowlisted environment'
 );
 
 assert(

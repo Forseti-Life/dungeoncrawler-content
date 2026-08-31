@@ -49,6 +49,7 @@ class ReactionHandler {
    * @var \Drupal\dungeoncrawler_content\Service\ConditionManager
    */
   protected $conditionManager;
+  protected ?AttackModifierResolverService $attackModifierResolver;
 
   /**
    * Action traits that trigger Attack of Opportunity.
@@ -66,7 +67,8 @@ class ReactionHandler {
     HPManager $hp_manager,
     CombatEncounterStore $store,
     NumberGenerationService $number_generation,
-    ConditionManager $condition_manager
+    ConditionManager $condition_manager,
+    ?AttackModifierResolverService $attack_modifier_resolver = NULL
   ) {
     $this->database = $database;
     $this->calculator = $calculator;
@@ -74,6 +76,7 @@ class ReactionHandler {
     $this->store = $store;
     $this->numberGeneration = $number_generation;
     $this->conditionManager = $condition_manager;
+    $this->attackModifierResolver = $attack_modifier_resolver;
   }
 
   // -----------------------------------------------------------------------
@@ -299,15 +302,45 @@ class ReactionHandler {
       return ['type' => 'attack_of_opportunity', 'error' => 'Participant not found'];
     }
 
+    $encounter = $this->store->loadEncounter((int) $encounter_id);
+
     // AoO uses no MAP (it's a reaction, not part of normal turn actions).
     $attack_bonus = $this->resolveAttackBonus($attacker);
     $roll = $this->numberGeneration->rollPathfinderDie(20);
     $attack_mod = $this->conditionManager->getConditionModifiers((int) $participant_id, 'attack', (int) $encounter_id);
-    $total = $roll + $attack_bonus + $attack_mod;
+    $tactical_attack_mod = 0;
 
     $target_ac = (int) ($target['ac'] ?? 10);
     $target_ac_mod = $this->conditionManager->getConditionModifiers((int) $target_id, 'ac', (int) $encounter_id);
     $target_ac += $target_ac_mod;
+    $flanking = FALSE;
+    $cover = ['tier' => 'none', 'ac_bonus' => 0];
+
+    if ($this->attackModifierResolver) {
+      $allies = $this->attackModifierResolver->buildEligibleAllies(
+        is_array($encounter['participants'] ?? NULL) ? $encounter['participants'] : [],
+        (int) $participant_id,
+        (int) $target_id,
+        (string) ($attacker['team'] ?? '')
+      );
+
+      $dungeon_data = is_array($triggering_action['dungeon_data'] ?? NULL)
+        ? $triggering_action['dungeon_data']
+        : (is_array($encounter['dungeon_data'] ?? NULL) ? $encounter['dungeon_data'] : []);
+      $tactical = $this->attackModifierResolver->resolveStrikeContext(
+        $attacker,
+        $target,
+        ['type' => 'melee', 'damage_type' => 'physical'],
+        (int) $encounter_id,
+        $allies,
+        $dungeon_data
+      );
+      $tactical_attack_mod = (int) ($tactical['attack_bonus_adjustment'] ?? 0);
+      $target_ac += (int) ($tactical['target_ac_adjustment'] ?? 0);
+      $flanking = !empty($tactical['flanking']);
+      $cover = is_array($tactical['cover'] ?? NULL) ? $tactical['cover'] : $cover;
+    }
+    $total = $roll + $attack_bonus + $attack_mod + $tactical_attack_mod;
 
     $degree = $this->calculator->calculateDegreeOfSuccess($total, $target_ac, $roll);
 
@@ -349,6 +382,8 @@ class ReactionHandler {
       'attack_bonus' => $attack_bonus,
       'total' => $total,
       'target_ac' => $target_ac,
+      'flanking' => $flanking,
+      'cover' => (string) ($cover['tier'] ?? 'none'),
       'degree' => $degree,
       'damage' => $damage,
       'damage_result' => $damage_result,

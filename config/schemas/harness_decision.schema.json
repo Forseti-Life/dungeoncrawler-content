@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forseti.life/schemas/harness_decision.schema.json",
+  "title": "Harness Decision Contract",
+  "type": "object",
+  "required": ["decision_type", "reason"],
+  "properties": {
+    "decision_type": {
+      "type": "string",
+      "enum": ["tool", "stop"]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_payload": {
+      "type": "object",
+      "required": ["type", "params"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision_type": {
+            "const": "tool"
+          }
+        }
+      },
+      "then": {
+        "required": ["tool_name", "tool_payload"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

@@ -299,11 +299,23 @@ class MovementResolverService {
    *   TRUE if attacker and ally are flanking the target.
    */
   public function isFlanking(array $attacker_hex, array $target_hex, array $ally_hex): bool {
-    // Both must be adjacent (distance 1) to the target.
-    if ($this->hexUtility->distance($attacker_hex, $target_hex) > 1) {
+    return $this->isFlankingWithReach($attacker_hex, $target_hex, $ally_hex, 5, 5);
+  }
+
+  /**
+   * Detect flanking while honoring each participant's effective melee reach.
+   */
+  public function isFlankingWithReach(
+    array $attacker_hex,
+    array $target_hex,
+    array $ally_hex,
+    int $attacker_reach_ft = 5,
+    int $ally_reach_ft = 5
+  ): bool {
+    if (!$this->isWithinReach($attacker_hex, $target_hex, $attacker_reach_ft)) {
       return FALSE;
     }
-    if ($this->hexUtility->distance($ally_hex, $target_hex) > 1) {
+    if (!$this->isWithinReach($ally_hex, $target_hex, $ally_reach_ft)) {
       return FALSE;
     }
 
@@ -327,6 +339,64 @@ class MovementResolverService {
     }
 
     return FALSE;
+  }
+
+  /**
+   * Resolve effective melee reach in feet for a participant with optional weapon.
+   *
+   * Baseline uses size reach; melee weapons with a reach trait can extend it.
+   */
+  public function resolveCreatureReachFeet(array $participant, array $weapon = []): int {
+    $entity = !empty($participant['entity_ref']) ? (json_decode($participant['entity_ref'], TRUE) ?? []) : [];
+    $size = strtolower(trim((string) (
+      $participant['size']
+      ?? $entity['size']
+      ?? $entity['state']['metadata']['size']
+      ?? 'medium'
+    )));
+    $base_reach = (int) (self::SIZE_REACH[$size] ?? 5);
+
+    $weapon_type = strtolower(trim((string) ($weapon['type'] ?? 'melee')));
+    if ($weapon !== [] && $weapon_type !== 'melee') {
+      return 0;
+    }
+
+    $reach_ft = $base_reach;
+    $explicit_reach = (int) ($weapon['reach_ft'] ?? $weapon['reach'] ?? 0);
+    if ($explicit_reach > 0) {
+      $reach_ft = max($reach_ft, $explicit_reach);
+    }
+
+    $traits = $weapon['traits'] ?? $weapon['weapon_traits'] ?? [];
+    if (!is_array($traits)) {
+      $traits = [];
+    }
+    foreach ($traits as $trait) {
+      $token = strtolower(trim((string) $trait));
+      if ($token === '') {
+        continue;
+      }
+      if ($token === 'reach') {
+        $reach_ft = max($reach_ft, $base_reach + 5);
+        continue;
+      }
+      if (preg_match('/^reach(?:[-_\s])?(\d+)/', $token, $matches) === 1) {
+        $reach_ft = max($reach_ft, (int) $matches[1]);
+      }
+    }
+
+    return max(0, $reach_ft);
+  }
+
+  /**
+   * Determine whether target hex is inside a melee reach value.
+   */
+  public function isWithinReach(array $attacker_hex, array $target_hex, int $reach_feet): bool {
+    if ($reach_feet < 0) {
+      return FALSE;
+    }
+    $hex_reach = (int) ceil($reach_feet / 5);
+    return $this->hexUtility->distance($attacker_hex, $target_hex) <= $hex_reach;
   }
 
   /**

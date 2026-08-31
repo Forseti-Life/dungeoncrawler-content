@@ -17298,17 +17298,6 @@ import { SpriteService } from './SpriteService.js';
           objectColor: objectDefinition?.visual?.color || null
         };
 
-        if (entityType === EntityType.PLAYER_CHARACTER && launchCharacterId > 0 && entityCharacterId === launchCharacterId) {
-          options.orientation = 'n';
-          if (entity?.placement && typeof entity.placement === 'object') {
-            entity.placement.orientation = 'n';
-          }
-          if (entity?.state && typeof entity.state === 'object') {
-            entity.state.metadata = entity.state.metadata || {};
-            entity.state.metadata.orientation = 'n';
-          }
-        }
-
         const objectDefinitionSpriteId = String(objectDefinition?.visual?.sprite_id || '').trim() || null;
         const portraitSpriteId = contentId ? `portrait_${String(contentId)}` : null;
         const resolvedSpriteId = metadataSpriteId || objectDefinitionSpriteId || (portraitUrl ? portraitSpriteId : null);

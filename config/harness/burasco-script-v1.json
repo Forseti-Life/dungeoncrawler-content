@@ -1,0 +1,161 @@
+{
+  "script_id": "burasco-script-v1",
+  "random_nav_exit_transition_count": 40,
+  "steps": [
+    {
+      "id": "ask_eldric_any_work_or_quests",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "target": "tavern_keeper",
+        "params": {
+          "message": "Eldric, any work or quests?"
+        }
+      }
+    },
+    {
+      "id": "ask_marta_any_work",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "target": "scholar_npc",
+        "params": {
+          "message": "Marta, any work?"
+        }
+      }
+    },
+    {
+      "id": "ask_gribbles_any_work",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "target": "gribbles_rindsworth",
+        "params": {
+          "message": "Gribbles, any work?"
+        }
+      }
+    },
+    {
+      "id": "search_room_for_items",
+      "tool_name": "search",
+      "tool_payload": {
+        "type": "search",
+        "params": {}
+      }
+    },
+    {
+      "id": "ask_gribbles_your_stuff",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "target": "gribbles_rindsworth",
+        "params": {
+          "message": "Gribbles, your stuff."
+        }
+      }
+    },
+    {
+      "id": "ask_marta_your_stuff",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "target": "scholar_npc",
+        "params": {
+          "message": "Marta, your stuff."
+        }
+      }
+    },
+    {
+      "id": "ask_eldric_your_stuff",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "target": "tavern_keeper",
+        "params": {
+          "message": "Eldric, your stuff."
+        }
+      }
+    },
+    {
+      "id": "ask_eldric_any_other_quests",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "target": "tavern_keeper",
+        "params": {
+          "message": "Eldric, you have any other quests?"
+        }
+      }
+    },
+    {
+      "id": "navigate_to_absalom_streets",
+      "tool_name": "transition",
+      "tool_payload": {
+        "type": "transition",
+        "params": {
+          "target_room_id": "tpl_room_absalom_streets"
+        }
+      }
+    },
+    {
+      "id": "navigate_to_grandmas_parlor",
+      "tool_name": "transition",
+      "tool_payload": {
+        "type": "transition",
+        "params": {
+          "target_room_id": "ltba-grandmas-house-parlor"
+        }
+      }
+    },
+    {
+      "id": "ask_grandma_any_work_for_me",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "params": {
+          "message": "Grandma, any work for me?"
+        }
+      }
+    },
+    {
+      "id": "navigate_back_to_absalom_streets",
+      "tool_name": "transition",
+      "tool_payload": {
+        "type": "transition",
+        "params": {
+          "target_room_id": "tpl_room_absalom_streets"
+        }
+      }
+    },
+    {
+      "id": "navigate_to_graveyard",
+      "tool_name": "transition",
+      "tool_payload": {
+        "type": "transition",
+        "params": {
+          "target_room_id": "tpl_room_absalom_graveyard_mausoleum_complex"
+        }
+      }
+    },
+    {
+      "id": "navigate_to_crypt_entrance",
+      "tool_name": "transition",
+      "tool_payload": {
+        "type": "transition",
+        "params": {
+          "target_room_id": "ltba-vault-entry"
+        }
+      }
+    },
+    {
+      "id": "ask_what_are_we_doing_here",
+      "tool_name": "talk",
+      "tool_payload": {
+        "type": "talk",
+        "params": {
+          "message": "What are we doing here?"
+        }
+      }
+    }
+  ]
+}

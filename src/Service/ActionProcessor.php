@@ -29,8 +29,9 @@ class ActionProcessor {
   protected $rulesEngine;
   protected $areaResolver;
   protected $counteract;
+  protected ?AttackModifierResolverService $attackModifierResolver;
 
-  public function __construct(CombatCalculator $calculator, HPManager $hp_manager, ConditionManager $condition_manager, LoggerChannelFactoryInterface $logger_factory, CombatEncounterStore $store, NumberGenerationService $number_generation, RulesEngine $rules_engine, ?AreaResolverService $area_resolver = NULL, ?CounteractService $counteract = NULL) {
+  public function __construct(CombatCalculator $calculator, HPManager $hp_manager, ConditionManager $condition_manager, LoggerChannelFactoryInterface $logger_factory, CombatEncounterStore $store, NumberGenerationService $number_generation, RulesEngine $rules_engine, ?AreaResolverService $area_resolver = NULL, ?CounteractService $counteract = NULL, ?AttackModifierResolverService $attack_modifier_resolver = NULL) {
     $this->calculator = $calculator;
     $this->hpManager = $hp_manager;
     $this->conditionManager = $condition_manager;
@@ -40,6 +41,7 @@ class ActionProcessor {
     $this->rulesEngine = $rules_engine;
     $this->areaResolver = $area_resolver;
     $this->counteract = $counteract;
+    $this->attackModifierResolver = $attack_modifier_resolver;
   }
 
   /**
@@ -129,6 +131,35 @@ class ActionProcessor {
     $is_nonlethal = !empty($weapon['is_nonlethal']);
     $attacker_mod = $this->conditionManager->getConditionModifiers($attacker_id, 'attack', $encounter_id);
     $target_ac_mod = $this->conditionManager->getConditionModifiers($target_id, 'ac', $encounter_id);
+    $tactical_attack_mod = 0;
+    $tactical_target_ac_mod = 0;
+    $flanking = FALSE;
+    $cover = ['tier' => 'none', 'ac_bonus' => 0];
+
+    if ($this->attackModifierResolver) {
+      $allies = $this->attackModifierResolver->buildEligibleAllies(
+        $participants,
+        (int) $attacker_id,
+        (int) $target_id,
+        (string) ($attacker['team'] ?? '')
+      );
+      $strike_type = ((string) ($weapon['type'] ?? '')) === 'ranged' || !empty($weapon['range']) || !empty($weapon['range_increment']) ? 'ranged' : 'melee';
+      $tactical = $this->attackModifierResolver->resolveStrikeContext(
+        $attacker,
+        $target,
+        [
+          'type' => $strike_type,
+          'damage_type' => (string) ($weapon['damage_type'] ?? 'physical'),
+        ],
+        (int) $encounter_id,
+        $allies,
+        is_array($encounter['dungeon_data'] ?? NULL) ? $encounter['dungeon_data'] : []
+      );
+      $tactical_attack_mod = (int) ($tactical['attack_bonus_adjustment'] ?? 0);
+      $tactical_target_ac_mod = (int) ($tactical['target_ac_adjustment'] ?? 0);
+      $flanking = !empty($tactical['flanking']);
+      $cover = is_array($tactical['cover'] ?? NULL) ? $tactical['cover'] : $cover;
+    }
 
     // PF2E req 2120: nonlethal attacks take a -2 circumstance penalty.
     $nonlethal_penalty = $is_nonlethal ? -2 : 0;
@@ -136,9 +167,9 @@ class ActionProcessor {
     $roll_natural = isset($weapon['natural_roll'])
       ? max(1, min(20, (int) $weapon['natural_roll']))
       : $this->numberGeneration->rollPathfinderDie(20);
-    $attack_total = $roll_natural + $base_attack_bonus + $attacker_mod + $map_penalty + $nonlethal_penalty;
+    $attack_total = $roll_natural + $base_attack_bonus + $attacker_mod + $map_penalty + $nonlethal_penalty + $tactical_attack_mod;
 
-    $target_ac = (int) ($target['ac'] ?? 10) + $target_ac_mod;
+    $target_ac = (int) ($target['ac'] ?? 10) + $target_ac_mod + $tactical_target_ac_mod;
     $degree = $this->calculator->calculateDegreeOfSuccess($attack_total, $target_ac, $roll_natural);
 
     $base_damage = isset($weapon['damage']) ? (int) $weapon['damage'] : 0;
@@ -170,6 +201,8 @@ class ActionProcessor {
       'map' => $map_penalty,
       'degree' => $degree,
       'target_ac' => $target_ac,
+      'flanking' => $flanking,
+      'cover' => (string) ($cover['tier'] ?? 'none'),
       'damage' => $damage,
       'damage_result' => $damage_result,
     ]);
@@ -180,6 +213,8 @@ class ActionProcessor {
       'attack_roll' => $attack_total,
       'natural_roll' => $roll_natural,
       'target_ac' => $target_ac,
+      'flanking' => $flanking,
+      'cover' => (string) ($cover['tier'] ?? 'none'),
       'damage' => $damage,
       'damage_result' => $damage_result,
       'actions_remaining' => $actions_left,
@@ -344,13 +379,43 @@ class ActionProcessor {
       $target_id = (int) $target['id'];
       $degree = 'success'; // default for automatic delivery
       $roll_natural = NULL;
+      $attack_total = NULL;
+      $target_ac = NULL;
+      $flanking = FALSE;
+      $cover = 'none';
 
       if ($delivery === 'attack') {
         // Spell attack roll vs target AC.
         $roll_natural = $this->numberGeneration->rollPathfinderDie(20);
-        $attack_total = $roll_natural + $spell_attack_mod + $caster_attack_mod;
+        $tactical_attack_mod = 0;
+        $tactical_target_ac_mod = 0;
+        if ($this->attackModifierResolver) {
+          $caster_allies = $this->attackModifierResolver->buildEligibleAllies(
+            $participants,
+            (int) $caster_id,
+            $target_id,
+            (string) ($caster['team'] ?? '')
+          );
+          $spell_type = ((string) ($spell['type'] ?? '')) === 'melee' ? 'melee' : 'ranged';
+          $tactical = $this->attackModifierResolver->resolveStrikeContext(
+            $caster,
+            $target,
+            [
+              'type' => $spell_type,
+              'damage_type' => (string) $damage_type,
+            ],
+            (int) $encounter_id,
+            $caster_allies,
+            is_array($encounter['dungeon_data'] ?? NULL) ? $encounter['dungeon_data'] : []
+          );
+          $tactical_attack_mod = (int) ($tactical['attack_bonus_adjustment'] ?? 0);
+          $tactical_target_ac_mod = (int) ($tactical['target_ac_adjustment'] ?? 0);
+          $flanking = !empty($tactical['flanking']);
+          $cover = (string) (($tactical['cover']['tier'] ?? 'none'));
+        }
+        $attack_total = $roll_natural + $spell_attack_mod + $caster_attack_mod + $tactical_attack_mod;
         $target_ac_mod = $this->conditionManager->getConditionModifiers($target_id, 'ac', $encounter_id);
-        $target_ac = (int) ($target['ac'] ?? 10) + $target_ac_mod;
+        $target_ac = (int) ($target['ac'] ?? 10) + $target_ac_mod + $tactical_target_ac_mod;
         $degree = $this->calculator->calculateDegreeOfSuccess($attack_total, $target_ac, $roll_natural);
       }
       elseif ($delivery === 'save') {
@@ -453,6 +518,10 @@ class ActionProcessor {
         'target_id' => $target_id,
         'degree' => $degree,
         'natural_roll' => $roll_natural,
+        'attack_roll' => $attack_total,
+        'target_ac' => $target_ac,
+        'flanking' => $flanking,
+        'cover' => $cover,
         'damage' => $damage,
         'damage_result' => $damage_result,
         'healing' => $healing,

@@ -12,44 +12,18 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph_actor_harness.scripted_sequence import load_scripted_testing_steps
+from langgraph_actor_harness.security_boundary import (
+    ALLOWED_ACTOR_RUNTIME_ENV_VARS,
+    FORBIDDEN_ACTOR_RUNTIME_ENV_VARS,
+    build_actor_runtime_env as build_actor_runtime_env_impl,
+    enforce_actor_runtime_secret_boundary as enforce_actor_runtime_secret_boundary_impl,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ISSUE_LOG_DIR = REPO_ROOT / "tmp" / "langgraph-actor-harness" / "issues"
 TRACE_LOG_DIR = REPO_ROOT / "tmp" / "langgraph-actor-harness" / "traces"
-
-FORBIDDEN_ACTOR_RUNTIME_ENV_VARS: tuple[str, ...] = (
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_SESSION_TOKEN",
-    "GOOGLE_APPLICATION_CREDENTIALS",
-)
-
-ALLOWED_ACTOR_RUNTIME_ENV_VARS: tuple[str, ...] = (
-    "PATH",
-    "HOME",
-    "LANG",
-    "LC_ALL",
-    "TERM",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "PWD",
-    "PYTHONPATH",
-    "VIRTUAL_ENV",
-    "COPILOT_HQ_ROOT",
-    "HARNESS_LLM_BACKEND",
-    "HARNESS_LLM_MODEL_ID",
-    "HARNESS_DECIDER_TIMEOUT_SEC",
-    "HARNESS_DECIDER_MAX_TOKENS",
-    "HQ_AGENTIC_BACKEND",
-    "DEEPSEEK_API_KEY",
-    "DEEPSEEK_BASE_URL",
-    "DEEPSEEK_MODEL",
-)
-
 
 class HarnessState(TypedDict, total=False):
     campaign_id: int
@@ -92,151 +66,7 @@ SCRIPTED_TARGET_QUEST_TEMPLATES: tuple[str, ...] = (
     "recover_blackmail_ledger",
     "stabilize_arcane_resonance",
 )
-SCRIPTED_RANDOM_NAV_EXIT_TRANSITION_COUNT = 40
-BASE_SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = (
-    {
-        "id": "ask_eldric_any_work_or_quests",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "tavern_keeper",
-            "params": {"message": "Eldric, any work or quests?"},
-        },
-    },
-    {
-        "id": "ask_marta_any_work",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "scholar_npc",
-            "params": {"message": "Marta, any work?"},
-        },
-    },
-    {
-        "id": "ask_gribbles_any_work",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "gribbles_rindsworth",
-            "params": {"message": "Gribbles, any work?"},
-        },
-    },
-    {
-        "id": "search_room_for_items",
-        "tool_name": "search",
-        "tool_payload": {
-            "type": "search",
-            "params": {},
-        },
-    },
-    {
-        "id": "ask_gribbles_your_stuff",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "gribbles_rindsworth",
-            "params": {
-                "message": "Gribbles, your stuff.",
-            },
-        },
-    },
-    {
-        "id": "ask_marta_your_stuff",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "scholar_npc",
-            "params": {
-                "message": "Marta, your stuff.",
-            },
-        },
-    },
-    {
-        "id": "ask_eldric_your_stuff",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "tavern_keeper",
-            "params": {
-                "message": "Eldric, your stuff.",
-            },
-        },
-    },
-    {
-        "id": "ask_eldric_any_other_quests",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "target": "tavern_keeper",
-            "params": {"message": "Eldric, you have any other quests?"},
-        },
-    },
-    {
-        "id": "navigate_to_absalom_streets",
-        "tool_name": "transition",
-        "tool_payload": {
-            "type": "transition",
-            "params": {"target_room_id": "tpl_room_absalom_streets"},
-        },
-    },
-    {
-        "id": "navigate_to_grandmas_parlor",
-        "tool_name": "transition",
-        "tool_payload": {
-            "type": "transition",
-            "params": {"target_room_id": "ltba-grandmas-house-parlor"},
-        },
-    },
-    {
-        "id": "ask_grandma_any_work_for_me",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "params": {"message": "Grandma, any work for me?"},
-        },
-    },
-    {
-        "id": "navigate_back_to_absalom_streets",
-        "tool_name": "transition",
-        "tool_payload": {
-            "type": "transition",
-            "params": {"target_room_id": "tpl_room_absalom_streets"},
-        },
-    },
-    {
-        "id": "navigate_to_graveyard",
-        "tool_name": "transition",
-        "tool_payload": {
-            "type": "transition",
-            "params": {"target_room_id": "tpl_room_absalom_graveyard_mausoleum_complex"},
-        },
-    },
-    {
-        "id": "navigate_to_crypt_entrance",
-        "tool_name": "transition",
-        "tool_payload": {
-            "type": "transition",
-            "params": {"target_room_id": "ltba-vault-entry"},
-        },
-    },
-    {
-        "id": "ask_what_are_we_doing_here",
-        "tool_name": "talk",
-        "tool_payload": {
-            "type": "talk",
-            "params": {"message": "What are we doing here?"},
-        },
-    },
-)
-
-SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = BASE_SCRIPTED_TESTING_STEPS + tuple(
-    {
-        "id": f"random_nav_exit_transition_{index:02d}",
-        "step_type": "random_navigation_exit_transition",
-        "tool_name": "transition",
-    }
-    for index in range(1, SCRIPTED_RANDOM_NAV_EXIT_TRANSITION_COUNT + 1)
-)
+SCRIPTED_TESTING_STEPS: tuple[dict[str, Any], ...] = load_scripted_testing_steps(REPO_ROOT)
 
 
 def is_non_empty_string(value: Any) -> bool:
@@ -1236,25 +1066,11 @@ def resolve_decider_backend() -> str:
 
 
 def enforce_actor_runtime_secret_boundary() -> None:
-    present = [name for name in FORBIDDEN_ACTOR_RUNTIME_ENV_VARS if (os.environ.get(name) or "").strip() != ""]
-    if present:
-        raise RuntimeError(
-            "actor_runtime_secret_boundary_violation:"
-            + ",".join(sorted(present))
-        )
+    enforce_actor_runtime_secret_boundary_impl()
 
 
 def build_actor_runtime_env() -> dict[str, str]:
-    env: dict[str, str] = {}
-    for key in ALLOWED_ACTOR_RUNTIME_ENV_VARS:
-        value = os.environ.get(key)
-        if value is None:
-            continue
-        value = value.strip() if isinstance(value, str) else str(value)
-        if value == "":
-            continue
-        env[key] = value
-    return env
+    return build_actor_runtime_env_impl()
 
 
 def call_routed_decider(state: HarnessState) -> dict[str, Any]:

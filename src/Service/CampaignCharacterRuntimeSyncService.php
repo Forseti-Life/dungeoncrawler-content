@@ -299,6 +299,7 @@ class CampaignCharacterRuntimeSyncService {
           'room_id' => $room_id,
           'hex' => $placement,
           'facing' => 0,
+          'orientation' => 'n',
           'h3_index_res14' => $placement['h3_index_res14'],
         ],
         'state' => [
@@ -326,6 +327,7 @@ class CampaignCharacterRuntimeSyncService {
             'source_character_id' => $source_character_id,
             'campaign_character_id' => (int) ($record['id'] ?? 0),
             'runtime_entity_id' => $instance_id,
+            'orientation' => 'n',
             'class' => $resolved_class,
             'ancestry' => $resolved_ancestry,
             'level' => $resolved_level,
@@ -793,8 +795,9 @@ class CampaignCharacterRuntimeSyncService {
           $entity['placement']['room_id'] = $resolved_room_id;
           $entity['placement']['hex'] = $placement;
           $entity['placement']['facing'] = isset($entity['placement']['facing'])
-            ? ((int) $entity['placement']['facing'] % 6 + 6) % 6
+            ? $this->normalizeFacingDirection((int) $entity['placement']['facing'])
             : 0;
+          $entity['placement']['orientation'] = $this->facingToOrientationToken((int) $entity['placement']['facing']);
           $entity['placement']['h3_index_res14'] = $placement['h3_index_res14'];
           $stage_started_at = hrtime(true);
           $this->persistRuntimePlacement((int) ($record['id'] ?? 0), $campaign_id, $resolved_room_id, $placement);
@@ -805,6 +808,7 @@ class CampaignCharacterRuntimeSyncService {
           $entity['state']['metadata']['character_id'] = (int) ($record['id'] ?? 0);
           $entity['state']['metadata']['campaign_character_id'] = (int) ($record['id'] ?? 0);
           $entity['state']['metadata']['runtime_entity_id'] = $instance_id;
+          $entity['state']['metadata']['orientation'] = $entity['placement']['orientation'];
           if (!empty($state['role'])) {
             $entity['state']['metadata']['role'] = (string) $state['role'];
           }
@@ -878,6 +882,7 @@ class CampaignCharacterRuntimeSyncService {
           'room_id' => $active_runtime_room_id,
           'hex' => $placement,
           'facing' => 0,
+          'orientation' => 'n',
           'h3_index_res14' => $placement['h3_index_res14'],
           'spawn_type' => 'npc',
         ],
@@ -900,6 +905,7 @@ class CampaignCharacterRuntimeSyncService {
             'character_id' => (int) ($record['id'] ?? 0),
             'campaign_character_id' => (int) ($record['id'] ?? 0),
             'runtime_entity_id' => $instance_id,
+            'orientation' => 'n',
             'setting_state' => TRUE,
             'spawn_policy' => 'campaign_runtime',
             'class' => $resolved_class,
@@ -2664,8 +2670,9 @@ class CampaignCharacterRuntimeSyncService {
         $existing_entity['placement'] = is_array($existing_entity['placement'] ?? NULL) ? $existing_entity['placement'] : [];
         $existing_entity['placement']['hex'] = $resolved_placement;
         $existing_entity['placement']['facing'] = isset($existing_entity['placement']['facing'])
-          ? ((int) $existing_entity['placement']['facing'] % 6 + 6) % 6
+          ? $this->normalizeFacingDirection((int) $existing_entity['placement']['facing'])
           : 0;
+        $existing_entity['placement']['orientation'] = $this->facingToOrientationToken((int) $existing_entity['placement']['facing']);
         $placement_contract = $this->resolvePlacementRoomAndH3(
           $dungeon_payload,
           $existing_room_id,
@@ -2683,7 +2690,12 @@ class CampaignCharacterRuntimeSyncService {
         ]);
         $existing_entity['state'] = is_array($existing_entity['state'] ?? NULL) ? $existing_entity['state'] : [];
         $existing_entity['state']['active'] = TRUE;
+        if (!is_array($existing_entity['state']['metadata'] ?? NULL)) {
+          $existing_entity['state']['metadata'] = [];
+        }
+        $existing_entity['state']['metadata']['orientation'] = $existing_entity['placement']['orientation'];
         $existing_entity['state']['metadata'] = $follower_metadata;
+        $existing_entity['state']['metadata']['orientation'] = $existing_entity['placement']['orientation'];
         $dungeon_payload['entities'][$existing_entity_index] = $existing_entity;
         continue;
       }
@@ -2727,12 +2739,13 @@ class CampaignCharacterRuntimeSyncService {
           'room_id' => $placement_room_id,
           'hex' => $placement,
           'facing' => 0,
+          'orientation' => 'n',
           'h3_index_res14' => $placement['h3_index_res14'],
           'spawn_type' => 'npc',
         ],
         'state' => [
           'active' => TRUE,
-          'metadata' => $follower_metadata,
+          'metadata' => $follower_metadata + ['orientation' => 'n'],
         ],
       ];
     }
@@ -3303,6 +3316,26 @@ class CampaignCharacterRuntimeSyncService {
     }
 
     return $lookup;
+  }
+
+  protected function normalizeFacingDirection(int $facing): int {
+    $facing = $facing % 6;
+    if ($facing < 0) {
+      $facing += 6;
+    }
+    return $facing;
+  }
+
+  protected function facingToOrientationToken(int $facing): string {
+    return match ($this->normalizeFacingDirection($facing)) {
+      0 => 'n',
+      1 => 'ne',
+      2 => 'se',
+      3 => 's',
+      4 => 'sw',
+      5 => 'nw',
+      default => 'n',
+    };
   }
 
 }
