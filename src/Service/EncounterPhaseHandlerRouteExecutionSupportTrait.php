@@ -1554,12 +1554,30 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
    */
   protected function syncEncounterParticipantsToDungeonData(int $encounter_id, array &$dungeon_data): void {
     $encounter = $this->encounterStore->loadEncounter($encounter_id);
-    if (empty($encounter['participants']) || empty($dungeon_data['entities'])) {
+    $this->applyEncounterParticipantsToDungeonData($encounter['participants'] ?? [], $dungeon_data);
+  }
+
+  /**
+   * Apply already-loaded combat_participants rows (HP/defeat/conditions) onto
+   * matching dungeon entity runtime state, keyed by entity_id/instance_id.
+   *
+   * Split out from syncEncounterParticipantsToDungeonData() so callers that
+   * already hold a freshly loaded encounter (e.g. processEndTurn(), which
+   * loads it once per turn-advance to refresh the in-memory initiative order)
+   * can reuse that same result instead of issuing a second DB round-trip.
+   *
+   * @param array $participants
+   *   combat_participants rows as returned by CombatEncounterStore::loadEncounter().
+   * @param array $dungeon_data
+   *   Dungeon payload; $dungeon_data['entities'][*]['state'] is updated in place.
+   */
+  protected function applyEncounterParticipantsToDungeonData(array $participants, array &$dungeon_data): void {
+    if ($participants === [] || empty($dungeon_data['entities'])) {
       return;
     }
 
     $participant_by_entity = [];
-    foreach ((array) ($encounter['participants'] ?? []) as $participant) {
+    foreach ($participants as $participant) {
       $entity_id = (string) ($participant['entity_id'] ?? '');
       if ($entity_id !== '') {
         $participant_by_entity[$entity_id] = $participant;
@@ -1579,6 +1597,11 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
       $hp = isset($participant['hp']) ? (int) $participant['hp'] : NULL;
       $max_hp = isset($participant['max_hp']) ? (int) $participant['max_hp'] : NULL;
       $is_defeated = !empty($participant['is_defeated']);
+      // combat_participants conditions come from ConditionManager (see
+      // CombatEncounterStore::loadEncounter()'s listActiveConditions() call)
+      // and already carry the canonical condition_type/name/value shape the
+      // map/character-panel tooltip renderers expect.
+      $conditions = is_array($participant['conditions'] ?? NULL) ? array_values($participant['conditions']) : [];
 
       if (!isset($entity['state']) || !is_array($entity['state'])) {
         $entity['state'] = [];
@@ -1602,9 +1625,13 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
         $entity['state']['metadata']['stats']['maxHp'] = $max_hp;
       }
       $entity['state']['is_defeated'] = $is_defeated;
+      $entity['state']['metadata']['is_defeated'] = $is_defeated;
+      $entity['state']['conditions'] = $conditions;
+      $entity['state']['metadata']['conditions'] = $conditions;
     }
     unset($entity);
   }
+
 
   /**
    * Finds a room by ID in the dungeon payload.

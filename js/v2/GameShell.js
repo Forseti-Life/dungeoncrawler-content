@@ -1347,6 +1347,12 @@ export class GameShell {
       entity.dcStatePayload = blueprint.state || null;
       entity.dcEntityPayload = blueprint.source || null;
       entity.state = blueprint.state || null;
+      // Carried directly on the entity (not a formal ECS component) so the
+      // map token renderer can show the unconscious/dead badge and hover
+      // condition list without needing a dedicated component + system for
+      // what is purely presentational, read-only combat metadata.
+      entity.dcIsDefeated = Boolean(blueprint.isDefeated);
+      entity.dcConditions = Array.isArray(blueprint.conditions) ? blueprint.conditions : [];
 
       const position = new PositionComponent(blueprint.q, blueprint.r);
       position.roomId = blueprint.roomId;
@@ -1376,11 +1382,13 @@ export class GameShell {
       if (blueprint.combatCapable) {
         entity.addComponent('MovementComponent', new MovementComponent(blueprint.stats.speed));
         entity.addComponent('ActionsComponent', new ActionsComponent(blueprint.actionsPerTurn));
-        entity.addComponent('CombatComponent', new CombatComponent({
+        const combatComponent = new CombatComponent({
           team: blueprint.team,
           initiativeBonus: blueprint.initiativeBonus,
           attackBonus: blueprint.attackBonus,
-        }));
+        });
+        combatComponent.isDefeated = Boolean(blueprint.isDefeated);
+        entity.addComponent('CombatComponent', combatComponent);
       }
     });
 

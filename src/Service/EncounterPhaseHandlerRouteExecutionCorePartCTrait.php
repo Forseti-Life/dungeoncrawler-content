@@ -1061,6 +1061,12 @@ trait EncounterPhaseHandlerRouteExecutionCorePartCTrait {
           $game_state['initiative_order'] ?? [],
           $encounter_for_turn_refresh['participants']
         );
+        // Project the same fresh HP/is_defeated/conditions onto the map's
+        // dungeon-entity runtime state so the map tab's unconscious/dead
+        // indicator and hover tooltip stay in sync after every action, not
+        // only after the narrow shove/forced-movement path that previously
+        // called this projection directly.
+        $this->applyEncounterParticipantsToDungeonData($encounter_for_turn_refresh['participants'], $dungeon_data);
       }
     }
 

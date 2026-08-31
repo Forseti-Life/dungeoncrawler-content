@@ -132,6 +132,10 @@ export class HexTokenRenderer {
     this._clearAll();
     this._unsubs.forEach((fn) => fn());
     this._unsubs = [];
+    if (this._tooltipEl) {
+      this._tooltipEl.remove();
+      this._tooltipEl = null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -144,6 +148,7 @@ export class HexTokenRenderer {
    */
   _clearAll() {
     this._clearCrowdedHexHoverState();
+    this._hideEntityTooltip();
     this._tokens.forEach((container) => {
       container.parent?.removeChild(container);
       container.destroy({ children: true });
@@ -270,9 +275,156 @@ export class HexTokenRenderer {
     ring.visible = false;
     container.addChild(ring);
 
+    // Unconscious/dead status badge (drawn atop the token, corner overlay)
+    const status = new PIXI.Graphics();
+    status.name = 'status';
+    status.visible = false;
+    container.addChild(status);
+    const statusLabel = new PIXI.Text('\u2620', {
+      fontFamily: 'Arial',
+      fontSize: Math.max(8, hexSize * 0.32),
+      fill: 0xffffff,
+    });
+    statusLabel.name = 'statusLabel';
+    statusLabel.anchor.set(0.5);
+    statusLabel.visible = false;
+    container.addChild(statusLabel);
+    this._setStatusIndicator(container, entity, hexSize);
+
     container.on('pointerdown', (event) => this._handleTokenPointerDown(container, entity, event));
+    container.on('pointerover', () => this._showEntityTooltip(container, entity));
+    container.on('pointerout', () => this._hideEntityTooltip(container));
 
     return container;
+  }
+
+  /**
+   * Apply/refresh the dead/unconscious visual treatment (dimmed token + skull
+   * badge) for a token based on the entity's dcIsDefeated flag. Called at
+   * token build time; since tokens are fully rebuilt whenever the active
+   * room's entities change, this naturally stays in sync with combat state.
+   * @private
+   */
+  _setStatusIndicator(container, entity, hexSize) {
+    if (!container || !window.PIXI) {
+      return;
+    }
+    const status = container.getChildByName?.('status');
+    const statusLabel = container.getChildByName?.('statusLabel');
+    const isDefeated = Boolean(entity?.dcIsDefeated);
+
+    container.alpha = isDefeated ? 0.5 : 1;
+
+    if (!status || !statusLabel) {
+      return;
+    }
+    if (!isDefeated) {
+      status.visible = false;
+      status.clear?.();
+      statusLabel.visible = false;
+      return;
+    }
+
+    const size = Number(hexSize) || 32;
+    const badgeRadius = size * 0.22;
+    const badgeX = size * 0.32;
+    const badgeY = -size * 0.32;
+
+    status.clear();
+    status.lineStyle(1, 0xffffff, 0.9);
+    status.beginFill(0x991b1b, 0.95);
+    status.drawCircle(badgeX, badgeY, badgeRadius);
+    status.endFill();
+    status.visible = true;
+
+    statusLabel.x = badgeX;
+    statusLabel.y = badgeY;
+    statusLabel.style.fontSize = Math.max(8, size * 0.28);
+    statusLabel.visible = true;
+  }
+
+  /**
+   * Build the hover-tooltip label listing an entity's incapacitation state
+   * and active conditions (dcConditions, populated from combat_participants
+   * via the map data sync pipeline).
+   * @private
+   */
+  _buildEntityTooltipLines(entity) {
+    const identity = entity?.getComponent?.('IdentityComponent');
+    const name = identity?.name || 'Entity';
+    const conditions = Array.isArray(entity?.dcConditions) ? entity.dcConditions : [];
+    const lines = [name];
+
+    if (entity?.dcIsDefeated) {
+      const deadOrDying = conditions.find((c) => c?.condition_type === 'dead');
+      lines.push(deadOrDying ? 'Dead' : 'Unconscious');
+    }
+
+    conditions.forEach((condition) => {
+      const label = String(condition?.name || condition?.condition_type || '').trim();
+      if (!label) {
+        return;
+      }
+      const value = condition?.value;
+      lines.push(Number.isFinite(Number(value)) && Number(value) !== 0 ? `${label} (${value})` : label);
+    });
+
+    return lines;
+  }
+
+  _ensureTooltipElement() {
+    if (this._tooltipEl && this._tooltipEl.isConnected) {
+      return this._tooltipEl;
+    }
+    const el = document.createElement('div');
+    el.className = 'hex-token-tooltip';
+    el.style.position = 'fixed';
+    el.style.display = 'none';
+    el.style.pointerEvents = 'none';
+    el.style.zIndex = '10000';
+    document.body.appendChild(el);
+    this._tooltipEl = el;
+    return el;
+  }
+
+  _showEntityTooltip(container, entity) {
+    const isDefeated = Boolean(entity?.dcIsDefeated);
+    const hasConditions = Array.isArray(entity?.dcConditions) && entity.dcConditions.length > 0;
+    if (!isDefeated && !hasConditions) {
+      return;
+    }
+
+    const lines = this._buildEntityTooltipLines(entity);
+    const tooltip = this._ensureTooltipElement();
+    tooltip.innerHTML = lines
+      .map((line, index) => `<div class="hex-token-tooltip__line${index === 0 ? ' hex-token-tooltip__line--name' : ''}">${this._escapeTooltipText(line)}</div>`)
+      .join('');
+
+    const canvasRect = this.hexCanvas?.app?.view?.getBoundingClientRect?.();
+    const globalPos = container.getGlobalPosition?.();
+    if (!canvasRect || !globalPos) {
+      return;
+    }
+
+    tooltip.style.display = 'block';
+    tooltip.style.left = `${canvasRect.left + globalPos.x + 12}px`;
+    tooltip.style.top = `${canvasRect.top + globalPos.y - 12}px`;
+  }
+
+  _hideEntityTooltip() {
+    if (this._tooltipEl) {
+      this._tooltipEl.style.display = 'none';
+    }
+  }
+
+  _escapeTooltipText(text) {
+    return String(text ?? '').replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[ch]));
   }
 
   _handleTokenPointerDown(token, entity, event) {

@@ -3592,6 +3592,26 @@
   color: var(--text, #e2e8f0);
 }
 
+.hex-token-tooltip {
+  max-width: 240px;
+  min-width: 120px;
+  background: var(--gray-900, #0f172a);
+  border: 1px solid #991b1b;
+  border-radius: var(--radius-xl, 8px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  font-family: "Montserrat", "Segoe UI", sans-serif;
+  font-size: var(--text-sm, 0.8rem);
+  color: var(--text, #e2e8f0);
+  line-height: 1.4;
+}
+
+.hex-token-tooltip__line--name {
+  font-weight: 700;
+  color: var(--text-bright, #f8fafc);
+  margin-bottom: 2px;
+}
+
 .inv-tooltip__name {
   font-weight: 700;
   font-size: var(--text-base, 1rem);

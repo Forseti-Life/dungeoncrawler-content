@@ -740,6 +740,15 @@ export function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId 
     );
     const hidden = visual?.visible === false || entity?.state?.hidden === true;
     const logicalActorKey = _buildLogicalActorIdentityKey(rawType, metadata, instanceId, roomId);
+    const normalizedConditions = _normalizeRenderableConditions(
+      Array.isArray(metadata?.conditions)
+        ? metadata.conditions
+        : (Array.isArray(entity?.state?.conditions) ? entity.state.conditions : []),
+    );
+    const isDefeated = _resolveRenderableIsIncapacitated(
+      Boolean(entity?.state?.is_defeated ?? metadata?.is_defeated),
+      normalizedConditions,
+    );
 
     const blueprint = {
       key: _buildRenderableEntityKey(instanceId, contentId, q, r),
@@ -756,6 +765,8 @@ export function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId 
       description: String(metadata?.description || definition?.description || '').trim(),
       hidden,
       combatCapable: entityType === 'player_character' || entityType === 'npc' || entityType === 'creature',
+      isDefeated,
+      conditions: normalizedConditions,
       team,
       actionsPerTurn: Number(metadata?.actions_per_turn || 3) || 3,
       initiativeBonus: Number(metadata?.initiative_bonus || 0) || 0,
@@ -928,6 +939,15 @@ export function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId 
           : (occupant?.presentation?.badge || occupant?.team || occupant?.state?.team || '')
       );
       const combatCapable = entityType === 'player_character' || entityType === 'npc' || entityType === 'creature';
+      const occupantNormalizedConditions = _normalizeRenderableConditions(
+        Array.isArray(occupantMetadata?.conditions)
+          ? occupantMetadata.conditions
+          : (Array.isArray(occupant?.state?.conditions) ? occupant.state.conditions : []),
+      );
+      const occupantIsDefeated = _resolveRenderableIsIncapacitated(
+        Boolean(occupant?.state?.is_defeated ?? occupantMetadata?.is_defeated),
+        occupantNormalizedConditions,
+      );
       const blueprint = {
         key,
         sourceKind: 'visual-occupant',
@@ -943,6 +963,8 @@ export function _buildRenderableEntityBlueprints(dungeonData = {}, activeRoomId 
         description: String(occupant?.presentation?.summary || definition?.description || '').trim(),
         hidden: false,
         combatCapable,
+        isDefeated: occupantIsDefeated,
+        conditions: occupantNormalizedConditions,
         team,
         actionsPerTurn: Number(occupant?.state?.actions_per_turn || 3) || 3,
         initiativeBonus: Number(occupant?.state?.initiative_bonus || 0) || 0,
@@ -1081,6 +1103,62 @@ export function _normalizeRenderableEntityTeam(rawTeam = '') {
     return normalized;
   }
   return 'neutral';
+}
+
+/** Condition type codes treated as "incapacitated" for the map token badge. */
+const RENDERABLE_INCAPACITATED_CONDITION_TYPES = new Set(['dead', 'unconscious', 'dying']);
+
+/**
+ * Normalize a raw conditions array (from combat participant sync or
+ * character_data) into the {condition_type, name, value, source} shape
+ * used consistently by CharacterPanel.resolveEncounterConditionsForEntity()
+ * and the condition tooltip renderers, so the map tab's hover list matches
+ * the same condition names/casing shown elsewhere in the UI.
+ */
+export function _normalizeRenderableConditions(rawConditions) {
+  if (!Array.isArray(rawConditions) || rawConditions.length === 0) {
+    return [];
+  }
+
+  return rawConditions
+    .map((condition) => {
+      if (!condition || typeof condition !== 'object') {
+        const label = String(condition || '').trim();
+        if (!label) {
+          return null;
+        }
+        return { condition_type: label.toLowerCase().replace(/\s+/g, '_'), name: label };
+      }
+
+      const rawType = String(
+        condition.condition_type || condition.type || condition.id || condition.name || '',
+      ).trim();
+      if (!rawType) {
+        return null;
+      }
+
+      return {
+        condition_type: rawType.toLowerCase().replace(/\s+/g, '_'),
+        name: String(condition.name || rawType).trim() || rawType,
+        value: Number.isFinite(Number(condition.value)) ? Number(condition.value) : null,
+        source: String(condition.source || '').trim() || null,
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Determine whether a renderable entity should show the map's
+ * unconscious/dead token indicator: either an explicit defeated flag from
+ * combat participant sync, or an incapacitating condition (dead/unconscious/
+ * dying) in its normalized condition list.
+ */
+export function _resolveRenderableIsIncapacitated(explicitDefeated, normalizedConditions) {
+  if (explicitDefeated === true) {
+    return true;
+  }
+  return Array.isArray(normalizedConditions)
+    && normalizedConditions.some((condition) => RENDERABLE_INCAPACITATED_CONDITION_TYPES.has(condition?.condition_type));
 }
 
 export function _buildRenderableEntityKey(instanceId = '', roomId = '', q = 0, r = 0) {
