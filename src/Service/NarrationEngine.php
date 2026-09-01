@@ -335,7 +335,8 @@ class NarrationEngine {
           'mechanical',
           'public',
           $event['mechanical_data'] ?? [],
-          FALSE // don't feed up again (room already fed)
+          FALSE, // don't feed up again (room already fed)
+          $msg_id // link back to the room event so both copies dedupe as one
         );
       }
       return $result;

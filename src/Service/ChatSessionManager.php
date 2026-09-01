@@ -614,6 +614,11 @@ class ChatSessionManager {
    *   Optional metadata (dice_rolls, actions, etc.)
    * @param bool $feed_up
    *   Whether to propagate copies to parent sessions.
+   * @param int|null $source_message_id
+   *   Originating message ID when this post is an additional representation of
+   *   an event already recorded in another session (e.g. the system_log copy of
+   *   a room event). Links all copies of one logical event to a single origin
+   *   so consumers can dedupe by identity rather than by text heuristics.
    *
    * @return int
    *   The new message ID.
@@ -628,7 +633,8 @@ class ChatSessionManager {
     string $message_type = 'narrative',
     string $visibility = 'public',
     array $metadata = [],
-    bool $feed_up = TRUE
+    bool $feed_up = TRUE,
+    ?int $source_message_id = NULL
   ): int {
     $now = time();
     $feed_targets = [];
@@ -651,7 +657,7 @@ class ChatSessionManager {
         'visibility' => $visibility,
         'metadata' => json_encode($metadata),
         'feed_targets' => json_encode($feed_targets),
-        'source_message_id' => NULL,
+        'source_message_id' => $source_message_id !== NULL && $source_message_id > 0 ? $source_message_id : NULL,
         'created' => $now,
       ])
       ->execute();
@@ -667,6 +673,14 @@ class ChatSessionManager {
       ->execute();
 
     // Feed-up: create copies in parent sessions.
+    // REQ (2026-09-01 RCA, campaign 928 duplicate action log): derived copies
+    // must always reference the ORIGINAL message, never an intermediate copy,
+    // so that every persisted representation of one logical event shares a
+    // single stable identity for downstream dedupe (see
+    // ChatSessionController::buildSystemLogDedupeKey()).
+    $origin_message_id = $source_message_id !== NULL && $source_message_id > 0
+      ? $source_message_id
+      : $message_id;
     foreach ($feed_targets as $target_session_id) {
       $this->database->insert('dc_chat_messages')
         ->fields([
@@ -680,7 +694,7 @@ class ChatSessionManager {
           'visibility' => $visibility,
           'metadata' => json_encode($metadata),
           'feed_targets' => '[]',
-          'source_message_id' => $message_id,
+          'source_message_id' => $origin_message_id,
           'created' => $now,
         ])
         ->execute();

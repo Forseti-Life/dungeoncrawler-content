@@ -1185,6 +1185,7 @@ export class ChatPanel {
       lineId: String(line.lineId || ''),
       messageId: Number.isFinite(Number(line.messageId)) ? Number(line.messageId) : null,
       sourceMessageId: Number.isFinite(Number(line.sourceMessageId)) ? Number(line.sourceMessageId) : null,
+      originMessageId: Number.isFinite(Number(line.originMessageId)) ? Number(line.originMessageId) : null,
       sequenceIndex: Number.isFinite(Number(line.sequenceIndex ?? line.sequence_index)) ? Number(line.sequenceIndex ?? line.sequence_index) : null,
       created: Number.isFinite(Number(line.created)) ? Number(line.created) : 0,
       source: normalizedSource,
@@ -1218,6 +1219,7 @@ export class ChatPanel {
       lineId: next.lineId || base.lineId,
       messageId: next.messageId || base.messageId,
       sourceMessageId: next.sourceMessageId || base.sourceMessageId,
+      originMessageId: next.originMessageId || base.originMessageId,
       sequenceIndex: next.sequenceIndex || base.sequenceIndex,
       created: next.created || base.created || 0,
       persistent: next.persistent || base.persistent,
@@ -2477,13 +2479,30 @@ export class ChatPanel {
     }
     this._el.mapInitiativeChatLog = mapLog;
 
-    const feedKey = String(
-      lineRecord?.eventId
-      || lineRecord?.messageId
-      || lineRecord?.sourceMessageId
-      || lineRecord?.lineId
-      || ''
-    ).trim();
+    // REQ (2026-09-01 RCA, campaign 928): keys are namespaced by id space so a
+    // room-history sequence index can never collide with a chat message row id.
+    // originMessageId wins over messageId: the same logical event is persisted
+    // once per chat session (room / system_log / dungeon / campaign) with
+    // distinct row ids but a shared origin, and the map feed mirrors more than
+    // one of those views.
+    const feedKey = (() => {
+      if (lineRecord?.eventId) {
+        return `event:${String(lineRecord.eventId).trim()}`;
+      }
+      if (lineRecord?.originMessageId) {
+        return `msg:${String(lineRecord.originMessageId).trim()}`;
+      }
+      if (lineRecord?.messageId) {
+        return `msg:${String(lineRecord.messageId).trim()}`;
+      }
+      if (lineRecord?.sourceMessageId) {
+        return `seq:${String(lineRecord.sourceMessageId).trim()}`;
+      }
+      if (lineRecord?.lineId) {
+        return `line:${String(lineRecord.lineId).trim()}`;
+      }
+      return '';
+    })();
     const displayMessage = this.formatEncounterChatMessage(
       lineRecord?.speaker || '',
       lineRecord?.message || '',
@@ -4267,6 +4286,11 @@ export class ChatPanel {
         type: this.resolveSessionLineType(msg, view),
         messageId: msg.id || null,
         sourceMessageId: msg.source_message_id || null,
+        // REQ (2026-09-01 RCA, campaign 928 duplicate action log): all persisted
+        // copies of one logical event (room copy + system_log copy + feed-up
+        // copies) share one origin. Dedupe must key on that origin, not on the
+        // per-session row id, or the same event renders once per session view.
+        originMessageId: msg.source_message_id || msg.id || null,
         created: msg.created || 0,
         source: `session-view:${view}`,
         authority: 'authoritative',
