@@ -222,6 +222,7 @@ class ContentRegistry {
       foreach ([
         dirname($this->contentPath) . '/config/examples/enhanced-obstacle-objects.json',
         dirname($this->contentPath) . '/config/examples/tavern-obstacle-objects.json',
+        dirname($this->contentPath) . '/config/examples/legacy-migration-obstacle-objects.json',
       ] as $file) {
         if (!is_file($file)) {
           continue;
