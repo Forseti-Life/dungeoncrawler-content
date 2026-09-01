@@ -239,6 +239,32 @@
       "visual": {"sprite_id": "ledger_bound", "color": "#3E2B1F", "rotation": 0}
     },
     {
+      "object_id": "spike_barrier",
+      "label": "Spike Barrier",
+      "category": "wall",
+      "description": "An improvised barricade of lashed wooden stakes and scavenged spikes blocking a passage or approach.",
+      "movable": false,
+      "stackable": false,
+      "movement": {"passable": false, "blocks_movement": true, "cost_multiplier": 999},
+      "tags": ["barricade", "improvised", "goblin"],
+      "size": "medium",
+      "weight": "20",
+      "visual": {"sprite_id": "barrier_spike", "color": "#5C4A32", "rotation": 0}
+    },
+    {
+      "object_id": "crate_stack",
+      "label": "Crate Stack",
+      "category": "crate",
+      "description": "A stack of scavenged supply crates providing cover and storage.",
+      "movable": true,
+      "stackable": true,
+      "movement": {"passable": false, "blocks_movement": true, "cost_multiplier": 999},
+      "tags": ["storage", "cover", "improvised"],
+      "size": "medium",
+      "weight": "18",
+      "visual": {"sprite_id": "crate_stack_wood", "color": "#7A5C3E", "rotation": 0}
+    },
+    {
       "object_id": "warded_cabinet",
       "label": "Warded Cabinet",
       "category": "crate",
