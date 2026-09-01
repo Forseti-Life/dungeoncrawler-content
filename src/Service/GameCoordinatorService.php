@@ -247,14 +247,40 @@ class GameCoordinatorService {
     }
 
     $reseed_events = $handler->ensureRoomScenePlayerParticipant($game_state, $dungeon_data, $campaign_id)['events'] ?? [];
-    $advance_events = $handler->advanceNonPlayerTurnsToNextPlayer($game_state, $dungeon_data, $campaign_id)['events'] ?? [];
+    $advance_result = $handler->advanceNonPlayerTurnsToNextPlayer($game_state, $dungeon_data, $campaign_id);
+    $advance_events = $advance_result['events'] ?? [];
     $events = array_merge($reseed_events, $advance_events);
-    if ($events === []) {
-      return [];
+    $logged_events = $events !== [] ? $this->eventLogger->logEvents($dungeon_data, $events) : [];
+
+    // REQ (2026-09-01 RCA, campaign 927): a room-scene encounter with real
+    // hostile participants can legitimately conclude (all enemies defeated,
+    // or the party wiped) while advancing non-player turns here -- i.e.
+    // before it is ever the player's turn again. advanceNonPlayerTurnsToNextPlayer()
+    // surfaces that via 'phase_transition'; previously this was silently
+    // dropped, leaving game_state['phase'] stuck on 'encounter' forever
+    // with the turn frozen on a non-player actor -- nothing else ever
+    // re-drives a non-player turn once the fight concludes, so this
+    // function (and its "chooses not to act" autoplay) would otherwise
+    // keep re-running on every subsequent request with no way out.
+    $phase_transition = $advance_result['phase_transition'] ?? NULL;
+    if (is_array($phase_transition)) {
+      $transition_to = trim((string) ($phase_transition['to'] ?? ''));
+      if ($transition_to !== '' && $transition_to !== ($game_state['phase'] ?? '')) {
+        $transition_result = $this->executePhaseTransition(
+          $phase_transition['from'] ?? (string) ($game_state['phase'] ?? self::DEFAULT_ACTIVE_PHASE),
+          $transition_to,
+          $phase_transition,
+          $game_state,
+          $dungeon_data,
+          $campaign_id
+        );
+        $logged_events = array_merge($logged_events, $transition_result['events'] ?? []);
+      }
     }
 
-    return $this->eventLogger->logEvents($dungeon_data, $events);
+    return $logged_events;
   }
+
 
   // =========================================================================
   // Public API — these map to controller endpoints.

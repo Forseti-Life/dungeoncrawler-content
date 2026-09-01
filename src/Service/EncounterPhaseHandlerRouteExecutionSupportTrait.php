@@ -433,14 +433,38 @@ trait EncounterPhaseHandlerRouteExecutionSupportTrait {
    */
   protected function isEncounterOver(array $game_state): bool {
     $sides_alive = [];
+    $has_enemy_participant = FALSE;
     foreach (($game_state['initiative_order'] ?? []) as $participant) {
-      if (!is_array($participant) || !empty($participant['is_defeated'])) {
+      if (!is_array($participant)) {
+        continue;
+      }
+      if ($this->normalizeEncounterSide((string) ($participant['team'] ?? '')) === 'enemies') {
+        $has_enemy_participant = TRUE;
+      }
+      if (!empty($participant['is_defeated'])) {
         continue;
       }
       $side = $this->normalizeEncounterSide((string) ($participant['team'] ?? ''));
       if ($side !== NULL) {
         $sides_alive[$side] = TRUE;
       }
+    }
+    // REQ (2026-09-01 RCA, campaign 927): a room-scene "encounter" framework
+    // whose roster is entirely player/ally-team (e.g. an ambient tavern
+    // dialogue scene with no hostile participants at all -- every present
+    // NPC is 'ally') is never actual combat that can be won or lost.
+    // Without this guard, the side-count check below trivially returns
+    // TRUE the instant the very first non-player NPC's turn ends (only the
+    // single 'heroes' side was ever present), spuriously logging a false
+    // "party is victorious!" conclusion for a scene that was never a fight.
+    // Because concludeEncounterWithOutcomeLog() is itself guarded by
+    // combat_encounters.status === 'active' (so it only actually persists/
+    // logs the bogus conclusion once), every subsequent request kept
+    // re-hitting this same TRUE branch, re-driving the same NPC's
+    // "chooses not to act" turn indefinitely with no legal way to ever
+    // advance past it or return to exploration.
+    if (!$has_enemy_participant) {
+      return FALSE;
     }
     return count($sides_alive) <= 1;
   }

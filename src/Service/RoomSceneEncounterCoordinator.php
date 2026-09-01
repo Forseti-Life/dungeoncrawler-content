@@ -184,6 +184,7 @@ class RoomSceneEncounterCoordinator {
     );
 
     $events = [];
+    $phase_transition = NULL;
     $safety = 0;
     while ($safety < 12) {
       $turn = is_array($game_state['turn'] ?? NULL) ? $game_state['turn'] : [];
@@ -204,13 +205,26 @@ class RoomSceneEncounterCoordinator {
       $events = array_merge($events, $turn_result['npc_events'] ?? []);
       $safety++;
 
+      // REQ (2026-09-01 RCA, campaign 927): a room-scene encounter whose
+      // roster DOES include real hostiles can legitimately conclude
+      // (all enemies defeated/party wiped) while it isn't the player's
+      // turn -- processEndTurn() signals that via 'phase_transition'.
+      // Previously this was silently dropped here, so even a genuine
+      // conclusion left game_state['phase'] stuck on 'encounter' forever
+      // with the turn frozen on the now-irrelevant NPC, since nothing
+      // else ever re-drives a non-player turn once the fight is over.
+      if (!empty($turn_result['phase_transition'])) {
+        $phase_transition = $turn_result['phase_transition'];
+        break;
+      }
+
       $next_entity = trim((string) ($game_state['turn']['entity'] ?? ''));
       if ($next_entity === '' || $resolve_initiative_participant_team($next_entity, $game_state) === 'player') {
         break;
       }
     }
 
-    return ['events' => $events];
+    return ['events' => $events, 'phase_transition' => $phase_transition];
   }
 
   /**
