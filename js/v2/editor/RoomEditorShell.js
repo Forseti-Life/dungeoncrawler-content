@@ -140,6 +140,7 @@ export class RoomEditorShell {
     this._dom = {};
     this._keydownHandler = null;
     this._stageClickHandler = null;
+    this._resizeObserver = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -172,6 +173,10 @@ export class RoomEditorShell {
     if (this._keydownHandler) {
       document.removeEventListener('keydown', this._keydownHandler);
       this._keydownHandler = null;
+    }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
     }
     this.hexCanvas?.destroy();
     this.hexCanvas = null;
@@ -274,11 +279,97 @@ export class RoomEditorShell {
     });
     this.hexCanvas.init();
     this.bus.on('room:changed', () => this._renderPlacements());
+    this._bindCanvasResize();
 
     if (this.hexCanvas.app?.stage) {
       this._stageClickHandler = (event) => this._handleStageClick(event);
       this.hexCanvas.app.stage.on('pointerdown', this._stageClickHandler);
     }
+    this._logCanvasDiagnostics('init');
+  }
+
+  _bindCanvasResize() {
+    if (!this._dom.canvasContainer || typeof ResizeObserver === 'undefined') {
+      this._logCanvasDiagnostics('resize-observer-unavailable');
+      return;
+    }
+    this._resizeObserver = new ResizeObserver(() => {
+      window.requestAnimationFrame(() => {
+        this.hexCanvas?.resizeToContainer();
+        this._fitRoomToView();
+      });
+    });
+    this._resizeObserver.observe(this._dom.canvasContainer);
+  }
+
+  _fitRoomToView() {
+    const hexes = Array.isArray(this.draft?.room?.hexes) ? this.draft.room.hexes : [];
+    if (!this.hexCanvas?.app || hexes.length === 0) {
+      this._logCanvasDiagnostics('fit-skipped');
+      return;
+    }
+    const hexSize = Number(this.hexCanvas.config.hexSize || 32);
+    const points = hexes
+      .map((hex) => this.hexCanvas.axialToPixel(Number(hex.q), Number(hex.r), hexSize))
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+    if (points.length === 0) {
+      this._logCanvasDiagnostics('fit-no-valid-points', { hexCount: hexes.length });
+      return;
+    }
+    const bounds = points.reduce((acc, point) => ({
+      minX: Math.min(acc.minX, point.x - hexSize),
+      maxX: Math.max(acc.maxX, point.x + hexSize),
+      minY: Math.min(acc.minY, point.y - hexSize),
+      maxY: Math.max(acc.maxY, point.y + hexSize),
+    }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+    const roomWidth = Math.max(1, bounds.maxX - bounds.minX);
+    const roomHeight = Math.max(1, bounds.maxY - bounds.minY);
+    const screenWidth = Number(this.hexCanvas.app.screen?.width || this._dom.canvasContainer?.clientWidth || 800);
+    const screenHeight = Number(this.hexCanvas.app.screen?.height || this._dom.canvasContainer?.clientHeight || 600);
+    const padding = 80;
+    const fitScale = Math.min(
+      (screenWidth - padding) / roomWidth,
+      (screenHeight - padding) / roomHeight,
+    );
+    const scale = Math.max(
+      this.hexCanvas.config.minZoom,
+      Math.min(this.hexCanvas.config.maxZoom, Number.isFinite(fitScale) ? fitScale : 1),
+    );
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+    this.hexCanvas.setWorldScale(scale);
+    this.hexCanvas.setWorldPosition(
+      (screenWidth / 2) - (centerX * scale),
+      (screenHeight / 2) - (centerY * scale),
+    );
+    this._logCanvasDiagnostics('fit-applied', { hexCount: hexes.length, bounds, scale });
+  }
+
+  _logCanvasDiagnostics(phase, extra = {}) {
+    const container = this._dom.canvasContainer;
+    const canvas = container?.querySelector('canvas') || null;
+    const containerRect = container?.getBoundingClientRect?.();
+    const canvasRect = canvas?.getBoundingClientRect?.();
+    console.info('[RoomEditor] canvas diagnostics', {
+      phase,
+      hasPixi: Boolean(window.PIXI),
+      hasHexCanvas: Boolean(this.hexCanvas),
+      hasApp: Boolean(this.hexCanvas?.app),
+      draftId: this.draft?.draft_id || null,
+      roomId: this.draft?.room?.room_id || null,
+      hexCount: Array.isArray(this.draft?.room?.hexes) ? this.draft.room.hexes.length : 0,
+      container: containerRect ? {
+        width: Math.round(containerRect.width),
+        height: Math.round(containerRect.height),
+      } : null,
+      canvas: canvasRect ? {
+        width: Math.round(canvasRect.width),
+        height: Math.round(canvasRect.height),
+        attrWidth: canvas?.width || null,
+        attrHeight: canvas?.height || null,
+      } : null,
+      ...extra,
+    });
   }
 
   _handleStageClick(event) {
@@ -766,6 +857,8 @@ export class RoomEditorShell {
       room: draft?.room || null,
       transition: { id: uuidv4() },
     });
+    this.hexCanvas?.resizeToContainer();
+    this._fitRoomToView();
     if (this.selection?.type === 'hex') {
       this.hexCanvas?.renderMovementBandOverlay({
         step: [{ q: this.selection.q, r: this.selection.r }],
