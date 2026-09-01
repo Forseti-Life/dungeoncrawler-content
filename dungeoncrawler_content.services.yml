@@ -414,6 +414,10 @@ services:
     class: Drupal\dungeoncrawler_content\Service\ContentRegistry
     arguments: ['@database', '@logger.factory', '@dungeoncrawler_content.state_validation_service']
 
+  dungeoncrawler_content.room_editor:
+    class: Drupal\dungeoncrawler_content\Service\RoomEditorService
+    arguments: ['@database', '@current_user', '@uuid']
+
   dungeoncrawler_content.content_query:
     class: Drupal\dungeoncrawler_content\Service\ContentQuery
     arguments: ['@database']

@@ -18,6 +18,16 @@ administer dungeoncrawler content:
   description: 'Full administrative access to game content, settings, and all characters regardless of ownership. Required for module configuration and testing dashboard.'
   restrict access: true
 
+edit canonical dungeoncrawler rooms:
+  title: 'Edit Canonical Dungeon Crawler Rooms'
+  description: 'Create and edit canonical room drafts in the Room Editor.'
+  restrict access: true
+
+publish canonical dungeoncrawler rooms:
+  title: 'Publish Canonical Dungeon Crawler Rooms'
+  description: 'Publish immutable canonical room versions from reviewed drafts.'
+  restrict access: true
+
 edit any dungeoncrawler characters:
   title: 'Edit Any Dungeon Crawler Characters'
   description: 'Edit any character regardless of ownership. Allows administrators to modify characters for support or testing purposes.'

@@ -2531,6 +2531,10 @@ function dungeoncrawler_content_schema() {
       'layout_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
       'contents_data' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
       'source_room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => FALSE],
+      'published_version_id' => ['type' => 'varchar', 'length' => 36, 'not null' => FALSE],
+      'publication_status' => ['type' => 'varchar', 'length' => 20, 'not null' => TRUE, 'default' => 'unpublished'],
+      'created_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      'updated_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
       'created' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
       'updated' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
     ],
@@ -2540,6 +2544,87 @@ function dungeoncrawler_content_schema() {
     ],
     'indexes' => [
       'source_room_id' => ['source_room_id'],
+      'published_version_id' => ['published_version_id'],
+      'publication_status' => ['publication_status'],
+    ],
+  ];
+  $schema['dungeoncrawler_content_room_versions'] = [
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'version_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'schema_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'room_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'payload_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'catalog_version' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'publication_note' => ['type' => 'text', 'not null' => FALSE],
+      'source' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'published_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'published_at' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'version_id' => ['version_id'],
+      'room_version' => ['room_id', 'version'],
+      'room_payload_hash' => ['room_id', 'payload_hash'],
+    ],
+    'indexes' => [
+      'room_published' => ['room_id', 'published_at'],
+      'catalog_version' => ['catalog_version'],
+      'source' => ['source'],
+    ],
+  ];
+  $schema['dungeoncrawler_content_room_editor_drafts'] = [
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'room_id' => ['type' => 'varchar', 'length' => 100, 'not null' => FALSE],
+      'base_version_id' => ['type' => 'varchar', 'length' => 36, 'not null' => FALSE],
+      'revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'status' => ['type' => 'varchar', 'length' => 20, 'not null' => TRUE, 'default' => 'active'],
+      'room_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'payload_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'created_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'updated_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'created_at' => ['type' => 'int', 'not null' => TRUE],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE],
+      'published_version_id' => ['type' => 'varchar', 'length' => 36, 'not null' => FALSE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'draft_id' => ['draft_id'],
+    ],
+    'indexes' => [
+      'room_status' => ['room_id', 'status'],
+      'owner_status_updated' => ['created_by', 'status', 'updated_at'],
+      'base_version_id' => ['base_version_id'],
+      'published_version_id' => ['published_version_id'],
+    ],
+  ];
+  $schema['dungeoncrawler_content_room_editor_commands'] = [
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'command_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'base_revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'result_revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'command_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'command_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'inverse_payload' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE],
+      'issued_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'issued_at' => ['type' => 'int', 'not null' => TRUE],
+      'result_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'command_id' => ['command_id'],
+    ],
+    'indexes' => [
+      'draft_revision' => ['draft_id', 'result_revision'],
+      'draft_issued' => ['draft_id', 'issued_at'],
+      'command_type' => ['command_type'],
+      'issued_by' => ['issued_by'],
     ],
   ];
   $schema['dungeoncrawler_content_dungeons'] = [
@@ -4266,4 +4351,456 @@ function dungeoncrawler_content_update_10188() {
     'Canonical persistence table migration complete. Created @count missing table(s).',
     ['@count' => (string) $created_tables]
   );
+}
+
+/**
+ * Add canonical Room Editor persistence.
+ */
+function dungeoncrawler_content_update_10189() {
+  $database = \Drupal::database();
+  $schema_handler = $database->schema();
+  $schema = dungeoncrawler_content_schema();
+  $created = 0;
+  $added = 0;
+
+  foreach ([
+    'dungeoncrawler_content_room_versions',
+    'dungeoncrawler_content_room_editor_drafts',
+    'dungeoncrawler_content_room_editor_commands',
+  ] as $table_name) {
+    if (!$schema_handler->tableExists($table_name)) {
+      $schema_handler->createTable($table_name, $schema[$table_name]);
+      $created++;
+    }
+  }
+
+  $room_fields = [
+    'published_version_id',
+    'publication_status',
+    'created_by',
+    'updated_by',
+  ];
+  foreach ($room_fields as $field_name) {
+    if (!$schema_handler->fieldExists('dungeoncrawler_content_rooms', $field_name)) {
+      $schema_handler->addField(
+        'dungeoncrawler_content_rooms',
+        $field_name,
+        $schema['dungeoncrawler_content_rooms']['fields'][$field_name]
+      );
+      $added++;
+    }
+  }
+  foreach (['published_version_id', 'publication_status'] as $index_name) {
+    if (!$schema_handler->indexExists('dungeoncrawler_content_rooms', $index_name)) {
+      $schema_handler->addIndex(
+        'dungeoncrawler_content_rooms',
+        $index_name,
+        $schema['dungeoncrawler_content_rooms']['indexes'][$index_name],
+        $schema['dungeoncrawler_content_rooms']
+      );
+    }
+  }
+
+  return t('Room Editor persistence created: @tables tables and @fields room fields.', [
+    '@tables' => (string) $created,
+    '@fields' => (string) $added,
+  ]);
+}
+
+/**
+ * Backfill immutable version 1.0.0 for existing canonical rooms.
+ */
+function dungeoncrawler_content_update_10190(&$sandbox) {
+  $database = \Drupal::database();
+  if (!isset($sandbox['room_ids'])) {
+    \Drupal::service('dungeoncrawler_content.content_registry')->importContentFromJson('obstacle_object');
+    $sandbox['room_ids'] = $database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r', ['room_id'])
+      ->orderBy('room_id')
+      ->execute()
+      ->fetchCol();
+    $sandbox['total'] = count($sandbox['room_ids']);
+    $sandbox['processed'] = 0;
+    $sandbox['failures'] = [];
+  }
+
+  $batch = array_splice($sandbox['room_ids'], 0, 25);
+  foreach ($batch as $room_id) {
+    $row = $database->select('dungeoncrawler_content_rooms', 'r')
+      ->fields('r')
+      ->condition('room_id', $room_id)
+      ->execute()
+      ->fetchAssoc();
+    if (!$row) {
+      $sandbox['failures'][] = $room_id . ': row disappeared during backfill';
+      continue;
+    }
+
+    try {
+      $aggregate = _dungeoncrawler_content_room_editor_legacy_aggregate($row);
+      $validation = \Drupal::service('dungeoncrawler_content.room_editor')
+        ->validateAggregate($aggregate, 'publication');
+      if ($validation['errors'] !== []) {
+        $database->update('dungeoncrawler_content_rooms')
+          ->fields([
+            'published_version_id' => NULL,
+            'publication_status' => 'migration_blocked',
+          ])
+          ->condition('room_id', $room_id)
+          ->execute();
+        $sandbox['processed']++;
+        continue;
+      }
+      $encoded = json_encode($aggregate, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+      $hash = hash('sha256', $encoded);
+      $existing = $database->select('dungeoncrawler_content_room_versions', 'v')
+        ->fields('v', ['version_id'])
+        ->condition('room_id', $room_id)
+        ->condition('version', '1.0.0')
+        ->execute()
+        ->fetchField();
+      $version_id = $existing ?: \Drupal::service('uuid')->generate();
+      if (!$existing) {
+        $database->insert('dungeoncrawler_content_room_versions')
+          ->fields([
+            'version_id' => $version_id,
+            'room_id' => $room_id,
+            'version' => '1.0.0',
+            'schema_version' => 'canonical-room-v1',
+            'room_payload' => $encoded,
+            'payload_hash' => $hash,
+            'catalog_version' => str_repeat('0', 64),
+            'publication_note' => 'Legacy canonical room backfill.',
+            'source' => 'legacy_backfill',
+            'published_by' => 0,
+            'published_at' => (int) ($row['updated'] ?: $row['created'] ?: time()),
+          ])
+          ->execute();
+      }
+      $database->update('dungeoncrawler_content_rooms')
+        ->fields([
+          'published_version_id' => $version_id,
+          'publication_status' => 'published',
+        ])
+        ->condition('room_id', $room_id)
+        ->execute();
+      $sandbox['processed']++;
+    }
+    catch (\Throwable $exception) {
+      $sandbox['failures'][] = $room_id . ': ' . $exception->getMessage();
+    }
+  }
+
+  if ($sandbox['failures']) {
+    throw new \RuntimeException('Room Editor backfill failed: ' . implode('; ', $sandbox['failures']));
+  }
+  $sandbox['#finished'] = $sandbox['total'] === 0
+    ? 1
+    : $sandbox['processed'] / $sandbox['total'];
+
+  return t('Backfilled @processed of @total canonical room versions.', [
+    '@processed' => (string) $sandbox['processed'],
+    '@total' => (string) $sandbox['total'],
+  ]);
+}
+
+/**
+ * Verify canonical rooms have resolvable immutable version pointers.
+ */
+function dungeoncrawler_content_update_10191() {
+  $database = \Drupal::database();
+  $invalid = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r', ['room_id'])
+    ->condition('publication_status', 'published')
+    ->isNull('published_version_id')
+    ->execute()
+    ->fetchCol();
+  if ($invalid) {
+    throw new \RuntimeException('Canonical rooms missing published versions: ' . implode(', ', $invalid));
+  }
+
+  $query = $database->select('dungeoncrawler_content_rooms', 'r');
+  $query->leftJoin('dungeoncrawler_content_room_versions', 'v', 'v.version_id = r.published_version_id');
+  $query->fields('r', ['room_id']);
+  $query->condition('r.publication_status', 'published');
+  $query->isNull('v.version_id');
+  $dangling = $query->execute()->fetchCol();
+  if ($dangling) {
+    throw new \RuntimeException('Canonical rooms have dangling published versions: ' . implode(', ', $dangling));
+  }
+
+  return t('Canonical Room Editor version pointers verified.');
+}
+
+/**
+ * Repair normalized legacy backfills and quarantine invalid legacy records.
+ */
+function dungeoncrawler_content_update_10192() {
+  $database = \Drupal::database();
+  $rows = $database->select('dungeoncrawler_content_rooms', 'r')
+    ->fields('r')
+    ->execute();
+  $repaired = 0;
+  $blocked = 0;
+
+  foreach ($rows as $row_object) {
+    $row = (array) $row_object;
+    $room_id = (string) $row['room_id'];
+    $version = $database->select('dungeoncrawler_content_room_versions', 'v')
+      ->fields('v', ['version_id'])
+      ->condition('room_id', $room_id)
+      ->condition('version', '1.0.0')
+      ->condition('source', 'legacy_backfill')
+      ->execute()
+      ->fetchField();
+    if (!$version) {
+      continue;
+    }
+
+    $aggregate = _dungeoncrawler_content_room_editor_legacy_aggregate($row);
+    $validation = \Drupal::service('dungeoncrawler_content.room_editor')
+      ->validateAggregate($aggregate, 'publication');
+    if ($validation['errors'] !== []) {
+      $database->update('dungeoncrawler_content_rooms')
+        ->fields([
+          'published_version_id' => NULL,
+          'publication_status' => 'migration_blocked',
+        ])
+        ->condition('room_id', $room_id)
+        ->condition('published_version_id', $version)
+        ->execute();
+      $database->delete('dungeoncrawler_content_room_versions')
+        ->condition('version_id', $version)
+        ->condition('source', 'legacy_backfill')
+        ->execute();
+      $blocked++;
+      continue;
+    }
+
+    $encoded = json_encode($aggregate, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    $database->update('dungeoncrawler_content_room_versions')
+      ->fields([
+        'room_payload' => $encoded,
+        'payload_hash' => hash('sha256', $encoded),
+      ])
+      ->condition('version_id', $version)
+      ->condition('source', 'legacy_backfill')
+      ->execute();
+    $repaired++;
+  }
+
+  return t('Repaired @repaired legacy room versions; blocked @blocked out-of-contract legacy records.', [
+    '@repaired' => (string) $repaired,
+    '@blocked' => (string) $blocked,
+  ]);
+}
+
+/**
+ * Normalize one legacy canonical room row for migration and editor drafts.
+ */
+function _dungeoncrawler_content_room_editor_legacy_aggregate(array $row): array {
+  $layout = json_decode((string) ($row['layout_data'] ?? ''), TRUE, 512, JSON_THROW_ON_ERROR);
+  $contents = json_decode((string) ($row['contents_data'] ?? ''), TRUE, 512, JSON_THROW_ON_ERROR);
+  if (!is_array($layout) || !is_array($contents)) {
+    throw new \UnexpectedValueException('Legacy layout_data and contents_data must decode to objects.');
+  }
+
+  $hexes = [];
+  $placements = [];
+  foreach ((array) ($layout['hexes'] ?? []) as $hex) {
+    if (!is_array($hex) || !isset($hex['q'], $hex['r'])) {
+      continue;
+    }
+    $q = (int) $hex['q'];
+    $r = (int) $hex['r'];
+    $legacy_terrain = (string) ($hex['terrain_type'] ?? $hex['terrain'] ?? 'stone_floor');
+    $terrain_type = [
+      'water' => 'water_shallow',
+      'lava_hazard' => 'lava',
+      'packed_dirt' => 'dirt',
+      'cobblestone' => 'stone_floor',
+    ][$legacy_terrain] ?? $legacy_terrain;
+    $legacy_lighting = (string) ($hex['lighting'] ?? 'bright_light');
+    $lighting = [
+      'dim' => 'dim_light',
+      'normal' => 'bright_light',
+      'bright' => 'bright_light',
+      'dark' => 'darkness',
+      'daylight' => 'bright_light',
+      'warm' => 'bright_light',
+    ][$legacy_lighting] ?? $legacy_lighting;
+    $hexes[] = [
+      'q' => $q,
+      'r' => $r,
+      'terrain_type' => $terrain_type,
+      'elevation_ft' => (int) ($hex['elevation_ft'] ?? 0),
+      'lighting' => $lighting,
+    ];
+    foreach ((array) ($hex['objects'] ?? []) as $object) {
+      if (!is_array($object)) {
+        continue;
+      }
+      $definition_id = (string) ($object['object_id'] ?? '');
+      if ($definition_id === '') {
+        continue;
+      }
+      $placements[] = _dungeoncrawler_content_room_editor_legacy_placement(
+        (string) $row['room_id'],
+        'obstacle',
+        $definition_id,
+        $q,
+        $r,
+        count($placements)
+      );
+    }
+  }
+
+  $family_map = [
+    'entities' => NULL,
+    'npcs' => 'actor',
+    'creatures' => 'creature',
+    'items' => 'item',
+    'obstacles' => 'obstacle',
+    'traps' => 'trap',
+    'hazards' => 'hazard',
+  ];
+  foreach ($family_map as $bucket => $default_family) {
+    foreach ((array) ($contents[$bucket] ?? []) as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+      $position = (array) ($entry['position'] ?? $entry['hex'] ?? []);
+      if (!isset($position['q'], $position['r'])) {
+        continue;
+      }
+      $family = $default_family ?: (string) ($entry['family'] ?? $entry['type'] ?? '');
+      $family = $family === 'npc' ? 'actor' : $family;
+      if (!in_array($family, ['actor', 'creature', 'item', 'obstacle', 'trap', 'hazard'], TRUE)) {
+        continue;
+      }
+      $definition_id = (string) ($entry['definition_id'] ?? $entry['content_id'] ?? $entry['object_id'] ?? '');
+      if ($definition_id === '') {
+        continue;
+      }
+      $placements[] = _dungeoncrawler_content_room_editor_legacy_placement(
+        (string) $row['room_id'],
+        $family,
+        $definition_id,
+        (int) $position['q'],
+        (int) $position['r'],
+        count($placements)
+      );
+    }
+  }
+
+  $entry_points = array_values((array) ($layout['entry_points'] ?? []));
+  $exit_points = array_values((array) ($layout['exit_points'] ?? $layout['exits'] ?? []));
+  $entry_ports = _dungeoncrawler_content_room_editor_legacy_ports($entry_points, 'entry');
+  if ($entry_ports === [] && $hexes !== []) {
+    $entry_ports[] = [
+      'port_id' => 'entry-1',
+      'hex' => ['q' => $hexes[0]['q'], 'r' => $hexes[0]['r']],
+      'edge' => 3,
+      'label' => 'Default entry',
+      'arrival_facing' => 0,
+      'is_default' => TRUE,
+      'tags' => [],
+    ];
+  }
+  $legacy_room_type = (string) ($layout['room_type'] ?? $layout['room_role'] ?? 'chamber');
+  $room_type = [
+    'starter_undead_crypt' => 'crypt',
+    'city_street' => 'marketplace',
+  ][$legacy_room_type] ?? $legacy_room_type;
+  return [
+    'schema_version' => 'canonical-room-v1',
+    'room_id' => (string) $row['room_id'],
+    'name' => (string) $row['name'],
+    'description' => trim((string) ($row['description'] ?? '')) ?: 'Canonical room.',
+    'room_type' => $room_type,
+    'size_category' => (string) ($layout['size_category'] ?? 'gargantuan'),
+    'hexes' => $hexes,
+    'terrain' => ['type' => 'stone_floor'],
+    'lighting' => ['level' => 'bright_light', 'light_sources' => []],
+    'entry_ports' => $entry_ports,
+    'exit_ports' => _dungeoncrawler_content_room_editor_legacy_ports($exit_points, 'exit'),
+    'placements' => array_values($placements),
+    'environmental_effects' => [],
+    'gameplay_defaults' => ['safe_for_rest' => FALSE, 'visibility' => 'visible'],
+    'metadata' => [
+      'tags' => array_values((array) (json_decode((string) ($row['environment_tags'] ?? '[]'), TRUE) ?: [])),
+      'provenance' => ['source' => 'legacy_canonical_room'],
+    ],
+  ];
+}
+
+/**
+ * Build one deterministic legacy placement.
+ */
+function _dungeoncrawler_content_room_editor_legacy_placement(string $room_id, string $family, string $definition_id, int $q, int $r, int $ordinal): array {
+  $seed = hash('sha256', implode('|', [$room_id, $family, $definition_id, $q, $r, $ordinal]));
+  $instance_id = substr($seed, 0, 8) . '-' . substr($seed, 8, 4) . '-4' .
+    substr($seed, 13, 3) . '-8' . substr($seed, 17, 3) . '-' . substr($seed, 20, 12);
+  return [
+    'schema_version' => 'room-placement-v1',
+    'instance_id' => $instance_id,
+    'definition_ref' => [
+      'family' => $family,
+      'definition_id' => preg_replace('/[^a-z0-9_-]+/', '_', strtolower($definition_id)) ?? '',
+      'version' => '1.0.0',
+    ],
+    'room_id' => $room_id,
+    'anchor_hex' => ['q' => $q, 'r' => $r],
+    'footprint' => [['q' => 0, 'r' => 0]],
+    'facing' => 0,
+    'elevation_ft' => 0,
+    'state_defaults' => (object) [],
+    'overrides' => (object) [],
+  ];
+}
+
+/**
+ * Normalize legacy entry/exit records into room-local ports.
+ */
+function _dungeoncrawler_content_room_editor_legacy_ports(array $records, string $kind): array {
+  $ports = [];
+  foreach ($records as $index => $record) {
+    if (!is_array($record) || !isset($record['q'], $record['r'])) {
+      continue;
+    }
+    $port = [
+      'port_id' => $kind . '-' . ($index + 1),
+      'hex' => ['q' => (int) $record['q'], 'r' => (int) $record['r']],
+      'edge' => (int) ($record['edge'] ?? 0),
+      'label' => (string) ($record['label'] ?? ucfirst($kind) . ' ' . ($index + 1)),
+      'tags' => [],
+    ];
+    if ($kind === 'entry') {
+      $port['arrival_facing'] = (int) ($record['arrival_facing'] ?? 3);
+      $port['is_default'] = $index === 0;
+    }
+    else {
+      $port += [
+        'kind' => (string) ($record['kind'] ?? 'hallway'),
+        'direction' => (string) ($record['direction'] ?? 'bidirectional'),
+        'default_state' => (string) ($record['default_state'] ?? 'open'),
+        'destination_hint' => $record['target_room_id'] ?? NULL,
+        'linked_placement_id' => NULL,
+        'requirements' => [],
+      ];
+    }
+    $ports[] = $port;
+  }
+  if ($kind === 'entry' && $ports === []) {
+    $ports[] = [
+      'port_id' => 'entry-1',
+      'hex' => ['q' => 0, 'r' => 0],
+      'edge' => 0,
+      'label' => 'Default entry',
+      'arrival_facing' => 3,
+      'is_default' => TRUE,
+      'tags' => [],
+    ];
+  }
+  return $ports;
 }

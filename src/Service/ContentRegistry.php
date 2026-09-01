@@ -217,6 +217,31 @@ class ContentRegistry {
    *   Prepared registry rows.
    */
   protected function getGeneratedRegistryRecords(string $content_type): array {
+    if ($content_type === 'obstacle_object') {
+      $records = [];
+      foreach ([
+        dirname($this->contentPath) . '/config/examples/enhanced-obstacle-objects.json',
+        dirname($this->contentPath) . '/config/examples/tavern-obstacle-objects.json',
+      ] as $file) {
+        if (!is_file($file)) {
+          continue;
+        }
+        $payload = json_decode((string) file_get_contents($file), TRUE);
+        if (!is_array($payload)) {
+          throw new \RuntimeException('Invalid obstacle object catalog: ' . $file);
+        }
+        foreach ((array) ($payload['objects'] ?? []) as $object) {
+          if (!is_array($object)) {
+            continue;
+          }
+          $prepared = $this->prepareRegistryRecord($content_type, $object, $file);
+          if ($prepared !== NULL) {
+            $records[] = $prepared;
+          }
+        }
+      }
+      return $records;
+    }
     return [];
   }
 
@@ -276,6 +301,11 @@ class ContentRegistry {
       : $content_data;
 
     $schema_data = $this->sanitizeTextFields($schema_data);
+    if ($record_type === 'obstacle_object') {
+      $schema_data['content_id'] = $schema_data['content_id'] ?? $schema_data['object_id'] ?? NULL;
+      $schema_data['name'] = $schema_data['name'] ?? $schema_data['label'] ?? NULL;
+      $schema_data['type'] = $schema_data['type'] ?? $schema_data['category'] ?? NULL;
+    }
     $schema_data = $this->normalizeContentData($record_type, $schema_data);
 
     $id_field = $record_type . '_id';
@@ -520,6 +550,18 @@ class ContentRegistry {
 
       case 'hazard':
         $errors = array_merge($errors, $this->validateHazard($content_data));
+        break;
+
+      case 'obstacle_object':
+        if (empty($content_data['object_id']) && empty($content_data['content_id'])) {
+          $errors[] = 'Obstacle object requires object_id or content_id';
+        }
+        if (empty($content_data['label']) && empty($content_data['name'])) {
+          $errors[] = 'Obstacle object requires label or name';
+        }
+        if (!isset($content_data['movement']) || !is_array($content_data['movement'])) {
+          $errors[] = 'Obstacle object requires movement configuration';
+        }
         break;
 
       case 'spell':
@@ -1070,7 +1112,7 @@ class ContentRegistry {
    *   Array of content type names.
    */
   public function getContentTypes(): array {
-    return ['creature', 'item', 'trap', 'hazard', 'spell', 'feat'];
+    return ['creature', 'item', 'trap', 'hazard', 'obstacle_object', 'spell', 'feat'];
   }
 
   /**

@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/room_editor_command.schema.json",
+  "title": "Room Editor Command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command_id", "expected_revision", "type", "payload", "issued_at"],
+  "properties": {
+    "command_id": {"type": "string", "format": "uuid"},
+    "expected_revision": {"type": "integer", "minimum": 0},
+    "type": {"enum": ["set_room_metadata", "add_hex", "remove_hex", "set_hex_terrain", "set_hex_elevation", "place_object", "move_object", "rotate_object", "update_object_overrides", "duplicate_object", "remove_object", "add_entry_port", "update_entry_port", "remove_entry_port", "add_exit_port", "update_exit_port", "remove_exit_port", "undo", "redo"]},
+    "payload": {"type": "object"},
+    "issued_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {"if": {"properties": {"type": {"const": "set_room_metadata"}}}, "then": {"properties": {"payload": {"required": ["changes"]}}}},
+    {"if": {"properties": {"type": {"enum": ["add_hex", "remove_hex", "set_hex_terrain", "set_hex_elevation"]}}}, "then": {"properties": {"payload": {"required": ["hex"]}}}},
+    {"if": {"properties": {"type": {"const": "place_object"}}}, "then": {"properties": {"payload": {"required": ["definition_ref", "anchor_hex"]}}}},
+    {"if": {"properties": {"type": {"enum": ["move_object", "rotate_object", "update_object_overrides", "duplicate_object", "remove_object"]}}}, "then": {"properties": {"payload": {"required": ["instance_id"]}}}},
+    {"if": {"properties": {"type": {"enum": ["add_entry_port", "add_exit_port"]}}}, "then": {"properties": {"payload": {"required": ["port"]}}}},
+    {"if": {"properties": {"type": {"enum": ["update_entry_port", "update_exit_port"]}}}, "then": {"properties": {"payload": {"required": ["port_id", "changes"]}}}},
+    {"if": {"properties": {"type": {"enum": ["remove_entry_port", "remove_exit_port"]}}}, "then": {"properties": {"payload": {"required": ["port_id"]}}}},
+    {"if": {"properties": {"type": {"enum": ["undo", "redo"]}}}, "then": {"properties": {"payload": {"required": ["target_command_id"]}}}}
+  ]
+}

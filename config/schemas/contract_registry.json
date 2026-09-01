@@ -13,6 +13,38 @@
       "schema": "room.schema.json",
       "description": "Canonical room payload."
     },
+    "canonical_room_aggregate": {
+      "schema": "canonical_room_aggregate.schema.json",
+      "description": "Canonical reusable room authoring aggregate."
+    },
+    "room_placement_instance": {
+      "schema": "room_placement_instance.schema.json",
+      "description": "Definition-backed canonical room placement."
+    },
+    "placeable_object_definition": {
+      "schema": "placeable_object_definition.schema.json",
+      "description": "Normalized Room Editor catalog definition."
+    },
+    "room_editor_draft": {
+      "schema": "room_editor_draft.schema.json",
+      "description": "Mutable revisioned Room Editor draft."
+    },
+    "room_editor_command": {
+      "schema": "room_editor_command.schema.json",
+      "description": "Canonical Room Editor mutation command."
+    },
+    "room_editor_command_result": {
+      "schema": "room_editor_command_result.schema.json",
+      "description": "Accepted Room Editor command result."
+    },
+    "room_editor_validation_result": {
+      "schema": "room_editor_validation_result.schema.json",
+      "description": "Room Editor validation findings."
+    },
+    "room_editor_publication": {
+      "schema": "room_editor_publication.schema.json",
+      "description": "Room Editor publication request and result."
+    },
     "npc_sheet": {
       "schema": "npc_sheet.schema.json",
       "description": "Canonical generated NPC sheet payload."

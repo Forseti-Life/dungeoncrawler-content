@@ -1,0 +1,418 @@
+/**
+ * @file room-editor.css
+ *
+ * Styles for the canonical Room Editor shell.
+ *
+ * Reuses design tokens declared by hexmap.css on [data-room-editor] (loaded
+ * as a `.hexmap-container`), plus the shared `.game-shell` /
+ * `.game-shell__workspace` / `.game-shell__action-rail` /
+ * `.game-shell__content` layout primitives. Everything under the
+ * `.room-editor__*` namespace below is owned by this file and is
+ * self-contained.
+ */
+
+.room-editor {
+  min-height: 100vh;
+}
+
+.room-editor__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  padding-bottom: var(--space-4, 16px);
+  border-bottom: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  margin-bottom: var(--space-4, 16px);
+}
+
+.room-editor__header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3, 12px);
+}
+
+.room-editor__header-row--publish {
+  padding-top: var(--space-2, 8px);
+  border-top: 1px dashed var(--panel-border, rgba(148, 163, 184, 0.24));
+}
+
+.room-editor__spacer {
+  flex: 1 1 auto;
+}
+
+.room-editor__eyebrow {
+  margin: 0 0 var(--space-2, 8px);
+  font-size: var(--text-xs, 0.75em);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #94a3b8);
+}
+
+.room-editor__hint {
+  margin: 0;
+  color: var(--muted, #94a3b8);
+  font-size: var(--text-sm, 0.85em);
+}
+
+.room-editor__status {
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border-radius: var(--radius-md, 6px);
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  color: var(--text, #e2e8f0);
+  font-size: var(--text-sm, 0.85em);
+}
+
+.room-editor__status[data-status-level="error"] {
+  border-color: var(--danger, #ef4444);
+  color: var(--danger, #ef4444);
+}
+
+.room-editor__status[data-status-level="success"] {
+  border-color: var(--success, #22c55e);
+  color: var(--success, #22c55e);
+}
+
+.room-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--space-3, 12px);
+}
+
+.room-editor__field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  margin-bottom: 0;
+}
+
+.room-editor__field--grow {
+  flex: 1 1 auto;
+}
+
+.room-editor__field--grow input {
+  flex: 1 1 auto;
+}
+
+.room-editor__field label {
+  font-size: var(--text-xs, 0.75em);
+  color: var(--muted, #94a3b8);
+}
+
+.room-editor__field input,
+.room-editor__field select,
+.room-editor__field textarea,
+.room-editor__header-row select,
+.room-editor__header-row input {
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-md, 6px);
+  color: var(--text, #e2e8f0);
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: var(--text-sm, 0.85em);
+}
+
+.room-editor__field input:focus,
+.room-editor__field select:focus,
+.room-editor__field textarea:focus,
+.room-editor__header-row select:focus,
+.room-editor__header-row input:focus,
+.room-editor__button:focus-visible,
+.room-editor__catalog-item:focus-visible {
+  outline: 2px solid var(--accent-strong, #38bdf8);
+  outline-offset: 2px;
+}
+
+.room-editor__button {
+  background: var(--overlay-white-06, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-md, 6px);
+  color: var(--text, #e2e8f0);
+  padding: 6px 12px;
+  font-size: var(--text-sm, 0.85em);
+  cursor: pointer;
+  transition: background var(--transition-fast, 0.2s) var(--ease-smooth, ease);
+}
+
+.room-editor__button:hover:not(:disabled) {
+  background: var(--overlay-white-12, rgba(255, 255, 255, 0.14));
+}
+
+.room-editor__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.room-editor__button--primary {
+  background: var(--accent-strong, #38bdf8);
+  border-color: var(--accent-strong, #38bdf8);
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.room-editor__button--primary:hover:not(:disabled) {
+  background: var(--accent, #00d4ff);
+}
+
+.room-editor__button--danger {
+  border-color: var(--danger, #ef4444);
+  color: var(--danger, #ef4444);
+}
+
+.room-editor__button--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger, #ef4444) 18%, transparent);
+}
+
+.room-editor__workspace {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 300px);
+}
+
+.room-editor__catalog,
+.room-editor__inspector {
+  max-height: 78vh;
+  overflow-y: auto;
+}
+
+.room-editor__catalog-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  margin-bottom: var(--space-3, 12px);
+}
+
+.room-editor__catalog-selected {
+  margin: 0 0 var(--space-2, 8px);
+  font-size: var(--text-xs, 0.75em);
+  color: var(--accent-strong, #38bdf8);
+}
+
+.room-editor__catalog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.room-editor__catalog-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding: var(--space-2, 8px);
+  border-radius: var(--radius-md, 6px);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.room-editor__catalog-item:hover {
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.04));
+}
+
+.room-editor__catalog-item--active {
+  border-color: var(--accent-strong, #38bdf8);
+  background: var(--overlay-white-06, rgba(255, 255, 255, 0.08));
+}
+
+.room-editor__catalog-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full, 999px);
+  flex: 0 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.room-editor__catalog-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.room-editor__catalog-title {
+  font-size: var(--text-sm, 0.85em);
+  color: var(--text, #e2e8f0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-editor__catalog-meta {
+  font-size: var(--text-xs, 0.75em);
+  color: var(--muted, #94a3b8);
+}
+
+.room-editor__catalog-empty {
+  color: var(--muted, #94a3b8);
+  font-size: var(--text-sm, 0.85em);
+}
+
+.room-editor__catalog-more {
+  width: 100%;
+  margin-top: var(--space-2, 8px);
+}
+
+.room-editor__center {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  min-width: 0;
+}
+
+.room-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  align-items: center;
+}
+
+.room-editor__toolbar button {
+  background: var(--overlay-white-06, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-md, 6px);
+  color: var(--text, #e2e8f0);
+  padding: 6px 12px;
+  font-size: var(--text-sm, 0.85em);
+  cursor: pointer;
+}
+
+.room-editor__toolbar button[aria-pressed="true"],
+.room-editor__tool--active {
+  background: var(--accent-strong, #38bdf8);
+  border-color: var(--accent-strong, #38bdf8);
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.room-editor__stage {
+  position: relative;
+  width: 100%;
+  min-height: 640px;
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-lg, 8px);
+  overflow: hidden;
+  background: var(--canvas-bg, #1a1a2e);
+}
+
+.room-editor__stage .hexmap-canvas-wrapper {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.room-editor__stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.room-editor__inspector-panel h3 {
+  margin: 0 0 var(--space-2, 8px);
+  font-size: var(--text-lg, 1.05em);
+  color: var(--text-bright, #f8f9fa);
+}
+
+.room-editor__port-summary {
+  margin-top: var(--space-4, 16px);
+  padding-top: var(--space-3, 12px);
+  border-top: 1px solid var(--border-subtle, #334155);
+}
+
+.room-editor__port-summary h4 {
+  margin: 0 0 var(--space-2, 8px);
+}
+
+.room-editor__port-link {
+  display: block;
+  width: 100%;
+  margin: 0 0 var(--space-1, 4px);
+  padding: var(--space-2, 8px);
+  border: 1px solid var(--border-subtle, #334155);
+  border-radius: 4px;
+  color: var(--text-primary, #e2e8f0);
+  background: var(--surface-raised, #1e293b);
+  text-align: left;
+  cursor: pointer;
+}
+
+.room-editor__port-link:hover,
+.room-editor__port-link:focus-visible {
+  border-color: var(--accent, #38bdf8);
+}
+
+.room-editor__checkbox {
+  display: flex;
+  gap: var(--space-2, 8px);
+  align-items: center;
+  margin: var(--space-3, 12px) 0;
+}
+
+.room-editor__definition-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-2, 8px);
+  margin: 0 0 var(--space-3, 12px);
+  font-size: var(--text-sm, 0.85em);
+}
+
+.room-editor__definition-list dt {
+  color: var(--muted, #94a3b8);
+}
+
+.room-editor__definition-list dd {
+  margin: 0;
+  color: var(--text, #e2e8f0);
+  word-break: break-all;
+}
+
+.room-editor__validation {
+  margin-top: var(--space-4, 16px);
+  padding-top: var(--space-3, 12px);
+  border-top: 1px solid var(--panel-border, rgba(148, 163, 184, 0.24));
+}
+
+.room-editor__validation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.room-editor__validation-item {
+  padding: 6px 10px;
+  border-radius: var(--radius-md, 6px);
+  font-size: var(--text-sm, 0.85em);
+  background: var(--overlay-white-04, rgba(255, 255, 255, 0.04));
+}
+
+.room-editor__validation-item--error {
+  color: var(--danger, #ef4444);
+  border: 1px solid var(--danger, #ef4444);
+}
+
+.room-editor__validation-item--warning {
+  color: var(--warning, #f59e0b);
+  border: 1px solid var(--warning, #f59e0b);
+}
+
+.room-editor__validation-item--ok {
+  color: var(--success, #22c55e);
+  border: 1px solid var(--success, #22c55e);
+}
+
+@media (max-width: 1100px) {
+  .room-editor__workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .room-editor__catalog,
+  .room-editor__inspector {
+    max-height: none;
+  }
+}

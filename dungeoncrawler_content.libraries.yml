@@ -214,6 +214,20 @@ hexmap-v2:
     - core/drupal
     - core/once
 
+room-editor:
+  version: 20260901-v1
+  js:
+    https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
+    js/room-editor.js: { attributes: { type: module } }
+  css:
+    theme:
+      css/hexmap.css: {}
+      css/room-editor.css: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+
 credits:
   css:
     theme:

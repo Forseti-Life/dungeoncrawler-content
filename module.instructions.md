@@ -14,6 +14,7 @@
 |---|---|---|
 | Encounter, turns, initiative, action resolution, combat flow | Encounter and action engine | `src/Service/EncounterPhaseHandler.php`, `src/Service/GameplayActionProcessor.php` |
 | Hexmap rendering, canvas behavior, map view state | Hexmap shell and rendering | `js/hexmap-v2.js`, `js/v2/canvas/`, `js/v2/GameShell.js` |
+| Canonical room authoring, Room Editor, placeable catalog | Canonical Content Authoring | `src/Controller/RoomEditorController.php`, `src/Service/RoomEditorService.php`, `js/v2/editor/RoomEditorShell.js` |
 | Action bar, panel interactions, button wiring | Action rail and panel interaction | `js/v2/panels/`, `js/v2/systems/EncounterSystem.js` |
 | Client execution of server actions, coordinator flows | Coordinator client bridge | `js/game-coordinator/`, `js/v2/systems/` |
 | Character creation, leveling, feats, sheet state | Character lifecycle | `src/Controller/Character*`, `src/Service/Character*` |
@@ -42,6 +43,7 @@
 | Merchant and economy integration | Manage merchant behavior and transaction execution with profile-backed stock previews plus search-driven wares discovery | `src/Service/MerchantBotService.php`, `src/Service/MerchantTransactionService.php`, `src/Controller/MerchantApiController.php` |
 | Media generation | Handle portrait/terrain generation plus generated-image persistence and TTS integration | `src/Service/GeminiImageGenerationService.php`, `src/Service/VertexImageGenerationService.php`, `src/Service/GeneratedImageRepository.php`, `src/Service/TextToSpeechIntegrationService.php` |
 | Chat and turn logging | Persist chat sessions, room chat events, and explicit round/turn logging contracts | `src/Controller/RoomChatController.php`, `src/Service/ChatSessionManager.php`, `src/Service/RoomChatService.php`, `src/Service/GameEventLogger.php` |
+| Canonical Content Authoring | Own canonical room drafts, commands, validation, immutable publication, and normalized placeable catalog reads without mutating campaign state | `src/Controller/RoomEditorController.php`, `src/Service/RoomEditorService.php`, `config/schemas/*room_editor*` |
 
 ### Client-side subsystems
 
@@ -52,6 +54,7 @@
 | Coordinator client bridge | Translate UI actions into server-authoritative coordinator/action API calls | `js/game-coordinator/GameCoordinator.js`, `js/game-coordinator/GameCoordinatorApi.js`, `js/v2/systems/` |
 | Client state and event bus | Maintain client runtime state and propagate game UI events consistently | `js/v2/GameEventBus.js`, `js/StateManager.js`, `js/v2/services/`, `js/v2/utils/` |
 | Chat/panel UX and sync | Render chat/combat panel state and keep UI synchronized with encounter updates | `js/v2/panels/ChatPanel.js`, `js/v2/panels/`, `js/game-coordinator/NarrationOverlay.js` |
+| Room Editor shell | Compose shared Hexmap canvas primitives with canonical content-authoring tools, catalog, inspector, and validation UI | `js/room-editor.js`, `js/v2/editor/RoomEditorShell.js`, `templates/room-editor.html.twig` |
 
 ## Update rule
 When subsystem boundaries change, update this file in the same change set so routing remains accurate.

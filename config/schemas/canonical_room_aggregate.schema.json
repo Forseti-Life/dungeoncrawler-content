@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/canonical_room_aggregate.schema.json",
+  "title": "Canonical Room Aggregate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "room_id", "name", "description", "room_type", "size_category", "hexes", "terrain", "lighting", "entry_ports", "exit_ports", "placements", "environmental_effects", "gameplay_defaults", "metadata"],
+  "properties": {
+    "schema_version": {"const": "canonical-room-v1"},
+    "room_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 200},
+    "description": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "room_type": {"enum": ["corridor", "chamber", "cavern", "hall", "shrine", "vault", "lair", "nest", "workshop", "library", "prison", "throne_room", "armory", "pantry", "garden", "pool", "mine", "crypt", "laboratory", "barracks", "marketplace", "arena", "boss_chamber", "entrance", "exit", "stairwell", "crossroads", "dead_end", "trap_room", "puzzle_room", "vault_room", "safe_room"]},
+    "size_category": {"enum": ["tiny", "small", "medium", "large", "huge", "gargantuan"]},
+    "hexes": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"$ref": "#/$defs/hex"}},
+    "terrain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"$ref": "#/$defs/terrain"},
+        "difficult_terrain": {"type": "boolean"},
+        "greater_difficult_terrain": {"type": "boolean"},
+        "ceiling_height_ft": {"type": "number", "minimum": 5, "maximum": 100}
+      }
+    },
+    "lighting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "light_sources"],
+      "properties": {
+        "level": {"enum": ["bright_light", "dim_light", "darkness", "magical_darkness"]},
+        "light_sources": {"type": "array", "maxItems": 20, "items": {"type": "object"}}
+      }
+    },
+    "entry_ports": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"$ref": "#/$defs/entry_port"}},
+    "exit_ports": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/exit_port"}},
+    "placements": {"type": "array", "maxItems": 250, "items": {"$ref": "room_placement_instance.schema.json"}},
+    "environmental_effects": {"type": "array", "maxItems": 20, "items": {"type": "object"}},
+    "gameplay_defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["safe_for_rest", "visibility"],
+      "properties": {
+        "safe_for_rest": {"type": "boolean"},
+        "visibility": {"enum": ["visible", "hidden"]}
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["tags", "provenance"],
+      "properties": {
+        "tags": {"type": "array", "uniqueItems": true, "maxItems": 50, "items": {"type": "string"}},
+        "provenance": {"type": "object"}
+      }
+    }
+  },
+  "$defs": {
+    "coordinate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["q", "r"],
+      "properties": {
+        "q": {"type": "integer", "minimum": -1000, "maximum": 1000},
+        "r": {"type": "integer", "minimum": -1000, "maximum": 1000}
+      }
+    },
+    "terrain": {"enum": ["stone_floor", "rough_stone", "smooth_stone", "dirt", "mud", "sand", "water_shallow", "water_deep", "ice", "lava", "fungal_growth", "bone", "crystal", "metal_grate", "wooden_floor", "carpet", "rubble", "void"]},
+    "hex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["q", "r", "terrain_type", "elevation_ft"],
+      "properties": {
+        "q": {"type": "integer", "minimum": -1000, "maximum": 1000},
+        "r": {"type": "integer", "minimum": -1000, "maximum": 1000},
+        "terrain_type": {"$ref": "#/$defs/terrain"},
+        "elevation_ft": {"type": "integer", "minimum": -50, "maximum": 200},
+        "lighting": {"enum": ["bright_light", "dim_light", "darkness", "magical_darkness"]},
+        "h3_index_res14": {"type": "string", "pattern": "^[a-f0-9]+$"},
+        "metadata": {"type": "object"}
+      }
+    },
+    "entry_port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port_id", "hex", "edge", "label", "arrival_facing", "is_default", "tags"],
+      "properties": {
+        "port_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+        "hex": {"$ref": "#/$defs/coordinate"},
+        "edge": {"type": "integer", "minimum": 0, "maximum": 5},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "arrival_facing": {"type": "integer", "minimum": 0, "maximum": 5},
+        "is_default": {"type": "boolean"},
+        "tags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "exit_port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port_id", "hex", "edge", "label", "kind", "direction", "default_state", "destination_hint", "linked_placement_id", "requirements", "tags"],
+      "properties": {
+        "port_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+        "hex": {"$ref": "#/$defs/coordinate"},
+        "edge": {"type": "integer", "minimum": 0, "maximum": 5},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "kind": {"enum": ["hallway", "archway", "door", "hatch", "portcullis", "secret_door", "magical_barrier", "collapsed", "bridge", "one_way_drop"]},
+        "direction": {"enum": ["bidirectional", "one_way"]},
+        "default_state": {"enum": ["open", "closed", "locked", "barred", "trapped", "triggered", "destroyed"]},
+        "destination_hint": {"type": ["string", "null"], "maxLength": 200},
+        "linked_placement_id": {"type": ["string", "null"], "format": "uuid"},
+        "requirements": {"type": "array", "items": {"type": "object"}},
+        "tags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -23,6 +23,13 @@ dungeoncrawler_content.game_objects:
   parent: dungeoncrawler_content.dashboard
   weight: 5
 
+dungeoncrawler_content.room_editor:
+  title: 'Canonical Room Editor'
+  description: 'Author and publish reusable canonical rooms on the Hexmap canvas.'
+  route_name: dungeoncrawler_content.room_editor
+  parent: dungeoncrawler_content.dashboard
+  weight: 4
+
 dungeoncrawler_content.image_generation_interface:
   title: 'Image Generation'
   description: 'Generate images from prompts using the configured generation provider.'
@@ -185,6 +192,13 @@ dungeoncrawler_content.menu.dc_administration_dashboard:
   route_name: dungeoncrawler_content.dashboard
   parent: dungeoncrawler_content.menu.dc_administration
   weight: 1
+
+dungeoncrawler_content.menu.dc_administration_room_editor:
+  title: 'Room Editor'
+  description: 'Author reusable canonical room layouts and object placements.'
+  route_name: dungeoncrawler_content.room_editor
+  parent: dungeoncrawler_content.menu.dc_administration
+  weight: 2
 
 dungeoncrawler_content.menu.dc_administration_game_objects:
   title: 'Game Objects'

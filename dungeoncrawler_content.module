@@ -280,6 +280,15 @@ function dungeoncrawler_content_theme(array $existing, string $type, string $the
       'path' => $path . '/templates',
     ],
 
+    'room_editor' => [
+      'variables' => [
+        'rooms' => [],
+        'selected_room_id' => NULL,
+      ],
+      'template' => 'room-editor',
+      'path' => $path . '/templates',
+    ],
+
     // Credits page displaying contributors and attributions.
     'credits_page' => [
       'variables' => [

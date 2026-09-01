@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/room_editor_validation_result.schema.json",
+  "title": "Room Editor Validation Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["valid", "profile", "draft_id", "revision", "errors", "warnings", "validated_at"],
+  "properties": {
+    "valid": {"type": "boolean"},
+    "profile": {"enum": ["editing", "preview", "publication"]},
+    "draft_id": {"type": "string", "format": "uuid"},
+    "revision": {"type": "integer", "minimum": 0},
+    "errors": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "warnings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "validated_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "path", "severity", "context"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "path": {"type": "string"},
+        "severity": {"enum": ["error", "warning"]},
+        "context": {"type": "object"}
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/room_editor_publication.schema.json",
+  "title": "Room Editor Publication",
+  "definitions": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_revision", "version", "publication_note", "expected_base_version_id"],
+      "properties": {
+        "expected_revision": {"type": "integer", "minimum": 0},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+        "publication_note": {"type": "string", "maxLength": 2000},
+        "expected_base_version_id": {"type": ["string", "null"], "format": "uuid"}
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["room_id", "version_id", "version", "payload_hash", "published_at", "published_by"],
+      "properties": {
+        "room_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+        "version_id": {"type": "string", "format": "uuid"},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+        "payload_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "published_at": {"type": "string", "format": "date-time"},
+        "published_by": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "oneOf": [
+    {"$ref": "#/definitions/request"},
+    {"$ref": "#/definitions/result"}
+  ]
+}
