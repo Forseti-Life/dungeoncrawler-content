@@ -50,7 +50,7 @@ class RoomEditorContractTest extends UnitTestCase {
     $placement = json_decode((string) file_get_contents($schema_root . 'room_placement_instance.schema.json'), TRUE, 512, JSON_THROW_ON_ERROR);
 
     $this->assertSame(1, $room['properties']['hexes']['minItems']);
-    $this->assertSame(500, $room['properties']['hexes']['maxItems']);
+    $this->assertSame(10000, $room['properties']['hexes']['maxItems']);
     $this->assertSame(250, $room['properties']['placements']['maxItems']);
     $this->assertSame(20, $room['properties']['entry_ports']['maxItems']);
     $this->assertSame(50, $room['properties']['exit_ports']['maxItems']);

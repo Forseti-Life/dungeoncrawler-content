@@ -28,13 +28,21 @@ import { RoomEditorShell } from './v2/editor/RoomEditorShell.js';
 
       const shellSettings = settings?.dungeoncrawlerContent?.roomEditor ?? {};
       activeShell = new RoomEditorShell(wrapper, shellSettings);
-      activeShell.init();
+      window.DungeonCrawlerRoomEditor = activeShell;
+      try {
+        activeShell.init();
+      } catch (error) {
+        console.error('[RoomEditor] initialization failed', error);
+        throw error;
+      }
+      window.DungeonCrawlerRoomEditor = activeShell;
     },
 
     detach(context, settings, trigger) {
       if (trigger !== 'unload') return;
       activeShell?.destroy();
       activeShell = null;
+      window.DungeonCrawlerRoomEditor = null;
     },
   };
 })(Drupal, drupalSettings, once);

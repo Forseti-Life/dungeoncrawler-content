@@ -12,7 +12,7 @@
     "description": {"type": "string", "minLength": 1, "maxLength": 2000},
     "room_type": {"enum": ["corridor", "chamber", "cavern", "hall", "shrine", "vault", "lair", "nest", "workshop", "library", "prison", "throne_room", "armory", "pantry", "garden", "pool", "mine", "crypt", "laboratory", "barracks", "marketplace", "arena", "boss_chamber", "entrance", "exit", "stairwell", "crossroads", "dead_end", "trap_room", "puzzle_room", "vault_room", "safe_room"]},
     "size_category": {"enum": ["tiny", "small", "medium", "large", "huge", "gargantuan"]},
-    "hexes": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"$ref": "#/$defs/hex"}},
+    "hexes": {"type": "array", "minItems": 1, "maxItems": 10000, "items": {"$ref": "#/$defs/hex"}},
     "terrain": {
       "type": "object",
       "additionalProperties": false,

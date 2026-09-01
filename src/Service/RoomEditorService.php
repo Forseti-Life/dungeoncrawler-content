@@ -565,16 +565,7 @@ class RoomEditorService {
           throw new \DomainException('placement_outside_room');
         }
         $family = (string) $definition['family'];
-        if (in_array($family, ['actor', 'creature', 'obstacle'], TRUE)) {
-          foreach ($room['placements'] as $placement) {
-            $placed_family = $placement['definition_ref']['family'] ?? '';
-            if (($placement['anchor_hex']['q'] ?? NULL) === $q
-              && ($placement['anchor_hex']['r'] ?? NULL) === $r
-              && in_array($placed_family, ['actor', 'creature', 'obstacle'], TRUE)) {
-              throw new \DomainException('placement_collision');
-            }
-          }
-        }
+        $this->assertNoSolidPlacementCollision($room, $family, $q, $r);
         $instance_id = (string) ($payload['instance_id'] ?? $this->uuid->generate());
         if (!$this->isUuid($instance_id)) {
           throw new \InvalidArgumentException('instance_id_invalid');
@@ -614,6 +605,13 @@ class RoomEditorService {
           if ($this->findHexIndex($room, $q, $r) === NULL) {
             throw new \DomainException('placement_outside_room');
           }
+          $this->assertNoSolidPlacementCollision(
+            $room,
+            (string) ($room['placements'][$index]['definition_ref']['family'] ?? ''),
+            $q,
+            $r,
+            (string) ($room['placements'][$index]['instance_id'] ?? '')
+          );
           $room['placements'][$index]['anchor_hex'] = ['q' => $q, 'r' => $r];
         }
         elseif ($type === 'rotate_object') {
@@ -648,6 +646,12 @@ class RoomEditorService {
         if ($this->findHexIndex($room, $copy['anchor_hex']['q'], $copy['anchor_hex']['r']) === NULL) {
           throw new \DomainException('placement_outside_room');
         }
+        $this->assertNoSolidPlacementCollision(
+          $room,
+          (string) ($copy['definition_ref']['family'] ?? ''),
+          (int) $copy['anchor_hex']['q'],
+          (int) $copy['anchor_hex']['r']
+        );
         $room['placements'][] = $copy;
         break;
 
@@ -805,8 +809,8 @@ class RoomEditorService {
       $errors[] = $this->finding('room_lighting_invalid', '/lighting', 'Room lighting must use a canonical level and at most 20 sources.');
     }
     $hexes = is_array($room['hexes'] ?? NULL) ? $room['hexes'] : [];
-    if (count($hexes) < 1 || count($hexes) > 500) {
-      $errors[] = $this->finding('room_hex_count_invalid', '/hexes', 'Rooms require 1 through 500 hexes.');
+    if (count($hexes) < 1 || count($hexes) > 10000) {
+      $errors[] = $this->finding('room_hex_count_invalid', '/hexes', 'Rooms require 1 through 10000 hexes.');
     }
     if (count((array) ($room['placements'] ?? [])) > 250) {
       $errors[] = $this->finding('room_placement_count_invalid', '/placements', 'Rooms support at most 250 placements.');
@@ -876,20 +880,6 @@ class RoomEditorService {
         if (isset($solid_occupancy[$key])) {
           $errors[] = $this->finding('placement_collision', "/placements/{$index}/anchor_hex", 'Solid placements cannot share a room hex.');
         }
-        if (!is_array($room['environmental_effects'] ?? NULL) || count($room['environmental_effects'] ?? []) > 20) {
-          $errors[] = $this->finding('environmental_effects_invalid', '/environmental_effects', 'Rooms support at most 20 environmental effects.');
-        }
-        $tags = $room['metadata']['tags'] ?? NULL;
-        if (!is_array($tags)
-          || array_filter($tags, static fn($tag): bool => !is_string($tag)) !== []
-          || count($tags) > 50
-          || count(array_unique($tags)) !== count($tags)) {
-          $errors[] = $this->finding('metadata_tags_invalid', '/metadata/tags', 'Room tags must be unique and contain at most 50 values.');
-        }
-        if (!is_bool($room['gameplay_defaults']['safe_for_rest'] ?? NULL)
-          || !in_array($room['gameplay_defaults']['visibility'] ?? NULL, ['visible', 'hidden'], TRUE)) {
-          $errors[] = $this->finding('gameplay_defaults_invalid', '/gameplay_defaults', 'Gameplay defaults must define rest safety and canonical visibility.');
-        }
         $solid_occupancy[$key] = TRUE;
       }
       if ($profile === 'publication' && !$this->definitionExists(
@@ -899,6 +889,20 @@ class RoomEditorService {
       )) {
         $errors[] = $this->finding('definition_not_found', "/placements/{$index}/definition_ref", 'Pinned placement definition is not available from canonical authority.');
       }
+    }
+    if (!is_array($room['environmental_effects'] ?? NULL) || count($room['environmental_effects'] ?? []) > 20) {
+      $errors[] = $this->finding('environmental_effects_invalid', '/environmental_effects', 'Rooms support at most 20 environmental effects.');
+    }
+    $tags = $room['metadata']['tags'] ?? NULL;
+    if (!is_array($tags)
+      || array_filter($tags, static fn($tag): bool => !is_string($tag)) !== []
+      || count($tags) > 50
+      || count(array_unique($tags)) !== count($tags)) {
+      $errors[] = $this->finding('metadata_tags_invalid', '/metadata/tags', 'Room tags must be unique and contain at most 50 values.');
+    }
+    if (!is_bool($room['gameplay_defaults']['safe_for_rest'] ?? NULL)
+      || !in_array($room['gameplay_defaults']['visibility'] ?? NULL, ['visible', 'hidden'], TRUE)) {
+      $errors[] = $this->finding('gameplay_defaults_invalid', '/gameplay_defaults', 'Gameplay defaults must define rest safety and canonical visibility.');
     }
     $instance_ids = [];
     foreach ((array) ($room['placements'] ?? []) as $index => $placement) {
@@ -1110,6 +1114,23 @@ class RoomEditorService {
       }
     }
     return NULL;
+  }
+
+  private function assertNoSolidPlacementCollision(array $room, string $family, int $q, int $r, ?string $ignored_instance_id = NULL): void {
+    if (!in_array($family, ['actor', 'creature', 'obstacle'], TRUE)) {
+      return;
+    }
+    foreach ((array) ($room['placements'] ?? []) as $placement) {
+      if ($ignored_instance_id !== NULL && ($placement['instance_id'] ?? NULL) === $ignored_instance_id) {
+        continue;
+      }
+      $placed_family = $placement['definition_ref']['family'] ?? '';
+      if (($placement['anchor_hex']['q'] ?? NULL) === $q
+        && ($placement['anchor_hex']['r'] ?? NULL) === $r
+        && in_array($placed_family, ['actor', 'creature', 'obstacle'], TRUE)) {
+        throw new \DomainException('placement_collision');
+      }
+    }
   }
 
   private function normalizeDefinition(string $family, string $id, string $version, string $label, string $category, array $data, string $source_table): array {

@@ -36,6 +36,7 @@ import { GameEventBus } from '../GameEventBus.js';
 import { HexCanvas } from '../canvas/HexCanvas.js';
 
 const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
+const SOLID_FAMILIES = ['actor', 'creature', 'obstacle'];
 
 const FAMILY_COLORS = {
   creature: 0xef4444,
@@ -428,6 +429,11 @@ export class RoomEditorShell {
       this._setStatus('Select a catalog object before placing.', 'error');
       return;
     }
+    const blocker = this._findSolidPlacementAt(q, r);
+    if (this._isSolidFamily(definition.family) && blocker) {
+      this._showPlacementCollision(q, r, blocker, 'Cannot place object');
+      return;
+    }
     this._sendCommand('place_object', {
       instance_id: uuidv4(),
       definition_ref: {
@@ -450,6 +456,41 @@ export class RoomEditorShell {
   _findPlacement(instanceId) {
     const placements = Array.isArray(this.draft?.room?.placements) ? this.draft.room.placements : [];
     return placements.find((placement) => placement.instance_id === instanceId) || null;
+  }
+
+  _isSolidFamily(family) {
+    return SOLID_FAMILIES.includes(String(family || ''));
+  }
+
+  _findSolidPlacementAt(q, r, ignoredInstanceId = null) {
+    const placements = Array.isArray(this.draft?.room?.placements) ? this.draft.room.placements : [];
+    return placements.find((placement) => {
+      if (ignoredInstanceId && placement.instance_id === ignoredInstanceId) {
+        return false;
+      }
+      return this._isSolidFamily(placement.definition_ref?.family)
+        && Number(placement.anchor_hex?.q) === Number(q)
+        && Number(placement.anchor_hex?.r) === Number(r);
+    }) || null;
+  }
+
+  _describePlacement(placement) {
+    return [
+      placement.definition_ref?.family || 'placement',
+      placement.definition_ref?.definition_id || placement.instance_id || 'unknown',
+    ].filter(Boolean).join(':');
+  }
+
+  _showPlacementCollision(q, r, blocker, prefix = 'Placement collision') {
+    const message = `${prefix}: hex (${q}, ${r}) already contains ${this._describePlacement(blocker)}.`;
+    this._setStatus(message, 'error');
+    console.warn('[RoomEditor] placement collision preflight', {
+      q,
+      r,
+      blocker,
+      selectedCatalogDefinition: this._selectedCatalogDefinition,
+      selectedPlacement: this.selection?.type === 'placement' ? this._findPlacement(this.selection.instanceId) : null,
+    });
   }
 
   _findPort(family, portId) {
@@ -754,7 +795,14 @@ export class RoomEditorShell {
         payload,
         issued_at: new Date().toISOString(),
       };
-      const result = await this._postJson(url, body);
+      this._logCommandDiagnostics('dispatch', body);
+      let result = null;
+      try {
+        result = await this._postJson(url, body);
+      } catch (err) {
+        this._logCommandDiagnostics('rejected', body, err);
+        throw err;
+      }
       this._setDraft(result.data.draft, null);
       if (type !== 'undo' && type !== 'redo') {
         this._history.push(commandId);
@@ -1364,9 +1412,19 @@ export class RoomEditorShell {
         break;
       case 'move-placement':
         if (this.selection?.type === 'placement') {
+          const placement = this._findPlacement(this.selection.instanceId);
+          const q = Number(val('placement-q'));
+          const r = Number(val('placement-r'));
+          const blocker = this._isSolidFamily(placement?.definition_ref?.family)
+            ? this._findSolidPlacementAt(q, r, this.selection.instanceId)
+            : null;
+          if (blocker) {
+            this._showPlacementCollision(q, r, blocker, 'Cannot move placement');
+            break;
+          }
           this._sendCommand('move_object', {
             instance_id: this.selection.instanceId,
-            anchor_hex: { q: Number(val('placement-q')), r: Number(val('placement-r')) },
+            anchor_hex: { q, r },
           });
         }
         break;
@@ -1544,6 +1602,21 @@ export class RoomEditorShell {
     const code = err?.code ? ` (${err.code})` : '';
     this._setStatus(`${prefix}: ${err?.message || 'Unknown error'}${code}`, 'error');
     console.error('[RoomEditorShell]', err);
+  }
+
+  _logCommandDiagnostics(phase, command, error = null) {
+    console.info('[RoomEditor] command diagnostics', {
+      phase,
+      command_id: command?.command_id || null,
+      expected_revision: command?.expected_revision ?? null,
+      type: command?.type || null,
+      payload: command?.payload || null,
+      draftId: this.draft?.draft_id || null,
+      roomId: this.draft?.room?.room_id || null,
+      status: error?.status || null,
+      code: error?.code || null,
+      message: error?.message || null,
+    });
   }
 }
 
