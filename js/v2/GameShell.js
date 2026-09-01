@@ -36,7 +36,7 @@ import { QuestSystem } from './systems/QuestSystem.js?v=20260608-v2-quest-summar
 import { MerchantPanel } from './panels/MerchantPanel.js';
 import { CombatPanel } from './panels/CombatPanel.js?v=20260827-v2-bootstrap-status-12';
 import { ActionRailPanel } from './panels/ActionRailPanel.js?v=20260828-v3-suggest-next-move-1';
-import { ChatPanel } from './panels/ChatPanel.js?v=20260812-v2-map-status-centralization-1';
+import { ChatPanel } from './panels/ChatPanel.js?v=20260901-v1-action-log-origin-dedupe-1';
 import { QuestPanel } from './panels/QuestPanel.js?v=20260723-v2-quest-storyline-grouping-2';
 import { InventoryPanel } from './panels/InventoryPanel.js';
 import { CharacterPanel } from './panels/CharacterPanel.js?v=20260828-v4-combat-drag-routing-1';
