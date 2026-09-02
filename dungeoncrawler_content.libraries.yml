@@ -215,7 +215,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20260901-v1
+  version: 20260902-v1-placement-drag-drop
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }

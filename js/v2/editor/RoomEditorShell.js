@@ -141,7 +141,16 @@ export class RoomEditorShell {
     this._dom = {};
     this._keydownHandler = null;
     this._stageClickHandler = null;
+    this._stageMoveHandler = null;
+    this._stageUpHandler = null;
+    this._canvasLeaveDragHandler = null;
     this._resizeObserver = null;
+
+    // Transient drag-to-move gesture state for placement tokens. Never
+    // written into `draft.room` directly — only the confirmed `move_object`
+    // command response mutates room state; this just drives the live token
+    // visual while the pointer is down (see _beginPlacementDrag/_handlePlacementDragMove).
+    this._dragState = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -179,6 +188,26 @@ export class RoomEditorShell {
       this._resizeObserver.disconnect();
       this._resizeObserver = null;
     }
+    if (this.hexCanvas?.app?.stage) {
+      if (this._stageClickHandler) {
+        this.hexCanvas.app.stage.off('pointerdown', this._stageClickHandler);
+      }
+      if (this._stageMoveHandler) {
+        this.hexCanvas.app.stage.off('pointermove', this._stageMoveHandler);
+      }
+      if (this._stageUpHandler) {
+        this.hexCanvas.app.stage.off('pointerup', this._stageUpHandler);
+        this.hexCanvas.app.stage.off('pointerupoutside', this._stageUpHandler);
+      }
+    }
+    if (this.hexCanvas?.app?.view && this._canvasLeaveDragHandler) {
+      this.hexCanvas.app.view.removeEventListener('mouseleave', this._canvasLeaveDragHandler);
+    }
+    this._stageClickHandler = null;
+    this._stageMoveHandler = null;
+    this._stageUpHandler = null;
+    this._canvasLeaveDragHandler = null;
+    this._dragState = null;
     this.hexCanvas?.destroy();
     this.hexCanvas = null;
     this.bus.destroy();
@@ -285,6 +314,18 @@ export class RoomEditorShell {
     if (this.hexCanvas.app?.stage) {
       this._stageClickHandler = (event) => this._handleStageClick(event);
       this.hexCanvas.app.stage.on('pointerdown', this._stageClickHandler);
+      // Placement drag-to-move: tokens start the gesture (see _renderPlacements),
+      // but move/end are tracked on the stage so the drag survives the pointer
+      // leaving the token's small hit area mid-gesture.
+      this._stageMoveHandler = (event) => this._handlePlacementDragMove(event);
+      this.hexCanvas.app.stage.on('pointermove', this._stageMoveHandler);
+      this._stageUpHandler = (event) => this._handlePlacementDragEnd(event);
+      this.hexCanvas.app.stage.on('pointerup', this._stageUpHandler);
+      this.hexCanvas.app.stage.on('pointerupoutside', this._stageUpHandler);
+    }
+    if (this.hexCanvas.app?.view) {
+      this._canvasLeaveDragHandler = () => this._cancelPlacementDrag();
+      this.hexCanvas.app.view.addEventListener('mouseleave', this._canvasLeaveDragHandler);
     }
     this._logCanvasDiagnostics('init');
   }
@@ -595,6 +636,7 @@ export class RoomEditorShell {
       token.on('pointerdown', (event) => {
         event.stopPropagation();
         this._selectPlacement(placement.instance_id);
+        this._beginPlacementDrag(placement, token, event);
       });
 
       objectContainer.addChild(token);
@@ -633,6 +675,122 @@ export class RoomEditorShell {
         objectContainer.addChild(marker);
       });
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Placement drag-to-move
+  //
+  // Dragging never mutates `draft.room` directly — the token is repositioned
+  // purely as a visual preview while the pointer is down, driven by
+  // globalToWorldPoint()/globalToAxial() so it tracks correctly under pan/zoom.
+  // On drop, a single authoritative `move_object` command is sent (same
+  // command + validation path as the inspector's manual q/r fields), and
+  // _renderPlacements() is re-run afterwards so the token always ends up
+  // exactly where the confirmed server state says it is - on success that's
+  // the new hex, on failure it snaps back to the original hex.
+  // ---------------------------------------------------------------------------
+
+  _beginPlacementDrag(placement, token, event) {
+    if (this.tool !== 'select' || !this.hexCanvas) {
+      return;
+    }
+    const global = event?.data?.global;
+    if (!global) {
+      return;
+    }
+    this._dragState = {
+      instanceId: String(placement.instance_id),
+      family: String(placement.definition_ref?.family || ''),
+      token,
+      originQ: Number(placement.anchor_hex?.q),
+      originR: Number(placement.anchor_hex?.r),
+      currentQ: Number(placement.anchor_hex?.q),
+      currentR: Number(placement.anchor_hex?.r),
+      moved: false,
+    };
+    token.alpha = 0.6;
+    token.cursor = 'grabbing';
+    this.hexCanvas.setPanEnabled(false);
+  }
+
+  _handlePlacementDragMove(event) {
+    const dragState = this._dragState;
+    if (!dragState || !this.hexCanvas) {
+      return;
+    }
+    const global = event?.data?.global;
+    if (!global) {
+      return;
+    }
+    const worldPoint = this.hexCanvas.globalToWorldPoint(global.x, global.y);
+    if (worldPoint) {
+      dragState.token.x = worldPoint.x;
+      dragState.token.y = worldPoint.y;
+    }
+    const axial = this.hexCanvas.globalToAxial(global.x, global.y);
+    if (!axial) {
+      return;
+    }
+    dragState.moved = true;
+    dragState.currentQ = axial.q;
+    dragState.currentR = axial.r;
+    const valid = Boolean(this._findRoomHex(axial.q, axial.r))
+      && !(this._isSolidFamily(dragState.family) && this._findSolidPlacementAt(axial.q, axial.r, dragState.instanceId));
+    this.hexCanvas.renderMovementBandOverlay(
+      valid ? { step: [{ q: axial.q, r: axial.r }] } : { stride3: [{ q: axial.q, r: axial.r }] },
+    );
+  }
+
+  _handlePlacementDragEnd(event) {
+    const dragState = this._dragState;
+    if (!dragState) {
+      return;
+    }
+    this._dragState = null;
+    this.hexCanvas?.setPanEnabled(this.tool === 'select');
+    this.hexCanvas?.clearMovementBandOverlay();
+
+    const global = event?.data?.global;
+    if (global && this.hexCanvas) {
+      const axial = this.hexCanvas.globalToAxial(global.x, global.y);
+      if (axial) {
+        dragState.currentQ = axial.q;
+        dragState.currentR = axial.r;
+        dragState.moved = true;
+      }
+    }
+
+    if (!dragState.moved || (dragState.currentQ === dragState.originQ && dragState.currentR === dragState.originR)) {
+      this._renderPlacements();
+      return;
+    }
+    this._movePlacementTo(dragState.instanceId, dragState.family, dragState.currentQ, dragState.currentR);
+  }
+
+  _cancelPlacementDrag() {
+    if (!this._dragState) {
+      return;
+    }
+    this._dragState = null;
+    this.hexCanvas?.setPanEnabled(this.tool === 'select');
+    this.hexCanvas?.clearMovementBandOverlay();
+    this._renderPlacements();
+  }
+
+  async _movePlacementTo(instanceId, family, q, r) {
+    if (!this._findRoomHex(q, r)) {
+      this._setStatus(`Cannot move placement outside the room at (${q}, ${r}).`, 'error');
+      this._renderPlacements();
+      return;
+    }
+    const blocker = this._isSolidFamily(family) ? this._findSolidPlacementAt(q, r, instanceId) : null;
+    if (blocker) {
+      this._showPlacementCollision(q, r, blocker, 'Cannot move placement');
+      this._renderPlacements();
+      return;
+    }
+    await this._sendCommand('move_object', { instance_id: instanceId, anchor_hex: { q, r } });
+    this._renderPlacements();
   }
 
   _addPortAt(family, q, r) {
