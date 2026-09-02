@@ -367,6 +367,37 @@
   word-break: break-all;
 }
 
+.room-editor__placement-details {
+  margin: 0 0 var(--space-3, 12px);
+  padding-top: var(--space-2, 8px);
+  border-top: 1px solid var(--border-subtle, #334155);
+}
+
+.room-editor__drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  width: 32px;
+  height: 32px;
+  margin-left: -16px;
+  margin-top: -16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #0f172a;
+  pointer-events: none;
+  will-change: transform;
+}
+
+body.room-editor__body--dragging {
+  cursor: grabbing;
+}
+
 .room-editor__validation {
   margin-top: var(--space-4, 16px);
   padding-top: var(--space-3, 12px);

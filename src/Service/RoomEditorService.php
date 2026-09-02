@@ -471,6 +471,173 @@ class RoomEditorService {
   }
 
   /**
+   * Returns one fully-normalized catalog definition (for inspector lookups).
+   *
+   * Unlike catalog(), which pages through the whole family list, this fetches
+   * a single row directly by id so the Room Editor inspector can enrich a
+   * placement with its canonical name/description/tags even when that
+   * definition isn't part of the currently-loaded catalog page.
+   */
+  public function catalogEntry(string $family, string $definition_id): ?array {
+    if (!in_array($family, self::FAMILIES, TRUE)) {
+      throw new \InvalidArgumentException('catalog_family_invalid');
+    }
+    $definition_id = trim($definition_id);
+    if ($definition_id === '') {
+      return NULL;
+    }
+
+    if ($family === 'actor') {
+      $row = $this->database->select('dc_canonical_actors', 'a')
+        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'state_data'])
+        ->condition('actor_id', $definition_id)
+        ->execute()
+        ->fetchAssoc();
+      if (!$row) {
+        return NULL;
+      }
+      $data = json_decode((string) $row['state_data'], TRUE) ?: [];
+      return $this->normalizeDefinition(
+        'actor',
+        $row['actor_id'],
+        $row['version'],
+        $row['display_name'] ?: ($data['name'] ?? $row['actor_id']),
+        $row['actor_type'] ?: 'npc',
+        $data,
+        'dc_canonical_actors'
+      );
+    }
+
+    $registry_type = $family === 'obstacle' ? 'obstacle_object' : $family;
+    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'name', 'version', 'schema_data'])
+      ->condition('content_type', $registry_type)
+      ->condition('content_id', $definition_id)
+      ->execute()
+      ->fetchAssoc();
+    if (!$row) {
+      return NULL;
+    }
+    $data = json_decode((string) $row['schema_data'], TRUE) ?: [];
+    $category = $data['category'] ?? $data[$family . '_type'] ?? $data['type'] ?? $family;
+    return $this->normalizeDefinition(
+      $family,
+      $row['content_id'],
+      $row['version'] ?: ($data['schema_version'] ?? '1.0.0'),
+      $row['name'],
+      (string) $category,
+      $data,
+      'dungeoncrawler_content_registry'
+    );
+  }
+
+  /**
+   * Loads the raw editable record backing one catalog definition.
+   *
+   * Used by the canonical library edit form - returns the full schema_data
+   * payload (not the trimmed placeable-object-v1 projection normalizeDefinition
+   * produces) since editors need access to every attribute, not just the
+   * subset relevant to room placement.
+   */
+  public function loadCanonicalEntry(string $family, string $definition_id): array {
+    if (!in_array($family, self::FAMILIES, TRUE)) {
+      throw new \InvalidArgumentException('catalog_family_invalid');
+    }
+    $definition_id = trim($definition_id);
+    if ($definition_id === '') {
+      throw new \InvalidArgumentException('definition_id_required');
+    }
+
+    if ($family === 'actor') {
+      $row = $this->database->select('dc_canonical_actors', 'a')
+        ->fields('a', ['actor_id', 'version', 'display_name', 'actor_type', 'state_data'])
+        ->condition('actor_id', $definition_id)
+        ->execute()
+        ->fetchAssoc();
+      if (!$row) {
+        throw new \OutOfBoundsException('canonical_entry_not_found');
+      }
+      return [
+        'family' => 'actor',
+        'definition_id' => $row['actor_id'],
+        'name' => (string) $row['display_name'],
+        'category' => (string) $row['actor_type'],
+        'version' => (string) $row['version'],
+        'schema_data' => json_decode((string) $row['state_data'], TRUE) ?: [],
+        'source_table' => 'dc_canonical_actors',
+      ];
+    }
+
+    $registry_type = $family === 'obstacle' ? 'obstacle_object' : $family;
+    $row = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'name', 'content_type', 'version', 'schema_data'])
+      ->condition('content_type', $registry_type)
+      ->condition('content_id', $definition_id)
+      ->execute()
+      ->fetchAssoc();
+    if (!$row) {
+      throw new \OutOfBoundsException('canonical_entry_not_found');
+    }
+    $data = json_decode((string) $row['schema_data'], TRUE) ?: [];
+    return [
+      'family' => $family,
+      'definition_id' => $row['content_id'],
+      'name' => (string) $row['name'],
+      'category' => (string) ($data['category'] ?? $data[$family . '_type'] ?? $data['type'] ?? $family),
+      'version' => (string) $row['version'],
+      'schema_data' => $data,
+      'source_table' => 'dungeoncrawler_content_registry',
+    ];
+  }
+
+  /**
+   * Persists edited name/attributes back to the canonical source row.
+   */
+  public function saveCanonicalEntry(string $family, string $definition_id, string $name, array $schema_data): void {
+    if (!in_array($family, self::FAMILIES, TRUE)) {
+      throw new \InvalidArgumentException('catalog_family_invalid');
+    }
+    $definition_id = trim($definition_id);
+    $name = trim($name);
+    if ($definition_id === '') {
+      throw new \InvalidArgumentException('definition_id_required');
+    }
+    if ($name === '') {
+      throw new \InvalidArgumentException('name_required');
+    }
+    $now = time();
+
+    if ($family === 'actor') {
+      $updated = $this->database->update('dc_canonical_actors')
+        ->fields([
+          'display_name' => $name,
+          'state_data' => $this->encode($schema_data),
+          'updated_at' => $now,
+        ])
+        ->condition('actor_id', $definition_id)
+        ->execute();
+      if (!$updated) {
+        throw new \OutOfBoundsException('canonical_entry_not_found');
+      }
+      return;
+    }
+
+    $registry_type = $family === 'obstacle' ? 'obstacle_object' : $family;
+    $updated = $this->database->update('dungeoncrawler_content_registry')
+      ->fields([
+        'name' => $name,
+        'schema_data' => $this->encode($schema_data),
+        'updated' => $now,
+      ])
+      ->condition('content_type', $registry_type)
+      ->condition('content_id', $definition_id)
+      ->execute();
+    if (!$updated) {
+      throw new \OutOfBoundsException('canonical_entry_not_found');
+    }
+  }
+
+  /**
    * Mutates the aggregate for one command.
    */
   private function mutate(array $room, string $type, array $payload, string $draft_id): array {

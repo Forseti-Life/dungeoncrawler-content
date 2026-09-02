@@ -53,6 +53,27 @@ dungeoncrawler_content.room_editor_catalog:
   requirements:
     _permission: 'edit canonical dungeoncrawler rooms'
 
+dungeoncrawler_content.room_editor_catalog_entry:
+  path: '/api/room-editor/catalog/{family}/{definition_id}'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::catalogEntry'
+  methods: [GET]
+  requirements:
+    _permission: 'edit canonical dungeoncrawler rooms'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+    definition_id: '[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
+
+dungeoncrawler_content.canonical_library_edit:
+  path: '/admin/content/dungeoncrawler/canonical-library/{family}/{definition_id}'
+  defaults:
+    _form: '\Drupal\dungeoncrawler_content\Form\CanonicalObjectEditForm'
+    _title: 'Canonical Object Editor'
+  methods: [GET, POST]
+  requirements:
+    _permission: 'edit canonical dungeoncrawler rooms'
+    family: 'creature|actor|item|obstacle|trap|hazard'
+    definition_id: '[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
+
 dungeoncrawler_content.room_editor_draft_create:
   path: '/api/room-editor/drafts'
   defaults:

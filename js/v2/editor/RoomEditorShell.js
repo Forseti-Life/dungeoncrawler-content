@@ -136,6 +136,7 @@ export class RoomEditorShell {
     this._redoStack = []; // stack of { undoCommandId, forwardCommandId }
 
     this.catalog = { items: [], total: 0, limit: 40, offset: 0, family: '', search: '' };
+    this._catalogEntryCache = new Map(); // "family:definition_id" -> normalized definition (inspector lookups)
 
     this._busy = false;
     this._dom = {};
@@ -145,6 +146,9 @@ export class RoomEditorShell {
     this._stageUpHandler = null;
     this._canvasLeaveDragHandler = null;
     this._resizeObserver = null;
+
+    // Catalog-to-canvas drag-drop gesture state (see _bindCatalogDragSource).
+    this._catalogDragCleanup = null;
 
     // Transient drag-to-move gesture state for placement tokens. Never
     // written into `draft.room` directly — only the confirmed `move_object`
@@ -208,6 +212,10 @@ export class RoomEditorShell {
     this._stageUpHandler = null;
     this._canvasLeaveDragHandler = null;
     this._dragState = null;
+    if (this._catalogDragCleanup) {
+      this._catalogDragCleanup();
+      this._catalogDragCleanup = null;
+    }
     this.hexCanvas?.destroy();
     this.hexCanvas = null;
     this.bus.destroy();
@@ -1144,6 +1152,10 @@ export class RoomEditorShell {
       item.appendChild(text);
 
       const select = () => {
+        if (this._suppressNextCatalogClick) {
+          this._suppressNextCatalogClick = false;
+          return;
+        }
         this._selectedCatalogDefinition = definition;
         this._setTool('place');
         this._renderCatalogList();
@@ -1158,6 +1170,7 @@ export class RoomEditorShell {
           select();
         }
       });
+      this._bindCatalogDragSource(item, definition, swatchColor);
 
       list.appendChild(item);
     });
@@ -1167,6 +1180,135 @@ export class RoomEditorShell {
     if (this._dom.catalogMoreBtn) {
       this._dom.catalogMoreBtn.hidden = this.catalog.offset >= this.catalog.total;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Catalog-to-canvas drag-drop
+  //
+  // A pointerdown on a catalog list item starts a gesture tracked at the
+  // document level (the drag needs to travel outside the list, over the canvas).
+  // A floating "ghost" swatch follows the cursor the whole way, giving the
+  // click-to-hold / drag / release-to-drop visual the user asked for. Short
+  // taps (no meaningful pointer movement) fall through to the existing
+  // click-to-select behavior instead of being treated as a drag.
+  // ---------------------------------------------------------------------------
+
+  _bindCatalogDragSource(item, definition, swatchColor) {
+    const DRAG_THRESHOLD_PX = 6;
+
+    item.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 && event.pointerType === 'mouse') {
+        return;
+      }
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let dragging = false;
+      let ghost = null;
+
+      const createGhost = () => {
+        const el = document.createElement('div');
+        el.className = 'room-editor__drag-ghost';
+        el.style.backgroundColor = swatchColor;
+        el.textContent = (definition.label || '?').trim().slice(0, 1).toUpperCase() || '?';
+        document.body.appendChild(el);
+        return el;
+      };
+
+      const moveGhost = (clientX, clientY) => {
+        if (ghost) {
+          ghost.style.transform = `translate(${clientX}px, ${clientY}px)`;
+        }
+      };
+
+      const updateHoverPreview = (clientX, clientY) => {
+        if (!this.hexCanvas) {
+          return;
+        }
+        const axial = this._clientPointToAxial(clientX, clientY);
+        if (!axial) {
+          this.hexCanvas.clearMovementBandOverlay();
+          return;
+        }
+        const valid = Boolean(this._findRoomHex(axial.q, axial.r))
+          && !(this._isSolidFamily(definition.family) && this._findSolidPlacementAt(axial.q, axial.r));
+        this.hexCanvas.renderMovementBandOverlay(
+          valid ? { step: [{ q: axial.q, r: axial.r }] } : { stride3: [{ q: axial.q, r: axial.r }] },
+        );
+      };
+
+      const cleanup = () => {
+        document.removeEventListener('pointermove', onPointerMove);
+        document.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('blur', onPointerUp);
+        if (ghost) {
+          ghost.remove();
+          ghost = null;
+        }
+        document.body.classList.remove('room-editor__body--dragging');
+        this.hexCanvas?.clearMovementBandOverlay();
+        this._catalogDragCleanup = null;
+      };
+
+      const onPointerMove = (moveEvent) => {
+        const dx = moveEvent.clientX - startX;
+        const dy = moveEvent.clientY - startY;
+        if (!dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
+          dragging = true;
+          ghost = createGhost();
+          document.body.classList.add('room-editor__body--dragging');
+        }
+        if (dragging) {
+          moveGhost(moveEvent.clientX, moveEvent.clientY);
+          updateHoverPreview(moveEvent.clientX, moveEvent.clientY);
+        }
+      };
+
+      const onPointerUp = (upEvent) => {
+        const wasDragging = dragging;
+        const dropClientX = upEvent.clientX ?? startX;
+        const dropClientY = upEvent.clientY ?? startY;
+        cleanup();
+        if (wasDragging) {
+          this._suppressNextCatalogClick = true;
+          const axial = this._clientPointToAxial(dropClientX, dropClientY);
+          if (axial) {
+            this._selectedCatalogDefinition = definition;
+            this._setTool('place');
+            this._renderCatalogList();
+            if (this._dom.catalogSelectedLabel) {
+              this._dom.catalogSelectedLabel.textContent = `Selected: ${definition.label}`;
+            }
+            this._placeSelectedDefinitionAt(axial.q, axial.r);
+          }
+        }
+      };
+
+      document.addEventListener('pointermove', onPointerMove);
+      document.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('blur', onPointerUp);
+      this._catalogDragCleanup = cleanup;
+    });
+  }
+
+  /**
+   * Converts a DOM client point (e.g. from a catalog drag gesture) into
+   * axial hex coordinates, accounting for canvas CSS scaling. Returns null
+   * when the point falls outside the canvas element entirely.
+   */
+  _clientPointToAxial(clientX, clientY) {
+    const canvas = this.hexCanvas?.app?.view;
+    if (!canvas) {
+      return null;
+    }
+    const rect = canvas.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom || rect.width === 0 || rect.height === 0) {
+      return null;
+    }
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+    return this.hexCanvas.globalToAxial(x, y);
   }
 
   // ---------------------------------------------------------------------------
@@ -1358,6 +1500,13 @@ export class RoomEditorShell {
     addRow('Elevation (ft)', String(placement.elevation_ft ?? 0));
     wrapper.appendChild(info);
 
+    const details = document.createElement('div');
+    details.className = 'room-editor__placement-details';
+    details.dataset.instanceId = placement.instance_id;
+    details.textContent = 'Loading catalog details…';
+    wrapper.appendChild(details);
+    this._loadPlacementDetails(placement, details);
+
     wrapper.appendChild(this._labeledInput('placement-q', 'Move to Q', 'number', placement.anchor_hex?.q ?? 0));
     wrapper.appendChild(this._labeledInput('placement-r', 'Move to R', 'number', placement.anchor_hex?.r ?? 0));
     const moveBtn = document.createElement('button');
@@ -1382,6 +1531,63 @@ export class RoomEditorShell {
     wrapper.appendChild(removeBtn);
 
     return wrapper;
+  }
+
+  /**
+   * Async-enriches a placement inspector panel with catalog details (name,
+   * description, category, tags) and a link to the canonical-library edit
+   * page. `detailsEl` is re-checked against the live DOM/selection before
+   * mutating it, in case the user re-selected something else while the
+   * fetch was in flight.
+   */
+  async _loadPlacementDetails(placement, detailsEl) {
+    const family = placement.definition_ref?.family || '';
+    const definitionId = placement.definition_ref?.definition_id || '';
+    const entry = await this._fetchCatalogEntry(family, definitionId);
+    if (!detailsEl.isConnected || this.selection?.instanceId !== placement.instance_id) {
+      return;
+    }
+    clearElement(detailsEl);
+
+    if (!entry) {
+      const missing = document.createElement('p');
+      missing.className = 'room-editor__hint';
+      missing.textContent = 'Catalog details unavailable for this object.';
+      detailsEl.appendChild(missing);
+      return;
+    }
+
+    const info = document.createElement('dl');
+    info.className = 'room-editor__definition-list';
+    const addRow = (term, value) => {
+      if (!value) {
+        return;
+      }
+      const dt = document.createElement('dt');
+      dt.textContent = term;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      info.appendChild(dt);
+      info.appendChild(dd);
+    };
+    addRow('Name', entry.label);
+    addRow('Category', entry.category);
+    addRow('Description', entry.description);
+    if (Array.isArray(entry.tags) && entry.tags.length > 0) {
+      addRow('Tags', entry.tags.join(', '));
+    }
+    detailsEl.appendChild(info);
+
+    const editUrl = this._canonicalLibraryEditUrl(family, definitionId);
+    if (editUrl) {
+      const link = document.createElement('a');
+      link.className = 'room-editor__port-link';
+      link.href = editUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'Edit in canonical library ↗';
+      detailsEl.appendChild(link);
+    }
   }
 
   _buildPortInspector(family, port) {
@@ -1671,6 +1877,50 @@ export class RoomEditorShell {
   _urlFor(key, draftId) {
     const template = this.urls[key] || '';
     return template.replace('{draft_id}', encodeURIComponent(draftId));
+  }
+
+  _catalogEntryUrl(family, definitionId) {
+    const template = this.urls.catalogEntry || '';
+    return template
+      .replace('{family}', encodeURIComponent(family))
+      .replace('{definition_id}', encodeURIComponent(definitionId));
+  }
+
+  _canonicalLibraryEditUrl(family, definitionId) {
+    const template = this.urls.canonicalLibraryEdit || '';
+    const base = template
+      .replace('{family}', encodeURIComponent(family))
+      .replace('{definition_id}', encodeURIComponent(definitionId));
+    if (!base) {
+      return '';
+    }
+    const returnTo = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+    return `${base}?return_to=${returnTo}`;
+  }
+
+  /**
+   * Fetches (and caches) the normalized catalog entry for a placement's
+   * family/definition_id, used to enrich the inspector with name/description
+   * details that placements don't carry inline. Returns null on any failure.
+   */
+  async _fetchCatalogEntry(family, definitionId) {
+    const key = `${family}:${definitionId}`;
+    if (this._catalogEntryCache.has(key)) {
+      return this._catalogEntryCache.get(key);
+    }
+    const url = this._catalogEntryUrl(family, definitionId);
+    if (!url) {
+      return null;
+    }
+    let entry = null;
+    try {
+      const result = await this._getJson(url);
+      entry = result?.data || null;
+    } catch (_err) {
+      entry = null;
+    }
+    this._catalogEntryCache.set(key, entry);
+    return entry;
   }
 
   async _runExclusive(fn) {

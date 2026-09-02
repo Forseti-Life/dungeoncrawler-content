@@ -36,6 +36,10 @@ class RoomEditorController extends ControllerBase {
    */
   public function page(?string $room_id = NULL): array {
     $placeholder = '00000000-0000-4000-8000-000000000000';
+    // Route "family" is constrained to a fixed enum, so the placeholder must
+    // be one of the valid values for Url::fromRoute() to generate a path.
+    $family_placeholder = 'creature';
+    $definition_placeholder = 'placeholder-definition-id';
     return [
       '#theme' => 'room_editor',
       '#rooms' => $this->roomEditor->listRooms(),
@@ -55,6 +59,22 @@ class RoomEditorController extends ControllerBase {
                 'validate' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_validate', ['draft_id' => $placeholder])->toString()),
                 'publish' => str_replace($placeholder, '{draft_id}', Url::fromRoute('dungeoncrawler_content.room_editor_publish', ['draft_id' => $placeholder])->toString()),
                 'catalog' => Url::fromRoute('dungeoncrawler_content.room_editor_catalog')->toString(),
+                'catalogEntry' => str_replace(
+                  [$family_placeholder, $definition_placeholder],
+                  ['{family}', '{definition_id}'],
+                  Url::fromRoute('dungeoncrawler_content.room_editor_catalog_entry', [
+                    'family' => $family_placeholder,
+                    'definition_id' => $definition_placeholder,
+                  ])->toString()
+                ),
+                'canonicalLibraryEdit' => str_replace(
+                  [$family_placeholder, $definition_placeholder],
+                  ['{family}', '{definition_id}'],
+                  Url::fromRoute('dungeoncrawler_content.canonical_library_edit', [
+                    'family' => $family_placeholder,
+                    'definition_id' => $definition_placeholder,
+                  ])->toString()
+                ),
               ],
             ],
           ],
@@ -159,6 +179,24 @@ class RoomEditorController extends ControllerBase {
       return new JsonResponse([
         'data' => $this->roomEditor->catalog($family, $search, $limit, $offset),
       ]);
+    }
+    catch (\Throwable $exception) {
+      return $this->errorResponse($exception);
+    }
+  }
+
+  /**
+   * Returns one normalized placeable definition for inspector lookups.
+   */
+  public function catalogEntry(string $family, string $definition_id): JsonResponse {
+    try {
+      $entry = $this->roomEditor->catalogEntry($family, $definition_id);
+      if ($entry === NULL) {
+        return new JsonResponse([
+          'error' => ['code' => 'catalog_entry_not_found', 'message' => 'Catalog entry not found'],
+        ], 404);
+      }
+      return new JsonResponse(['data' => $entry]);
     }
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
