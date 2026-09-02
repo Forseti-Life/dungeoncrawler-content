@@ -204,7 +204,10 @@
   padding: var(--space-2, 8px);
   border-radius: var(--radius-md, 6px);
   border: 1px solid transparent;
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 .room-editor__catalog-item:hover {

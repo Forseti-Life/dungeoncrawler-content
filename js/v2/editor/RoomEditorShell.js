@@ -1200,6 +1200,16 @@ export class RoomEditorShell {
       if (event.button !== 0 && event.pointerType === 'mouse') {
         return;
       }
+      // Prevent the browser's native text-selection/drag-image gesture from
+      // hijacking the pointer sequence (this was the main cause of
+      // inconsistent/"stuck" drags reported by users).
+      event.preventDefault();
+      try {
+        item.setPointerCapture(event.pointerId);
+      } catch (_err) {
+        // Pointer capture is best-effort; continue without it if unsupported.
+      }
+
       const startX = event.clientX;
       const startY = event.clientY;
       let dragging = false;
@@ -1239,11 +1249,18 @@ export class RoomEditorShell {
       const cleanup = () => {
         document.removeEventListener('pointermove', onPointerMove);
         document.removeEventListener('pointerup', onPointerUp);
-        window.removeEventListener('blur', onPointerUp);
+        document.removeEventListener('pointercancel', onPointerCancel);
+        window.removeEventListener('blur', onPointerCancel);
+        try {
+          item.releasePointerCapture(event.pointerId);
+        } catch (_err) {
+          // Ignore — capture may already have been released implicitly.
+        }
         if (ghost) {
           ghost.remove();
           ghost = null;
         }
+        dragging = false;
         document.body.classList.remove('room-editor__body--dragging');
         this.hexCanvas?.clearMovementBandOverlay();
         this._catalogDragCleanup = null;
@@ -1283,9 +1300,22 @@ export class RoomEditorShell {
         }
       };
 
+      // Aborts the gesture without attempting a placement — used when the
+      // browser takes over the pointer sequence (e.g. native scroll/select
+      // takeover) or the window loses focus mid-drag. Critically, this
+      // guarantees `cleanup()` always runs, so the document-level listeners
+      // never linger and hijack the *next* unrelated click/drag.
+      const onPointerCancel = () => {
+        if (dragging) {
+          this._suppressNextCatalogClick = true;
+        }
+        cleanup();
+      };
+
       document.addEventListener('pointermove', onPointerMove);
       document.addEventListener('pointerup', onPointerUp);
-      window.addEventListener('blur', onPointerUp);
+      document.addEventListener('pointercancel', onPointerCancel);
+      window.addEventListener('blur', onPointerCancel);
       this._catalogDragCleanup = cleanup;
     });
   }
