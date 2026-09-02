@@ -227,6 +227,12 @@
   border: 1px solid rgba(0, 0, 0, 0.35);
 }
 
+.room-editor__catalog-swatch--image {
+  background-size: cover;
+  background-position: center;
+  border-radius: var(--radius-sm, 4px);
+}
+
 .room-editor__catalog-text {
   display: flex;
   flex-direction: column;
@@ -395,6 +401,12 @@
   color: #0f172a;
   pointer-events: none;
   will-change: transform;
+}
+
+.room-editor__drag-ghost--image {
+  border-radius: var(--radius-sm, 4px);
+  background-size: cover;
+  background-position: center;
 }
 
 body.room-editor__body--dragging {

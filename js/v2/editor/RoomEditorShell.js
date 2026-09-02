@@ -34,6 +34,7 @@
 
 import { GameEventBus } from '../GameEventBus.js';
 import { HexCanvas } from '../canvas/HexCanvas.js';
+import { SpriteService } from '../../SpriteService.js';
 
 const FAMILIES = ['creature', 'actor', 'item', 'obstacle', 'trap', 'hazard'];
 const SOLID_FAMILIES = ['actor', 'creature', 'obstacle'];
@@ -149,6 +150,18 @@ export class RoomEditorShell {
 
     this.catalog = { items: [], total: 0, limit: 40, offset: 0, family: '', search: '' };
     this._catalogEntryCache = new Map(); // "family:definition_id" -> normalized definition (inspector lookups)
+
+    // Canonical-library artwork. Reuses the same lookup-only sprite cache
+    // service the gameplay map uses (js/SpriteService.js) so any object that
+    // already has a generated/uploaded image renders that image instead of
+    // the family-colored placeholder circle - in both the catalog list and
+    // on the canvas. Deliberately uses fetchOne()/GET (lookup-only) rather
+    // than the batch-resolve endpoint, which auto-generates missing images
+    // server-side: the room editor should only ever *display* existing art,
+    // never trigger generation as a side effect of opening the editor.
+    this._sprites = new SpriteService();
+    this._spriteTextureCache = new Map(); // "family:definition_id" -> PIXI.Texture | 'missing' | 'pending'
+    this._catalogSpriteResolveInFlight = false;
 
     this._busy = false;
     this._dom = {};
@@ -617,6 +630,7 @@ export class RoomEditorShell {
 
     placements.forEach((placement) => {
       const family = String(placement?.definition_ref?.family || '');
+      const definitionId = String(placement?.definition_ref?.definition_id || '');
       const color = FAMILY_COLORS[family] ?? 0x94a3b8;
       const pos = this.hexCanvas.axialToPixel(Number(placement.anchor_hex?.q), Number(placement.anchor_hex?.r), hexSize);
       const isSelected = placement.instance_id === selectedId;
@@ -627,33 +641,53 @@ export class RoomEditorShell {
       token.eventMode = 'static';
       token.cursor = 'pointer';
 
-      const body = new PIXI.Graphics();
-      body.beginFill(color, 0.9);
-      body.lineStyle(isSelected ? 3 : 1.5, isSelected ? 0xffffff : 0x0f172a, 1);
-      body.drawCircle(0, 0, hexSize * 0.32);
-      body.endFill();
-      token.addChild(body);
+      const texture = this._ensureSpriteTexture(family, definitionId);
+      if (texture) {
+        // Real canonical-library art: sized to fill most of a hex, plus a
+        // thin selection ring so it stays visually consistent with the
+        // placeholder token style rather than looking unselectable.
+        const maxDim = hexSize * 1.5;
+        const sourceDim = Math.max(texture.width, texture.height, 1);
+        const sprite = new PIXI.Sprite(texture);
+        sprite.anchor.set(0.5);
+        sprite.scale.set(maxDim / sourceDim);
+        token.addChild(sprite);
 
-      const facing = Number(placement.facing || 0);
-      const angle = (Math.PI / 3) * facing - Math.PI / 2;
-      const arrow = new PIXI.Graphics();
-      arrow.beginFill(0x0f172a, 0.9);
-      arrow.drawPolygon([
-        Math.cos(angle) * hexSize * 0.32, Math.sin(angle) * hexSize * 0.32,
-        Math.cos(angle + 2.5) * hexSize * 0.14, Math.sin(angle + 2.5) * hexSize * 0.14,
-        Math.cos(angle - 2.5) * hexSize * 0.14, Math.sin(angle - 2.5) * hexSize * 0.14,
-      ]);
-      arrow.endFill();
-      token.addChild(arrow);
+        if (isSelected) {
+          const ring = new PIXI.Graphics();
+          ring.lineStyle(3, 0xffffff, 1);
+          ring.drawCircle(0, 0, hexSize * 0.42);
+          token.addChild(ring);
+        }
+      } else {
+        const body = new PIXI.Graphics();
+        body.beginFill(color, 0.9);
+        body.lineStyle(isSelected ? 3 : 1.5, isSelected ? 0xffffff : 0x0f172a, 1);
+        body.drawCircle(0, 0, hexSize * 0.32);
+        body.endFill();
+        token.addChild(body);
 
-      const label = new PIXI.Text(family.slice(0, 1).toUpperCase() || '?', {
-        fontFamily: 'Arial',
-        fontSize: Math.max(10, hexSize * 0.28),
-        fill: 0xf8fafc,
-        fontWeight: 'bold',
-      });
-      label.anchor.set(0.5);
-      token.addChild(label);
+        const facing = Number(placement.facing || 0);
+        const angle = (Math.PI / 3) * facing - Math.PI / 2;
+        const arrow = new PIXI.Graphics();
+        arrow.beginFill(0x0f172a, 0.9);
+        arrow.drawPolygon([
+          Math.cos(angle) * hexSize * 0.32, Math.sin(angle) * hexSize * 0.32,
+          Math.cos(angle + 2.5) * hexSize * 0.14, Math.sin(angle + 2.5) * hexSize * 0.14,
+          Math.cos(angle - 2.5) * hexSize * 0.14, Math.sin(angle - 2.5) * hexSize * 0.14,
+        ]);
+        arrow.endFill();
+        token.addChild(arrow);
+
+        const label = new PIXI.Text(family.slice(0, 1).toUpperCase() || '?', {
+          fontFamily: 'Arial',
+          fontSize: Math.max(10, hexSize * 0.28),
+          fill: 0xf8fafc,
+          fontWeight: 'bold',
+        });
+        label.anchor.set(0.5);
+        token.addChild(label);
+      }
 
       token.on('pointerdown', (event) => {
         event.stopPropagation();
@@ -1299,7 +1333,14 @@ export class RoomEditorShell {
       const swatchColor = /^#[0-9A-Fa-f]{6}$/.test(definition.visual?.color || '')
         ? definition.visual.color
         : `#${(FAMILY_COLORS[definition.family] ?? 0x94a3b8).toString(16).padStart(6, '0')}`;
-      swatch.style.backgroundColor = swatchColor;
+      const spriteId = String(definition.visual?.sprite_id || '').trim();
+      const spriteUrl = spriteId ? this._sprites.getCachedUrl(spriteId) : null;
+      if (spriteUrl) {
+        swatch.classList.add('room-editor__catalog-swatch--image');
+        swatch.style.backgroundImage = `url("${spriteUrl}")`;
+      } else {
+        swatch.style.backgroundColor = swatchColor;
+      }
       item.appendChild(swatch);
 
       const text = document.createElement('span');
@@ -1338,6 +1379,38 @@ export class RoomEditorShell {
     if (this._dom.catalogMoreBtn) {
       this._dom.catalogMoreBtn.hidden = this.catalog.offset >= this.catalog.total;
     }
+    this._resolveCatalogSprites();
+  }
+
+  /**
+   * Lookup-only (never generates) resolution of canonical-library art for
+   * every catalog item currently in the list. Runs at most one batch of
+   * lookups at a time; each fetchOne() result is cached in the shared
+   * SpriteService instance, so re-renders (search/family filter/"more"
+   * paging) only ever look up ids that aren't already cached. Re-renders
+   * the catalog list once resolution settles so swatches upgrade to real
+   * artwork in place.
+   */
+  _resolveCatalogSprites() {
+    if (this._catalogSpriteResolveInFlight) {
+      return;
+    }
+    const spriteIds = new Set();
+    this.catalog.items.forEach((definition) => {
+      const spriteId = String(definition.visual?.sprite_id || '').trim();
+      if (spriteId && !this._sprites.isCached(spriteId)) {
+        spriteIds.add(spriteId);
+      }
+    });
+    if (spriteIds.size === 0) {
+      return;
+    }
+    this._catalogSpriteResolveInFlight = true;
+    Promise.all(Array.from(spriteIds, (id) => this._sprites.fetchOne(id)))
+      .finally(() => {
+        this._catalogSpriteResolveInFlight = false;
+        this._renderCatalogList();
+      });
   }
 
   // ---------------------------------------------------------------------------
@@ -1420,8 +1493,15 @@ export class RoomEditorShell {
       const createGhost = () => {
         const el = document.createElement('div');
         el.className = 'room-editor__drag-ghost';
-        el.style.backgroundColor = swatchColor;
-        el.textContent = (definition.label || '?').trim().slice(0, 1).toUpperCase() || '?';
+        const spriteId = String(definition.visual?.sprite_id || '').trim();
+        const spriteUrl = spriteId ? this._sprites.getCachedUrl(spriteId) : null;
+        if (spriteUrl) {
+          el.style.backgroundImage = `url("${spriteUrl}")`;
+          el.classList.add('room-editor__drag-ghost--image');
+        } else {
+          el.style.backgroundColor = swatchColor;
+          el.textContent = (definition.label || '?').trim().slice(0, 1).toUpperCase() || '?';
+        }
         document.body.appendChild(el);
         return el;
       };
@@ -2267,6 +2347,69 @@ export class RoomEditorShell {
     }
     this._catalogEntryCache.set(key, entry);
     return entry;
+  }
+
+  /**
+   * Returns a ready PIXI.Texture for a placement's canonical-library art if
+   * one is already cached, or `null` if it isn't ready yet. When `null` is
+   * returned, resolution is kicked off in the background (catalog entry ->
+   * sprite_id -> lookup-only URL fetch -> image decode) and `_renderPlacements()`
+   * is re-run once it settles (found or not), so tokens transparently
+   * upgrade from the placeholder circle to real art without the caller
+   * having to await anything. Lookup-only: never triggers image generation.
+   */
+  _ensureSpriteTexture(family, definitionId) {
+    const key = `${family}:${definitionId}`;
+    if (!family || !definitionId) {
+      return null;
+    }
+    const cached = this._spriteTextureCache.get(key);
+    if (cached === 'pending' || cached === 'missing') {
+      return null;
+    }
+    if (cached) {
+      return cached;
+    }
+    this._spriteTextureCache.set(key, 'pending');
+    (async () => {
+      try {
+        const definition = await this._fetchCatalogEntry(family, definitionId);
+        const spriteId = String(definition?.visual?.sprite_id || '').trim();
+        if (!spriteId) {
+          this._spriteTextureCache.set(key, 'missing');
+          return;
+        }
+        const url = this._sprites.getCachedUrl(spriteId) || await this._sprites.fetchOne(spriteId);
+        if (!url) {
+          this._spriteTextureCache.set(key, 'missing');
+          return;
+        }
+        const texture = await this._loadImageTexture(url);
+        this._spriteTextureCache.set(key, texture || 'missing');
+      } catch (_err) {
+        this._spriteTextureCache.set(key, 'missing');
+      } finally {
+        this._renderPlacements();
+      }
+    })();
+    return null;
+  }
+
+  /** Decodes an image URL into a PIXI.Texture; resolves null on failure. */
+  _loadImageTexture(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          resolve(new PIXI.Texture(new PIXI.BaseTexture(img)));
+        } catch (_err) {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
   }
 
   async _runExclusive(fn) {
