@@ -1152,10 +1152,6 @@ export class RoomEditorShell {
       item.appendChild(text);
 
       const select = () => {
-        if (this._suppressNextCatalogClick) {
-          this._suppressNextCatalogClick = false;
-          return;
-        }
         this._selectedCatalogDefinition = definition;
         this._setTool('place');
         this._renderCatalogList();
@@ -1163,14 +1159,13 @@ export class RoomEditorShell {
           this._dom.catalogSelectedLabel.textContent = `Selected: ${definition.label}`;
         }
       };
-      item.addEventListener('click', select);
       item.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           select();
         }
       });
-      this._bindCatalogDragSource(item, definition, swatchColor);
+      this._bindCatalogDragSource(item, definition, swatchColor, select);
 
       list.appendChild(item);
     });
@@ -1191,15 +1186,59 @@ export class RoomEditorShell {
   // click-to-hold / drag / release-to-drop visual the user asked for. Short
   // taps (no meaningful pointer movement) fall through to the existing
   // click-to-select behavior instead of being treated as a drag.
+  //
+  // `select` (the plain-click behavior) is bound here too, rather than in
+  // _renderCatalogList, because the browser's compatibility `click` event
+  // targets whatever element is under the pointer at release time — NOT
+  // necessarily this item (a real drag-out-and-drop releases over the
+  // canvas, so no click ever reaches this <li>). A per-item `suppressClick`
+  // flag (scoped to this closure, not a shared instance field) prevents a
+  // stray click from re-triggering select() only when this exact item's own
+  // drag both exceeded the threshold AND still ends with the pointer over
+  // this item; it can never leak into an unrelated item's click.
   // ---------------------------------------------------------------------------
 
-  _bindCatalogDragSource(item, definition, swatchColor) {
+  _bindCatalogDragSource(item, definition, swatchColor, select) {
     const DRAG_THRESHOLD_PX = 6;
+    let suppressClick = false;
+    let activePointerId = null;
+
+    // Arms the click-suppression flag for exactly one event-loop turn. This
+    // only ever matters for a gesture that starts AND ends on this same
+    // item (a jittery press-drag-release that never leaves the <li>, so the
+    // browser's compatibility `click` event still fires on it right after
+    // pointerup/pointercancel). A real cross-element drag-drop releases over
+    // the canvas, so no click ever reaches this item and the flag is simply
+    // never consumed — the setTimeout below guarantees it can't linger and
+    // swallow an unrelated, later click on this same item.
+    const armSuppressClick = () => {
+      suppressClick = true;
+      setTimeout(() => {
+        suppressClick = false;
+      }, 0);
+    };
+
+    item.addEventListener('click', (event) => {
+      if (suppressClick) {
+        suppressClick = false;
+        event.stopPropagation();
+        return;
+      }
+      select();
+    });
 
     item.addEventListener('pointerdown', (event) => {
       if (event.button !== 0 && event.pointerType === 'mouse') {
         return;
       }
+      // Guard against a stray second pointerdown arriving on this item while
+      // a prior gesture (from another pointer/finger) is still in progress —
+      // ignore it rather than layering a second set of document listeners.
+      if (activePointerId !== null) {
+        return;
+      }
+      activePointerId = event.pointerId;
+
       // Prevent the browser's native text-selection/drag-image gesture from
       // hijacking the pointer sequence (this was the main cause of
       // inconsistent/"stuck" drags reported by users).
@@ -1261,12 +1300,16 @@ export class RoomEditorShell {
           ghost = null;
         }
         dragging = false;
+        activePointerId = null;
         document.body.classList.remove('room-editor__body--dragging');
         this.hexCanvas?.clearMovementBandOverlay();
         this._catalogDragCleanup = null;
       };
 
       const onPointerMove = (moveEvent) => {
+        if (moveEvent.pointerId !== event.pointerId) {
+          return;
+        }
         const dx = moveEvent.clientX - startX;
         const dy = moveEvent.clientY - startY;
         if (!dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
@@ -1281,12 +1324,15 @@ export class RoomEditorShell {
       };
 
       const onPointerUp = (upEvent) => {
+        if (upEvent.pointerId !== event.pointerId) {
+          return;
+        }
         const wasDragging = dragging;
         const dropClientX = upEvent.clientX ?? startX;
         const dropClientY = upEvent.clientY ?? startY;
         cleanup();
         if (wasDragging) {
-          this._suppressNextCatalogClick = true;
+          armSuppressClick();
           const axial = this._clientPointToAxial(dropClientX, dropClientY);
           if (axial) {
             this._selectedCatalogDefinition = definition;
@@ -1304,10 +1350,15 @@ export class RoomEditorShell {
       // browser takes over the pointer sequence (e.g. native scroll/select
       // takeover) or the window loses focus mid-drag. Critically, this
       // guarantees `cleanup()` always runs, so the document-level listeners
-      // never linger and hijack the *next* unrelated click/drag.
-      const onPointerCancel = () => {
+      // never linger and hijack the *next* unrelated click/drag. `blur`
+      // carries no pointerId, so it always aborts regardless of which
+      // pointer is mid-gesture when focus is lost.
+      const onPointerCancel = (cancelEvent) => {
+        if (cancelEvent && typeof cancelEvent.pointerId === 'number' && cancelEvent.pointerId !== event.pointerId) {
+          return;
+        }
         if (dragging) {
-          this._suppressNextCatalogClick = true;
+          armSuppressClick();
         }
         cleanup();
       };

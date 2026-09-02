@@ -215,7 +215,7 @@ hexmap-v2:
     - core/once
 
 room-editor:
-  version: 20260902-v3-drag-drop-cancel-fix
+  version: 20260902-v5-suppress-click-self-expire
   js:
     https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js: { type: external, minified: true }
     js/room-editor.js: { attributes: { type: module } }
