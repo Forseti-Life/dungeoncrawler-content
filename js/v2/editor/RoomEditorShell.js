@@ -132,6 +132,18 @@ export class RoomEditorShell {
     this.selection = null; // Room, hex, placement, or room-local port selection.
     this._selectedCatalogDefinition = null;
 
+    // Copy/paste (Ctrl+C / Ctrl+V) clipboard for placements. Stores only the
+    // instance_id of the copied placement (re-resolved against the live
+    // draft at paste time via _findPlacement) rather than a snapshot, so a
+    // paste always reflects the object's current facing/overrides/etc. even
+    // if it was edited after being copied. `_lastHoverAxial` tracks the most
+    // recent hex the pointer was over on the canvas (updated on every stage
+    // pointermove, independent of drag state) so Ctrl+V can paste at the
+    // cursor position; it falls back to a nearby free hex when the pointer
+    // hasn't been over the canvas yet.
+    this._clipboard = null;
+    this._lastHoverAxial = null;
+
     this._history = []; // stack of applied forward command ids
     this._redoStack = []; // stack of { undoCommandId, forwardCommandId }
 
@@ -760,6 +772,12 @@ export class RoomEditorShell {
   }
 
   _handleStageDragMove(event) {
+    // Track the hex under the pointer on every canvas pointermove (not just
+    // during an active drag) so Ctrl+V has a natural "paste here" target.
+    const global = event?.data?.global;
+    if (global && this.hexCanvas) {
+      this._lastHoverAxial = this.hexCanvas.globalToAxial(global.x, global.y);
+    }
     if (this._dragState?.kind === 'port') {
       this._handlePortDragMove(event);
     }
@@ -2085,6 +2103,18 @@ export class RoomEditorShell {
       this.redo();
       return;
     }
+    if (isMeta && event.key.toLowerCase() === 'c') {
+      if (this.selection?.type === 'placement') {
+        event.preventDefault();
+        this._copySelectedPlacement();
+      }
+      return;
+    }
+    if (isMeta && event.key.toLowerCase() === 'v') {
+      event.preventDefault();
+      this._pasteClipboard();
+      return;
+    }
     if (event.key === 'Delete' || event.key === 'Backspace') {
       if (this.selection?.type === 'placement') {
         event.preventDefault();
@@ -2094,6 +2124,96 @@ export class RoomEditorShell {
         this._sendCommand('remove_hex', { hex: { q: this.selection.q, r: this.selection.r } });
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Copy / paste
+  //
+  // Ctrl+C copies the selected placement's instance_id (not a data snapshot,
+  // so a later paste always reflects the object's current state). Ctrl+V
+  // duplicates it via the existing duplicate_object command, which already
+  // preserves definition_ref/facing/elevation_ft/overrides/state_defaults
+  // server-side. The paste target is: the hex currently under the pointer
+  // (if it's inside the room and free), otherwise the nearest free hex found
+  // by an expanding ring search around the copied object's own anchor hex.
+  // Repeated Ctrl+V (no further mouse movement) naturally lands on the next
+  // free ring hex each time, so pasting several times in a row fans objects
+  // out instead of erroring on "already occupied".
+  // ---------------------------------------------------------------------------
+
+  _copySelectedPlacement() {
+    const placement = this._findPlacement(this.selection.instanceId);
+    if (!placement) {
+      return;
+    }
+    this._clipboard = { instanceId: placement.instance_id };
+    this._setStatus(`Copied ${this._describePlacement(placement)}. Press Ctrl+V to paste.`, 'info');
+  }
+
+  async _pasteClipboard() {
+    if (!this._clipboard) {
+      this._setStatus('Nothing to paste — copy an object first (Ctrl+C).', 'error');
+      return;
+    }
+    const source = this._findPlacement(this._clipboard.instanceId);
+    if (!source) {
+      this._clipboard = null;
+      this._setStatus('Cannot paste: the copied object no longer exists.', 'error');
+      return;
+    }
+    const family = String(source.definition_ref?.family || '');
+    const target = this._findPasteTargetHex(family, Number(source.anchor_hex?.q), Number(source.anchor_hex?.r));
+    if (!target) {
+      this._setStatus('Cannot paste: no free hex found near the copied object.', 'error');
+      return;
+    }
+    const newInstanceId = uuidv4();
+    const result = await this._sendCommand('duplicate_object', {
+      instance_id: source.instance_id,
+      new_instance_id: newInstanceId,
+      anchor_hex: { q: target.q, r: target.r },
+    });
+    if (!result) {
+      // Command failed (validation error, revision conflict, etc.) — status
+      // bar already shows the error from _sendCommand/_runExclusive.
+      return;
+    }
+    // Select the pasted copy so the user can immediately see/drag/nudge it
+    // without having to click it manually.
+    this.selection = { type: 'placement', instanceId: newInstanceId };
+    this._renderInspector();
+    this._renderPlacements();
+  }
+
+  // Prefers the hex currently under the pointer; otherwise walks outward in
+  // hex rings from `originQ,originR` (the copied object's own hex) until it
+  // finds a room hex with no solid-family collision. Caps the search at a
+  // small ring radius so it can't hang on a fully-packed room.
+  _findPasteTargetHex(family, originQ, originR) {
+    const isFree = (q, r) => Boolean(this._findRoomHex(q, r))
+      && !(this._isSolidFamily(family) && this._findSolidPlacementAt(q, r));
+
+    const hover = this._lastHoverAxial;
+    if (hover && isFree(hover.q, hover.r)) {
+      return { q: hover.q, r: hover.r };
+    }
+
+    const DIRECTIONS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+    const MAX_RING = 6;
+    for (let ring = 1; ring <= MAX_RING; ring += 1) {
+      let q = originQ + DIRECTIONS[4][0] * ring;
+      let r = originR + DIRECTIONS[4][1] * ring;
+      for (let side = 0; side < 6; side += 1) {
+        for (let step = 0; step < ring; step += 1) {
+          if (isFree(q, r)) {
+            return { q, r };
+          }
+          q += DIRECTIONS[side][0];
+          r += DIRECTIONS[side][1];
+        }
+      }
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------------------
