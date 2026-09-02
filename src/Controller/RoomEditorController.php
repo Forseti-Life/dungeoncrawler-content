@@ -35,6 +35,10 @@ class RoomEditorController extends ControllerBase {
    * Renders the editor shell.
    */
   public function page(?string $room_id = NULL): array {
+    // The bare /room-editor path (no {room_id} segment) has no natural
+    // default room to show; land on "The Gilded Tankard" (tavern_entrance)
+    // since it's the primary canonical room this team edits day-to-day.
+    $room_id = $room_id ?? 'tavern_entrance';
     $placeholder = '00000000-0000-4000-8000-000000000000';
     // Route "family" is constrained to a fixed enum, so the placeholder must
     // be one of the valid values for Url::fromRoute() to generate a path.
