@@ -3133,11 +3133,59 @@ PROMPT;
 
   /**
    * Build a stable canonical item content id for generated equipment.
+   *
+   * Resolves to an existing curated catalog item (by normalized name) when
+   * one already exists, instead of always minting a new `generated_item_*`
+   * id. Historically this always prefixed a fresh id even when a real
+   * catalog entry (e.g. `breastplate`) already existed for the same name,
+   * producing duplicate rows (`breastplate` + `generated_item_breastplate`)
+   * that both surfaced in catalog/pick lists such as the Room Editor.
    */
   protected function buildGeneratedItemContentId(string $label): string {
     $normalized = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '_', $label), '_'));
     $normalized = preg_replace('/_+/', '_', (string) $normalized);
-    return $normalized !== '' ? 'generated_item_' . $normalized : 'generated_item';
+    if ($normalized === '') {
+      return 'generated_item';
+    }
+
+    $existing = $this->findCanonicalItemContentId($normalized, $label);
+    if ($existing !== NULL) {
+      return $existing;
+    }
+
+    return 'generated_item_' . $normalized;
+  }
+
+  /**
+   * Looks up an already-registered, non-generated item by slug or name.
+   *
+   * @param string $normalized_slug
+   *   Slugified label (e.g. "breastplate").
+   * @param string $label
+   *   Original display label (e.g. "Breastplate").
+   *
+   * @return string|null
+   *   The existing content_id if a curated match is found, otherwise NULL.
+   */
+  protected function findCanonicalItemContentId(string $normalized_slug, string $label): ?string {
+    // Guard for unit-test subclasses / partial constructions that never wire
+    // up a database connection (typed property access would otherwise
+    // fatal with "must not be accessed before initialization").
+    if (!isset($this->database)) {
+      return NULL;
+    }
+
+    $query = $this->database->select('dungeoncrawler_content_registry', 'r')
+      ->fields('r', ['content_id', 'source_file'])
+      ->condition('content_type', 'item')
+      ->condition('source_file', 'ai_generated', '<>');
+    $or = $query->orConditionGroup()
+      ->condition('content_id', $normalized_slug)
+      ->condition('name', $label);
+    $query->condition($or);
+    $query->range(0, 1);
+    $content_id = $query->execute()->fetchField();
+    return $content_id !== FALSE ? (string) $content_id : NULL;
   }
 
   /**
