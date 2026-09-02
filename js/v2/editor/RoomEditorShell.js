@@ -324,15 +324,17 @@ export class RoomEditorShell {
       this.hexCanvas.app.stage.on('pointerdown', this._stageClickHandler);
       // Placement drag-to-move: tokens start the gesture (see _renderPlacements),
       // but move/end are tracked on the stage so the drag survives the pointer
-      // leaving the token's small hit area mid-gesture.
-      this._stageMoveHandler = (event) => this._handlePlacementDragMove(event);
+      // leaving the token's small hit area mid-gesture. Both placements and
+      // entry/exit ports share this dispatcher, distinguished by
+      // `this._dragState.kind`.
+      this._stageMoveHandler = (event) => this._handleStageDragMove(event);
       this.hexCanvas.app.stage.on('pointermove', this._stageMoveHandler);
-      this._stageUpHandler = (event) => this._handlePlacementDragEnd(event);
+      this._stageUpHandler = (event) => this._handleStageDragEnd(event);
       this.hexCanvas.app.stage.on('pointerup', this._stageUpHandler);
       this.hexCanvas.app.stage.on('pointerupoutside', this._stageUpHandler);
     }
     if (this.hexCanvas.app?.view) {
-      this._canvasLeaveDragHandler = () => this._cancelPlacementDrag();
+      this._canvasLeaveDragHandler = () => this._cancelStageDrag();
       this.hexCanvas.app.view.addEventListener('mouseleave', this._canvasLeaveDragHandler);
     }
     this._logCanvasDiagnostics('init');
@@ -679,6 +681,7 @@ export class RoomEditorShell {
         marker.on('pointerdown', (event) => {
           event.stopPropagation();
           this._selectPort(family, port.port_id);
+          this._beginPortDrag(port, family, marker, event);
         });
         objectContainer.addChild(marker);
       });
@@ -686,20 +689,29 @@ export class RoomEditorShell {
   }
 
   // ---------------------------------------------------------------------------
-  // Placement drag-to-move
+  // Placement / port drag-to-move
   //
-  // Dragging never mutates `draft.room` directly — the token is repositioned
-  // purely as a visual preview while the pointer is down, driven by
-  // globalToWorldPoint()/globalToAxial() so it tracks correctly under pan/zoom.
-  // On drop, a single authoritative `move_object` command is sent (same
-  // command + validation path as the inspector's manual q/r fields), and
+  // Dragging never mutates `draft.room` directly — the token/marker is
+  // repositioned purely as a visual preview while the pointer is down, driven
+  // by globalToWorldPoint()/globalToAxial() so it tracks correctly under pan/
+  // zoom. On drop, a single authoritative command is sent (move_object for
+  // placements, update_entry_port/update_exit_port for ports — same command
+  // + validation path as the inspector's manual fields), and
   // _renderPlacements() is re-run afterwards so the token always ends up
   // exactly where the confirmed server state says it is - on success that's
   // the new hex, on failure it snaps back to the original hex.
+  //
+  // A drag is started unconditionally on the token/marker's own pointerdown
+  // (which always stopPropagation()s before the stage's tool-driven click
+  // handler ever sees the event) — it does not depend on which tool is
+  // currently active. Requiring `tool === 'select'` here previously meant
+  // that after any catalog interaction left the active tool on 'place' (its
+  // normal post-selection/drop state), dragging an already-placed object or
+  // port silently did nothing, since the drag state was never created.
   // ---------------------------------------------------------------------------
 
   _beginPlacementDrag(placement, token, event) {
-    if (this.tool !== 'select' || !this.hexCanvas) {
+    if (!this.hexCanvas) {
       return;
     }
     const global = event?.data?.global;
@@ -707,6 +719,7 @@ export class RoomEditorShell {
       return;
     }
     this._dragState = {
+      kind: 'placement',
       instanceId: String(placement.instance_id),
       family: String(placement.definition_ref?.family || ''),
       token,
@@ -719,6 +732,58 @@ export class RoomEditorShell {
     token.alpha = 0.6;
     token.cursor = 'grabbing';
     this.hexCanvas.setPanEnabled(false);
+  }
+
+  _beginPortDrag(port, family, marker, event) {
+    if (!this.hexCanvas) {
+      return;
+    }
+    const global = event?.data?.global;
+    if (!global) {
+      return;
+    }
+    this._dragState = {
+      kind: 'port',
+      portId: String(port.port_id),
+      family,
+      marker,
+      edge: Number(port.edge || 0),
+      originQ: Number(port.hex?.q),
+      originR: Number(port.hex?.r),
+      currentQ: Number(port.hex?.q),
+      currentR: Number(port.hex?.r),
+      moved: false,
+    };
+    marker.alpha = 0.6;
+    marker.cursor = 'grabbing';
+    this.hexCanvas.setPanEnabled(false);
+  }
+
+  _handleStageDragMove(event) {
+    if (this._dragState?.kind === 'port') {
+      this._handlePortDragMove(event);
+    }
+    else if (this._dragState) {
+      this._handlePlacementDragMove(event);
+    }
+  }
+
+  _handleStageDragEnd(event) {
+    if (this._dragState?.kind === 'port') {
+      this._handlePortDragEnd(event);
+    }
+    else if (this._dragState) {
+      this._handlePlacementDragEnd(event);
+    }
+  }
+
+  _cancelStageDrag() {
+    if (this._dragState?.kind === 'port') {
+      this._cancelPortDrag();
+    }
+    else if (this._dragState) {
+      this._cancelPlacementDrag();
+    }
   }
 
   _handlePlacementDragMove(event) {
@@ -744,6 +809,39 @@ export class RoomEditorShell {
     dragState.currentR = axial.r;
     const valid = Boolean(this._findRoomHex(axial.q, axial.r))
       && !(this._isSolidFamily(dragState.family) && this._findSolidPlacementAt(axial.q, axial.r, dragState.instanceId));
+    this.hexCanvas.renderMovementBandOverlay(
+      valid ? { step: [{ q: axial.q, r: axial.r }] } : { stride3: [{ q: axial.q, r: axial.r }] },
+    );
+  }
+
+  _handlePortDragMove(event) {
+    const dragState = this._dragState;
+    if (!dragState || !this.hexCanvas) {
+      return;
+    }
+    const global = event?.data?.global;
+    if (!global) {
+      return;
+    }
+    const hexSize = this.hexCanvas.config.hexSize;
+    const angle = (Math.PI / 3) * dragState.edge - Math.PI / 2;
+    const worldPoint = this.hexCanvas.globalToWorldPoint(global.x, global.y);
+    if (worldPoint) {
+      // Keep the marker offset from the hex center along its (unchanged)
+      // edge angle, matching how _renderPlacements() positions it, so the
+      // marker doesn't visually jump to the raw cursor/hex-center position
+      // while dragging.
+      dragState.marker.x = worldPoint.x + Math.cos(angle) * hexSize * 0.68;
+      dragState.marker.y = worldPoint.y + Math.sin(angle) * hexSize * 0.68;
+    }
+    const axial = this.hexCanvas.globalToAxial(global.x, global.y);
+    if (!axial) {
+      return;
+    }
+    dragState.moved = true;
+    dragState.currentQ = axial.q;
+    dragState.currentR = axial.r;
+    const valid = Boolean(this._findRoomHex(axial.q, axial.r));
     this.hexCanvas.renderMovementBandOverlay(
       valid ? { step: [{ q: axial.q, r: axial.r }] } : { stride3: [{ q: axial.q, r: axial.r }] },
     );
@@ -775,6 +873,32 @@ export class RoomEditorShell {
     this._movePlacementTo(dragState.instanceId, dragState.family, dragState.currentQ, dragState.currentR);
   }
 
+  _handlePortDragEnd(event) {
+    const dragState = this._dragState;
+    if (!dragState) {
+      return;
+    }
+    this._dragState = null;
+    this.hexCanvas?.setPanEnabled(this.tool === 'select');
+    this.hexCanvas?.clearMovementBandOverlay();
+
+    const global = event?.data?.global;
+    if (global && this.hexCanvas) {
+      const axial = this.hexCanvas.globalToAxial(global.x, global.y);
+      if (axial) {
+        dragState.currentQ = axial.q;
+        dragState.currentR = axial.r;
+        dragState.moved = true;
+      }
+    }
+
+    if (!dragState.moved || (dragState.currentQ === dragState.originQ && dragState.currentR === dragState.originR)) {
+      this._renderPlacements();
+      return;
+    }
+    this._movePortTo(dragState.family, dragState.portId, dragState.currentQ, dragState.currentR);
+  }
+
   _cancelPlacementDrag() {
     if (!this._dragState) {
       return;
@@ -782,6 +906,27 @@ export class RoomEditorShell {
     this._dragState = null;
     this.hexCanvas?.setPanEnabled(this.tool === 'select');
     this.hexCanvas?.clearMovementBandOverlay();
+    this._renderPlacements();
+  }
+
+  _cancelPortDrag() {
+    if (!this._dragState) {
+      return;
+    }
+    this._dragState = null;
+    this.hexCanvas?.setPanEnabled(this.tool === 'select');
+    this.hexCanvas?.clearMovementBandOverlay();
+    this._renderPlacements();
+  }
+
+  async _movePortTo(family, portId, q, r) {
+    if (!this._findRoomHex(q, r)) {
+      this._setStatus(`Cannot move port outside the room at (${q}, ${r}).`, 'error');
+      this._renderPlacements();
+      return;
+    }
+    const commandType = family === 'entry' ? 'update_entry_port' : 'update_exit_port';
+    await this._sendCommand(commandType, { port_id: portId, changes: { hex: { q, r } } });
     this._renderPlacements();
   }
 
