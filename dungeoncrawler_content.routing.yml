@@ -33,6 +33,7 @@ dungeoncrawler_content.room_editor:
     _title: 'Canonical Room Editor'
   methods: [GET]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
 
 dungeoncrawler_content.room_editor_edit:
@@ -42,6 +43,7 @@ dungeoncrawler_content.room_editor_edit:
     _title: 'Canonical Room Editor'
   methods: [GET]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
     room_id: '[a-z0-9][a-z0-9_-]{0,99}'
 
@@ -51,6 +53,7 @@ dungeoncrawler_content.room_editor_catalog:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::catalog'
   methods: [GET]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
 
 dungeoncrawler_content.room_editor_catalog_entry:
@@ -59,6 +62,7 @@ dungeoncrawler_content.room_editor_catalog_entry:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::catalogEntry'
   methods: [GET]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
@@ -70,6 +74,7 @@ dungeoncrawler_content.canonical_library_edit:
     _title: 'Canonical Object Editor'
   methods: [GET, POST]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
     family: 'creature|actor|item|obstacle|trap|hazard'
     definition_id: '[a-zA-Z0-9][a-zA-Z0-9_-]{0,149}'
@@ -80,6 +85,7 @@ dungeoncrawler_content.room_editor_draft_create:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::createDraft'
   methods: [POST]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
 
 dungeoncrawler_content.room_editor_draft_get:
@@ -88,6 +94,7 @@ dungeoncrawler_content.room_editor_draft_get:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::getDraft'
   methods: [GET]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
@@ -97,6 +104,7 @@ dungeoncrawler_content.room_editor_command:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::command'
   methods: [POST]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
@@ -106,6 +114,7 @@ dungeoncrawler_content.room_editor_validate:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::validateRoom'
   methods: [POST]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
@@ -115,6 +124,7 @@ dungeoncrawler_content.room_editor_publish:
     _controller: '\Drupal\dungeoncrawler_content\Controller\RoomEditorController::publish'
   methods: [POST]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'publish canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
@@ -124,6 +134,7 @@ dungeoncrawler_content.room_editor_gm_describe:
     _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::describe'
   methods: [GET]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 
@@ -133,6 +144,7 @@ dungeoncrawler_content.room_editor_gm_execute:
     _controller: '\Drupal\dungeoncrawler_content\Controller\EditorGmController::execute'
   methods: [POST]
   requirements:
+    _user_is_logged_in: 'TRUE'
     _permission: 'edit canonical dungeoncrawler rooms'
     draft_id: '[0-9a-f-]{36}'
 

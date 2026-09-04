@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/dungeon_editor_command.schema.json",
+  "title": "Dungeon Editor Command",
+  "description": "One dungeon editor authoring command. The type list is complete and closed. Metadata changes always nest under 'changes' and coordinates always nest under a named key, matching the room editor conventions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command_id", "expected_revision", "type", "payload", "issued_at"],
+  "properties": {
+    "command_id": {"type": "string", "format": "uuid"},
+    "expected_revision": {"type": "integer", "minimum": 0},
+    "type": {
+      "enum": [
+        "set_dungeon_metadata",
+        "place_room",
+        "move_room_placement",
+        "rotate_room_placement",
+        "remove_room_placement",
+        "retarget_room_placement",
+        "set_placement_metadata",
+        "link_ports",
+        "update_port_link",
+        "unlink_ports",
+        "add_region",
+        "update_region",
+        "remove_region",
+        "undo",
+        "redo"
+      ]
+    },
+    "payload": {"type": "object"},
+    "issued_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {"if": {"properties": {"type": {"const": "set_dungeon_metadata"}}}, "then": {"properties": {"payload": {"required": ["changes"]}}}},
+    {"if": {"properties": {"type": {"const": "place_room"}}}, "then": {"properties": {"payload": {"required": ["room_id", "version_id", "origin", "rotation_steps"]}}}},
+    {"if": {"properties": {"type": {"const": "move_room_placement"}}}, "then": {"properties": {"payload": {"required": ["placement_id", "origin"]}}}},
+    {"if": {"properties": {"type": {"const": "rotate_room_placement"}}}, "then": {"properties": {"payload": {"required": ["placement_id", "rotation_steps"]}}}},
+    {"if": {"properties": {"type": {"const": "remove_room_placement"}}}, "then": {"properties": {"payload": {"required": ["placement_id"]}}}},
+    {"if": {"properties": {"type": {"const": "retarget_room_placement"}}}, "then": {"properties": {"payload": {"required": ["placement_id", "version_id"]}}}},
+    {"if": {"properties": {"type": {"const": "set_placement_metadata"}}}, "then": {"properties": {"payload": {"required": ["placement_id", "changes"]}}}},
+    {"if": {"properties": {"type": {"const": "link_ports"}}}, "then": {"properties": {"payload": {"required": ["from", "to", "kind", "direction", "default_state"]}}}},
+    {"if": {"properties": {"type": {"const": "update_port_link"}}}, "then": {"properties": {"payload": {"required": ["link_id", "changes"]}}}},
+    {"if": {"properties": {"type": {"const": "unlink_ports"}}}, "then": {"properties": {"payload": {"required": ["link_id"]}}}},
+    {"if": {"properties": {"type": {"const": "add_region"}}}, "then": {"properties": {"payload": {"required": ["region_id", "name", "placement_ids"]}}}},
+    {"if": {"properties": {"type": {"const": "update_region"}}}, "then": {"properties": {"payload": {"required": ["region_id", "changes"]}}}},
+    {"if": {"properties": {"type": {"const": "remove_region"}}}, "then": {"properties": {"payload": {"required": ["region_id"]}}}},
+    {"if": {"properties": {"type": {"enum": ["undo", "redo"]}}}, "then": {"properties": {"payload": {"required": ["target_command_id"]}}}}
+  ]
+}

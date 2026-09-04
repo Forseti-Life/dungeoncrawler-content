@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/dungeon_editor_validation_result.schema.json",
+  "title": "Dungeon Editor Validation Result",
+  "description": "Dungeon aggregate validation findings. The editing profile is permissive about incompleteness and strict about incorrectness: a half-built level is expected, an overlapping level never is, because the author cannot see the overlap and would keep building on top of it. The code list is closed so no validator can emit an unclassified finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile", "draft_id", "revision", "is_valid", "findings", "counts", "validated_at"],
+  "properties": {
+    "schema_version": {"const": "dungeon-editor-validation-result-v1"},
+    "profile": {"enum": ["editing", "publication"]},
+    "draft_id": {"type": "string", "format": "uuid"},
+    "revision": {"type": "integer", "minimum": 0},
+    "is_valid": {"type": "boolean"},
+    "findings": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/definitions/finding"}},
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "warning", "info"],
+      "properties": {
+        "error": {"type": "integer", "minimum": 0},
+        "warning": {"type": "integer", "minimum": 0},
+        "info": {"type": "integer", "minimum": 0}
+      }
+    },
+    "validated_at": {"type": "string", "format": "date-time"}
+  },
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message", "subjects"],
+      "properties": {
+        "severity": {"enum": ["error", "warning", "info"]},
+        "code": {
+          "enum": [
+            "placement_overlap",
+            "placement_version_unresolved",
+            "port_link_endpoint_missing",
+            "port_link_direction_invalid",
+            "port_link_not_adjacent",
+            "port_already_linked",
+            "port_link_self_reference",
+            "dungeon_entrance_missing",
+            "dungeon_entrance_ambiguous",
+            "placement_unreachable",
+            "exit_port_dangling",
+            "region_placement_unresolved"
+          ]
+        },
+        "message": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "subjects": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "placement_id": {"type": "string", "format": "uuid"},
+              "link_id": {"type": "string", "format": "uuid"},
+              "region_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+              "port_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"}
+            }
+          }
+        },
+        "hex": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["q", "r"],
+          "properties": {
+            "q": {"type": "integer", "minimum": -1000, "maximum": 1000},
+            "r": {"type": "integer", "minimum": -1000, "maximum": 1000}
+          }
+        }
+      }
+    }
+  }
+}

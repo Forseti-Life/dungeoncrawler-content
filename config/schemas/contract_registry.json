@@ -137,6 +137,34 @@
     "quest_confirmation_resolve": {
       "schema": "quest_confirmation_resolve.schema.json",
       "description": "Canonical runtime quest confirmation resolve payload."
+    },
+    "canonical_dungeon_aggregate": {
+      "schema": "canonical_dungeon_aggregate.schema.json",
+      "description": "Canonical dungeon level composed of placed room versions."
+    },
+    "dungeon_editor_draft": {
+      "schema": "dungeon_editor_draft.schema.json",
+      "description": "Mutable dungeon editor draft envelope."
+    },
+    "dungeon_editor_command": {
+      "schema": "dungeon_editor_command.schema.json",
+      "description": "One dungeon editor authoring command."
+    },
+    "dungeon_editor_command_result": {
+      "schema": "dungeon_editor_command_result.schema.json",
+      "description": "Outcome of one dungeon editor command."
+    },
+    "dungeon_editor_validation_result": {
+      "schema": "dungeon_editor_validation_result.schema.json",
+      "description": "Dungeon aggregate validation findings."
+    },
+    "dungeon_editor_publication": {
+      "schema": "dungeon_editor_publication.schema.json",
+      "description": "Immutable dungeon publication record."
+    },
+    "canonical_actor": {
+      "schema": "canonical_actor.schema.json",
+      "description": "Canonical actor definition stored in dc_canonical_actors."
     }
   }
 }

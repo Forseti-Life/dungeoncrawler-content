@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/canonical_actor.schema.json",
+  "title": "Canonical Actor",
+  "description": "Canonical actor definition stored in dc_canonical_actors. Derived from the observed shape of the 34 live rows; every required field is present in all of them and every optional field is present in at least one. Closes the actor family schema gap so the definition editor and the GM update_canonical_definition tool can validate before writing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["actor_id", "version", "actor_type", "display_name", "state_data"],
+  "properties": {
+    "actor_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,190}$"},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "actor_type": {"enum": ["pc", "npc", "party", "trap", "obstacle"]},
+    "display_name": {"type": "string", "minLength": 1, "maxLength": 255},
+    "source_module": {"type": ["string", "null"], "maxLength": 128},
+    "state_data": {"$ref": "#/definitions/state_data"}
+  },
+  "definitions": {
+    "state_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "class", "level", "hp_current", "conditions"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 255},
+        "class": {"type": "string", "minLength": 1, "maxLength": 64},
+        "level": {"type": "integer", "minimum": -1, "maximum": 30},
+        "hp_current": {"type": "integer", "minimum": 0},
+        "max_hp": {"type": "integer", "minimum": 0},
+        "ac": {"type": "integer", "minimum": 0},
+        "species": {"type": "string", "minLength": 1, "maxLength": 64},
+        "attitude": {"enum": ["hostile", "unfriendly", "indifferent", "friendly", "helpful"]},
+        "party_size": {"type": "integer", "minimum": 1, "maximum": 12},
+        "source_module": {"type": "string", "maxLength": 128},
+        "description": {"type": "string", "maxLength": 4000},
+        "conditions": {"$ref": "#/definitions/conditions"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"class": {"const": "party"}}, "required": ["class"]},
+          "then": {"required": ["party_size"]}
+        }
+      ]
+    },
+    "conditions": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 50,
+      "description": "Active PF2e conditions. Item shape is identical to character.schema.json#/properties/conditions so a canonical actor and a runtime character carry conditions in one format.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "value": {"type": ["integer", "null"]},
+          "duration": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/dungeon_editor_command_result.schema.json",
+  "title": "Dungeon Editor Command Result",
+  "description": "Outcome of one dungeon editor command. Replaying a command_id is idempotent and returns the original result with idempotent set to true.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command_id", "draft", "idempotent"],
+  "properties": {
+    "command_id": {"type": "string", "format": "uuid"},
+    "draft": {"$ref": "dungeon_editor_draft.schema.json"},
+    "idempotent": {"type": "boolean"}
+  }
+}

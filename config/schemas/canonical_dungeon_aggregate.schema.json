@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dungeoncrawler.forseti.life/schemas/canonical_dungeon_aggregate.schema.json",
+  "title": "Canonical Dungeon Aggregate",
+  "description": "A published dungeon level composed of placed room versions. Rooms are composed by reference with a pinned immutable version_id and are never inlined. Occupancy is derived at read time and never stored. Connector rows are a one-way projection produced at publication, so no connector shape appears here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "dungeon_id", "name", "description", "depth", "theme", "hex_grid", "room_placements", "port_links", "regions", "metadata"],
+  "properties": {
+    "schema_version": {"const": "canonical-dungeon-v1"},
+    "dungeon_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 200},
+    "description": {"type": "string", "maxLength": 8000},
+    "depth": {"type": "integer", "minimum": 0, "maximum": 100},
+    "theme": {"type": "string", "maxLength": 100},
+    "hex_grid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["orientation", "hex_size_ft", "origin", "coordinate_system"],
+      "properties": {
+        "orientation": {"const": "flat-top"},
+        "hex_size_ft": {"const": 5},
+        "origin": {"$ref": "#/definitions/coordinate"},
+        "coordinate_system": {"const": "axial"}
+      }
+    },
+    "room_placements": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {"$ref": "#/definitions/room_placement"}
+    },
+    "port_links": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {"$ref": "#/definitions/port_link"}
+    },
+    "regions": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"$ref": "#/definitions/region"}
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["tags", "provenance", "catalog_version"],
+      "properties": {
+        "tags": {"type": "array", "uniqueItems": true, "maxItems": 50, "items": {"type": "string"}},
+        "provenance": {"type": "object"},
+        "catalog_version": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
+  },
+  "definitions": {
+    "coordinate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["q", "r"],
+      "properties": {
+        "q": {"type": "integer", "minimum": -1000, "maximum": 1000},
+        "r": {"type": "integer", "minimum": -1000, "maximum": 1000}
+      }
+    },
+    "room_placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placement_id", "room_id", "version_id", "origin", "rotation_steps", "label", "is_level_entrance", "tags"],
+      "properties": {
+        "placement_id": {"type": "string", "format": "uuid"},
+        "room_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+        "version_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Required. A placement always pins one immutable published room version. There is no implicit current version."
+        },
+        "origin": {"$ref": "#/definitions/coordinate"},
+        "rotation_steps": {"type": "integer", "minimum": 0, "maximum": 5},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "is_level_entrance": {"type": "boolean"},
+        "tags": {"type": "array", "uniqueItems": true, "maxItems": 50, "items": {"type": "string"}}
+      }
+    },
+    "port_endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placement_id", "port_id"],
+      "properties": {
+        "placement_id": {"type": "string", "format": "uuid"},
+        "port_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"}
+      }
+    },
+    "port_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["link_id", "from", "to", "kind", "direction", "default_state", "travel_cost", "requirements", "description", "tags"],
+      "properties": {
+        "link_id": {"type": "string", "format": "uuid"},
+        "from": {"$ref": "#/definitions/port_endpoint"},
+        "to": {"$ref": "#/definitions/port_endpoint"},
+        "kind": {"enum": ["hallway", "archway", "door", "hatch", "portcullis", "secret_door", "magical_barrier", "collapsed", "bridge", "one_way_drop"]},
+        "direction": {"enum": ["bidirectional", "one_way"]},
+        "default_state": {"enum": ["open", "closed", "locked", "barred", "trapped", "triggered", "destroyed"]},
+        "travel_cost": {"type": "integer", "minimum": 0, "maximum": 100},
+        "requirements": {"type": "array", "maxItems": 20, "items": {"type": "object"}},
+        "description": {"type": "string", "maxLength": 2000},
+        "tags": {"type": "array", "uniqueItems": true, "maxItems": 50, "items": {"type": "string"}}
+      }
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["region_id", "name", "placement_ids", "description", "environmental_effects", "ambient_hazard_level"],
+      "properties": {
+        "region_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,99}$"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "placement_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 200,
+          "items": {"type": "string", "format": "uuid"},
+          "description": "References placements, not rooms, because one room version may legitimately be placed more than once on a level."
+        },
+        "description": {"type": "string", "maxLength": 4000},
+        "environmental_effects": {"type": "array", "maxItems": 50, "items": {"type": "object"}},
+        "ambient_hazard_level": {"type": "integer", "minimum": 0, "maximum": 10}
+      }
+    }
+  }
+}

@@ -4183,6 +4183,130 @@ function dungeoncrawler_content_schema() {
       'campaign_updated' => ['campaign_id', 'updated'],
     ],
   ];
+
+  // Dungeon Editor persistence. Column names deliberately mirror the room
+  // editor tables so both editors share query and access patterns. Note these
+  // tables use created_at / updated_at, not created / updated; both
+  // conventions exist in this module and the editor tables use the former.
+  $schema['dungeoncrawler_content_dungeon_versions'] = [
+    'description' => 'Immutable published dungeon levels. Rows are never updated or deleted.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'version_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => TRUE],
+      'version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'schema_version' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'dungeon_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'payload_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'catalog_version' => ['type' => 'varchar', 'length' => 64, 'not null' => FALSE],
+      'publication_note' => ['type' => 'text', 'not null' => FALSE],
+      'source' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'published_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'published_at' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'version_id' => ['version_id'],
+      'dungeon_version' => ['dungeon_id', 'version'],
+    ],
+    'indexes' => [
+      'dungeon_published' => ['dungeon_id', 'published_at'],
+      'catalog_version' => ['catalog_version'],
+      'source' => ['source'],
+    ],
+  ];
+  $schema['dungeoncrawler_content_dungeon_editor_drafts'] = [
+    'description' => 'Mutable dungeon editor drafts.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'dungeon_id' => ['type' => 'varchar', 'length' => 100, 'not null' => FALSE],
+      'base_version_id' => ['type' => 'varchar', 'length' => 36, 'not null' => FALSE],
+      'revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0],
+      'status' => ['type' => 'varchar', 'length' => 20, 'not null' => TRUE, 'default' => 'active'],
+      'dungeon_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'payload_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'created_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'updated_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'created_at' => ['type' => 'int', 'not null' => TRUE],
+      'updated_at' => ['type' => 'int', 'not null' => TRUE],
+      'published_version_id' => ['type' => 'varchar', 'length' => 36, 'not null' => FALSE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'draft_id' => ['draft_id'],
+    ],
+    'indexes' => [
+      'dungeon_status' => ['dungeon_id', 'status'],
+      'owner_status_updated' => ['created_by', 'status', 'updated_at'],
+      'base_version_id' => ['base_version_id'],
+      'published_version_id' => ['published_version_id'],
+    ],
+  ];
+  $schema['dungeoncrawler_content_dungeon_editor_commands'] = [
+    'description' => 'Append-only dungeon editor command log. command_id is the idempotency key.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'command_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'draft_id' => ['type' => 'varchar', 'length' => 36, 'not null' => TRUE],
+      'base_revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'result_revision' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'command_type' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'command_payload' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'inverse_payload' => ['type' => 'text', 'size' => 'big', 'not null' => FALSE],
+      'issued_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+      'issued_at' => ['type' => 'int', 'not null' => TRUE],
+      'result_hash' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'command_id' => ['command_id'],
+    ],
+    'indexes' => [
+      'draft_revision' => ['draft_id', 'result_revision'],
+      'draft_issued' => ['draft_id', 'issued_at'],
+      'command_type' => ['command_type'],
+      'issued_by' => ['issued_by'],
+    ],
+  ];
+  // Explicit work queue produced by the audit hooks. Findings live here rather
+  // than in the canonical tables so an audit never mutates authored payloads,
+  // and so a flag can be cleared without rewriting canonical data. Consumers
+  // hard fail on the presence of a flag; nothing is auto-corrected.
+  $schema['dungeoncrawler_content_editor_review_flags'] = [
+    'description' => 'Per-subject review findings raised by editor data audits.',
+    'fields' => [
+      'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+      'flag' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'subject_type' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+      'subject_id' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE],
+      'detail_key' => ['type' => 'varchar', 'length' => 191, 'not null' => TRUE, 'default' => ''],
+      'finding' => ['type' => 'text', 'size' => 'big', 'not null' => TRUE],
+      'audit_hook' => ['type' => 'varchar', 'length' => 64, 'not null' => TRUE],
+      'created_at' => ['type' => 'int', 'not null' => TRUE],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'subject_detail' => ['flag', 'subject_type', 'subject_id', 'detail_key'],
+    ],
+    'indexes' => [
+      'flag_subject' => ['flag', 'subject_type'],
+      'subject' => ['subject_type', 'subject_id'],
+      'audit_hook' => ['audit_hook'],
+    ],
+  ];
+
+  $schema['dungeoncrawler_content_dungeons']['fields'] += [
+    'published_version_id' => ['type' => 'varchar', 'length' => 36, 'not null' => FALSE],
+    'publication_status' => ['type' => 'varchar', 'length' => 30, 'not null' => TRUE, 'default' => 'unpublished'],
+    'created_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+    'updated_by' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+  ];
+  $schema['dungeoncrawler_content_dungeons']['indexes'] += [
+    'published_version_id' => ['published_version_id'],
+    'publication_status' => ['publication_status'],
+  ];
+
   return $schema;
 }
 function dungeoncrawler_content_install() {
@@ -4592,6 +4716,288 @@ function dungeoncrawler_content_update_10192() {
   return t('Repaired @repaired legacy room versions; blocked @blocked out-of-contract legacy records.', [
     '@repaired' => (string) $repaired,
     '@blocked' => (string) $blocked,
+  ]);
+}
+
+/**
+ * Create the Dungeon Editor version, draft, and command stores.
+ */
+function dungeoncrawler_content_update_10193() {
+  $schema_handler = \Drupal::database()->schema();
+  $schema = dungeoncrawler_content_schema();
+  $table = 'dungeoncrawler_content_dungeon_versions';
+  if ($schema_handler->tableExists($table)) {
+    return t('Dungeon version store already present.');
+  }
+  $schema_handler->createTable($table, $schema[$table]);
+  return t('Created the immutable dungeon version store.');
+}
+
+/**
+ * Create the Dungeon Editor draft store.
+ */
+function dungeoncrawler_content_update_10194() {
+  $schema_handler = \Drupal::database()->schema();
+  $schema = dungeoncrawler_content_schema();
+  $table = 'dungeoncrawler_content_dungeon_editor_drafts';
+  if ($schema_handler->tableExists($table)) {
+    return t('Dungeon draft store already present.');
+  }
+  $schema_handler->createTable($table, $schema[$table]);
+  return t('Created the dungeon editor draft store.');
+}
+
+/**
+ * Create the Dungeon Editor append-only command log.
+ */
+function dungeoncrawler_content_update_10195() {
+  $schema_handler = \Drupal::database()->schema();
+  $schema = dungeoncrawler_content_schema();
+  $created = 0;
+  foreach ([
+    'dungeoncrawler_content_dungeon_editor_commands',
+    'dungeoncrawler_content_editor_review_flags',
+  ] as $table) {
+    if (!$schema_handler->tableExists($table)) {
+      $schema_handler->createTable($table, $schema[$table]);
+      $created++;
+    }
+  }
+  return t('Created @count dungeon editor log tables.', ['@count' => (string) $created]);
+}
+
+/**
+ * Add editor identity columns to the canonical dungeon index.
+ *
+ * The existing dungeon_data column is left in place and left alone. It holds
+ * procedurally generated dungeons, it is not editor authority, and the editor
+ * neither reads nor writes it. Editor-published content resolves through
+ * published_version_id.
+ */
+function dungeoncrawler_content_update_10196() {
+  $schema_handler = \Drupal::database()->schema();
+  $schema = dungeoncrawler_content_schema();
+  $table = 'dungeoncrawler_content_dungeons';
+  $added = 0;
+
+  foreach (['published_version_id', 'publication_status', 'created_by', 'updated_by'] as $field) {
+    if (!$schema_handler->fieldExists($table, $field)) {
+      $schema_handler->addField($table, $field, $schema[$table]['fields'][$field]);
+      $added++;
+    }
+  }
+  foreach (['published_version_id', 'publication_status'] as $index) {
+    if (!$schema_handler->indexExists($table, $index)) {
+      $schema_handler->addIndex($table, $index, $schema[$table]['indexes'][$index], $schema[$table]);
+    }
+  }
+
+  return t('Added @count dungeon identity columns.', ['@count' => (string) $added]);
+}
+
+/**
+ * Audit authored port edge values against the frozen edge convention.
+ *
+ * This hook changes no schema and rewrites no value. The edge field has only
+ * ever been range validated and was never interpreted, so existing authored
+ * edge values carry no reliable meaning. A port is consistent when the hex on
+ * the far side of its declared edge lies outside the room footprint; anything
+ * else is recorded for an author to resolve. Auto-correcting would be a guess,
+ * and guesses are forbidden.
+ */
+function dungeoncrawler_content_update_10197() {
+  $database = \Drupal::database();
+  $now = \Drupal::time()->getRequestTime();
+  $database->delete('dungeoncrawler_content_editor_review_flags')
+    ->condition('audit_hook', 'update_10197')
+    ->execute();
+
+  $subjects = [];
+  $versions = $database->select('dungeoncrawler_content_room_versions', 'v')
+    ->fields('v', ['version_id', 'room_id', 'room_payload'])
+    ->execute();
+  foreach ($versions as $row) {
+    $subjects[] = ['type' => 'room_version', 'id' => (string) $row->version_id, 'room_id' => (string) $row->room_id, 'payload' => (string) $row->room_payload];
+  }
+  $drafts = $database->select('dungeoncrawler_content_room_editor_drafts', 'd')
+    ->fields('d', ['draft_id', 'room_id', 'room_payload'])
+    ->condition('status', 'active')
+    ->execute();
+  foreach ($drafts as $row) {
+    $subjects[] = ['type' => 'room_draft', 'id' => (string) $row->draft_id, 'room_id' => (string) $row->room_id, 'payload' => (string) $row->room_payload];
+  }
+
+  $checked = 0;
+  $flagged = 0;
+  $rooms = [];
+
+  foreach ($subjects as $subject) {
+    $room = json_decode($subject['payload'], TRUE);
+    if (!is_array($room)) {
+      continue;
+    }
+    $footprint = [];
+    foreach ((array) ($room['hexes'] ?? []) as $hex) {
+      if (isset($hex['q'], $hex['r'])) {
+        $footprint[(int) $hex['q'] . ',' . (int) $hex['r']] = TRUE;
+      }
+    }
+    if ($footprint === []) {
+      continue;
+    }
+
+    foreach (['entry_ports', 'exit_ports'] as $collection) {
+      foreach ((array) ($room[$collection] ?? []) as $port) {
+        if (!isset($port['hex']['q'], $port['hex']['r'], $port['edge'], $port['port_id'])) {
+          continue;
+        }
+        $checked++;
+        $hex = ['q' => (int) $port['hex']['q'], 'r' => (int) $port['hex']['r']];
+        $edge = (int) $port['edge'];
+        if ($edge < 0 || $edge > 5) {
+          continue;
+        }
+        $outside = \Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer::neighbor($hex, $edge);
+        $key = $outside['q'] . ',' . $outside['r'];
+        if (!isset($footprint[$key])) {
+          continue;
+        }
+
+        $flagged++;
+        $rooms[$subject['room_id']] = TRUE;
+        $database->merge('dungeoncrawler_content_editor_review_flags')
+          ->keys([
+            'flag' => 'edge_review_required',
+            'subject_type' => $subject['type'],
+            'subject_id' => $subject['id'],
+            'detail_key' => $collection . ':' . (string) $port['port_id'],
+          ])
+          ->fields([
+            'finding' => json_encode([
+              'code' => 'port_edge_unverified',
+              'room_id' => $subject['room_id'],
+              'port_id' => (string) $port['port_id'],
+              'hex' => $hex,
+              'edge' => $edge,
+              'message' => 'The hex across the declared edge is inside the room footprint, so the edge does not face the room boundary.',
+            ], JSON_UNESCAPED_SLASHES),
+            'audit_hook' => 'update_10197',
+            'created_at' => $now,
+          ])
+          ->execute();
+      }
+    }
+  }
+
+  \Drupal::logger('dungeoncrawler_content')->notice(
+    'Port edge audit: checked @checked ports, flagged @flagged across @rooms rooms.',
+    ['@checked' => $checked, '@flagged' => $flagged, '@rooms' => count($rooms)]
+  );
+
+  return t('Port edge audit checked @checked ports and flagged @flagged across @rooms rooms. No value was rewritten.', [
+    '@checked' => (string) $checked,
+    '@flagged' => (string) $flagged,
+    '@rooms' => (string) count($rooms),
+  ]);
+}
+
+/**
+ * Audit canonical actor state against canonical_actor.schema.json.
+ *
+ * No row is auto-migrated and the schema is not loosened to accommodate
+ * outliers. If the survey shows the data is too heterogeneous to describe
+ * strictly, that is escalated as a finding rather than resolved by weakening
+ * the contract.
+ */
+function dungeoncrawler_content_update_10198() {
+  $database = \Drupal::database();
+  $now = \Drupal::time()->getRequestTime();
+  $module_path = \Drupal::service('extension.list.module')->getPath('dungeoncrawler_content');
+  $schema_path = $module_path . '/config/schemas/canonical_actor.schema.json';
+  $schema = json_decode((string) file_get_contents($schema_path), TRUE);
+  if (!is_array($schema)) {
+    throw new \RuntimeException('canonical_actor_schema_unreadable');
+  }
+
+  $state_schema = $schema['definitions']['state_data'];
+  $allowed = array_keys($state_schema['properties']);
+  $required = $state_schema['required'];
+  $actor_types = $schema['properties']['actor_type']['enum'];
+
+  $database->delete('dungeoncrawler_content_editor_review_flags')
+    ->condition('audit_hook', 'update_10198')
+    ->execute();
+
+  $checked = 0;
+  $failed = 0;
+  $rows = $database->select('dc_canonical_actors', 'a')
+    ->fields('a', ['actor_id', 'version', 'actor_type', 'display_name', 'state_data'])
+    ->execute();
+
+  foreach ($rows as $row) {
+    $checked++;
+    $findings = [];
+
+    if (!in_array((string) $row->actor_type, $actor_types, TRUE)) {
+      $findings[] = ['pointer' => '/actor_type', 'code' => 'actor_type_unknown', 'value' => (string) $row->actor_type];
+    }
+    if (!preg_match('/^\d+\.\d+\.\d+$/', (string) $row->version)) {
+      $findings[] = ['pointer' => '/version', 'code' => 'version_not_semver', 'value' => (string) $row->version];
+    }
+    if (trim((string) $row->display_name) === '') {
+      $findings[] = ['pointer' => '/display_name', 'code' => 'display_name_empty'];
+    }
+
+    $state = json_decode((string) $row->state_data, TRUE);
+    if (!is_array($state)) {
+      $findings[] = ['pointer' => '/state_data', 'code' => 'state_data_not_object'];
+    }
+    else {
+      foreach ($required as $field) {
+        if (!array_key_exists($field, $state)) {
+          $findings[] = ['pointer' => '/state_data/' . $field, 'code' => 'required_property_missing'];
+        }
+      }
+      foreach (array_keys($state) as $field) {
+        if (!in_array($field, $allowed, TRUE)) {
+          $findings[] = ['pointer' => '/state_data/' . $field, 'code' => 'additional_property_not_allowed'];
+        }
+      }
+      if (($state['class'] ?? NULL) === 'party' && !array_key_exists('party_size', $state)) {
+        $findings[] = ['pointer' => '/state_data/party_size', 'code' => 'required_property_missing'];
+      }
+      if (isset($state['conditions']) && !is_array($state['conditions'])) {
+        $findings[] = ['pointer' => '/state_data/conditions', 'code' => 'type_mismatch'];
+      }
+    }
+
+    if ($findings === []) {
+      continue;
+    }
+    $failed++;
+    $database->merge('dungeoncrawler_content_editor_review_flags')
+      ->keys([
+        'flag' => 'schema_review_required',
+        'subject_type' => 'canonical_actor',
+        'subject_id' => (string) $row->actor_id,
+        'detail_key' => (string) $row->version,
+      ])
+      ->fields([
+        'finding' => json_encode(['contract' => 'canonical_actor', 'findings' => $findings], JSON_UNESCAPED_SLASHES),
+        'audit_hook' => 'update_10198',
+        'created_at' => $now,
+      ])
+      ->execute();
+  }
+
+  \Drupal::logger('dungeoncrawler_content')->notice(
+    'Canonical actor audit: checked @checked rows, flagged @failed.',
+    ['@checked' => $checked, '@failed' => $failed]
+  );
+
+  return t('Canonical actor audit checked @checked rows and flagged @failed. No row was migrated and the contract was not loosened.', [
+    '@checked' => (string) $checked,
+    '@failed' => (string) $failed,
   ]);
 }
 

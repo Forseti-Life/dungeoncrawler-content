@@ -28,6 +28,32 @@ publish canonical dungeoncrawler rooms:
   description: 'Publish immutable canonical room versions from reviewed drafts.'
   restrict access: true
 
+# Dungeon authoring and publication are separate permissions. This is not
+# symmetry for its own sake: dungeon publication is the only editor operation
+# that projects into dungeoncrawler_content_connections, a table the live
+# runtime reads. Authoring a layout and altering live navigation authority are
+# different levels of trust and must be separately grantable.
+
+edit canonical dungeoncrawler dungeons:
+  title: 'Edit Canonical Dungeon Crawler Dungeons'
+  description: 'Create and edit canonical dungeon drafts in the Dungeon Editor.'
+  restrict access: true
+
+publish canonical dungeoncrawler dungeons:
+  title: 'Publish Canonical Dungeon Crawler Dungeons'
+  description: 'Publish immutable canonical dungeon versions and project connector rows consumed by live navigation.'
+  restrict access: true
+
+edit canonical dungeoncrawler definitions:
+  title: 'Edit Canonical Dungeon Crawler Object Definitions'
+  description: 'Create and edit canonical item, actor, obstacle, creature, trap, and hazard definitions.'
+  restrict access: true
+
+access dungeoncrawler editor suite:
+  title: 'Access the Dungeon Crawler Editor Suite'
+  description: 'View the editor suite home page. Grants no authoring rights on its own; every tile is independently filtered by the permission of the surface it links to.'
+  restrict access: true
+
 edit any dungeoncrawler characters:
   title: 'Edit Any Dungeon Crawler Characters'
   description: 'Edit any character regardless of ownership. Allows administrators to modify characters for support or testing purposes.'
