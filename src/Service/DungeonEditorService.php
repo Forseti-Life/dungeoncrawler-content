@@ -31,10 +31,33 @@ class DungeonEditorService {
    * Axial bound for any transformed level hex (12-api-and-error-contracts.md).
    */
   public const AXIAL_BOUND = 1000;
+  public const COMMAND_SCHEMA_FILE = 'dungeon_editor_command.schema.json';
+
+  /**
+   * Command types the pipeline can execute today.
+   *
+   * The command schema's enum is the full contract; a type in the enum but not
+   * here (links, regions) is refused with `dungeon_command_type_unsupported`
+   * until its slice lands. Nothing is partially handled.
+   */
+  public const SUPPORTED_COMMANDS = [
+    'set_dungeon_metadata',
+    'place_room',
+    'move_room_placement',
+    'rotate_room_placement',
+    'remove_room_placement',
+    'retarget_room_placement',
+    'set_placement_metadata',
+    'undo',
+    'redo',
+  ];
+  private const METADATA_KEYS = ['name', 'description', 'depth', 'theme'];
+  private const PLACEMENT_METADATA_KEYS = ['label', 'tags', 'is_level_entrance'];
 
   private const ID_PATTERN = '/^[a-z0-9][a-z0-9_-]{0,99}$/';
 
   private ?array $aggregateSchema = NULL;
+  private ?array $commandSchema = NULL;
 
   /**
    * Per-request cache of frozen room payloads by version_id.
@@ -263,6 +286,523 @@ class DungeonEditorService {
       'occupancy' => array_map(static fn(array $ids): array => array_values(array_unique($ids)), $occupancy),
       'validation' => $this->validateAggregate($draft),
     ];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Command pipeline
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Applies one revision-checked, idempotent authoring command.
+   *
+   * Order: envelope contract -> idempotent replay -> (in one transaction)
+   * lock draft, revision check, mutate, schema conformance, validation,
+   * append command log, advance draft. Any failure rolls back everything;
+   * no partial result is ever stored or returned.
+   *
+   * @return array{command_id: string, idempotent: bool, result_revision: int, placement_id: ?string, draft: array, model: array}
+   */
+  public function applyCommand(string $draft_id, array $command): array {
+    if (!$this->isUuid($draft_id)) {
+      throw new \InvalidArgumentException('draft_id_invalid');
+    }
+    $this->assertCommandEnvelope($command);
+    $command_id = $command['command_id'];
+    $encoded_command = $this->encode($command);
+
+    $prior = $this->database->select('dungeoncrawler_content_dungeon_editor_commands', 'c')
+      ->fields('c', ['draft_id', 'result_revision', 'command_payload'])
+      ->condition('command_id', $command_id)
+      ->execute()
+      ->fetchAssoc();
+    if ($prior) {
+      if ($prior['draft_id'] !== $draft_id || hash('sha256', $prior['command_payload']) !== hash('sha256', $encoded_command)) {
+        throw new \RuntimeException('idempotency_conflict');
+      }
+      return [
+        'command_id' => $command_id,
+        'idempotent' => TRUE,
+        'result_revision' => (int) $prior['result_revision'],
+        'placement_id' => $this->placementIdFromLog($prior['command_payload']),
+        'draft' => $this->getDraft($draft_id),
+        'model' => $this->describe($draft_id),
+      ];
+    }
+
+    $transaction = $this->database->startTransaction();
+    try {
+      $row = $this->database->select('dungeoncrawler_content_dungeon_editor_drafts', 'd')
+        ->fields('d')
+        ->condition('draft_id', $draft_id)
+        ->forUpdate()
+        ->execute()
+        ->fetchAssoc();
+      if (!$row) {
+        throw new \OutOfBoundsException('dungeon_draft_not_found');
+      }
+      $this->assertDraftAccess($row);
+      if ($row['status'] !== 'active') {
+        throw new \DomainException('dungeon_draft_not_active');
+      }
+      if ((int) $row['revision'] !== $command['expected_revision']) {
+        throw new \RuntimeException('revision_conflict');
+      }
+
+      $before = json_decode($row['dungeon_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+      $outcome = $this->mutate($before, $command['type'], $command['payload'], $draft_id);
+      $after = $outcome['dungeon'];
+      $revision = ((int) $row['revision']) + 1;
+      $this->assertCommandResult($after, $draft_id, $revision);
+
+      $encoded = $this->encodeDungeon($after);
+      $hash = hash('sha256', $encoded);
+      $now = time();
+      $uid = (int) $this->currentUser->id();
+      $this->database->insert('dungeoncrawler_content_dungeon_editor_commands')
+        ->fields([
+          'command_id' => $command_id,
+          'draft_id' => $draft_id,
+          'base_revision' => (int) $row['revision'],
+          'result_revision' => $revision,
+          'command_type' => $command['type'],
+          'command_payload' => $encoded_command,
+          'inverse_payload' => $this->encode(['dungeon' => $before]),
+          'issued_by' => $uid,
+          'issued_at' => $now,
+          'result_hash' => $hash,
+        ])
+        ->execute();
+      $affected = $this->database->update('dungeoncrawler_content_dungeon_editor_drafts')
+        ->fields([
+          'revision' => $revision,
+          'dungeon_payload' => $encoded,
+          'payload_hash' => $hash,
+          'updated_by' => $uid,
+          'updated_at' => $now,
+        ])
+        ->condition('draft_id', $draft_id)
+        ->condition('revision', (int) $row['revision'])
+        ->execute();
+      if ($affected !== 1) {
+        throw new \RuntimeException('revision_conflict');
+      }
+    }
+    catch (\Throwable $exception) {
+      $transaction->rollBack();
+      throw $exception;
+    }
+    unset($transaction);
+
+    return [
+      'command_id' => $command_id,
+      'idempotent' => FALSE,
+      'result_revision' => $revision,
+      'placement_id' => $outcome['placement_id'],
+      'draft' => $this->getDraft($draft_id),
+      'model' => $this->describe($draft_id),
+    ];
+  }
+
+  /**
+   * Projects a command list onto a draft without persisting anything.
+   *
+   * Commands must chain from the draft's current revision exactly as they
+   * would if applied, so a previewed plan is the plan that gets applied. The
+   * first rejected command stops the projection; the returned aggregate is
+   * the state just before it. The draft row is re-read afterwards and its
+   * hash asserted unchanged.
+   */
+  public function simulateCommands(string $draft_id, array $commands, string $profile = 'editing'): array {
+    $row = $this->loadDraftRow($draft_id);
+    $draft = $this->decodeDraft($row);
+    if ($commands === [] || !array_is_list($commands)) {
+      throw new \InvalidArgumentException('dungeon_command_list_invalid');
+    }
+
+    $dungeon = $draft['dungeon'];
+    $revision = $draft['revision'];
+    $applied = [];
+    $rejected = NULL;
+    foreach ($commands as $index => $command) {
+      if (!is_array($command)) {
+        throw new \InvalidArgumentException('dungeon_command_list_invalid');
+      }
+      $this->assertCommandEnvelope($command);
+      if ($command['expected_revision'] !== $revision) {
+        throw new \RuntimeException('revision_conflict');
+      }
+      $exists = $this->database->select('dungeoncrawler_content_dungeon_editor_commands', 'c')
+        ->fields('c', ['command_id'])
+        ->condition('command_id', $command['command_id'])
+        ->execute()
+        ->fetchField();
+      if ($exists) {
+        throw new \RuntimeException('idempotency_conflict');
+      }
+      try {
+        $outcome = $this->mutate($dungeon, $command['type'], $command['payload'], $draft_id);
+        $this->assertCommandResult($outcome['dungeon'], $draft_id, $revision + 1);
+      }
+      catch (DungeonEditorFindingsInterface $exception) {
+        $rejected = [
+          'index' => $index,
+          'command_id' => $command['command_id'],
+          'type' => $command['type'],
+          'code' => $exception->getMessage(),
+          'findings' => $exception->getFindings(),
+        ];
+        break;
+      }
+      catch (\DomainException $exception) {
+        $rejected = [
+          'index' => $index,
+          'command_id' => $command['command_id'],
+          'type' => $command['type'],
+          'code' => $exception->getMessage(),
+          'findings' => [],
+        ];
+        break;
+      }
+      $dungeon = $outcome['dungeon'];
+      $revision++;
+      $applied[] = ['command_id' => $command['command_id'], 'type' => $command['type'], 'result_revision' => $revision, 'placement_id' => $outcome['placement_id']];
+    }
+
+    $after = $this->loadDraftRow($draft_id);
+    if ($after['payload_hash'] !== $row['payload_hash'] || (int) $after['revision'] !== $draft['revision']) {
+      throw new \RuntimeException('simulation_mutated_draft');
+    }
+
+    return [
+      'schema_version' => 'dungeon-editor-simulation-v1',
+      'draft_id' => $draft_id,
+      'base_revision' => $draft['revision'],
+      'projected_revision' => $revision,
+      'applied' => $applied,
+      'rejected' => $rejected,
+      'dungeon' => $dungeon,
+      'validation' => $this->validateAggregate(['draft_id' => $draft_id, 'revision' => $revision, 'dungeon' => $dungeon], $profile),
+    ];
+  }
+
+  /**
+   * Validates a stored draft at a profile without loading the read model.
+   */
+  public function validateDraft(string $draft_id, string $profile = 'editing'): array {
+    $draft = $this->decodeDraft($this->loadDraftRow($draft_id));
+    return $this->validateAggregate($draft, $profile);
+  }
+
+  /**
+   * Checks the envelope against dungeon_editor_command.schema.json.
+   *
+   * A type outside the closed enum, or inside it but not yet executable, is
+   * `dungeon_command_type_unsupported`; any other contract failure is
+   * `dungeon_command_payload_invalid` with the schema findings attached.
+   */
+  private function assertCommandEnvelope(array $command): void {
+    $type = $command['type'] ?? NULL;
+    $schema = $this->commandSchema();
+    if (!is_string($type) || !in_array($type, $schema['properties']['type']['enum'], TRUE) || !in_array($type, self::SUPPORTED_COMMANDS, TRUE)) {
+      throw new DungeonCommandPayloadException('dungeon_command_type_unsupported');
+    }
+    $findings = $this->validator->validate($schema, $command);
+    if ($findings !== []) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', $findings);
+    }
+    if (!is_array($command['payload']) || array_is_list($command['payload']) && $command['payload'] !== []) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [[
+        'code' => 'type_mismatch',
+        'pointer' => '/payload',
+        'schema_pointer' => '#/properties/payload',
+        'message' => 'Payload must be a JSON object.',
+      ]]);
+    }
+  }
+
+  /**
+   * A mutated aggregate must conform to its schema and carry no error finding.
+   *
+   * Schema nonconformance after a well-formed command means the payload asked
+   * for an illegal value (empty name, depth 500): `dungeon_command_payload_invalid`.
+   * Validation errors mean a legal value produced an illegal level
+   * (`placement_overlap`, ...): the first code is the rejection code.
+   */
+  private function assertCommandResult(array $after, string $draft_id, int $revision): void {
+    try {
+      $this->assertAggregateConforms($after, 'editing');
+    }
+    catch (DungeonAggregateException $exception) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', $exception->findings, $exception);
+    }
+    $result = $this->validateAggregate(['draft_id' => $draft_id, 'revision' => $revision, 'dungeon' => $after], 'editing');
+    $errors = array_values(array_filter($result['findings'], static fn(array $f): bool => $f['severity'] === 'error'));
+    if ($errors !== []) {
+      throw new DungeonCommandRejectedException($errors[0]['code'], $result['findings']);
+    }
+  }
+
+  /**
+   * Pure aggregate transition. No I/O except reading room versions and, for
+   * undo/redo, the append-only command log.
+   *
+   * @return array{dungeon: array, placement_id: ?string}
+   */
+  private function mutate(array $dungeon, string $type, array $payload, string $draft_id): array {
+    $placement_id = NULL;
+    switch ($type) {
+      case 'set_dungeon_metadata':
+        $changes = $this->requireChanges($payload, self::METADATA_KEYS);
+        foreach ($changes as $key => $value) {
+          $dungeon[$key] = $value;
+        }
+        break;
+
+      case 'place_room':
+        $room_id = $payload['room_id'];
+        $version_id = $payload['version_id'];
+        if (!is_string($room_id) || !preg_match(self::ID_PATTERN, $room_id) || !is_string($version_id)) {
+          throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/room_id', 'room_id and version_id must be strings.')]);
+        }
+        $room = $this->resolvePlacementVersion($version_id, $room_id);
+        $placement_id = $this->uuid->generate();
+        $label = $payload['label'] ?? $room['name'] ?? $room_id;
+        $placement = [
+          'placement_id' => $placement_id,
+          'room_id' => $room_id,
+          'version_id' => $version_id,
+          'origin' => $this->requireOrigin($payload),
+          'rotation_steps' => $this->requireRotation($payload),
+          'label' => $label,
+          'is_level_entrance' => FALSE,
+          'tags' => [],
+        ];
+        $this->assertPlacementInBounds($placement, $room);
+        $dungeon['room_placements'][] = $placement;
+        break;
+
+      case 'move_room_placement':
+        $index = $this->requirePlacementIndex($dungeon, $payload);
+        $placement_id = $dungeon['room_placements'][$index]['placement_id'];
+        $dungeon['room_placements'][$index]['origin'] = $this->requireOrigin($payload);
+        $this->assertPlacementInBounds($dungeon['room_placements'][$index], $this->resolvePlacementVersion($dungeon['room_placements'][$index]['version_id']));
+        break;
+
+      case 'rotate_room_placement':
+        $index = $this->requirePlacementIndex($dungeon, $payload);
+        $placement_id = $dungeon['room_placements'][$index]['placement_id'];
+        $dungeon['room_placements'][$index]['rotation_steps'] = $this->requireRotation($payload);
+        $this->assertPlacementInBounds($dungeon['room_placements'][$index], $this->resolvePlacementVersion($dungeon['room_placements'][$index]['version_id']));
+        break;
+
+      case 'remove_room_placement':
+        $index = $this->requirePlacementIndex($dungeon, $payload);
+        $placement_id = $dungeon['room_placements'][$index]['placement_id'];
+        array_splice($dungeon['room_placements'], $index, 1);
+        $dungeon['port_links'] = array_values(array_filter($dungeon['port_links'], static fn(array $link): bool =>
+          $link['from']['placement_id'] !== $placement_id && $link['to']['placement_id'] !== $placement_id
+        ));
+        foreach ($dungeon['regions'] as &$region) {
+          $region['placement_ids'] = array_values(array_filter($region['placement_ids'], static fn(string $id): bool => $id !== $placement_id));
+        }
+        unset($region);
+        break;
+
+      case 'retarget_room_placement':
+        $index = $this->requirePlacementIndex($dungeon, $payload);
+        $placement_id = $dungeon['room_placements'][$index]['placement_id'];
+        $version_id = $payload['version_id'];
+        if (!is_string($version_id)) {
+          throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/version_id', 'version_id must be a string.')]);
+        }
+        $room = $this->resolvePlacementVersion($version_id, $dungeon['room_placements'][$index]['room_id']);
+        $dungeon['room_placements'][$index]['version_id'] = $version_id;
+        $this->assertPlacementInBounds($dungeon['room_placements'][$index], $room);
+        $this->assertLinksResolve($dungeon, $placement_id, $room);
+        break;
+
+      case 'set_placement_metadata':
+        $index = $this->requirePlacementIndex($dungeon, $payload);
+        $placement_id = $dungeon['room_placements'][$index]['placement_id'];
+        $changes = $this->requireChanges($payload, self::PLACEMENT_METADATA_KEYS);
+        foreach ($changes as $key => $value) {
+          $dungeon['room_placements'][$index][$key] = $value;
+        }
+        break;
+
+      case 'undo':
+      case 'redo':
+        $target = $payload['target_command_id'];
+        if (!is_string($target) || !$this->isUuid($target)) {
+          throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/target_command_id', 'target_command_id must be a uuid.')]);
+        }
+        $entry = $this->database->select('dungeoncrawler_content_dungeon_editor_commands', 'c')
+          ->fields('c', ['command_type', 'inverse_payload'])
+          ->condition('command_id', $target)
+          ->condition('draft_id', $draft_id)
+          ->execute()
+          ->fetchAssoc();
+        if (!$entry) {
+          throw new \DomainException('history_target_not_found');
+        }
+        // undo reverts a forward command; redo reverts an undo. Each restores
+        // the target's recorded "before" snapshot, so the pair is symmetric.
+        $forward = !in_array($entry['command_type'], ['undo', 'redo'], TRUE);
+        if (($type === 'undo' && !$forward) || ($type === 'redo' && $entry['command_type'] !== 'undo')) {
+          throw new \DomainException('history_target_invalid');
+        }
+        $snapshot = json_decode((string) $entry['inverse_payload'], TRUE, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($snapshot['dungeon'] ?? NULL)) {
+          throw new \RuntimeException('history_snapshot_invalid:' . $target);
+        }
+        $dungeon = $snapshot['dungeon'];
+        break;
+
+      default:
+        throw new DungeonCommandPayloadException('dungeon_command_type_unsupported');
+    }
+    return ['dungeon' => $dungeon, 'placement_id' => $placement_id];
+  }
+
+  /**
+   * The published room payload a placement may pin, or a hard failure.
+   *
+   * @throws \Drupal\dungeoncrawler_content\Service\DungeonCommandRejectedException
+   *   `placement_version_unresolved` when the version is not published;
+   *   `dungeon_command_payload_invalid` when it belongs to another room.
+   */
+  private function resolvePlacementVersion(string $version_id, ?string $expected_room_id = NULL): array {
+    $room = $this->roomVersion($version_id);
+    if ($room === NULL) {
+      throw new DungeonCommandRejectedException('placement_version_unresolved', [
+        $this->finding('error', 'placement_version_unresolved', sprintf('%s is not a published room version.', $version_id), []),
+      ]);
+    }
+    if ($expected_room_id !== NULL && ($room['room_id'] ?? NULL) !== $expected_room_id) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [
+        $this->payloadFinding('/version_id', sprintf('Version %s belongs to room "%s", not "%s".', $version_id, $room['room_id'] ?? '?', $expected_room_id)),
+      ]);
+    }
+    return $room;
+  }
+
+  /**
+   * Every transformed hex must stay inside the axial bound. Nothing is clamped.
+   */
+  private function assertPlacementInBounds(array $placement, array $room): void {
+    foreach ($this->roomFootprint($room) as $hex) {
+      $level = RoomPlacementTransformer::toLevel($hex, $placement);
+      if (abs($level['q']) > self::AXIAL_BOUND || abs($level['r']) > self::AXIAL_BOUND) {
+        throw new DungeonCommandRejectedException('placement_origin_out_of_bounds', [
+          $this->finding('error', 'placement_origin_out_of_bounds', sprintf(
+            'Placement "%s" would reach (%d, %d), beyond the ±%d axial bound.',
+            $placement['label'],
+            $level['q'],
+            $level['r'],
+            self::AXIAL_BOUND
+          ), [['placement_id' => $placement['placement_id']]], $level),
+        ]);
+      }
+    }
+  }
+
+  /**
+   * After a retarget every link touching the placement must still name a
+   * port the new version has. Nothing is re-routed.
+   */
+  private function assertLinksResolve(array $dungeon, string $placement_id, array $room): void {
+    $ports = array_column($this->roomPorts($room), 'port_id');
+    foreach ($dungeon['port_links'] as $link) {
+      foreach (['from', 'to'] as $end) {
+        if ($link[$end]['placement_id'] === $placement_id && !in_array($link[$end]['port_id'], $ports, TRUE)) {
+          throw new DungeonCommandRejectedException('port_link_endpoint_missing', [
+            $this->finding('error', 'port_link_endpoint_missing', sprintf(
+              'Link %s names port "%s", which the retargeted version does not have.',
+              $link['link_id'],
+              $link[$end]['port_id']
+            ), [['link_id' => $link['link_id']], ['placement_id' => $placement_id]]),
+          ]);
+        }
+      }
+    }
+  }
+
+  private function requirePlacementIndex(array $dungeon, array $payload): int {
+    $placement_id = $payload['placement_id'] ?? NULL;
+    if (!is_string($placement_id) || !$this->isUuid($placement_id)) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/placement_id', 'placement_id must be a uuid.')]);
+    }
+    foreach ($dungeon['room_placements'] as $index => $placement) {
+      if ($placement['placement_id'] === $placement_id) {
+        return $index;
+      }
+    }
+    throw new \DomainException('placement_not_found');
+  }
+
+  private function requireOrigin(array $payload): array {
+    $origin = $payload['origin'] ?? NULL;
+    if (!is_array($origin) || !is_int($origin['q'] ?? NULL) || !is_int($origin['r'] ?? NULL) || count($origin) !== 2) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/origin', 'origin must be {q: int, r: int}.')]);
+    }
+    if (abs($origin['q']) > self::AXIAL_BOUND || abs($origin['r']) > self::AXIAL_BOUND) {
+      throw new DungeonCommandRejectedException('placement_origin_out_of_bounds', [
+        $this->finding('error', 'placement_origin_out_of_bounds', sprintf('Origin (%d, %d) is beyond the ±%d axial bound.', $origin['q'], $origin['r'], self::AXIAL_BOUND), [], $origin),
+      ]);
+    }
+    return ['q' => $origin['q'], 'r' => $origin['r']];
+  }
+
+  private function requireRotation(array $payload): int {
+    $steps = $payload['rotation_steps'] ?? NULL;
+    if (!is_int($steps) || $steps < 0 || $steps > 5) {
+      throw new DungeonCommandRejectedException('rotation_steps_invalid', [
+        $this->finding('error', 'rotation_steps_invalid', 'rotation_steps must be an integer from 0 to 5; rotation is absolute, never a delta.', []),
+      ]);
+    }
+    return $steps;
+  }
+
+  /**
+   * `changes` must be a non-empty object whose keys are all in the allowed set.
+   */
+  private function requireChanges(array $payload, array $allowed): array {
+    $changes = $payload['changes'] ?? NULL;
+    if (!is_array($changes) || $changes === [] || array_is_list($changes)) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [$this->payloadFinding('/changes', 'changes must be a non-empty object.')]);
+    }
+    $unknown = array_diff(array_keys($changes), $allowed);
+    if ($unknown !== []) {
+      throw new DungeonCommandPayloadException('dungeon_command_payload_invalid', [
+        $this->payloadFinding('/changes/' . reset($unknown), sprintf('Unknown key; allowed: %s.', implode(', ', $allowed))),
+      ]);
+    }
+    return $changes;
+  }
+
+  private function payloadFinding(string $pointer, string $message): array {
+    return ['code' => 'payload_invalid', 'pointer' => '/payload' . $pointer, 'schema_pointer' => '#/properties/payload', 'message' => $message];
+  }
+
+  private function placementIdFromLog(string $encoded_command): ?string {
+    $command = json_decode($encoded_command, TRUE, 512, JSON_THROW_ON_ERROR);
+    $id = $command['payload']['placement_id'] ?? NULL;
+    return is_string($id) ? $id : NULL;
+  }
+
+  private function commandSchema(): array {
+    if ($this->commandSchema === NULL) {
+      $path = rtrim($this->schemaDirectory, '/') . '/' . self::COMMAND_SCHEMA_FILE;
+      if (!is_file($path)) {
+        throw new \RuntimeException('dungeon_schema_missing:' . self::COMMAND_SCHEMA_FILE);
+      }
+      $this->commandSchema = json_decode((string) file_get_contents($path), TRUE, 512, JSON_THROW_ON_ERROR);
+    }
+    return $this->commandSchema;
+  }
+
+  private function encode(array $value): string {
+    return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
   }
 
   /**

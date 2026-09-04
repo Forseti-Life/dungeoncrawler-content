@@ -77,3 +77,53 @@
   margin: 0;
   word-break: break-all;
 }
+
+/* Slice 4: authoring controls */
+
+.dungeon-editor__room-item {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.dungeon-editor__room-item[data-dragging="true"],
+.dungeon-editor[data-dragging="true"] .hexmap-canvas-wrapper {
+  cursor: grabbing;
+}
+
+.dungeon-editor__metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dungeon-editor__metadata .room-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm, 0.85em);
+}
+
+.dungeon-editor__metadata input,
+.dungeon-editor__metadata textarea,
+.dungeon-editor__inspector-actions input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dungeon-editor__inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dungeon-editor__inspector-actions .room-editor__button--danger {
+  background: var(--danger-bg, rgba(220, 38, 38, 0.25));
+  border-color: var(--danger, #dc2626);
+}
+
+.room-editor__validation-item--rejected {
+  border-left: 3px solid var(--danger, #dc2626);
+  padding-left: 6px;
+}

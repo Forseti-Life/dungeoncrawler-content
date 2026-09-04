@@ -157,6 +157,12 @@ export class HexCanvas {
           : null;
         this.generateHexGrid();
       }),
+      // map:ghost — a transient candidate footprint during a drag. Purely a
+      // courtesy preview: { hexes:[{q,r}], valid:boolean } draws, null clears.
+      // Never touches currentMap; the server decides what actually lands.
+      this.bus.on('map:ghost', (ghost = null) => {
+        this._renderMapGhost(ghost);
+      }),
       this.bus.on('canvas:coordinates-toggled', ({ enabled } = {}) => {
         this.config.showCoordinates = Boolean(enabled);
         this.generateHexGrid();
@@ -410,6 +416,38 @@ export class HexCanvas {
       }
     });
     this.propsContainer.addChild(overlay);
+  }
+
+  /**
+   * Draws or clears the drag ghost in the fx layer.
+   */
+  _renderMapGhost(ghost) {
+    if (this._ghostOverlay) {
+      this._ghostOverlay.destroy();
+      this._ghostOverlay = null;
+    }
+    const hexes = Array.isArray(ghost?.hexes) ? ghost.hexes : [];
+    if (!hexes.length || !this.fxContainer || !window.PIXI) {
+      return;
+    }
+    const hexSize = this.config.hexSize;
+    const color = ghost.valid === false ? 0xef4444 : 0x22c55e;
+    const overlay = new PIXI.Graphics();
+    overlay.eventMode = 'none';
+    hexes.forEach((hex) => {
+      const q = Number(hex?.q);
+      const r = Number(hex?.r);
+      if (!Number.isInteger(q) || !Number.isInteger(r)) {
+        return;
+      }
+      const center = this.axialToPixel(q, r, hexSize);
+      overlay.lineStyle(2, color, 0.95);
+      overlay.beginFill(color, 0.35);
+      overlay.drawPolygon(this._createHexPolygonPoints(center.x, center.y, hexSize));
+      overlay.endFill();
+    });
+    this._ghostOverlay = overlay;
+    this.fxContainer.addChild(overlay);
   }
 
   /**

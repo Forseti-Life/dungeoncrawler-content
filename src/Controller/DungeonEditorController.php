@@ -6,7 +6,7 @@ use Drupal\Core\Access\CsrfRequestHeaderAccessCheck;
 use Drupal\Core\Access\CsrfTokenGenerator;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
-use Drupal\dungeoncrawler_content\Service\DungeonAggregateException;
+use Drupal\dungeoncrawler_content\Service\DungeonEditorFindingsInterface;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -59,6 +59,9 @@ class DungeonEditorController extends ControllerBase {
                 'draft' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_get'),
                 'describe' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_describe'),
                 'rooms' => Url::fromRoute('dungeoncrawler_content.dungeon_editor_rooms')->toString(),
+                'command' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_command'),
+                'simulate' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_simulate'),
+                'validate' => $this->draftUrl('dungeoncrawler_content.dungeon_editor_draft_validate'),
                 'roomEditor' => str_replace('placeholder-room', '{room_id}', Url::fromRoute('dungeoncrawler_content.room_editor_edit', ['room_id' => 'placeholder-room'])->toString()),
               ],
             ],
@@ -105,6 +108,62 @@ class DungeonEditorController extends ControllerBase {
   public function describe(string $draft_id): JsonResponse {
     try {
       return new JsonResponse(['data' => $this->dungeonEditor->describe($draft_id)]);
+    }
+    catch (\Throwable $exception) {
+      return $this->errorResponse($exception);
+    }
+  }
+
+  /**
+   * Applies one authoring command; the response carries the new read model.
+   */
+  public function command(string $draft_id, Request $request): JsonResponse {
+    if ($csrf = $this->validateCsrf($request)) {
+      return $csrf;
+    }
+    try {
+      $result = $this->dungeonEditor->applyCommand($draft_id, $this->decodeBody($request));
+      return new JsonResponse(['data' => $result], $result['idempotent'] ? 200 : 201);
+    }
+    catch (\Throwable $exception) {
+      return $this->errorResponse($exception);
+    }
+  }
+
+  /**
+   * Projects a command list without persisting.
+   */
+  public function simulate(string $draft_id, Request $request): JsonResponse {
+    if ($csrf = $this->validateCsrf($request)) {
+      return $csrf;
+    }
+    try {
+      $body = $this->decodeBody($request);
+      $commands = $body['commands'] ?? NULL;
+      if (!is_array($commands)) {
+        throw new \InvalidArgumentException('dungeon_command_list_invalid');
+      }
+      $profile = $body['profile'] ?? 'editing';
+      if (!is_string($profile)) {
+        throw new \InvalidArgumentException('validation_profile_invalid');
+      }
+      return new JsonResponse(['data' => $this->dungeonEditor->simulateCommands($draft_id, $commands, $profile)]);
+    }
+    catch (\Throwable $exception) {
+      return $this->errorResponse($exception);
+    }
+  }
+
+  /**
+   * Validates a draft at `?profile=editing|publication`.
+   */
+  public function validate(string $draft_id, Request $request): JsonResponse {
+    try {
+      $profile = $request->query->get('profile', 'editing');
+      if (!is_string($profile)) {
+        throw new \InvalidArgumentException('validation_profile_invalid');
+      }
+      return new JsonResponse(['data' => $this->dungeonEditor->validateDraft($draft_id, $profile)]);
     }
     catch (\Throwable $exception) {
       return $this->errorResponse($exception);
@@ -168,8 +227,8 @@ class DungeonEditorController extends ControllerBase {
   private function errorResponse(\Throwable $exception): JsonResponse {
     $code = $exception->getMessage();
     $error = ['code' => $code, 'message' => str_replace('_', ' ', ucfirst(strtok($code, ':')))];
-    if ($exception instanceof DungeonAggregateException) {
-      $error['findings'] = $exception->findings;
+    if ($exception instanceof DungeonEditorFindingsInterface) {
+      $error['findings'] = $exception->getFindings();
     }
     $status = match (TRUE) {
       $exception instanceof \JsonException,

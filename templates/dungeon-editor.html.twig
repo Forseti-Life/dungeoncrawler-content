@@ -1,16 +1,17 @@
 {#
 /**
  * @file
- * Canonical Dungeon Editor shell (slice 3: read-only).
+ * Canonical Dungeon Editor shell (slice 4: placement authoring).
  *
  * Layout contract, shared with the Room Editor:
  *   [author drawer] | [level canvas] | [GM assistant panel]
  * The drawer starts collapsed; the assistant panel owns the freed space.
  *
- * Slice 3 renders a dungeon and changes nothing. Placement, links, regions,
- * publication, and the assistant's dungeon_editor surface arrive in later
- * slices; controls for them are absent, not disabled, so nothing on this
- * page promises a capability the server does not yet have.
+ * Slice 4 places, moves, rotates, retargets and removes rooms through the
+ * command pipeline, with undo/redo. Links, regions, publication, and the
+ * assistant's dungeon_editor surface arrive in later slices; controls for
+ * them are absent, not disabled, so nothing on this page promises a
+ * capability the server does not yet have.
  *
  * Available variables:
  * - dungeons: List of { dungeon_id, name, publication_status, published_version_id }.
@@ -48,6 +49,8 @@
 
         <span class="room-editor__spacer"></span>
 
+        <button type="button" class="room-editor__button" data-dungeon-editor-action="undo" disabled title="{{ 'Undo the last command (Ctrl+Z)'|t }}">{{ 'Undo'|t }}</button>
+        <button type="button" class="room-editor__button" data-dungeon-editor-action="redo" disabled title="{{ 'Redo the last undone command (Ctrl+Shift+Z)'|t }}">{{ 'Redo'|t }}</button>
         <span class="dungeon-editor__revision" data-dungeon-editor-revision></span>
       </div>
 
@@ -64,15 +67,26 @@
              aria-label="{{ 'Manual authoring tools'|t }}"
              hidden>
 
+        <section class="room-editor__drawer-section" data-dungeon-editor-metadata aria-label="{{ 'Dungeon metadata'|t }}">
+          <p class="room-editor__eyebrow">{{ 'Dungeon'|t }}</p>
+          <form class="dungeon-editor__metadata" data-dungeon-editor-metadata-form>
+            <label class="room-editor__field">{{ 'Name'|t }}<input type="text" name="name" maxlength="200" required data-dungeon-editor-meta="name"></label>
+            <label class="room-editor__field">{{ 'Theme'|t }}<input type="text" name="theme" maxlength="100" data-dungeon-editor-meta="theme"></label>
+            <label class="room-editor__field">{{ 'Depth'|t }}<input type="number" name="depth" min="0" max="100" step="1" data-dungeon-editor-meta="depth"></label>
+            <label class="room-editor__field">{{ 'Description'|t }}<textarea name="description" rows="3" maxlength="8000" data-dungeon-editor-meta="description"></textarea></label>
+          </form>
+        </section>
+
         <section class="room-editor__drawer-section" data-dungeon-editor-room-library aria-label="{{ 'Room library'|t }}">
           <p class="room-editor__eyebrow">{{ 'Room Library'|t }}</p>
-          <p class="room-editor__hint">{{ 'Published room versions. Placement arrives in slice 4.'|t }}</p>
+          <p class="room-editor__hint">{{ 'Drag a published room onto the level to place it.'|t }}</p>
           <ul class="dungeon-editor__room-list" data-dungeon-editor-room-list role="list"></ul>
           <p class="room-editor__catalog-empty" data-dungeon-editor-room-list-empty hidden>{{ 'No published rooms.'|t }}</p>
         </section>
 
         <section class="room-editor__drawer-section" data-dungeon-editor-placements aria-label="{{ 'Placements'|t }}">
           <p class="room-editor__eyebrow">{{ 'Placements'|t }}</p>
+          <p class="room-editor__hint">{{ 'Drag a room on the canvas to move it. With one selected: [ and ] rotate, Delete removes.'|t }}</p>
           <ul class="dungeon-editor__placement-list" data-dungeon-editor-placement-list role="list"></ul>
           <p class="room-editor__hint" data-dungeon-editor-placement-empty hidden>{{ 'This level has no placements.'|t }}</p>
         </section>

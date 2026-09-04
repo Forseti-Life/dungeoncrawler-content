@@ -118,6 +118,36 @@ dungeoncrawler_content.dungeon_editor_draft_describe:
     _permission: 'edit canonical dungeoncrawler dungeons'
     draft_id: '[0-9a-f-]{36}'
 
+dungeoncrawler_content.dungeon_editor_draft_command:
+  path: '/api/dungeon-editor/drafts/{draft_id}/commands'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::command'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.dungeon_editor_draft_simulate:
+  path: '/api/dungeon-editor/drafts/{draft_id}/simulate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::simulate'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+    draft_id: '[0-9a-f-]{36}'
+
+dungeoncrawler_content.dungeon_editor_draft_validate:
+  path: '/api/dungeon-editor/drafts/{draft_id}/validate'
+  defaults:
+    _controller: '\Drupal\dungeoncrawler_content\Controller\DungeonEditorController::validate'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _permission: 'edit canonical dungeoncrawler dungeons'
+    draft_id: '[0-9a-f-]{36}'
+
 dungeoncrawler_content.dungeon_editor_rooms:
   path: '/api/dungeon-editor/rooms'
   defaults:

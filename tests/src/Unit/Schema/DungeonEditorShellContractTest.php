@@ -8,15 +8,17 @@ use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\dungeoncrawler_content\Service\CanonicalDefinitionService;
 use Drupal\dungeoncrawler_content\Service\Definition\DefinitionSchemaValidator;
 use Drupal\dungeoncrawler_content\Service\DungeonAggregateException;
+use Drupal\dungeoncrawler_content\Service\DungeonCommandPayloadException;
+use Drupal\dungeoncrawler_content\Service\DungeonCommandRejectedException;
 use Drupal\dungeoncrawler_content\Service\DungeonEditorService;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Freezes the slice 3 dungeon editor shell contracts.
+ * Freezes the dungeon editor shell contracts (slices 3 and 4).
  *
- * The read-only shell must: validate through the PHP transformer pinned to
- * the shared fixture vectors, emit only the closed finding code list, stay
- * independent of RoomEditorService, and expose no mutation path.
+ * The shell must: validate through the PHP transformer pinned to the shared
+ * fixture vectors, emit only the closed finding code list, stay independent
+ * of RoomEditorService, and mutate only through the command pipeline.
  *
  * @group dungeoncrawler_content
  */
@@ -183,7 +185,11 @@ class DungeonEditorShellContractTest extends TestCase {
 
     $allowed = $contract['definitions']['finding']['properties']['code']['enum'];
     $source = $this->source('src/Service/DungeonEditorService.php');
-    preg_match_all("/\\\$this->finding\\('(?:error|warning|info)', '([a-z_]+)'/", $source, $matches);
+    // Only the validation result is bound to the closed enum; command
+    // rejections may carry request-level codes (rotation_steps_invalid, ...).
+    $start = strpos($source, 'public function validateAggregate(');
+    $body = substr($source, $start, strpos($source, "\n  }\n", $start) - $start);
+    preg_match_all("/\\\$this->finding\\('(?:error|warning|info)', '([a-z_]+)'/", $body, $matches);
     $this->assertNotEmpty($matches[1]);
     foreach (array_unique($matches[1]) as $code) {
       $this->assertContains($code, $allowed, 'Emitted code must be in the closed contract list: ' . $code);
@@ -262,29 +268,194 @@ class DungeonEditorShellContractTest extends TestCase {
   }
 
   /**
-   * Slice 3 has exactly one write (draft creation) and no command path.
+   * Exactly two write paths exist: draft creation and the command pipeline.
+   *
+   * Every mutation goes through applyCommand: one command log insert and one
+   * revision-guarded draft update inside one transaction. Nothing else in the
+   * service writes, and the shell has no verb other than POST.
    */
-  public function testShellIsReadOnly(): void {
+  public function testAllMutationFlowsThroughTheCommandPipeline(): void {
     $service = $this->source('src/Service/DungeonEditorService.php');
-    $this->assertSame(1, substr_count($service, '->insert('), 'Only createDraft writes.');
-    $this->assertSame(0, substr_count($service, '->update('));
+    $this->assertSame(2, substr_count($service, '->insert('), 'createDraft and applyCommand are the only inserts.');
+    $this->assertSame(1, substr_count($service, '->update('), 'applyCommand is the only update.');
     $this->assertSame(0, substr_count($service, '->merge('));
     $this->assertSame(0, substr_count($service, '->delete('));
-    $this->assertStringNotContainsString('dungeon_editor_commands', $service);
-    $this->assertStringNotContainsString("->insert('dungeoncrawler_content_dungeon_versions')", $service);
+    $this->assertStringNotContainsString("->insert('dungeoncrawler_content_dungeon_versions')", $service, 'Publication is a later slice.');
+    $this->assertStringContainsString('->startTransaction()', $service);
+    $this->assertStringContainsString("->condition('revision', (int) \$row['revision'])", $service, 'The draft update must be revision-guarded.');
+    $this->assertStringContainsString("throw new \\RuntimeException('revision_conflict')", $service);
+    $this->assertStringContainsString("throw new \\RuntimeException('idempotency_conflict')", $service);
+
+    // simulateCommands must not write: its body contains no insert/update.
+    $start = strpos($service, 'public function simulateCommands(');
+    $end = strpos($service, "\n  }\n", $start);
+    $body = substr($service, $start, $end - $start);
+    $this->assertStringNotContainsString('->insert(', $body);
+    $this->assertStringNotContainsString('->update(', $body);
+    $this->assertStringContainsString("'simulation_mutated_draft'", $body);
 
     $controller = $this->source('src/Controller/DungeonEditorController.php');
-    foreach (['command', 'publish', 'simulate'] as $absent) {
-      $this->assertStringNotContainsString('public function ' . $absent . '(', $controller);
-    }
+    $this->assertStringNotContainsString('public function publish(', $controller);
 
     $shell = $this->source('js/v2/editor/DungeonEditorShell.js');
     $this->assertStringNotContainsString("'PUT'", $shell);
     $this->assertStringNotContainsString("'DELETE'", $shell);
-    $this->assertStringNotContainsString('/commands', $shell);
-    $this->assertStringNotContainsString('expected_revision', $shell);
-    // Every server round trip re-renders from the read model.
-    $this->assertStringContainsString('_setModel(response.data)', $shell);
+    $this->assertStringContainsString("this._draftUrl('command')", $shell);
+    $this->assertStringContainsString('expected_revision: this.model.revision', $shell);
+    // Every server round trip re-renders from the server's model, never from
+    // a locally kept position.
+    $this->assertStringContainsString('this._setModel(result.model)', $shell);
+    $this->assertStringContainsString('this._setModel(response.data)', $shell);
+    $this->assertStringNotContainsString('this.model.placements.push', $shell);
+    $this->assertStringNotContainsString('.origin = ', $shell);
+    // Rotation is absolute on the wire.
+    $this->assertMatchesRegularExpression('/rotation_steps: \\(placement\\.rotation_steps \\+ (delta|1|5)\\) % 6/', $shell);
+  }
+
+  /**
+   * The shell issues only slice 4 command types, and the service accepts
+   * exactly the types it implements.
+   */
+  public function testCommandTypeSurface(): void {
+    $schema = $this->json('config/schemas/dungeon_editor_command.schema.json');
+    $enum = $schema['properties']['type']['enum'];
+    foreach (DungeonEditorService::SUPPORTED_COMMANDS as $type) {
+      $this->assertContains($type, $enum, $type . ' must be in the frozen command enum.');
+    }
+    $shell = $this->source('js/v2/editor/DungeonEditorShell.js');
+    preg_match_all("/applyCommand\\('([a-z_]+)'/", $shell, $matches);
+    $issued = array_unique($matches[1]);
+    $this->assertNotEmpty($issued);
+    foreach ($issued as $type) {
+      $this->assertContains($type, DungeonEditorService::SUPPORTED_COMMANDS, 'Shell issues an unsupported command: ' . $type);
+    }
+    foreach (['link_ports', 'update_port_link', 'unlink_ports', 'add_region', 'update_region', 'remove_region'] as $later) {
+      $this->assertContains($later, $enum);
+      $this->assertNotContains($later, DungeonEditorService::SUPPORTED_COMMANDS, $later . ' lands with its own slice.');
+    }
+  }
+
+  /**
+   * Runs the pure transition + result check without touching the database.
+   */
+  private function transition(DungeonEditorService $service, array $dungeon, string $type, array $payload): array {
+    $mutate = new \ReflectionMethod($service, 'mutate');
+    $check = new \ReflectionMethod($service, 'assertCommandResult');
+    $outcome = $mutate->invoke($service, $dungeon, $type, $payload, self::uuid(999));
+    $check->invoke($service, $outcome['dungeon'], self::uuid(999), 1);
+    return $outcome['dungeon'];
+  }
+
+  /**
+   * Placement commands: absolute rotation, no repairs, no partial results.
+   */
+  public function testPlacementCommandSemantics(): void {
+    $version = self::uuid(1);
+    $service = $this->service([$version => $this->room('one', [['q' => 0, 'r' => 0], ['q' => 1, 'r' => 0]]) + ['exit_ports' => [['port_id' => 'east', 'hex' => ['q' => 1, 'r' => 0], 'edge' => 0, 'kind' => 'door', 'direction' => 'east']]]]);
+    $uuid_service = new class implements UuidInterface {
+      public function generate() {
+        return sprintf('%08x-0000-4000-8000-%012x', 500, 500);
+      }
+    };
+    $ref = new \ReflectionProperty(DungeonEditorService::class, 'uuid');
+    $ref->setValue($service, $uuid_service);
+
+    $base = $this->aggregate([$this->placement(1, 'one', $version, ['q' => 0, 'r' => 0], 0, TRUE)]);
+
+    // place_room defaults the label to the room name and nothing else.
+    $placed = $this->transition($service, $base, 'place_room', ['room_id' => 'one', 'version_id' => $version, 'origin' => ['q' => 10, 'r' => 10], 'rotation_steps' => 2]);
+    $this->assertCount(2, $placed['room_placements']);
+    $new = $placed['room_placements'][1];
+    $this->assertSame(['placement_id' => self::uuid(500), 'room_id' => 'one', 'version_id' => $version, 'origin' => ['q' => 10, 'r' => 10], 'rotation_steps' => 2, 'label' => 'One', 'is_level_entrance' => FALSE, 'tags' => []], $new);
+
+    // Rotation is absolute: applying the same command twice is a fixed point.
+    $once = $this->transition($service, $placed, 'rotate_room_placement', ['placement_id' => self::uuid(500), 'rotation_steps' => 4]);
+    $twice = $this->transition($service, $once, 'rotate_room_placement', ['placement_id' => self::uuid(500), 'rotation_steps' => 4]);
+    $this->assertSame($once, $twice);
+    $this->assertSame(4, $twice['room_placements'][1]['rotation_steps']);
+
+    // An overlapping move is rejected with the hex named; nothing changes.
+    try {
+      $this->transition($service, $placed, 'move_room_placement', ['placement_id' => self::uuid(500), 'origin' => ['q' => 1, 'r' => 0]]);
+      $this->fail('Overlap must reject.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('placement_overlap', $exception->getMessage());
+      $this->assertSame(['q' => 1, 'r' => 0], $exception->getFindings()[0]['hex']);
+    }
+
+    // Out of bounds is rejected, never clamped.
+    try {
+      $this->transition($service, $placed, 'move_room_placement', ['placement_id' => self::uuid(500), 'origin' => ['q' => -1000, 'r' => 0]]);
+      $this->fail('Out of bounds must reject.');
+    }
+    catch (DungeonCommandRejectedException $exception) {
+      $this->assertSame('placement_origin_out_of_bounds', $exception->getMessage());
+    }
+
+    // Rotation outside 0..5 and unknown metadata keys are refused.
+    $this->expectExceptionMessage('rotation_steps_invalid');
+    $this->transition($service, $placed, 'rotate_room_placement', ['placement_id' => self::uuid(500), 'rotation_steps' => 6]);
+  }
+
+  /**
+   * Removing a placement takes its links and region memberships with it.
+   */
+  public function testRemovePlacementCascades(): void {
+    $version = self::uuid(1);
+    $service = $this->service([$version => $this->room('one', [['q' => 0, 'r' => 0]])]);
+    $dungeon = $this->aggregate([
+      $this->placement(1, 'one', $version, ['q' => 0, 'r' => 0], 0, TRUE),
+      $this->placement(2, 'one', $version, ['q' => 5, 'r' => 5], 0),
+    ]);
+    $dungeon['port_links'] = [[
+      'link_id' => self::uuid(30),
+      'from' => ['placement_id' => self::uuid(1), 'port_id' => 'a'],
+      'to' => ['placement_id' => self::uuid(2), 'port_id' => 'b'],
+      'kind' => 'door',
+      'direction' => 'bidirectional',
+      'default_state' => 'closed',
+    ]];
+    $dungeon['regions'] = [['region_id' => 'r1', 'name' => 'R', 'placement_ids' => [self::uuid(1), self::uuid(2)]]];
+
+    $mutate = new \ReflectionMethod($service, 'mutate');
+    $after = $mutate->invoke($service, $dungeon, 'remove_room_placement', ['placement_id' => self::uuid(2)], self::uuid(999))['dungeon'];
+    $this->assertCount(1, $after['room_placements']);
+    $this->assertSame([], $after['port_links']);
+    $this->assertSame([self::uuid(1)], $after['regions'][0]['placement_ids']);
+
+    $this->expectExceptionMessage('placement_not_found');
+    $mutate->invoke($service, $after, 'move_room_placement', ['placement_id' => self::uuid(2), 'origin' => ['q' => 1, 'r' => 1]], self::uuid(999));
+  }
+
+  /**
+   * Metadata commands accept only the documented keys and legal values.
+   */
+  public function testMetadataCommandsAreClosed(): void {
+    $service = $this->service([]);
+    $base = $this->aggregate([]);
+
+    $after = $this->transition($service, $base, 'set_dungeon_metadata', ['changes' => ['name' => 'Renamed', 'depth' => 3]]);
+    $this->assertSame('Renamed', $after['name']);
+    $this->assertSame(3, $after['depth']);
+
+    try {
+      $this->transition($service, $base, 'set_dungeon_metadata', ['changes' => ['dungeon_id' => 'other']]);
+      $this->fail('dungeon_id is immutable through metadata.');
+    }
+    catch (DungeonCommandPayloadException $exception) {
+      $this->assertSame('dungeon_command_payload_invalid', $exception->getMessage());
+      $this->assertSame('/payload/changes/dungeon_id', $exception->getFindings()[0]['pointer']);
+    }
+
+    try {
+      $this->transition($service, $base, 'set_dungeon_metadata', ['changes' => ['depth' => 500]]);
+      $this->fail('Schema bounds apply to command results.');
+    }
+    catch (DungeonCommandPayloadException $exception) {
+      $this->assertSame('dungeon_command_payload_invalid', $exception->getMessage());
+      $this->assertSame('/depth', $exception->getFindings()[0]['pointer']);
+    }
   }
 
   /**
@@ -295,6 +466,11 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertStringContainsString("this.bus.on('map:changed'", $canvas);
     $this->assertStringContainsString("this.bus.on('room:changed', ({ roomId, room, transition } = {})", $canvas);
     $this->assertStringContainsString('_renderMapAggregate(', $canvas);
+    $this->assertStringContainsString("this.bus.on('map:ghost'", $canvas);
+    // The ghost is a preview layer; it never becomes map state.
+    $ghost_start = strpos($canvas, '_renderMapGhost(ghost) {');
+    $ghost_body = substr($canvas, $ghost_start, strpos($canvas, "\n  }\n", $ghost_start) - $ghost_start);
+    $this->assertStringNotContainsString('this.currentMap', $ghost_body);
     // The room path is untouched: the map branch returns before it.
     $room_branch = strpos($canvas, 'const roomHexes = _getRoomHexes(this.currentRoom);');
     $map_branch = strpos($canvas, 'if (this.currentMap) {');
@@ -302,7 +478,7 @@ class DungeonEditorShellContractTest extends TestCase {
     $this->assertNotFalse($map_branch);
     $this->assertLessThan($room_branch, $map_branch);
     // No knowledge of dungeons or drafts leaks into the renderer.
-    foreach (['draft_id', 'room_placements', 'version_id', 'rotation_steps', 'toLevel('] as $token) {
+    foreach (['draft_id', 'room_placements', 'version_id', 'rotation_steps', 'toLevel(', 'applyCommand', '/commands'] as $token) {
       $this->assertStringNotContainsString($token, $canvas, 'HexCanvas must not know about ' . $token);
     }
     $this->assertSame(0, preg_match('/map:changed/', $this->source('js/v2/editor/RoomEditorShell.js')));
@@ -315,7 +491,7 @@ class DungeonEditorShellContractTest extends TestCase {
     $routing = $this->source('dungeoncrawler_content.routing.yml');
     preg_match_all('/^dungeoncrawler_content\.(dungeon_editor[a-z_]*):\n(.*?)(?=\n\S|\z)/ms', $routing, $matches, PREG_SET_ORDER);
     $names = array_column($matches, 1);
-    foreach (['dungeon_editor', 'dungeon_editor_edit', 'dungeon_editor_draft_create', 'dungeon_editor_draft_get', 'dungeon_editor_draft_describe', 'dungeon_editor_rooms'] as $route) {
+    foreach (['dungeon_editor', 'dungeon_editor_edit', 'dungeon_editor_draft_create', 'dungeon_editor_draft_get', 'dungeon_editor_draft_describe', 'dungeon_editor_rooms', 'dungeon_editor_draft_command', 'dungeon_editor_draft_simulate', 'dungeon_editor_draft_validate'] as $route) {
       $this->assertContains($route, $names, $route . ' must exist.');
     }
     foreach ($matches as $match) {
