@@ -125,11 +125,26 @@ class QuestPayloadSchemaDefinitionTest extends UnitTestCase {
     $this->assertSame(['room-chat-response-v1'], $schema['properties']['schema_version']['enum'] ?? NULL);
     $this->assertContains('message', $schema['required'] ?? []);
     $this->assertContains('totalMessages', $schema['required'] ?? []);
-    $this->assertContains('dungeon_data', $schema['required'] ?? []);
-    $this->assertContains('gm_response', array_keys($schema['properties'] ?? []));
-    $this->assertContains('client_request_id', array_keys($schema['properties'] ?? []));
-    $this->assertContains('turn_sequence', array_keys($schema['properties'] ?? []));
-    $this->assertContains('npc_interjections_deferred', array_keys($schema['properties'] ?? []));
+    $this->assertContains('response_mode', $schema['required'] ?? []);
+
+    // dungeon_data is deliberately optional. The default actor_scoped
+    // transport mode strips it in finalizeRoomChatResponsePayload(), so
+    // requiring it would make every default-mode response a contract
+    // violation. It must still be a declared property for legacy mode.
+    $this->assertNotContains('dungeon_data', $schema['required'] ?? []);
+    $this->assertContains('dungeon_data', array_keys($schema['properties'] ?? []));
+
+    // Every key the envelope builder can emit must be declared, because the
+    // schema is strict and an undeclared key hard-fails the whole response.
+    foreach ([
+      'gm_response',
+      'client_request_id',
+      'turn_sequence',
+      'npc_interjections_deferred',
+      'process_flow_summary',
+    ] as $emitted) {
+      $this->assertContains($emitted, array_keys($schema['properties'] ?? []), $emitted . ' is emitted and must be declared.');
+    }
     $this->assertFalse($schema['additionalProperties'] ?? TRUE);
   }
 

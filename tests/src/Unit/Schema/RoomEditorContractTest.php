@@ -299,6 +299,21 @@ class RoomEditorContractTest extends UnitTestCase {
   }
 
   /**
+   * The validator interprets port edges instead of merely range checking them.
+   *
+   * Every one of the 117 legacy ports was authored with edge 0 because the
+   * field was never interpreted. The rule below is what makes the field mean
+   * something, and it must resolve direction through the single geometry
+   * authority rather than a private copy of the edge table.
+   */
+  public function testValidatorEnforcesPortEdgeFacesTheBoundary(): void {
+    $service = (string) file_get_contents(dirname(__DIR__, 4) . '/src/Service/RoomEditorService.php');
+    $this->assertStringContainsString("'port_edge_not_boundary'", $service);
+    $this->assertStringContainsString('RoomPlacementTransformer::neighbor(', $service);
+    $this->assertStringNotContainsString('EDGE_DIRECTIONS = ', $service, 'EDGE_DIRECTIONS has exactly one home.');
+  }
+
+  /**
    * Verifies fresh installs and update paths define all persistence.
    */
   public function testInstallDefinesRoomEditorPersistenceAndUpdates(): void {

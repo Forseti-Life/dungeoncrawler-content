@@ -37,6 +37,17 @@
     "npc_interjections": { "type": "array", "items": { "type": "object" } },
     "quest_updates": { "type": "array", "items": { "type": "object" } },
     "turn_harness": { "type": ["object", "null"] },
+    "process_flow_summary": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["active_flow", "selection_reason", "blocking_conditions", "source"],
+      "properties": {
+        "active_flow": { "type": "string", "maxLength": 128 },
+        "selection_reason": { "type": "string", "maxLength": 255 },
+        "blocking_conditions": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string", "maxLength": 64 }
+      }
+    },
     "turn_log_key": { "type": ["string", "null"], "maxLength": 255 },
     "turn_logs": { "type": "array", "items": { "type": "object" } },
     "turn_sequence": { "type": "array", "items": { "type": "object" } },

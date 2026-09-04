@@ -5,6 +5,7 @@ namespace Drupal\dungeoncrawler_content\Service;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Component\Uuid\UuidInterface;
+use Drupal\dungeoncrawler_content\Geometry\RoomPlacementTransformer;
 
 /**
  * Canonical room authoring authority for drafts, commands, and publication.
@@ -849,6 +850,22 @@ class RoomEditorService {
           if (!isset($coordinates[$key])) {
             $errors[] = $this->finding('port_outside_room', "/{$bucket}/{$index}/hex", 'Port anchor is outside the room.');
           }
+          else {
+            // A port is a doorway through the room boundary. The hex on the
+            // far side of its declared edge must therefore lie outside the
+            // footprint; otherwise the edge points into the room and the
+            // dungeon-level port transform would seal it against a wall.
+            $outside = RoomPlacementTransformer::neighbor($normalized_port['hex'], $normalized_port['edge']);
+            if (isset($coordinates[$outside['q'] . ':' . $outside['r']])) {
+              $errors[] = $this->finding(
+                'port_edge_not_boundary',
+                "/{$bucket}/{$index}/edge",
+                'Port edge must face out of the room: the neighbouring hex across this edge is inside the footprint.',
+                'error',
+                ['hex' => $normalized_port['hex'], 'edge' => $normalized_port['edge'], 'blocked_by' => $outside]
+              );
+            }
+          }
           if (isset($port_ids[$normalized_port['port_id']])) {
             $errors[] = $this->finding('port_id_duplicate', "/{$bucket}/{$index}/port_id", 'Port IDs must be unique within their family.');
           }
@@ -869,13 +886,13 @@ class RoomEditorService {
     return ['errors' => $errors, 'warnings' => $warnings];
   }
 
-  private function finding(string $code, string $path, string $message, string $severity = 'error'): array {
+  private function finding(string $code, string $path, string $message, string $severity = 'error', array $context = []): array {
     return [
       'code' => $code,
       'message' => $message,
       'path' => $path,
       'severity' => $severity,
-      'context' => [],
+      'context' => $context,
     ];
   }
 
